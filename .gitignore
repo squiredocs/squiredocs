@@ -3,7 +3,10 @@ client/node_modules/
 client/dist/
 client/build/
 data/
+test-data/
+test-data-integration/
 .env
 .DS_Store
 *.log
-
+coverage/
+.nyc_output/

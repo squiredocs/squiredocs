@@ -11,6 +11,14 @@ let globalYdoc = null;
 let globalProvider = null;
 let globalIndexeddbProvider = null;
 
+// For testing: allow resetting singletons
+if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
+  globalYdoc = null;
+  globalProvider = null;
+  globalIndexeddbProvider = null;
+  delete global.__TEST_RESET_YJS_SINGLETONS__;
+}
+
 export function useYjs() {
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState([]);
@@ -20,10 +28,10 @@ export function useYjs() {
   // Initialize singleton instances only once
   if (!initialized.current) {
     initialized.current = true;
-    
+
     if (!globalYdoc) {
       console.log('[useYjs] Creating Yjs document and providers');
-      
+
       // Create Yjs document
       globalYdoc = new Y.Doc();
 
@@ -31,11 +39,11 @@ export function useYjs() {
       globalProvider = new WebsocketProvider(WS_URL, DOC_NAME, globalYdoc, {
         connect: true
       });
-      
+
       globalProvider.on('status', (event) => {
         console.log('[useYjs] Provider status:', event.status);
       });
-      
+
       globalProvider.on('connection-error', (error) => {
         console.error('[useYjs] Connection error:', error);
       });

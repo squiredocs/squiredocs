@@ -164,6 +164,34 @@ npm start
 - Document ID is hardcoded as "default-doc"
 - Suitable for internal testing and proof-of-concept demonstrations
 
+## Testing
+
+Comprehensive test suite with Jest (backend) and Vitest (frontend):
+
+```bash
+# Backend tests
+npm test
+
+# Frontend tests
+npm run test:client
+
+# All tests
+npm run test:all
+
+# Watch mode
+npm run test:watch
+
+# Coverage
+npm run test:coverage
+cd client && npm run test:coverage
+```
+
+**Test Structure:**
+- `server/__tests__/` - Server and WebSocket tests
+- `client/src/**/__tests__/` - Component and hook tests
+- `__tests__/integration/` - End-to-end collaboration tests
+- `client/src/test/utils.jsx` - Shared test utilities and mocks
+
 ## License
 
 MIT
