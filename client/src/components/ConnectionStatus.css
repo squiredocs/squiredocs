@@ -1,0 +1,39 @@
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.connection-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.connection-status.connected .connection-status-dot {
+  background-color: #4caf50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+}
+
+.connection-status.disconnected .connection-status-dot {
+  background-color: #f44336;
+  box-shadow: 0 0 4px rgba(244, 67, 54, 0.5);
+}
+
+.connection-status-text {
+  color: #666;
+  font-weight: 500;
+}
+
+.connection-status.connected .connection-status-text {
+  color: #4caf50;
+}
+
+.connection-status.disconnected .connection-status-text {
+  color: #f44336;
+}
+
