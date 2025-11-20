@@ -10,3 +10,4 @@ test-data-integration/
 *.log
 coverage/
 .nyc_output/
+.cursor
