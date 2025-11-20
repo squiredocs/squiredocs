@@ -9,11 +9,14 @@
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "start": "node server/index.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "test": "npm run test:server && npm run test:client:ci",
+    "test:watch": "concurrently \"npm run test:server:watch\" \"npm run test:client:watch\"",
+    "test:server": "jest",
+    "test:server:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:client": "cd client && npm test",
-    "test:all": "npm test && npm run test:client",
+    "test:client": "cd client && npm run test:ci",
+    "test:client:watch": "cd client && npm test",
+    "test:client:ci": "cd client && npm run test:ci",
     "test:collab": "node test-collaboration.js"
   },
   "keywords": [

@@ -13,6 +13,7 @@ export default defineConfig({
     testTimeout: 10000,
     hookTimeout: 5000,
     teardownTimeout: 2000,
+    watch: process.env.CI === undefined,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
