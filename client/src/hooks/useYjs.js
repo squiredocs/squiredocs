@@ -50,6 +50,34 @@ export function useYjs() {
 
       // Create IndexedDB provider for offline persistence
       globalIndexeddbProvider = new IndexeddbPersistence(DOC_NAME, globalYdoc);
+      
+      // Verify IndexedDB persistence after sync
+      globalIndexeddbProvider.on('synced', async () => {
+        try {
+          const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open(DOC_NAME);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          
+          const stores = Array.from(db.objectStoreNames);
+          let totalEntries = 0;
+          for (const storeName of stores) {
+            const count = await new Promise((resolve, reject) => {
+              const tx = db.transaction([storeName], 'readonly');
+              const store = tx.objectStore(storeName);
+              const req = store.count();
+              req.onsuccess = () => resolve(req.result);
+              req.onerror = () => reject(req.error);
+            });
+            totalEntries += count;
+          }
+          console.log(`[useYjs] ✓ IndexedDB synced: ${stores.length} object store(s), ${totalEntries} total entries`);
+          db.close();
+        } catch (e) {
+          console.warn('[useYjs] Could not verify IndexedDB:', e.message);
+        }
+      });
     }
   }
 
