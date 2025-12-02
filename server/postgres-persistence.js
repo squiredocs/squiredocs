@@ -101,9 +101,9 @@ class PostgresPersistence {
         );
       }
 
-      // Store the update
+      // Store the update (ignore if duplicate - can happen with writeState)
       await client.query(
-        'INSERT INTO yjs_updates (doc_name, clock, update_data) VALUES ($1, $2, $3)',
+        'INSERT INTO yjs_updates (doc_name, clock, update_data) VALUES ($1, $2, $3) ON CONFLICT (doc_name, clock) DO NOTHING',
         [docName, nextClock, Buffer.from(update)]
       );
 
