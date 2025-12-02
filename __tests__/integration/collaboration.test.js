@@ -77,13 +77,10 @@ describe('Collaboration Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Wait a bit for any pending writeState calls to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await persistence.destroy();
     return new Promise((resolve) => {
       wss.close(() => {
-        server.close(async () => {
-          await persistence.destroy();
+        server.close(() => {
           resolve();
         });
       });
