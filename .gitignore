@@ -11,3 +11,4 @@ test-data-integration/
 coverage/
 .nyc_output/
 .cursor
+k8s/postgres-secret.yaml
