@@ -14,12 +14,13 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 
 - **Frontend**: React 18, TipTap, Yjs
 - **Backend**: Node.js, Express, WebSocket (y-websocket)
-- **Persistence**: LevelDB (y-leveldb) for server-side storage, IndexedDB for client-side offline support
+- **Persistence**: PostgreSQL for server-side storage, IndexedDB for client-side offline support
 
 ## Prerequisites
 
 - Node.js 18+ (LTS recommended)
 - npm or yarn
+- PostgreSQL 12+ (for server-side persistence)
 
 ## Installation
 
@@ -40,6 +41,26 @@ cd client
 npm install
 cd ..
 ```
+
+4. Set up PostgreSQL database:
+   - Make sure PostgreSQL is installed and running
+   - Create the database (if it doesn't exist):
+     ```bash
+     createdb collab_db
+     ```
+     Or using psql:
+     ```bash
+     psql -U postgres -c "CREATE DATABASE collab_db;"
+     ```
+   - Run migrations:
+     ```bash
+     npm run migrate
+     ```
+   
+   **Optional convenience script:** If you want to automatically create the database and run migrations:
+     ```bash
+     npm run init-db
+     ```
 
 ## Development
 
@@ -86,11 +107,21 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 ### Environment Variables
 
 - `PORT`: Server port (default: 3001)
-- `DATA_DIR`: Directory for LevelDB storage (default: `./data/leveldb`)
+- `DATABASE_URL`: PostgreSQL connection string (alternative to individual DB config)
+- `DB_HOST`: PostgreSQL host (default: `localhost`)
+- `DB_PORT`: PostgreSQL port (default: `5432`)
+- `DB_NAME`: Database name (default: `collab_db`)
+- `DB_USER`: Database user (default: `postgres`)
+- `DB_PASSWORD`: Database password (default: `postgres`)
 
-Example:
+Example using connection string:
 ```bash
-PORT=3001 DATA_DIR=./data/leveldb npm start
+PORT=3001 DATABASE_URL=postgresql://user:password@localhost:5432/collab_db npm start
+```
+
+Example using individual config:
+```bash
+PORT=3001 DB_HOST=localhost DB_PORT=5432 DB_NAME=collab_db DB_USER=postgres DB_PASSWORD=password npm start
 ```
 
 ### WebSocket URL
@@ -114,25 +145,75 @@ VITE_WS_URL=ws://your-server.com npm run build
 ```
 .
 ├── server/
-│   └── index.js          # Express server with WebSocket and LevelDB
+│   ├── index.js              # Express server with WebSocket
+│   └── postgres-persistence.js  # PostgreSQL persistence adapter
 ├── client/
 │   ├── src/
-│   │   ├── components/   # React components
-│   │   ├── hooks/        # Custom React hooks
-│   │   ├── App.jsx       # Main app component
-│   │   └── main.jsx      # Entry point
+│   │   ├── components/       # React components
+│   │   ├── hooks/            # Custom React hooks
+│   │   ├── App.jsx           # Main app component
+│   │   └── main.jsx          # Entry point
 │   └── package.json
-├── data/                 # LevelDB storage (created automatically)
-├── docs/                 # Documentation
+├── scripts/
+│   └── init-db.js            # Database initialization script
+├── docs/                     # Documentation
 └── package.json
 ```
 
 ## Data Storage
 
-- **Server**: Documents are persisted to LevelDB in `./data/leveldb/` directory
+- **Server**: Documents are persisted to PostgreSQL database
+  - Tables: `yjs_updates` (stores document updates), `yjs_state_vectors` (stores document state)
+  - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 
-The `data/` directory is git-ignored and created automatically on first run.
+## Database Migrations
+
+This project uses [node-pg-migrate](https://github.com/salsita/node-pg-migrate) for database schema management.
+
+### Running Migrations
+
+The standard way to run migrations is using node-pg-migrate's CLI:
+
+```bash
+# Run all pending migrations (up)
+npm run migrate
+# or: npx node-pg-migrate up
+
+# Rollback last migration (down)
+npm run migrate:down
+# or: npx node-pg-migrate down
+
+# Create a new migration file
+npm run migrate:create migration_name
+# or: npx node-pg-migrate create migration_name
+
+# Redo last migration (down then up)
+npm run migrate:redo
+# or: npx node-pg-migrate redo
+```
+
+**Note:** node-pg-migrate requires the database to already exist. It only manages schema within the database, not database creation itself.
+
+### Migration Files
+
+Migration files are located in the `migrations/` directory. Each migration file exports `up` and `down` functions:
+- `up`: Applies the migration
+- `down`: Rolls back the migration
+
+Example migration structure:
+```javascript
+exports.up = (pgm) => {
+  pgm.createTable('my_table', {
+    id: 'id',
+    name: { type: 'varchar(100)', notNull: true },
+  });
+};
+
+exports.down = (pgm) => {
+  pgm.dropTable('my_table');
+};
+```
 
 ## Troubleshooting
 
@@ -149,13 +230,40 @@ Change the port using the `PORT` environment variable:
 PORT=3002 npm start
 ```
 
-### LevelDB Errors
+### Database Connection Errors
 
-If you encounter LevelDB errors, try deleting the `data/` directory and restarting:
-```bash
-rm -rf data/
-npm start
-```
+If you encounter database connection errors:
+
+1. **Check PostgreSQL is running:**
+   ```bash
+   # macOS (Homebrew)
+   brew services list
+   
+   # Linux
+   sudo systemctl status postgresql
+   ```
+
+2. **Verify database exists:**
+   ```bash
+   psql -l | grep collab_db
+   ```
+
+3. **Check connection credentials:**
+   - Verify environment variables match your PostgreSQL setup
+   - Test connection manually:
+     ```bash
+     psql -h localhost -U postgres -d collab_db
+     ```
+
+4. **Reinitialize schema if needed:**
+   ```bash
+   npm run init-db
+   ```
+   
+   Or run migrations directly:
+   ```bash
+   npm run migrate
+   ```
 
 ## Development Notes
 

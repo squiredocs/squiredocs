@@ -1,21 +1,74 @@
 const express = require('express');
 const WebSocket = require('ws');
-const { setupWSConnection } = require('y-websocket/bin/utils');
+const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
 const path = require('path');
 const fs = require('fs');
-const { LeveldbPersistence } = require('y-leveldb');
+const { PostgresPersistence } = require('./postgres-persistence');
+const Y = require('yjs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data/leveldb');
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+// PostgreSQL connection configuration
+// Supports connection string or individual config values
+const POSTGRES_CONFIG = process.env.DATABASE_URL || {
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'collab_db',
+  user: process.env.DB_USER || process.env.USER || 'postgres',
+  password: process.env.DB_PASSWORD || ''
+};
 
-// Initialize LevelDB persistence
-const persistence = new LeveldbPersistence(DATA_DIR);
+// Initialize PostgreSQL persistence
+const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
+
+// Set up persistence layer for y-websocket
+// y-websocket expects a persistence object with bindState and writeState methods
+// bindState is async but not awaited by y-websocket - it applies persisted state when it completes
+setPersistence({
+  bindState: async (docName, ydoc) => {
+    try {
+      // Load persisted document from PostgreSQL
+      const persistedYdoc = await persistenceProvider.getYDoc(docName);
+      
+      // Store the current (empty) document state first (like y-leveldb does)
+      // This ensures the document structure exists
+      const newUpdates = Y.encodeStateAsUpdate(ydoc);
+      await persistenceProvider.storeUpdate(docName, newUpdates);
+      
+      // Apply persisted state to the in-memory document
+      // This triggers the 'update' event which broadcasts to all connected clients
+      Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+      
+      // Set up update listener AFTER applying persisted state (like y-leveldb does)
+      // This ensures persisted updates get persisted going forward
+      ydoc.on('update', update => {
+        persistenceProvider.storeUpdate(docName, update).catch(err => {
+          console.error(`Error persisting update for ${docName}:`, err);
+        });
+      });
+    } catch (error) {
+      // If document doesn't exist in persistence, that's okay - start with empty doc
+      // Still set up the update listener
+      ydoc.on('update', update => {
+        persistenceProvider.storeUpdate(docName, update).catch(err => {
+          console.error(`Error persisting update for ${docName}:`, err);
+        });
+      });
+    }
+  },
+  writeState: async (docName, ydoc) => {
+    // Called when document is destroyed (no more connections)
+    // Store final state
+    try {
+      const update = Y.encodeStateAsUpdate(ydoc);
+      await persistenceProvider.storeUpdate(docName, update);
+    } catch (error) {
+      console.error(`Error writing state for ${docName}:`, error);
+    }
+  },
+  provider: persistenceProvider
+});
 
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
@@ -71,8 +124,7 @@ wss.on('connection', (ws, req) => {
   
   try {
     setupWSConnection(ws, req, {
-      gc: true,
-      persistence: persistence
+      gc: true
     });
   } catch (error) {
     console.error('✗ Error setting up WebSocket connection:', error);
@@ -88,7 +140,7 @@ wss.on('error', (error) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
-  await persistence.destroy();
+  await persistenceProvider.destroy();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);

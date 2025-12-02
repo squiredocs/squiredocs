@@ -3,31 +3,34 @@ const { WebsocketProvider } = require('y-websocket');
 const WebSocket = require('ws');
 const express = require('express');
 const { setupWSConnection } = require('y-websocket/bin/utils');
-const { LeveldbPersistence } = require('y-leveldb');
-const path = require('path');
-const fs = require('fs');
+const { PostgresPersistence } = require('../../server/postgres-persistence');
 
 describe('Collaboration Integration Tests', () => {
   let server;
   let wss;
   let persistence;
-  let testDataDir;
+  let testDbConfig;
   let port;
 
-  beforeAll((done) => {
-    // Create test data directory
-    testDataDir = path.join(__dirname, '../../test-data-integration');
-    if (!fs.existsSync(testDataDir)) {
-      fs.mkdirSync(testDataDir, { recursive: true });
-    }
+  beforeAll(async (done) => {
+    // Use test database configuration
+    testDbConfig = process.env.TEST_DATABASE_URL || {
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: process.env.TEST_DB_NAME || 'collab_test_db',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || 'postgres'
+    };
     
     // Create test server
     const app = express();
-    server = app.listen(0, () => {
+    server = app.listen(0, async () => {
       port = server.address().port;
       wss = new WebSocket.Server({ server });
       
-      persistence = new LeveldbPersistence(testDataDir);
+      persistence = new PostgresPersistence(testDbConfig);
+      await persistence._init();
+      await persistence.clearAll();
       
       wss.on('connection', (ws, req) => {
         setupWSConnection(ws, req, {
@@ -45,10 +48,6 @@ describe('Collaboration Integration Tests', () => {
     return new Promise((resolve) => {
       wss.close(() => {
         server.close(() => {
-          // Cleanup test data
-          if (fs.existsSync(testDataDir)) {
-            fs.rmSync(testDataDir, { recursive: true, force: true });
-          }
           resolve();
         });
       });
