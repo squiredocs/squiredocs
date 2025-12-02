@@ -109,6 +109,91 @@ VITE_WS_URL=ws://your-server.com npm run build
 4. You can see other users in the sidebar
 5. Connection status is shown in the top-right corner
 
+## Programmatically Updating Documents
+
+You can programmatically update documents using Node.js scripts. This is useful for automation, migrations, or bulk edits.
+
+### Important: Field Name
+
+The TipTap editor uses the `'default'` field with `Y.XmlFragment` for ProseMirror content. **Do not** use `Y.Text` or other field names - they won't appear in the editor.
+
+### Example Script
+
+A sample script is provided at `scripts/edit-default-doc.js`. Here's how it works:
+
+```javascript
+const Y = require('yjs');
+const { WebsocketProvider } = require('y-websocket');
+
+const WS_URL = process.env.WS_URL || 'ws://localhost:3001';
+const DOC_NAME = process.env.DOC_NAME || 'default-doc';
+
+const doc = new Y.Doc();
+// TipTap uses 'default' field with XmlFragment for ProseMirror content
+const xmlFragment = doc.get('default', Y.XmlFragment);
+
+const provider = new WebsocketProvider(WS_URL, DOC_NAME, doc, {
+  connect: true
+});
+
+provider.on('sync', (isSynced) => {
+  if (isSynced) {
+    // Create a paragraph node with text
+    const paragraph = new Y.XmlElement('paragraph');
+    const textNode = new Y.XmlText();
+    textNode.insert(0, 'Your text here');
+    paragraph.insert(0, [textNode]);
+    
+    // Insert at the end of the document
+    xmlFragment.insert(xmlFragment.length, [paragraph]);
+    
+    // Clean up
+    setTimeout(() => {
+      provider.destroy();
+      process.exit(0);
+    }, 1000);
+  }
+});
+```
+
+### Running the Script
+
+```bash
+# Edit the default document
+node scripts/edit-default-doc.js
+
+# Edit a specific document
+DOC_NAME=my-document node scripts/edit-default-doc.js
+
+# Connect to a different server
+WS_URL=ws://example.com:3001 node scripts/edit-default-doc.js
+```
+
+### Key Points
+
+- **Wait for sync**: Always wait for the `sync` event before making edits
+- **Use XmlFragment**: TipTap requires `Y.XmlFragment` in the `'default'` field
+- **Create proper nodes**: Insert `Y.XmlElement('paragraph')` nodes containing `Y.XmlText` nodes
+- **Clean up**: Call `provider.destroy()` when done to close the connection
+
+### Advanced: Editing Existing Content
+
+To modify existing content, you can traverse the XmlFragment:
+
+```javascript
+// Get all paragraphs
+const paragraphs = Array.from(xmlFragment.toArray());
+paragraphs.forEach((node, index) => {
+  if (node.nodeName === 'paragraph') {
+    // Modify paragraph content
+    const textNode = node.firstChild;
+    if (textNode && textNode.nodeType === 3) { // Text node
+      textNode.insert(textNode.length, ' appended text');
+    }
+  }
+});
+```
+
 ## Project Structure
 
 ```
