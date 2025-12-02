@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate-job
+  namespace: collab
+  labels:
+    app: db-migrate
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      containers:
+        - name: db-migrate
+          image: ${IMG}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: collab-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: collab_db
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+          command: ["npm"]
+          args: ["run", "migrate"]
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      restartPolicy: Never
+
