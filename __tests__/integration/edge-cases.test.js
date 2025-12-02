@@ -92,7 +92,7 @@ describe('Collaboration Edge Cases', () => {
     const doc = new Y.Doc();
     const text = doc.getText('content');
     
-    const provider = new WebsocketProvider(`ws://localhost:${port}`, 'rapid-doc', doc, {
+    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, 'rapid-doc', doc, {
       connect: true
     });
     
@@ -120,7 +120,7 @@ describe('Collaboration Edge Cases', () => {
 
   test('handles empty document correctly', (done) => {
     const doc = new Y.Doc();
-    const provider = new WebsocketProvider(`ws://localhost:${port}`, 'empty-doc', doc, {
+    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, 'empty-doc', doc, {
       connect: true
     });
     

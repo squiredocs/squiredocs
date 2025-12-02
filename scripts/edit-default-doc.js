@@ -1,7 +1,7 @@
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 
-const WS_URL = process.env.WS_URL || 'ws://localhost:3001';
+const WS_URL = process.env.WS_URL || 'ws://localhost:3001/s';
 const DOC_NAME = process.env.DOC_NAME || 'default-doc';
 
 console.log(`Connecting to ${WS_URL} doc ${DOC_NAME}...`);

@@ -99,7 +99,7 @@ describe('Collaboration Integration Tests', () => {
       let sync1 = false;
       let sync2 = false;
       
-      const provider1 = new WebsocketProvider(`ws://localhost:${port}`, 'test-doc', doc1, {
+      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, 'test-doc', doc1, {
         connect: true
       });
       
@@ -117,7 +117,7 @@ describe('Collaboration Integration Tests', () => {
         }
       });
       
-      const provider2 = new WebsocketProvider(`ws://localhost:${port}`, 'test-doc', doc2, {
+      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, 'test-doc', doc2, {
         connect: true
       });
       
@@ -167,11 +167,11 @@ describe('Collaboration Integration Tests', () => {
       const text1 = doc1.getText('content');
       const text2 = doc2.getText('content');
       
-      const provider1 = new WebsocketProvider(`ws://localhost:${port}`, 'concurrent-doc', doc1, {
+      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, 'concurrent-doc', doc1, {
         connect: true
       });
       
-      const provider2 = new WebsocketProvider(`ws://localhost:${port}`, 'concurrent-doc', doc2, {
+      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, 'concurrent-doc', doc2, {
         connect: true
       });
       

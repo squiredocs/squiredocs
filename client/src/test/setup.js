@@ -5,7 +5,7 @@ import { afterEach, vi } from 'vitest';
 // Mock import.meta.env for all tests
 Object.defineProperty(import.meta, 'env', {
   value: {
-    VITE_WS_URL: 'ws://localhost:3001'
+    VITE_WS_URL: 'ws://localhost:3001/s'
   },
   writable: false
 });

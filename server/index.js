@@ -104,11 +104,14 @@ if (fs.existsSync(clientBuildPath)) {
 // Create HTTP server
 const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`WebSocket server ready on ws://localhost:${PORT}`);
+  console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);
 });
 
-// Create WebSocket server attached to HTTP server
-const wss = new WebSocket.Server({ server });
+// Create WebSocket server attached to HTTP server, mounted at /s
+const wss = new WebSocket.Server({ 
+  server,
+  path: '/s'
+});
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {

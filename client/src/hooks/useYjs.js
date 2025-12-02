@@ -3,7 +3,23 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+// Construct WebSocket URL - use /s path for server
+// In production, use same host/port as the page (relative)
+// In development, use VITE_WS_URL if set, otherwise default to localhost:3001
+const getWSUrl = () => {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+  // In production, construct from current location
+  if (import.meta.env.PROD) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/s`;
+  }
+  // In development, default to localhost:3001/s
+  return 'ws://localhost:3001/s';
+};
+
+const WS_URL = getWSUrl();
 const DOC_NAME = 'default-doc';
 
 // Singleton instances to prevent React StrictMode from creating duplicates

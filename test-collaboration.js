@@ -1,7 +1,7 @@
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 
-const WS_URL = 'ws://localhost:3001';
+const WS_URL = 'ws://localhost:3001/s';
 const DOC_NAME = 'default-doc';
 
 console.log('Starting collaboration test...\n');

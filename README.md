@@ -126,10 +126,10 @@ PORT=3001 DB_HOST=localhost DB_PORT=5432 DB_NAME=collab_db DB_USER=postgres DB_P
 
 ### WebSocket URL
 
-The frontend connects to the WebSocket server. By default, it connects to `ws://localhost:3001`. To change this, set the `VITE_WS_URL` environment variable when building:
+The frontend connects to the WebSocket server at the `/s` path. By default, it connects to `ws://localhost:3001/s`. To change this, set the `VITE_WS_URL` environment variable when building:
 
 ```bash
-VITE_WS_URL=ws://your-server.com npm run build
+VITE_WS_URL=ws://your-server.com/s npm run build
 ```
 
 ## Usage
@@ -156,7 +156,7 @@ A sample script is provided at `scripts/edit-default-doc.js`. Here's how it work
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 
-const WS_URL = process.env.WS_URL || 'ws://localhost:3001';
+const WS_URL = process.env.WS_URL || 'ws://localhost:3001/s';
 const DOC_NAME = process.env.DOC_NAME || 'default-doc';
 
 const doc = new Y.Doc();

@@ -3,13 +3,23 @@ kind: Service
 metadata:
   name: collab-app
   namespace: collab
+  annotations:
+    # This service handles both client (HTTP at /) and server (WebSocket at /s)
+    # WebSocket connections upgrade from HTTP, so a single HTTP port handles both
 spec:
   ports:
     - name: http
       port: 80
       targetPort: 3001
+      protocol: TCP
   selector:
     app: collab-app
+  # Session affinity helps maintain WebSocket connections to the same pod
+  # This is optional but can improve WebSocket stability
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours - typical WebSocket connection lifetime
 status:
   loadBalancer: {}
 
