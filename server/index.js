@@ -107,10 +107,27 @@ const server = app.listen(PORT, () => {
   console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);
 });
 
-// Create WebSocket server attached to HTTP server, mounted at /s
+// Create WebSocket server attached to HTTP server
+// Using noServer mode to handle custom path matching
 const wss = new WebSocket.Server({ 
-  server,
-  path: '/s'
+  noServer: true
+});
+
+// Handle upgrade requests - mount WebSocket at /s/* to support document-specific paths
+// y-websocket clients append document names: /s/default-doc, /s/my-doc, etc.
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  
+  // Accept WebSocket connections that start with /s/
+  if (pathname.startsWith('/s/')) {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    // Reject connections to other paths
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+  }
 });
 
 // Handle WebSocket connections

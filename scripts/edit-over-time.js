@@ -1,7 +1,7 @@
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 
-const WS_URL = process.env.WS_URL || 'ws://localhost:3001/s';
+const WS_URL = process.env.WS_URL || 'ws://localhost:64974/s';
 const DOC_NAME = process.env.DOC_NAME || 'default-doc';
 const DURATION_SECONDS = parseInt(process.env.DURATION || '60');
 const INTERVAL_SECONDS = parseInt(process.env.INTERVAL || '5');

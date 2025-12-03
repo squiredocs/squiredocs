@@ -5,18 +5,14 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 
 // Construct WebSocket URL - use /s path for server
 // In production, use same host/port as the page (relative)
-// In development, use VITE_WS_URL if set, otherwise default to localhost:3001
+// In development, use VITE_WS_URL if set, otherwise use same host/port as page
 const getWSUrl = () => {
   if (import.meta.env.VITE_WS_URL) {
     return import.meta.env.VITE_WS_URL;
   }
-  // In production, construct from current location
-  if (import.meta.env.PROD) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/s`;
-  }
-  // In development, default to localhost:3001/s
-  return 'ws://localhost:3001/s';
+  // Use same host/port as the current page (works for both dev and prod)
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/s`;
 };
 
 const WS_URL = getWSUrl();
