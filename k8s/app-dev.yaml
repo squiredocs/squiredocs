@@ -1,0 +1,78 @@
+# app-dev-mutagen.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-dev
+  namespace: collab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-dev
+  template:
+    metadata:
+      labels:
+        app: app-dev
+    spec:
+      initContainers:
+      - name: init-local-dev
+        image: busybox:1.35
+        command: ['sh', '-c', 'mkdir -p /local-dev && chmod 755 /local-dev']
+        volumeMounts:
+        - name: local-dev-volume
+          mountPath: /local-dev
+      containers:
+      - name: app
+        image: collab:latest
+        imagePullPolicy: IfNotPresent
+        command: ["sleep", "infinity"]
+        workingDir: /local-dev
+        ports:
+        - containerPort: 3001
+        - containerPort: 5173
+        volumeMounts:
+        - name: local-dev-volume
+          mountPath: /local-dev
+        env:
+        - name: PORT
+          value: "3001"
+        - name: NODE_ENV
+          value: development
+        - name: DB_HOST
+          value: collab-postgres
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: collab_db
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        # Add resource limits for better performance
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+      volumes:
+      - name: local-dev-volume
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-dev-service
+  namespace: collab
+spec:
+  selector:
+    app: app-dev
+  ports:
+  - port: 3001
+    targetPort: 3001
+  type: ClusterIP
+
