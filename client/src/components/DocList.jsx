@@ -42,31 +42,6 @@ function DocList({ onNavigate }) {
     onNavigate(newGuid);
   };
 
-  const handleDelete = async (e, docGuid) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!confirm('Delete this document?')) {
-      return;
-    }
-    
-    try {
-      const response = await fetch(`/api/docs/${docGuid}`, {
-        method: 'DELETE'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete');
-      }
-      
-      // Remove from local state
-      setDocs(docs.filter(d => d.docGuid !== docGuid));
-    } catch (err) {
-      console.error('Error deleting document:', err);
-      alert('Failed to delete document');
-    }
-  };
-
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString(undefined, {
@@ -126,17 +101,8 @@ function DocList({ onNavigate }) {
                 <span className="doc-title">
                   {doc.title || 'Untitled Document'}
                 </span>
-                <span className="doc-meta">
-                  <span className="doc-date">
-                    {formatDate(doc.updatedAt)}
-                  </span>
-                  <button
-                    className="doc-delete-btn"
-                    onClick={(e) => handleDelete(e, doc.docGuid)}
-                    title="Delete document"
-                  >
-                    ×
-                  </button>
+                <span className="doc-date">
+                  {formatDate(doc.updatedAt)}
                 </span>
               </a>
             </li>

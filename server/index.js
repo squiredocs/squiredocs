@@ -43,51 +43,44 @@ setPersistence({
     // docName here is actually the doc GUID from the URL path
     const docGuid = docName;
     const startTime = Date.now();
+    
+    // IMPORTANT: Set up update listener IMMEDIATELY (synchronously) before any async operations
+    // y-websocket doesn't await bindState, so clients may sync before async operations complete
+    ydoc.on('update', update => {
+      const persistStart = Date.now();
+      persistenceProvider.storeUpdate(docGuid, update)
+        .then(() => {
+          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
+        })
+        .catch(err => {
+          console.error(`Error persisting update for ${docGuid}:`, err);
+        });
+    });
+    
     try {
       // Load persisted document from PostgreSQL
       const loadStart = Date.now();
       const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
       logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
       
-      // Store the current (empty) document state first (like y-leveldb does)
-      // This ensures the document structure exists
-      const newUpdates = Y.encodeStateAsUpdate(ydoc);
-      const storeStart = Date.now();
-      await persistenceProvider.storeUpdate(docGuid, newUpdates);
-      logPerf('DB_STORE_INITIAL', { docGuid, duration: Date.now() - storeStart, size: newUpdates.byteLength });
-      
       // Apply persisted state to the in-memory document
       // This triggers the 'update' event which broadcasts to all connected clients
+      // The update listener above will persist this, but that's okay (idempotent)
       Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
-      
-      // Set up update listener AFTER applying persisted state (like y-leveldb does)
-      // This ensures persisted updates get persisted going forward
-      ydoc.on('update', update => {
-        const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docGuid, update)
-          .then(() => {
-            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
-          })
-          .catch(err => {
-            console.error(`Error persisting update for ${docGuid}:`, err);
-          });
-      });
       
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
-      // If document doesn't exist in persistence, that's okay - start with empty doc
-      // Still set up the update listener
-      ydoc.on('update', update => {
-        const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docGuid, update)
-          .then(() => {
-            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
-          })
-          .catch(err => {
-            console.error(`Error persisting update for ${docGuid}:`, err);
-          });
-      });
+      // Document doesn't exist in persistence - that's okay, start with empty doc
+      // Update listener is already set up above, so new updates will be persisted
       logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
+      
+      // Persist current state (might have received updates while loading)
+      const currentState = Y.encodeStateAsUpdate(ydoc);
+      if (currentState.byteLength > 2) { // More than empty update
+        persistenceProvider.storeUpdate(docGuid, currentState).catch(err => {
+          console.error(`Error persisting initial state for ${docGuid}:`, err);
+        });
+      }
     }
   },
   writeState: async (docName, ydoc) => {
@@ -125,18 +118,6 @@ app.get('/api/docs', async (req, res) => {
       ? ' (Have you run the migration? npm run migrate)' 
       : '';
     res.status(500).json({ error: errorMessage + hint });
-  }
-});
-
-// API: Delete a document
-app.delete('/api/docs/:docGuid', async (req, res) => {
-  try {
-    const { docGuid } = req.params;
-    await persistenceProvider.clearDocument(docGuid);
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting document:', error);
-    res.status(500).json({ error: 'Failed to delete document' });
   }
 });
 
