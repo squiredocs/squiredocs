@@ -58,15 +58,8 @@ describe('Collaboration Edge Cases', () => {
               // New document
             }
           },
-          writeState: async (docName, ydoc) => {
-            const docGuid = extractDocGuid(docName);
-            try {
-              const update = Y.encodeStateAsUpdate(ydoc);
-              await persistence.storeUpdate(docGuid, update);
-            } catch (error) {
-              console.error(`Error writing state for ${docGuid}:`, error);
-            }
-          },
+          // writeState intentionally empty - we persist on every update
+          writeState: async () => {},
           provider: persistence
         });
         

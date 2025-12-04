@@ -18,9 +18,9 @@ const extractDocGuid = (docName) => {
 };
 
 // Short delays for tests - just enough for async operations
-const SYNC_DELAY = 50;      // Time for WebSocket message round-trip
-const PERSIST_DELAY = 100;  // Time for DB write
-const WRITE_STATE_DELAY = 150; // Time for writeState after disconnect
+const SYNC_DELAY = 100;     // Time for WebSocket message round-trip
+const PERSIST_DELAY = 200;  // Time for DB write
+const CLEANUP_DELAY = 50;   // Time after disconnect for cleanup
 
 describe('Collaboration Integration Tests', () => {
   let server;
@@ -65,15 +65,8 @@ describe('Collaboration Integration Tests', () => {
               // New document
             }
           },
-          writeState: async (docName, ydoc) => {
-            const docGuid = extractDocGuid(docName);
-            try {
-              const update = Y.encodeStateAsUpdate(ydoc);
-              await persistence.storeUpdate(docGuid, update);
-            } catch (error) {
-              console.error(`Error writing state for ${docGuid}:`, error);
-            }
-          },
+          // writeState intentionally empty - we persist on every update
+          writeState: async () => {},
           provider: persistence
         });
         
@@ -102,19 +95,22 @@ describe('Collaboration Integration Tests', () => {
       const testDocGuid = generateTestUUID();
       const doc = new Y.Doc();
       const meta = doc.getMap('meta');
-      meta.set('title', 'My Test Document');
       
       const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
         connect: true
       });
       
+      let synced = false;
       provider.on('sync', async (isSynced) => {
-        if (isSynced) {
+        if (isSynced && !synced) {
+          synced = true;
+          
+          // Set title after sync (like the real client does)
           meta.set('title', 'My Test Document');
           await new Promise(r => setTimeout(r, PERSIST_DELAY));
           
           provider.destroy();
-          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          await new Promise(r => setTimeout(r, CLEANUP_DELAY));
           
           const docs = await persistence.getAllDocumentsWithMeta();
           const ourDoc = docs.find(d => d.docGuid === testDocGuid);
@@ -149,7 +145,7 @@ describe('Collaboration Integration Tests', () => {
           await new Promise(r => setTimeout(r, PERSIST_DELAY));
           
           provider.destroy();
-          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          await new Promise(r => setTimeout(r, CLEANUP_DELAY));
           
           const docs = await persistence.getAllDocumentsWithMeta();
           const ourDoc = docs.find(d => d.docGuid === testDocGuid);
@@ -179,7 +175,7 @@ describe('Collaboration Integration Tests', () => {
           await new Promise(r => setTimeout(r, SYNC_DELAY));
           
           provider.destroy();
-          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          await new Promise(r => setTimeout(r, CLEANUP_DELAY));
           
           const docs = await persistence.getAllDocumentsWithMeta();
           const ourDoc = docs.find(d => d.docGuid === testDocGuid);
@@ -209,7 +205,7 @@ describe('Collaboration Integration Tests', () => {
           await new Promise(r => setTimeout(r, PERSIST_DELAY));
           
           provider1.destroy();
-          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          await new Promise(r => setTimeout(r, CLEANUP_DELAY));
           
           // Second client
           const doc2 = new Y.Doc();

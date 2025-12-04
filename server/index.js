@@ -87,17 +87,9 @@ setPersistence({
       logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
     }
   },
-  writeState: async (docName, ydoc) => {
-    // Called when document is destroyed (no more connections)
-    // Store final state
-    const docGuid = extractDocGuid(docName);
-    try {
-      const update = Y.encodeStateAsUpdate(ydoc);
-      await persistenceProvider.storeUpdate(docGuid, update);
-    } catch (error) {
-      console.error(`Error writing state for ${docGuid}:`, error);
-    }
-  },
+  // writeState intentionally omitted - we persist on every update via the listener above,
+  // so no need to save again on disconnect. This also prevents false "updated" timestamps.
+  writeState: async () => {},
   provider: persistenceProvider
 });
 

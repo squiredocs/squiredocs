@@ -17,7 +17,7 @@ describe('Server', () => {
     testDbConfig = process.env.TEST_DATABASE_URL || {
       host: process.env.DB_HOST || 'localhost',
       port: process.env.DB_PORT || 5432,
-      database: process.env.TEST_DB_NAME || 'collab_test_db',
+      database: process.env.TEST_DB_NAME || 'collab_db',
       user: process.env.DB_USER || process.env.USER || 'postgres',
       password: process.env.DB_PASSWORD || ''
     };
