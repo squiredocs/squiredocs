@@ -77,10 +77,14 @@ describe('Collaboration Integration Tests', () => {
   });
 
   afterAll(async () => {
-    await persistence.destroy();
+    // Close WebSocket server first (triggers writeState on pending docs)
+    // Then destroy persistence pool
     return new Promise((resolve) => {
       wss.close(() => {
-        server.close(() => {
+        server.close(async () => {
+          // Small delay to let any pending writeState calls complete
+          await new Promise(r => setTimeout(r, 100));
+          await persistence.destroy();
           resolve();
         });
       });
@@ -207,13 +211,5 @@ describe('Collaboration Integration Tests', () => {
     }, 10000);
   });
 
-  // Note: Persistence test skipped due to async bindState timing issues
-  // The persistence layer is tested via direct PostgreSQL tests in server/__tests__/server.test.js
-  describe('Persistence', () => {
-    test.skip('persists document state across connections', async () => {
-      // Skipped - persistence timing issues with async bindState
-      // Persistence is tested via PostgreSQL Persistence tests
-    });
-  });
 });
 

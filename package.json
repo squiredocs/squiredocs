@@ -11,7 +11,7 @@
     "start": "node server/index.js",
     "test": "npm run test:server && npm run test:client",
     "test:watch": "concurrently \"npm run test:server:watch\" \"npm run test:client:watch\"",
-    "test:server": "jest",
+    "test:server": "jest --forceExit",
     "test:server:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:client": "cd client && npm run test",

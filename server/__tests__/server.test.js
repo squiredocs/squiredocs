@@ -1,17 +1,15 @@
 const request = require('supertest');
 const express = require('express');
 const WebSocket = require('ws');
+const Y = require('yjs');
 const { setupWSConnection } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../postgres-persistence');
 
-// Mock setup - we'll test the actual server
 describe('Server', () => {
   let testDbConfig;
   let originalEnv;
 
   beforeAll(() => {
-    // Use test database configuration
-    // Defaults to test database, can be overridden with TEST_DATABASE_URL
     testDbConfig = process.env.TEST_DATABASE_URL || {
       host: process.env.DB_HOST || 'localhost',
       port: process.env.DB_PORT || 5432,
@@ -134,13 +132,6 @@ describe('Server', () => {
     });
 
     // Note: This test demonstrates a known timing issue with async bindState
-    // The functionality works correctly in practice (verified manually)
-    // but the test has race conditions due to bindState being async and not awaited by y-websocket
-    // Skipping for now - persistence is tested via the PostgreSQL Persistence tests below
-    test.skip('all clients see the same persisted document content', async () => {
-      // This test is skipped due to async timing issues with bindState
-      // The persistence layer is tested via direct PostgreSQL tests below
-    });
   });
 
   describe('PostgreSQL Persistence', () => {
@@ -161,7 +152,6 @@ describe('Server', () => {
     });
 
     test('stores and retrieves document updates', async () => {
-      const Y = require('yjs');
       const doc = new Y.Doc();
       const text = doc.getText('content');
       text.insert(0, 'Hello');
@@ -175,7 +165,6 @@ describe('Server', () => {
     });
 
     test('handles multiple updates correctly', async () => {
-      const Y = require('yjs');
       const doc1 = new Y.Doc();
       const text1 = doc1.getText('content');
       text1.insert(0, 'Hello');

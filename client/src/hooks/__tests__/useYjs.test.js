@@ -96,12 +96,6 @@ describe('useYjs', () => {
     }, { timeout: 3000 });
   });
 
-  it.skip('tracks user list from awareness', async () => {
-    // This test is complex due to the singleton pattern in useYjs
-    // The awareness functionality is tested indirectly through integration tests
-    expect(true).toBe(true);
-  });
-
   it('cleans up providers on unmount', () => {
     const { unmount } = renderHook(() => useYjs());
     
