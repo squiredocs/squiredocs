@@ -138,5 +138,75 @@ describe('useYjs', () => {
       });
     });
   });
+
+  describe('document title', () => {
+    it('initializes with default document title', async () => {
+      const { result } = renderHook(() => useYjs());
+      
+      // Initial title should be the default doc name
+      expect(result.current.docTitle).toBe('default-doc');
+    });
+
+    it('provides setDocTitle function', () => {
+      const { result } = renderHook(() => useYjs());
+      
+      expect(result.current.setDocTitle).toBeDefined();
+      expect(typeof result.current.setDocTitle).toBe('function');
+    });
+
+    it('updates title via setDocTitle', async () => {
+      const { result } = renderHook(() => useYjs());
+      
+      // Update the title
+      result.current.setDocTitle('My New Document');
+      
+      // Wait for state to update
+      await waitFor(() => {
+        expect(result.current.docTitle).toBe('My New Document');
+      });
+    });
+
+    it('allows setting title to empty string', async () => {
+      const { result } = renderHook(() => useYjs());
+      
+      // First set a title
+      result.current.setDocTitle('Some Title');
+      await waitFor(() => {
+        expect(result.current.docTitle).toBe('Some Title');
+      });
+      
+      // Then clear it
+      result.current.setDocTitle('');
+      await waitFor(() => {
+        expect(result.current.docTitle).toBe('');
+      });
+    });
+
+    it('stores title in Y.Map meta', async () => {
+      const { result } = renderHook(() => useYjs());
+      
+      // Update the title
+      result.current.setDocTitle('Test Title');
+      
+      // Verify it's stored in the Y.Map
+      const meta = result.current.ydoc.getMap('meta');
+      await waitFor(() => {
+        expect(meta.get('title')).toBe('Test Title');
+      });
+    });
+
+    it('syncs title changes from Y.Map', async () => {
+      const { result } = renderHook(() => useYjs());
+      
+      // Simulate another client updating the title directly via Y.Map
+      const meta = result.current.ydoc.getMap('meta');
+      meta.set('title', 'Title From Another Client');
+      
+      // The hook should pick up the change
+      await waitFor(() => {
+        expect(result.current.docTitle).toBe('Title From Another Client');
+      });
+    });
+  });
 });
 

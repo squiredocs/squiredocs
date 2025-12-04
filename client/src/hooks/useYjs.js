@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -87,6 +87,7 @@ export function useYjs() {
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
+  const [docTitle, setDocTitleState] = useState(DOC_NAME);
   const initialized = useRef(false);
 
   // Initialize singleton instances only once
@@ -117,6 +118,14 @@ export function useYjs() {
       globalProvider = new WebsocketProvider(WS_URL, DOC_NAME, globalYdoc, {
         connect: true
       });
+
+      // Create shared metadata map for document title and other metadata
+      // Using Y.Map allows us to store multiple metadata fields
+      const meta = globalYdoc.getMap('meta');
+      // Initialize title only if never set (undefined), allow empty strings
+      if (meta.get('title') === undefined) {
+        meta.set('title', DOC_NAME);
+      }
 
       globalProvider.on('status', (event) => {
         logPerf('WS_STATUS', { status: event.status });
@@ -248,6 +257,40 @@ export function useYjs() {
     };
   }, [provider, awareness]);
 
+  // Subscribe to document title changes from the shared metadata map
+  useEffect(() => {
+    if (!ydoc) return;
+    
+    const meta = ydoc.getMap('meta');
+    
+    // Set initial title from shared state
+    const currentTitle = meta.get('title');
+    if (currentTitle !== undefined) {
+      setDocTitleState(currentTitle);
+    }
+    
+    // Listen for changes to the metadata map
+    const handleMetaChange = () => {
+      const newTitle = meta.get('title');
+      if (newTitle !== undefined) {
+        setDocTitleState(newTitle);
+      }
+    };
+    
+    meta.observe(handleMetaChange);
+    
+    return () => {
+      meta.unobserve(handleMetaChange);
+    };
+  }, [ydoc, synced]);
+
+  // Function to update the document title (syncs to all clients)
+  const setDocTitle = useCallback((newTitle) => {
+    if (!ydoc) return;
+    const meta = ydoc.getMap('meta');
+    meta.set('title', newTitle);
+  }, [ydoc]);
+
   // Don't destroy on unmount since we're using singletons
   // They will be cleaned up when the page is closed
 
@@ -259,7 +302,9 @@ export function useYjs() {
     connected,
     synced,
     users,
-    docName: provider?.roomname
+    docName: provider?.roomname,
+    docTitle,
+    setDocTitle
   };
 }
 
