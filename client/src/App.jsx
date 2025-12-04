@@ -22,11 +22,13 @@ function parseRoute() {
 
 function App() {
   const [route, setRoute] = useState(parseRoute);
+  const [listKey, setListKey] = useState(0);
 
   // Handle browser back/forward navigation
   useEffect(() => {
     const handlePopState = () => {
       setRoute(parseRoute());
+      setListKey(k => k + 1); // Force DocList refresh on back navigation
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -44,6 +46,7 @@ function App() {
   const navigateHome = () => {
     window.history.pushState({}, '', '/');
     setRoute({ view: 'list', docGuid: null });
+    setListKey(k => k + 1); // Force DocList to refetch
   };
 
   if (route.view === 'editor' && route.docGuid) {
@@ -56,7 +59,7 @@ function App() {
     );
   }
 
-  return <DocList onNavigate={navigateToDoc} />;
+  return <DocList key={listKey} onNavigate={navigateToDoc} />;
 }
 
 export default App;
