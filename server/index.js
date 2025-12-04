@@ -109,6 +109,17 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// API: List all documents
+app.get('/api/docs', async (req, res) => {
+  try {
+    const docs = await persistenceProvider.getAllDocumentsWithMeta();
+    res.json({ docs });
+  } catch (error) {
+    console.error('Error fetching documents:', error);
+    res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+});
+
 // Serve static files and React app (only if build directory exists)
 if (fs.existsSync(clientBuildPath)) {
   app.use(express.static(clientBuildPath));

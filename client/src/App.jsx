@@ -1,96 +1,62 @@
-import React, { useEffect, useState } from 'react';
-import Editor from './components/Editor';
-import Toolbar from './components/Toolbar';
-import UserList from './components/UserList';
-import ConnectionStatus from './components/ConnectionStatus';
-import { useYjs } from './hooks/useYjs';
+import React, { useState, useEffect } from 'react';
+import DocList from './components/DocList';
+import EditorView from './components/EditorView';
 import './App.css';
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Parse the current URL to determine the view
+function parseRoute() {
+  const path = window.location.pathname;
+  
+  // Check for /d/{uuid} or /doc/{uuid} pattern
+  const match = path.match(/^\/d(?:oc)?\/([0-9a-f-]+)$/i);
+  if (match && UUID_REGEX.test(match[1])) {
+    return { view: 'editor', docGuid: match[1].toLowerCase() };
+  }
+  
+  // Default to document list
+  return { view: 'list', docGuid: null };
+}
+
 function App() {
-  const { ydoc, provider, indexeddbProvider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs();
-  const [editor, setEditor] = useState(null);
-  const [userName, setUserName] = useState(() => {
-    const stored = localStorage.getItem('userName');
-    return stored || `User ${Math.floor(Math.random() * 1000)}`;
-  });
-  const [userColor] = useState(() => {
-    const stored = localStorage.getItem('userColor');
-    return stored || `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-  });
+  const [route, setRoute] = useState(parseRoute);
 
+  // Handle browser back/forward navigation
   useEffect(() => {
-    if (userName) {
-      localStorage.setItem('userName', userName);
-    }
-  }, [userName]);
+    const handlePopState = () => {
+      setRoute(parseRoute());
+    };
 
-  useEffect(() => {
-    if (userColor) {
-      localStorage.setItem('userColor', userColor);
-    }
-  }, [userColor]);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
-  useEffect(() => {
-    if (awareness) {
-      awareness.setLocalStateField('user', {
-        name: userName,
-        color: userColor
-      });
-    }
-  }, [awareness, userName, userColor]);
+  // Navigate to a document
+  const navigateToDoc = (docGuid) => {
+    const newPath = `/d/${docGuid}`;
+    window.history.pushState({}, '', newPath);
+    setRoute({ view: 'editor', docGuid });
+  };
 
-  if (!ydoc || !provider || !synced) {
+  // Navigate to home (document list)
+  const navigateHome = () => {
+    window.history.pushState({}, '', '/');
+    setRoute({ view: 'list', docGuid: null });
+  };
+
+  if (route.view === 'editor' && route.docGuid) {
     return (
-      <div className="app-loading">
-        <div>Loading editor... {!synced ? '(syncing...)' : ''}</div>
-      </div>
+      <EditorView 
+        key={route.docGuid} 
+        docGuid={route.docGuid} 
+        onNavigateHome={navigateHome} 
+      />
     );
   }
 
-  return (
-    <div className="app">
-      <header className="app-header">
-        <div className="app-header-content">
-          <input
-            type="text"
-            value={docTitle}
-            onChange={(e) => setDocTitle(e.target.value)}
-            className="app-title-input"
-            placeholder="Document title"
-            spellCheck={false}
-          />
-          <div className="app-header-right">
-            <input
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              className="user-name-input"
-              placeholder="Your name"
-            />
-            <ConnectionStatus connected={connected} />
-          </div>
-        </div>
-      </header>
-      <div className="app-body">
-        <aside className="app-sidebar">
-          <UserList users={users} />
-        </aside>
-        <main className="app-main">
-          <Toolbar editor={editor} />
-          <Editor 
-            ydoc={ydoc} 
-            provider={provider}
-            awareness={awareness} 
-            userName={userName} 
-            userColor={userColor}
-            synced={synced}
-            onEditorReady={setEditor}
-          />
-        </main>
-      </div>
-    </div>
-  );
+  return <DocList onNavigate={navigateToDoc} />;
 }
 
 export default App;
-

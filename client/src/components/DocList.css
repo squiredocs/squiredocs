@@ -1,0 +1,144 @@
+.doc-list-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #fafafa 0%, #f0f4f8 100%);
+}
+
+.doc-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.doc-list-header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+
+.create-doc-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4);
+}
+
+.create-doc-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+}
+
+.create-doc-btn:active {
+  transform: translateY(0);
+}
+
+.doc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.doc-list-item {
+  margin-bottom: 12px;
+}
+
+.doc-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  background: white;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.doc-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  border-color: #cbd5e0;
+}
+
+.doc-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #2d3748;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 16px;
+}
+
+.doc-date {
+  font-size: 13px;
+  color: #718096;
+  white-space: nowrap;
+}
+
+.doc-list-empty {
+  text-align: center;
+  padding: 60px 20px;
+  background: white;
+  border-radius: 12px;
+  border: 2px dashed #e2e8f0;
+}
+
+.doc-list-empty p {
+  margin: 8px 0;
+  color: #718096;
+  font-size: 16px;
+}
+
+.doc-list-empty p:first-child {
+  font-size: 18px;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.doc-list-loading,
+.doc-list-error {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 16px;
+  color: #718096;
+}
+
+.doc-list-error {
+  background: #fff5f5;
+  border-radius: 12px;
+  border: 1px solid #fed7d7;
+  color: #c53030;
+}
+
+.doc-list-error button {
+  margin-top: 16px;
+  padding: 10px 20px;
+  background: #c53030;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.doc-list-error button:hover {
+  background: #9b2c2c;
+}
+

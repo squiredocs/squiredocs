@@ -218,6 +218,69 @@ class PostgresPersistence {
   }
 
   /**
+   * Get a list of all document GUIDs in the database
+   * @returns {Promise<Array<{docGuid: string, updatedAt: Date}>>}
+   */
+  async getAllDocuments() {
+    await this._init();
+    
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(`
+        SELECT DISTINCT doc_guid, MAX(created_at) as updated_at
+        FROM yjs_updates
+        GROUP BY doc_guid
+        ORDER BY updated_at DESC
+      `);
+      
+      return result.rows.map(row => ({
+        docGuid: row.doc_guid,
+        updatedAt: row.updated_at
+      }));
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Get document metadata (title) by extracting it from the Yjs document
+   * @param {string} docGuid - Document GUID
+   * @returns {Promise<{title: string|null}>}
+   */
+  async getDocumentMeta(docGuid) {
+    try {
+      const ydoc = await this.getYDoc(docGuid);
+      const meta = ydoc.getMap('meta');
+      const title = meta.get('title') || null;
+      return { title };
+    } catch (error) {
+      return { title: null };
+    }
+  }
+
+  /**
+   * Get all documents with their metadata (title, updatedAt)
+   * @returns {Promise<Array<{docGuid: string, title: string|null, updatedAt: Date}>>}
+   */
+  async getAllDocumentsWithMeta() {
+    const docs = await this.getAllDocuments();
+    
+    // Fetch metadata for each document in parallel
+    const docsWithMeta = await Promise.all(
+      docs.map(async (doc) => {
+        const meta = await this.getDocumentMeta(doc.docGuid);
+        return {
+          docGuid: doc.docGuid,
+          title: meta.title,
+          updatedAt: doc.updatedAt
+        };
+      })
+    );
+    
+    return docsWithMeta;
+  }
+
+  /**
    * Close the database connection pool
    * @returns {Promise<void>}
    */
