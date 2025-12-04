@@ -9,6 +9,14 @@ const { PostgresPersistence } = require('../../server/postgres-persistence');
 // Generate a valid UUID v4 for testing
 const generateTestUUID = () => crypto.randomUUID();
 
+// Helper to extract clean UUID from y-websocket doc name
+const extractDocGuid = (docName) => {
+  if (docName.startsWith('s/')) {
+    return docName.slice(2);
+  }
+  return docName;
+};
+
 describe('Collaboration Edge Cases', () => {
   let server;
   let wss;
@@ -41,7 +49,7 @@ describe('Collaboration Edge Cases', () => {
           // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
           setPersistence({
             bindState: async (docName, ydoc) => {
-              const docGuid = docName; // docName is actually the doc GUID from the URL path
+              const docGuid = extractDocGuid(docName); // Strip s/ prefix from URL path
               try {
                 const persistedYdoc = await persistence.getYDoc(docGuid);
                 const newUpdates = Y.encodeStateAsUpdate(ydoc);
@@ -61,7 +69,7 @@ describe('Collaboration Edge Cases', () => {
               }
             },
             writeState: async (docName, ydoc) => {
-              const docGuid = docName;
+              const docGuid = extractDocGuid(docName);
               try {
                 const update = Y.encodeStateAsUpdate(ydoc);
                 await persistence.storeUpdate(docGuid, update);

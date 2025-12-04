@@ -9,6 +9,15 @@ const { PostgresPersistence } = require('../../server/postgres-persistence');
 // Generate a valid UUID v4 for testing
 const generateTestUUID = () => crypto.randomUUID();
 
+// Helper to extract clean UUID from y-websocket doc name
+// y-websocket extracts doc name from URL path like /s/uuid, giving us "s/uuid"
+const extractDocGuid = (docName) => {
+  if (docName.startsWith('s/')) {
+    return docName.slice(2);
+  }
+  return docName;
+};
+
 describe('Collaboration Integration Tests', () => {
   let server;
   let wss;
@@ -41,7 +50,7 @@ describe('Collaboration Integration Tests', () => {
         // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
         setPersistence({
           bindState: async (docName, ydoc) => {
-            const docGuid = docName; // docName is actually the doc GUID from the URL path
+            const docGuid = extractDocGuid(docName); // Strip s/ prefix from URL path
             try {
               const persistedYdoc = await persistence.getYDoc(docGuid);
               const newUpdates = Y.encodeStateAsUpdate(ydoc);
@@ -61,7 +70,7 @@ describe('Collaboration Integration Tests', () => {
             }
           },
           writeState: async (docName, ydoc) => {
-            const docGuid = docName;
+            const docGuid = extractDocGuid(docName);
             try {
               const update = Y.encodeStateAsUpdate(ydoc);
               await persistence.storeUpdate(docGuid, update);
@@ -96,6 +105,54 @@ describe('Collaboration Integration Tests', () => {
         });
       });
     });
+  });
+
+  describe('Document list', () => {
+    test('new document with title appears in document list', (done) => {
+      const testDocGuid = generateTestUUID();
+      const doc = new Y.Doc();
+      
+      // Set up the meta map with a title (like the client does)
+      const meta = doc.getMap('meta');
+      meta.set('title', 'My Test Document');
+      
+      // Also add some content
+      const content = doc.get('default', Y.XmlFragment);
+      
+      // NOTE: The client connects with the doc GUID, but the URL becomes /s/{guid}
+      // y-websocket extracts doc name from the URL path, so we need to ensure
+      // the server strips the /s/ prefix before using as doc_guid
+      const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
+        connect: true
+      });
+      
+      provider.on('sync', async (isSynced) => {
+        if (isSynced) {
+          // Make an edit to ensure document is persisted
+          meta.set('title', 'My Test Document');
+          
+          // Wait for persistence
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Disconnect (simulates user navigating back to list)
+          provider.destroy();
+          
+          // Wait for writeState to complete
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Now fetch the document list
+          const docs = await persistence.getAllDocumentsWithMeta();
+          
+          // Find our document - should be stored with the clean UUID, not s/uuid
+          const ourDoc = docs.find(d => d.docGuid === testDocGuid);
+          
+          expect(ourDoc).toBeDefined();
+          expect(ourDoc.title).toBe('My Test Document');
+          
+          done();
+        }
+      });
+    }, 15000);
   });
 
   describe('Multi-client synchronization', () => {
