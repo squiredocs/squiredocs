@@ -7,7 +7,7 @@ import { useYjs } from './hooks/useYjs';
 import './App.css';
 
 function App() {
-  const { ydoc, provider, indexeddbProvider, awareness, connected, synced, users } = useYjs();
+  const { ydoc, provider, indexeddbProvider, awareness, connected, synced, users, docName } = useYjs();
   const [editor, setEditor] = useState(null);
   const [userName, setUserName] = useState(() => {
     const stored = localStorage.getItem('userName');
@@ -51,7 +51,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-header-content">
-          <h1 className="app-title">Collaborative Editor</h1>
+          <h1 className="app-title">{docName}</h1>
           <div className="app-header-right">
             <input
               type="text"

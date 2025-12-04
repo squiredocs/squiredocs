@@ -37,6 +37,7 @@ describe('useYjs', () => {
       awareness: mockAwareness,
       shouldConnect: true,
       synced: true,
+      roomname: 'default-doc',
       on: vi.fn((event, handler) => {
         if (event === 'status') {
           // Call handler asynchronously using setImmediate or setTimeout(0)
@@ -69,6 +70,13 @@ describe('useYjs', () => {
     expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
     expect(result.current.provider).toBeDefined();
     expect(result.current.awareness).toBeDefined();
+  });
+
+  it('returns docName from provider.roomname', () => {
+    const { result } = renderHook(() => useYjs());
+    
+    expect(result.current.docName).toBe('default-doc');
+    expect(result.current.docName).toBe(mockProvider.roomname);
   });
 
   it('initializes with provider shouldConnect state', () => {

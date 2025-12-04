@@ -151,7 +151,8 @@ export function useYjs() {
     awareness,
     connected,
     synced,
-    users
+    users,
+    docName: provider?.roomname
   };
 }
 
