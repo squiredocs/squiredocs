@@ -54,50 +54,36 @@ setPersistence({
     // Extract the clean UUID
     const docGuid = extractDocGuid(docName);
     const startTime = Date.now();
+    
+    // IMPORTANT: Set up update listener FIRST, before any async operations!
+    // y-websocket does NOT await bindState, so client updates can arrive
+    // while we're still loading from DB. We must capture ALL updates.
+    ydoc.on('update', update => {
+      const persistStart = Date.now();
+      persistenceProvider.storeUpdate(docGuid, update)
+        .then(() => {
+          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
+        })
+        .catch(err => {
+          console.error(`Error persisting update for ${docGuid}:`, err);
+        });
+    });
+    
     try {
       // Load persisted document from PostgreSQL
       const loadStart = Date.now();
       const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
       logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
       
-      // Store the current (empty) document state first (like y-leveldb does)
-      // This ensures the document structure exists
-      const newUpdates = Y.encodeStateAsUpdate(ydoc);
-      const storeStart = Date.now();
-      await persistenceProvider.storeUpdate(docGuid, newUpdates);
-      logPerf('DB_STORE_INITIAL', { docGuid, duration: Date.now() - storeStart, size: newUpdates.byteLength });
-      
       // Apply persisted state to the in-memory document
       // This triggers the 'update' event which broadcasts to all connected clients
+      // The update listener is already set up, so this will also persist the merged state
       Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
-      
-      // Set up update listener AFTER applying persisted state (like y-leveldb does)
-      // This ensures persisted updates get persisted going forward
-      ydoc.on('update', update => {
-        const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docGuid, update)
-          .then(() => {
-            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
-          })
-          .catch(err => {
-            console.error(`Error persisting update for ${docGuid}:`, err);
-          });
-      });
       
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
       // If document doesn't exist in persistence, that's okay - start with empty doc
-      // Still set up the update listener
-      ydoc.on('update', update => {
-        const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docGuid, update)
-          .then(() => {
-            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
-          })
-          .catch(err => {
-            console.error(`Error persisting update for ${docGuid}:`, err);
-          });
-      });
+      // Update listener is already set up above
       logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
     }
   },

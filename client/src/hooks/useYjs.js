@@ -108,13 +108,6 @@ function getOrCreateInstances(docGuid) {
     connect: true
   });
 
-  // Create shared metadata map for document title and other metadata
-  const meta = ydoc.getMap('meta');
-  // Initialize title only if never set (undefined), allow empty strings
-  if (meta.get('title') === undefined) {
-    meta.set('title', 'Untitled Document');
-  }
-
   provider.on('status', (event) => {
     logPerf('WS_STATUS', { status: event.status });
     console.log('[useYjs] Provider status:', event.status);
@@ -125,8 +118,20 @@ function getOrCreateInstances(docGuid) {
     console.error('[useYjs] Connection error:', error);
   });
 
+  // Initialize default title only AFTER sync completes
+  // This ensures we don't overwrite an existing title from the server
+  let titleInitialized = false;
   provider.on('sync', (isSynced) => {
     logPerf('WS_SYNC', { synced: isSynced });
+    
+    if (isSynced && !titleInitialized) {
+      titleInitialized = true;
+      const meta = ydoc.getMap('meta');
+      // Only set default title if server didn't provide one
+      if (meta.get('title') === undefined) {
+        meta.set('title', 'Untitled Document');
+      }
+    }
   });
 
   // Create IndexedDB provider for offline persistence (async, non-blocking)

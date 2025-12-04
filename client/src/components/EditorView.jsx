@@ -7,15 +7,6 @@ import { useYjs } from '../hooks/useYjs';
 import './EditorView.css';
 
 function EditorView({ docGuid, onNavigateHome }) {
-  const [navigating, setNavigating] = useState(false);
-
-  // Handle back navigation with a small delay to ensure persistence
-  const handleBack = async () => {
-    setNavigating(true);
-    // Small delay to allow WebSocket updates to persist
-    await new Promise(r => setTimeout(r, 300));
-    onNavigateHome();
-  };
   const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid);
   const [editor, setEditor] = useState(null);
   const [userName, setUserName] = useState(() => {
@@ -63,11 +54,10 @@ function EditorView({ docGuid, onNavigateHome }) {
           <div className="app-header-left">
             <button 
               className="back-btn" 
-              onClick={handleBack}
-              disabled={navigating}
+              onClick={onNavigateHome}
               title="Back to documents"
             >
-              {navigating ? '...' : '←'}
+              ←
             </button>
             <input
               type="text"

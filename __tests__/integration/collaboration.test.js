@@ -10,13 +10,17 @@ const { PostgresPersistence } = require('../../server/postgres-persistence');
 const generateTestUUID = () => crypto.randomUUID();
 
 // Helper to extract clean UUID from y-websocket doc name
-// y-websocket extracts doc name from URL path like /s/uuid, giving us "s/uuid"
 const extractDocGuid = (docName) => {
   if (docName.startsWith('s/')) {
     return docName.slice(2);
   }
   return docName;
 };
+
+// Short delays for tests - just enough for async operations
+const SYNC_DELAY = 50;      // Time for WebSocket message round-trip
+const PERSIST_DELAY = 100;  // Time for DB write
+const WRITE_STATE_DELAY = 150; // Time for writeState after disconnect
 
 describe('Collaboration Integration Tests', () => {
   let server;
@@ -26,7 +30,6 @@ describe('Collaboration Integration Tests', () => {
   let port;
 
   beforeAll(async () => {
-    // Use test database configuration
     testDbConfig = process.env.TEST_DATABASE_URL || {
       host: process.env.DB_HOST || 'localhost',
       port: process.env.DB_PORT || 5432,
@@ -35,7 +38,6 @@ describe('Collaboration Integration Tests', () => {
       password: process.env.DB_PASSWORD || ''
     };
     
-    // Create test server
     const app = express();
     await new Promise((resolve) => {
       server = app.listen(0, async () => {
@@ -46,27 +48,21 @@ describe('Collaboration Integration Tests', () => {
         await persistence._init();
         await persistence.clearAll();
         
-        // Set up persistence using setPersistence (not as parameter to setupWSConnection)
-        // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
         setPersistence({
           bindState: async (docName, ydoc) => {
-            const docGuid = extractDocGuid(docName); // Strip s/ prefix from URL path
+            const docGuid = extractDocGuid(docName);
+            
+            ydoc.on('update', update => {
+              persistence.storeUpdate(docGuid, update).catch(err => {
+                console.error(`Error persisting update for ${docGuid}:`, err);
+              });
+            });
+            
             try {
               const persistedYdoc = await persistence.getYDoc(docGuid);
-              const newUpdates = Y.encodeStateAsUpdate(ydoc);
-              await persistence.storeUpdate(docGuid, newUpdates);
               Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
-              ydoc.on('update', update => {
-                persistence.storeUpdate(docGuid, update).catch(err => {
-                  console.error(`Error persisting update for ${docGuid}:`, err);
-                });
-              });
             } catch (error) {
-              ydoc.on('update', update => {
-                persistence.storeUpdate(docGuid, update).catch(err => {
-                  console.error(`Error persisting update for ${docGuid}:`, err);
-                });
-              });
+              // New document
             }
           },
           writeState: async (docName, ydoc) => {
@@ -82,9 +78,7 @@ describe('Collaboration Integration Tests', () => {
         });
         
         wss.on('connection', (ws, req) => {
-          setupWSConnection(ws, req, {
-            gc: true
-          });
+          setupWSConnection(ws, req, { gc: true });
         });
         
         resolve();
@@ -93,66 +87,194 @@ describe('Collaboration Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Close WebSocket server first (triggers writeState on pending docs)
-    // Then destroy persistence pool
-    return new Promise((resolve) => {
+    await new Promise((resolve) => {
       wss.close(() => {
-        server.close(async () => {
-          // Small delay to let any pending writeState calls complete
-          await new Promise(r => setTimeout(r, 100));
-          await persistence.destroy();
-          resolve();
-        });
+        server.close(() => resolve());
       });
     });
+    // Handle async cleanup after close event completes
+    await new Promise(r => setTimeout(r, 50));
+    await persistence.destroy();
   });
 
   describe('Document list', () => {
     test('new document with title appears in document list', (done) => {
       const testDocGuid = generateTestUUID();
       const doc = new Y.Doc();
-      
-      // Set up the meta map with a title (like the client does)
       const meta = doc.getMap('meta');
       meta.set('title', 'My Test Document');
       
-      // Also add some content
-      const content = doc.get('default', Y.XmlFragment);
-      
-      // NOTE: The client connects with the doc GUID, but the URL becomes /s/{guid}
-      // y-websocket extracts doc name from the URL path, so we need to ensure
-      // the server strips the /s/ prefix before using as doc_guid
       const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
         connect: true
       });
       
       provider.on('sync', async (isSynced) => {
         if (isSynced) {
-          // Make an edit to ensure document is persisted
           meta.set('title', 'My Test Document');
+          await new Promise(r => setTimeout(r, PERSIST_DELAY));
           
-          // Wait for persistence
-          await new Promise(r => setTimeout(r, 500));
-          
-          // Disconnect (simulates user navigating back to list)
           provider.destroy();
+          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
           
-          // Wait for writeState to complete
-          await new Promise(r => setTimeout(r, 500));
-          
-          // Now fetch the document list
           const docs = await persistence.getAllDocumentsWithMeta();
-          
-          // Find our document - should be stored with the clean UUID, not s/uuid
           const ourDoc = docs.find(d => d.docGuid === testDocGuid);
           
           expect(ourDoc).toBeDefined();
           expect(ourDoc.title).toBe('My Test Document');
-          
           done();
         }
       });
-    }, 15000);
+    }, 5000);
+
+    test('title change is reflected in document list', (done) => {
+      const testDocGuid = generateTestUUID();
+      const doc = new Y.Doc();
+      const meta = doc.getMap('meta');
+      
+      const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
+        connect: true
+      });
+      
+      let synced = false;
+      provider.on('sync', async (isSynced) => {
+        if (isSynced && !synced) {
+          synced = true;
+          
+          if (meta.get('title') === undefined) {
+            meta.set('title', 'Untitled Document');
+          }
+          await new Promise(r => setTimeout(r, SYNC_DELAY));
+          
+          meta.set('title', 'My Custom Title');
+          await new Promise(r => setTimeout(r, PERSIST_DELAY));
+          
+          provider.destroy();
+          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          
+          const docs = await persistence.getAllDocumentsWithMeta();
+          const ourDoc = docs.find(d => d.docGuid === testDocGuid);
+          
+          expect(ourDoc).toBeDefined();
+          expect(ourDoc.title).toBe('My Custom Title');
+          done();
+        }
+      });
+    }, 5000);
+
+    test('title change persists when navigating away quickly', (done) => {
+      const testDocGuid = generateTestUUID();
+      const doc = new Y.Doc();
+      const meta = doc.getMap('meta');
+      
+      const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
+        connect: true
+      });
+      
+      let synced = false;
+      provider.on('sync', async (isSynced) => {
+        if (isSynced && !synced) {
+          synced = true;
+          
+          meta.set('title', 'Quick Title Change');
+          await new Promise(r => setTimeout(r, SYNC_DELAY));
+          
+          provider.destroy();
+          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          
+          const docs = await persistence.getAllDocumentsWithMeta();
+          const ourDoc = docs.find(d => d.docGuid === testDocGuid);
+          
+          expect(ourDoc).toBeDefined();
+          expect(ourDoc.title).toBe('Quick Title Change');
+          done();
+        }
+      });
+    }, 5000);
+
+    test('second client sees existing title from server', (done) => {
+      const testDocGuid = generateTestUUID();
+      const doc1 = new Y.Doc();
+      const meta1 = doc1.getMap('meta');
+      
+      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc1, {
+        connect: true
+      });
+      
+      let synced1 = false;
+      provider1.on('sync', async (isSynced) => {
+        if (isSynced && !synced1) {
+          synced1 = true;
+          
+          meta1.set('title', 'Server Title');
+          await new Promise(r => setTimeout(r, PERSIST_DELAY));
+          
+          provider1.destroy();
+          await new Promise(r => setTimeout(r, WRITE_STATE_DELAY));
+          
+          // Second client
+          const doc2 = new Y.Doc();
+          const meta2 = doc2.getMap('meta');
+          
+          const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc2, {
+            connect: true
+          });
+          
+          let synced2 = false;
+          provider2.on('sync', async (syncedAgain) => {
+            if (syncedAgain && !synced2) {
+              synced2 = true;
+              
+              // Wait for bindState to load persisted data
+              await new Promise(r => setTimeout(r, PERSIST_DELAY));
+              
+              if (meta2.get('title') === undefined) {
+                meta2.set('title', 'Untitled Document');
+              }
+              
+              const currentTitle = meta2.get('title');
+              provider2.destroy();
+              
+              expect(currentTitle).toBe('Server Title');
+              done();
+            }
+          });
+        }
+      });
+    }, 5000);
+
+    test('document list API returns persisted title', (done) => {
+      const testDocGuid = generateTestUUID();
+      const doc = new Y.Doc();
+      const meta = doc.getMap('meta');
+      
+      const provider = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc, {
+        connect: true
+      });
+      
+      let handled = false;
+      provider.on('sync', async (isSynced) => {
+        if (isSynced && !handled) {
+          handled = true;
+          
+          try {
+            meta.set('title', 'My Real Title');
+            await new Promise(r => setTimeout(r, PERSIST_DELAY));
+            
+            const docs = await persistence.getAllDocumentsWithMeta();
+            const ourDoc = docs.find(d => d.docGuid === testDocGuid);
+            
+            provider.destroy();
+            
+            expect(ourDoc).toBeDefined();
+            expect(ourDoc.title).toBe('My Real Title');
+            done();
+          } catch (err) {
+            provider.destroy();
+            done(err);
+          }
+        }
+      });
+    }, 5000);
   });
 
   describe('Multi-client synchronization', () => {
@@ -163,72 +285,38 @@ describe('Collaboration Integration Tests', () => {
       const text1 = doc1.getText('content');
       const text2 = doc2.getText('content');
       
-      let connected1 = false;
-      let connected2 = false;
-      let sync1 = false;
-      let sync2 = false;
+      let sync1 = false, sync2 = false;
       
       const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc1, {
         connect: true
-      });
-      
-      provider1.on('status', (event) => {
-        if (event.status === 'connected') {
-          connected1 = true;
-          checkReady();
-        }
-      });
-      
-      provider1.on('sync', (isSynced) => {
-        if (isSynced) {
-          sync1 = true;
-          checkReady();
-        }
       });
       
       const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc2, {
         connect: true
       });
       
-      provider2.on('status', (event) => {
-        if (event.status === 'connected') {
-          connected2 = true;
-          checkReady();
-        }
-      });
-      
-      provider2.on('sync', (isSynced) => {
-        if (isSynced) {
-          sync2 = true;
-          checkReady();
-        }
-      });
-      
-      function checkReady() {
-        if (connected1 && connected2 && sync1 && sync2) {
-          // Client 1 inserts text
+      const checkReady = async () => {
+        if (sync1 && sync2) {
           text1.insert(0, 'Hello ');
+          await new Promise(r => setTimeout(r, SYNC_DELAY));
           
-          setTimeout(() => {
-            // Check if client 2 received it
-            expect(text2.toString()).toBe('Hello ');
-            
-            // Client 2 appends text
-            text2.insert(text2.length, 'World!');
-            
-            setTimeout(() => {
-              // Check if client 1 received it
-              expect(text1.toString()).toBe('Hello World!');
-              expect(text2.toString()).toBe('Hello World!');
-              
-              provider1.destroy();
-              provider2.destroy();
-              done();
-            }, 500);
-          }, 500);
+          expect(text2.toString()).toBe('Hello ');
+          
+          text2.insert(text2.length, 'World!');
+          await new Promise(r => setTimeout(r, SYNC_DELAY));
+          
+          expect(text1.toString()).toBe('Hello World!');
+          expect(text2.toString()).toBe('Hello World!');
+          
+          provider1.destroy();
+          provider2.destroy();
+          done();
         }
-      }
-    }, 10000);
+      };
+      
+      provider1.on('sync', (isSynced) => { if (isSynced) { sync1 = true; checkReady(); } });
+      provider2.on('sync', (isSynced) => { if (isSynced) { sync2 = true; checkReady(); } });
+    }, 5000);
 
     test('handles concurrent edits correctly', (done) => {
       const concurrentDocGuid = generateTestUUID();
@@ -247,35 +335,30 @@ describe('Collaboration Integration Tests', () => {
       
       let ready = false;
       
-      const checkReady = () => {
-        if (provider1.shouldConnect && provider2.shouldConnect && !ready) {
+      const checkReady = async () => {
+        if (provider1.synced && provider2.synced && !ready) {
           ready = true;
           
-          // Both clients insert at the same time
           text1.insert(0, 'A');
           text2.insert(0, 'B');
           
-          setTimeout(() => {
-            // Yjs CRDT should merge both edits
-            const result1 = text1.toString();
-            const result2 = text2.toString();
-            
-            // Both should have both characters (order may vary)
-            expect(result1.length).toBeGreaterThan(0);
-            expect(result2.length).toBeGreaterThan(0);
-            expect(result1).toBe(result2); // Should be synchronized
-            
-            provider1.destroy();
-            provider2.destroy();
-            done();
-          }, 1000);
+          await new Promise(r => setTimeout(r, PERSIST_DELAY));
+          
+          const result1 = text1.toString();
+          const result2 = text2.toString();
+          
+          expect(result1.length).toBeGreaterThan(0);
+          expect(result2.length).toBeGreaterThan(0);
+          expect(result1).toBe(result2);
+          
+          provider1.destroy();
+          provider2.destroy();
+          done();
         }
       };
       
       provider1.on('sync', checkReady);
       provider2.on('sync', checkReady);
-    }, 10000);
+    }, 5000);
   });
-
 });
-
