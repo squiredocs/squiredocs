@@ -125,5 +125,24 @@ describe('useYjs', () => {
     // Should not crash on error - provider should be defined immediately
     expect(result.current.provider).toBeDefined();
   });
+
+  describe('IndexedDB availability', () => {
+    it('works without IndexedDB (e.g., Firefox private mode)', async () => {
+      // The hook should work even when IndexedDB is unavailable
+      // (y-indexeddb is mocked, so this tests the hook's resilience)
+      const { result } = renderHook(() => useYjs());
+      
+      // Hook should still work - WebSocket provider should be created
+      expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
+      expect(result.current.provider).toBeDefined();
+      expect(result.current.awareness).toBeDefined();
+      
+      // Core functionality works regardless of IndexedDB
+      await waitFor(() => {
+        expect(result.current.connected).toBeDefined();
+        expect(result.current.synced).toBeDefined();
+      });
+    });
+  });
 });
 

@@ -10,11 +10,9 @@ export default defineConfig({
     fs: {
       strict: false
     },
-    hmr: {
-      protocol: 'ws',
-      host: 'localhost',
-      port: 4567
-    },
+    // HMR disabled - doesn't work reliably through k8s tunnel
+    // Manual refresh required after code changes
+    hmr: false,
     proxy: {
       '^/s($|/)': {
         target: 'ws://localhost:3001',

@@ -6,6 +6,15 @@ const fs = require('fs');
 const { PostgresPersistence } = require('./postgres-persistence');
 const Y = require('yjs');
 
+// Profiling utilities
+const PROFILING_ENABLED = true;
+let messageCounter = 0;
+const logPerf = (label, data = {}) => {
+  if (!PROFILING_ENABLED) return;
+  const timestamp = Date.now();
+  console.log(`[PERF ${timestamp}] ${label}`, JSON.stringify(data));
+};
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -27,14 +36,19 @@ const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
 // bindState is async but not awaited by y-websocket - it applies persisted state when it completes
 setPersistence({
   bindState: async (docName, ydoc) => {
+    const startTime = Date.now();
     try {
       // Load persisted document from PostgreSQL
+      const loadStart = Date.now();
       const persistedYdoc = await persistenceProvider.getYDoc(docName);
+      logPerf('DB_LOAD', { docName, duration: Date.now() - loadStart });
       
       // Store the current (empty) document state first (like y-leveldb does)
       // This ensures the document structure exists
       const newUpdates = Y.encodeStateAsUpdate(ydoc);
+      const storeStart = Date.now();
       await persistenceProvider.storeUpdate(docName, newUpdates);
+      logPerf('DB_STORE_INITIAL', { docName, duration: Date.now() - storeStart, size: newUpdates.byteLength });
       
       // Apply persisted state to the in-memory document
       // This triggers the 'update' event which broadcasts to all connected clients
@@ -43,18 +57,31 @@ setPersistence({
       // Set up update listener AFTER applying persisted state (like y-leveldb does)
       // This ensures persisted updates get persisted going forward
       ydoc.on('update', update => {
-        persistenceProvider.storeUpdate(docName, update).catch(err => {
-          console.error(`Error persisting update for ${docName}:`, err);
-        });
+        const persistStart = Date.now();
+        persistenceProvider.storeUpdate(docName, update)
+          .then(() => {
+            logPerf('DB_PERSIST', { docName, duration: Date.now() - persistStart, size: update.byteLength });
+          })
+          .catch(err => {
+            console.error(`Error persisting update for ${docName}:`, err);
+          });
       });
+      
+      logPerf('BIND_STATE_COMPLETE', { docName, totalDuration: Date.now() - startTime });
     } catch (error) {
       // If document doesn't exist in persistence, that's okay - start with empty doc
       // Still set up the update listener
       ydoc.on('update', update => {
-        persistenceProvider.storeUpdate(docName, update).catch(err => {
-          console.error(`Error persisting update for ${docName}:`, err);
-        });
+        const persistStart = Date.now();
+        persistenceProvider.storeUpdate(docName, update)
+          .then(() => {
+            logPerf('DB_PERSIST', { docName, duration: Date.now() - persistStart, size: update.byteLength });
+          })
+          .catch(err => {
+            console.error(`Error persisting update for ${docName}:`, err);
+          });
       });
+      logPerf('BIND_STATE_NEW_DOC', { docName, totalDuration: Date.now() - startTime });
     }
   },
   writeState: async (docName, ydoc) => {
@@ -132,13 +159,31 @@ server.on('upgrade', (request, socket, head) => {
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
+  const connId = ++messageCounter;
+  const connStart = Date.now();
+  logPerf('WS_CONNECT', { connId, url: req.url });
   console.log('✓ WebSocket connection established:', req.url);
   
+  // Profile incoming messages
+  const originalOnMessage = ws.onmessage;
+  ws.on('message', (data) => {
+    logPerf('WS_MSG_IN', { connId, size: data.byteLength || data.length });
+  });
+  
+  // Profile outgoing messages
+  const originalSend = ws.send.bind(ws);
+  ws.send = (data, cb) => {
+    logPerf('WS_MSG_OUT', { connId, size: data.byteLength || data.length });
+    return originalSend(data, cb);
+  };
+  
   ws.on('error', (error) => {
+    logPerf('WS_ERROR', { connId, error: error.message });
     console.error('✗ WebSocket client error:', error.message);
   });
   
   ws.on('close', () => {
+    logPerf('WS_CLOSE', { connId, duration: Date.now() - connStart });
     console.log('WebSocket connection closed:', req.url);
   });
   
@@ -146,7 +191,9 @@ wss.on('connection', (ws, req) => {
     setupWSConnection(ws, req, {
       gc: true
     });
+    logPerf('WS_SETUP_COMPLETE', { connId });
   } catch (error) {
+    logPerf('WS_SETUP_ERROR', { connId, error: error.message });
     console.error('✗ Error setting up WebSocket connection:', error);
     ws.close();
   }
