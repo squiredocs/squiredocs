@@ -2,8 +2,12 @@ const request = require('supertest');
 const express = require('express');
 const WebSocket = require('ws');
 const Y = require('yjs');
+const crypto = require('crypto');
 const { setupWSConnection } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../postgres-persistence');
+
+// Generate a valid UUID v4 for testing
+const generateTestUUID = () => crypto.randomUUID();
 
 describe('Server', () => {
   let testDbConfig;
@@ -94,6 +98,8 @@ describe('Server', () => {
     });
 
     test('accepts WebSocket connections', (done) => {
+      const testDocGuid = generateTestUUID();
+      
       wss.on('connection', (ws) => {
         expect(ws.readyState).toBe(WebSocket.OPEN);
         ws.close();
@@ -101,7 +107,7 @@ describe('Server', () => {
       });
 
       const port = httpServer.address().port;
-      const ws = new WebSocket(`ws://localhost:${port}/test-doc`);
+      const ws = new WebSocket(`ws://localhost:${port}/${testDocGuid}`);
       
       ws.on('open', () => {
         ws.close();
@@ -109,6 +115,8 @@ describe('Server', () => {
     });
 
     test('handles WebSocket connection with setupWSConnection', (done) => {
+      const testDocGuid = generateTestUUID();
+      
       wss.on('connection', (ws, req) => {
         try {
           setupWSConnection(ws, req, {
@@ -124,7 +132,7 @@ describe('Server', () => {
       });
 
       const port = httpServer.address().port;
-      const ws = new WebSocket(`ws://localhost:${port}/test-doc`);
+      const ws = new WebSocket(`ws://localhost:${port}/${testDocGuid}`);
       
       ws.on('open', () => {
         ws.close();
@@ -152,25 +160,27 @@ describe('Server', () => {
     });
 
     test('stores and retrieves document updates', async () => {
+      const testDocGuid = generateTestUUID();
       const doc = new Y.Doc();
       const text = doc.getText('content');
       text.insert(0, 'Hello');
       
       const update = Y.encodeStateAsUpdate(doc);
-      await persistence.storeUpdate('test-doc', update);
+      await persistence.storeUpdate(testDocGuid, update);
       
-      const retrievedDoc = await persistence.getYDoc('test-doc');
+      const retrievedDoc = await persistence.getYDoc(testDocGuid);
       const retrievedText = retrievedDoc.getText('content');
       expect(retrievedText.toString()).toBe('Hello');
     });
 
     test('handles multiple updates correctly', async () => {
+      const testDocGuid = generateTestUUID();
       const doc1 = new Y.Doc();
       const text1 = doc1.getText('content');
       text1.insert(0, 'Hello');
       
       const update1 = Y.encodeStateAsUpdate(doc1);
-      await persistence.storeUpdate('test-doc-2', update1);
+      await persistence.storeUpdate(testDocGuid, update1);
       
       const doc2 = new Y.Doc();
       Y.applyUpdate(doc2, update1);
@@ -178,9 +188,9 @@ describe('Server', () => {
       text2.insert(text2.length, ' World');
       
       const update2 = Y.encodeStateAsUpdate(doc2);
-      await persistence.storeUpdate('test-doc-2', update2);
+      await persistence.storeUpdate(testDocGuid, update2);
       
-      const retrievedDoc = await persistence.getYDoc('test-doc-2');
+      const retrievedDoc = await persistence.getYDoc(testDocGuid);
       const retrievedText = retrievedDoc.getText('content');
       expect(retrievedText.toString()).toBe('Hello World');
     });

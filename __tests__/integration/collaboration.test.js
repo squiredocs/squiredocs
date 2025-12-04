@@ -2,8 +2,12 @@ const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 const WebSocket = require('ws');
 const express = require('express');
+const crypto = require('crypto');
 const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../../server/postgres-persistence');
+
+// Generate a valid UUID v4 for testing
+const generateTestUUID = () => crypto.randomUUID();
 
 describe('Collaboration Integration Tests', () => {
   let server;
@@ -34,32 +38,35 @@ describe('Collaboration Integration Tests', () => {
         await persistence.clearAll();
         
         // Set up persistence using setPersistence (not as parameter to setupWSConnection)
+        // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
         setPersistence({
           bindState: async (docName, ydoc) => {
+            const docGuid = docName; // docName is actually the doc GUID from the URL path
             try {
-              const persistedYdoc = await persistence.getYDoc(docName);
+              const persistedYdoc = await persistence.getYDoc(docGuid);
               const newUpdates = Y.encodeStateAsUpdate(ydoc);
-              await persistence.storeUpdate(docName, newUpdates);
+              await persistence.storeUpdate(docGuid, newUpdates);
               Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
               ydoc.on('update', update => {
-                persistence.storeUpdate(docName, update).catch(err => {
-                  console.error(`Error persisting update for ${docName}:`, err);
+                persistence.storeUpdate(docGuid, update).catch(err => {
+                  console.error(`Error persisting update for ${docGuid}:`, err);
                 });
               });
             } catch (error) {
               ydoc.on('update', update => {
-                persistence.storeUpdate(docName, update).catch(err => {
-                  console.error(`Error persisting update for ${docName}:`, err);
+                persistence.storeUpdate(docGuid, update).catch(err => {
+                  console.error(`Error persisting update for ${docGuid}:`, err);
                 });
               });
             }
           },
           writeState: async (docName, ydoc) => {
+            const docGuid = docName;
             try {
               const update = Y.encodeStateAsUpdate(ydoc);
-              await persistence.storeUpdate(docName, update);
+              await persistence.storeUpdate(docGuid, update);
             } catch (error) {
-              console.error(`Error writing state for ${docName}:`, error);
+              console.error(`Error writing state for ${docGuid}:`, error);
             }
           },
           provider: persistence
@@ -93,6 +100,7 @@ describe('Collaboration Integration Tests', () => {
 
   describe('Multi-client synchronization', () => {
     test('synchronizes text changes between two clients', (done) => {
+      const testDocGuid = generateTestUUID();
       const doc1 = new Y.Doc();
       const doc2 = new Y.Doc();
       const text1 = doc1.getText('content');
@@ -103,7 +111,7 @@ describe('Collaboration Integration Tests', () => {
       let sync1 = false;
       let sync2 = false;
       
-      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, 'test-doc', doc1, {
+      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc1, {
         connect: true
       });
       
@@ -121,7 +129,7 @@ describe('Collaboration Integration Tests', () => {
         }
       });
       
-      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, 'test-doc', doc2, {
+      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, testDocGuid, doc2, {
         connect: true
       });
       
@@ -166,16 +174,17 @@ describe('Collaboration Integration Tests', () => {
     }, 10000);
 
     test('handles concurrent edits correctly', (done) => {
+      const concurrentDocGuid = generateTestUUID();
       const doc1 = new Y.Doc();
       const doc2 = new Y.Doc();
       const text1 = doc1.getText('content');
       const text2 = doc2.getText('content');
       
-      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, 'concurrent-doc', doc1, {
+      const provider1 = new WebsocketProvider(`ws://localhost:${port}/s`, concurrentDocGuid, doc1, {
         connect: true
       });
       
-      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, 'concurrent-doc', doc2, {
+      const provider2 = new WebsocketProvider(`ws://localhost:${port}/s`, concurrentDocGuid, doc2, {
         connect: true
       });
       

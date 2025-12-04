@@ -61,13 +61,13 @@ class PostgresPersistence {
    * Get the current update clock for a document
    * @private
    */
-  async _getCurrentUpdateClock(docName) {
+  async _getCurrentUpdateClock(docGuid) {
     await this._init();
     const client = await this.pool.connect();
     try {
       const result = await client.query(
-        'SELECT MAX(clock) as max_clock FROM yjs_updates WHERE doc_name = $1',
-        [docName]
+        'SELECT MAX(clock) as max_clock FROM yjs_updates WHERE doc_guid = $1',
+        [docGuid]
       );
       return result.rows[0]?.max_clock ?? -1;
     } finally {
@@ -77,14 +77,14 @@ class PostgresPersistence {
 
   /**
    * Store a Yjs document update
-   * @param {string} docName - Document name/ID
+   * @param {string} docGuid - Document GUID
    * @param {Uint8Array} update - Yjs update binary data
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docName, update) {
+  async storeUpdate(docGuid, update) {
     await this._init();
     
-    const clock = await this._getCurrentUpdateClock(docName);
+    const clock = await this._getCurrentUpdateClock(docGuid);
     const nextClock = clock + 1;
 
     const client = await this.pool.connect();
@@ -96,15 +96,15 @@ class PostgresPersistence {
         const stateVector = Y.encodeStateVector(ydoc);
         
         await client.query(
-          'INSERT INTO yjs_state_vectors (doc_name, state_vector, clock) VALUES ($1, $2, $3) ON CONFLICT (doc_name) DO UPDATE SET state_vector = $2, clock = $3, updated_at = CURRENT_TIMESTAMP',
-          [docName, Buffer.from(stateVector), nextClock]
+          'INSERT INTO yjs_state_vectors (doc_guid, state_vector, clock) VALUES ($1, $2, $3) ON CONFLICT (doc_guid) DO UPDATE SET state_vector = $2, clock = $3, updated_at = CURRENT_TIMESTAMP',
+          [docGuid, Buffer.from(stateVector), nextClock]
         );
       }
 
       // Store the update (ignore if duplicate - can happen with writeState)
       await client.query(
-        'INSERT INTO yjs_updates (doc_name, clock, update_data) VALUES ($1, $2, $3) ON CONFLICT (doc_name, clock) DO NOTHING',
-        [docName, nextClock, Buffer.from(update)]
+        'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3) ON CONFLICT (doc_guid, clock) DO NOTHING',
+        [docGuid, nextClock, Buffer.from(update)]
       );
 
       return nextClock;
@@ -115,18 +115,18 @@ class PostgresPersistence {
 
   /**
    * Get all updates for a document and reconstruct the Y.Doc
-   * @param {string} docName - Document name/ID
+   * @param {string} docGuid - Document GUID
    * @returns {Promise<Y.Doc>} The reconstructed Yjs document
    */
-  async getYDoc(docName) {
+  async getYDoc(docGuid) {
     await this._init();
     
     const client = await this.pool.connect();
     try {
       // Get all updates ordered by clock
       const result = await client.query(
-        'SELECT update_data FROM yjs_updates WHERE doc_name = $1 ORDER BY clock ASC',
-        [docName]
+        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docGuid]
       );
 
       const updates = result.rows.map(row => new Uint8Array(row.update_data));
@@ -148,22 +148,22 @@ class PostgresPersistence {
         const stateVector = Y.encodeStateVector(ydoc);
         
         // Delete old updates and state vector
-        await client.query('DELETE FROM yjs_updates WHERE doc_name = $1', [docName]);
+        await client.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
         await client.query(
-          'DELETE FROM yjs_state_vectors WHERE doc_name = $1',
-          [docName]
+          'DELETE FROM yjs_state_vectors WHERE doc_guid = $1',
+          [docGuid]
         );
         
         // Store the new state
         await client.query(
-          'INSERT INTO yjs_state_vectors (doc_name, state_vector, clock) VALUES ($1, $2, $3)',
-          [docName, Buffer.from(stateVector), 0]
+          'INSERT INTO yjs_state_vectors (doc_guid, state_vector, clock) VALUES ($1, $2, $3)',
+          [docGuid, Buffer.from(stateVector), 0]
         );
         
         // Store the single state update
         await client.query(
-          'INSERT INTO yjs_updates (doc_name, clock, update_data) VALUES ($1, $2, $3)',
-          [docName, 0, Buffer.from(stateAsUpdate)]
+          'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)',
+          [docGuid, 0, Buffer.from(stateAsUpdate)]
         );
       }
 
@@ -175,27 +175,27 @@ class PostgresPersistence {
 
   /**
    * Get the diff (updates) needed to sync a document from a given state vector
-   * @param {string} docName - Document name/ID
+   * @param {string} docGuid - Document GUID
    * @param {Uint8Array} stateVector - State vector to diff against
    * @returns {Promise<Uint8Array>} The encoded update containing the diff
    */
-  async getDiff(docName, stateVector) {
-    const ydoc = await this.getYDoc(docName);
+  async getDiff(docGuid, stateVector) {
+    const ydoc = await this.getYDoc(docGuid);
     return Y.encodeStateAsUpdate(ydoc, stateVector);
   }
 
   /**
    * Clear all data for a specific document
-   * @param {string} docName - Document name/ID
+   * @param {string} docGuid - Document GUID
    * @returns {Promise<void>}
    */
-  async clearDocument(docName) {
+  async clearDocument(docGuid) {
     await this._init();
     
     const client = await this.pool.connect();
     try {
-      await client.query('DELETE FROM yjs_updates WHERE doc_name = $1', [docName]);
-      await client.query('DELETE FROM yjs_state_vectors WHERE doc_name = $1', [docName]);
+      await client.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      await client.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
     } finally {
       client.release();
     }

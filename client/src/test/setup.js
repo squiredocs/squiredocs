@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 // Mock import.meta.env for all tests
 Object.defineProperty(import.meta, 'env', {
@@ -8,6 +8,52 @@ Object.defineProperty(import.meta, 'env', {
     VITE_WS_URL: 'ws://localhost:3001/s'
   },
   writable: false
+});
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store = {};
+  return {
+    getItem: vi.fn((key) => store[key] || null),
+    setItem: vi.fn((key, value) => {
+      store[key] = value.toString();
+    }),
+    removeItem: vi.fn((key) => {
+      delete store[key];
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+  };
+})();
+
+Object.defineProperty(global, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+});
+
+// Mock window.location
+Object.defineProperty(global, 'location', {
+  value: {
+    pathname: '/',
+    protocol: 'http:',
+    host: 'localhost:5173',
+  },
+  writable: true,
+});
+
+// Mock crypto.randomUUID for consistent test UUIDs
+Object.defineProperty(global, 'crypto', {
+  value: {
+    randomUUID: vi.fn(() => '12345678-1234-4123-8123-123456789abc'),
+  },
+  writable: true,
+});
+
+// Clear localStorage before each test
+beforeEach(() => {
+  localStorageMock.clear();
+  vi.clearAllMocks();
 });
 
 // Cleanup after each test

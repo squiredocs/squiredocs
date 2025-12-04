@@ -16,7 +16,45 @@ const getWSUrl = () => {
 };
 
 const WS_URL = getWSUrl();
-const DOC_NAME = 'default-doc';
+
+// UUID v4 generator (crypto.randomUUID with fallback)
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Get document GUID from URL path or generate a new one
+const getDocGuid = () => {
+  const path = window.location.pathname;
+  // Extract UUID from path like /d/uuid or /doc/uuid
+  const match = path.match(/^\/d(?:oc)?\/([0-9a-f-]+)$/i);
+  if (match && UUID_REGEX.test(match[1])) {
+    return match[1].toLowerCase();
+  }
+  
+  // Check if there's a stored default doc GUID
+  const storedGuid = localStorage.getItem('defaultDocGuid');
+  if (storedGuid && UUID_REGEX.test(storedGuid)) {
+    return storedGuid;
+  }
+  
+  // Generate new UUID and store it as default
+  const newGuid = generateUUID();
+  localStorage.setItem('defaultDocGuid', newGuid);
+  return newGuid;
+};
+
+const DOC_GUID = getDocGuid();
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -87,7 +125,7 @@ export function useYjs() {
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
-  const [docTitle, setDocTitleState] = useState(DOC_NAME);
+  const [docTitle, setDocTitleState] = useState('Untitled Document');
   const initialized = useRef(false);
 
   // Initialize singleton instances only once
@@ -115,7 +153,7 @@ export function useYjs() {
       });
 
       // Create WebSocket provider
-      globalProvider = new WebsocketProvider(WS_URL, DOC_NAME, globalYdoc, {
+      globalProvider = new WebsocketProvider(WS_URL, DOC_GUID, globalYdoc, {
         connect: true
       });
 
@@ -124,7 +162,7 @@ export function useYjs() {
       const meta = globalYdoc.getMap('meta');
       // Initialize title only if never set (undefined), allow empty strings
       if (meta.get('title') === undefined) {
-        meta.set('title', DOC_NAME);
+        meta.set('title', 'Untitled Document');
       }
 
       globalProvider.on('status', (event) => {
@@ -163,15 +201,15 @@ export function useYjs() {
             return;
           }
 
-          globalIndexeddbProvider = new IndexeddbPersistence(DOC_NAME, globalYdoc);
-          logPerf('INDEXEDDB_INIT', { docName: DOC_NAME });
+          globalIndexeddbProvider = new IndexeddbPersistence(DOC_GUID, globalYdoc);
+          logPerf('INDEXEDDB_INIT', { docGuid: DOC_GUID });
           
           // Verify IndexedDB persistence after sync
           globalIndexeddbProvider.on('synced', async () => {
             logPerf('INDEXEDDB_SYNCED', {});
             try {
               const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open(DOC_NAME);
+                const req = indexedDB.open(DOC_GUID);
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
               });
@@ -302,7 +340,7 @@ export function useYjs() {
     connected,
     synced,
     users,
-    docName: provider?.roomname,
+    docGuid: DOC_GUID,
     docTitle,
     setDocTitle
   };

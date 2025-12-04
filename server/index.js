@@ -34,21 +34,24 @@ const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
 // Set up persistence layer for y-websocket
 // y-websocket expects a persistence object with bindState and writeState methods
 // bindState is async but not awaited by y-websocket - it applies persisted state when it completes
+// Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
 setPersistence({
   bindState: async (docName, ydoc) => {
+    // docName here is actually the doc GUID from the URL path
+    const docGuid = docName;
     const startTime = Date.now();
     try {
       // Load persisted document from PostgreSQL
       const loadStart = Date.now();
-      const persistedYdoc = await persistenceProvider.getYDoc(docName);
-      logPerf('DB_LOAD', { docName, duration: Date.now() - loadStart });
+      const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
+      logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
       
       // Store the current (empty) document state first (like y-leveldb does)
       // This ensures the document structure exists
       const newUpdates = Y.encodeStateAsUpdate(ydoc);
       const storeStart = Date.now();
-      await persistenceProvider.storeUpdate(docName, newUpdates);
-      logPerf('DB_STORE_INITIAL', { docName, duration: Date.now() - storeStart, size: newUpdates.byteLength });
+      await persistenceProvider.storeUpdate(docGuid, newUpdates);
+      logPerf('DB_STORE_INITIAL', { docGuid, duration: Date.now() - storeStart, size: newUpdates.byteLength });
       
       // Apply persisted state to the in-memory document
       // This triggers the 'update' event which broadcasts to all connected clients
@@ -58,40 +61,41 @@ setPersistence({
       // This ensures persisted updates get persisted going forward
       ydoc.on('update', update => {
         const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docName, update)
+        persistenceProvider.storeUpdate(docGuid, update)
           .then(() => {
-            logPerf('DB_PERSIST', { docName, duration: Date.now() - persistStart, size: update.byteLength });
+            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
           })
           .catch(err => {
-            console.error(`Error persisting update for ${docName}:`, err);
+            console.error(`Error persisting update for ${docGuid}:`, err);
           });
       });
       
-      logPerf('BIND_STATE_COMPLETE', { docName, totalDuration: Date.now() - startTime });
+      logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
       // If document doesn't exist in persistence, that's okay - start with empty doc
       // Still set up the update listener
       ydoc.on('update', update => {
         const persistStart = Date.now();
-        persistenceProvider.storeUpdate(docName, update)
+        persistenceProvider.storeUpdate(docGuid, update)
           .then(() => {
-            logPerf('DB_PERSIST', { docName, duration: Date.now() - persistStart, size: update.byteLength });
+            logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
           })
           .catch(err => {
-            console.error(`Error persisting update for ${docName}:`, err);
+            console.error(`Error persisting update for ${docGuid}:`, err);
           });
       });
-      logPerf('BIND_STATE_NEW_DOC', { docName, totalDuration: Date.now() - startTime });
+      logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
     }
   },
   writeState: async (docName, ydoc) => {
     // Called when document is destroyed (no more connections)
     // Store final state
+    const docGuid = docName;
     try {
       const update = Y.encodeStateAsUpdate(ydoc);
-      await persistenceProvider.storeUpdate(docName, update);
+      await persistenceProvider.storeUpdate(docGuid, update);
     } catch (error) {
-      console.error(`Error writing state for ${docName}:`, error);
+      console.error(`Error writing state for ${docGuid}:`, error);
     }
   },
   provider: persistenceProvider

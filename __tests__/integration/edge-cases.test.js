@@ -2,8 +2,12 @@ const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 const WebSocket = require('ws');
 const express = require('express');
+const crypto = require('crypto');
 const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../../server/postgres-persistence');
+
+// Generate a valid UUID v4 for testing
+const generateTestUUID = () => crypto.randomUUID();
 
 describe('Collaboration Edge Cases', () => {
   let server;
@@ -34,32 +38,35 @@ describe('Collaboration Edge Cases', () => {
           await persistence.clearAll();
           
           // Set up persistence using setPersistence
+          // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
           setPersistence({
             bindState: async (docName, ydoc) => {
+              const docGuid = docName; // docName is actually the doc GUID from the URL path
               try {
-                const persistedYdoc = await persistence.getYDoc(docName);
+                const persistedYdoc = await persistence.getYDoc(docGuid);
                 const newUpdates = Y.encodeStateAsUpdate(ydoc);
-                await persistence.storeUpdate(docName, newUpdates);
+                await persistence.storeUpdate(docGuid, newUpdates);
                 Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
                 ydoc.on('update', update => {
-                  persistence.storeUpdate(docName, update).catch(err => {
-                    console.error(`Error persisting update for ${docName}:`, err);
+                  persistence.storeUpdate(docGuid, update).catch(err => {
+                    console.error(`Error persisting update for ${docGuid}:`, err);
                   });
                 });
               } catch (error) {
                 ydoc.on('update', update => {
-                  persistence.storeUpdate(docName, update).catch(err => {
-                    console.error(`Error persisting update for ${docName}:`, err);
+                  persistence.storeUpdate(docGuid, update).catch(err => {
+                    console.error(`Error persisting update for ${docGuid}:`, err);
                   });
                 });
               }
             },
             writeState: async (docName, ydoc) => {
+              const docGuid = docName;
               try {
                 const update = Y.encodeStateAsUpdate(ydoc);
-                await persistence.storeUpdate(docName, update);
+                await persistence.storeUpdate(docGuid, update);
               } catch (error) {
-                console.error(`Error writing state for ${docName}:`, error);
+                console.error(`Error writing state for ${docGuid}:`, error);
               }
             },
             provider: persistence
@@ -93,10 +100,11 @@ describe('Collaboration Edge Cases', () => {
   });
 
   test('handles rapid successive edits', (done) => {
+    const rapidDocGuid = generateTestUUID();
     const doc = new Y.Doc();
     const text = doc.getText('content');
     
-    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, 'rapid-doc', doc, {
+    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, rapidDocGuid, doc, {
       connect: true
     });
     
@@ -117,8 +125,9 @@ describe('Collaboration Edge Cases', () => {
   }, 10000);
 
   test('handles empty document correctly', (done) => {
+    const emptyDocGuid = generateTestUUID();
     const doc = new Y.Doc();
-    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, 'empty-doc', doc, {
+    const provider = new WebsocketProvider(`ws://localhost:${port}/s`, emptyDocGuid, doc, {
       connect: true
     });
     

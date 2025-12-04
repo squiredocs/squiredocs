@@ -37,7 +37,6 @@ describe('useYjs', () => {
       awareness: mockAwareness,
       shouldConnect: true,
       synced: true,
-      roomname: 'default-doc',
       on: vi.fn((event, handler) => {
         if (event === 'status') {
           // Call handler asynchronously using setImmediate or setTimeout(0)
@@ -72,11 +71,13 @@ describe('useYjs', () => {
     expect(result.current.awareness).toBeDefined();
   });
 
-  it('returns docName from provider.roomname', () => {
+  it('returns docGuid as a valid UUID', () => {
     const { result } = renderHook(() => useYjs());
     
-    expect(result.current.docName).toBe('default-doc');
-    expect(result.current.docName).toBe(mockProvider.roomname);
+    // docGuid should be a valid UUID format (mocked as '12345678-1234-4123-8123-123456789abc')
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(result.current.docGuid).toMatch(uuidRegex);
+    expect(result.current.docGuid).toBe('12345678-1234-4123-8123-123456789abc');
   });
 
   it('initializes with provider shouldConnect state', () => {
@@ -143,8 +144,8 @@ describe('useYjs', () => {
     it('initializes with default document title', async () => {
       const { result } = renderHook(() => useYjs());
       
-      // Initial title should be the default doc name
-      expect(result.current.docTitle).toBe('default-doc');
+      // Initial title should be 'Untitled Document'
+      expect(result.current.docTitle).toBe('Untitled Document');
     });
 
     it('provides setDocTitle function', () => {
