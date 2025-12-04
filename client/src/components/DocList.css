@@ -86,10 +86,38 @@
   margin-right: 16px;
 }
 
+.doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .doc-date {
   font-size: 13px;
   color: #718096;
   white-space: nowrap;
+}
+
+.doc-delete-btn {
+  background: none;
+  border: none;
+  color: #a0aec0;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: all 0.15s ease;
+  opacity: 0;
+}
+
+.doc-link:hover .doc-delete-btn {
+  opacity: 1;
+}
+
+.doc-delete-btn:hover {
+  background: #fed7d7;
+  color: #c53030;
 }
 
 .doc-list-empty {

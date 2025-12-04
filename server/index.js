@@ -128,6 +128,18 @@ app.get('/api/docs', async (req, res) => {
   }
 });
 
+// API: Delete a document
+app.delete('/api/docs/:docGuid', async (req, res) => {
+  try {
+    const { docGuid } = req.params;
+    await persistenceProvider.clearDocument(docGuid);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
 // Serve static files and React app (only if build directory exists)
 if (fs.existsSync(clientBuildPath)) {
   app.use(express.static(clientBuildPath));
