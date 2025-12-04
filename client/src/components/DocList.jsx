@@ -14,12 +14,22 @@ function DocList({ onNavigate }) {
     try {
       setLoading(true);
       const response = await fetch('/api/docs');
-      if (!response.ok) {
-        throw new Error('Failed to fetch documents');
+      
+      // Check content-type to ensure we're getting JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response. Make sure the backend is running.');
       }
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
+      
       const data = await response.json();
       setDocs(data.docs || []);
     } catch (err) {
+      console.error('Error fetching docs:', err);
       setError(err.message);
     } finally {
       setLoading(false);

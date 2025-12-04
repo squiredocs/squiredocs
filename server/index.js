@@ -18,6 +18,9 @@ const logPerf = (label, data = {}) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Parse JSON bodies
+app.use(express.json());
+
 // PostgreSQL connection configuration
 // Supports connection string or individual config values
 const POSTGRES_CONFIG = process.env.DATABASE_URL || {
@@ -116,7 +119,12 @@ app.get('/api/docs', async (req, res) => {
     res.json({ docs });
   } catch (error) {
     console.error('Error fetching documents:', error);
-    res.status(500).json({ error: 'Failed to fetch documents' });
+    // Include more details about the error for debugging
+    const errorMessage = error.message || 'Failed to fetch documents';
+    const hint = errorMessage.includes('doc_guid') 
+      ? ' (Have you run the migration? npm run migrate)' 
+      : '';
+    res.status(500).json({ error: errorMessage + hint });
   }
 });
 
