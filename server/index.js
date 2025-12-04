@@ -48,6 +48,8 @@ const extractDocGuid = (docName) => {
 // y-websocket expects a persistence object with bindState and writeState methods
 // bindState is async but not awaited by y-websocket - it applies persisted state when it completes
 // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
+const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
+
 setPersistence({
   bindState: async (docName, ydoc) => {
     // docName from y-websocket includes the URL path prefix (e.g., "s/uuid")
@@ -58,7 +60,13 @@ setPersistence({
     // IMPORTANT: Set up update listener FIRST, before any async operations!
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
-    ydoc.on('update', update => {
+    ydoc.on('update', (update, origin) => {
+      // Skip persisting updates that come from loading persisted state
+      // (they're already in the DB, no need to save again)
+      if (origin === ORIGIN_DB_LOAD) {
+        return;
+      }
+      
       const persistStart = Date.now();
       persistenceProvider.storeUpdate(docGuid, update)
         .then(() => {
@@ -76,9 +84,8 @@ setPersistence({
       logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
       
       // Apply persisted state to the in-memory document
-      // This triggers the 'update' event which broadcasts to all connected clients
-      // The update listener is already set up, so this will also persist the merged state
-      Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+      // Use ORIGIN_DB_LOAD so the update listener knows to skip persisting this
+      Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
       
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {

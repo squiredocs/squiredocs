@@ -18,9 +18,11 @@ const extractDocGuid = (docName) => {
 };
 
 // Short delays for tests - just enough for async operations
-const SYNC_DELAY = 100;     // Time for WebSocket message round-trip
-const PERSIST_DELAY = 200;  // Time for DB write
+const SYNC_DELAY = 150;     // Time for WebSocket message round-trip
+const PERSIST_DELAY = 300;  // Time for DB write
 const CLEANUP_DELAY = 50;   // Time after disconnect for cleanup
+
+const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
 
 describe('Collaboration Integration Tests', () => {
   let server;
@@ -52,7 +54,10 @@ describe('Collaboration Integration Tests', () => {
           bindState: async (docName, ydoc) => {
             const docGuid = extractDocGuid(docName);
             
-            ydoc.on('update', update => {
+            ydoc.on('update', (update, origin) => {
+              // Skip persisting updates from loading persisted state
+              if (origin === ORIGIN_DB_LOAD) return;
+              
               persistence.storeUpdate(docGuid, update).catch(err => {
                 console.error(`Error persisting update for ${docGuid}:`, err);
               });
@@ -60,7 +65,7 @@ describe('Collaboration Integration Tests', () => {
             
             try {
               const persistedYdoc = await persistence.getYDoc(docGuid);
-              Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+              Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
             } catch (error) {
               // New document
             }

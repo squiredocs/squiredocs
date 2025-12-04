@@ -15,6 +15,8 @@ const extractDocGuid = (docName) => {
   return docName;
 };
 
+const ORIGIN_DB_LOAD = 'db-load';
+
 describe('Collaboration Edge Cases', () => {
   let server;
   let wss;
@@ -45,7 +47,9 @@ describe('Collaboration Edge Cases', () => {
           bindState: async (docName, ydoc) => {
             const docGuid = extractDocGuid(docName);
             
-            ydoc.on('update', update => {
+            ydoc.on('update', (update, origin) => {
+              if (origin === ORIGIN_DB_LOAD) return;
+              
               persistence.storeUpdate(docGuid, update).catch(err => {
                 console.error(`Error persisting update for ${docGuid}:`, err);
               });
@@ -53,7 +57,7 @@ describe('Collaboration Edge Cases', () => {
             
             try {
               const persistedYdoc = await persistence.getYDoc(docGuid);
-              Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+              Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
             } catch (error) {
               // New document
             }
