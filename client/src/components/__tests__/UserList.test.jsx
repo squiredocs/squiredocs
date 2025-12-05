@@ -6,8 +6,8 @@ describe('UserList', () => {
   it('renders empty state when no users', () => {
     render(<UserList users={[]} />);
     
-    expect(screen.getByText('Online Users')).toBeInTheDocument();
-    expect(screen.getByText('No other users online')).toBeInTheDocument();
+    expect(screen.getByText('Online Users (0)')).toBeInTheDocument();
+    expect(screen.getByText('No users online')).toBeInTheDocument();
   });
 
   it('renders list of users', () => {

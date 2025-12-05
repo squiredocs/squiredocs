@@ -27,6 +27,8 @@ class TrackedPersistence {
   constructor(persistence) {
     this.persistence = persistence;
     this.pendingWrites = new Set();
+    this.writeCount = 0;
+    this.writeListeners = [];
   }
 
   /**
@@ -35,8 +37,13 @@ class TrackedPersistence {
   async storeUpdate(docGuid, update) {
     const writePromise = this.persistence.storeUpdate(docGuid, update);
     this.pendingWrites.add(writePromise);
+    
+    // Notify listeners that a write started
+    this.writeListeners.forEach(fn => fn());
+    
     try {
       const result = await writePromise;
+      this.writeCount++;
       return result;
     } finally {
       this.pendingWrites.delete(writePromise);
@@ -50,6 +57,27 @@ class TrackedPersistence {
     if (this.pendingWrites.size > 0) {
       await Promise.all([...this.pendingWrites]);
     }
+  }
+
+  /**
+   * Wait for at least one new write to complete.
+   * This handles the race condition where the WebSocket message
+   * hasn't reached the server yet when we start waiting.
+   */
+  async waitForNextWrite(timeout = 2000) {
+    const startCount = this.writeCount;
+    const startTime = Date.now();
+    
+    // Wait for either a pending write or a new write to start
+    while (this.pendingWrites.size === 0 && this.writeCount === startCount) {
+      if (Date.now() - startTime > timeout) {
+        throw new Error('Timeout waiting for write');
+      }
+      await new Promise(r => setTimeout(r, 10));
+    }
+    
+    // Now wait for pending writes to complete
+    await this.waitForPendingWrites();
   }
 
   // Delegate other methods to the underlying persistence
@@ -180,9 +208,8 @@ describe('Collaboration Integration Tests', () => {
         
         meta.set('title', 'My Test Document');
         
-        // Allow WebSocket message to reach the server, then wait for DB write
-        await tick(50);
-        await trackedPersistence.waitForPendingWrites();
+        // Wait for the update to be received and persisted
+        await trackedPersistence.waitForNextWrite();
         
         provider.destroy();
         
@@ -209,12 +236,10 @@ describe('Collaboration Integration Tests', () => {
         await waitForSync(provider);
         
         meta.set('title', 'Untitled Document');
-        await tick(50);
-        await trackedPersistence.waitForPendingWrites();
+        await trackedPersistence.waitForNextWrite();
         
         meta.set('title', 'My Custom Title');
-        await tick(50);
-        await trackedPersistence.waitForPendingWrites();
+        await trackedPersistence.waitForNextWrite();
         
         provider.destroy();
         
@@ -242,9 +267,8 @@ describe('Collaboration Integration Tests', () => {
         
         meta.set('title', 'Quick Title Change');
         
-        // Wait for WebSocket propagation then persistence
-        await tick(50);
-        await trackedPersistence.waitForPendingWrites();
+        // Wait for the update to be received and persisted
+        await trackedPersistence.waitForNextWrite();
         
         provider.destroy();
         
@@ -271,8 +295,7 @@ describe('Collaboration Integration Tests', () => {
       
       await waitForSync(provider1);
       meta1.set('title', 'Server Title');
-      await tick(50);
-      await trackedPersistence.waitForPendingWrites();
+      await trackedPersistence.waitForNextWrite();
       provider1.destroy();
       
       // Second client connects and should see the title
@@ -309,8 +332,7 @@ describe('Collaboration Integration Tests', () => {
         await waitForSync(provider);
         
         meta.set('title', 'My Real Title');
-        await tick(50);
-        await trackedPersistence.waitForPendingWrites();
+        await trackedPersistence.waitForNextWrite();
         
         const docs = await trackedPersistence.getAllDocumentsWithMeta();
         const ourDoc = docs.find(d => d.docGuid === testDocGuid);
@@ -380,7 +402,7 @@ describe('Collaboration Integration Tests', () => {
         text1.insert(0, 'A');
         text2.insert(0, 'B');
         
-        // Wait for sync and persistence
+        // Wait for sync (both writes should complete)
         await tick(100);
         await trackedPersistence.waitForPendingWrites();
         
