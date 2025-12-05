@@ -44,6 +44,39 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: password
+            # Google OAuth
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: GOOGLE_CLIENT_SECRET
+            - name: GOOGLE_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: GOOGLE_REDIRECT_URI
+            # JWT Secrets
+            - name: ACCESS_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: ACCESS_TOKEN_SECRET
+            - name: REFRESH_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: REFRESH_TOKEN_SECRET
+            # Client URL (for CORS and redirects)
+            - name: CLIENT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: CLIENT_URL
           readinessProbe:
             httpGet:
               path: /health
