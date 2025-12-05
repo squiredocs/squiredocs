@@ -2,7 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Collaboration from '@tiptap/extension-collaboration';
-import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
+import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import { useMemo, useEffect, useRef, useCallback } from 'react';
 import './Editor.css';
 
@@ -19,6 +19,33 @@ function renderCursor(user) {
   cursor.appendChild(label);
 
   return cursor;
+}
+
+// Convert any color format to rgba with opacity
+function colorToRgba(color, opacity) {
+  // Create a temporary element to parse the color
+  const temp = document.createElement('div');
+  temp.style.color = color;
+  document.body.appendChild(temp);
+  const computed = getComputedStyle(temp).color;
+  document.body.removeChild(temp);
+  
+  // computed is in format "rgb(r, g, b)" or "rgba(r, g, b, a)"
+  const match = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (match) {
+    return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${opacity})`;
+  }
+  // Fallback
+  return `rgba(0, 0, 0, ${opacity})`;
+}
+
+// Create selection highlight - returns decoration ATTRIBUTES, not a DOM element
+function renderSelection(user) {
+  const bgColor = colorToRgba(user.color, 0.3);
+  return {
+    style: `background-color: ${bgColor};`,
+    class: 'collaboration-cursor__selection',
+  };
 }
 
 export default function Editor({ ydoc, awareness, provider, user: userInfo, synced, onEditorReady }) {
@@ -62,10 +89,11 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, sync
 
     if (provider) {
       baseExtensions.push(
-        CollaborationCursor.configure({
+        CollaborationCursorWithSelection.configure({
           provider,
           user,
-          render: renderCursor
+          render: renderCursor,
+          selectionRender: renderSelection,
         })
       );
     }
@@ -86,34 +114,25 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, sync
     }
   }, [editor, onEditorReady]);
 
-  // Track cursor movements via awareness and show labels
+  // Track cursor movements and selection changes via awareness, show labels
   useEffect(() => {
     if (!awareness) return;
 
     // Show all labels on initial load (slight delay for DOM to render cursors)
     const initTimeout = setTimeout(showCursorLabels, 100);
 
-    // Track previous cursor positions to detect actual movement
-    const prevPositions = new Map();
-
     const handleAwarenessChange = ({ added, updated }) => {
+      // Show labels whenever any user's cursor/selection state changes
+      // This catches all cases including double/triple click selections
       const changedIds = [...added, ...updated];
-      let hasMovement = false;
       
-      changedIds.forEach(clientId => {
+      // Check if any changed user has cursor data
+      const hasCursorChange = changedIds.some(clientId => {
         const state = awareness.getStates().get(clientId);
-        if (!state?.cursor) return;
-
-        const prevPos = prevPositions.get(clientId);
-        const newPos = JSON.stringify(state.cursor);
-        
-        if (prevPos !== newPos) {
-          prevPositions.set(clientId, newPos);
-          hasMovement = true;
-        }
+        return state?.cursor != null;
       });
 
-      if (hasMovement || added.length > 0) {
+      if (hasCursorChange || added.length > 0) {
         showCursorLabels();
       }
     };
