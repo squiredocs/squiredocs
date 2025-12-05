@@ -107,6 +107,23 @@ describe('useYjs', () => {
     expect(mockProvider.destroy).toBeDefined();
   });
 
+  describe('user awareness', () => {
+    it('returns users array from hook', () => {
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
+      
+      // The hook should return a users array
+      expect(result.current.users).toBeDefined();
+      expect(Array.isArray(result.current.users)).toBe(true);
+    });
+
+    it('returns awareness object from hook', () => {
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
+      
+      // The hook should return awareness for cursor tracking
+      expect(result.current.awareness).toBeDefined();
+    });
+  });
+
   it('handles provider connection errors gracefully', async () => {
     mockProvider.on = vi.fn((event, handler) => {
       if (event === 'connection-error') {

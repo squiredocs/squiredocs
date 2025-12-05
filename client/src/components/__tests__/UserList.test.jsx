@@ -22,7 +22,7 @@ describe('UserList', () => {
     expect(screen.getByText('Bob')).toBeInTheDocument();
   });
 
-  it('displays user color indicators', () => {
+  it('displays user color indicators when no picture', () => {
     const users = [
       { id: 1, name: 'Alice', color: '#ff0000' }
     ];
@@ -32,6 +32,18 @@ describe('UserList', () => {
     
     expect(colorDot).toBeInTheDocument();
     expect(colorDot).toHaveStyle({ backgroundColor: '#ff0000' });
+  });
+
+  it('displays user avatar when picture is provided', () => {
+    const users = [
+      { id: 1, name: 'Alice', color: '#ff0000', picture: 'https://example.com/alice.jpg' }
+    ];
+    
+    render(<UserList users={users} />);
+    
+    const avatar = screen.getByRole('img', { name: 'Alice' });
+    expect(avatar).toBeInTheDocument();
+    expect(avatar).toHaveAttribute('src', 'https://example.com/alice.jpg');
   });
 
   it('handles long user names gracefully', () => {
@@ -55,6 +67,33 @@ describe('UserList', () => {
     users.forEach(user => {
       expect(screen.getByText(user.name)).toBeInTheDocument();
     });
+  });
+
+  it('renders mix of users with and without pictures', () => {
+    const users = [
+      { id: 1, name: 'Alice', color: '#ff0000', picture: 'https://example.com/alice.jpg' },
+      { id: 2, name: 'Bob', color: '#00ff00' }
+    ];
+    
+    const { container } = render(<UserList users={users} />);
+    
+    // Alice should have an avatar image
+    expect(screen.getByRole('img', { name: 'Alice' })).toBeInTheDocument();
+    
+    // Bob should have a color dot
+    const colorDots = container.querySelectorAll('.user-list-color');
+    expect(colorDots.length).toBe(1);
+  });
+
+  it('marks current user with "(you)" label', () => {
+    const users = [
+      { id: 1, name: 'Alice', color: '#ff0000' },
+      { id: 2, name: 'Bob', color: '#00ff00' }
+    ];
+    
+    render(<UserList users={users} currentUserId={1} />);
+    
+    expect(screen.getByText('(you)')).toBeInTheDocument();
   });
 });
 

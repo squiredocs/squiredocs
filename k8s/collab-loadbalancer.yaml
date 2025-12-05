@@ -18,3 +18,4 @@ spec:
   sessionAffinityConfig:
     clientIP:
       timeoutSeconds: 10800  # 3 hours - typical WebSocket connection lifetime
+

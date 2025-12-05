@@ -251,3 +251,4 @@ describe('Auth routes', () => {
     });
   });
 });
+

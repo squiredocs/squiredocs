@@ -12,3 +12,4 @@ kubectl label nodes minikube node-type=cpu-optimized --overwrite
 echo "Minikube setup complete!"
 
 
+
