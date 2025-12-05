@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
+import LoginPage from './components/LoginPage';
 import './App.css';
 
 // UUID validation regex
@@ -9,6 +11,11 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // Parse the current URL to determine the view
 function parseRoute() {
   const path = window.location.pathname;
+  
+  // Check for /login path
+  if (path === '/login') {
+    return { view: 'login', docGuid: null };
+  }
   
   // Check for /d/{uuid} or /doc/{uuid} pattern
   const match = path.match(/^\/d(?:oc)?\/([0-9a-f-]+)$/i);
@@ -20,7 +27,11 @@ function parseRoute() {
   return { view: 'list', docGuid: null };
 }
 
-function App() {
+/**
+ * Main app content - handles routing based on auth state
+ */
+function AppContent() {
+  const { user, loading, isAuthenticated } = useAuth();
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
 
@@ -49,17 +60,45 @@ function App() {
     setListKey(k => k + 1); // Force DocList to refetch
   };
 
+  // Show loading state during auth initialization
+  if (loading) {
+    return (
+      <div className="app-loading">
+        <div className="loading-spinner"></div>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  // Authenticated - show app content
   if (route.view === 'editor' && route.docGuid) {
     return (
       <EditorView 
         key={route.docGuid} 
         docGuid={route.docGuid} 
-        onNavigateHome={navigateHome} 
+        onNavigateHome={navigateHome}
+        user={user}
       />
     );
   }
 
-  return <DocList key={listKey} onNavigate={navigateToDoc} />;
+  return <DocList key={listKey} onNavigate={navigateToDoc} user={user} />;
+}
+
+/**
+ * Root App component with AuthProvider
+ */
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
 }
 
 export default App;

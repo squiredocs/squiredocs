@@ -1,47 +1,54 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import UserList from './UserList';
 import ConnectionStatus from './ConnectionStatus';
 import { useYjs } from '../hooks/useYjs';
+import { useAuth } from '../contexts/AuthContext';
 import './EditorView.css';
 
-function EditorView({ docGuid, onNavigateHome }) {
+/**
+ * Generate a deterministic color from a string (user ID)
+ */
+function generateColorFromId(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    const char = id.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  // Generate a HSL color with good saturation and lightness for visibility
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 70%, 45%)`;
+}
+
+function EditorView({ docGuid, onNavigateHome, user }) {
+  const { logout } = useAuth();
   const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid);
   const [editor, setEditor] = useState(null);
-  const [userName, setUserName] = useState(() => {
-    const stored = localStorage.getItem('userName');
-    return stored || `User ${Math.floor(Math.random() * 1000)}`;
-  });
-  const [userColor] = useState(() => {
-    const stored = localStorage.getItem('userColor');
-    return stored || `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-  });
 
-  useEffect(() => {
-    if (userName) {
-      localStorage.setItem('userName', userName);
-    }
-  }, [userName]);
+  // Generate user color deterministically from user ID
+  const userColor = useMemo(() => {
+    return user?.id ? generateColorFromId(user.id) : '#4a90e2';
+  }, [user?.id]);
 
+  // Set awareness state with authenticated user info
   useEffect(() => {
-    if (userColor) {
-      localStorage.setItem('userColor', userColor);
-    }
-  }, [userColor]);
-
-  useEffect(() => {
-    if (awareness) {
+    if (awareness && user) {
       awareness.setLocalStateField('user', {
-        name: userName,
+        name: user.name,
+        email: user.email,
+        picture: user.picture,
         color: userColor
       });
     }
-  }, [awareness, userName, userColor]);
+  }, [awareness, user, userColor]);
 
   if (!ydoc || !provider || !synced) {
     return (
       <div className="app-loading">
+        <div className="loading-spinner"></div>
         <div>Loading editor... {!synced ? '(syncing...)' : ''}</div>
       </div>
     );
@@ -69,20 +76,31 @@ function EditorView({ docGuid, onNavigateHome }) {
             />
           </div>
           <div className="app-header-right">
-            <input
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              className="user-name-input"
-              placeholder="Your name"
-            />
+            <div className="user-profile">
+              {user?.picture ? (
+                <img 
+                  src={user.picture} 
+                  alt={user.name} 
+                  className="user-avatar"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="user-avatar-placeholder">
+                  {user?.name?.charAt(0).toUpperCase() || '?'}
+                </div>
+              )}
+              <span className="user-name">{user?.name || 'User'}</span>
+            </div>
+            <button className="logout-btn" onClick={logout}>
+              Logout
+            </button>
             <ConnectionStatus connected={connected} />
           </div>
         </div>
       </header>
       <div className="app-body">
         <aside className="app-sidebar">
-          <UserList users={users} />
+          <UserList users={users} currentUserId={awareness?.clientID} />
         </aside>
         <main className="app-main">
           <Toolbar editor={editor} />
@@ -90,7 +108,7 @@ function EditorView({ docGuid, onNavigateHome }) {
             ydoc={ydoc} 
             provider={provider}
             awareness={awareness} 
-            userName={userName} 
+            userName={user?.name || 'Anonymous'} 
             userColor={userColor}
             synced={synced}
             onEditorReady={setEditor}
@@ -102,4 +120,3 @@ function EditorView({ docGuid, onNavigateHome }) {
 }
 
 export default EditorView;
-

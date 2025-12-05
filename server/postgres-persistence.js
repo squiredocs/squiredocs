@@ -287,6 +287,15 @@ class PostgresPersistence {
   async destroy() {
     await this.pool.end();
   }
+
+  /**
+   * Get the database connection pool
+   * Useful for sharing the pool with other modules (e.g., auth)
+   * @returns {Pool}
+   */
+  getPool() {
+    return this.pool;
+  }
 }
 
 module.exports = { PostgresPersistence };

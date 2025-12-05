@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import './DocList.css';
 
-function DocList({ onNavigate }) {
+function DocList({ onNavigate, user }) {
+  const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,24 +15,12 @@ function DocList({ onNavigate }) {
   const fetchDocs = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/docs');
-      
-      // Check content-type to ensure we're getting JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Server returned non-JSON response. Make sure the backend is running.');
-      }
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setDocs(data.docs || []);
+      // Use the authenticated API client
+      const response = await api.get('/api/docs');
+      setDocs(response.data.docs || []);
     } catch (err) {
       console.error('Error fetching docs:', err);
-      setError(err.message);
+      setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
@@ -56,7 +46,16 @@ function DocList({ onNavigate }) {
   if (loading) {
     return (
       <div className="doc-list-container">
-        <div className="doc-list-loading">Loading documents...</div>
+        <header className="doc-list-header">
+          <h1>Documents</h1>
+          <div className="doc-list-header-right">
+            <UserProfileBadge user={user} onLogout={logout} />
+          </div>
+        </header>
+        <div className="doc-list-loading">
+          <div className="loading-spinner"></div>
+          Loading documents...
+        </div>
       </div>
     );
   }
@@ -64,6 +63,12 @@ function DocList({ onNavigate }) {
   if (error) {
     return (
       <div className="doc-list-container">
+        <header className="doc-list-header">
+          <h1>Documents</h1>
+          <div className="doc-list-header-right">
+            <UserProfileBadge user={user} onLogout={logout} />
+          </div>
+        </header>
         <div className="doc-list-error">
           <p>Error: {error}</p>
           <button onClick={fetchDocs}>Try Again</button>
@@ -76,9 +81,12 @@ function DocList({ onNavigate }) {
     <div className="doc-list-container">
       <header className="doc-list-header">
         <h1>Documents</h1>
-        <button className="create-doc-btn" onClick={handleCreateNew}>
-          + New Document
-        </button>
+        <div className="doc-list-header-right">
+          <button className="create-doc-btn" onClick={handleCreateNew}>
+            + New Document
+          </button>
+          <UserProfileBadge user={user} onLogout={logout} />
+        </div>
       </header>
 
       {docs.length === 0 ? (
@@ -113,5 +121,50 @@ function DocList({ onNavigate }) {
   );
 }
 
-export default DocList;
+/**
+ * User profile badge component
+ */
+function UserProfileBadge({ user, onLogout }) {
+  const [showMenu, setShowMenu] = useState(false);
 
+  return (
+    <div className="user-profile-badge">
+      <button 
+        className="user-profile-trigger"
+        onClick={() => setShowMenu(!showMenu)}
+        aria-expanded={showMenu}
+      >
+        {user?.picture ? (
+          <img 
+            src={user.picture} 
+            alt={user.name} 
+            className="user-avatar-small"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="user-avatar-placeholder-small">
+            {user?.name?.charAt(0).toUpperCase() || '?'}
+          </div>
+        )}
+      </button>
+      
+      {showMenu && (
+        <>
+          <div className="user-menu-backdrop" onClick={() => setShowMenu(false)} />
+          <div className="user-menu">
+            <div className="user-menu-header">
+              <div className="user-menu-name">{user?.name || 'User'}</div>
+              <div className="user-menu-email">{user?.email || ''}</div>
+            </div>
+            <div className="user-menu-divider" />
+            <button className="user-menu-item" onClick={onLogout}>
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default DocList;

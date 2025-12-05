@@ -1,10 +1,15 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 const express = require('express');
 const WebSocket = require('ws');
 const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
 const path = require('path');
 const fs = require('fs');
+const cookieParser = require('cookie-parser');
 const { PostgresPersistence } = require('./postgres-persistence');
 const Y = require('yjs');
+const { router: authRouter, initUsers } = require('./auth');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -18,8 +23,32 @@ const logPerf = (label, data = {}) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Client URL for CORS (configurable via env)
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+
+// CORS configuration - allow credentials for cookies
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  // Allow requests from configured client URL
+  if (origin === CLIENT_URL || process.env.NODE_ENV !== 'production') {
+    res.setHeader('Access-Control-Allow-Origin', origin || CLIENT_URL);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Parse JSON bodies
 app.use(express.json());
+
+// Parse cookies for refresh token
+app.use(cookieParser());
 
 // PostgreSQL connection configuration
 // Supports connection string or individual config values
@@ -99,6 +128,12 @@ setPersistence({
   writeState: async () => {},
   provider: persistenceProvider
 });
+
+// Initialize user authentication with shared database pool
+initUsers(persistenceProvider.getPool());
+
+// Mount auth routes
+app.use('/auth', authRouter);
 
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
