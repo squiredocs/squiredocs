@@ -166,6 +166,22 @@ kubectl apply -f k8s/namespace.yaml
 # Deploy PostgreSQL secret if it doesn't exist
 kubectl apply -f k8s/postgres-secret.yaml -n collab
 
+# Deploy auth secret from appropriate .env file
+if [[ "$CURRENT_CONTEXT" == *"minikube"* ]]; then
+  AUTH_ENV_FILE="k8s/auth.env"
+else
+  AUTH_ENV_FILE="k8s/auth.production.env"
+fi
+
+if [[ -f "$AUTH_ENV_FILE" ]]; then
+  echo "Creating/updating auth-secret from $AUTH_ENV_FILE..."
+  kubectl delete secret auth-secret --ignore-not-found=true -n collab
+  kubectl create secret generic auth-secret --from-env-file="$AUTH_ENV_FILE" -n collab
+else
+  echo "WARNING: $AUTH_ENV_FILE not found. Skipping auth-secret creation."
+  echo "Authentication will not work without this secret."
+fi
+
 # Main deployment logic
 echo "Deploying application..."
 run_migrations

@@ -13,3 +13,4 @@ coverage/
 .cursor
 k8s/postgres-secret.yaml
 k8s/auth.env
+k8s/auth.production.env
