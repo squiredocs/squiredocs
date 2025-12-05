@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import ConnectionStatus from './ConnectionStatus';
+import UserProfileBadge from './UserProfileBadge';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
 import './EditorView.css';
@@ -138,25 +139,8 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 )}
               </div>
             )}
-            <div className="user-profile">
-              {user?.picture ? (
-                <img 
-                  src={user.picture} 
-                  alt={user.name} 
-                  className="user-avatar"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="user-avatar-placeholder">
-                  {user?.name?.charAt(0).toUpperCase() || '?'}
-                </div>
-              )}
-              <span className="user-name">{user?.name || 'User'}</span>
-            </div>
-            <button className="logout-btn" onClick={logout}>
-              Logout
-            </button>
             <ConnectionStatus connected={connected} />
+            <UserProfileBadge user={user} onLogout={logout} />
           </div>
         </div>
       </header>
