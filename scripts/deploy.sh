@@ -158,6 +158,7 @@ deploy_app() {
   envsubst_safe < k8s/app-deployment.yaml | kubectl apply -f - -n collab
   envsubst_safe < k8s/app-service.yaml | kubectl apply -f - -n collab
   envsubst_safe < k8s/app-hpa.yaml | kubectl apply -f - -n collab
+  kubectl apply -f k8s/collab-loadbalancer.yaml -n collab
 }
 
 # Create namespace if it doesn't exist
