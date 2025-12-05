@@ -78,14 +78,6 @@
   margin: 0 auto;
 }
 
-.app-sidebar {
-  width: 200px;
-  background-color: #f9f9f9;
-  border-right: 1px solid #e0e0e0;
-  padding: 16px;
-  overflow-y: auto;
-}
-
 .app-main {
   flex: 1;
   display: flex;

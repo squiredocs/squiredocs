@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
-import UserList from './UserList';
 import ConnectionStatus from './ConnectionStatus';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
@@ -162,9 +161,6 @@ function EditorView({ docGuid, onNavigateHome, user }) {
         </div>
       </header>
       <div className="app-body">
-        <aside className="app-sidebar">
-          <UserList users={users} currentUserId={awareness?.clientID} />
-        </aside>
         <main className="app-main">
           <Toolbar editor={editor} />
           <Editor 
