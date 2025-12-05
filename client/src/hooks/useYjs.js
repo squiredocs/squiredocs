@@ -235,7 +235,8 @@ export function useYjs(docGuid) {
             return {
               id: clientId,
               name: state.user.name,
-              color: state.user.color
+              color: state.user.color,
+              picture: state.user.picture
             };
           }
           return null;

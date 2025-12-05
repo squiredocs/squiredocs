@@ -33,17 +33,13 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     return user?.id ? generateColorFromId(user.id) : '#4a90e2';
   }, [user?.id]);
 
-  // Set awareness state with authenticated user info
-  useEffect(() => {
-    if (awareness && user) {
-      awareness.setLocalStateField('user', {
-        name: user.name,
-        email: user.email,
-        picture: user.picture,
-        color: userColor
-      });
-    }
-  }, [awareness, user, userColor]);
+  // Complete user info for collaboration
+  const collaborationUser = useMemo(() => ({
+    name: user?.name || 'Anonymous',
+    email: user?.email,
+    picture: user?.picture,
+    color: userColor
+  }), [user, userColor]);
 
   if (!ydoc || !provider || !synced) {
     return (
@@ -76,6 +72,73 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             />
           </div>
           <div className="app-header-right">
+            {/* Active collaborators (excluding current user) */}
+            {users.filter(u => u.id !== awareness?.clientID).length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', marginRight: 8 }}>
+                {users
+                  .filter(u => u.id !== awareness?.clientID)
+                  .slice(0, 5)
+                  .map((u, i) => (
+                    <div
+                      key={u.id}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        marginLeft: i === 0 ? 0 : -8,
+                        overflow: 'hidden',
+                        boxShadow: `0 0 0 2px ${u.color || '#667eea'}`,
+                        zIndex: 5 - i,
+                        position: 'relative',
+                        flexShrink: 0,
+                        background: '#fff'
+                      }}
+                      title={u.name}
+                    >
+                      {u.picture ? (
+                        <img 
+                          src={u.picture} 
+                          alt={u.name} 
+                          referrerPolicy="no-referrer"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: '100%',
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#fff',
+                          fontSize: 14,
+                          fontWeight: 600,
+                          background: u.color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                        }}>
+                          {u.name?.charAt(0).toUpperCase() || '?'}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                {users.filter(u => u.id !== awareness?.clientID).length > 5 && (
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    background: '#666',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    marginLeft: -8,
+                    boxShadow: '0 0 0 2px #fff'
+                  }}>
+                    +{users.filter(u => u.id !== awareness?.clientID).length - 5}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="user-profile">
               {user?.picture ? (
                 <img 
@@ -108,8 +171,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             ydoc={ydoc} 
             provider={provider}
             awareness={awareness} 
-            userName={user?.name || 'Anonymous'} 
-            userColor={userColor}
+            user={collaborationUser}
             synced={synced}
             onEditorReady={setEditor}
           />
