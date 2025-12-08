@@ -3,16 +3,20 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 
-// Construct WebSocket URL - use /s path for server
+// Construct WebSocket URL - use /s/ path for server
+// IMPORTANT: Must end with trailing slash so y-websocket appends room name correctly
+// y-websocket uses: new URL(roomname, serverUrl) which replaces the path without trailing slash
 // In production, use same host/port as the page (relative)
 // In development, use VITE_WS_URL if set, otherwise use same host/port as page
 const getWSUrl = () => {
   if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
+    // Ensure trailing slash
+    const url = import.meta.env.VITE_WS_URL;
+    return url.endsWith('/') ? url : url + '/';
   }
   // Use same host/port as the current page (works for both dev and prod)
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/s`;
+  return `${protocol}//${window.location.host}/s/`;
 };
 
 const WS_URL = getWSUrl();
@@ -85,12 +89,16 @@ function getOrCreateInstances(docGuid, accessToken) {
   
   if (instanceCache.has(cacheKey)) {
     const cached = instanceCache.get(cacheKey);
-    // If token changed, update the provider params
+    // If token changed, reconnect with new token
     if (cached.accessToken !== accessToken && cached.provider) {
       cached.accessToken = accessToken;
-      // Reconnect with new token
+      // y-websocket constructs URL as: serverUrl (without trailing /) + '/' + roomname + '?' + params
+      // When manually setting provider.url, construct the same format
+      const baseUrl = WS_URL.replace(/\/+$/, ''); // Remove trailing slashes
+      const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+      const newUrl = `${baseUrl}/${docGuid}${tokenParam}`;
       cached.provider.disconnect();
-      cached.provider.url = `${WS_URL}?token=${encodeURIComponent(accessToken)}`;
+      cached.provider.url = newUrl;
       cached.provider.connect();
     }
     return cached;
@@ -115,14 +123,12 @@ function getOrCreateInstances(docGuid, accessToken) {
     }
   });
 
-  // Build WebSocket URL with auth token
-  const wsUrlWithToken = accessToken 
-    ? `${WS_URL}?token=${encodeURIComponent(accessToken)}`
-    : WS_URL;
-
-  // Create WebSocket provider
-  const provider = new WebsocketProvider(wsUrlWithToken, docGuid, ydoc, {
-    connect: true
+  // Create WebSocket provider with auth token in params
+  // NOTE: y-websocket ignores query params in the URL, must use params option
+  const wsParams = accessToken ? { token: accessToken } : {};
+  const provider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
+    connect: true,
+    params: wsParams
   });
 
   provider.on('status', (event) => {
