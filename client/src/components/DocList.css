@@ -92,11 +92,25 @@
   background-color: #f1f3f4;
 }
 
-.doc-icon {
+.doc-icon-wrapper {
+  position: relative;
   width: 40px;
   height: 40px;
   flex-shrink: 0;
   margin-right: 16px;
+}
+
+.doc-icon {
+  width: 40px;
+  height: 40px;
+}
+
+.shared-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
 }
 
 .doc-info {
@@ -116,10 +130,19 @@
   line-height: 1.4;
 }
 
-.doc-date {
+.doc-meta {
   font-size: 12px;
   color: #5f6368;
   margin-top: 2px;
+}
+
+.doc-date {
+  color: inherit;
+}
+
+.shared-by {
+  color: #059669;
+  font-weight: 500;
 }
 
 .doc-menu-btn {

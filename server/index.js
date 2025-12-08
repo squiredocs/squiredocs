@@ -9,7 +9,9 @@ const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { PostgresPersistence } = require('./postgres-persistence');
 const Y = require('yjs');
-const { router: authRouter, initUsers } = require('./auth');
+const { router: authRouter, initUsers, requireAuth } = require('./auth');
+const documents = require('./documents');
+const permissions = require('./permissions');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -132,6 +134,9 @@ setPersistence({
 // Initialize user authentication with shared database pool
 initUsers(persistenceProvider.getPool());
 
+// Initialize documents module with shared database pool
+documents.init(persistenceProvider.getPool());
+
 // Mount auth routes
 app.use('/auth', authRouter);
 
@@ -143,19 +148,269 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// API: List all documents
-app.get('/api/docs', async (req, res) => {
+// API: List documents accessible by the current user
+app.get('/api/docs', requireAuth, async (req, res) => {
   try {
-    const docs = await persistenceProvider.getAllDocumentsWithMeta();
+    const userId = req.user.userId;
+    
+    // Get documents the user has access to with their role
+    const accessibleDocs = await documents.getAccessibleDocuments(userId);
+    
+    // Build a map of docId -> access info
+    const accessMap = new Map();
+    for (const doc of accessibleDocs) {
+      accessMap.set(doc.doc_id, {
+        role: doc.role,
+        ownerName: doc.owner_name,
+        ownerEmail: doc.owner_email,
+      });
+    }
+    
+    // Get all docs with metadata from persistence
+    const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
+    
+    // Filter to only accessible docs and enrich with role info
+    const docs = allDocsWithMeta
+      .filter(doc => accessMap.has(doc.docGuid))
+      .map(doc => {
+        const access = accessMap.get(doc.docGuid);
+        return {
+          ...doc,
+          role: access.role,
+          ownerName: access.ownerName,
+          ownerEmail: access.ownerEmail,
+        };
+      });
+    
     res.json({ docs });
   } catch (error) {
     console.error('Error fetching documents:', error);
-    // Include more details about the error for debugging
     const errorMessage = error.message || 'Failed to fetch documents';
     const hint = errorMessage.includes('doc_guid') 
       ? ' (Have you run the migration? npm run migrate)' 
       : '';
     res.status(500).json({ error: errorMessage + hint });
+  }
+});
+
+// API: Create a new document (establishes ownership)
+app.post('/api/docs', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.body;
+    const userId = req.user.userId;
+    
+    if (!docId) {
+      return res.status(400).json({ error: 'docId is required' });
+    }
+    
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(docId)) {
+      return res.status(400).json({ error: 'Invalid docId format' });
+    }
+    
+    // Check if document already exists
+    const existingDoc = await documents.getDocument(docId);
+    if (existingDoc) {
+      // Document exists - check if user has access
+      const hasAccess = await documents.hasAccess(docId, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const role = await documents.getRole(docId, userId);
+      return res.json({ doc: existingDoc, role, created: false });
+    }
+    
+    // Create the document with this user as owner
+    const doc = await documents.createDocument(docId, userId);
+    res.status(201).json({ doc, role: 'owner', created: true });
+  } catch (error) {
+    console.error('Error creating document:', error);
+    res.status(500).json({ error: 'Failed to create document' });
+  }
+});
+
+// API: Get document info
+app.get('/api/docs/:docId', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const userId = req.user.userId;
+    
+    // Get user's role
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const doc = await documents.getDocument(docId);
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    res.json({
+      doc: {
+        id: doc.id,
+        createdAt: doc.created_at,
+        updatedAt: doc.updated_at,
+      },
+      role,
+    });
+  } catch (error) {
+    console.error('Error getting document:', error);
+    res.status(500).json({ error: 'Failed to get document' });
+  }
+});
+
+// API: Share document with a user by email
+app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { email, role = 'editor' } = req.body;
+    const userId = req.user.userId;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+    
+    // Validate role
+    if (!documents.ROLES[role] || role === 'owner') {
+      return res.status(400).json({ error: 'Invalid role. Use "editor" or "viewer"' });
+    }
+    
+    // Check if user has access to the document (anyone with access can share)
+    const hasAccess = await documents.hasAccess(docId, userId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+    
+    // Find the user to share with
+    const targetUser = await documents.findUserByEmail(email);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found. They must sign in at least once.' });
+    }
+    
+    // Can't share with yourself
+    if (targetUser.id === userId) {
+      return res.status(400).json({ error: 'Cannot share with yourself' });
+    }
+    
+    // Can't change an owner's role
+    const targetRole = await documents.getRole(docId, targetUser.id);
+    if (targetRole === 'owner') {
+      return res.status(400).json({ error: 'Cannot change owner\'s role' });
+    }
+    
+    // Set the role
+    const share = await documents.setRole(docId, targetUser.id, role);
+    
+    res.status(201).json({
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        name: targetUser.name,
+        picture: targetUser.picture,
+        role: share.role,
+      },
+    });
+  } catch (error) {
+    console.error('Error sharing document:', error);
+    res.status(500).json({ error: 'Failed to share document' });
+  }
+});
+
+// API: Update a user's role
+app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) => {
+  try {
+    const { docId, targetUserId } = req.params;
+    const { role } = req.body;
+    const userId = req.user.userId;
+    
+    // Only owner can change roles
+    const isOwner = await documents.isOwner(docId, userId);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Only the owner can change roles' });
+    }
+    
+    // Validate role
+    if (!documents.ROLES[role] || role === 'owner') {
+      return res.status(400).json({ error: 'Invalid role. Use "editor" or "viewer"' });
+    }
+    
+    // Can't change your own role
+    if (targetUserId === userId) {
+      return res.status(400).json({ error: 'Cannot change your own role' });
+    }
+    
+    // Can't change another owner's role
+    const targetRole = await documents.getRole(docId, targetUserId);
+    if (targetRole === 'owner') {
+      return res.status(400).json({ error: 'Cannot change owner\'s role' });
+    }
+    
+    const share = await documents.setRole(docId, targetUserId, role);
+    res.json({ role: share.role });
+  } catch (error) {
+    console.error('Error updating role:', error);
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// API: Remove a user's access
+app.delete('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) => {
+  try {
+    const { docId, targetUserId } = req.params;
+    const userId = req.user.userId;
+    
+    // Only owner can remove access
+    const isOwner = await documents.isOwner(docId, userId);
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Only the owner can remove access' });
+    }
+    
+    // Can't remove yourself
+    if (targetUserId === userId) {
+      return res.status(400).json({ error: 'Cannot remove your own access' });
+    }
+    
+    // Can't remove another owner
+    const targetRole = await documents.getRole(docId, targetUserId);
+    if (targetRole === 'owner') {
+      return res.status(400).json({ error: 'Cannot remove owner' });
+    }
+    
+    const removed = await documents.removeAccess(docId, targetUserId);
+    if (!removed) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing access:', error);
+    res.status(500).json({ error: 'Failed to remove access' });
+  }
+});
+
+// API: Get all users with access to a document
+app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const userId = req.user.userId;
+    
+    // Check if user has access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+    
+    const users = await documents.getDocumentUsers(docId);
+    
+    res.json({ 
+      users,
+      currentUserRole: role,
+    });
+  } catch (error) {
+    console.error('Error getting shares:', error);
+    res.status(500).json({ error: 'Failed to get shares' });
   }
 });
 
@@ -196,19 +451,48 @@ const wss = new WebSocket.Server({
 
 // Handle upgrade requests - mount WebSocket at /s/* to support document-specific paths
 // y-websocket clients append document names: /s/default-doc, /s/my-doc, etc.
-server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+server.on('upgrade', async (request, socket, head) => {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const pathname = url.pathname;
   
-  // Accept WebSocket connections that start with /s/
-  if (pathname.startsWith('/s/')) {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
-  } else {
-    // Reject connections to other paths
+  // Only accept WebSocket connections that start with /s/
+  if (!pathname.startsWith('/s/')) {
     socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
     socket.destroy();
+    return;
   }
+
+  // Extract document ID from path: /s/{docId}
+  const docId = pathname.slice(3); // Remove '/s/'
+  
+  // Extract JWT from query string (client sends ?token=xxx)
+  const token = url.searchParams.get('token');
+  const user = permissions.extractUser({ queryToken: token });
+  
+  if (!user) {
+    console.log('WebSocket auth failed: no valid token');
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // Check if user has at least view access
+  const viewPermission = await permissions.can.view(user.userId, docId);
+  if (!viewPermission.allowed) {
+    console.log(`WebSocket access denied for user ${user.userId} to doc ${docId}: ${viewPermission.reason}`);
+    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // Store user info and role on the request for later use
+  request.user = user;
+  request.userRole = viewPermission.role;
+  request.docId = docId;
+  
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
 });
 
 // Handle WebSocket connections

@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import UserProfileBadge from './UserProfileBadge';
+import ShareDialog from './ShareDialog';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
 import './EditorView.css';
@@ -23,9 +24,39 @@ function generateColorFromId(id) {
 }
 
 function EditorView({ docGuid, onNavigateHome, user }) {
-  const { logout } = useAuth();
-  const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid);
+  const { logout, api, accessToken } = useAuth();
+  const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  const [docInfoLoaded, setDocInfoLoaded] = useState(false);
+
+  // Fetch document info to determine user's role
+  useEffect(() => {
+    const fetchDocInfo = async () => {
+      try {
+        const response = await api.get(`/api/docs/${docGuid}`);
+        setUserRole(response.data.role);
+      } catch (err) {
+        // If document doesn't exist yet, we'll create it when they edit
+        if (err.response?.status === 404 || err.response?.status === 403) {
+          // Try to create the document (establishes ownership)
+          try {
+            const createResponse = await api.post('/api/docs', { docId: docGuid });
+            setUserRole(createResponse.data.role);
+          } catch (createErr) {
+            console.error('Error creating document:', createErr);
+          }
+        }
+      } finally {
+        setDocInfoLoaded(true);
+      }
+    };
+
+    if (docGuid) {
+      fetchDocInfo();
+    }
+  }, [docGuid, api]);
 
   // Generate user color deterministically from user ID
   const userColor = useMemo(() => {
@@ -68,6 +99,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
               className="app-title-input"
               placeholder="Document title"
               spellCheck={false}
+              readOnly={userRole === 'viewer'}
             />
           </div>
           <div className="app-header-right">
@@ -138,13 +170,34 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 )}
               </div>
             )}
+            {/* Share button - shown to anyone with access */}
+            {docInfoLoaded && userRole && (
+              <button 
+                className="share-btn" 
+                onClick={() => setShareDialogOpen(true)}
+                title="Share document"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                </svg>
+                <span>Share</span>
+              </button>
+            )}
             <UserProfileBadge user={user} onLogout={logout} />
           </div>
         </div>
       </header>
       <div className="app-body">
         <main className="app-main">
-          <Toolbar editor={editor} />
+          {userRole === 'viewer' && (
+            <div className="view-only-banner">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+              View only
+            </div>
+          )}
+          {userRole !== 'viewer' && <Toolbar editor={editor} />}
           <Editor 
             ydoc={ydoc} 
             provider={provider}
@@ -152,9 +205,17 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             user={collaborationUser}
             synced={synced}
             onEditorReady={setEditor}
+            editable={userRole !== 'viewer'}
           />
         </main>
       </div>
+
+      {/* Share dialog */}
+      <ShareDialog
+        docId={docGuid}
+        isOpen={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+      />
     </div>
   );
 }

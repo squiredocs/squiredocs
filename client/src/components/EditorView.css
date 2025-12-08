@@ -21,6 +21,50 @@
   color: #333;
 }
 
+/* Share button */
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #e0f2fe;
+  color: #0c4a6e;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  margin-right: 8px;
+}
+
+.share-btn:hover {
+  background: #bae6fd;
+}
+
+.share-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* View-only banner */
+.view-only-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.view-only-banner svg {
+  flex-shrink: 0;
+}
+
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   .app-header-left {
@@ -31,5 +75,20 @@
     padding: 4px 8px;
     font-size: 16px;
     min-width: 36px;
+  }
+
+  .share-btn {
+    padding: 8px 12px;
+  }
+
+  .share-btn span {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .share-btn {
+    padding: 8px;
+    border-radius: 50%;
   }
 }

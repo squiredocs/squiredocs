@@ -79,9 +79,21 @@ if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
 }
 
 // Get or create Yjs instances for a document
-function getOrCreateInstances(docGuid) {
-  if (instanceCache.has(docGuid)) {
-    return instanceCache.get(docGuid);
+function getOrCreateInstances(docGuid, accessToken) {
+  // Include token in cache key to reconnect if token changes
+  const cacheKey = docGuid;
+  
+  if (instanceCache.has(cacheKey)) {
+    const cached = instanceCache.get(cacheKey);
+    // If token changed, update the provider params
+    if (cached.accessToken !== accessToken && cached.provider) {
+      cached.accessToken = accessToken;
+      // Reconnect with new token
+      cached.provider.disconnect();
+      cached.provider.url = `${WS_URL}?token=${encodeURIComponent(accessToken)}`;
+      cached.provider.connect();
+    }
+    return cached;
   }
 
   console.log(`[useYjs] Creating Yjs document and providers for ${docGuid}`);
@@ -103,8 +115,13 @@ function getOrCreateInstances(docGuid) {
     }
   });
 
+  // Build WebSocket URL with auth token
+  const wsUrlWithToken = accessToken 
+    ? `${WS_URL}?token=${encodeURIComponent(accessToken)}`
+    : WS_URL;
+
   // Create WebSocket provider
-  const provider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
+  const provider = new WebsocketProvider(wsUrlWithToken, docGuid, ydoc, {
     connect: true
   });
 
@@ -195,12 +212,12 @@ function getOrCreateInstances(docGuid) {
     }
   })();
 
-  const instances = { ydoc, provider, indexeddbProvider };
-  instanceCache.set(docGuid, instances);
+  const instances = { ydoc, provider, indexeddbProvider, accessToken };
+  instanceCache.set(cacheKey, instances);
   return instances;
 }
 
-export function useYjs(docGuid) {
+export function useYjs(docGuid, accessToken) {
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
@@ -209,8 +226,13 @@ export function useYjs(docGuid) {
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
-    const instances = getOrCreateInstances(docGuid);
+    const instances = getOrCreateInstances(docGuid, accessToken);
     instancesRef.current = { ...instances, docGuid };
+  }
+  
+  // Update token if it changes
+  if (instancesRef.current && instancesRef.current.accessToken !== accessToken) {
+    getOrCreateInstances(docGuid, accessToken);
   }
 
   const { ydoc, provider, indexeddbProvider } = instancesRef.current;

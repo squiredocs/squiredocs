@@ -48,7 +48,7 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, user: userInfo, synced, onEditorReady }) {
+export default function Editor({ ydoc, awareness, provider, user: userInfo, synced, onEditorReady, editable = true }) {
   const hideTimeoutRef = useRef(null);
 
   const user = useMemo(() => ({
@@ -103,9 +103,17 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, sync
 
   const editor = useEditor({
     extensions,
+    editable,
     // Don't set initial content - let Yjs Collaboration extension handle it
     // The Collaboration extension will sync content from Yjs
   });
+
+  // Update editable state when prop changes
+  useEffect(() => {
+    if (editor && editor.setEditable) {
+      editor.setEditable(editable);
+    }
+  }, [editor, editable]);
 
   // Notify parent when editor is ready
   useEffect(() => {

@@ -1,0 +1,238 @@
+/**
+ * Document permissions module - RBAC model
+ * Roles: owner, editor, viewer
+ */
+
+// Role hierarchy: owner > editor > viewer
+const ROLES = {
+  owner: 3,
+  editor: 2,
+  viewer: 1,
+};
+
+// Database pool - set by init function
+let pool = null;
+
+/**
+ * Initialize the documents module with a database pool
+ * @param {Pool} dbPool - PostgreSQL connection pool
+ */
+function init(dbPool) {
+  pool = dbPool;
+}
+
+/**
+ * Get a user's role for a document
+ * @param {string} docId - Document UUID
+ * @param {string} userId - User UUID
+ * @returns {Promise<string|null>} Role ('owner', 'editor', 'viewer') or null
+ */
+async function getRole(docId, userId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'SELECT role FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+    [docId, userId]
+  );
+
+  return result.rows[0]?.role || null;
+}
+
+/**
+ * Check if user has at least the required role
+ * @param {string} docId - Document UUID
+ * @param {string} userId - User UUID
+ * @param {string} requiredRole - Minimum role required
+ * @returns {Promise<boolean>}
+ */
+async function hasRole(docId, userId, requiredRole) {
+  const role = await getRole(docId, userId);
+  if (!role) return false;
+  return ROLES[role] >= ROLES[requiredRole];
+}
+
+// Convenience methods
+const hasAccess = (docId, userId) => hasRole(docId, userId, 'viewer');
+const canEdit = (docId, userId) => hasRole(docId, userId, 'editor');
+const isOwner = (docId, userId) => hasRole(docId, userId, 'owner');
+
+/**
+ * Set a user's role for a document (create or update)
+ * @param {string} docId - Document UUID
+ * @param {string} userId - User UUID
+ * @param {string} role - Role to set
+ * @returns {Promise<object>} Share record
+ */
+async function setRole(docId, userId, role) {
+  if (!pool) throw new Error('Documents module not initialized');
+  if (!ROLES[role]) throw new Error(`Invalid role: ${role}`);
+
+  const result = await pool.query(
+    `INSERT INTO document_shares (doc_id, user_id, role)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3
+     RETURNING *`,
+    [docId, userId, role]
+  );
+
+  return result.rows[0];
+}
+
+/**
+ * Remove a user's access to a document
+ * @param {string} docId - Document UUID
+ * @param {string} userId - User UUID
+ * @returns {Promise<boolean>} True if removed
+ */
+async function removeAccess(docId, userId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'DELETE FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+    [docId, userId]
+  );
+
+  return result.rowCount > 0;
+}
+
+/**
+ * Ensure a document exists (creates record in documents table)
+ * @param {string} docId - Document UUID
+ * @param {string} creatorId - Creator's user UUID (optional, only set on creation)
+ * @returns {Promise<object>} Document record
+ */
+async function ensureDocument(docId, creatorId = null) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    `INSERT INTO documents (id, creator_id)
+     VALUES ($1, $2)
+     ON CONFLICT (id) DO UPDATE SET updated_at = now()
+     RETURNING *`,
+    [docId, creatorId]
+  );
+
+  return result.rows[0];
+}
+
+/**
+ * Create a new document with an owner
+ * @param {string} docId - Document UUID
+ * @param {string} ownerId - Owner's user UUID (also becomes creator)
+ * @returns {Promise<object>} Document record
+ */
+async function createDocument(docId, ownerId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  // Create document record with creator
+  const doc = await ensureDocument(docId, ownerId);
+
+  // Set owner role
+  await setRole(docId, ownerId, 'owner');
+
+  return doc;
+}
+
+/**
+ * Get all users with access to a document
+ * @param {string} docId - Document UUID
+ * @returns {Promise<Array<object>>} Array of user records with role
+ */
+async function getDocumentUsers(docId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    `SELECT u.id, u.email, u.name, u.picture, ds.role, ds.created_at
+     FROM document_shares ds
+     JOIN users u ON ds.user_id = u.id
+     WHERE ds.doc_id = $1
+     ORDER BY 
+       CASE ds.role 
+         WHEN 'owner' THEN 1 
+         WHEN 'editor' THEN 2 
+         WHEN 'viewer' THEN 3 
+       END,
+       ds.created_at ASC`,
+    [docId]
+  );
+
+  return result.rows;
+}
+
+/**
+ * Get all documents accessible by a user
+ * @param {string} userId - User UUID
+ * @returns {Promise<Array<object>>} Array of document records with role
+ */
+async function getAccessibleDocuments(userId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    `SELECT 
+       d.id as doc_id,
+       d.created_at,
+       d.updated_at,
+       ds.role,
+       owner_share.user_id as owner_id,
+       owner_user.name as owner_name,
+       owner_user.email as owner_email
+     FROM documents d
+     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
+     LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
+     LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
+     ORDER BY d.updated_at DESC`,
+    [userId]
+  );
+
+  return result.rows;
+}
+
+/**
+ * Find a user by email
+ * @param {string} email - User's email address
+ * @returns {Promise<object|null>} User record or null
+ */
+async function findUserByEmail(email) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'SELECT id, email, name, picture FROM users WHERE LOWER(email) = LOWER($1)',
+    [email]
+  );
+
+  return result.rows[0] || null;
+}
+
+/**
+ * Get document record
+ * @param {string} docId - Document UUID
+ * @returns {Promise<object|null>} Document record or null
+ */
+async function getDocument(docId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'SELECT * FROM documents WHERE id = $1',
+    [docId]
+  );
+
+  return result.rows[0] || null;
+}
+
+module.exports = {
+  ROLES,
+  init,
+  getRole,
+  hasRole,
+  hasAccess,
+  canEdit,
+  isOwner,
+  setRole,
+  removeAccess,
+  ensureDocument,
+  createDocument,
+  getDocument,
+  getDocumentUsers,
+  getAccessibleDocuments,
+  findUserByEmail,
+};
