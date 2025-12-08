@@ -97,13 +97,18 @@ function DocList({ onNavigate, user }) {
     }
   }, [openMenuId]);
 
-  const formatDate = (dateString) => {
+  const formatDateTime = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
+    const dateStr = date.toLocaleDateString(undefined, {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
+    const timeStr = date.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+    return `${dateStr} at ${timeStr}`;
   };
 
   const DocIcon = ({ isSharedWithMe, isSharedByMe }) => {
@@ -212,11 +217,7 @@ function DocList({ onNavigate, user }) {
                       {doc.title || 'Untitled document'}
                     </span>
                     <span className="doc-meta">
-                      {!isOwner ? (
-                        <span className="shared-by">Shared by {doc.ownerName}</span>
-                      ) : (
-                        <span className="doc-date">{formatDate(doc.updatedAt)}</span>
-                      )}
+                      <span className="doc-date">Opened {formatDateTime(doc.updatedAt)}</span>
                     </span>
                   </div>
                 </a>
