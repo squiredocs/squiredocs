@@ -219,3 +219,24 @@
   }
 }
 
+/* Mobile responsive styles */
+@media (max-width: 600px) {
+  .doc-list-container {
+    padding: 12px 8px;
+  }
+
+  .doc-list-header {
+    padding: 8px 8px;
+  }
+
+  .doc-link {
+    padding: 12px 4px;
+  }
+
+  .doc-icon {
+    width: 36px;
+    height: 36px;
+    margin-right: 12px;
+  }
+}
+
