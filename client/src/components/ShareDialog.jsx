@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import './ShareDialog.css';
 
 function ShareDialog({ docId, isOpen, onClose }) {
-  const { api } = useAuth();
+  const { api, user: currentUser } = useAuth();
   const [email, setEmail] = useState('');
   const [shareRole, setShareRole] = useState('editor');
   const [users, setUsers] = useState([]);
@@ -179,6 +179,8 @@ function ShareDialog({ docId, isOpen, onClose }) {
                   </div>
                   {user.role === 'owner' ? (
                     <span className="share-role-badge owner">Owner</span>
+                  ) : user.id === currentUser?.id ? (
+                    <span className="share-role-badge">{user.role}</span>
                   ) : canManage ? (
                     <div className="share-actions">
                       <select 
