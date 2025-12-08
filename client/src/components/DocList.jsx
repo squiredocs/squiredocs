@@ -224,7 +224,12 @@ function DocList({ onNavigate, user }) {
                           <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"/>
                         </svg>
                         Delete
-                        {!isOwner && <span className="menu-hint">Owner only</span>}
+                        {!isOwner && (
+                          <span className="menu-hint-wrapper">
+                            <span className="menu-hint-icon" tabIndex="0">?</span>
+                            <span className="menu-hint-tooltip">Owner only</span>
+                          </span>
+                        )}
                       </button>
                     </div>
                   )}

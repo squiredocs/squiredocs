@@ -228,10 +228,70 @@
   stroke: #9aa0a6;
 }
 
-.menu-hint {
+.menu-hint-wrapper {
+  position: relative;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.menu-hint-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e8eaed;
+  color: #5f6368;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  user-select: none;
+}
+
+.menu-hint-tooltip {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 8px;
+  padding: 6px 10px;
+  background: #333;
+  color: white;
   font-size: 12px;
-  color: #9aa0a6;
+  font-weight: 400;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+
+.menu-hint-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-left-color: #333;
+}
+
+/* Show tooltip on hover (desktop) */
+.menu-hint-icon:hover + .menu-hint-tooltip,
+.menu-hint-icon:focus + .menu-hint-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Mobile: show on tap via focus */
+@media (hover: none) {
+  .menu-hint-icon:focus + .menu-hint-tooltip {
+    opacity: 1;
+    visibility: visible;
+  }
 }
 
 .doc-list-item.deleting {
