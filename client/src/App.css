@@ -113,6 +113,11 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  .app {
+    height: 100vh;
+    overflow: hidden;
+  }
+
   .app-header {
     padding: 8px 12px;
   }
@@ -120,6 +125,7 @@
   .app-header-content {
     flex-wrap: wrap;
     gap: 8px;
+    max-width: 100%;
   }
 
   .app-header-left {
@@ -142,6 +148,15 @@
   .back-btn {
     padding: 4px 8px;
     font-size: 16px;
+  }
+
+  .app-body {
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .app-main {
+    width: 100%;
   }
 
   /* Hide collaborator avatars on very small screens */

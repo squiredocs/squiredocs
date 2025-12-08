@@ -151,3 +151,19 @@
   color: #666;
 }
 
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .editor-content {
+    padding: 0;
+    min-height: 100vh;
+  }
+
+  .editor-content .ProseMirror {
+    max-width: 100%;
+    padding: 16px;
+    border-left: none;
+    border-right: none;
+    min-height: 100vh;
+  }
+}
+

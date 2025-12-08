@@ -142,18 +142,29 @@
   }
 
   .back-btn svg {
-    width: 44px;
-    height: 44px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .title-toolbar-stack {
+    gap: 4px;
+    padding-top: 0;
   }
 
   .title-toolbar-stack .app-title-input {
     font-size: 16px;
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
+
+  .title-toolbar-stack .toolbar {
+    gap: 2px;
   }
 
   .title-toolbar-stack .toolbar button {
-    width: 26px;
-    height: 26px;
-    font-size: 12px;
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
   }
 
   .share-btn {
