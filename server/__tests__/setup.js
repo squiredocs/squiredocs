@@ -1,4 +1,4 @@
-// Jest setup file for server tests
+// Jest setup file for server tests - runs before each test file
 const path = require('path');
 const fs = require('fs');
 
@@ -11,4 +11,3 @@ if (fs.existsSync(testDataDir)) {
 // Set test environment variables
 process.env.NODE_ENV = 'test';
 process.env.PORT = '0'; // Use random port for tests
-

@@ -71,6 +71,7 @@
       "/test-data/",
       "/__tests__/"
     ],
+    "globalSetup": "<rootDir>/server/__tests__/globalSetup.js",
     "setupFilesAfterEnv": [
       "<rootDir>/server/__tests__/setup.js"
     ]
