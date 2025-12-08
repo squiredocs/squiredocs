@@ -142,7 +142,21 @@ function DocList({ onNavigate, user }) {
     return (
       <div className="doc-list-container">
         <header className="doc-list-header">
-          <h1>Documents</h1>
+          <div className="doc-list-title-wrapper">
+            <button 
+              className="doc-list-icon-btn" 
+              onClick={fetchDocs}
+              title="Refresh documents"
+            >
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                <rect x="4" y="2" width="16" height="20" rx="2" fill="#7c3aed"/>
+                <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
+                <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
+                <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
+              </svg>
+            </button>
+            <h1>Documents</h1>
+          </div>
           <div className="doc-list-header-right">
             <UserProfileBadge user={user} onLogout={logout} />
           </div>
@@ -175,7 +189,21 @@ function DocList({ onNavigate, user }) {
   return (
     <div className="doc-list-container">
       <header className="doc-list-header">
-        <h1>Documents</h1>
+        <div className="doc-list-title-wrapper">
+          <button 
+            className="doc-list-icon-btn" 
+            onClick={fetchDocs}
+            title="Refresh documents"
+          >
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+              <rect x="4" y="2" width="16" height="20" rx="2" fill="#7c3aed"/>
+              <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
+              <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
+              <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
+            </svg>
+          </button>
+          <h1>Documents</h1>
+        </div>
         <div className="doc-list-header-right">
           <UserProfileBadge user={user} onLogout={logout} />
         </div>

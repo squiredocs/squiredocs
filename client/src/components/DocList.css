@@ -18,6 +18,32 @@
   padding: 8px 0;
 }
 
+.doc-list-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.doc-list-icon-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.doc-list-icon-btn:hover {
+  background: #f3f0ff;
+}
+
+.doc-list-icon-btn svg {
+  display: block;
+}
+
 .doc-list-header h1 {
   font-size: 22px;
   font-weight: 400;
