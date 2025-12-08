@@ -261,6 +261,34 @@ app.get('/api/docs/:docId', requireAuth, async (req, res) => {
   }
 });
 
+// API: Delete a document (owner only)
+app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const userId = req.user.userId;
+    
+    // Check delete permission (owner only)
+    const canDelete = await permissions.can.delete(userId, docId);
+    if (!canDelete.allowed) {
+      return res.status(403).json({ error: canDelete.reason });
+    }
+    
+    // Delete Yjs data
+    await persistenceProvider.clearDocument(docId);
+    
+    // Delete document record and shares
+    const deleted = await documents.deleteDocument(docId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
 // API: Share document with a user by email
 app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
   try {
@@ -325,10 +353,10 @@ app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) =>
     const { role } = req.body;
     const userId = req.user.userId;
     
-    // Only owner can change roles
-    const isOwner = await documents.isOwner(docId, userId);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Only the owner can change roles' });
+    // Check manage permission (editors and owners can manage)
+    const canManage = await permissions.can.manage(userId, docId);
+    if (!canManage.allowed) {
+      return res.status(403).json({ error: canManage.reason });
     }
     
     // Validate role
@@ -361,10 +389,10 @@ app.delete('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res)
     const { docId, targetUserId } = req.params;
     const userId = req.user.userId;
     
-    // Only owner can remove access
-    const isOwner = await documents.isOwner(docId, userId);
-    if (!isOwner) {
-      return res.status(403).json({ error: 'Only the owner can remove access' });
+    // Check manage permission (editors and owners can manage)
+    const canManage = await permissions.can.manage(userId, docId);
+    if (!canManage.allowed) {
+      return res.status(403).json({ error: canManage.reason });
     }
     
     // Can't remove yourself

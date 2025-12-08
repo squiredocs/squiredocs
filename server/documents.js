@@ -219,6 +219,23 @@ async function getDocument(docId) {
   return result.rows[0] || null;
 }
 
+/**
+ * Delete a document and all associated data
+ * @param {string} docId - Document UUID
+ * @returns {Promise<boolean>} True if deleted
+ */
+async function deleteDocument(docId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  // Delete shares first (foreign key constraint)
+  await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
+  
+  // Delete document record
+  const result = await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
+
+  return result.rowCount > 0;
+}
+
 module.exports = {
   ROLES,
   init,
@@ -232,6 +249,7 @@ module.exports = {
   ensureDocument,
   createDocument,
   getDocument,
+  deleteDocument,
   getDocumentUsers,
   getAccessibleDocuments,
   findUserByEmail,

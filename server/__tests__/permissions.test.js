@@ -77,7 +77,8 @@ describe('Permissions module', () => {
       expect(permissions.REQUIRED_ROLES.view).toBe('viewer');
       expect(permissions.REQUIRED_ROLES.edit).toBe('editor');
       expect(permissions.REQUIRED_ROLES.share).toBe('viewer');
-      expect(permissions.REQUIRED_ROLES.manage).toBe('owner');
+      expect(permissions.REQUIRED_ROLES.manage).toBe('editor'); // Editors can manage shares
+      expect(permissions.REQUIRED_ROLES.delete).toBe('owner');  // Only owners can delete
     });
   });
 
@@ -153,18 +154,20 @@ describe('Permissions module', () => {
       expect(viewResult.role).toBe('owner');
     });
 
-    test('allows editor to view, edit, and share', async () => {
+    test('allows editor to view, edit, share, and manage', async () => {
       await documents.setRole(testDocId, testUser2Id, 'editor');
       
       const viewResult = await permissions.checkPermission(testUser2Id, testDocId, 'view');
       const editResult = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
       const shareResult = await permissions.checkPermission(testUser2Id, testDocId, 'share');
       const manageResult = await permissions.checkPermission(testUser2Id, testDocId, 'manage');
+      const deleteResult = await permissions.checkPermission(testUser2Id, testDocId, 'delete');
       
       expect(viewResult.allowed).toBe(true);
       expect(editResult.allowed).toBe(true);
       expect(shareResult.allowed).toBe(true);
-      expect(manageResult.allowed).toBe(false);
+      expect(manageResult.allowed).toBe(true);  // Editors can manage shares
+      expect(deleteResult.allowed).toBe(false); // But can't delete
     });
 
     test('allows viewer only to view and share', async () => {
@@ -236,6 +239,20 @@ describe('Permissions module', () => {
       
       await documents.setRole(testDocId, testUser2Id, 'editor');
       const editorResult = await permissions.can.manage(testUser2Id, testDocId);
+      
+      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      const viewerResult = await permissions.can.manage(testUser2Id, testDocId);
+      
+      expect(ownerResult.allowed).toBe(true);
+      expect(editorResult.allowed).toBe(true);  // Editors can manage
+      expect(viewerResult.allowed).toBe(false); // Viewers cannot
+    });
+
+    test('can.delete checks delete permission (owner only)', async () => {
+      const ownerResult = await permissions.can.delete(testUserId, testDocId);
+      
+      await documents.setRole(testDocId, testUser2Id, 'editor');
+      const editorResult = await permissions.can.delete(testUser2Id, testDocId);
       
       expect(ownerResult.allowed).toBe(true);
       expect(editorResult.allowed).toBe(false);

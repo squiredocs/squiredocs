@@ -13,7 +13,8 @@ const REQUIRED_ROLES = {
   view: 'viewer',
   edit: 'editor',
   share: 'viewer',  // Anyone with access can share
-  manage: 'owner',  // Change roles, remove access
+  manage: 'editor', // Change roles, remove access (editors and owners)
+  delete: 'owner',  // Only owner can delete
 };
 
 /**
@@ -97,6 +98,7 @@ const can = {
   edit: (userId, docId) => checkPermission(userId, docId, 'edit'),
   share: (userId, docId) => checkPermission(userId, docId, 'share'),
   manage: (userId, docId) => checkPermission(userId, docId, 'manage'),
+  delete: (userId, docId) => checkPermission(userId, docId, 'delete'),
 };
 
 module.exports = {

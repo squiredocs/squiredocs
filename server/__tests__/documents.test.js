@@ -262,4 +262,32 @@ describe('Documents module', () => {
       expect(user).toBeNull();
     });
   });
+
+  describe('deleteDocument', () => {
+    beforeEach(async () => {
+      await documents.createDocument(testDocId, testUserId);
+      await documents.setRole(testDocId, testUser2Id, 'editor');
+    });
+
+    test('deletes document and all shares', async () => {
+      const deleted = await documents.deleteDocument(testDocId);
+      
+      expect(deleted).toBe(true);
+      
+      // Document should no longer exist
+      const doc = await documents.getDocument(testDocId);
+      expect(doc).toBeNull();
+      
+      // Shares should be removed
+      const role = await documents.getRole(testDocId, testUserId);
+      expect(role).toBeNull();
+    });
+
+    test('returns false for non-existent document', async () => {
+      const randomDocId = require('crypto').randomUUID();
+      const deleted = await documents.deleteDocument(randomDocId);
+      
+      expect(deleted).toBe(false);
+    });
+  });
 });

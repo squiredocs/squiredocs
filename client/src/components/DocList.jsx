@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from './UserProfileBadge';
 import './DocList.css';
@@ -9,6 +9,9 @@ function DocList({ onNavigate, user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     fetchDocs();
@@ -48,6 +51,51 @@ function DocList({ onNavigate, user }) {
       setCreating(false);
     }
   };
+
+  const handleMenuToggle = (e, docGuid) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpenMenuId(openMenuId === docGuid ? null : docGuid);
+  };
+
+  const handleDelete = async (e, doc) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (doc.role !== 'owner') return;
+    
+    const title = doc.title || 'Untitled document';
+    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      setDeleting(doc.docGuid);
+      setOpenMenuId(null);
+      await api.delete(`/api/docs/${doc.docGuid}`);
+      // Remove from local state
+      setDocs(docs.filter(d => d.docGuid !== doc.docGuid));
+    } catch (err) {
+      console.error('Error deleting document:', err);
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpenMenuId(null);
+      }
+    };
+    
+    if (openMenuId) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [openMenuId]);
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -128,13 +176,14 @@ function DocList({ onNavigate, user }) {
         <ul className="doc-list">
           {docs.map((doc) => {
             const isOwner = doc.role === 'owner';
+            const isDeleting = deleting === doc.docGuid;
             return (
-              <li key={doc.docGuid} className={`doc-list-item ${!isOwner ? 'shared' : ''}`}>
+              <li key={doc.docGuid} className={`doc-list-item ${!isOwner ? 'shared' : ''} ${isDeleting ? 'deleting' : ''}`}>
                 <a
                   href={`/d/${doc.docGuid}`}
                   onClick={(e) => {
                     e.preventDefault();
-                    onNavigate(doc.docGuid);
+                    if (!isDeleting) onNavigate(doc.docGuid);
                   }}
                   className="doc-link"
                 >
@@ -152,13 +201,34 @@ function DocList({ onNavigate, user }) {
                     </span>
                   </div>
                 </a>
-                <button className="doc-menu-btn" aria-label="More options">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="5" r="2"/>
-                    <circle cx="12" cy="12" r="2"/>
-                    <circle cx="12" cy="19" r="2"/>
-                  </svg>
-                </button>
+                <div className="doc-menu-wrapper" ref={openMenuId === doc.docGuid ? menuRef : null}>
+                  <button 
+                    className="doc-menu-btn" 
+                    aria-label="More options"
+                    onClick={(e) => handleMenuToggle(e, doc.docGuid)}
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="5" r="2"/>
+                      <circle cx="12" cy="12" r="2"/>
+                      <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                  </button>
+                  {openMenuId === doc.docGuid && (
+                    <div className="doc-menu-dropdown">
+                      <button
+                        className={`doc-menu-item ${!isOwner ? 'disabled' : 'danger'}`}
+                        onClick={(e) => handleDelete(e, doc)}
+                        disabled={!isOwner}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"/>
+                        </svg>
+                        Delete
+                        {!isOwner && <span className="menu-hint">Owner only</span>}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </li>
             );
           })}
