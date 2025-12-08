@@ -308,10 +308,15 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid role. Use "editor" or "viewer"' });
     }
     
-    // Check if user has access to the document (anyone with access can share)
-    const hasAccess = await documents.hasAccess(docId, userId);
-    if (!hasAccess) {
+    // Check if user has access to the document
+    const userRole = await documents.getRole(docId, userId);
+    if (!userRole) {
       return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+    
+    // Viewers can only add other viewers
+    if (userRole === 'viewer' && role !== 'viewer') {
+      return res.status(403).json({ error: 'Viewers can only share with viewer access' });
     }
     
     // Find the user to share with

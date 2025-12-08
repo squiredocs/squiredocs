@@ -5,6 +5,7 @@ import './ShareDialog.css';
 function ShareDialog({ docId, isOpen, onClose }) {
   const { api } = useAuth();
   const [email, setEmail] = useState('');
+  const [shareRole, setShareRole] = useState('editor');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -19,7 +20,7 @@ function ShareDialog({ docId, isOpen, onClose }) {
     }
   }, [isOpen, docId]);
 
-  // Reset state when dialog closes
+  // Reset state when dialog closes or role changes
   useEffect(() => {
     if (!isOpen) {
       setEmail('');
@@ -27,6 +28,15 @@ function ShareDialog({ docId, isOpen, onClose }) {
       setSuccess(null);
     }
   }, [isOpen]);
+
+  // Set default share role based on current user's role
+  useEffect(() => {
+    if (currentUserRole === 'viewer') {
+      setShareRole('viewer');
+    } else {
+      setShareRole('editor');
+    }
+  }, [currentUserRole]);
 
   const fetchUsers = async () => {
     try {
@@ -55,7 +65,7 @@ function ShareDialog({ docId, isOpen, onClose }) {
     try {
       const response = await api.post(`/api/docs/${docId}/share`, { 
         email: email.trim(),
-        role: 'editor' // Default to editor role
+        role: shareRole
       });
       setSuccess(`Shared with ${response.data.user.name || email}`);
       setEmail('');
@@ -91,7 +101,7 @@ function ShareDialog({ docId, isOpen, onClose }) {
     }
   };
 
-  const isOwner = currentUserRole === 'owner';
+  const canManage = currentUserRole === 'owner' || currentUserRole === 'editor';
 
   if (!isOpen) return null;
 
@@ -117,6 +127,15 @@ function ShareDialog({ docId, isOpen, onClose }) {
               className="share-email-input"
               disabled={loading}
             />
+            <select
+              value={shareRole}
+              onChange={(e) => setShareRole(e.target.value)}
+              className="share-role-select"
+              disabled={loading || currentUserRole === 'viewer'}
+            >
+              <option value="editor" disabled={currentUserRole === 'viewer'}>Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
             <button
               type="submit"
               className="share-submit-btn"
@@ -160,7 +179,7 @@ function ShareDialog({ docId, isOpen, onClose }) {
                   </div>
                   {user.role === 'owner' ? (
                     <span className="share-role-badge owner">Owner</span>
-                  ) : isOwner ? (
+                  ) : canManage ? (
                     <div className="share-actions">
                       <select 
                         value={user.role} 
