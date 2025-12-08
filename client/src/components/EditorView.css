@@ -35,17 +35,23 @@
 
 .title-toolbar-stack .app-title-input {
   height: auto;
-  padding: 0;
-  margin: 0;
-  border: none;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
   font-size: 18px;
   font-weight: 600;
+  transition: border-color 0.15s ease;
+}
+
+.title-toolbar-stack .app-title-input:hover {
+  border-color: #d1d5db;
 }
 
 .title-toolbar-stack .app-title-input:focus {
   outline: none;
-  box-shadow: none;
+  border-color: #6b7280;
 }
 
 .title-toolbar-stack .toolbar {
