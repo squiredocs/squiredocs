@@ -49,12 +49,19 @@
   border-color: #357abd;
 }
 
-.toolbar-button strong,
-.toolbar-button em,
-.toolbar-button u,
-.toolbar-button s {
+.toolbar-button strong {
   font-weight: 700;
-  font-style: normal;
-  text-decoration: none;
+}
+
+.toolbar-button em {
+  font-style: italic;
+}
+
+.toolbar-button u {
+  text-decoration: underline;
+}
+
+.toolbar-button s {
+  text-decoration: line-through;
 }
 
