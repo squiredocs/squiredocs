@@ -6,6 +6,13 @@ const permissions = require('../permissions');
 const documents = require('../documents');
 const { generateAccessToken } = require('../auth/jwt');
 
+// y-websocket protocol constants (same as server/index.js)
+const MESSAGE_SYNC = 0;
+const MESSAGE_AWARENESS = 1;
+const SYNC_STEP1 = 0;
+const SYNC_STEP2 = 1;
+const SYNC_UPDATE = 2;
+
 describe('Permissions module', () => {
   let pool;
   let testUserId;
@@ -232,6 +239,45 @@ describe('Permissions module', () => {
       
       expect(ownerResult.allowed).toBe(true);
       expect(editorResult.allowed).toBe(false);
+    });
+  });
+
+  describe('WebSocket edit message detection', () => {
+    /**
+     * Helper to check if a message is an edit operation
+     * (mirrors the isEditMessage function in server/index.js)
+     */
+    function isEditMessage(data) {
+      if (!data || data.length < 2) return false;
+      const messageType = data[0];
+      const syncType = data[1];
+      return messageType === MESSAGE_SYNC && syncType === SYNC_UPDATE;
+    }
+
+    test('identifies sync update as edit message', () => {
+      const editMsg = Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 0, 1, 2]); // sync update with payload
+      expect(isEditMessage(editMsg)).toBe(true);
+    });
+
+    test('identifies sync step1 as non-edit message', () => {
+      const syncStep1 = Buffer.from([MESSAGE_SYNC, SYNC_STEP1, 0, 1, 2]);
+      expect(isEditMessage(syncStep1)).toBe(false);
+    });
+
+    test('identifies sync step2 as non-edit message', () => {
+      const syncStep2 = Buffer.from([MESSAGE_SYNC, SYNC_STEP2, 0, 1, 2]);
+      expect(isEditMessage(syncStep2)).toBe(false);
+    });
+
+    test('identifies awareness message as non-edit', () => {
+      const awarenessMsg = Buffer.from([MESSAGE_AWARENESS, 0, 1, 2]);
+      expect(isEditMessage(awarenessMsg)).toBe(false);
+    });
+
+    test('handles empty or short messages', () => {
+      expect(isEditMessage(null)).toBe(false);
+      expect(isEditMessage(Buffer.from([]))).toBe(false);
+      expect(isEditMessage(Buffer.from([0]))).toBe(false);
     });
   });
 });

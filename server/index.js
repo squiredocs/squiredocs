@@ -495,15 +495,59 @@ server.on('upgrade', async (request, socket, head) => {
   });
 });
 
+// y-websocket protocol constants
+const MESSAGE_SYNC = 0;
+const MESSAGE_AWARENESS = 1;
+// Sync message sub-types
+const SYNC_STEP1 = 0;  // Request state vector
+const SYNC_STEP2 = 1;  // Send full state (response)
+const SYNC_UPDATE = 2; // Send an update (edit)
+
+/**
+ * Check if a WebSocket message is an edit operation
+ * @param {Buffer} data - Raw message data
+ * @returns {boolean} True if this is an edit operation
+ */
+function isEditMessage(data) {
+  if (!data || data.length < 2) return false;
+  const messageType = data[0];
+  const syncType = data[1];
+  // Edit = sync message with update type
+  return messageType === MESSAGE_SYNC && syncType === SYNC_UPDATE;
+}
+
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
   const connId = ++messageCounter;
   const connStart = Date.now();
-  logPerf('WS_CONNECT', { connId, url: req.url });
-  console.log('✓ WebSocket connection established:', req.url);
+  const userRole = req.userRole;
+  const userId = req.user?.userId;
+  const docId = req.docId;
+  const canEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
+  
+  logPerf('WS_CONNECT', { connId, url: req.url, role: userRole, canEdit });
+  console.log(`✓ WebSocket connection established: ${req.url} (role: ${userRole})`);
+  
+  // Create a message filter for viewers
+  // We intercept messages before y-websocket processes them
+  if (!canEdit) {
+    const originalEmit = ws.emit.bind(ws);
+    ws.emit = (event, ...args) => {
+      if (event === 'message') {
+        const data = args[0];
+        // Convert to Buffer if needed
+        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        if (isEditMessage(buffer)) {
+          logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
+          console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
+          return false; // Don't process this message
+        }
+      }
+      return originalEmit(event, ...args);
+    };
+  }
   
   // Profile incoming messages
-  const originalOnMessage = ws.onmessage;
   ws.on('message', (data) => {
     logPerf('WS_MSG_IN', { connId, size: data.byteLength || data.length });
   });
