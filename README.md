@@ -5,16 +5,20 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 ## Features
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
+- **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
+- **Document Management**: Create, share, and delete documents with permission enforcement
 
 ## Technology Stack
 
 - **Frontend**: React 18, TipTap, Yjs
 - **Backend**: Node.js, Express, WebSocket (y-websocket)
 - **Persistence**: PostgreSQL for server-side storage, IndexedDB for client-side offline support
+- **Authentication**: Google OAuth with JWT (access and refresh tokens)
+- **Database**: PostgreSQL with node-pg-migrate for schema management
 
 ## Prerequisites
 
@@ -134,11 +138,19 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 
 ## Usage
 
-1. Open the application in your browser
-2. Enter your name (or use the default)
-3. Start editing! Changes will sync in real-time with other connected users
-4. You can see other users in the sidebar
-5. Connection status is shown in the top-right corner
+1. **Sign in**: Authenticate with Google OAuth
+2. **Create or open documents**: Access your documents from the list page
+3. **Share documents**: Click the Share button to add users with Editor or Viewer access
+4. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
+5. **Manage permissions**: Editors and Owners can change roles and remove access
+
+### Document Roles
+
+- **Owner**: Full control (edit, share, manage, delete)
+- **Editor**: Can edit and manage sharing
+- **Viewer**: Read-only access, can only add other viewers
+
+See [docs/permissions.md](docs/permissions.md) for detailed permission documentation.
 
 ## Programmatically Updating Documents
 
@@ -231,24 +243,38 @@ paragraphs.forEach((node, index) => {
 .
 ├── server/
 │   ├── index.js              # Express server with WebSocket
-│   └── postgres-persistence.js  # PostgreSQL persistence adapter
+│   ├── postgres-persistence.js  # PostgreSQL persistence adapter
+│   ├── permissions.js        # Centralized permission checks
+│   ├── documents.js          # Document and share management
+│   └── auth/                 # Authentication (OAuth, JWT)
 ├── client/
 │   ├── src/
 │   │   ├── components/       # React components
+│   │   │   ├── Editor.jsx    # TipTap editor component
+│   │   │   ├── EditorView.jsx # Editor page with header/toolbar
+│   │   │   ├── DocList.jsx   # Document list page
+│   │   │   └── ShareDialog.jsx # Share/permissions dialog
 │   │   ├── hooks/            # Custom React hooks
-│   │   ├── App.jsx           # Main app component
+│   │   │   └── useYjs.js     # Yjs document and WebSocket management
+│   │   ├── contexts/         # React contexts
+│   │   │   └── AuthContext.jsx # Authentication state
 │   │   └── main.jsx          # Entry point
 │   └── package.json
-├── scripts/
-│   └── init-db.js            # Database initialization script
+├── migrations/               # Database migrations
+├── scripts/                  # Utility scripts
 ├── docs/                     # Documentation
+│   ├── permissions.md        # Permission system details
+│   └── dev.md                # Development environment guide
 └── package.json
 ```
 
 ## Data Storage
 
 - **Server**: Documents are persisted to PostgreSQL database
-  - Tables: `yjs_updates` (stores document updates), `yjs_state_vectors` (stores document state)
+  - **Yjs data**: `yjs_updates` (stores document updates), `yjs_state_vectors` (stores document state)
+  - **Document metadata**: `documents` table (document info, creator)
+  - **Permissions**: `document_shares` table (user-document access with roles)
+  - **Users**: `users` table (OAuth user accounts)
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 
@@ -352,10 +378,30 @@ If you encounter database connection errors:
 
 ## Development Notes
 
-- This is Phase 1 (MVP) - single document, single server deployment
-- No authentication required (for development/testing)
-- Document ID is hardcoded as "default-doc"
-- Suitable for internal testing and proof-of-concept demonstrations
+- **Authentication**: Google OAuth required for all users
+- **Document Management**: Full CRUD with permission-based access control
+- **Multi-document**: Users can create and manage multiple documents
+- **Permission System**: Centralized RBAC enforcement (see `server/permissions.js`)
+- **UI Features**: Word processor-style editor with visible margins, share badges, and role-based UI
+
+## UI/UX Features
+
+### Editor Interface
+- **Word processor styling**: Visible margins with thin grey lines, centered content area
+- **Header layout**: Document icon, title input, and formatting toolbar aligned vertically
+- **Keyboard navigation**: Tab key moves focus from title to editor content
+- **Format buttons**: Square buttons with hover/active states, styled letters (B/I/U/S)
+
+### Document List
+- **Share badges**: Visual indicators for shared documents (green = shared with me, purple = I shared)
+- **Date format**: Shows "Opened [date time]" for all documents
+- **Quick actions**: 3-dot menu with Share and Delete options
+- **Refresh**: Click document icon next to "Documents" title to refresh list
+
+### Sharing Interface
+- **Share dialog**: Shows document title, lists all users with access
+- **Role management**: Visual role badges, dropdown selectors for role changes
+- **Permission hints**: Disabled actions show tooltips explaining restrictions
 
 ## Testing
 
