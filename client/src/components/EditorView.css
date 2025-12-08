@@ -28,8 +28,9 @@
 .title-toolbar-stack {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
+  padding-top: 2px;
 }
 
 .title-toolbar-stack .app-title-input {
@@ -51,12 +52,33 @@
   padding: 0;
   border: none;
   background: transparent;
-  gap: 2px;
+  gap: 4px;
 }
 
 .title-toolbar-stack .toolbar button {
-  padding: 4px 8px;
-  font-size: 12px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.title-toolbar-stack .toolbar button:hover {
+  background: #f3f4f6;
+}
+
+.title-toolbar-stack .toolbar button:active,
+.title-toolbar-stack .toolbar button.is-active {
+  background: #e5e7eb;
 }
 
 /* Share button */
@@ -114,8 +136,8 @@
   }
 
   .back-btn svg {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
 
   .title-toolbar-stack .app-title-input {
@@ -123,8 +145,9 @@
   }
 
   .title-toolbar-stack .toolbar button {
-    padding: 3px 6px;
-    font-size: 11px;
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
   }
 
   .share-btn {
