@@ -108,21 +108,39 @@
   height: 40px;
 }
 
-.shared-badge {
+.share-badge-wrapper {
   position: absolute;
   bottom: -4px;
   right: -4px;
-  width: 18px;
-  height: 18px;
 }
 
-.shared-by-me-badge {
-  position: absolute;
-  bottom: -4px;
-  right: -4px;
+.share-badge {
   width: 18px;
   height: 18px;
-  opacity: 0.9;
+  display: block;
+}
+
+.share-badge-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: white;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s, visibility 0.15s;
+  pointer-events: none;
+  margin-bottom: 4px;
+}
+
+.share-badge-wrapper:hover .share-badge-tooltip {
+  opacity: 1;
+  visibility: visible;
 }
 
 .doc-info {
