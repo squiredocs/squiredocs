@@ -97,15 +97,18 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
               </svg>
             </button>
-            <input
-              type="text"
-              value={docTitle}
-              onChange={(e) => setDocTitle(e.target.value)}
-              className="app-title-input"
-              placeholder="Document title"
-              spellCheck={false}
-              readOnly={userRole === 'viewer'}
-            />
+            <div className="title-toolbar-stack">
+              <input
+                type="text"
+                value={docTitle}
+                onChange={(e) => setDocTitle(e.target.value)}
+                className="app-title-input"
+                placeholder="Document title"
+                spellCheck={false}
+                readOnly={userRole === 'viewer'}
+              />
+              {userRole !== 'viewer' && <Toolbar editor={editor} />}
+            </div>
           </div>
           <div className="app-header-right">
             {/* Active collaborators (excluding current user) */}
@@ -202,7 +205,6 @@ function EditorView({ docGuid, onNavigateHome, user }) {
               View only
             </div>
           )}
-          {userRole !== 'viewer' && <Toolbar editor={editor} />}
           <Editor 
             ydoc={ydoc} 
             provider={provider}

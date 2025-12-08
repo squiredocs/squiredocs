@@ -1,7 +1,7 @@
 .app-header-left {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .back-btn {
@@ -14,6 +14,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .back-btn:hover {
@@ -22,6 +23,40 @@
 
 .back-btn svg {
   display: block;
+}
+
+.title-toolbar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title-toolbar-stack .app-title-input {
+  height: auto;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.title-toolbar-stack .app-title-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.title-toolbar-stack .toolbar {
+  padding: 0;
+  border: none;
+  background: transparent;
+  gap: 2px;
+}
+
+.title-toolbar-stack .toolbar button {
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 /* Share button */
@@ -71,7 +106,7 @@
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   .app-header-left {
-    gap: 8px;
+    gap: 6px;
   }
 
   .back-btn {
@@ -81,6 +116,15 @@
   .back-btn svg {
     width: 36px;
     height: 36px;
+  }
+
+  .title-toolbar-stack .app-title-input {
+    font-size: 16px;
+  }
+
+  .title-toolbar-stack .toolbar button {
+    padding: 3px 6px;
+    font-size: 11px;
   }
 
   .share-btn {
