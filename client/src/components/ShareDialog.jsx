@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import './ShareDialog.css';
 
-function ShareDialog({ docId, isOpen, onClose }) {
+function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const { api, user: currentUser } = useAuth();
   const [email, setEmail] = useState('');
   const [shareRole, setShareRole] = useState('editor');
@@ -109,7 +109,7 @@ function ShareDialog({ docId, isOpen, onClose }) {
     <div className="share-dialog-overlay" onClick={onClose}>
       <div className="share-dialog" onClick={e => e.stopPropagation()}>
         <div className="share-dialog-header">
-          <h2>Share document</h2>
+          <h2>Share "{docTitle || 'Untitled document'}"</h2>
           <button className="share-dialog-close" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M6 18L18 6M6 6l12 12" />

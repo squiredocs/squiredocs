@@ -228,6 +228,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
       {/* Share dialog */}
       <ShareDialog
         docId={docGuid}
+        docTitle={docTitle}
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
       />
