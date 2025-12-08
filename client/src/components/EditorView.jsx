@@ -88,9 +88,9 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             <button 
               className="back-btn" 
               onClick={onNavigateHome}
-              title="Back to documents"
+              title="Documents Home"
             >
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="28" height="28">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="36" height="36">
                 <rect x="4" y="2" width="16" height="20" rx="2" fill="#7c3aed"/>
                 <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
                 <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
