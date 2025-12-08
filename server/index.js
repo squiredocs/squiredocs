@@ -156,31 +156,33 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     // Get documents the user has access to with their role
     const accessibleDocs = await documents.getAccessibleDocuments(userId);
     
-    // Build a map of docId -> access info
-    const accessMap = new Map();
-    for (const doc of accessibleDocs) {
-      accessMap.set(doc.doc_id, {
-        role: doc.role,
-        ownerName: doc.owner_name,
-        ownerEmail: doc.owner_email,
+    // Get all docs with metadata from persistence (for titles)
+    const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
+    
+    // Build a map of docId -> Yjs metadata (title, updatedAt)
+    const metaMap = new Map();
+    for (const doc of allDocsWithMeta) {
+      metaMap.set(doc.docGuid, {
+        title: doc.title,
+        updatedAt: doc.updatedAt,
       });
     }
     
-    // Get all docs with metadata from persistence
-    const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
+    // Start with accessible docs and enrich with Yjs metadata if available
+    const docs = accessibleDocs.map(doc => {
+      const meta = metaMap.get(doc.doc_id);
+      return {
+        docGuid: doc.doc_id,
+        title: meta?.title || null,
+        updatedAt: meta?.updatedAt || doc.updated_at || doc.created_at,
+        role: doc.role,
+        ownerName: doc.owner_name,
+        ownerEmail: doc.owner_email,
+      };
+    });
     
-    // Filter to only accessible docs and enrich with role info
-    const docs = allDocsWithMeta
-      .filter(doc => accessMap.has(doc.docGuid))
-      .map(doc => {
-        const access = accessMap.get(doc.docGuid);
-        return {
-          ...doc,
-          role: access.role,
-          ownerName: access.ownerName,
-          ownerEmail: access.ownerEmail,
-        };
-      });
+    // Sort by updatedAt descending
+    docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     
     res.json({ docs });
   } catch (error) {
