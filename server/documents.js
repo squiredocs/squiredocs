@@ -175,7 +175,8 @@ async function getAccessibleDocuments(userId) {
        ds.role,
        owner_share.user_id as owner_id,
        owner_user.name as owner_name,
-       owner_user.email as owner_email
+       owner_user.email as owner_email,
+       (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count
      FROM documents d
      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'

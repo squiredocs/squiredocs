@@ -178,6 +178,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         role: doc.role,
         ownerName: doc.owner_name,
         ownerEmail: doc.owner_email,
+        shareCount: parseInt(doc.share_count, 10) || 0,
       };
     });
     

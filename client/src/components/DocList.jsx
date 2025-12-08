@@ -106,19 +106,25 @@ function DocList({ onNavigate, user }) {
     });
   };
 
-  const DocIcon = ({ isShared }) => (
+  const DocIcon = ({ isSharedWithMe, isSharedByMe }) => (
     <div className="doc-icon-wrapper">
       <svg className="doc-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="4" y="2" width="16" height="20" rx="2" fill={isShared ? "#059669" : "#7c3aed"}/>
+        <rect x="4" y="2" width="16" height="20" rx="2" fill={isSharedWithMe ? "#059669" : "#7c3aed"}/>
         <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
         <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
         <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
       </svg>
-      {isShared && (
+      {isSharedWithMe && (
         <svg className="shared-badge" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="12" cy="12" r="10" fill="#059669"/>
           <path d="M16 12C16 14.2091 14.2091 16 12 16C9.79086 16 8 14.2091 8 12C8 9.79086 9.79086 8 12 8" stroke="white" strokeWidth="2" strokeLinecap="round"/>
           <path d="M12 8V6M12 6L10 8M12 6L14 8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+      {isSharedByMe && !isSharedWithMe && (
+        <svg className="shared-by-me-badge" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" fill="#ede9fe"/>
+          <path d="M14.5 9.5c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zM9 9.5c0 .83-.67 1.5-1.5 1.5S6 10.33 6 9.5 6.67 8 7.5 8 9 8.67 9 9.5zM7.5 12c-1.1 0-3 .5-3 1.5v1h4v-1c0-.57.35-1.06.85-1.37-.53-.09-1.17-.13-1.85-.13zM12.5 12c-1.38 0-4 .67-4 2v1.5h8V14c0-1.33-2.62-2-4-2z" fill="#7c3aed"/>
         </svg>
       )}
     </div>
@@ -185,8 +191,10 @@ function DocList({ onNavigate, user }) {
           {docs.map((doc) => {
             const isOwner = doc.role === 'owner';
             const isDeleting = deleting === doc.docGuid;
+            const isSharedWithMe = !isOwner;
+            const isSharedByMe = isOwner && doc.shareCount > 1; // > 1 because owner counts as 1
             return (
-              <li key={doc.docGuid} className={`doc-list-item ${!isOwner ? 'shared' : ''} ${isDeleting ? 'deleting' : ''}`}>
+              <li key={doc.docGuid} className={`doc-list-item ${isSharedWithMe ? 'shared' : ''} ${isDeleting ? 'deleting' : ''}`}>
                 <a
                   href={`/d/${doc.docGuid}`}
                   onClick={(e) => {
@@ -195,7 +203,7 @@ function DocList({ onNavigate, user }) {
                   }}
                   className="doc-link"
                 >
-                  <DocIcon isShared={!isOwner} />
+                  <DocIcon isSharedWithMe={isSharedWithMe} isSharedByMe={isSharedByMe} />
                   <div className="doc-info">
                     <span className="doc-title">
                       {doc.title || 'Untitled document'}
