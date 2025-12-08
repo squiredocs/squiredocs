@@ -167,10 +167,18 @@ function DocList({ onNavigate, user }) {
         </div>
       </header>
 
+      <button className="new-doc-btn" onClick={handleCreateNew} disabled={creating}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        {creating ? 'Creating...' : 'New document'}
+      </button>
+
       {docs.length === 0 ? (
         <div className="doc-list-empty">
           <p>No documents yet.</p>
-          <p>Tap + to create your first document!</p>
+          <p>Click "New document" above to create your first one!</p>
         </div>
       ) : (
         <ul className="doc-list">
@@ -239,13 +247,6 @@ function DocList({ onNavigate, user }) {
           })}
         </ul>
       )}
-
-      <button className="fab-create-doc" onClick={handleCreateNew} aria-label="Create new document">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
     </div>
   );
 }
