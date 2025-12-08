@@ -38,11 +38,18 @@ function DocList({ onNavigate, user }) {
     return date.toLocaleDateString(undefined, {
       year: 'numeric',
       month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      day: 'numeric'
     });
   };
+
+  const DocIcon = () => (
+    <svg className="doc-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="2" width="16" height="20" rx="2" fill="#7c3aed"/>
+      <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
+      <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
+      <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
+    </svg>
+  );
 
   if (loading) {
     return (
@@ -83,9 +90,6 @@ function DocList({ onNavigate, user }) {
       <header className="doc-list-header">
         <h1>Documents</h1>
         <div className="doc-list-header-right">
-          <button className="create-doc-btn" onClick={handleCreateNew}>
-            + New Document
-          </button>
           <UserProfileBadge user={user} onLogout={logout} />
         </div>
       </header>
@@ -93,7 +97,7 @@ function DocList({ onNavigate, user }) {
       {docs.length === 0 ? (
         <div className="doc-list-empty">
           <p>No documents yet.</p>
-          <p>Create your first document to get started!</p>
+          <p>Tap + to create your first document!</p>
         </div>
       ) : (
         <ul className="doc-list">
@@ -107,17 +111,34 @@ function DocList({ onNavigate, user }) {
                 }}
                 className="doc-link"
               >
-                <span className="doc-title">
-                  {doc.title || 'Untitled Document'}
-                </span>
-                <span className="doc-date">
-                  {formatDate(doc.updatedAt)}
-                </span>
+                <DocIcon />
+                <div className="doc-info">
+                  <span className="doc-title">
+                    {doc.title || 'Untitled document'}
+                  </span>
+                  <span className="doc-date">
+                    {formatDate(doc.updatedAt)}
+                  </span>
+                </div>
               </a>
+              <button className="doc-menu-btn" aria-label="More options">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="2"/>
+                  <circle cx="12" cy="12" r="2"/>
+                  <circle cx="12" cy="19" r="2"/>
+                </svg>
+              </button>
             </li>
           ))}
         </ul>
       )}
+
+      <button className="fab-create-doc" onClick={handleCreateNew} aria-label="Create new document">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
     </div>
   );
 }
