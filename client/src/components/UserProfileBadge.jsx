@@ -46,3 +46,4 @@ export default function UserProfileBadge({ user, onLogout }) {
     </div>
   );
 }
+

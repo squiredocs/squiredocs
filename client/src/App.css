@@ -110,3 +110,44 @@
     transform: rotate(360deg);
   }
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .app-header {
+    padding: 8px 12px;
+  }
+
+  .app-header-content {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .app-header-left {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .app-title-input {
+    font-size: 16px;
+    max-width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .app-header-right {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .back-btn {
+    padding: 4px 8px;
+    font-size: 16px;
+  }
+
+  /* Hide collaborator avatars on very small screens */
+  @media (max-width: 480px) {
+    .app-header-right > div:first-child {
+      display: none;
+    }
+  }
+}

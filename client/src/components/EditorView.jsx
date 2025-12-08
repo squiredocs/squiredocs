@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
-import ConnectionStatus from './ConnectionStatus';
 import UserProfileBadge from './UserProfileBadge';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
@@ -139,7 +138,6 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 )}
               </div>
             )}
-            <ConnectionStatus connected={connected} />
             <UserProfileBadge user={user} onLogout={logout} />
           </div>
         </div>

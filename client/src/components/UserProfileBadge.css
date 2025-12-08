@@ -93,3 +93,35 @@
 .user-menu-item:hover {
   background: #f7fafc;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .user-avatar-small,
+  .user-avatar-placeholder-small {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .user-menu {
+    min-width: 180px;
+    right: -8px;
+  }
+
+  .user-menu-header {
+    padding: 12px;
+  }
+
+  .user-menu-name {
+    font-size: 14px;
+  }
+
+  .user-menu-email {
+    font-size: 12px;
+  }
+
+  .user-menu-item {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}
