@@ -102,6 +102,14 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 type="text"
                 value={docTitle}
                 onChange={(e) => setDocTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (editor) {
+                      editor.commands.focus();
+                    }
+                  }
+                }}
                 className="app-title-input"
                 placeholder="Document title"
                 spellCheck={false}
