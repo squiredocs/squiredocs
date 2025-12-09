@@ -25,7 +25,7 @@ function generateColorFromId(id) {
 
 function EditorView({ docGuid, onNavigateHome, user }) {
   const { logout, api, accessToken } = useAuth();
-  const { ydoc, provider, awareness, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
+  const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -73,7 +73,10 @@ function EditorView({ docGuid, onNavigateHome, user }) {
 
   return (
     <div className="app">
-      {!synced && (
+      {!connected && (
+        <div className="sync-banner sync-banner--disconnected">Disconnected</div>
+      )}
+      {connected && !synced && (
         <div className="sync-banner">Syncing...</div>
       )}
       <header className="app-header">
