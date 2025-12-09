@@ -74,7 +74,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
   return (
     <div className="app">
       {!connected && (
-        <div className="sync-banner sync-banner--disconnected">Disconnected</div>
+        <div className="sync-banner sync-banner--disconnected">Offline</div>
       )}
       {connected && !synced && (
         <div className="sync-banner">Syncing...</div>
