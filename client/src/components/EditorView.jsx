@@ -25,7 +25,7 @@ function generateColorFromId(id) {
 
 function EditorView({ docGuid, onNavigateHome, user }) {
   const { logout, api, accessToken } = useAuth();
-  const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
+  const { ydoc, provider, awareness, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -71,17 +71,11 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     color: userColor
   }), [user, userColor]);
 
-  if (!ydoc || !provider || !synced) {
-    return (
-      <div className="app-loading">
-        <div className="loading-spinner"></div>
-        <div>Loading editor... {!synced ? '(syncing...)' : ''}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="app">
+      {!synced && (
+        <div className="sync-banner">Syncing...</div>
+      )}
       <header className="app-header">
         <div className="app-header-content">
           <div className="app-header-left">
@@ -213,12 +207,11 @@ function EditorView({ docGuid, onNavigateHome, user }) {
               View only
             </div>
           )}
-          <Editor 
-            ydoc={ydoc} 
+          <Editor
+            ydoc={ydoc}
             provider={provider}
-            awareness={awareness} 
+            awareness={awareness}
             user={collaborationUser}
-            synced={synced}
             onEditorReady={setEditor}
             editable={userRole !== 'viewer'}
           />

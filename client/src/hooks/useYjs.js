@@ -277,9 +277,9 @@ export function useYjs(docGuid, accessToken) {
     provider.on('sync', handleSync);
     awareness.on('change', handleAwarenessChange);
 
-    // Initial status check
-    setConnected(provider.shouldConnect);
-    setSynced(provider.shouldConnect);
+    // Initial status check - use actual sync state from provider
+    setConnected(provider.wsconnected);
+    setSynced(provider.synced);
 
     return () => {
       provider.off('status', handleStatus);

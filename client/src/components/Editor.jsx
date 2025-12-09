@@ -48,7 +48,7 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, user: userInfo, synced, onEditorReady, editable = true }) {
+export default function Editor({ ydoc, awareness, provider, user: userInfo, onEditorReady, editable = true }) {
   const hideTimeoutRef = useRef(null);
 
   const user = useMemo(() => ({
@@ -154,8 +154,8 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, sync
     };
   }, [awareness, showCursorLabels]);
 
-  if (!editor || !ydoc || !synced) {
-    return <div className="editor-loading">Loading editor... {!synced ? '(syncing...)' : ''}</div>;
+  if (!editor) {
+    return null;
   }
 
   return (

@@ -56,20 +56,19 @@ describe('Editor', () => {
     vi.clearAllMocks();
   });
 
-  it('renders loading state when editor is not ready', () => {
+  it('renders nothing when editor is not ready', () => {
     mockUseEditor.mockReturnValue(null);
-    
-    render(
+
+    const { container } = render(
       <Editor
         ydoc={mockYdoc}
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
       />
     );
-    
-    expect(screen.getByText(/Loading editor/i)).toBeInTheDocument();
+
+    expect(container.firstChild).toBeNull();
   });
 
   it('renders editor when ready', () => {
@@ -79,8 +78,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     expect(screen.getByTestId('editor-content')).toBeInTheDocument();
@@ -93,8 +91,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     const callArgs = mockUseEditor.mock.calls[0][0];
@@ -114,8 +111,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     const callArgs = mockUseEditor.mock.calls[0][0];
@@ -137,8 +133,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-        onEditorReady={onEditorReady}
+                onEditorReady={onEditorReady}
       />
     );
     
@@ -148,17 +143,18 @@ describe('Editor', () => {
   });
 
   it('handles missing ydoc gracefully', () => {
+    // Editor still renders - TipTap editor initializes even without ydoc
+    // The Collaboration extension handles the null case internally
     render(
       <Editor
         ydoc={null}
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={false}
       />
     );
-    
-    expect(screen.getByText(/Loading editor/i)).toBeInTheDocument();
+
+    expect(screen.getByTestId('editor-content')).toBeInTheDocument();
   });
 
   it('subscribes to awareness changes for cursor tracking', () => {
@@ -168,8 +164,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     expect(mockAwareness.on).toHaveBeenCalledWith('change', expect.any(Function));
@@ -182,8 +177,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     unmount();
@@ -198,8 +192,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={mockUser}
-        synced={true}
-      />
+              />
     );
     
     const callArgs = mockUseEditor.mock.calls[0][0];
@@ -218,8 +211,7 @@ describe('Editor', () => {
         awareness={mockAwareness}
         provider={mockProvider}
         user={null}
-        synced={true}
-      />
+              />
     );
     
     // Should not crash and should use defaults
@@ -236,8 +228,7 @@ describe('Editor', () => {
           awareness={mockAwareness}
           provider={mockProvider}
           user={mockUser}
-          synced={true}
-        />
+                  />
       );
       
       expect(CollaborationCursorWithSelection.default.configure).toHaveBeenCalledWith(
@@ -265,8 +256,7 @@ describe('Editor', () => {
           awareness={mockAwareness}
           provider={mockProvider}
           user={mockUser}
-          synced={true}
-        />
+                  />
       );
       
       // Verify change handler was registered
@@ -290,8 +280,7 @@ describe('Editor', () => {
           awareness={mockAwareness}
           provider={mockProvider}
           user={mockUser}
-          synced={true}
-        />
+                  />
       );
       
       // Simulate awareness change with selection
@@ -318,8 +307,7 @@ describe('Editor', () => {
           awareness={mockAwareness}
           provider={mockProvider}
           user={mockUser}
-          synced={true}
-        />
+                  />
       );
       
       // Simulate new user joining with cursor

@@ -40,6 +40,7 @@ describe('useYjs', () => {
       awareness: mockAwareness,
       shouldConnect: true,
       synced: true,
+      wsconnected: true,
       on: vi.fn((event, handler) => {
         if (event === 'status') {
           // Call handler asynchronously using setImmediate or setTimeout(0)
@@ -80,12 +81,12 @@ describe('useYjs', () => {
     expect(result.current.docGuid).toBe(TEST_DOC_GUID);
   });
 
-  it('initializes with provider shouldConnect state', () => {
+  it('initializes with provider wsconnected state', () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
-    // The hook initializes connected state based on provider.shouldConnect
-    // Since mockProvider.shouldConnect is true, connected should be true
-    expect(result.current.connected).toBe(mockProvider.shouldConnect);
+
+    // The hook initializes connected state based on provider.wsconnected
+    // Since mockProvider.wsconnected is true, connected should be true
+    expect(result.current.connected).toBe(mockProvider.wsconnected);
   });
 
   it('updates connected state when provider status changes', async () => {
