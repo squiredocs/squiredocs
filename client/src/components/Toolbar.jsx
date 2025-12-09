@@ -1,25 +1,70 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import './Toolbar.css';
+import LinkDialog from './LinkDialog';
 
 export default function Toolbar({ editor }) {
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkDialogText, setLinkDialogText] = useState('');
+  const [linkDialogUrl, setLinkDialogUrl] = useState('');
+
   const setLink = useCallback(() => {
+    const { from, to } = editor.state.selection;
+    const selectedText = editor.state.doc.textBetween(from, to, ' ');
     const previousUrl = editor.getAttributes('link').href;
-    const url = window.prompt('URL', previousUrl);
-
-    // cancelled
-    if (url === null) {
-      return;
+    
+    // If there's already a link, get its text
+    let linkText = selectedText;
+    if (previousUrl && !selectedText) {
+      // Try to get the text of the current link
+      const { $from } = editor.state.selection;
+      const linkMark = editor.getAttributes('link');
+      if (linkMark.href) {
+        // Find the text content of the link
+        const linkNode = $from.node();
+        if (linkNode) {
+          linkText = linkNode.textContent || '';
+        }
+      }
     }
 
-    // empty - remove link
-    if (url === '') {
-      editor.chain().focus().extendMarkRange('link').unsetLink().run();
-      return;
-    }
-
-    // set link
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    setLinkDialogText(linkText || '');
+    setLinkDialogUrl(previousUrl || '');
+    setLinkDialogOpen(true);
   }, [editor]);
+
+  const handleLinkSave = useCallback((text, url) => {
+    if (!url || url.trim() === '') {
+      // Remove link if URL is empty
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else {
+      const { from, to } = editor.state.selection;
+      const selectedText = editor.state.doc.textBetween(from, to, ' ');
+      
+      // If there's selected text, replace it with the new link
+      if (selectedText || editor.getAttributes('link').href) {
+        // If we're editing an existing link or have selection, replace it
+        editor
+          .chain()
+          .focus()
+          .extendMarkRange('link')
+          .unsetLink()
+          .insertContent(`<a href="${url}">${text || url}</a>`)
+          .run();
+      } else {
+        // No selection - insert new link
+        editor
+          .chain()
+          .focus()
+          .insertContent(`<a href="${url}">${text || url}</a>`)
+          .run();
+      }
+    }
+    setLinkDialogOpen(false);
+  }, [editor]);
+
+  const handleLinkCancel = useCallback(() => {
+    setLinkDialogOpen(false);
+  }, []);
 
   if (!editor) {
     return null;
@@ -112,6 +157,13 @@ export default function Toolbar({ editor }) {
           🔗
         </button>
       </div>
+      <LinkDialog
+        isOpen={linkDialogOpen}
+        initialText={linkDialogText}
+        initialUrl={linkDialogUrl}
+        onSave={handleLinkSave}
+        onCancel={handleLinkCancel}
+      />
     </div>
   );
 }

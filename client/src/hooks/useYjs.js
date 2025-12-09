@@ -247,11 +247,20 @@ export function useYjs(docGuid, accessToken) {
   useEffect(() => {
     if (!provider) return;
 
+    console.log('[useYjs] Setting up provider listeners', {
+      wsconnected: provider.wsconnected,
+      synced: provider.synced,
+      wsUnsuccessful: provider.wsUnsuccessful,
+      shouldConnect: provider.shouldConnect
+    });
+
     const handleStatus = (event) => {
+      console.log('[useYjs] Status event:', event.status);
       setConnected(event.status === 'connected');
     };
 
     const handleSync = (isSynced) => {
+      console.log('[useYjs] Sync event:', isSynced);
       setSynced(isSynced);
     };
 
@@ -278,8 +287,11 @@ export function useYjs(docGuid, accessToken) {
     awareness.on('change', handleAwarenessChange);
 
     // Initial status check - use actual sync state from provider
-    setConnected(provider.wsconnected);
-    setSynced(provider.synced);
+    const initialConnected = provider.wsconnected || false;
+    const initialSynced = provider.synced || false;
+    console.log('[useYjs] Initial state:', { connected: initialConnected, synced: initialSynced });
+    setConnected(initialConnected);
+    setSynced(initialSynced);
 
     return () => {
       provider.off('status', handleStatus);

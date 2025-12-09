@@ -7,6 +7,14 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
   const [editText, setEditText] = useState(text);
   const [editUrl, setEditUrl] = useState(href);
 
+  // Sync edit state with props when not editing
+  useEffect(() => {
+    if (!isEditing) {
+      setEditText(text);
+      setEditUrl(href);
+    }
+  }, [text, href, isEditing]);
+
   // Close when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -91,14 +99,20 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
               }}
             />
           </label>
-          <div className="link-edit-actions">
-            <button onClick={() => setIsEditing(false)} className="link-edit-btn link-edit-btn--cancel">
-              Cancel
-            </button>
-            <button onClick={handleSave} className="link-edit-btn link-edit-btn--save">
-              Save
-            </button>
-          </div>
+        </div>
+        <div className="link-edit-actions">
+          <button 
+            onClick={() => setIsEditing(false)} 
+            className="link-edit-btn link-edit-btn--cancel"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleSave} 
+            className="link-edit-btn link-edit-btn--save"
+          >
+            Apply
+          </button>
         </div>
       </div>
     );

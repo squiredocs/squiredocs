@@ -195,15 +195,31 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
     if (newUrl === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
     } else {
-      // Update link URL and text
+      // Extend selection to cover the entire link, then replace it
       editor
         .chain()
         .focus()
         .extendMarkRange('link')
-        .setLink({ href: newUrl })
         .command(({ tr, state }) => {
-          const { from, to } = state.selection;
-          tr.insertText(newText, from, to);
+          const { $from, $to } = state.selection;
+          const from = $from.pos;
+          const to = $to.pos;
+          
+          // Delete the old link content
+          tr.delete(from, to);
+          
+          // Insert new text with link mark
+          const textToInsert = newText || newUrl;
+          tr.insertText(textToInsert, from);
+          
+          // Apply link mark to the inserted text
+          const linkMark = state.schema.marks.link.create({ href: newUrl });
+          tr.addMark(from, from + textToInsert.length, linkMark);
+          
+          // Set cursor position after the link
+          const newPos = from + textToInsert.length;
+          tr.setSelection(state.selection.constructor.near(tr.doc.resolve(newPos)));
+          
           return true;
         })
         .run();
