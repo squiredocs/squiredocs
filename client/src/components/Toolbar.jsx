@@ -1,11 +1,18 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import './Toolbar.css';
-import LinkDialog from './LinkDialog';
+import LinkPreview from './LinkPreview';
 
 export default function Toolbar({ editor }) {
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
-  const [linkDialogText, setLinkDialogText] = useState('');
-  const [linkDialogUrl, setLinkDialogUrl] = useState('');
+  const [linkPreview, setLinkPreview] = useState(null);
+  const editorContainerRef = useRef(null);
+
+  // Find the editor container to get its position
+  useEffect(() => {
+    if (editor && editor.view && editor.view.dom) {
+      const editorElement = editor.view.dom.closest('.editor-container') || editor.view.dom;
+      editorContainerRef.current = editorElement;
+    }
+  }, [editor]);
 
   const setLink = useCallback(() => {
     const { from, to } = editor.state.selection;
@@ -27,12 +34,19 @@ export default function Toolbar({ editor }) {
       }
     }
 
-    setLinkDialogText(linkText || '');
-    setLinkDialogUrl(previousUrl || '');
-    setLinkDialogOpen(true);
+    // Get cursor position for LinkPreview
+    const { $from } = editor.state.selection;
+    const coords = editor.view.coordsAtPos($from.pos);
+    
+    setLinkPreview({
+      href: previousUrl || '',
+      text: linkText || '',
+      top: coords.bottom + window.scrollY,
+      left: coords.left + window.scrollX,
+    });
   }, [editor]);
 
-  const handleLinkSave = useCallback((text, url) => {
+  const handleLinkEdit = useCallback((text, url) => {
     if (!url || url.trim() === '') {
       // Remove link if URL is empty
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -59,12 +73,31 @@ export default function Toolbar({ editor }) {
           .run();
       }
     }
-    setLinkDialogOpen(false);
+    setLinkPreview(null);
   }, [editor]);
 
-  const handleLinkCancel = useCallback(() => {
-    setLinkDialogOpen(false);
+  const handleLinkClose = useCallback(() => {
+    setLinkPreview(null);
   }, []);
+
+  const handleLinkCopy = useCallback(() => {
+    if (linkPreview?.href) {
+      navigator.clipboard.writeText(linkPreview.href);
+    }
+    setLinkPreview(null);
+  }, [linkPreview]);
+
+  const handleLinkRemove = useCallback(() => {
+    editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    setLinkPreview(null);
+  }, [editor]);
+
+  const handleLinkOpen = useCallback(() => {
+    if (linkPreview?.href) {
+      window.open(linkPreview.href, '_blank', 'noopener,noreferrer');
+    }
+    setLinkPreview(null);
+  }, [linkPreview]);
 
   if (!editor) {
     return null;
@@ -157,13 +190,19 @@ export default function Toolbar({ editor }) {
           🔗
         </button>
       </div>
-      <LinkDialog
-        isOpen={linkDialogOpen}
-        initialText={linkDialogText}
-        initialUrl={linkDialogUrl}
-        onSave={handleLinkSave}
-        onCancel={handleLinkCancel}
-      />
+      {linkPreview && (
+        <LinkPreview
+          href={linkPreview.href}
+          text={linkPreview.text}
+          top={linkPreview.top}
+          left={linkPreview.left}
+          onCopy={handleLinkCopy}
+          onEdit={handleLinkEdit}
+          onRemove={handleLinkRemove}
+          onOpen={handleLinkOpen}
+          onClose={handleLinkClose}
+        />
+      )}
     </div>
   );
 }

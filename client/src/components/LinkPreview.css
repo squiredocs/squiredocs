@@ -108,30 +108,61 @@
   margin-top: 12px;
 }
 
-.link-edit-btn {
+/* Edit mode button styles - ensure consistent rendering with high specificity */
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn {
+  /* Reset inherited button styles that might interfere */
+  margin: 0;
   padding: 6px 16px;
   border-radius: 4px;
   font-size: 14px;
   font-weight: 500;
+  font-family: inherit;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
-}
-
-.link-edit-btn--cancel {
+  box-sizing: border-box;
+  display: inline-block;
+  width: auto;
+  height: auto;
+  min-width: auto;
+  min-height: auto;
+  vertical-align: middle;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  /* Override any parent toolbar button styles */
   background: transparent;
-  border: 1px solid #dadce0;
-  color: #5f6368;
+  border: 1px solid transparent;
+  color: inherit;
 }
 
-.link-edit-btn--cancel:hover {
-  background: #f1f3f4;
+/* Cancel button - consistent styling with !important to override parent styles */
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--cancel {
+  background: transparent !important;
+  border: 1px solid #dadce0 !important;
+  color: #5f6368 !important;
 }
 
-.link-edit-btn--save {
-  background: #1a73e8;
-  border: none;
-  color: white;
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--cancel:hover {
+  background: #f1f3f4 !important;
+  border-color: #dadce0 !important;
+  color: #5f6368 !important;
 }
 
-.link-edit-btn--save:hover {
-  background: #1557b0;
+/* Save button - consistent styling with !important to override parent styles */
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save {
+  background: #1a73e8 !important;
+  border: none !important;
+  color: white !important;
+}
+
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save:hover:not(:disabled) {
+  background: #1557b0 !important;
+  color: white !important;
+}
+
+.link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save:disabled {
+  background: #dadce0 !important;
+  color: #9aa0a6 !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
 }

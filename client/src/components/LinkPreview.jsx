@@ -3,9 +3,10 @@ import './LinkPreview.css';
 
 export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onRemove, onOpen, onClose }) {
   const ref = useRef(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(text);
-  const [editUrl, setEditUrl] = useState(href);
+  // Start in edit mode if href is empty (creating new link)
+  const [isEditing, setIsEditing] = useState(!href || href.trim() === '');
+  const [editText, setEditText] = useState(text || '');
+  const [editUrl, setEditUrl] = useState(href || '');
 
   // Sync edit state with props when not editing
   useEffect(() => {
@@ -39,9 +40,8 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         if (isEditing) {
-          setIsEditing(false);
-          setEditText(text);
-          setEditUrl(href);
+          // Always close when in edit mode and escape is pressed
+          onClose();
         } else {
           onClose();
         }
@@ -49,7 +49,7 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, isEditing, text, href]);
+  }, [onClose, isEditing]);
 
   // Get favicon URL
   const getFaviconUrl = (url) => {
@@ -64,7 +64,9 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
   const faviconUrl = getFaviconUrl(href);
 
   const handleSave = () => {
-    onEdit(editText, editUrl);
+    if (editUrl.trim()) {
+      onEdit(editText, editUrl);
+    }
   };
 
   if (isEditing) {
@@ -94,6 +96,7 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
               className="link-edit-input"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
+                  e.preventDefault();
                   handleSave();
                 }
               }}
@@ -102,14 +105,17 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
         </div>
         <div className="link-edit-actions">
           <button 
-            onClick={() => setIsEditing(false)} 
+            type="button"
+            onClick={onClose}
             className="link-edit-btn link-edit-btn--cancel"
           >
             Cancel
           </button>
           <button 
+            type="button"
             onClick={handleSave} 
             className="link-edit-btn link-edit-btn--save"
+            disabled={!editUrl.trim()}
           >
             Apply
           </button>
