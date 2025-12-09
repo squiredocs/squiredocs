@@ -120,29 +120,40 @@ class PostgresPersistence {
    */
   async getYDoc(docGuid) {
     await this._init();
-    
+    const startTime = Date.now();
+
     const client = await this.pool.connect();
     try {
       // Get all updates ordered by clock
+      const queryStart = Date.now();
       const result = await client.query(
         'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
         [docGuid]
       );
+      const queryTime = Date.now() - queryStart;
 
       const updates = result.rows.map(row => new Uint8Array(row.update_data));
-      
+      const totalBytes = updates.reduce((sum, u) => sum + u.byteLength, 0);
+
       // Reconstruct the document by applying all updates
+      const applyStart = Date.now();
       const ydoc = new Y.Doc();
       ydoc.transact(() => {
         for (let i = 0; i < updates.length; i++) {
           Y.applyUpdate(ydoc, updates[i]);
         }
       });
+      const applyTime = Date.now() - applyStart;
 
-      // If we have many updates, consider flushing to optimize storage
-      // (This is similar to LevelDB's PREFERRED_TRIM_SIZE behavior)
-      const PREFERRED_TRIM_SIZE = 500;
+      if (updates.length > 0) {
+        console.log(`[Postgres] getYDoc ${docGuid}: ${updates.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
+      }
+
+      // If we have many updates, compact them into a single state update
+      // Lower threshold than LevelDB's 500 since DB round-trips are slower
+      const PREFERRED_TRIM_SIZE = 50;
       if (updates.length > PREFERRED_TRIM_SIZE) {
+        console.log(`[Postgres] Compacting ${updates.length} updates for ${docGuid}`);
         // Flush: replace all updates with a single state update
         const stateAsUpdate = Y.encodeStateAsUpdate(ydoc);
         const stateVector = Y.encodeStateVector(ydoc);
