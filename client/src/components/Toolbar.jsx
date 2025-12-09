@@ -1,6 +1,26 @@
+import { useCallback } from 'react';
 import './Toolbar.css';
 
 export default function Toolbar({ editor }) {
+  const setLink = useCallback(() => {
+    const previousUrl = editor.getAttributes('link').href;
+    const url = window.prompt('URL', previousUrl);
+
+    // cancelled
+    if (url === null) {
+      return;
+    }
+
+    // empty - remove link
+    if (url === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+      return;
+    }
+
+    // set link
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }, [editor]);
+
   if (!editor) {
     return null;
   }
@@ -83,6 +103,13 @@ export default function Toolbar({ editor }) {
           title="Code"
         >
           &lt;/&gt;
+        </button>
+        <button
+          onClick={setLink}
+          className={`toolbar-button ${editor.isActive('link') ? 'is-active' : ''}`}
+          title="Link"
+        >
+          🔗
         </button>
       </div>
     </div>

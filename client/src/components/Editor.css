@@ -104,6 +104,12 @@
   text-decoration: line-through;
 }
 
+.editor-content .ProseMirror a {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* Collaboration cursor styles */
 .editor-content .collaboration-cursor__caret {
   border-left: 2px solid;

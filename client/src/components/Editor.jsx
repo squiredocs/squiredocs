@@ -1,9 +1,11 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
+import Link from '@tiptap/extension-link';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
-import { useMemo, useEffect, useRef, useCallback } from 'react';
+import LinkPreview from './LinkPreview';
+import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import './Editor.css';
 
 // Create cursor element with label
@@ -50,6 +52,7 @@ function renderSelection(user) {
 
 export default function Editor({ ydoc, awareness, provider, user: userInfo, onEditorReady, editable = true }) {
   const hideTimeoutRef = useRef(null);
+  const [linkPreview, setLinkPreview] = useState(null);
 
   const user = useMemo(() => ({
     name: userInfo?.name || 'Anonymous',
@@ -81,6 +84,9 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
         history: false // Disable built-in history, Yjs handles it
       }),
       Underline,
+      Link.configure({
+        openOnClick: false,
+      }),
       Collaboration.configure({
         document: ydoc,
         field: 'default' // Field name in Yjs document for ProseMirror content
@@ -154,13 +160,89 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
     };
   }, [awareness, showCursorLabels]);
 
+  // Handle clicks on links to show preview
+  const handleClick = useCallback((event) => {
+    // Don't close if clicking inside the link preview
+    if (event.target.closest('.link-preview')) {
+      return;
+    }
+
+    const link = event.target.closest('a');
+    if (link) {
+      event.preventDefault();
+      const href = link.getAttribute('href');
+      const text = link.textContent;
+      const rect = link.getBoundingClientRect();
+      setLinkPreview({
+        href,
+        text,
+        top: rect.bottom + window.scrollY,
+        left: rect.left + window.scrollX,
+      });
+    } else {
+      setLinkPreview(null);
+    }
+  }, []);
+
+  const handleCopyLink = useCallback(() => {
+    if (linkPreview?.href) {
+      navigator.clipboard.writeText(linkPreview.href);
+    }
+    setLinkPreview(null);
+  }, [linkPreview]);
+
+  const handleEditLink = useCallback((newText, newUrl) => {
+    if (newUrl === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else {
+      // Update link URL and text
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange('link')
+        .setLink({ href: newUrl })
+        .command(({ tr, state }) => {
+          const { from, to } = state.selection;
+          tr.insertText(newText, from, to);
+          return true;
+        })
+        .run();
+    }
+    setLinkPreview(null);
+  }, [editor]);
+
+  const handleRemoveLink = useCallback(() => {
+    editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    setLinkPreview(null);
+  }, [editor]);
+
+  const handleOpenLink = useCallback(() => {
+    if (linkPreview?.href) {
+      window.open(linkPreview.href, '_blank', 'noopener,noreferrer');
+    }
+    setLinkPreview(null);
+  }, [linkPreview]);
+
   if (!editor) {
     return null;
   }
 
   return (
-    <div className="editor-container">
+    <div className="editor-container" onClick={handleClick}>
       <EditorContent editor={editor} className="editor-content" />
+      {linkPreview && (
+        <LinkPreview
+          href={linkPreview.href}
+          text={linkPreview.text}
+          top={linkPreview.top}
+          left={linkPreview.left}
+          onCopy={handleCopyLink}
+          onEdit={handleEditLink}
+          onRemove={handleRemoveLink}
+          onOpen={handleOpenLink}
+          onClose={() => setLinkPreview(null)}
+        />
+      )}
     </div>
   );
 }
