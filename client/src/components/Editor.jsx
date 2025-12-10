@@ -90,7 +90,8 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
       Collaboration.configure({
         document: ydoc,
         field: 'default' // Field name in Yjs document for ProseMirror content
-      })
+      }),
+      // Note: yUndoPlugin is automatically included by Collaboration extension
     ];
 
     if (provider) {

@@ -1,0 +1,44 @@
+.mobile-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mobile-action-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.mobile-action-button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.mobile-action-button:active:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.mobile-action-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mobile-action-button svg {
+  display: block;
+}
+
+.mobile-action-divider {
+  width: 1px;
+  height: 20px;
+  background: #d1d5db;
+  margin: 0 4px;
+}

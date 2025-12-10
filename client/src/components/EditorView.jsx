@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
+import MobileActionBar from './MobileActionBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
+import { useMobile } from '../hooks/useMobile';
 import './EditorView.css';
 
 /**
@@ -30,6 +32,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
+  const isMobile = useMobile();
 
   // Fetch document info to determine user's role
   useEffect(() => {
@@ -112,7 +115,8 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 spellCheck={false}
                 readOnly={userRole === 'viewer'}
               />
-              {userRole !== 'viewer' && <Toolbar editor={editor} />}
+              {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
+              {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
             </div>
           </div>
           <div className="app-header-right">
@@ -228,6 +232,13 @@ function EditorView({ docGuid, onNavigateHome, user }) {
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
       />
+
+      {/* Mobile format bar at bottom */}
+      {userRole !== 'viewer' && isMobile && (
+        <div className="mobile-format-bar">
+          <Toolbar editor={editor} />
+        </div>
+      )}
     </div>
   );
 }

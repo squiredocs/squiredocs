@@ -203,3 +203,70 @@
     border-radius: 50%;
   }
 }
+
+/* Mobile format bar - fixed at bottom */
+.mobile-format-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  z-index: 100;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.mobile-format-bar .toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.mobile-format-bar .toolbar-group {
+  display: flex;
+  gap: 2px;
+  padding-right: 8px;
+  border-right: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.mobile-format-bar .toolbar-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.mobile-format-bar .toolbar-button {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+}
+
+.mobile-format-bar .toolbar-button:hover {
+  background: #f3f4f6;
+}
+
+.mobile-format-bar .toolbar-button.is-active {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+/* Add bottom padding to app-body on mobile to account for fixed bar */
+@media (max-width: 768px) {
+  .app-body {
+    padding-bottom: 60px;
+  }
+}
