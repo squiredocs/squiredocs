@@ -18,7 +18,7 @@ RUN npm ci --only=production && \
 # Copy server code
 COPY server/ ./server/
 COPY migrations/ ./migrations/
-COPY scripts/ ./scripts/
+COPY script/ ./script/
 
 # Copy built client from builder stage
 COPY --from=client-builder /app/client/dist ./client/dist

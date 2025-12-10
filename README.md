@@ -162,7 +162,7 @@ The TipTap editor uses the `'default'` field with `Y.XmlFragment` for ProseMirro
 
 ### Example Script
 
-A sample script is provided at `scripts/edit-default-doc.js`. Here's how it works:
+A sample script is provided at `script/edit-default-doc.js`. Here's how it works:
 
 ```javascript
 const Y = require('yjs');
@@ -203,13 +203,13 @@ provider.on('sync', (isSynced) => {
 
 ```bash
 # Edit the default document
-node scripts/edit-default-doc.js
+node script/edit-default-doc.js
 
 # Edit a specific document
-DOC_NAME=my-document node scripts/edit-default-doc.js
+DOC_NAME=my-document node script/edit-default-doc.js
 
 # Connect to a different server
-WS_URL=ws://example.com:3001 node scripts/edit-default-doc.js
+WS_URL=ws://example.com:3001 node script/edit-default-doc.js
 ```
 
 ### Key Points
@@ -261,7 +261,7 @@ paragraphs.forEach((node, index) => {
 │   │   └── main.jsx          # Entry point
 │   └── package.json
 ├── migrations/               # Database migrations
-├── scripts/                  # Utility scripts
+├── script/                   # Utility scripts
 ├── docs/                     # Documentation
 │   ├── permissions.md        # Permission system details
 │   └── dev.md                # Development environment guide

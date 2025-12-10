@@ -35,7 +35,7 @@ Mutagen syncs your local code to the pod in real-time, enabling live reload duri
 
 ```bash
 # Run the mutagen setup script
-./scripts/mutagen.sh
+./script/mutagen.sh
 ```
 
 **What the script does:**
@@ -146,7 +146,7 @@ kubectl port-forward deployment/app-dev 4567:5173 3001:3001 -n collab
 
 ### Sync Configuration
 
-From `scripts/mutagen.sh`:
+From `script/mutagen.sh`:
 
 ```bash
 mutagen sync create . "docker://$CONTAINER_ID/local-dev" \
@@ -203,7 +203,7 @@ mutagen sync monitor app-sync
 
 # 3. Restart the sync
 mutagen sync terminate app-sync
-./scripts/mutagen.sh
+./script/mutagen.sh
 
 # 4. Verify container is running
 kubectl get pods -n collab -l app=app-dev
@@ -221,7 +221,7 @@ mutagen sync monitor app-sync
 
 # Reset and re-sync
 mutagen sync terminate app-sync
-./scripts/mutagen.sh
+./script/mutagen.sh
 ```
 
 ## Common Development Workflows
@@ -230,7 +230,7 @@ mutagen sync terminate app-sync
 
 ```bash
 # Terminal 1: Set up sync
-./scripts/mutagen.sh
+./script/mutagen.sh
 
 # Terminal 2: Connect to pod and start dev servers
 kubectl exec -it deployment/app-dev -n collab -- sh
@@ -357,7 +357,7 @@ After redeploying or pod restart, the container ID changes:
 mutagen sync terminate app-sync
 
 # Re-run setup script
-./scripts/mutagen.sh
+./script/mutagen.sh
 ```
 
 ### Vite MIME Type Errors
@@ -393,7 +393,7 @@ docker ps | grep app-dev
 
 # Restart sync
 mutagen sync terminate app-sync
-./scripts/mutagen.sh
+./script/mutagen.sh
 ```
 
 ## Best Practices
@@ -418,7 +418,7 @@ kubectl describe pod -l app=app-dev -n collab                # Pod details
 mutagen sync list                                             # List syncs
 mutagen sync monitor app-sync                                 # Watch sync status
 mutagen sync terminate app-sync                               # Stop sync
-./scripts/mutagen.sh                                          # Setup sync
+./script/mutagen.sh                                           # Setup sync
 
 # === Port Forwarding ===
 kubectl port-forward deployment/app-dev 4567:5173 -n collab  # Forward Vite

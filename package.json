@@ -17,11 +17,11 @@
     "test:client": "cd client && npm run test",
     "test:client:watch": "cd client && npm run test:watch",
     "test:collab": "node test-collaboration.js",
-    "init-db": "node scripts/init-db.js",
-    "migrate": "node -e \"require('./scripts/setup-db-env.js'); require('child_process').execSync('node-pg-migrate up', {stdio: 'inherit'})\"",
-    "migrate:down": "node -e \"require('./scripts/setup-db-env.js'); require('child_process').execSync('node-pg-migrate down', {stdio: 'inherit'})\"",
+    "init-db": "node script/init-db.js",
+    "migrate": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate up', {stdio: 'inherit'})\"",
+    "migrate:down": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate down', {stdio: 'inherit'})\"",
     "migrate:create": "node-pg-migrate create",
-    "migrate:redo": "node -e \"require('./scripts/setup-db-env.js'); require('child_process').execSync('node-pg-migrate redo', {stdio: 'inherit'})\""
+    "migrate:redo": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate redo', {stdio: 'inherit'})\""
   },
   "keywords": [
     "collaborative",

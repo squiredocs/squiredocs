@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Mutagen Sync Script for Development Environment
-# Usage: ./scripts/mutagen.sh
+# Usage: ./script/mutagen.sh
 
 set -e
 
