@@ -7,6 +7,7 @@ import ShareDialog from './ShareDialog';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import './EditorView.css';
 
 /**
@@ -33,6 +34,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const isMobile = useMobile();
+  const keyboardHeight = useKeyboardHeight();
 
   // Fetch document info to determine user's role
   useEffect(() => {
@@ -235,7 +237,10 @@ function EditorView({ docGuid, onNavigateHome, user }) {
 
       {/* Mobile format bar at bottom */}
       {userRole !== 'viewer' && isMobile && (
-        <div className="mobile-format-bar">
+        <div
+          className="mobile-format-bar"
+          style={keyboardHeight > 0 ? { bottom: keyboardHeight } : undefined}
+        >
           <Toolbar editor={editor} />
         </div>
       )}
