@@ -3,10 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import './LoginPage.css';
 
 /**
- * Login page component
- * Displays application branding and Google sign-in button
+ * Login page component for HeroDocs
+ * Displays branding and Google sign-in button
  */
-export default function LoginPage() {
+export default function LoginPage({ onNavigateToLanding }) {
   const { login, error, loading } = useAuth();
 
   // Map error codes to user-friendly messages
@@ -20,21 +20,34 @@ export default function LoginPage() {
     return errorMessages[error] || `Authentication error: ${error}`;
   };
 
+  const handleLogoClick = (e) => {
+    e.preventDefault();
+    if (onNavigateToLanding) {
+      onNavigateToLanding();
+    } else {
+      window.location.href = '/';
+    }
+  };
+
   return (
     <div className="login-page">
       <div className="login-container">
         <div className="login-branding">
-          <div className="login-logo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 19l7-7 3 3-7 7-3-3z" />
-              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
-              <path d="M2 2l7.586 7.586" />
-              <circle cx="11" cy="11" r="2" />
-            </svg>
-          </div>
-          <h1 className="login-title">Collab Editor</h1>
-          <p className="login-subtitle">Real-time collaborative document editing</p>
+          <a href="/" onClick={handleLogoClick} className="login-logo-link">
+            <div className="login-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M12 18v-6" />
+                <path d="M9 15l3 3 3-3" />
+              </svg>
+            </div>
+            <h1 className="login-title">HeroDocs</h1>
+          </a>
+          <p className="login-subtitle">AI-Native Collaborative Documents</p>
         </div>
+
+        <h2 className="login-headline">Welcome Back</h2>
 
         {error && (
           <div className="login-error">
@@ -42,7 +55,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <button 
+        <button
           className="login-button google-button"
           onClick={login}
           disabled={loading}
@@ -53,26 +66,16 @@ export default function LoginPage() {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          <span>Sign in with Google</span>
+          <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
         </button>
 
-        <div className="login-features">
-          <div className="feature">
-            <span className="feature-icon">📝</span>
-            <span>Rich text editing</span>
-          </div>
-          <div className="feature">
-            <span className="feature-icon">👥</span>
-            <span>Real-time collaboration</span>
-          </div>
-          <div className="feature">
-            <span className="feature-icon">💾</span>
-            <span>Auto-save everything</span>
-          </div>
+        <div className="login-footer">
+          <span>Don't have an account?</span>
+          <a href="/" onClick={handleLogoClick} className="login-waitlist-link">
+            Join the Waitlist
+          </a>
         </div>
       </div>
     </div>
   );
 }
-
-

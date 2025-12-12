@@ -110,7 +110,7 @@ router.get('/google/callback', async (req, res) => {
     // 1. It's short-lived (15 minutes)
     // 2. Client immediately clears it from URL history
     // 3. HTTPS encrypts the URL in transit
-    res.redirect(`${clientUrl}?accessToken=${encodeURIComponent(accessToken)}`);
+    res.redirect(`${clientUrl}/docs?accessToken=${encodeURIComponent(accessToken)}`);
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.redirect(`${clientUrl}/login?error=auth_failed`);
@@ -219,5 +219,6 @@ router.post('/logout', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+
 
 

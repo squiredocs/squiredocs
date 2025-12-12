@@ -12,6 +12,7 @@ const Y = require('yjs');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const documents = require('./documents');
 const permissions = require('./permissions');
+const waitlist = require('./waitlist');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -137,8 +138,14 @@ initUsers(persistenceProvider.getPool());
 // Initialize documents module with shared database pool
 documents.init(persistenceProvider.getPool());
 
+// Initialize waitlist module with shared database pool
+waitlist.init(persistenceProvider.getPool());
+
 // Mount auth routes
 app.use('/auth', authRouter);
+
+// Mount waitlist routes
+app.use('/api/waitlist', waitlist.router);
 
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
