@@ -223,6 +223,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             user={collaborationUser}
             onEditorReady={setEditor}
             editable={userRole !== 'viewer'}
+            synced={synced}
           />
         </main>
       </div>

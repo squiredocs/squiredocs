@@ -50,8 +50,9 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, user: userInfo, onEditorReady, editable = true }) {
+export default function Editor({ ydoc, awareness, provider, user: userInfo, onEditorReady, editable = true, synced = false }) {
   const hideTimeoutRef = useRef(null);
+  const containerRef = useRef(null);
   const [linkPreview, setLinkPreview] = useState(null);
 
   const user = useMemo(() => ({
@@ -128,6 +129,13 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
       onEditorReady(editor);
     }
   }, [editor, onEditorReady]);
+
+  // Scroll to top when document syncs to prevent browser scroll restoration
+  useEffect(() => {
+    if (synced && containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [synced]);
 
   // Track cursor movements and selection changes via awareness, show labels
   useEffect(() => {
@@ -245,7 +253,7 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
   }
 
   return (
-    <div className="editor-container" onClick={handleClick}>
+    <div className="editor-container" ref={containerRef} onClick={handleClick}>
       <EditorContent editor={editor} className="editor-content" />
       {linkPreview && (
         <LinkPreview
