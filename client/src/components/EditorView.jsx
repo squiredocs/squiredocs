@@ -44,14 +44,13 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
-function EditorView({ docGuid, onNavigateHome, user }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersionHistory = false, user }) {
   const { logout, api, accessToken } = useAuth();
   const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
 
@@ -82,9 +81,12 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     }
   }, [showVersionHistory, versions, selectedVersion, selectVersion]);
 
+  const handleOpenVersionHistory = () => {
+    onNavigateToVersions(docGuid);
+  };
+
   const handleCloseVersionHistory = () => {
-    setShowVersionHistory(false);
-    clearSelection();
+    window.history.back();
   };
 
   // Fetch document info to determine user's role
@@ -326,7 +328,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             {docInfoLoaded && userRole && (
               <button
                 className="history-btn"
-                onClick={() => setShowVersionHistory(true)}
+                onClick={handleOpenVersionHistory}
                 title="Version history"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor">

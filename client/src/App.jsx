@@ -23,6 +23,12 @@ function parseRoute() {
     return { view: 'list', docGuid: null };
   }
 
+  // Check for /d/{uuid}/versions or /doc/{uuid}/versions pattern
+  const versionsMatch = path.match(/^\/d(?:oc)?\/([0-9a-f-]+)\/versions$/i);
+  if (versionsMatch && UUID_REGEX.test(versionsMatch[1])) {
+    return { view: 'versions', docGuid: versionsMatch[1].toLowerCase() };
+  }
+
   // Check for /d/{uuid} or /doc/{uuid} pattern
   const match = path.match(/^\/d(?:oc)?\/([0-9a-f-]+)$/i);
   if (match && UUID_REGEX.test(match[1])) {
@@ -62,6 +68,13 @@ function AppContent() {
     const newPath = `/d/${docGuid}`;
     window.history.pushState({}, '', newPath);
     setRoute({ view: 'editor', docGuid });
+  };
+
+  // Navigate to version history
+  const navigateToVersions = (docGuid) => {
+    const newPath = `/d/${docGuid}/versions`;
+    window.history.pushState({}, '', newPath);
+    setRoute({ view: 'versions', docGuid });
   };
 
   // Navigate to document list
@@ -126,6 +139,22 @@ function AppContent() {
         key={route.docGuid}
         docGuid={route.docGuid}
         onNavigateHome={navigateToDocs}
+        onNavigateToVersions={navigateToVersions}
+        showVersionHistory={false}
+        user={user}
+      />
+    );
+  }
+
+  // Version history view
+  if (route.view === 'versions' && route.docGuid) {
+    return (
+      <EditorView
+        key={`${route.docGuid}-versions`}
+        docGuid={route.docGuid}
+        onNavigateHome={navigateToDocs}
+        onNavigateToVersions={navigateToVersions}
+        showVersionHistory={true}
         user={user}
       />
     );
