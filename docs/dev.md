@@ -283,6 +283,115 @@ kubectl exec -it deployment/collab-postgres -n collab -- psql -U postgres -d col
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run init-db"
 ```
 
+## Development Authentication Bypass
+
+For easier development and mobile testing, the application supports bypassing Google OAuth authentication and automatically logging in with a test user.
+
+### How to Enable
+
+Set the `VITE_BYPASS_AUTH` environment variable to `true` in `client/.env`:
+
+```bash
+VITE_BYPASS_AUTH=true
+```
+
+### How It Works
+
+When auth bypass is enabled:
+
+1. **Auto-login**: The app automatically logs you in as a test user (`dev@test.local`) when you load the page
+2. **No OAuth redirect**: Clicking "Login" calls the `/auth/dev-login` endpoint instead of redirecting to Google OAuth
+3. **Development-only**: The `/auth/dev-login` endpoint only works when `NODE_ENV=development`
+
+### Test User Details
+
+- **Email**: `dev@test.local`
+- **Name**: `Dev Test User`
+- **Google ID**: `dev-test-user`
+
+### Use Cases
+
+- **Mobile testing**: Test on physical devices over HTTP (where `crypto.randomUUID()` may not be available)
+- **Quick iteration**: Skip OAuth flow during rapid development
+- **Offline development**: Work without internet connection
+
+### Security
+
+The dev-login endpoint includes several safety measures:
+
+- Only available when `NODE_ENV=development`
+- Returns 403 Forbidden in production
+- Test user is clearly identifiable by email domain
+
+### Disabling
+
+To disable auth bypass and use real Google OAuth:
+
+```bash
+# In client/.env
+VITE_BYPASS_AUTH=false
+```
+
+Or simply remove the environment variable.
+
+## Mobile Testing on Local Network
+
+To test the application on a mobile device connected to the same local network:
+
+### 1. Set Up Port-Forward for Network Access
+
+Use the `--address 0.0.0.0` flag to bind port-forward to all network interfaces:
+
+```bash
+kubectl port-forward deployment/app-dev --address 0.0.0.0 60175:5173 -n collab
+```
+
+This makes the app accessible from any device on your local network.
+
+### 2. Find Your Local IP Address
+
+```bash
+# On macOS/Linux
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+### 3. Access from Mobile
+
+Open your mobile browser and navigate to:
+
+```
+http://YOUR_LOCAL_IP:60175
+```
+
+For example: `http://192.168.50.121:60175`
+
+### 4. Enable Auth Bypass
+
+Since mobile devices accessing via HTTP (not HTTPS) may have limited Web Crypto API support, enable auth bypass in `client/.env`:
+
+```bash
+VITE_BYPASS_AUTH=true
+```
+
+This bypasses OAuth and automatically logs you in for testing.
+
+### Troubleshooting Mobile Testing
+
+**Firewall Issues**
+- Ensure your Mac's firewall allows incoming connections on the forwarded port
+- Check System Settings > Network > Firewall
+
+**Same Network Required**
+- Mobile device and development machine must be on the same Wi-Fi network
+
+**UUID Generation**
+- The app includes a fallback UUID generator for non-secure contexts (HTTP)
+- `crypto.randomUUID()` requires HTTPS, so we fall back to `Math.random()` over HTTP
+
+**Hot Module Reload (HMR)**
+- HMR may not work perfectly from mobile since Vite's HMR is configured for localhost
+- Manually refresh the page after making changes
+
 ## Vite Configuration for Port-Forward
 
 The `client/vite.config.js` is configured to work with kubectl port-forward:

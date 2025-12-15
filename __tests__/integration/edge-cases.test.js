@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../../server/postgres-persistence');
 
+// Make WebSocket available globally for y-websocket in Node.js
+global.WebSocket = WebSocket;
+
 const generateTestUUID = () => crypto.randomUUID();
 
 const extractDocGuid = (docName) => {

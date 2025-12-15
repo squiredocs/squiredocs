@@ -4,6 +4,9 @@ import axios from 'axios';
 // API base URL - use same host in production, configured URL in development
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
+// Check if auth bypass is enabled (development only)
+const BYPASS_AUTH = import.meta.env.VITE_BYPASS_AUTH === 'true';
+
 // Create axios instance with credentials (for cookies)
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -22,10 +25,12 @@ export function AuthProvider({ children }) {
   const [accessToken, setAccessToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Track if we're currently refreshing to prevent multiple simultaneous refreshes
   const isRefreshing = useRef(false);
   const refreshSubscribers = useRef([]);
+  // Use ref to store token so interceptor always has latest value
+  const accessTokenRef = useRef(null);
 
   /**
    * Subscribe to token refresh
@@ -78,12 +83,33 @@ export function AuthProvider({ children }) {
   }, []);
 
   /**
-   * Login - redirect to Google OAuth
+   * Dev login - bypass OAuth and login with test user
+   * Only works when VITE_BYPASS_AUTH=true
+   */
+  const devLogin = useCallback(async () => {
+    try {
+      const response = await api.post('/auth/dev-login');
+      const { accessToken: newToken, user: userData } = response.data;
+      setAccessToken(newToken);
+      setUser(userData);
+      return true;
+    } catch (error) {
+      console.error('Dev login failed:', error);
+      setError('Dev login failed');
+      return false;
+    }
+  }, []);
+
+  /**
+   * Login - redirect to Google OAuth or use dev login if bypass enabled
    * Uses relative URL so it stays on the same domain/port
    */
-  const login = useCallback(() => {
+  const login = useCallback(async () => {
+    if (BYPASS_AUTH) {
+      return await devLogin();
+    }
     window.location.href = '/auth/google';
-  }, []);
+  }, [devLogin]);
 
   /**
    * Logout - call logout endpoint and clear state
@@ -223,6 +249,16 @@ export function AuthProvider({ children }) {
           const newToken = await refreshAccessToken();
           await fetchUser(newToken);
         } catch (refreshError) {
+          // No valid session - try dev login if bypass is enabled
+          if (BYPASS_AUTH) {
+            try {
+              await devLogin();
+              if (mounted) setLoading(false);
+              return;
+            } catch (devLoginError) {
+              console.error('Dev login failed:', devLoginError);
+            }
+          }
           // No valid session - user needs to login
           // This is expected for new users, not an error
           console.log('No existing session, user needs to login');
@@ -240,7 +276,7 @@ export function AuthProvider({ children }) {
     return () => {
       mounted = false;
     };
-  }, []); // Run once on mount
+  }, [devLogin, refreshAccessToken, fetchUser]); // Run once on mount
 
   const value = {
     user,

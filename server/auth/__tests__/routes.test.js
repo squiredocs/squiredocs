@@ -250,5 +250,68 @@ describe('Auth routes', () => {
       expect(cookies.some(c => c.includes('refreshToken='))).toBe(true);
     });
   });
+
+  describe('POST /auth/dev-login', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    test('creates test user and returns tokens in development mode', async () => {
+      process.env.NODE_ENV = 'development';
+
+      const response = await request(app)
+        .post('/auth/dev-login')
+        .expect(200);
+
+      expect(response.body.accessToken).toBeDefined();
+      expect(typeof response.body.accessToken).toBe('string');
+      expect(response.body.user).toBeDefined();
+      expect(response.body.user.email).toBe('dev@test.local');
+      expect(response.body.user.name).toBe('Dev Test User');
+
+      // Check refresh token cookie is set
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      expect(cookies.some(c => c.includes('refreshToken='))).toBe(true);
+    });
+
+    test('returns same user on subsequent calls', async () => {
+      process.env.NODE_ENV = 'development';
+
+      const response1 = await request(app)
+        .post('/auth/dev-login')
+        .expect(200);
+
+      const response2 = await request(app)
+        .post('/auth/dev-login')
+        .expect(200);
+
+      expect(response1.body.user.id).toBe(response2.body.user.id);
+      expect(response1.body.user.email).toBe('dev@test.local');
+      expect(response2.body.user.email).toBe('dev@test.local');
+    });
+
+    test('returns 403 in production mode', async () => {
+      process.env.NODE_ENV = 'production';
+
+      const response = await request(app)
+        .post('/auth/dev-login')
+        .expect(403);
+
+      expect(response.body.error).toBe('Dev login only available in development mode');
+    });
+
+    test('returns 403 when NODE_ENV is not set', async () => {
+      delete process.env.NODE_ENV;
+
+      const response = await request(app)
+        .post('/auth/dev-login')
+        .expect(403);
+
+      expect(response.body.error).toBe('Dev login only available in development mode');
+    });
+  });
 });
 

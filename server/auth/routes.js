@@ -205,16 +205,61 @@ router.post('/logout', requireAuth, async (req, res) => {
   try {
     // Increment token version to invalidate all existing tokens
     await incrementTokenVersion(req.user.userId);
-    
+
     // Clear refresh token cookie
     res.clearCookie('refreshToken', getClearCookieOptions());
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error('Logout error:', error);
     // Still clear the cookie even if DB update fails
     res.clearCookie('refreshToken', getClearCookieOptions());
     res.status(500).json({ error: 'Logout failed' });
+  }
+});
+
+/**
+ * POST /auth/dev-login
+ * Development-only endpoint that bypasses OAuth and creates/logs in a test user
+ * Only works when NODE_ENV=development
+ */
+router.post('/dev-login', async (req, res) => {
+  // Only allow in development mode
+  if (process.env.NODE_ENV !== 'development') {
+    return res.status(403).json({ error: 'Dev login only available in development mode' });
+  }
+
+  try {
+    // Create or find test user
+    const testUserProfile = {
+      googleId: 'dev-test-user',
+      email: 'dev@test.local',
+      name: 'Dev Test User',
+      picture: null,
+    };
+
+    const user = await findOrCreateUser(testUserProfile);
+
+    // Generate application tokens
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // Set refresh token as httpOnly cookie
+    res.cookie('refreshToken', refreshToken, getCookieOptions());
+
+    // Return access token
+    res.json({
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+      }
+    });
+  } catch (error) {
+    console.error('Dev login error:', error);
+    res.status(500).json({ error: 'Dev login failed' });
   }
 });
 

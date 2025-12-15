@@ -4,6 +4,25 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import './DocList.css';
 
+/**
+ * Generate UUID v4
+ * Fallback for environments where crypto.randomUUID() is not available
+ * Exported for testing
+ */
+export function generateUUID() {
+  // Try native crypto.randomUUID first (requires secure context)
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  // Fallback: generate UUID v4 manually
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 function DocList({ onNavigate, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
@@ -37,15 +56,15 @@ function DocList({ onNavigate, user }) {
 
   const handleCreateNew = async () => {
     if (creating) return;
-    
+
     try {
       setCreating(true);
       // Generate a new UUID
-      const newGuid = crypto.randomUUID();
-      
+      const newGuid = generateUUID();
+
       // Create the document on the server (establishes ownership)
       await api.post('/api/docs', { docId: newGuid });
-      
+
       // Navigate to the new document
       onNavigate(newGuid);
     } catch (err) {
