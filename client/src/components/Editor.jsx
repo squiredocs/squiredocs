@@ -7,6 +7,7 @@ import CollaborationCursorWithSelection from './CollaborationCursorWithSelection
 import LinkPreview from './LinkPreview';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './Editor.css';
 
 // Create cursor element with label
@@ -233,6 +234,12 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
 
     const link = event.target.closest('a');
     if (link) {
+      // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+      if (shouldUseBrowserLinkBehavior(event)) {
+        return; // Let the browser handle it
+      }
+
+      // For normal clicks, show link preview instead of navigating
       event.preventDefault();
       const href = link.getAttribute('href');
       const text = link.textContent;

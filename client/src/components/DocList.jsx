@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './DocList.css';
 
 /**
@@ -271,8 +272,20 @@ function DocList({ onNavigate, user }) {
                 <a
                   href={`/d/${doc.docGuid}`}
                   onClick={(e) => {
+                    // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                    if (shouldUseBrowserLinkBehavior(e)) {
+                      return; // Let the browser handle it
+                    }
+
+                    // Prevent navigation if deleting
+                    if (isDeleting) {
+                      e.preventDefault();
+                      return;
+                    }
+
+                    // For normal clicks, use SPA navigation
                     e.preventDefault();
-                    if (!isDeleting) onNavigate(doc.docGuid);
+                    onNavigate(doc.docGuid);
                   }}
                   className="doc-link"
                 >

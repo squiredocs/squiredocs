@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './LoginPage.css';
 
 /**
@@ -21,6 +22,12 @@ export default function LoginPage({ onNavigateToLanding }) {
   };
 
   const handleLogoClick = (e) => {
+    // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+    if (shouldUseBrowserLinkBehavior(e)) {
+      return; // Let the browser handle it
+    }
+
+    // For normal clicks, use SPA navigation
     e.preventDefault();
     if (onNavigateToLanding) {
       onNavigateToLanding();

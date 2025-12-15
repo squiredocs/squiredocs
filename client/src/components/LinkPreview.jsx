@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './LinkPreview.css';
 
 export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onRemove, onOpen, onClose }) {
@@ -137,6 +138,12 @@ export default function LinkPreview({ href, text, top, left, onCopy, onEdit, onR
         href={href}
         className="link-preview-url"
         onClick={(e) => {
+          // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+          if (shouldUseBrowserLinkBehavior(e)) {
+            return; // Let the browser handle it
+          }
+
+          // For normal clicks, use onOpen handler
           e.preventDefault();
           onOpen();
         }}
