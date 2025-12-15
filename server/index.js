@@ -13,6 +13,7 @@ const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const documents = require('./documents');
 const permissions = require('./permissions');
 const waitlist = require('./waitlist');
+const versionHistory = require('./version-history');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -82,13 +83,52 @@ const extractDocGuid = (docName) => {
 // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
 const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
 
+// Track active users per document for version history attribution
+// Maps docGuid -> Map<clientId, userId>
+const documentUserMap = new Map();
+
+/**
+ * Register a user connection for a document
+ */
+function registerDocumentUser(docGuid, clientId, userId) {
+  if (!documentUserMap.has(docGuid)) {
+    documentUserMap.set(docGuid, new Map());
+  }
+  documentUserMap.get(docGuid).set(clientId, userId);
+}
+
+/**
+ * Unregister a user connection from a document
+ */
+function unregisterDocumentUser(docGuid, clientId) {
+  if (documentUserMap.has(docGuid)) {
+    documentUserMap.get(docGuid).delete(clientId);
+    if (documentUserMap.get(docGuid).size === 0) {
+      documentUserMap.delete(docGuid);
+    }
+  }
+}
+
+/**
+ * Get any active user ID for a document (for attribution)
+ * In concurrent editing scenarios, we pick one - this is a reasonable approximation
+ */
+function getDocumentUserId(docGuid) {
+  const users = documentUserMap.get(docGuid);
+  if (users && users.size > 0) {
+    // Return the first user (most recently registered tends to be last)
+    return Array.from(users.values())[0];
+  }
+  return null;
+}
+
 setPersistence({
   bindState: async (docName, ydoc) => {
     // docName from y-websocket includes the URL path prefix (e.g., "s/uuid")
     // Extract the clean UUID
     const docGuid = extractDocGuid(docName);
     const startTime = Date.now();
-    
+
     // IMPORTANT: Set up update listener FIRST, before any async operations!
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
@@ -98,11 +138,14 @@ setPersistence({
       if (origin === ORIGIN_DB_LOAD) {
         return;
       }
-      
+
+      // Get the user ID for version history attribution
+      const userId = getDocumentUserId(docGuid);
+
       const persistStart = Date.now();
-      persistenceProvider.storeUpdate(docGuid, update)
+      persistenceProvider.storeUpdate(docGuid, update, userId)
         .then(() => {
-          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength });
+          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId });
         })
         .catch(err => {
           console.error(`Error persisting update for ${docGuid}:`, err);
@@ -438,22 +481,206 @@ app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
   try {
     const { docId } = req.params;
     const userId = req.user.userId;
-    
+
     // Check if user has access
     const role = await documents.getRole(docId, userId);
     if (!role) {
       return res.status(403).json({ error: 'You do not have access to this document' });
     }
-    
+
     const users = await documents.getDocumentUsers(docId);
-    
-    res.json({ 
+
+    res.json({
       users,
       currentUserRole: role,
     });
   } catch (error) {
     console.error('Error getting shares:', error);
     res.status(500).json({ error: 'Failed to get shares' });
+  }
+});
+
+// ==================== Version History API ====================
+
+// API: Get version history timeline for a document
+app.get('/api/docs/:docId/history', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const userId = req.user.userId;
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    const timeline = await versionHistory.getVersionTimeline(persistenceProvider, docId);
+    res.json(timeline);
+  } catch (error) {
+    console.error('Error getting version history:', error);
+    res.status(500).json({ error: 'Failed to get version history' });
+  }
+});
+
+// API: Get document content at a specific version
+app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+  try {
+    const { docId, versionId } = req.params;
+    const userId = req.user.userId;
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    const versionData = await versionHistory.getVersionContent(persistenceProvider, docId, versionId);
+    res.json(versionData);
+  } catch (error) {
+    console.error('Error getting version content:', error);
+    if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to get version content' });
+  }
+});
+
+// API: Restore document to a previous version (creates new version)
+app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { versionId } = req.body;
+    const userId = req.user.userId;
+
+    if (!versionId) {
+      return res.status(400).json({ error: 'versionId is required' });
+    }
+
+    // Check if user has edit access
+    const role = await documents.getRole(docId, userId);
+    if (!role || role === 'viewer') {
+      return res.status(403).json({ error: 'You do not have permission to restore this document' });
+    }
+
+    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error restoring version:', error);
+    if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to restore version' });
+  }
+});
+
+// API: Create a named version
+app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { name, clockEnd } = req.body;
+    const userId = req.user.userId;
+
+    // Check if user has at least view access (anyone can name a version)
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    // Get updates to find the clock range
+    const updates = await persistenceProvider.getUpdatesWithUsers(docId);
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No updates found for this document' });
+    }
+
+    // If clockEnd is provided, use it; otherwise use current (latest) clock
+    const targetClock = clockEnd || updates[updates.length - 1].clock;
+
+    // Find the version boundaries using time-based grouping
+    const versions = versionHistory.groupUpdatesIntoVersions(updates);
+    const targetVersion = versions.find(v => v.clockEnd === targetClock);
+
+    if (!targetVersion) {
+      // If no exact match, use the provided clockEnd or latest
+      const clockStart = updates[0].clock;
+      const version = await persistenceProvider.createNamedVersion(
+        docId,
+        clockStart,
+        targetClock,
+        name,
+        userId
+      );
+      return res.status(201).json({ version });
+    }
+
+    const version = await persistenceProvider.createNamedVersion(
+      docId,
+      targetVersion.clockStart,
+      targetVersion.clockEnd,
+      name,
+      userId
+    );
+
+    res.status(201).json({ version });
+  } catch (error) {
+    console.error('Error creating named version:', error);
+    res.status(500).json({ error: 'Failed to create named version' });
+  }
+});
+
+// API: Rename a version
+app.put('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+  try {
+    const { docId, versionId } = req.params;
+    const { name } = req.body;
+    const userId = req.user.userId;
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    // Verify the version belongs to this document
+    const existingVersion = await persistenceProvider.getVersionById(versionId);
+    if (!existingVersion || existingVersion.doc_id !== docId) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const version = await persistenceProvider.updateVersionName(versionId, name);
+    res.json({ version });
+  } catch (error) {
+    console.error('Error renaming version:', error);
+    res.status(500).json({ error: 'Failed to rename version' });
+  }
+});
+
+// API: Delete a named version (returns to auto-grouping)
+app.delete('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+  try {
+    const { docId, versionId } = req.params;
+    const userId = req.user.userId;
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    // Verify the version belongs to this document
+    const existingVersion = await persistenceProvider.getVersionById(versionId);
+    if (!existingVersion || existingVersion.doc_id !== docId) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const deleted = await persistenceProvider.deleteNamedVersion(versionId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting version:', error);
+    res.status(500).json({ error: 'Failed to delete version' });
   }
 });
 
@@ -567,10 +794,15 @@ wss.on('connection', (ws, req) => {
   const userId = req.user?.userId;
   const docId = req.docId;
   const canEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
-  
+
   logPerf('WS_CONNECT', { connId, url: req.url, role: userRole, canEdit });
   console.log(`✓ WebSocket connection established: ${req.url} (role: ${userRole})`);
-  
+
+  // Register user for version history attribution
+  if (userId && docId) {
+    registerDocumentUser(docId, connId, userId);
+  }
+
   // Create a message filter for viewers
   // We intercept messages before y-websocket processes them
   if (!canEdit) {
@@ -589,25 +821,29 @@ wss.on('connection', (ws, req) => {
       return originalEmit(event, ...args);
     };
   }
-  
+
   // Profile incoming messages
   ws.on('message', (data) => {
     logPerf('WS_MSG_IN', { connId, size: data.byteLength || data.length });
   });
-  
+
   // Profile outgoing messages
   const originalSend = ws.send.bind(ws);
   ws.send = (data, cb) => {
     logPerf('WS_MSG_OUT', { connId, size: data.byteLength || data.length });
     return originalSend(data, cb);
   };
-  
+
   ws.on('error', (error) => {
     logPerf('WS_ERROR', { connId, error: error.message });
     console.error('✗ WebSocket client error:', error.message);
   });
-  
+
   ws.on('close', () => {
+    // Unregister user for version history attribution
+    if (docId) {
+      unregisterDocumentUser(docId, connId);
+    }
     logPerf('WS_CLOSE', { connId, duration: Date.now() - connStart });
     console.log('WebSocket connection closed:', req.url);
   });

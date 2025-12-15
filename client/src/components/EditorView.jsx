@@ -4,7 +4,10 @@ import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
+import VersionHistoryPanel from './VersionHistoryPanel';
+import VersionPreview from './VersionPreview';
 import { useYjs } from '../hooks/useYjs';
+import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -20,10 +23,25 @@ function generateColorFromId(id) {
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32bit integer
   }
-  
+
   // Generate a HSL color with good saturation and lightness for visibility
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue}, 70%, 45%)`;
+}
+
+/**
+ * Format timestamp for version history header
+ */
+function formatVersionTimestamp(timestamp) {
+  const date = new Date(timestamp);
+  const options = {
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  };
+  return date.toLocaleString(undefined, options);
 }
 
 function EditorView({ docGuid, onNavigateHome, user }) {
@@ -33,8 +51,38 @@ function EditorView({ docGuid, onNavigateHome, user }) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
+
+  // Version history hook
+  const {
+    versions,
+    groupedVersions,
+    selectedVersion,
+    versionContent,
+    totalEdits,
+    isLoading: versionHistoryLoading,
+    selectVersion,
+    restoreVersion,
+    clearSelection,
+  } = useVersionHistory(showVersionHistory ? docGuid : null);
+
+  // Auto-select current version when opening version history
+  useEffect(() => {
+    if (showVersionHistory && versions.length > 0 && !selectedVersion) {
+      // Select the current (most recent) version
+      const currentVersion = versions.find(v => v.isCurrent) || versions[0];
+      if (currentVersion) {
+        selectVersion(currentVersion);
+      }
+    }
+  }, [showVersionHistory, versions, selectedVersion, selectVersion]);
+
+  const handleCloseVersionHistory = () => {
+    setShowVersionHistory(false);
+    clearSelection();
+  };
 
   // Fetch document info to determine user's role
   useEffect(() => {
@@ -86,6 +134,71 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     };
   }, [docTitle]);
 
+  // Version history mode - dedicated full-screen view
+  if (showVersionHistory) {
+    return (
+      <div className="app version-history-mode">
+        <header className="app-header version-history-header">
+          <div className="app-header-content">
+            <div className="app-header-left">
+              <button
+                className="version-history-back-btn"
+                onClick={handleCloseVersionHistory}
+                title="Back to document"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                  <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                </svg>
+              </button>
+              <div className="version-history-title">
+                {selectedVersion?.name || (selectedVersion && formatVersionTimestamp(selectedVersion.timestamp)) || 'Version history'}
+              </div>
+            </div>
+            <div className="app-header-right">
+              {selectedVersion && !selectedVersion.isCurrent && userRole !== 'viewer' && (
+                <button
+                  className="restore-version-btn"
+                  onClick={async () => {
+                    if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
+                      const success = await restoreVersion(selectedVersion.id);
+                      if (success) {
+                        handleCloseVersionHistory();
+                      }
+                    }
+                  }}
+                >
+                  Restore this version
+                </button>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="version-history-container">
+          <div className="version-history-main">
+            <VersionPreview
+              versionContent={versionContent}
+              selectedVersion={selectedVersion}
+              isLoading={versionHistoryLoading}
+            />
+          </div>
+
+          <VersionHistoryPanel
+            docGuid={docGuid}
+            isOpen={true}
+            onClose={handleCloseVersionHistory}
+            onSelectVersion={selectVersion}
+            selectedVersion={selectedVersion}
+            groupedVersions={groupedVersions}
+            totalEdits={totalEdits}
+            isLoading={versionHistoryLoading}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Normal editor mode
   return (
     <div className="app">
       {!connected && (
@@ -97,8 +210,8 @@ function EditorView({ docGuid, onNavigateHome, user }) {
       <header className="app-header">
         <div className="app-header-content">
           <div className="app-header-left">
-            <button 
-              className="back-btn" 
+            <button
+              className="back-btn"
               onClick={onNavigateHome}
               title="Documents Home"
             >
@@ -157,9 +270,9 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                       title={u.name}
                     >
                       {u.picture ? (
-                        <img 
-                          src={u.picture} 
-                          alt={u.name} 
+                        <img
+                          src={u.picture}
+                          alt={u.name}
                           referrerPolicy="no-referrer"
                           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                         />
@@ -200,10 +313,23 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 )}
               </div>
             )}
+            {/* History button - shown to anyone with access */}
+            {docInfoLoaded && userRole && (
+              <button
+                className="history-btn"
+                onClick={() => setShowVersionHistory(true)}
+                title="Version history"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+                </svg>
+                <span>History</span>
+              </button>
+            )}
             {/* Share button - shown to anyone with access */}
             {docInfoLoaded && userRole && (
-              <button 
-                className="share-btn" 
+              <button
+                className="share-btn"
                 onClick={() => setShareDialogOpen(true)}
                 title="Share document"
               >

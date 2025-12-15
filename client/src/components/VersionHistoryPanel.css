@@ -1,0 +1,387 @@
+.version-history-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: #fff;
+  border-left: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+.version-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.version-history-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.version-history-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6368;
+  transition: background-color 0.2s;
+}
+
+.version-history-close:hover {
+  background: #f1f3f4;
+}
+
+.version-history-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.version-history-filter {
+  padding: 12px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.version-history-filter select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #202124;
+  background: #fff;
+  cursor: pointer;
+}
+
+.version-history-filter select:hover {
+  border-color: #bdc1c6;
+}
+
+.version-history-loading,
+.version-history-error,
+.version-history-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #5f6368;
+}
+
+.version-history-error {
+  color: #d93025;
+}
+
+.version-history-empty-hint {
+  font-size: 13px;
+  color: #80868b;
+  margin-top: 8px;
+}
+
+.version-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* Version Group */
+.version-group {
+  margin-bottom: 4px;
+}
+
+.version-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.version-group-header:hover {
+  background: #f8f9fa;
+}
+
+.version-group-expand {
+  transition: transform 0.2s;
+}
+
+.version-group-expand.expanded {
+  transform: rotate(180deg);
+}
+
+.version-group-items {
+  margin: 0;
+}
+
+/* Version Item */
+.version-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.version-item:hover {
+  background: #f8f9fa;
+}
+
+.version-item.selected {
+  background: #e8f0fe;
+  border-left-color: #1a73e8;
+}
+
+.version-item.current {
+  background: #f0f9ff;
+}
+
+.version-item.selected.current {
+  background: #e8f0fe;
+}
+
+.version-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.version-item-time {
+  font-size: 14px;
+  font-weight: 500;
+  color: #202124;
+  margin-bottom: 4px;
+}
+
+.version-item-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.version-item-badge.named {
+  color: #1a73e8;
+}
+
+.version-item-authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.version-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.version-author-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.version-author-name {
+  font-size: 12px;
+  color: #5f6368;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.version-author-more {
+  font-size: 12px;
+  color: #80868b;
+}
+
+/* Version Actions */
+.version-item-actions {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.version-menu-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  color: #5f6368;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.version-item:hover .version-menu-btn,
+.version-menu-btn:focus {
+  opacity: 1;
+}
+
+.version-menu-btn:hover {
+  background: #e8eaed;
+}
+
+.version-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 180px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  overflow: hidden;
+}
+
+.version-menu button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #202124;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.version-menu button:hover {
+  background: #f1f3f4;
+}
+
+/* Expand Button */
+.version-expand-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 20px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: #1a73e8;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.version-expand-btn:hover {
+  background: #f1f3f4;
+}
+
+/* Footer */
+.version-history-footer {
+  padding: 12px 20px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 13px;
+  color: #5f6368;
+  text-align: center;
+}
+
+/* Dialogs */
+.version-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.version-dialog {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: 320px;
+  max-width: 90vw;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.version-dialog h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.version-dialog input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.version-dialog input:focus {
+  outline: none;
+  border-color: #1a73e8;
+}
+
+.version-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.version-dialog-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.version-dialog-actions button:first-child {
+  background: none;
+  border: 1px solid #dadce0;
+  color: #5f6368;
+}
+
+.version-dialog-actions button:first-child:hover {
+  background: #f1f3f4;
+}
+
+.version-dialog-actions button:last-child {
+  background: #1a73e8;
+  border: none;
+  color: #fff;
+}
+
+.version-dialog-actions button:last-child:hover {
+  background: #1557b0;
+}
+
+.version-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .version-history-panel {
+    width: 100%;
+  }
+}

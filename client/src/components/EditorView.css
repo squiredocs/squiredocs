@@ -108,6 +108,32 @@
   background: #e5e7eb;
 }
 
+/* History button */
+.history-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f4f6;
+  color: #374151;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  margin-right: 8px;
+}
+
+.history-btn:hover {
+  background: #e5e7eb;
+}
+
+.history-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Share button */
 .share-btn {
   display: flex;
@@ -276,3 +302,111 @@
 }
 
 /* No permanent bottom padding needed - format bar only shows when keyboard is active */
+
+/* Version history mode */
+.version-history-mode {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.version-history-header {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.version-history-header .app-header-content {
+  padding: 12px 20px;
+}
+
+.version-history-back-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  color: #5f6368;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  margin-right: 12px;
+}
+
+.version-history-back-btn:hover {
+  background: #e8eaed;
+}
+
+.version-history-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.restore-version-btn {
+  padding: 10px 24px;
+  background: #1a73e8;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.restore-version-btn:hover {
+  background: #1557b0;
+}
+
+.version-history-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.version-history-main {
+  flex: 1;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Override panel styles when in version history mode */
+.version-history-mode .version-history-panel {
+  position: relative;
+  height: 100%;
+  box-shadow: none;
+  border-left: 1px solid #e0e0e0;
+}
+
+@media (max-width: 768px) {
+  .history-btn {
+    padding: 8px 12px;
+  }
+
+  .history-btn span {
+    display: none;
+  }
+
+  .version-history-container {
+    flex-direction: column-reverse;
+  }
+
+  .version-history-mode .version-history-panel {
+    width: 100%;
+    height: 40%;
+    border-left: none;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  .version-history-main {
+    height: 60%;
+  }
+}
+
+@media (max-width: 480px) {
+  .history-btn {
+    padding: 8px;
+    border-radius: 50%;
+  }
+}
