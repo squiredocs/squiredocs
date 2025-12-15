@@ -7,7 +7,7 @@ import ShareDialog from './ShareDialog';
 import { useYjs } from '../hooks/useYjs';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
-import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+import { useVisualViewport } from '../hooks/useVisualViewport';
 import './EditorView.css';
 
 /**
@@ -34,7 +34,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const isMobile = useMobile();
-  const keyboardHeight = useKeyboardHeight();
+  const visualViewport = useVisualViewport();
 
   // Fetch document info to determine user's role
   useEffect(() => {
@@ -235,13 +235,22 @@ function EditorView({ docGuid, onNavigateHome, user }) {
         onClose={() => setShareDialogOpen(false)}
       />
 
-      {/* Mobile format bar at bottom */}
+      {/* Mobile format bar at bottom - uses visual viewport tracking for iOS keyboard */}
       {userRole !== 'viewer' && isMobile && (
         <div
-          className="mobile-format-bar"
-          style={keyboardHeight > 0 ? { bottom: keyboardHeight } : undefined}
+          className="mobile-format-bar-container"
+          style={visualViewport ? {
+            position: 'fixed',
+            top: visualViewport.offsetTop,
+            left: 0,
+            right: 0,
+            height: visualViewport.height,
+            pointerEvents: 'none',
+          } : undefined}
         >
-          <Toolbar editor={editor} />
+          <div className="mobile-format-bar" style={{ pointerEvents: 'auto' }}>
+            <Toolbar editor={editor} />
+          </div>
         </div>
       )}
     </div>
