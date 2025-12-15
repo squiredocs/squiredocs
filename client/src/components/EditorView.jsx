@@ -162,7 +162,8 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                     if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
                       const success = await restoreVersion(selectedVersion.id);
                       if (success) {
-                        handleCloseVersionHistory();
+                        // Reload the page to see the restored content
+                        window.location.reload();
                       }
                     }
                   }}

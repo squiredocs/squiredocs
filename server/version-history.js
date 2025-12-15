@@ -382,22 +382,93 @@ async function getVersionContent(persistence, docGuid, versionId) {
  * @returns {Promise<Object>} Result with new version info
  */
 async function restoreVersion(persistence, docGuid, versionId, userId) {
+  console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
+
   // Get the target version content
   const { content } = await getVersionContent(persistence, docGuid, versionId);
+  console.log(`[Restore] Target version content size: ${content.length} bytes`);
 
   // Get current document state
   const currentYdoc = await persistence.getYDoc(docGuid);
+  const currentFragment = currentYdoc.getXmlFragment('default');
+  console.log(`[Restore] Current document has ${currentFragment.length} elements`);
 
-  // Create target document from version
+  // Create a new temporary document to build the restore operation
+  const tempDoc = new Y.Doc();
+
+  // Apply the current state to the temp document
+  Y.applyUpdate(tempDoc, Y.encodeStateAsUpdate(currentYdoc));
+
+  // Get the state vector before we make changes
+  const stateVectorBeforeRestore = Y.encodeStateVector(tempDoc);
+
+  // Create target document from version to get the content we want
   const targetYdoc = new Y.Doc();
   Y.applyUpdate(targetYdoc, new Uint8Array(content));
 
-  // Calculate the diff/update needed to transform current to target
-  // This creates a reversible change
-  const targetState = Y.encodeStateAsUpdate(targetYdoc);
+  // Helper function to recursively clone Yjs XML content
+  const cloneXmlElement = (sourceElement) => {
+    if (sourceElement instanceof Y.XmlText) {
+      const clone = new Y.XmlText();
+      clone.insert(0, sourceElement.toString());
+      return clone;
+    } else if (sourceElement instanceof Y.XmlElement) {
+      const clone = new Y.XmlElement(sourceElement.nodeName);
+      // Clone attributes
+      const attrs = sourceElement.getAttributes();
+      for (const [key, value] of Object.entries(attrs)) {
+        clone.setAttribute(key, value);
+      }
+      // Clone children
+      const children = [];
+      for (let i = 0; i < sourceElement.length; i++) {
+        children.push(cloneXmlElement(sourceElement.get(i)));
+      }
+      if (children.length > 0) {
+        clone.insert(0, children);
+      }
+      return clone;
+    }
+    return null;
+  };
+
+  // Replace the content in temp document with target content
+  tempDoc.transact(() => {
+    const tempFragment = tempDoc.getXmlFragment('default');
+    const targetFragment = targetYdoc.getXmlFragment('default');
+
+    console.log(`[Restore] Target has ${targetFragment.length} elements`);
+
+    // Delete all current content
+    while (tempFragment.length > 0) {
+      tempFragment.delete(0, tempFragment.length);
+    }
+
+    // Clone and insert target content
+    const clonedElements = [];
+    for (let i = 0; i < targetFragment.length; i++) {
+      const cloned = cloneXmlElement(targetFragment.get(i));
+      if (cloned) {
+        clonedElements.push(cloned);
+      }
+    }
+
+    console.log(`[Restore] Cloned ${clonedElements.length} elements`);
+
+    if (clonedElements.length > 0) {
+      tempFragment.insert(0, clonedElements);
+    }
+
+    console.log(`[Restore] After restore, temp doc has ${tempFragment.length} elements`);
+  });
+
+  // Get only the diff created by the restore transaction
+  const restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
+  console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
 
   // Store as a new update (this is the restore operation)
-  const newClock = await persistence.storeUpdate(docGuid, targetState, userId);
+  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId);
+  console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   return {
     success: true,

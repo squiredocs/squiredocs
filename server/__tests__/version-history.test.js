@@ -6,8 +6,11 @@ const {
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,
+  restoreVersion,
+  getVersionContent,
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
+const Y = require('yjs');
 
 describe('version-history module', () => {
   describe('generateColorFromId', () => {
@@ -211,6 +214,127 @@ describe('version-history module', () => {
   describe('DEFAULT_INACTIVITY_THRESHOLD', () => {
     test('is 5 minutes in milliseconds', () => {
       expect(DEFAULT_INACTIVITY_THRESHOLD).toBe(5 * 60 * 1000);
+    });
+  });
+
+  describe('restoreVersion', () => {
+    test('restores document to previous version content', async () => {
+      // Create a mock persistence layer
+      const updates = [];
+      let clock = 0;
+
+      const mockPersistence = {
+        storeUpdate: jest.fn(async (docGuid, update, userId) => {
+          clock++;
+          updates.push({ clock, update: new Uint8Array(update), userId });
+          return clock;
+        }),
+        getYDoc: jest.fn(async (docGuid) => {
+          const doc = new Y.Doc();
+          for (const { update } of updates) {
+            Y.applyUpdate(doc, update);
+          }
+          return doc;
+        }),
+        getUpdatesWithUsers: jest.fn(async (docGuid) => {
+          return updates.map(u => ({
+            clock: u.clock,
+            createdAt: new Date().toISOString(),
+            userId: u.userId,
+            userName: 'Test User',
+          }));
+        }),
+        getVersionById: jest.fn(),
+        getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+          const doc = new Y.Doc();
+          for (const { update, clock: updateClock } of updates) {
+            if (updateClock <= targetClock) {
+              Y.applyUpdate(doc, update);
+            }
+          }
+          return doc;
+        }),
+      };
+
+      // Helper to get text content from doc
+      const getText = (doc) => {
+        const fragment = doc.getXmlFragment('default');
+        let text = '';
+
+        const extractText = (item) => {
+          if (item instanceof Y.XmlText) {
+            return item.toString();
+          } else if (item instanceof Y.XmlElement) {
+            let result = '';
+            for (let i = 0; i < item.length; i++) {
+              result += extractText(item.get(i));
+            }
+            return result;
+          }
+          return '';
+        };
+
+        for (let i = 0; i < fragment.length; i++) {
+          const element = fragment.get(i);
+          text += extractText(element);
+        }
+
+        return text;
+      };
+
+      // Helper to set text content
+      const setText = (doc, text) => {
+        const fragment = doc.getXmlFragment('default');
+        doc.transact(() => {
+          // Clear existing content
+          while (fragment.length > 0) {
+            fragment.delete(0, fragment.length);
+          }
+          // Create a paragraph with text
+          const paragraph = new Y.XmlElement('paragraph');
+          const textContent = new Y.XmlText();
+          textContent.insert(0, text);
+          paragraph.insert(0, [textContent]);
+          fragment.insert(0, [paragraph]);
+        });
+      };
+
+      // Version 1: "Initial content"
+      const doc1 = new Y.Doc();
+      setText(doc1, 'Initial content');
+      const update1 = Y.encodeStateAsUpdate(doc1);
+      await mockPersistence.storeUpdate('test-doc', update1, 'user-1');
+
+      // Version 2: "Second version"
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, update1);
+      setText(doc2, 'Second version');
+      const stateVector1 = Y.encodeStateVector(doc1);
+      const update2 = Y.encodeStateAsUpdate(doc2, stateVector1);
+      await mockPersistence.storeUpdate('test-doc', update2, 'user-1');
+
+      // Version 3: "Final version"
+      const doc3 = new Y.Doc();
+      Y.applyUpdate(doc3, update1);
+      Y.applyUpdate(doc3, update2);
+      setText(doc3, 'Final version');
+      const stateVector2 = Y.encodeStateVector(doc2);
+      const update3 = Y.encodeStateAsUpdate(doc3, stateVector2);
+      await mockPersistence.storeUpdate('test-doc', update3, 'user-1');
+
+      // Current doc should have "Final version"
+      const currentDoc = await mockPersistence.getYDoc('test-doc');
+      expect(getText(currentDoc)).toBe('Final version');
+
+      // Now restore to version 1 (clock 1)
+      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+
+      // Get the document after restore
+      const restoredDoc = await mockPersistence.getYDoc('test-doc');
+      const restoredText = getText(restoredDoc);
+
+      // This should be "Initial content", not "Final version"
+      expect(restoredText).toBe('Initial content');
     });
   });
 });
