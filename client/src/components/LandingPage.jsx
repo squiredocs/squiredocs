@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './LandingPage.css';
 
 /**
@@ -11,6 +11,14 @@ export default function LandingPage({ isAuthenticated, onNavigateToDocs, onNavig
   const [orgSize, setOrgSize] = useState('');
   const [submitStatus, setSubmitStatus] = useState(null); // null, 'loading', 'success', 'error'
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    document.title = 'HeroDocs - AI-Native Collaborative Documents';
+    
+    return () => {
+      document.title = 'HeroDocs';
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

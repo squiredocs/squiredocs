@@ -37,7 +37,12 @@ function DocList({ onNavigate, user }) {
   const menuRef = useRef(null);
 
   useEffect(() => {
+    document.title = 'Documents - HeroDocs';
     fetchDocs();
+    
+    return () => {
+      document.title = 'HeroDocs';
+    };
   }, []);
 
   const fetchDocs = async () => {

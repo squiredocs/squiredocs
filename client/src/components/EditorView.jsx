@@ -76,6 +76,16 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     color: userColor
   }), [user, userColor]);
 
+  // Update HTML title when document title changes
+  useEffect(() => {
+    const title = docTitle || 'Untitled document';
+    document.title = `${title} - HeroDocs`;
+    
+    return () => {
+      document.title = 'HeroDocs';
+    };
+  }, [docTitle]);
+
   return (
     <div className="app">
       {!connected && (
