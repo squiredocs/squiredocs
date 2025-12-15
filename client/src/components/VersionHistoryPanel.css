@@ -38,6 +38,7 @@
   justify-content: center;
   color: #5f6368;
   transition: background-color 0.2s;
+  text-decoration: none;
 }
 
 .version-history-close:hover {

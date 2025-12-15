@@ -36,6 +36,7 @@
   justify-content: center;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  text-decoration: none;
 }
 
 .back-btn:hover {
@@ -123,6 +124,7 @@
   cursor: pointer;
   transition: background-color 0.15s ease;
   margin-right: 8px;
+  text-decoration: none;
 }
 
 .history-btn:hover {
@@ -343,6 +345,7 @@
   justify-content: center;
   transition: background-color 0.2s;
   margin-right: 12px;
+  text-decoration: none;
 }
 
 .version-history-back-btn:hover {

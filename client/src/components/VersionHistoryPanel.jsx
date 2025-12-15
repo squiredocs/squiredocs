@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './VersionHistoryPanel.css';
 
 /**
@@ -124,11 +125,25 @@ function VersionHistoryPanel({
     <div className="version-history-panel">
       <div className="version-history-header">
         <h2>Version history</h2>
-        <button className="version-history-close" onClick={onClose} aria-label="Close">
+        <a
+          href={`/d/${docGuid}`}
+          className="version-history-close"
+          onClick={(e) => {
+            // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+            if (shouldUseBrowserLinkBehavior(e)) {
+              return; // Let the browser handle it
+            }
+
+            // For normal clicks, use the onClose handler
+            e.preventDefault();
+            onClose();
+          }}
+          aria-label="Close"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M6 18L18 6M6 6l12 12" />
           </svg>
-        </button>
+        </a>
       </div>
 
       <div className="version-history-filter">

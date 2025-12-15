@@ -11,6 +11,7 @@ import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './EditorView.css';
 
 /**
@@ -146,15 +147,25 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersion
         <header className="app-header version-history-header">
           <div className="app-header-content">
             <div className="app-header-left">
-              <button
+              <a
+                href={`/d/${docGuid}`}
                 className="version-history-back-btn"
-                onClick={handleCloseVersionHistory}
+                onClick={(e) => {
+                  // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                  if (shouldUseBrowserLinkBehavior(e)) {
+                    return; // Let the browser handle it
+                  }
+
+                  // For normal clicks, go back in history
+                  e.preventDefault();
+                  handleCloseVersionHistory();
+                }}
                 title="Back to document"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
                   <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
                 </svg>
-              </button>
+              </a>
               <div className="version-history-title">
                 {selectedVersion?.name || (selectedVersion && formatVersionTimestamp(selectedVersion.timestamp)) || 'Version history'}
               </div>
@@ -221,9 +232,19 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersion
       <header className="app-header">
         <div className="app-header-content">
           <div className="app-header-left">
-            <button
+            <a
+              href="/docs"
               className="back-btn"
-              onClick={onNavigateHome}
+              onClick={(e) => {
+                // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                if (shouldUseBrowserLinkBehavior(e)) {
+                  return; // Let the browser handle it
+                }
+
+                // For normal clicks, use SPA navigation
+                e.preventDefault();
+                onNavigateHome();
+              }}
               title="Documents Home"
             >
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56">
@@ -232,7 +253,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersion
                 <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
                 <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
               </svg>
-            </button>
+            </a>
             <div className="title-toolbar-stack">
               <input
                 type="text"
@@ -326,16 +347,26 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersion
             )}
             {/* History button - shown to anyone with access */}
             {docInfoLoaded && userRole && (
-              <button
+              <a
+                href={`/d/${docGuid}/versions`}
                 className="history-btn"
-                onClick={handleOpenVersionHistory}
+                onClick={(e) => {
+                  // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                  if (shouldUseBrowserLinkBehavior(e)) {
+                    return; // Let the browser handle it
+                  }
+
+                  // For normal clicks, use SPA navigation
+                  e.preventDefault();
+                  handleOpenVersionHistory();
+                }}
                 title="Version history"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor">
                   <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
                 </svg>
                 <span>History</span>
-              </button>
+              </a>
             )}
             {/* Share button - shown to anyone with access */}
             {docInfoLoaded && userRole && (
