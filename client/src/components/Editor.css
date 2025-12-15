@@ -151,6 +151,11 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  .editor-container {
+    /* Ensure cursor stays visible above the fixed format bar when scrolling into view */
+    scroll-padding-bottom: 80px;
+  }
+
   .editor-content {
     padding: 0;
   }

@@ -6,6 +6,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
+import { useMobile } from '../hooks/useMobile';
 import './Editor.css';
 
 // Create cursor element with label
@@ -54,6 +55,7 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
   const hideTimeoutRef = useRef(null);
   const containerRef = useRef(null);
   const [linkPreview, setLinkPreview] = useState(null);
+  const isMobile = useMobile();
 
   const user = useMemo(() => ({
     name: userInfo?.name || 'Anonymous',
@@ -114,7 +116,12 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
     editable,
     // Don't set initial content - let Yjs Collaboration extension handle it
     // The Collaboration extension will sync content from Yjs
-  });
+    editorProps: {
+      // Keep cursor visible above the mobile format bar when scrolling into view
+      scrollMargin: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
+      scrollThreshold: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
+    },
+  }, [isMobile]);
 
   // Update editable state when prop changes
   useEffect(() => {
@@ -136,6 +143,54 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
       containerRef.current.scrollTop = 0;
     }
   }, [synced]);
+
+  // Scroll cursor into view when virtual keyboard appears (mobile)
+  // We manually scroll the editor container rather than using scrollIntoView()
+  // to avoid scrolling the entire page (which would hide the header)
+  useEffect(() => {
+    if (!isMobile || !editor || !containerRef.current || typeof window === 'undefined' || !window.visualViewport) {
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    const container = containerRef.current;
+    let lastHeight = viewport.height;
+
+    const handleResize = () => {
+      const heightDiff = lastHeight - viewport.height;
+      lastHeight = viewport.height;
+
+      // If viewport shrunk significantly (keyboard appeared), scroll cursor into view
+      if (heightDiff > 100) {
+        // Reset any page-level scroll that the browser may have triggered
+        window.scrollTo(0, 0);
+
+        // Wait for scroll reset to take effect, then adjust container scroll
+        requestAnimationFrame(() => {
+          try {
+            // Get cursor position
+            const { from } = editor.state.selection;
+            const coords = editor.view.coordsAtPos(from);
+
+            // The format bar is ~60px tall, positioned at bottom of visual viewport
+            // Cursor should stay above it with some padding
+            const maxVisibleY = viewport.height - 80;
+
+            // If cursor is below the safe visible area, scroll container
+            if (coords.bottom > maxVisibleY) {
+              const scrollAmount = coords.bottom - maxVisibleY + 20;
+              container.scrollTop += scrollAmount;
+            }
+          } catch (e) {
+            // Ignore errors if editor state is unavailable
+          }
+        });
+      }
+    };
+
+    viewport.addEventListener('resize', handleResize);
+    return () => viewport.removeEventListener('resize', handleResize);
+  }, [isMobile, editor]);
 
   // Track cursor movements and selection changes via awareness, show labels
   useEffect(() => {
