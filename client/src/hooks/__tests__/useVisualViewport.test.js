@@ -7,10 +7,19 @@ describe('useVisualViewport', () => {
   let resizeHandler;
   let scrollHandler;
   let originalVisualViewport;
+  let originalInnerHeight;
 
   beforeEach(() => {
-    // Store original
+    // Store originals
     originalVisualViewport = window.visualViewport;
+    originalInnerHeight = window.innerHeight;
+
+    // Mock window.innerHeight for keyboard detection
+    Object.defineProperty(window, 'innerHeight', {
+      value: 800,
+      writable: true,
+      configurable: true,
+    });
 
     // Create mock visual viewport
     mockVisualViewport = {
@@ -32,9 +41,14 @@ describe('useVisualViewport', () => {
   });
 
   afterEach(() => {
-    // Restore original
+    // Restore originals
     Object.defineProperty(window, 'visualViewport', {
       value: originalVisualViewport,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      value: originalInnerHeight,
       writable: true,
       configurable: true,
     });
@@ -58,6 +72,7 @@ describe('useVisualViewport', () => {
     expect(result.current).toEqual({
       height: 800,
       offsetTop: 0,
+      isKeyboardOpen: false,
     });
   });
 
@@ -71,7 +86,7 @@ describe('useVisualViewport', () => {
   it('updates when viewport resizes (keyboard opens)', () => {
     const { result } = renderHook(() => useVisualViewport());
 
-    // Simulate keyboard opening (viewport shrinks)
+    // Simulate keyboard opening (viewport shrinks by more than 150px threshold)
     mockVisualViewport.height = 400;
     mockVisualViewport.offsetTop = 0;
 
@@ -82,6 +97,7 @@ describe('useVisualViewport', () => {
     expect(result.current).toEqual({
       height: 400,
       offsetTop: 0,
+      isKeyboardOpen: true,
     });
   });
 
@@ -98,6 +114,7 @@ describe('useVisualViewport', () => {
     expect(result.current).toEqual({
       height: 800,
       offsetTop: 50,
+      isKeyboardOpen: false,
     });
   });
 
@@ -113,7 +130,7 @@ describe('useVisualViewport', () => {
   it('tracks both height and offsetTop changes together', () => {
     const { result } = renderHook(() => useVisualViewport());
 
-    // Simulate keyboard opening with some scroll offset
+    // Simulate keyboard opening with some scroll offset (height diff > 150px threshold)
     mockVisualViewport.height = 350;
     mockVisualViewport.offsetTop = 100;
 
@@ -124,6 +141,7 @@ describe('useVisualViewport', () => {
     expect(result.current).toEqual({
       height: 350,
       offsetTop: 100,
+      isKeyboardOpen: true,
     });
   });
 });
