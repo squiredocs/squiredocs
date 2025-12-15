@@ -65,6 +65,9 @@ function EditorView({ docGuid, onNavigateHome, user }) {
     isLoading: versionHistoryLoading,
     selectVersion,
     restoreVersion,
+    createNamedVersion,
+    renameVersion,
+    deleteNamedVersion,
     clearSelection,
   } = useVersionHistory(showVersionHistory ? docGuid : null);
 
@@ -193,6 +196,11 @@ function EditorView({ docGuid, onNavigateHome, user }) {
             groupedVersions={groupedVersions}
             totalEdits={totalEdits}
             isLoading={versionHistoryLoading}
+            onCreateNamedVersion={createNamedVersion}
+            onRenameVersion={renameVersion}
+            onDeleteVersion={deleteNamedVersion}
+            onRestoreVersion={restoreVersion}
+            userRole={userRole}
           />
         </div>
       </div>

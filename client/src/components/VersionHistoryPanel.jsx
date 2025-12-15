@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './VersionHistoryPanel.css';
 
 /**
@@ -42,9 +42,31 @@ function VersionHistoryPanel({
   groupedVersions = [],
   totalEdits = 0,
   isLoading = false,
+  onCreateNamedVersion,
+  onRenameVersion,
+  onDeleteVersion,
+  onRestoreVersion,
+  userRole,
 }) {
 
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [filter, setFilter] = useState('all');
+  const [menuOpen, setMenuOpen] = useState(null);
+  const menuRef = useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(null);
+      }
+    };
+
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const handleVersionClick = (version) => {
     if (onSelectVersion) {
@@ -58,6 +80,43 @@ function VersionHistoryPanel({
       [label]: !prev[label],
     }));
   };
+
+  const handleNameVersion = async (version) => {
+    const name = prompt(version.name ? 'Rename version:' : 'Name this version:', version.name || '');
+    if (name && name.trim()) {
+      if (version.isNamed) {
+        await onRenameVersion(version.id, name.trim());
+      } else {
+        await onCreateNamedVersion(name.trim(), version.clockEnd);
+      }
+    }
+    setMenuOpen(null);
+  };
+
+  const handleDeleteVersion = async (version) => {
+    if (window.confirm(`Remove name "${version.name}" from this version?`)) {
+      await onDeleteVersion(version.id);
+    }
+    setMenuOpen(null);
+  };
+
+  const handleRestoreVersion = async (version) => {
+    if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
+      const success = await onRestoreVersion(version.id);
+      if (success) {
+        window.location.reload();
+      }
+    }
+    setMenuOpen(null);
+  };
+
+  // Filter versions based on selected filter
+  const filteredGroupedVersions = filter === 'named'
+    ? groupedVersions.map(group => ({
+        ...group,
+        versions: group.versions.filter(v => v.isNamed)
+      })).filter(group => group.versions.length > 0)
+    : groupedVersions;
 
   if (!isOpen) return null;
 
@@ -73,7 +132,7 @@ function VersionHistoryPanel({
       </div>
 
       <div className="version-history-filter">
-        <select defaultValue="all">
+        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
           <option value="all">All versions</option>
           <option value="named">Named versions only</option>
         </select>
@@ -84,15 +143,17 @@ function VersionHistoryPanel({
       )}
 
 
-      {!isLoading && groupedVersions.length === 0 && (
+      {!isLoading && filteredGroupedVersions.length === 0 && (
         <div className="version-history-empty">
-          <p>No version history yet.</p>
-          <p className="version-history-empty-hint">Edit the document to start tracking versions.</p>
+          <p>{filter === 'named' ? 'No named versions yet.' : 'No version history yet.'}</p>
+          <p className="version-history-empty-hint">
+            {filter === 'named' ? 'Name a version using the menu on any version.' : 'Edit the document to start tracking versions.'}
+          </p>
         </div>
       )}
 
       <div className="version-history-list">
-        {groupedVersions.map((group) => (
+        {filteredGroupedVersions.map((group) => (
           <div key={group.label} className="version-group">
             <div className="version-group-header">
               <span className="version-group-label">{group.label}</span>
@@ -110,17 +171,16 @@ function VersionHistoryPanel({
                   <div
                     key={version.id}
                     className={`version-item ${isSelected ? 'selected' : ''} ${version.isCurrent ? 'current' : ''}`}
-                    onClick={() => handleVersionClick(version)}
                   >
-                    <div className="version-item-content">
+                    <div className="version-item-content" onClick={() => handleVersionClick(version)}>
+                      {version.name && (
+                        <div className="version-item-name">{version.name}</div>
+                      )}
                       <div className="version-item-time">
-                        {version.name || formatTimestamp(version.timestamp)}
+                        {formatTimestamp(version.timestamp)}
                       </div>
                       {version.isCurrent && (
                         <div className="version-item-badge">Current version</div>
-                      )}
-                      {version.isNamed && !version.isCurrent && (
-                        <div className="version-item-badge named">Named version</div>
                       )}
                       <div className="version-item-authors">
                         {version.authors?.slice(0, 3).map((author, i) => (
@@ -146,6 +206,40 @@ function VersionHistoryPanel({
                       </div>
                     </div>
 
+                    <div className="version-item-menu" ref={menuOpen === version.id ? menuRef : null}>
+                      <button
+                        className="version-menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpen(menuOpen === version.id ? null : version.id);
+                        }}
+                        title="Version options"
+                      >
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                          <circle cx="12" cy="5" r="2"/>
+                          <circle cx="12" cy="12" r="2"/>
+                          <circle cx="12" cy="19" r="2"/>
+                        </svg>
+                      </button>
+
+                      {menuOpen === version.id && (
+                        <div className="version-menu-dropdown">
+                          <button onClick={() => handleNameVersion(version)}>
+                            {version.isNamed ? 'Rename' : 'Name this version'}
+                          </button>
+                          {!version.isCurrent && userRole !== 'viewer' && (
+                            <button onClick={() => handleRestoreVersion(version)}>
+                              Restore this version
+                            </button>
+                          )}
+                          {version.isNamed && (
+                            <button onClick={() => handleDeleteVersion(version)}>
+                              Remove name
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}

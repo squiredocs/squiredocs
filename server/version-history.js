@@ -174,27 +174,48 @@ function mergeNamedVersions(autoVersions, namedVersions) {
     }));
   }
 
+  // Create a map of auto versions by clockEnd for lookup
+  const autoVersionMap = new Map();
+  for (const autoVersion of autoVersions) {
+    autoVersionMap.set(autoVersion.clockEnd, autoVersion);
+  }
+
   // Create a map of clock ranges covered by named versions
-  const namedRanges = namedVersions.map(nv => ({
-    start: nv.clock_start,
-    end: nv.clock_end,
-    version: {
-      id: nv.id,
-      name: nv.name,
-      clockStart: nv.clock_start,
-      clockEnd: nv.clock_end,
-      timestamp: nv.created_at,
-      isNamed: true,
-      createdBy: nv.creator_name ? {
-        id: nv.created_by,
-        name: nv.creator_name,
-        email: nv.creator_email,
-        picture: nv.creator_picture,
-        color: generateColorFromId(nv.created_by),
-      } : null,
-      authors: [], // Will be populated from updates
-    },
-  }));
+  const namedRanges = namedVersions.map(nv => {
+    // Find the matching auto version to get the original timestamp and authors
+    const matchingAutoVersion = autoVersionMap.get(nv.clock_end);
+
+    console.log(`[NamedVersion] Named version "${nv.name}" clock_end=${nv.clock_end}, found matching auto version:`, !!matchingAutoVersion);
+    if (matchingAutoVersion) {
+      console.log(`  Auto version timestamp: ${matchingAutoVersion.timestamp}`);
+    } else {
+      console.log(`  Using created_at: ${nv.created_at}`);
+      console.log(`  Available auto version clockEnds:`, Array.from(autoVersionMap.keys()));
+    }
+
+    return {
+      start: nv.clock_start,
+      end: nv.clock_end,
+      version: {
+        id: nv.id,
+        name: nv.name,
+        clockStart: nv.clock_start,
+        clockEnd: nv.clock_end,
+        // Use the original version's timestamp, not the named version creation time
+        timestamp: matchingAutoVersion?.timestamp || nv.created_at,
+        isNamed: true,
+        createdBy: nv.creator_name ? {
+          id: nv.created_by,
+          name: nv.creator_name,
+          email: nv.creator_email,
+          picture: nv.creator_picture,
+          color: generateColorFromId(nv.created_by),
+        } : null,
+        // Use the original version's authors
+        authors: matchingAutoVersion?.authors || [],
+      },
+    };
+  });
 
   // Filter out auto versions that are fully covered by named versions
   const result = [];
