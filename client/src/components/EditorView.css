@@ -275,9 +275,4 @@
   color: #4338ca;
 }
 
-/* Add bottom padding to app-body on mobile to account for fixed bar */
-@media (max-width: 768px) {
-  .app-body {
-    padding-bottom: 60px;
-  }
-}
+/* No permanent bottom padding needed - format bar only shows when keyboard is active */

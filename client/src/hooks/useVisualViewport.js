@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
  * so we can create a container that matches it exactly.
  *
  * Returns null on desktop/unsupported browsers, allowing fallback to normal behavior.
+ * Also returns isKeyboardOpen to detect when the virtual keyboard is likely visible.
  */
 export function useVisualViewport() {
   const [viewport, setViewport] = useState(null);
@@ -20,9 +21,14 @@ export function useVisualViewport() {
     const vv = window.visualViewport;
 
     const updateViewport = () => {
+      // Keyboard is likely open if visual viewport is significantly smaller than window
+      // Using a threshold of 150px to account for minor differences
+      const isKeyboardOpen = window.innerHeight - vv.height > 150;
+      
       setViewport({
         height: vv.height,
         offsetTop: vv.offsetTop,
+        isKeyboardOpen,
       });
     };
 

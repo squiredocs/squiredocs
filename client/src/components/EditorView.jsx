@@ -236,18 +236,18 @@ function EditorView({ docGuid, onNavigateHome, user }) {
         onClose={() => setShareDialogOpen(false)}
       />
 
-      {/* Mobile format bar at bottom - uses visual viewport tracking for iOS keyboard */}
-      {userRole !== 'viewer' && isMobile && (
+      {/* Mobile format bar at bottom - only shows when keyboard is active */}
+      {userRole !== 'viewer' && isMobile && visualViewport?.isKeyboardOpen && (
         <div
           className="mobile-format-bar-container"
-          style={visualViewport ? {
+          style={{
             position: 'fixed',
             top: visualViewport.offsetTop,
             left: 0,
             right: 0,
             height: visualViewport.height,
             pointerEvents: 'none',
-          } : undefined}
+          }}
         >
           <div className="mobile-format-bar" style={{ pointerEvents: 'auto' }}>
             <Toolbar editor={editor} />
