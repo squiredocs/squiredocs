@@ -7,6 +7,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
+- **Version History**: View, name, filter, and restore previous versions of documents
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
@@ -142,7 +143,8 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 2. **Create or open documents**: Access your documents from the list page
 3. **Share documents**: Click the Share button to add users with Editor or Viewer access
 4. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
-5. **Manage permissions**: Editors and Owners can change roles and remove access
+5. **View version history**: Click the History button to view, name, and restore previous versions
+6. **Manage permissions**: Editors and Owners can change roles and remove access
 
 ### Document Roles
 
