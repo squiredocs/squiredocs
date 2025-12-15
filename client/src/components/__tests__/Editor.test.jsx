@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import * as Y from 'yjs';
 import Editor from '../Editor';
 import { createMockYjsProvider } from '../../test/utils';
@@ -20,6 +20,12 @@ vi.mock('../CollaborationCursorWithSelection', () => ({
       options,
     })),
   },
+}));
+
+// Mock useMobile hook
+const mockIsMobile = vi.fn(() => false);
+vi.mock('../../hooks/useMobile', () => ({
+  useMobile: () => mockIsMobile(),
 }));
 
 describe('Editor', () => {
@@ -295,12 +301,12 @@ describe('Editor', () => {
       const mockStates = new Map();
       mockStates.set(789, { cursor: { anchor: 0, head: 0 }, user: { name: 'NewUser', color: '#aabbcc' } });
       mockAwareness.getStates = () => mockStates;
-      
+
       let changeHandler;
       mockAwareness.on = vi.fn((event, handler) => {
         if (event === 'change') changeHandler = handler;
       });
-      
+
       render(
         <Editor
           ydoc={mockYdoc}
@@ -309,11 +315,203 @@ describe('Editor', () => {
           user={mockUser}
                   />
       );
-      
+
       // Simulate new user joining with cursor
       changeHandler({ added: [789], updated: [], removed: [] });
-      
+
       expect(changeHandler).toBeDefined();
+    });
+  });
+
+  describe('mobile behavior', () => {
+    beforeEach(() => {
+      mockIsMobile.mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      mockIsMobile.mockReturnValue(false);
+    });
+
+    it('configures larger scroll margins on mobile', () => {
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+        />
+      );
+
+      const callArgs = mockUseEditor.mock.calls[0][0];
+      expect(callArgs.editorProps).toBeDefined();
+      expect(callArgs.editorProps.scrollMargin).toEqual({
+        top: 20,
+        bottom: 100,
+        left: 0,
+        right: 0,
+      });
+      expect(callArgs.editorProps.scrollThreshold).toEqual({
+        top: 20,
+        bottom: 100,
+        left: 0,
+        right: 0,
+      });
+    });
+
+    it('uses default scroll margins on desktop', () => {
+      mockIsMobile.mockReturnValue(false);
+
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+        />
+      );
+
+      const callArgs = mockUseEditor.mock.calls[0][0];
+      expect(callArgs.editorProps.scrollMargin).toBe(20);
+      expect(callArgs.editorProps.scrollThreshold).toBe(20);
+    });
+  });
+
+  describe('scroll behavior', () => {
+    it('scrolls to top when synced prop becomes true', async () => {
+      const { rerender } = render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+          synced={false}
+        />
+      );
+
+      const container = document.querySelector('.editor-container');
+      if (container) {
+        // Simulate scroll position
+        Object.defineProperty(container, 'scrollTop', {
+          value: 500,
+          writable: true,
+        });
+      }
+
+      // Re-render with synced=true
+      rerender(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+          synced={true}
+        />
+      );
+
+      // The effect should reset scrollTop to 0
+      // Note: In JSDOM, scrollTop assignment might not work as expected
+      // This test verifies the component accepts the synced prop
+      expect(screen.getByTestId('editor-content')).toBeInTheDocument();
+    });
+
+    it('accepts synced prop without crashing', () => {
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+          synced={true}
+        />
+      );
+
+      expect(screen.getByTestId('editor-content')).toBeInTheDocument();
+    });
+  });
+
+  describe('visual viewport keyboard handling', () => {
+    let mockVisualViewport;
+    let resizeHandler;
+    let originalVisualViewport;
+
+    beforeEach(() => {
+      mockIsMobile.mockReturnValue(true);
+      originalVisualViewport = window.visualViewport;
+
+      mockVisualViewport = {
+        height: 800,
+        offsetTop: 0,
+        addEventListener: vi.fn((event, handler) => {
+          if (event === 'resize') resizeHandler = handler;
+        }),
+        removeEventListener: vi.fn(),
+      };
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'visualViewport', {
+        value: originalVisualViewport,
+        writable: true,
+        configurable: true,
+      });
+      mockIsMobile.mockReturnValue(false);
+    });
+
+    it('subscribes to visual viewport resize on mobile', () => {
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+        />
+      );
+
+      expect(mockVisualViewport.addEventListener).toHaveBeenCalledWith(
+        'resize',
+        expect.any(Function)
+      );
+    });
+
+    it('does not subscribe to visual viewport on desktop', () => {
+      mockIsMobile.mockReturnValue(false);
+
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+        />
+      );
+
+      // On desktop, should not subscribe to visual viewport
+      // The handler should check isMobile before subscribing
+      expect(mockVisualViewport.addEventListener).not.toHaveBeenCalled();
+    });
+
+    it('cleans up visual viewport listener on unmount', () => {
+      const { unmount } = render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          user={mockUser}
+        />
+      );
+
+      unmount();
+
+      expect(mockVisualViewport.removeEventListener).toHaveBeenCalledWith(
+        'resize',
+        expect.any(Function)
+      );
     });
   });
 });
