@@ -104,6 +104,7 @@ function EditorView({ docGuid, onNavigateHome, user }) {
                 type="text"
                 value={docTitle}
                 onChange={(e) => setDocTitle(e.target.value)}
+                onFocus={(e) => e.target.select()}
                 onKeyDown={(e) => {
                   if (e.key === 'Tab' && !e.shiftKey) {
                     e.preventDefault();
