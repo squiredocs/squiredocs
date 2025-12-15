@@ -21,7 +21,7 @@
 
 .app-header-left {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 
@@ -132,6 +132,13 @@
 .history-btn svg {
   width: 16px;
   height: 16px;
+}
+
+/* Hide history button on mobile - not supported */
+@media (max-width: 768px) {
+  .history-btn {
+    display: none;
+  }
 }
 
 /* Share button */
