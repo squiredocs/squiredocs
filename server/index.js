@@ -29,6 +29,10 @@ const logPerf = (label, data = {}) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy to get correct protocol (https) from X-Forwarded-Proto header
+// This is needed when behind a reverse proxy/load balancer that terminates SSL
+app.set('trust proxy', true);
+
 // Client URL for CORS (configurable via env)
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
