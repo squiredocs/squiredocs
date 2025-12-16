@@ -70,12 +70,19 @@ const INTERNAL_ERROR = -32603;
  * GET /mcp - Server information (for discovery)
  */
 router.get('/', (req, res) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
   res.json({
     name: SERVER_NAME,
     version: SERVER_VERSION,
     protocolVersion: PROTOCOL_VERSION,
     capabilities: {
       tools: {},
+    },
+    authentication: {
+      type: 'oauth2',
+      authorizationUrl: `${baseUrl}/mcp/auth/authorize`,
+      tokenUrl: `${baseUrl}/mcp/auth/token`,
+      metadataUrl: `${baseUrl}/.well-known/oauth-authorization-server`,
     },
   });
 });

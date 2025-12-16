@@ -197,6 +197,23 @@ app.use('/auth', authRouter);
 // Mount waitlist routes
 app.use('/api/waitlist', waitlist.router);
 
+// OAuth 2.0 Authorization Server Metadata (RFC 8414)
+// Required for MCP client discovery of OAuth capabilities
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  res.json({
+    issuer: baseUrl,
+    authorization_endpoint: `${baseUrl}/mcp/auth/authorize`,
+    token_endpoint: `${baseUrl}/mcp/auth/token`,
+    revocation_endpoint: `${baseUrl}/mcp/auth/revoke`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    scopes_supported: ['documents:read', 'documents:write'],
+  });
+});
+
 // Mount MCP OAuth routes first (more specific path takes precedence)
 app.use('/mcp/auth', mcp.oauthRouter);
 
