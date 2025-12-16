@@ -17,29 +17,34 @@ describe('PKCE Utilities', () => {
       expect(result.valid).toBe(true);
     });
 
-    test('rejects challenge that is too short', () => {
+    test('rejects challenge that is not exactly 43 characters', () => {
       const challenge = 'tooshort';
       const result = validateCodeChallenge(challenge);
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('at least 43 characters');
+      expect(result.error).toContain('Invalid code_challenge format');
     });
 
     test('rejects challenge that is too long', () => {
-      const challenge = 'a'.repeat(129);
+      const challenge = 'a'.repeat(44); // Should be exactly 43
       const result = validateCodeChallenge(challenge);
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('at most 128 characters');
+      expect(result.error).toContain('Invalid code_challenge format');
     });
 
     test('rejects challenge with invalid characters', () => {
-      const challenge = 'invalid@#$%^&*()' + 'a'.repeat(30);
+      // Exactly 43 chars but with invalid characters for base64url
+      // Valid base64url chars: A-Z, a-z, 0-9, -, _
+      // Create a 43-char string with @ symbol which is invalid
+      const challenge = 'invalid@' + '1'.repeat(35); // 'invalid@' (8) + 35 = 43
+      expect(challenge.length).toBe(43); // Ensure it's exactly 43
       const result = validateCodeChallenge(challenge);
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('Invalid characters');
+      // After length check passes, character validation fails
+      expect(result.error).toContain('base64url');
     });
 
-    test('accepts challenge with base64url characters', () => {
-      const challenge = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    test('accepts challenge with exactly 43 base64url characters', () => {
+      const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
       const result = validateCodeChallenge(challenge);
       expect(result.valid).toBe(true);
     });

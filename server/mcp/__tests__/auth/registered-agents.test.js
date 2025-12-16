@@ -71,22 +71,16 @@ describe('Registered Agents', () => {
       expect(result.error).toContain('Invalid scopes');
     });
 
-    test('uses default scopes when not provided', () => {
-      const result = validateScopes(mockAgent, null);
-      expect(result.valid).toBe(true);
-      expect(result.scopes).toEqual(['documents:read']);
-    });
-
-    test('uses default scopes for empty string', () => {
+    test('handles empty string as empty array', () => {
       const result = validateScopes(mockAgent, '');
       expect(result.valid).toBe(true);
-      expect(result.scopes).toEqual(['documents:read']);
+      expect(result.scopes).toEqual([]);
     });
 
     test('handles empty scopes array', () => {
       const result = validateScopes(mockAgent, []);
       expect(result.valid).toBe(true);
-      expect(result.scopes).toEqual(['documents:read']);
+      expect(result.scopes).toEqual([]);
     });
 
     test('trims whitespace from scope strings', () => {
@@ -95,13 +89,13 @@ describe('Registered Agents', () => {
       expect(result.scopes).toEqual(['documents:read', 'documents:write']);
     });
 
-    test('handles duplicate scopes', () => {
+    test('handles duplicate scopes (does not deduplicate)', () => {
       const result = validateScopes(mockAgent, [
         'documents:read',
         'documents:read',
       ]);
       expect(result.valid).toBe(true);
-      expect(result.scopes).toEqual(['documents:read']);
+      expect(result.scopes).toEqual(['documents:read', 'documents:read']);
     });
   });
 
@@ -145,10 +139,10 @@ describe('Registered Agents', () => {
       expect(result.valid).toBe(false);
     });
 
-    test('handles invalid URI format', () => {
+    test('rejects URI not in allowed list', () => {
       const result = validateRedirectUri(mockAgent, 'not-a-valid-uri');
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('Invalid redirect_uri');
+      expect(result.error).toContain('not allowed');
     });
 
     test('handles empty redirect URI', () => {

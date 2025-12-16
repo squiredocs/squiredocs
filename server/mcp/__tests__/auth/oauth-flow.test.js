@@ -580,8 +580,18 @@ describe('OAuth Flow', () => {
     });
 
     test('rotates refresh token', async () => {
+      const delegationRow = {
+        id: 'delegation-123',
+        user_id: 'user-123',
+        agent_id: 'claude-code',
+        agent_name: 'Claude Code',
+        scopes: ['documents:read', 'documents:write'],
+        refresh_token_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        revoked_at: null,
+      };
+
       mockPool.query
-        .mockResolvedValueOnce({ rows: [mockPool.query.mock.results[0].value.rows[0]] })
+        .mockResolvedValueOnce({ rows: [delegationRow] })
         .mockResolvedValueOnce({ rowCount: 1 });
 
       await oauthFlow.handleToken(mockReq, mockRes);
