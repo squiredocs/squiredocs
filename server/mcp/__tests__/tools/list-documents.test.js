@@ -4,9 +4,19 @@
  * Tests the MCP tool for listing documents accessible to an agent.
  */
 const { Pool } = require('pg');
+const { PostgresPersistence } = require('../../../postgres-persistence');
 
 // Test database configuration
 const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'collab_db',
+  user: process.env.DB_USER || process.env.USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+});
+
+// Create persistence provider
+const persistenceProvider = new PostgresPersistence({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'collab_db',
@@ -28,7 +38,7 @@ describe('list_documents tool', () => {
   beforeAll(async () => {
     // Initialize modules
     documents.init(pool);
-    listDocuments.init(pool);
+    listDocuments.init(persistenceProvider);
 
     // Create test users
     const user1Result = await pool.query(
@@ -186,6 +196,23 @@ describe('list_documents tool', () => {
       expect(doc.role).toBe('owner');
       expect(doc.createdAt).toBeDefined();
       expect(doc.updatedAt).toBeDefined();
+    });
+
+    test('returns document titles from Yjs metadata', async () => {
+      const agentToken = {
+        userId: testUser1Id,
+        delegationId: 'test-delegation-id',
+        agentId: 'claude-code:test',
+        scopes: ['documents:read'],
+      };
+
+      const result = await listDocuments.handler({}, agentToken);
+
+      expect(result.documents).toBeDefined();
+      result.documents.forEach((doc) => {
+        // title field should be present (may be null if document has no title set)
+        expect(doc).toHaveProperty('title');
+      });
     });
 
     test('returns empty array when user has no documents', async () => {

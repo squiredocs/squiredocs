@@ -5,15 +5,15 @@
  */
 const Y = require('yjs');
 
-// Database pool - set by init function
-let pool = null;
+// Persistence provider - set by init function
+let persistenceProvider = null;
 
 /**
- * Initialize the tool with a database pool
- * @param {Pool} dbPool - PostgreSQL connection pool
+ * Initialize the tool with a persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(dbPool) {
-  pool = dbPool;
+function init(persistence) {
+  persistenceProvider = persistence;
 }
 
 /**
@@ -41,10 +41,11 @@ const inputSchema = {
  * @returns {Promise<object>} { docGuid, message }
  */
 async function handler(args, agentToken) {
-  if (!pool) throw new Error('create_document tool not initialized');
+  if (!persistenceProvider) throw new Error('create_document tool not initialized');
 
   const { content } = args;
   const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
 
   // Create the document record with a database-generated UUID
   const docResult = await pool.query(

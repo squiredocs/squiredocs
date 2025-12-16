@@ -125,10 +125,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | \
 ## Available Tools
 
 ### list_documents
-Lists all documents accessible to you.
+Lists all documents accessible to you with their IDs, titles, roles, timestamps, and share counts.
 
 **Arguments:**
 - `filter` (optional): `"owned"`, `"shared_with_me"`, or `"all"` (default)
+
+**Returns:**
+- `documents`: Array of documents, each with `id`, `title`, `role`, `createdAt`, `updatedAt`, and `shareCount`
 
 ### get_document
 Reads document content.
@@ -136,6 +139,18 @@ Reads document content.
 **Arguments:**
 - `docGuid` (required): Document UUID
 - `format` (optional): `"plain-text"` (default) or `"structured"`
+
+### set_document_title
+Sets the title of a document.
+
+**Arguments:**
+- `docGuid` (required): Document UUID
+- `title` (required): The new title for the document
+
+**Returns:**
+- `success`: Boolean indicating if the operation succeeded
+- `title`: The title that was set
+- `message`: Confirmation message
 
 ## Troubleshooting
 

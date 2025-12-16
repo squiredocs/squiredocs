@@ -86,3 +86,4 @@ export default function LoginPage({ onNavigateToLanding }) {
     </div>
   );
 }
+

@@ -9,6 +9,7 @@ const getDocument = require('./get-document');
 const updateDocument = require('./update-document');
 const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
+const setDocumentTitle = require('./set-document-title');
 
 // All available tools
 const tools = {
@@ -17,16 +18,17 @@ const tools = {
   update_document: updateDocument,
   create_document: createDocument,
   share_document: shareDocument,
+  set_document_title: setDocumentTitle,
 };
 
 /**
- * Initialize all tools with the database pool
- * @param {Pool} pool - PostgreSQL connection pool
+ * Initialize all tools with the persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(pool) {
+function init(persistence) {
   Object.values(tools).forEach((tool) => {
     if (tool.init) {
-      tool.init(pool);
+      tool.init(persistence);
     }
   });
 }

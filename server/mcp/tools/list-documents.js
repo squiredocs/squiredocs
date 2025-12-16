@@ -4,15 +4,15 @@
  * Lists all documents accessible to the authenticated agent/user.
  */
 
-// Database pool - set by init function
-let pool = null;
+// Persistence provider - set by init function
+let persistenceProvider = null;
 
 /**
- * Initialize the tool with a database pool
- * @param {Pool} dbPool - PostgreSQL connection pool
+ * Initialize the tool with a persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(dbPool) {
-  pool = dbPool;
+function init(persistence) {
+  persistenceProvider = persistence;
 }
 
 /**
@@ -42,10 +42,11 @@ const inputSchema = {
  * @returns {Promise<object>} { documents: Array }
  */
 async function handler(args, agentToken) {
-  if (!pool) throw new Error('list_documents tool not initialized');
+  if (!persistenceProvider) throw new Error('list_documents tool not initialized');
 
   const { filter = 'all' } = args;
   const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
 
   let query;
   const params = [userId];
@@ -93,8 +94,18 @@ async function handler(args, agentToken) {
 
   const result = await pool.query(query, params);
 
+  // Get all documents with metadata (titles) from Yjs documents
+  const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
+
+  // Build a map of docId -> title
+  const titleMap = new Map();
+  for (const doc of allDocsWithMeta) {
+    titleMap.set(doc.docGuid, doc.title);
+  }
+
   const documents = result.rows.map((row) => ({
     id: row.id,
+    title: titleMap.get(row.id) || null,
     role: row.role,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

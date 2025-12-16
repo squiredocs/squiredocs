@@ -11,14 +11,15 @@ We implemented a Model Context Protocol (MCP) integration that allows AI agents 
 - **JWT Tokens**: Short-lived (1 hour) tokens for agent authentication, separate from user session tokens
 - **Middleware**: Express middleware for validating agent tokens and checking scopes
 
-### MCP Tools (5 total)
+### MCP Tools (6 total)
 
 | Tool | Description |
 |------|-------------|
-| `list_documents` | List documents accessible to the user (filter: owned/shared_with_me/all) |
+| `list_documents` | List documents accessible to the user with ID, title, role, timestamps, and share count (filter: owned/shared_with_me/all) |
 | `get_document` | Read document content in plain-text or structured JSON format |
 | `create_document` | Create a new document with optional initial content |
 | `update_document` | Modify document content (replace/insert/delete/append) |
+| `set_document_title` | Set the title of a document |
 | `share_document` | Share a document with another user by email |
 
 ### Infrastructure

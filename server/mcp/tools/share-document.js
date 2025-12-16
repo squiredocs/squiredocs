@@ -4,15 +4,15 @@
  * Shares a document with another user by email.
  */
 
-// Database pool - set by init function
-let pool = null;
+// Persistence provider - set by init function
+let persistenceProvider = null;
 
 /**
- * Initialize the tool with a database pool
- * @param {Pool} dbPool - PostgreSQL connection pool
+ * Initialize the tool with a persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(dbPool) {
-  pool = dbPool;
+function init(persistence) {
+  persistenceProvider = persistence;
 }
 
 /**
@@ -55,10 +55,11 @@ const inputSchema = {
  * @returns {Promise<object>} { success, message }
  */
 async function handler(args, agentToken) {
-  if (!pool) throw new Error('share_document tool not initialized');
+  if (!persistenceProvider) throw new Error('share_document tool not initialized');
 
   const { docGuid, email, role = 'viewer' } = args;
   const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
 
   // Check if user has owner access to the document
   const accessResult = await pool.query(

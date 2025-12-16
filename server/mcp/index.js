@@ -12,8 +12,8 @@ const toolRegistry = require('./tools');
 
 const router = express.Router();
 
-// Database pool - set by init function
-let pool = null;
+// Persistence provider - set by init function
+let persistenceProvider = null;
 
 // MCP Protocol version
 const PROTOCOL_VERSION = '2024-11-05';
@@ -21,13 +21,13 @@ const SERVER_NAME = 'collab-editor-mcp';
 const SERVER_VERSION = '1.0.0';
 
 /**
- * Initialize the MCP server with database pool
- * @param {Pool} dbPool - PostgreSQL connection pool
+ * Initialize the MCP server with persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(dbPool) {
-  pool = dbPool;
-  delegation.init(dbPool);
-  toolRegistry.init(dbPool);
+function init(persistence) {
+  persistenceProvider = persistence;
+  delegation.init(persistence.getPool());
+  toolRegistry.init(persistence);
 }
 
 /**

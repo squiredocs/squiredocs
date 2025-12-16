@@ -4,10 +4,20 @@
  * Tests the MCP tool for reading document content.
  */
 const { Pool } = require('pg');
+const { PostgresPersistence } = require('../../../postgres-persistence');
 const Y = require('yjs');
 
 // Test database configuration
 const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'collab_db',
+  user: process.env.DB_USER || process.env.USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+});
+
+// Create persistence provider
+const persistenceProvider = new PostgresPersistence({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'collab_db',
@@ -27,7 +37,7 @@ describe('get_document tool', () => {
   beforeAll(async () => {
     // Initialize modules
     documents.init(pool);
-    getDocument.init(pool);
+    getDocument.init(persistenceProvider);
 
     // Create test users
     const userResult = await pool.query(

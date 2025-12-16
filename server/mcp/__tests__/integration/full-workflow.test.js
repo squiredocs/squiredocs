@@ -4,6 +4,7 @@
  * Tests the complete flow: delegation → token → authentication → tool usage
  */
 const { Pool } = require('pg');
+const { PostgresPersistence } = require('../../../postgres-persistence');
 const Y = require('yjs');
 
 // Set test secrets
@@ -11,6 +12,15 @@ process.env.MCP_JWT_SECRET = 'test-mcp-secret';
 
 // Test database configuration
 const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'collab_db',
+  user: process.env.DB_USER || process.env.USER || 'postgres',
+  password: process.env.DB_PASSWORD || '',
+});
+
+// Create persistence provider
+const persistenceProvider = new PostgresPersistence({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'collab_db',
@@ -34,8 +44,8 @@ describe('Full Agent Workflow', () => {
     // Initialize all modules
     delegation.init(pool);
     documents.init(pool);
-    listDocuments.init(pool);
-    getDocument.init(pool);
+    listDocuments.init(persistenceProvider);
+    getDocument.init(persistenceProvider);
 
     // Create test user
     const userResult = await pool.query(
