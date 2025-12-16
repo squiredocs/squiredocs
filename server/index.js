@@ -204,7 +204,10 @@ app.use('/api/waitlist', waitlist.router);
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const host = req.get('host');
+  // Force HTTPS for production domains
+  const protocol = host.includes('herodocs.xyz') ? 'https' : req.protocol;
+  const baseUrl = `${protocol}://${host}`;
   res.json({
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/mcp/auth/authorize`,
