@@ -212,39 +212,30 @@ app.get('/health', (req, res) => {
 app.get('/api/docs', requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    
+
     // Get documents the user has access to with their role
     const accessibleDocs = await documents.getAccessibleDocuments(userId);
-    
-    // Get all docs with metadata from persistence (for titles)
-    const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
-    
-    // Build a map of docId -> Yjs metadata (title, updatedAt)
-    const metaMap = new Map();
-    for (const doc of allDocsWithMeta) {
-      metaMap.set(doc.docGuid, {
-        title: doc.title,
-        updatedAt: doc.updatedAt,
-      });
-    }
-    
-    // Start with accessible docs and enrich with Yjs metadata if available
-    const docs = accessibleDocs.map(doc => {
-      const meta = metaMap.get(doc.doc_id);
-      return {
-        docGuid: doc.doc_id,
-        title: meta?.title || null,
-        updatedAt: meta?.updatedAt || doc.updated_at || doc.created_at,
-        role: doc.role,
-        ownerName: doc.owner_name,
-        ownerEmail: doc.owner_email,
-        shareCount: parseInt(doc.share_count, 10) || 0,
-      };
-    });
-    
+
+    // Fetch metadata (title) directly from the database for each accessible document
+    // This ensures we're reading from the DB and not relying on any in-memory cache
+    const docs = await Promise.all(
+      accessibleDocs.map(async (doc) => {
+        const meta = await persistenceProvider.getDocumentMeta(doc.doc_id);
+        return {
+          docGuid: doc.doc_id,
+          title: meta.title || null,
+          updatedAt: doc.updated_at || doc.created_at,
+          role: doc.role,
+          ownerName: doc.owner_name,
+          ownerEmail: doc.owner_email,
+          shareCount: parseInt(doc.share_count, 10) || 0,
+        };
+      })
+    );
+
     // Sort by updatedAt descending
     docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-    
+
     res.json({ docs });
   } catch (error) {
     console.error('Error fetching documents:', error);

@@ -94,23 +94,21 @@ async function handler(args, agentToken) {
 
   const result = await pool.query(query, params);
 
-  // Get all documents with metadata (titles) from Yjs documents
-  const allDocsWithMeta = await persistenceProvider.getAllDocumentsWithMeta();
-
-  // Build a map of docId -> title
-  const titleMap = new Map();
-  for (const doc of allDocsWithMeta) {
-    titleMap.set(doc.docGuid, doc.title);
-  }
-
-  const documents = result.rows.map((row) => ({
-    id: row.id,
-    title: titleMap.get(row.id) || null,
-    role: row.role,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    shareCount: parseInt(row.share_count, 10),
-  }));
+  // Fetch metadata (title) directly from the database for each accessible document
+  // This ensures we're reading from the DB and not relying on any in-memory cache
+  const documents = await Promise.all(
+    result.rows.map(async (row) => {
+      const meta = await persistenceProvider.getDocumentMeta(row.id);
+      return {
+        id: row.id,
+        title: meta.title || null,
+        role: row.role,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        shareCount: parseInt(row.share_count, 10),
+      };
+    })
+  );
 
   return { documents };
 }
