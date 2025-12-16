@@ -24,7 +24,7 @@ export function generateUUID() {
   });
 }
 
-function DocList({ onNavigate, user }) {
+function DocList({ onNavigate, onNavigateToSettings, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -196,7 +196,7 @@ function DocList({ onNavigate, user }) {
             <h1>Documents</h1>
           </div>
           <div className="doc-list-header-right">
-            <UserProfileBadge user={user} onLogout={logout} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </header>
         <div className="doc-list-loading">
@@ -213,7 +213,7 @@ function DocList({ onNavigate, user }) {
         <header className="doc-list-header">
           <h1>Documents</h1>
           <div className="doc-list-header-right">
-            <UserProfileBadge user={user} onLogout={logout} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </header>
         <div className="doc-list-error">
@@ -243,7 +243,7 @@ function DocList({ onNavigate, user }) {
           <h1>Documents</h1>
         </div>
         <div className="doc-list-header-right">
-          <UserProfileBadge user={user} onLogout={logout} />
+          <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
         </div>
       </header>
 

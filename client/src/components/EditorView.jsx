@@ -45,7 +45,7 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersionHistory = false, user }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
   const { logout, api, accessToken } = useAuth();
   const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
@@ -381,7 +381,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, showVersion
                 <span>Share</span>
               </button>
             )}
-            <UserProfileBadge user={user} onLogout={logout} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </div>
       </header>
