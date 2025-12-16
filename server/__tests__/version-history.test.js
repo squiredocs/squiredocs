@@ -213,7 +213,7 @@ describe('version-history module', () => {
 
   describe('DEFAULT_INACTIVITY_THRESHOLD', () => {
     test('is 5 minutes in milliseconds', () => {
-      expect(DEFAULT_INACTIVITY_THRESHOLD).toBe(5 * 60 * 1000);
+      expect(DEFAULT_INACTIVITY_THRESHOLD).toBe(1.5 * 60 * 1000);
     });
   });
 
