@@ -14,6 +14,7 @@ const documents = require('./documents');
 const permissions = require('./permissions');
 const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
+const mcp = require('./mcp');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -184,11 +185,17 @@ documents.init(persistenceProvider.getPool());
 // Initialize waitlist module with shared database pool
 waitlist.init(persistenceProvider.getPool());
 
+// Initialize MCP module with shared database pool
+mcp.init(persistenceProvider.getPool());
+
 // Mount auth routes
 app.use('/auth', authRouter);
 
 // Mount waitlist routes
 app.use('/api/waitlist', waitlist.router);
+
+// Mount MCP routes
+app.use('/mcp', mcp.router);
 
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
