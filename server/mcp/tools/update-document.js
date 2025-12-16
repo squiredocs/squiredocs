@@ -4,17 +4,17 @@
  * Updates document content by applying text operations.
  */
 const Y = require('yjs');
-const { loadYDoc } = require('../yjs/serialization');
+const documentService = require('../../document-service');
 
-// Database pool - set by init function
-let pool = null;
+// Persistence provider - set by init function
+let persistenceProvider = null;
 
 /**
- * Initialize the tool with a database pool
- * @param {Pool} dbPool - PostgreSQL connection pool
+ * Initialize the tool with a persistence provider
+ * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
-function init(dbPool) {
-  pool = dbPool;
+function init(persistence) {
+  persistenceProvider = persistence;
 }
 
 /**
@@ -69,10 +69,11 @@ const inputSchema = {
  * @returns {Promise<object>} { success, message }
  */
 async function handler(args, agentToken) {
-  if (!pool) throw new Error('update_document tool not initialized');
+  if (!persistenceProvider) throw new Error('update_document tool not initialized');
 
   const { docGuid, operation, content, position, length } = args;
   const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
 
   // Check if user has edit access to the document
   const accessResult = await pool.query(
@@ -92,112 +93,114 @@ async function handler(args, agentToken) {
     throw new Error('You do not have edit permission for this document');
   }
 
-  // Load the current document
-  const ydoc = await loadYDoc(pool, docGuid);
-  const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-  // Perform the operation
+  // Apply changes through the application layer (document service)
+  // This ensures updates are broadcast to all connected WebSocket clients
+  // and persisted to the database with proper user attribution
   let message;
 
-  switch (operation) {
-    case 'replace': {
-      if (content === undefined) {
-        throw new Error('content is required for replace operation');
+  await documentService.updateDocument(
+    docGuid,
+    (ydoc) => {
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+
+      switch (operation) {
+        case 'replace': {
+          if (content === undefined) {
+            throw new Error('content is required for replace operation');
+          }
+
+          // Clear existing content
+          while (xmlFragment.length > 0) {
+            xmlFragment.delete(0, 1);
+          }
+
+          // Insert new content as a paragraph
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, content);
+          paragraph.insert(0, [text]);
+          xmlFragment.insert(0, [paragraph]);
+
+          message = `Replaced document content with ${content.length} characters`;
+          break;
+        }
+
+        case 'append': {
+          if (content === undefined) {
+            throw new Error('content is required for append operation');
+          }
+
+          // Add a new paragraph at the end
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, content);
+          paragraph.insert(0, [text]);
+          xmlFragment.insert(xmlFragment.length, [paragraph]);
+
+          message = `Appended ${content.length} characters to document`;
+          break;
+        }
+
+        case 'insert': {
+          if (content === undefined) {
+            throw new Error('content is required for insert operation');
+          }
+          if (position === undefined) {
+            throw new Error('position is required for insert operation');
+          }
+
+          // Find the text node and position to insert at
+          const result = findTextPosition(xmlFragment, position);
+          if (result) {
+            result.textNode.insert(result.offset, content);
+            message = `Inserted ${content.length} characters at position ${position}`;
+          } else {
+            // Position is beyond document end, append instead
+            const paragraph = new Y.XmlElement('paragraph');
+            const text = new Y.XmlText();
+            text.insert(0, content);
+            paragraph.insert(0, [text]);
+            xmlFragment.insert(xmlFragment.length, [paragraph]);
+            message = `Position ${position} exceeds document length, appended content instead`;
+          }
+          break;
+        }
+
+        case 'delete': {
+          if (position === undefined) {
+            throw new Error('position is required for delete operation');
+          }
+          if (length === undefined) {
+            throw new Error('length is required for delete operation');
+          }
+
+          // Find the text node and position to delete from
+          let remaining = length;
+          let currentPos = position;
+
+          while (remaining > 0) {
+            const result = findTextPosition(xmlFragment, currentPos);
+            if (!result) break;
+
+            const textLength = result.textNode.toString().length;
+            const availableToDelete = textLength - result.offset;
+            const toDelete = Math.min(remaining, availableToDelete);
+
+            result.textNode.delete(result.offset, toDelete);
+            remaining -= toDelete;
+          }
+
+          const deleted = length - remaining;
+          message = `Deleted ${deleted} characters starting at position ${position}`;
+          break;
+        }
+
+        default:
+          throw new Error(`Unknown operation: ${operation}`);
       }
-
-      // Clear existing content
-      while (xmlFragment.length > 0) {
-        xmlFragment.delete(0, 1);
-      }
-
-      // Insert new content as a paragraph
-      const paragraph = new Y.XmlElement('paragraph');
-      const text = new Y.XmlText();
-      text.insert(0, content);
-      paragraph.insert(0, [text]);
-      xmlFragment.insert(0, [paragraph]);
-
-      message = `Replaced document content with ${content.length} characters`;
-      break;
-    }
-
-    case 'append': {
-      if (content === undefined) {
-        throw new Error('content is required for append operation');
-      }
-
-      // Add a new paragraph at the end
-      const paragraph = new Y.XmlElement('paragraph');
-      const text = new Y.XmlText();
-      text.insert(0, content);
-      paragraph.insert(0, [text]);
-      xmlFragment.insert(xmlFragment.length, [paragraph]);
-
-      message = `Appended ${content.length} characters to document`;
-      break;
-    }
-
-    case 'insert': {
-      if (content === undefined) {
-        throw new Error('content is required for insert operation');
-      }
-      if (position === undefined) {
-        throw new Error('position is required for insert operation');
-      }
-
-      // Find the text node and position to insert at
-      const result = findTextPosition(xmlFragment, position);
-      if (result) {
-        result.textNode.insert(result.offset, content);
-        message = `Inserted ${content.length} characters at position ${position}`;
-      } else {
-        // Position is beyond document end, append instead
-        const paragraph = new Y.XmlElement('paragraph');
-        const text = new Y.XmlText();
-        text.insert(0, content);
-        paragraph.insert(0, [text]);
-        xmlFragment.insert(xmlFragment.length, [paragraph]);
-        message = `Position ${position} exceeds document length, appended content instead`;
-      }
-      break;
-    }
-
-    case 'delete': {
-      if (position === undefined) {
-        throw new Error('position is required for delete operation');
-      }
-      if (length === undefined) {
-        throw new Error('length is required for delete operation');
-      }
-
-      // Find the text node and position to delete from
-      let remaining = length;
-      let currentPos = position;
-
-      while (remaining > 0) {
-        const result = findTextPosition(xmlFragment, currentPos);
-        if (!result) break;
-
-        const textLength = result.textNode.toString().length;
-        const availableToDelete = textLength - result.offset;
-        const toDelete = Math.min(remaining, availableToDelete);
-
-        result.textNode.delete(result.offset, toDelete);
-        remaining -= toDelete;
-      }
-
-      const deleted = length - remaining;
-      message = `Deleted ${deleted} characters starting at position ${position}`;
-      break;
-    }
-
-    default:
-      throw new Error(`Unknown operation: ${operation}`);
-  }
-
-  // Save the update
-  const update = Y.encodeStateAsUpdate(ydoc);
-  await saveUpdate(docGuid, update);
+    },
+    userId
+  ); // Pass userId for attribution
 
   // Update document timestamp
   await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
@@ -246,23 +249,6 @@ function findTextPosition(xmlFragment, targetPos) {
   }
 
   return null;
-}
-
-/**
- * Save a Yjs update to the database
- */
-async function saveUpdate(docGuid, update) {
-  // Get the next clock value
-  const clockResult = await pool.query(
-    'SELECT COALESCE(MAX(clock), -1) + 1 as next_clock FROM yjs_updates WHERE doc_guid = $1',
-    [docGuid]
-  );
-  const clock = clockResult.rows[0].next_clock;
-
-  await pool.query(
-    'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)',
-    [docGuid, clock, Buffer.from(update)]
-  );
 }
 
 module.exports = {

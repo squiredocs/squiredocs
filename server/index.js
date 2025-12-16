@@ -3,7 +3,7 @@ require('dotenv').config();
 
 const express = require('express');
 const WebSocket = require('ws');
-const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
+const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
@@ -15,6 +15,7 @@ const permissions = require('./permissions');
 const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
 const mcp = require('./mcp');
+const documentService = require('./document-service');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -141,7 +142,9 @@ setPersistence({
       }
 
       // Get the user ID for version history attribution
-      const userId = getDocumentUserId(docGuid);
+      // If origin is a string (userId passed from MCP tools), use it
+      // Otherwise, get from active WebSocket connections
+      const userId = (typeof origin === 'string') ? origin : getDocumentUserId(docGuid);
 
       const persistStart = Date.now();
       persistenceProvider.storeUpdate(docGuid, update, userId)
@@ -185,8 +188,8 @@ documents.init(persistenceProvider.getPool());
 // Initialize waitlist module with shared database pool
 waitlist.init(persistenceProvider.getPool());
 
-// Initialize MCP module with shared database pool
-mcp.init(persistenceProvider.getPool());
+// Initialize MCP module with persistence provider
+mcp.init(persistenceProvider);
 
 // Mount auth routes
 app.use('/auth', authRouter);
@@ -718,6 +721,9 @@ if (fs.existsSync(clientBuildPath)) {
 const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);
+
+  // Initialize document service with y-websocket functions
+  documentService.init(getYDoc, extractDocGuid);
 });
 
 // Create WebSocket server attached to HTTP server
@@ -882,3 +888,8 @@ process.on('SIGINT', async () => {
   });
 });
 
+// Export for internal use (MCP tools, tests)
+module.exports = {
+  getYDoc,
+  extractDocGuid,
+};
