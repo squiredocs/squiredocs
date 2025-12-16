@@ -8,6 +8,9 @@ const express = require('express');
 const { requireAgentAuth, requireScope, optionalAgentAuth } = require('./auth/middleware');
 const { generateAgentToken } = require('./auth/jwt');
 const delegation = require('./auth/delegation');
+const registeredAgents = require('./auth/registered-agents');
+const oauthFlow = require('./auth/oauth-flow');
+const oauthRouter = require('./auth/oauth-router');
 const toolRegistry = require('./tools');
 
 const router = express.Router();
@@ -26,7 +29,10 @@ const SERVER_VERSION = '1.0.0';
  */
 function init(persistence) {
   persistenceProvider = persistence;
-  delegation.init(persistence.getPool());
+  const pool = persistence.getPool();
+  delegation.init(pool);
+  registeredAgents.init(pool);
+  oauthFlow.init(pool);
   toolRegistry.init(persistence);
 }
 
@@ -313,5 +319,6 @@ router.post('/auth/token', async (req, res) => {
 
 module.exports = {
   router,
+  oauthRouter,
   init,
 };

@@ -4,6 +4,8 @@ import DocList from './components/DocList';
 import EditorView from './components/EditorView';
 import LoginPage from './components/LoginPage';
 import LandingPage from './components/LandingPage';
+import AuthorizePage from './pages/AuthorizePage';
+import SettingsPage from './pages/SettingsPage';
 import './App.css';
 
 // UUID validation regex
@@ -13,9 +15,19 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 function parseRoute() {
   const path = window.location.pathname;
 
+  // Check for /authorize path (OAuth agent authorization)
+  if (path === '/authorize') {
+    return { view: 'authorize', docGuid: null };
+  }
+
   // Check for /login path
   if (path === '/login') {
     return { view: 'login', docGuid: null };
+  }
+
+  // Check for /settings path
+  if (path === '/settings') {
+    return { view: 'settings', docGuid: null };
   }
 
   // Check for /docs path (document list)
@@ -96,6 +108,12 @@ function AppContent() {
     setRoute({ view: 'login', docGuid: null });
   };
 
+  // Navigate to settings page
+  const navigateToSettings = () => {
+    window.history.pushState({}, '', '/settings');
+    setRoute({ view: 'settings', docGuid: null });
+  };
+
   // Show loading state during auth initialization
   if (loading) {
     return (
@@ -115,6 +133,11 @@ function AppContent() {
         onNavigateToLogin={navigateToLogin}
       />
     );
+  }
+
+  // Authorization page - for OAuth agent authorization
+  if (route.view === 'authorize') {
+    return <AuthorizePage />;
   }
 
   // Login page - redirect to docs if already authenticated
@@ -140,6 +163,7 @@ function AppContent() {
         docGuid={route.docGuid}
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
+        onNavigateToSettings={navigateToSettings}
         showVersionHistory={false}
         user={user}
       />
@@ -154,14 +178,20 @@ function AppContent() {
         docGuid={route.docGuid}
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
+        onNavigateToSettings={navigateToSettings}
         showVersionHistory={true}
         user={user}
       />
     );
   }
 
+  // Settings view
+  if (route.view === 'settings') {
+    return <SettingsPage onNavigateHome={navigateToDocs} user={user} />;
+  }
+
   // Document list (default authenticated view)
-  return <DocList key={listKey} onNavigate={navigateToDoc} user={user} />;
+  return <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} user={user} />;
 }
 
 /**

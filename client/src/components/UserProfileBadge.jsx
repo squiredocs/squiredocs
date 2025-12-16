@@ -4,8 +4,15 @@ import './UserProfileBadge.css';
 /**
  * User profile badge component with dropdown menu
  */
-export default function UserProfileBadge({ user, onLogout }) {
+export default function UserProfileBadge({ user, onLogout, onNavigateToSettings }) {
   const [showMenu, setShowMenu] = useState(false);
+
+  const handleSettingsClick = () => {
+    setShowMenu(false);
+    if (onNavigateToSettings) {
+      onNavigateToSettings();
+    }
+  };
 
   return (
     <div className="user-profile-badge">
@@ -37,6 +44,11 @@ export default function UserProfileBadge({ user, onLogout }) {
               <div className="user-menu-email">{user?.email || ''}</div>
             </div>
             <div className="user-menu-divider" />
+            {onNavigateToSettings && (
+              <button className="user-menu-item" onClick={handleSettingsClick}>
+                ⚙️ Settings
+              </button>
+            )}
             <button className="user-menu-item" onClick={onLogout}>
               Sign out
             </button>

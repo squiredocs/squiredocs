@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP OAuth Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    h1 { margin-top: 0; color: #333; }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: translateY(-2px); }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .info {
+      background: #e8f4fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 15px 0;
+      border-left: 4px solid #2196f3;
+    }
+    .success {
+      background: #e8f5e9;
+      border-left-color: #4caf50;
+    }
+    .error {
+      background: #ffebee;
+      border-left-color: #f44336;
+    }
+    code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Monaco', monospace;
+      font-size: 14px;
+    }
+    pre {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 15px;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    .step {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .step-number {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      background: #667eea;
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 30px;
+      font-weight: bold;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🤖 MCP OAuth Flow Test</h1>
+    <p>Test the OAuth authorization flow for your MCP server.</p>
+
+    <div class="step">
+      <span class="step-number">1</span>
+      <strong>Generate PKCE Parameters</strong>
+      <button onclick="generatePKCE()" style="margin-left: 20px;">Generate</button>
+    </div>
+
+    <div id="pkceOutput"></div>
+
+    <div class="step">
+      <span class="step-number">2</span>
+      <strong>Start Authorization Flow</strong>
+      <button id="authorizeBtn" onclick="startAuthorization()" disabled>Authorize</button>
+    </div>
+
+    <div id="authOutput"></div>
+
+    <div class="step">
+      <span class="step-number">3</span>
+      <strong>Exchange Code for Token</strong>
+      <div style="margin-top: 10px;">
+        <input type="text" id="authCode" placeholder="Paste authorization code here"
+               style="width: 400px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        <button onclick="exchangeToken()" style="margin-left: 10px;">Exchange</button>
+      </div>
+    </div>
+
+    <div id="tokenOutput"></div>
+  </div>
+
+  <script>
+    let codeVerifier = '';
+    let codeChallenge = '';
+    let state = '';
+
+    // Generate random string for PKCE
+    function generateRandomString(length) {
+      const array = new Uint8Array(length);
+      crypto.getRandomValues(array);
+      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Base64 URL encode
+    function base64URLEncode(buffer) {
+      return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+    }
+
+    // Generate SHA-256 hash
+    async function sha256(plain) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(plain);
+      return await crypto.subtle.digest('SHA-256', data);
+    }
+
+    // Generate PKCE challenge
+    async function generatePKCE() {
+      // Generate code verifier (43-128 characters)
+      codeVerifier = generateRandomString(32);
+
+      // Generate code challenge
+      const hashed = await sha256(codeVerifier);
+      codeChallenge = base64URLEncode(hashed);
+
+      // Generate state
+      state = generateRandomString(16);
+
+      document.getElementById('pkceOutput').innerHTML = `
+        <div class="info success">
+          <strong>✓ PKCE Parameters Generated</strong><br>
+          <small>Code Verifier: <code>${codeVerifier}</code></small><br>
+          <small>Code Challenge: <code>${codeChallenge}</code></small><br>
+          <small>State: <code>${state}</code></small>
+        </div>
+      `;
+
+      document.getElementById('authorizeBtn').disabled = false;
+    }
+
+    function startAuthorization() {
+      const params = new URLSearchParams({
+        agent_client_id: 'claude-code',
+        agent_instance_id: 'test-' + Date.now(),
+        scope: 'documents:read documents:write',
+        redirect_uri: window.location.origin + '/oauth-callback',
+        state: state,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256'
+      });
+
+      // Use the client app's /authorize route which has auth context
+      const authUrl = `/authorize?${params.toString()}`;
+
+      document.getElementById('authOutput').innerHTML = `
+        <div class="info">
+          <strong>Opening authorization page...</strong><br>
+          <small>You'll be redirected to approve access</small><br>
+          <a href="${authUrl}" target="_blank" style="color: #667eea; text-decoration: none; font-weight: 600;">
+            → Click here if not redirected automatically
+          </a>
+        </div>
+      `;
+
+      // Open in new window
+      window.open(authUrl, '_blank', 'width=600,height=700');
+    }
+
+    async function exchangeToken() {
+      const code = document.getElementById('authCode').value.trim();
+
+      if (!code) {
+        alert('Please paste the authorization code');
+        return;
+      }
+
+      try {
+        const response = await fetch('/mcp/auth/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            grant_type: 'authorization_code',
+            code: code,
+            code_verifier: codeVerifier,
+            redirect_uri: window.location.origin + '/oauth-callback'
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.access_token) {
+          document.getElementById('tokenOutput').innerHTML = `
+            <div class="info success">
+              <strong>✓ Success! Tokens received</strong><br><br>
+              <strong>Access Token:</strong><br>
+              <pre>${data.access_token}</pre>
+              <strong>Refresh Token:</strong><br>
+              <pre>${data.refresh_token}</pre>
+              <strong>Expires In:</strong> ${data.expires_in} seconds<br>
+              <strong>Scopes:</strong> ${data.scope}
+            </div>
+          `;
+        } else {
+          document.getElementById('tokenOutput').innerHTML = `
+            <div class="info error">
+              <strong>✗ Error</strong><br>
+              ${JSON.stringify(data, null, 2)}
+            </div>
+          `;
+        }
+      } catch (err) {
+        document.getElementById('tokenOutput').innerHTML = `
+          <div class="info error">
+            <strong>✗ Error</strong><br>
+            ${err.message}
+          </div>
+        `;
+      }
+    }
+
+    // Listen for messages from the popup window
+    window.addEventListener('message', (event) => {
+      // Verify the message is from our origin
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      // Check if it's an OAuth callback message
+      if (event.data.type === 'oauth_callback' && event.data.code) {
+        document.getElementById('authCode').value = event.data.code;
+        document.getElementById('authOutput').innerHTML = `
+          <div class="info success">
+            <strong>✓ Authorization code received!</strong><br>
+            The popup will close automatically. Click "Exchange" below to get your tokens.
+          </div>
+        `;
+      }
+    });
+
+    // Check for callback (in case opened in same window)
+    window.addEventListener('load', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('code')) {
+        document.getElementById('authCode').value = params.get('code');
+        document.getElementById('tokenOutput').innerHTML = `
+          <div class="info">
+            <strong>Authorization code received!</strong><br>
+            Click "Exchange" to get your tokens.
+          </div>
+        `;
+      }
+    });
+  </script>
+</body>
+</html>

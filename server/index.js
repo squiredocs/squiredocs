@@ -197,8 +197,95 @@ app.use('/auth', authRouter);
 // Mount waitlist routes
 app.use('/api/waitlist', waitlist.router);
 
+// Mount MCP OAuth routes first (more specific path takes precedence)
+app.use('/mcp/auth', mcp.oauthRouter);
+
 // Mount MCP routes
 app.use('/mcp', mcp.router);
+
+// OAuth callback endpoint (displays authorization code)
+app.get('/oauth-callback', (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authorization Failed</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 100px auto; padding: 20px; text-align: center; }
+            .error { background: #ffebee; color: #c62828; padding: 20px; border-radius: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h2>❌ Authorization Failed</h2>
+            <p>${error_description || error}</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Authorization Successful</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 100px auto; padding: 20px; }
+          .success { background: #e8f5e9; color: #2e7d32; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+          .code-box { background: #f5f5f5; padding: 20px; border-radius: 8px; }
+          code { background: #fff; padding: 10px; display: block; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; word-break: break-all; }
+          button { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+          button:hover { background: #5568d3; }
+        </style>
+      </head>
+      <body>
+        <div class="success">
+          <h2>✅ Authorization Successful!</h2>
+          <p id="message">Sending code to parent window...</p>
+        </div>
+        <div class="code-box">
+          <strong>Authorization Code:</strong>
+          <code id="authCode">${code}</code>
+          <button onclick="copyCode()">Copy Code</button>
+        </div>
+        <script>
+          function copyCode() {
+            const code = document.getElementById('authCode').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+              alert('Code copied to clipboard!');
+            });
+          }
+
+          // If opened in a popup, send the code to the parent window
+          if (window.opener && !window.opener.closed) {
+            try {
+              window.opener.postMessage({
+                type: 'oauth_callback',
+                code: '${code}',
+                state: '${state || ''}'
+              }, window.location.origin);
+              document.getElementById('message').textContent = 'Code sent! You can close this window.';
+
+              // Auto-close after 2 seconds
+              setTimeout(() => {
+                window.close();
+              }, 2000);
+            } catch (err) {
+              console.error('Failed to send message to parent:', err);
+              document.getElementById('message').textContent = 'Copy the code below and paste it in the test page.';
+            }
+          } else {
+            document.getElementById('message').textContent = 'Copy the authorization code below to exchange for tokens.';
+          }
+        </script>
+      </body>
+    </html>
+  `);
+});
 
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
