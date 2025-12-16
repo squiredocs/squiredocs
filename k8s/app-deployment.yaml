@@ -77,6 +77,22 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: CLIENT_URL
+            # MCP OAuth Secrets
+            - name: MCP_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-auth-secret
+                  key: MCP_JWT_SECRET
+            - name: MCP_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-auth-secret
+                  key: MCP_REFRESH_SECRET
+            - name: MCP_AUTH_CODE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-auth-secret
+                  key: MCP_AUTH_CODE_SECRET
           readinessProbe:
             httpGet:
               path: /health

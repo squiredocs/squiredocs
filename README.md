@@ -129,6 +129,41 @@ Example using individual config:
 PORT=3001 DB_HOST=localhost DB_PORT=5432 DB_NAME=collab_db DB_USER=postgres DB_PASSWORD=password npm start
 ```
 
+### MCP OAuth Secrets
+
+The application includes OAuth 2.0 support for AI agents via the Model Context Protocol (MCP). These secrets are used to sign JWT tokens for agent authentication.
+
+**For local development**, generate secrets and add them to your `.env` file:
+
+```bash
+./script/generate-mcp-secrets.sh
+```
+
+This will output environment variables to add to your `.env` file:
+- `MCP_JWT_SECRET`: Signs agent access tokens (JWT)
+- `MCP_REFRESH_SECRET`: Signs refresh tokens
+- `MCP_AUTH_CODE_SECRET`: Hashes authorization codes
+
+**For Kubernetes deployment**, generate a secret YAML file:
+
+```bash
+./script/generate-mcp-secrets.sh --k8s
+```
+
+This creates `k8s/mcp-auth-secret.yaml` which is automatically applied during deployment. The generated file is gitignored for security.
+
+**Manual Kubernetes secret creation:**
+
+```bash
+kubectl create secret generic mcp-auth-secret \
+  --from-literal=MCP_JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
+  --from-literal=MCP_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
+  --from-literal=MCP_AUTH_CODE_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
+  -n collab
+```
+
+See [docs/mcp-auth-production-plan.md](docs/mcp-auth-production-plan.md) for complete MCP OAuth documentation.
+
 ### WebSocket URL
 
 The frontend connects to the WebSocket server at the `/s` path. By default, it connects to `ws://localhost:3001/s`. To change this, set the `VITE_WS_URL` environment variable when building:

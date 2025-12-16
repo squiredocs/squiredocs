@@ -167,6 +167,16 @@ kubectl apply -f k8s/namespace.yaml
 # Deploy PostgreSQL secret if it doesn't exist
 kubectl apply -f k8s/postgres-secret.yaml -n collab
 
+# Deploy MCP auth secret if it exists
+if [[ -f "k8s/mcp-auth-secret.yaml" ]]; then
+  echo "Applying MCP auth secret..."
+  kubectl apply -f k8s/mcp-auth-secret.yaml -n collab
+else
+  echo "WARNING: k8s/mcp-auth-secret.yaml not found."
+  echo "MCP OAuth authentication will not work without this secret."
+  echo "Generate it with: ./script/generate-mcp-secrets.sh --k8s"
+fi
+
 # Deploy auth secret from appropriate .env file
 if [[ "$CURRENT_CONTEXT" == *"minikube"* ]]; then
   AUTH_ENV_FILE="k8s/auth.env"
