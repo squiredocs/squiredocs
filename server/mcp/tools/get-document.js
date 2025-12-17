@@ -22,8 +22,20 @@ function init(persistence) {
  */
 const name = 'get_document';
 
-const description =
-  'Read document content as structured nodes (headings, paragraphs, lists, code blocks, etc.)';
+const description = `Read document content as structured nodes.
+
+Returns an array of nodes where each node has:
+- type: "paragraph" | "heading" | "bulletList" | "orderedList" | "codeBlock" | "listItem"
+- content: Plain string, or array with formatted text like [{ text: "bold", marks: ["bold"] }]
+- For headings: level (1-3)
+- For lists: children array of listItem nodes
+- For code blocks: optional language property
+
+Examples of returned content:
+- Paragraph: { type: "paragraph", content: "Hello world" }
+- Bold text: { type: "paragraph", content: [{ text: "Important", marks: ["bold"] }] }
+- Heading: { type: "heading", level: 1, content: "Title" }
+- List: { type: "bulletList", children: [{ type: "listItem", content: "Item 1" }] }`;
 
 const inputSchema = {
   type: 'object',

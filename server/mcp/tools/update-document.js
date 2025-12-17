@@ -26,14 +26,29 @@ const name = 'update_document';
 
 const description = `Update document content using structured nodes.
 
-Supports operations:
+Operations:
 - replace: Replace entire document with new nodes
 - append: Add nodes to end of document
 - insert: Insert nodes at specific position (node index, not character position)
 - delete: Remove nodes by position and count
 
-Nodes can be: paragraph, heading (level 1-3), bulletList, orderedList, codeBlock
-Text can have marks: bold, italic, underline, strike, link`;
+Node types:
+- paragraph: { type: "paragraph", content: "text" }
+- heading: { type: "heading", level: 1-3, content: "text" }
+- bulletList/orderedList: { type: "bulletList", children: [{ type: "listItem", content: "text" }] }
+- codeBlock: { type: "codeBlock", language: "javascript", content: "code" }
+
+Text formatting:
+- Plain text: content: "plain text"
+- With marks: content: [{ text: "bold", marks: ["bold"] }, " plain"]
+- Available marks: "bold", "italic", "underline", "strike"
+- Links: { text: "link text", marks: [{ type: "link", href: "url" }] }
+- Multiple marks: marks: ["bold", "italic"]
+
+Examples:
+- Simple paragraph: { type: "paragraph", content: "Hello world" }
+- Bold text: { type: "paragraph", content: [{ text: "Important", marks: ["bold"] }] }
+- Mixed: { type: "paragraph", content: ["Normal ", { text: "bold", marks: ["bold"] }, " text"] }`;
 
 const inputSchema = {
   type: 'object',
