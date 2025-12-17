@@ -101,34 +101,31 @@ describe('set_agent_selection tool', () => {
   });
 
   describe('Input Validation', () => {
-    test('rejects negative from position', async () => {
+    test('rejects invalid anchor position', async () => {
       const agentToken = { userId: testUserId, email: 'agent-sel-test@example.com' };
+      const validHead = { tname: 'default', item: { client: 123, clock: 10 }, assoc: 0 };
       await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: -1, to: 10 }, agentToken)
-      ).rejects.toThrow('Selection positions must be non-negative');
+        setAgentSelection.handler({ docGuid: testDocId, anchor: 'invalid', head: validHead }, agentToken)
+      ).rejects.toThrow();
     });
 
-    test('rejects negative to position', async () => {
+    test('rejects invalid head position', async () => {
       const agentToken = { userId: testUserId, email: 'agent-sel-test@example.com' };
+      const validAnchor = { tname: 'default', item: { client: 123, clock: 5 }, assoc: 0 };
       await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: 0, to: -1 }, agentToken)
-      ).rejects.toThrow('Selection positions must be non-negative');
+        setAgentSelection.handler({ docGuid: testDocId, anchor: validAnchor, head: 'invalid' }, agentToken)
+      ).rejects.toThrow();
     });
 
-    test('rejects to < from', async () => {
+    test('allows valid relative position objects', async () => {
       const agentToken = { userId: testUserId, email: 'agent-sel-test@example.com' };
-      await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: 10, to: 5 }, agentToken)
-      ).rejects.toThrow('Selection "to" position must be >= "from" position');
-    });
-
-    test('allows from = to (cursor position)', async () => {
-      const agentToken = { userId: testUserId, email: 'agent-sel-test@example.com' };
+      const anchor = { tname: 'default', item: { client: 123, clock: 5 }, assoc: 0 };
+      const head = { tname: 'default', item: { client: 123, clock: 10 }, assoc: 0 };
 
       // Note: This test will fail to connect in test environment
       // In production, it would work with a running WebSocket server
       await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: 5, to: 5 }, agentToken)
+        setAgentSelection.handler({ docGuid: testDocId, anchor, head }, agentToken)
       ).rejects.toThrow(); // Expect connection error in test env
     });
   });
@@ -137,17 +134,21 @@ describe('set_agent_selection tool', () => {
     test('rejects access to non-existent document', async () => {
       const fakeDocId = '00000000-0000-0000-0000-000000000000';
       const agentToken = { userId: testUserId, email: 'agent-sel-test@example.com' };
+      const anchor = { tname: 'default', item: { client: 123, clock: 0 }, assoc: 0 };
+      const head = { tname: 'default', item: { client: 123, clock: 10 }, assoc: 0 };
 
       await expect(
-        setAgentSelection.handler({ docGuid: fakeDocId, from: 0, to: 10 }, agentToken)
+        setAgentSelection.handler({ docGuid: fakeDocId, anchor, head }, agentToken)
       ).rejects.toThrow('Document not found or you do not have access');
     });
 
     test('rejects access for user without permissions', async () => {
       const agentToken = { userId: testUser2Id, email: 'agent-sel-test-2@example.com' };
+      const anchor = { tname: 'default', item: { client: 123, clock: 0 }, assoc: 0 };
+      const head = { tname: 'default', item: { client: 123, clock: 10 }, assoc: 0 };
 
       await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: 0, to: 10 }, agentToken)
+        setAgentSelection.handler({ docGuid: testDocId, anchor, head }, agentToken)
       ).rejects.toThrow('Document not found or you do not have access');
     });
 
@@ -156,11 +157,13 @@ describe('set_agent_selection tool', () => {
       await documents.setRole(testDocId, testUser2Id, 'viewer');
 
       const agentToken = { userId: testUser2Id, email: 'agent-sel-test-2@example.com' };
+      const anchor = { tname: 'default', item: { client: 123, clock: 0 }, assoc: 0 };
+      const head = { tname: 'default', item: { client: 123, clock: 10 }, assoc: 0 };
 
       // Note: This test will fail to connect in test environment
       // In production, it would work with a running WebSocket server
       await expect(
-        setAgentSelection.handler({ docGuid: testDocId, from: 0, to: 10 }, agentToken)
+        setAgentSelection.handler({ docGuid: testDocId, anchor, head }, agentToken)
       ).rejects.toThrow(); // Expect connection error in test env
     });
   });
@@ -243,8 +246,8 @@ describe('set_agent_selection tool', () => {
       expect(setAgentSelection.inputSchema.properties).toBeTruthy();
     });
 
-    test('requires docGuid, from, and to parameters', () => {
-      expect(setAgentSelection.inputSchema.required).toEqual(['docGuid', 'from', 'to']);
+    test('requires docGuid, anchor, and head parameters', () => {
+      expect(setAgentSelection.inputSchema.required).toEqual(['docGuid', 'anchor', 'head']);
     });
 
     test('has optional durationSeconds parameter', () => {
