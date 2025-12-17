@@ -26,6 +26,7 @@ function init(dbPool) {
 async function handleAuthorize(req, res) {
   const {
     agent_client_id,
+    client_id, // Standard OAuth parameter
     agent_instance_id,
     scope,
     redirect_uri,
@@ -34,12 +35,15 @@ async function handleAuthorize(req, res) {
     code_challenge_method = 'S256',
   } = req.query;
 
+  // Support both agent_client_id (custom) and client_id (standard OAuth)
+  const clientId = agent_client_id || client_id;
+
   // Log OAuth authorization attempts
-  console.log(`[MCP OAuth] Authorization request - client: ${agent_client_id}, redirect: ${redirect_uri}`);
+  console.log(`[MCP OAuth] Authorization request - client: ${clientId}, redirect: ${redirect_uri}`);
 
   // 1. Validate required parameters
   const errors = [];
-  if (!agent_client_id) errors.push('agent_client_id is required');
+  if (!clientId) errors.push('client_id is required');
   if (!redirect_uri) errors.push('redirect_uri is required');
   if (!code_challenge) errors.push('code_challenge is required (PKCE)');
   if (!state) errors.push('state is required');
@@ -55,9 +59,9 @@ async function handleAuthorize(req, res) {
   }
 
   // 3. Get registered agent
-  const agent = await getRegisteredAgent(agent_client_id);
+  const agent = await getRegisteredAgent(clientId);
   if (!agent) {
-    return res.status(400).json({ error: 'invalid_client', details: 'Unknown agent_client_id' });
+    return res.status(400).json({ error: 'invalid_client', details: 'Unknown client_id' });
   }
 
   // 4. Validate redirect URI
@@ -78,7 +82,7 @@ async function handleAuthorize(req, res) {
     // Store auth request in session and redirect to login
     if (req.session) {
       req.session.pendingAuthRequest = {
-        agent_client_id,
+        agent_client_id: clientId,
         agent_instance_id,
         scopes: scopeValidation.scopes,
         redirect_uri,
@@ -91,11 +95,11 @@ async function handleAuthorize(req, res) {
   }
 
   // 7. Check for existing delegation
-  const existingDelegation = await getActiveDelegation(req.user.userId, agent_client_id);
+  const existingDelegation = await getActiveDelegation(req.user.userId, clientId);
 
   // 8. Redirect to consent page
   const consentParams = new URLSearchParams({
-    agent_client_id,
+    agent_client_id: clientId,
     agent_instance_id: agent_instance_id || '',
     scope: scopeValidation.scopes.join(' '),
     redirect_uri,
