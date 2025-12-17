@@ -28,31 +28,103 @@ function init(persistence) {
  */
 const name = 'set_agent_selection';
 
-const description = `Set a text selection in a document that is visible to other users.
+const description = `Set a text selection in a document that is visible to all users.
 
 This tool allows the AI agent to highlight a specific range of text in the document,
-making it visible to all connected users just like when a human user selects text.
-The selection will be shown with the agent's name and color.
+making it visible to all connected users in real-time, just like when a human user
+selects text. The selection appears with the agent's name (e.g. "Claude (AI Agent)")
+and a unique color.
 
-Use cases:
-- Draw attention to specific parts of the document
-- Highlight text being analyzed or referenced
+USE CASES:
+- Draw attention to specific parts of the document during analysis
+- Highlight text being analyzed or referenced in explanations
 - Show which section is being edited or reviewed
 - Indicate focus areas during collaborative work
+- Visual feedback during document processing
 
-The selection will remain visible for the specified duration (default 60 seconds)
-or until the agent closes the selection. This is useful for temporary highlighting
-during agent operations.
+PARAMETERS:
+- docGuid: The document UUID (get from list_documents)
+- anchor: Start position of the selection (Yjs relative position object)
+- head: End position of the selection (Yjs relative position object)
+- durationSeconds: (Optional) How long to keep the selection visible (1-300 seconds, default: 60)
 
-Position format:
-- Positions are character offsets in the document (0-indexed)
-- "from" is the start of the selection (inclusive)
-- "to" is the end of the selection (exclusive)
-- For example, from=0, to=5 selects the first 5 characters
-- Set from=to for a cursor position without selection
+POSITION FORMAT:
+Positions must be Yjs relative position objects. These are JSON objects that
+represent stable positions in the document that remain valid even as other users
+edit the document.
 
-To find positions, use get_document to read the content and calculate
-character offsets based on the text you want to select.`;
+DO NOT try to create relative position objects manually. Instead, use the
+create_selection_position helper tool which handles this for you.
+
+COMPLETE WORKFLOW:
+Step 1: Understand the document structure
+  get_document({ docGuid: "abc-123", format: "structured" })
+  This shows you elements and their indices
+
+Step 2: Create anchor position (start of selection)
+  create_selection_position({
+    docGuid: "abc-123",
+    elementIndex: 0,
+    textOffset: 0
+  })
+  Save the returned "position" object
+
+Step 3: Create head position (end of selection)
+  create_selection_position({
+    docGuid: "abc-123",
+    elementIndex: 2,
+    textOffset: 100
+  })
+  Save the returned "position" object
+
+Step 4: Set the selection
+  set_agent_selection({
+    docGuid: "abc-123",
+    anchor: anchorPositionFromStep2.position,
+    head: headPositionFromStep3.position,
+    durationSeconds: 60
+  })
+
+EXAMPLE - Highlighting the first two paragraphs:
+// Step 1: Get document structure
+const doc = get_document({ docGuid: "abc-123", format: "structured" });
+// Shows: [{ type: "paragraph", content: "First..." }, { type: "paragraph", content: "Second..." }]
+
+// Step 2: Create anchor at start of element 0
+const anchor = create_selection_position({ docGuid: "abc-123", elementIndex: 0 });
+
+// Step 3: Create head at end of element 1
+const head = create_selection_position({ docGuid: "abc-123", elementIndex: 1 });
+
+// Step 4: Set selection
+set_agent_selection({
+  docGuid: "abc-123",
+  anchor: anchor.position,
+  head: head.position,
+  durationSeconds: 45
+});
+
+RETURNS:
+- success: true if selection was set
+- message: Confirmation message
+- sessionId: Unique ID for this selection session
+- expiresIn: Seconds until selection disappears
+- selection: The anchor and head positions used
+- agent: Object with name and color of the agent
+
+IMPORTANT NOTES:
+- The selection is visible to ALL users viewing the document
+- Selections automatically disappear after the specified duration
+- Multiple agents can have selections active simultaneously
+- If the WebSocket connection drops, the selection will disappear
+- Requires at least viewer access to the document
+- The agent's name will be shown as "Your Name (AI Agent)"
+
+VISIBILITY:
+When you set a selection, users will see:
+- Highlighted text in the document with the agent's color
+- A cursor/label showing the agent's name
+- The selection updates in real-time for all connected users`;
 
 const inputSchema = {
   type: 'object',
@@ -62,15 +134,13 @@ const inputSchema = {
       format: 'uuid',
       description: 'The document UUID',
     },
-    from: {
-      type: 'integer',
-      minimum: 0,
-      description: 'Start position of the selection (character offset, 0-indexed)',
+    anchor: {
+      type: 'object',
+      description: 'Anchor position as a Yjs relative position JSON object',
     },
-    to: {
-      type: 'integer',
-      minimum: 0,
-      description: 'End position of the selection (character offset, 0-indexed). Set equal to "from" for cursor position.',
+    head: {
+      type: 'object',
+      description: 'Head position as a Yjs relative position JSON object',
     },
     durationSeconds: {
       type: 'integer',
@@ -79,15 +149,15 @@ const inputSchema = {
       description: 'How long to keep the selection visible (1-300 seconds, default: 60)',
     },
   },
-  required: ['docGuid', 'from', 'to'],
+  required: ['docGuid', 'anchor', 'head'],
 };
 
 /**
  * Handler function for the tool
  * @param {object} args - Tool arguments
  * @param {string} args.docGuid - Document UUID
- * @param {number} args.from - Start position of selection
- * @param {number} args.to - End position of selection
+ * @param {object} args.anchor - Anchor position (Yjs relative position object)
+ * @param {object} args.head - Head position (Yjs relative position object)
  * @param {number} [args.durationSeconds=60] - Duration to keep selection visible
  * @param {object} agentToken - Decoded agent JWT token
  * @returns {Promise<object>} { success, message, sessionId, expiresIn }
@@ -95,17 +165,9 @@ const inputSchema = {
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('set_agent_selection tool not initialized');
 
-  const { docGuid, from, to, durationSeconds = 60 } = args;
+  const { docGuid, anchor, head, durationSeconds = 60 } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
-
-  // Validate selection range
-  if (from < 0 || to < 0) {
-    throw new Error('Selection positions must be non-negative');
-  }
-  if (to < from) {
-    throw new Error('Selection "to" position must be >= "from" position');
-  }
 
   // Check if user has access to the document
   const accessResult = await pool.query(
@@ -190,17 +252,18 @@ async function handler(args, agentToken) {
             // Get awareness
             const awareness = provider.awareness;
 
-            // Set agent user info and selection
-            awareness.setLocalState({
-              user: {
-                name: `${userName} (AI Agent)`,
-                email,
-                picture,
-                color: agentColor,
-              },
-              // Selection state for y-prosemirror
-              anchor: from,
-              head: to,
+            // Set user info
+            awareness.setLocalStateField('user', {
+              name: `${userName} (AI Agent)`,
+              email,
+              picture,
+              color: agentColor,
+            });
+
+            // Set cursor/selection with the provided relative positions
+            awareness.setLocalStateField('cursor', {
+              anchor,
+              head,
             });
 
             // Set timeout to close connection after duration
@@ -210,10 +273,10 @@ async function handler(args, agentToken) {
 
             resolve({
               success: true,
-              message: `Agent selection set from position ${from} to ${to}`,
+              message: `Agent selection set`,
               sessionId,
               expiresIn: durationSeconds,
-              selection: { from, to },
+              selection: { anchor, head },
               agent: {
                 name: userName,
                 color: agentColor,

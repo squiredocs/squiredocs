@@ -157,8 +157,8 @@ Sets a text selection in a document that is visible to all users, allowing the A
 
 **Arguments:**
 - `docGuid` (required): Document UUID
-- `from` (required): Start position of the selection (character offset, 0-indexed)
-- `to` (required): End position of the selection (character offset, 0-indexed). Set equal to `from` for cursor position.
+- `anchor` (required): Anchor position as a Yjs relative position JSON object
+- `head` (required): Head position as a Yjs relative position JSON object
 - `durationSeconds` (optional): How long to keep the selection visible (1-300 seconds, default: 60)
 
 **Returns:**
@@ -166,7 +166,7 @@ Sets a text selection in a document that is visible to all users, allowing the A
 - `message`: Confirmation message
 - `sessionId`: Unique ID for this selection session
 - `expiresIn`: Duration in seconds before the selection disappears
-- `selection`: Object with `from` and `to` positions
+- `selection`: Object with `anchor` and `head` positions
 - `agent`: Object with `name` and `color` of the agent
 
 **Use Cases:**
@@ -175,22 +175,65 @@ Sets a text selection in a document that is visible to all users, allowing the A
 - Show which section is being edited or reviewed
 - Indicate focus areas during collaborative work
 
+**Workflow:**
+1. Use `get_document` to understand the document structure and find element indices
+2. Use `create_selection_position` to create relative position objects for anchor and head
+3. Pass those positions to `set_agent_selection` to highlight the text
+
 **Example:**
 ```javascript
-// Highlight characters 50-100 for 30 seconds
-{
-  "docGuid": "550e8400-e29b-41d4-a716-446655440000",
-  "from": 50,
-  "to": 100,
-  "durationSeconds": 30
-}
+// First, create positions
+const anchorPos = await create_selection_position({
+  docGuid: "550e8400-e29b-41d4-a716-446655440000",
+  elementIndex: 0,
+  textOffset: 10
+});
+
+const headPos = await create_selection_position({
+  docGuid: "550e8400-e29b-41d4-a716-446655440000",
+  elementIndex: 2,
+  textOffset: 50
+});
+
+// Then set the selection
+await set_agent_selection({
+  docGuid: "550e8400-e29b-41d4-a716-446655440000",
+  anchor: anchorPos.position,
+  head: headPos.position,
+  durationSeconds: 30
+});
 ```
 
 **Notes:**
-- Positions are character offsets in the plain text content (0-indexed)
-- Use `get_document` to read the content and calculate positions
+- Positions use Yjs relative positions which remain stable as document changes
+- Use `create_selection_position` helper tool to create positions
 - The selection will automatically disappear after the specified duration
 - Multiple agents can have selections active simultaneously
+
+### create_selection_position
+Helper tool to create Yjs relative position objects for use with `set_agent_selection`.
+
+**Arguments:**
+- `docGuid` (required): Document UUID
+- `elementIndex` (required): Index of the element in the document (0-based)
+- `textOffset` (optional): Offset within the element's text (default: 0)
+
+**Returns:**
+- `success`: Boolean indicating if the operation succeeded
+- `position`: The Yjs relative position JSON object
+- `elementIndex`: The element index used
+- `textOffset`: The text offset used
+- `message`: Confirmation message
+
+**Example:**
+```javascript
+// Create a position at element 2, offset 50
+{
+  "docGuid": "550e8400-e29b-41d4-a716-446655440000",
+  "elementIndex": 2,
+  "textOffset": 50
+}
+```
 
 ## Troubleshooting
 

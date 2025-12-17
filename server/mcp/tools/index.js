@@ -11,6 +11,7 @@ const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 const setAgentSelection = require('./set-agent-selection');
+const createSelectionPosition = require('./create-selection-position');
 
 // All available tools
 const tools = {
@@ -21,6 +22,7 @@ const tools = {
   share_document: shareDocument,
   set_document_title: setDocumentTitle,
   set_agent_selection: setAgentSelection,
+  create_selection_position: createSelectionPosition,
 };
 
 /**
