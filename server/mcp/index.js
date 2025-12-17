@@ -70,6 +70,7 @@ const INTERNAL_ERROR = -32603;
  * GET /mcp - Server information (for discovery)
  */
 router.get('/', (req, res) => {
+  console.log('[MCP Discovery] Server info requested from:', req.get('origin') || req.get('referer') || 'unknown');
   const host = req.get('host');
   // Force HTTPS for production domains
   const protocol = host.includes('herodocs.xyz') ? 'https' : req.protocol;
