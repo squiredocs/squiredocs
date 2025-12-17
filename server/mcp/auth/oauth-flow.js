@@ -109,7 +109,9 @@ async function handleAuthorize(req, res) {
     existing_delegation: existingDelegation ? 'true' : 'false',
   });
 
-  res.redirect(`/authorize?${consentParams.toString()}`);
+  const consentUrl = `/authorize?${consentParams.toString()}`;
+  console.log(`[MCP OAuth] Redirecting to consent page: ${consentUrl}`);
+  res.redirect(consentUrl);
 }
 
 /**
