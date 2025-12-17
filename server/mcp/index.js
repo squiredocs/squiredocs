@@ -93,9 +93,10 @@ router.get('/', (req, res) => {
 /**
  * POST /mcp - Main MCP message endpoint
  * Handles JSON-RPC style messages
- * Requires authentication for all operations
+ * Authentication is optional for discovery methods (initialize, tools/list)
+ * but required for tools/call
  */
-router.post('/', requireAgentAuth, async (req, res) => {
+router.post('/', optionalAgentAuth, async (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
 
   // Validate JSON-RPC format
@@ -116,6 +117,12 @@ router.post('/', requireAgentAuth, async (req, res) => {
         break;
 
       case 'tools/call':
+        // Require authentication for tool calls
+        if (!req.agentToken) {
+          return res.json(
+            jsonRpcError(id, -32001, 'Authentication required for tool calls')
+          );
+        }
         result = await handleToolCall(params, req.agentToken);
         break;
 
