@@ -34,6 +34,9 @@ async function handleAuthorize(req, res) {
     code_challenge_method = 'S256',
   } = req.query;
 
+  // Log OAuth authorization attempts
+  console.log(`[MCP OAuth] Authorization request - client: ${agent_client_id}, redirect: ${redirect_uri}`);
+
   // 1. Validate required parameters
   const errors = [];
   if (!agent_client_id) errors.push('agent_client_id is required');

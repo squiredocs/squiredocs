@@ -99,6 +99,9 @@ router.get('/', (req, res) => {
 router.post('/', optionalAgentAuth, async (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
 
+  // Log all MCP requests for debugging
+  console.log(`[MCP] ${method} - authenticated: ${!!req.agentToken}`);
+
   // Validate JSON-RPC format
   if (jsonrpc !== '2.0') {
     return res.json(jsonRpcError(id, INVALID_REQUEST, 'Invalid JSON-RPC version'));
