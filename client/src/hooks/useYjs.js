@@ -140,14 +140,14 @@ function getOrCreateInstances(docGuid, accessToken) {
       // Setup event listeners on new provider
       setupProviderListeners(cached.provider, cached.ydoc, docGuid);
 
-      // Restore awareness state after reconnection
-      if (currentAwarenessState) {
-        cached.provider.on('status', (event) => {
-          if (event.status === 'connected' && currentAwarenessState.user) {
-            console.log('[useYjs] Re-broadcasting awareness state after token change');
-            cached.provider.awareness.setLocalStateField('user', currentAwarenessState.user);
-          }
-        });
+      // Restore awareness state immediately on new provider
+      // y-websocket will sync this to other clients automatically
+      if (currentAwarenessState && Object.keys(currentAwarenessState).length > 0) {
+        console.log('[useYjs] Restoring awareness state after token change:', Object.keys(currentAwarenessState));
+        // Restore entire local state, not just user field
+        for (const [key, value] of Object.entries(currentAwarenessState)) {
+          cached.provider.awareness.setLocalStateField(key, value);
+        }
       }
     }
     return cached;
@@ -299,28 +299,9 @@ export function useYjs(docGuid, accessToken) {
       console.log('[useYjs] Status event:', event.status);
       setConnectionState(event.status);
 
-      // Only re-broadcast awareness if it was actually lost
-      // Note: y-websocket should automatically sync awareness states, so we only
-      // need to re-broadcast if we detect our local state is missing after sync
-      if (event.status === 'connected') {
-        const currentAwarenessState = awareness.getLocalState();
-        console.log('[useYjs] Connected. Current local awareness state:', currentAwarenessState);
-
-        // Wait for sync to complete before checking if we need to re-broadcast
-        // This prevents us from interfering with the initial awareness sync from server
-        provider.once('sync', (isSynced) => {
-          if (isSynced) {
-            const stateAfterSync = awareness.getLocalState();
-            console.log('[useYjs] After sync, local state:', stateAfterSync);
-
-            // Only re-broadcast if we had a user state before but lost it after sync
-            if (currentAwarenessState?.user && !stateAfterSync?.user) {
-              console.log('[useYjs] Local awareness state was lost, re-broadcasting');
-              awareness.setLocalStateField('user', currentAwarenessState.user);
-            }
-          }
-        });
-      }
+      // Trust y-websocket's built-in awareness sync - it handles everything automatically
+      // Awareness state is set once by CollaborationCursorWithSelection and persists
+      // y-websocket syncs it to all clients without manual intervention
     };
 
     const handleSync = (isSynced) => {
@@ -331,12 +312,8 @@ export function useYjs(docGuid, accessToken) {
         // Reset reconnect counter on successful sync
         reconnectCountRef.current = 0;
 
-        // Trigger awareness change handler after sync to ensure we have all states
-        // This is important because awareness states might not be fully synced until after document sync
-        setTimeout(() => {
-          console.log('[useYjs] Post-sync: Refreshing awareness states');
-          handleAwarenessChange();
-        }, 100);
+        // y-websocket automatically syncs awareness states after document sync
+        // The awareness 'change' event will fire naturally - no manual trigger needed
       }
     };
 
