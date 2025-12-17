@@ -77,28 +77,13 @@ async function handleAuthorize(req, res) {
     return res.status(400).json({ error: 'invalid_scope', details: scopeValidation.error });
   }
 
-  // 6. Check if user is authenticated
-  if (!req.user) {
-    console.log(`[MCP OAuth] User not authenticated, redirecting to login. ReturnTo: ${req.originalUrl}`);
-    // Store auth request in session and redirect to login
-    if (req.session) {
-      req.session.pendingAuthRequest = {
-        agent_client_id: clientId,
-        agent_instance_id,
-        scopes: scopeValidation.scopes,
-        redirect_uri,
-        state,
-        code_challenge,
-        code_challenge_method,
-      };
-    }
-    return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
-  }
+  console.log(`[MCP OAuth] User authenticated: ${req.user ? (req.user.email || req.user.userId) : 'none (will show login page)'}`);
 
-  console.log(`[MCP OAuth] User authenticated: ${req.user.email || req.user.userId}`);
+  // 6. Always redirect to consent page - let React handle authentication
+  // The AuthorizePage component will show a login prompt if user isn't authenticated
 
-  // 7. Check for existing delegation
-  const existingDelegation = await getActiveDelegation(req.user.userId, clientId);
+  // 7. Check for existing delegation (only if user is authenticated)
+  const existingDelegation = req.user ? await getActiveDelegation(req.user.userId, clientId) : null;
 
   // 8. Redirect to consent page
   const consentParams = new URLSearchParams({
