@@ -80,9 +80,10 @@ class PostgresPersistence {
    * @param {string} docGuid - Document GUID
    * @param {Uint8Array} update - Yjs update binary data
    * @param {string|null} userId - User ID who made this update (for version history)
+   * @param {string|null} agentName - Agent name if update was made by an AI agent
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docGuid, update, userId = null) {
+  async storeUpdate(docGuid, update, userId = null, agentName = null) {
     await this._init();
 
     const clock = await this._getCurrentUpdateClock(docGuid);
@@ -102,10 +103,10 @@ class PostgresPersistence {
         );
       }
 
-      // Store the update with user_id for version history tracking
+      // Store the update with user_id and agent_name for version history tracking
       await client.query(
-        'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT (doc_guid, clock) DO NOTHING',
-        [docGuid, nextClock, Buffer.from(update), userId]
+        'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (doc_guid, clock) DO NOTHING',
+        [docGuid, nextClock, Buffer.from(update), userId, agentName]
       );
 
       return nextClock;
@@ -313,7 +314,7 @@ class PostgresPersistence {
     const client = await this.pool.connect();
     try {
       const result = await client.query(
-        `SELECT u.clock, u.created_at, u.user_id,
+        `SELECT u.clock, u.created_at, u.user_id, u.agent_name,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id
@@ -328,6 +329,7 @@ class PostgresPersistence {
         userName: row.user_name,
         userEmail: row.user_email,
         userPicture: row.user_picture,
+        agentName: row.agent_name,
       }));
     } finally {
       client.release();

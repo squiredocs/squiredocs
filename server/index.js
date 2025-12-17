@@ -96,14 +96,30 @@ const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading pers
 // Maps docGuid -> Map<clientId, userId>
 const documentUserMap = new Map();
 
+// Track active agents per document for version history attribution
+// Maps docGuid -> Map<clientId, agentName>
+const documentAgentMap = new Map();
+
 /**
  * Register a user connection for a document
+ * @param {string} docGuid - Document GUID
+ * @param {number} clientId - Client connection ID
+ * @param {string} userId - User ID
+ * @param {string|null} agentName - Agent name if this is an agent connection
  */
-function registerDocumentUser(docGuid, clientId, userId) {
+function registerDocumentUser(docGuid, clientId, userId, agentName = null) {
   if (!documentUserMap.has(docGuid)) {
     documentUserMap.set(docGuid, new Map());
   }
   documentUserMap.get(docGuid).set(clientId, userId);
+
+  // Track agent name if this is an agent
+  if (agentName) {
+    if (!documentAgentMap.has(docGuid)) {
+      documentAgentMap.set(docGuid, new Map());
+    }
+    documentAgentMap.get(docGuid).set(clientId, agentName);
+  }
 }
 
 /**
@@ -114,6 +130,14 @@ function unregisterDocumentUser(docGuid, clientId) {
     documentUserMap.get(docGuid).delete(clientId);
     if (documentUserMap.get(docGuid).size === 0) {
       documentUserMap.delete(docGuid);
+    }
+  }
+
+  // Also clean up agent tracking
+  if (documentAgentMap.has(docGuid)) {
+    documentAgentMap.get(docGuid).delete(clientId);
+    if (documentAgentMap.get(docGuid).size === 0) {
+      documentAgentMap.delete(docGuid);
     }
   }
 }
@@ -127,6 +151,18 @@ function getDocumentUserId(docGuid) {
   if (users && users.size > 0) {
     // Return the first user (most recently registered tends to be last)
     return Array.from(users.values())[0];
+  }
+  return null;
+}
+
+/**
+ * Get any active agent name for a document (for attribution)
+ */
+function getDocumentAgentName(docGuid) {
+  const agents = documentAgentMap.get(docGuid);
+  if (agents && agents.size > 0) {
+    // Return the first agent name
+    return Array.from(agents.values())[0];
   }
   return null;
 }
@@ -153,10 +189,13 @@ setPersistence({
       // Otherwise, get from active WebSocket connections
       const userId = (typeof origin === 'string') ? origin : getDocumentUserId(docGuid);
 
+      // Get agent name if this update is from an agent
+      const agentName = getDocumentAgentName(docGuid);
+
       const persistStart = Date.now();
-      persistenceProvider.storeUpdate(docGuid, update, userId)
+      persistenceProvider.storeUpdate(docGuid, update, userId, agentName)
         .then(() => {
-          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId });
+          logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
         })
         .catch(err => {
           console.error(`Error persisting update for ${docGuid}:`, err);
@@ -998,6 +1037,44 @@ wss.on('connection', (ws, req) => {
       gc: true
     });
     logPerf('WS_SETUP_COMPLETE', { connId });
+
+    // After setupWSConnection, we can access the awareness state
+    // Listen for awareness updates to detect agent connections
+    if (docId) {
+      const ydoc = getYDoc(docId);
+      if (ydoc && ydoc.awareness) {
+        const checkAwareness = () => {
+          const awarenessStates = ydoc.awareness.getStates();
+          for (const [clientId, state] of awarenessStates.entries()) {
+            if (state.user && state.user.isAgent && state.user.name) {
+              // This is an agent - register their name
+              // Note: awareness clientId is different from our connId
+              // We'll just use the agent name for the whole document
+              registerDocumentUser(docId, connId, userId, state.user.name);
+              console.log(`[Agent] Detected agent connection: ${state.user.name} for doc ${docId}`);
+            }
+          }
+        };
+
+        // Check immediately in case awareness was set before we started listening
+        setTimeout(checkAwareness, 100);
+
+        // Also listen for future awareness changes
+        const awarenessHandler = () => {
+          checkAwareness();
+        };
+        ydoc.awareness.on('update', awarenessHandler);
+
+        // Clean up listener on close
+        const originalClose = ws.close.bind(ws);
+        ws.close = (...args) => {
+          if (ydoc.awareness) {
+            ydoc.awareness.off('update', awarenessHandler);
+          }
+          return originalClose(...args);
+        };
+      }
+    }
   } catch (error) {
     logPerf('WS_SETUP_ERROR', { connId, error: error.message });
     console.error('✗ Error setting up WebSocket connection:', error);

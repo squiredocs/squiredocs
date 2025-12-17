@@ -61,12 +61,16 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 
     // Track unique authors
     if (update.userId && !currentVersion.authors.has(update.userId)) {
+      // Use agent name if available, otherwise use user name
+      const displayName = update.agentName || update.userName || 'Unknown';
+
       currentVersion.authors.set(update.userId, {
         id: update.userId,
-        name: update.userName || 'Unknown',
+        name: displayName,
         email: update.userEmail,
         picture: update.userPicture,
         color: generateColorFromId(update.userId),
+        isAgent: !!update.agentName,
       });
     }
   }
