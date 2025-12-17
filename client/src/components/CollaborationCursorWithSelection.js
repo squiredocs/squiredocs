@@ -87,16 +87,16 @@ export const CollaborationCursorWithSelection = Extension.create({
   },
 
   addProseMirrorPlugins() {
-    const { provider, user, render, selectionRender } = this.options;
-    
+    const { provider, render, selectionRender } = this.options;
+
     if (!provider) {
       return [];
     }
 
     const awareness = provider.awareness;
 
-    // Set the local user state
-    awareness.setLocalStateField('user', user);
+    // Note: Awareness user state is set by Editor component's useEffect
+    // This ensures it updates properly when user info loads asynchronously
 
     return [
       yCursorPlugin(

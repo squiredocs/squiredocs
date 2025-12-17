@@ -143,18 +143,19 @@ describe('CollaborationCursorWithSelection', () => {
       );
     });
 
-    it('sets local user state on awareness', async () => {
+    it('does not set awareness state (handled by Editor component instead)', async () => {
       const user = { name: 'Eve', color: '#purple' };
-      
+
       const extension = CollaborationCursorWithSelection.configure({
         provider: mockProvider,
         user,
       });
-      
+
       const context = { options: extension.options };
       CollaborationCursorWithSelection.config.addProseMirrorPlugins.call(context);
-      
-      expect(mockAwareness.setLocalStateField).toHaveBeenCalledWith('user', user);
+
+      // Awareness state is now set by Editor component's useEffect, not by the extension
+      expect(mockAwareness.setLocalStateField).not.toHaveBeenCalled();
     });
   });
 });

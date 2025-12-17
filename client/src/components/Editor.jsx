@@ -138,6 +138,15 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
     }
   }, [editor, onEditorReady]);
 
+  // Update awareness state when user info changes
+  // This ensures awareness is updated even if user info loads after editor initialization
+  useEffect(() => {
+    if (awareness && user) {
+      console.log('[Editor] Setting awareness user state:', user);
+      awareness.setLocalStateField('user', user);
+    }
+  }, [awareness, user]);
+
   // Scroll to top when document syncs to prevent browser scroll restoration
   useEffect(() => {
     if (synced && containerRef.current) {
