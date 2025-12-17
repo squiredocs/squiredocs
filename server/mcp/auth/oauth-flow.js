@@ -108,6 +108,10 @@ async function handleAuthorize(req, res) {
  * User approves the authorization request.
  */
 async function handleApprove(req, res) {
+  console.log('[MCP OAuth] Approve request received');
+  console.log('[MCP OAuth] User:', req.user ? (req.user.email || req.user.userId) : 'none');
+  console.log('[MCP OAuth] Request body:', JSON.stringify(req.body, null, 2));
+
   const {
     agent_client_id,
     agent_instance_id,
@@ -121,6 +125,7 @@ async function handleApprove(req, res) {
 
   // 1. Verify user is authenticated
   if (!req.user) {
+    console.log('[MCP OAuth] REJECTED: User not authenticated');
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -174,11 +179,16 @@ async function handleApprove(req, res) {
 
   const redirectUrl = callbackUrl.toString();
 
+  console.log('[MCP OAuth] APPROVED - Redirecting to:', redirectUrl);
+  console.log('[MCP OAuth] Accept header:', req.headers.accept);
+
   // Return JSON for API requests, redirect for browser requests
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
+    console.log('[MCP OAuth] Returning JSON response with redirectUrl');
     return res.json({ redirectUrl });
   }
 
+  console.log('[MCP OAuth] Returning HTTP redirect');
   res.redirect(redirectUrl);
 }
 
@@ -188,6 +198,9 @@ async function handleApprove(req, res) {
  * Exchange authorization code for tokens.
  */
 async function handleToken(req, res) {
+  console.log('[MCP OAuth] Token request received');
+  console.log('[MCP OAuth] Grant type:', req.body.grant_type);
+
   const {
     grant_type,
     code,
@@ -197,10 +210,13 @@ async function handleToken(req, res) {
   } = req.body;
 
   if (grant_type === 'authorization_code') {
+    console.log('[MCP OAuth] Exchanging authorization code for tokens');
     return handleAuthCodeExchange(req, res, { code, code_verifier, redirect_uri });
   } else if (grant_type === 'refresh_token') {
+    console.log('[MCP OAuth] Refreshing access token');
     return handleRefreshToken(req, res, { refresh_token });
   } else {
+    console.log('[MCP OAuth] REJECTED: Unsupported grant type:', grant_type);
     return res.status(400).json({ error: 'unsupported_grant_type' });
   }
 }
@@ -209,8 +225,11 @@ async function handleToken(req, res) {
  * Exchange authorization code for tokens
  */
 async function handleAuthCodeExchange(req, res, { code, code_verifier, redirect_uri }) {
+  console.log('[MCP OAuth] Exchanging auth code - redirect_uri:', redirect_uri);
+
   // 1. Validate required parameters
   if (!code || !code_verifier || !redirect_uri) {
+    console.log('[MCP OAuth] REJECTED: Missing required parameters');
     return res.status(400).json({
       error: 'invalid_request',
       error_description: 'code, code_verifier, and redirect_uri are required',
@@ -226,6 +245,7 @@ async function handleAuthCodeExchange(req, res, { code, code_verifier, redirect_
   );
 
   if (codeResult.rows.length === 0) {
+    console.log('[MCP OAuth] REJECTED: Invalid or expired authorization code');
     return res.status(400).json({
       error: 'invalid_grant',
       error_description: 'Invalid or expired authorization code',
@@ -233,6 +253,7 @@ async function handleAuthCodeExchange(req, res, { code, code_verifier, redirect_
   }
 
   const authCode = codeResult.rows[0];
+  console.log('[MCP OAuth] Found auth code for user:', authCode.user_id, 'agent:', authCode.agent_client_id);
 
   // 3. Validate redirect_uri matches
   if (authCode.redirect_uri !== redirect_uri) {
@@ -304,6 +325,8 @@ async function handleAuthCodeExchange(req, res, { code, code_verifier, redirect_
     ...delegation,
     scopes: authCode.scopes,
   });
+
+  console.log('[MCP OAuth] Token exchange SUCCESS - delegation:', delegation.id, 'scopes:', authCode.scopes);
 
   // 10. Return tokens
   res.json({
