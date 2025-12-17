@@ -99,7 +99,7 @@ else
       echo "Image $IMG does not exist. Waiting for it to become available..."
       while [[ ! `docker manifest inspect "$IMG"` ]]; do
         echo "Waiting for image $IMG to become available..."
-        sleep 30
+        sleep 5
       done
       echo "Image $IMG is now available!"
     else

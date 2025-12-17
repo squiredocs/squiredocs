@@ -12,10 +12,6 @@ export const CollaborationCursorWithSelection = Extension.create({
   addOptions() {
     return {
       provider: null,
-      user: {
-        name: null,
-        color: null,
-      },
       render: (user) => {
         const cursor = document.createElement('span');
         cursor.classList.add('collaboration-cursor__caret');

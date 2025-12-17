@@ -38,22 +38,19 @@ describe('CollaborationCursorWithSelection', () => {
     it('has default options', () => {
       const extension = CollaborationCursorWithSelection.configure({});
       const options = extension.options;
-      
+
       expect(options.provider).toBeNull();
-      expect(options.user).toEqual({ name: null, color: null });
+      // User state is now managed by useYjs hook, not passed as option
       expect(typeof options.render).toBe('function');
       expect(typeof options.selectionRender).toBe('function');
     });
 
-    it('accepts custom provider and user', () => {
-      const user = { name: 'Test', color: '#ff0000' };
+    it('accepts custom provider', () => {
       const extension = CollaborationCursorWithSelection.configure({
         provider: mockProvider,
-        user,
       });
-      
+
       expect(extension.options.provider).toBe(mockProvider);
-      expect(extension.options.user).toStrictEqual(user);
     });
   });
 

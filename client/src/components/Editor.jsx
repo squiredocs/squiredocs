@@ -52,18 +52,11 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, user: userInfo, onEditorReady, editable = true, synced = false }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, editable = true, synced = false }) {
   const hideTimeoutRef = useRef(null);
   const containerRef = useRef(null);
   const [linkPreview, setLinkPreview] = useState(null);
   const isMobile = useMobile();
-
-  const user = useMemo(() => ({
-    name: userInfo?.name || 'Anonymous',
-    color: userInfo?.color || '#000000',
-    picture: userInfo?.picture,
-    email: userInfo?.email
-  }), [userInfo]);
 
   // Show all cursor labels, then hide after 2 seconds
   const showCursorLabels = useCallback(() => {
@@ -102,7 +95,6 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
       baseExtensions.push(
         CollaborationCursorWithSelection.configure({
           provider,
-          user,
           render: renderCursor,
           selectionRender: renderSelection,
         })
@@ -110,7 +102,7 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
     }
 
     return baseExtensions;
-  }, [ydoc, provider, user]);
+  }, [ydoc, provider]);
 
   const editor = useEditor({
     extensions,
@@ -137,15 +129,6 @@ export default function Editor({ ydoc, awareness, provider, user: userInfo, onEd
       onEditorReady(editor);
     }
   }, [editor, onEditorReady]);
-
-  // Update awareness state when user info changes
-  // This ensures awareness is updated even if user info loads after editor initialization
-  useEffect(() => {
-    if (awareness && user) {
-      console.log('[Editor] Setting awareness user state:', user);
-      awareness.setLocalStateField('user', user);
-    }
-  }, [awareness, user]);
 
   // Scroll to top when document syncs to prevent browser scroll restoration
   useEffect(() => {

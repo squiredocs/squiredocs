@@ -47,7 +47,21 @@ function formatVersionTimestamp(timestamp) {
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
   const { logout, api, accessToken } = useAuth();
-  const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount } = useYjs(docGuid, accessToken);
+
+  // Generate user color deterministically from user ID
+  const userColor = useMemo(() => {
+    return user?.id ? generateColorFromId(user.id) : '#4a90e2';
+  }, [user?.id]);
+
+  // Complete user info for collaboration
+  const collaborationUser = useMemo(() => user ? ({
+    name: user.name || 'Anonymous',
+    email: user.email,
+    picture: user.picture,
+    color: userColor
+  }) : null, [user, userColor]);
+
+  const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount } = useYjs(docGuid, accessToken, collaborationUser);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -117,18 +131,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     }
   }, [docGuid, api]);
 
-  // Generate user color deterministically from user ID
-  const userColor = useMemo(() => {
-    return user?.id ? generateColorFromId(user.id) : '#4a90e2';
-  }, [user?.id]);
-
-  // Complete user info for collaboration
-  const collaborationUser = useMemo(() => ({
-    name: user?.name || 'Anonymous',
-    email: user?.email,
-    picture: user?.picture,
-    color: userColor
-  }), [user, userColor]);
 
   // Update HTML title when document title changes
   useEffect(() => {
@@ -471,7 +473,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             ydoc={ydoc}
             provider={provider}
             awareness={awareness}
-            user={collaborationUser}
             onEditorReady={setEditor}
             editable={userRole !== 'viewer'}
             synced={synced}

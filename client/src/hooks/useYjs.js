@@ -249,7 +249,7 @@ function getOrCreateInstances(docGuid, accessToken) {
   return instances;
 }
 
-export function useYjs(docGuid, accessToken) {
+export function useYjs(docGuid, accessToken, user = null) {
   // Connection state: 'connecting' | 'connected' | 'disconnected'
   const [connectionState, setConnectionState] = useState('connecting');
   const [users, setUsers] = useState([]);
@@ -258,6 +258,7 @@ export function useYjs(docGuid, accessToken) {
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
   const reconnectCountRef = useRef(0);
+  const previousUserRef = useRef(null);
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
@@ -272,6 +273,20 @@ export function useYjs(docGuid, accessToken) {
 
   const { ydoc, provider, indexeddbProvider } = instancesRef.current;
   const awareness = provider?.awareness;
+
+  // Set awareness user state immediately when user info is available or changes
+  // This ensures awareness is always set before any rendering happens
+  useEffect(() => {
+    if (awareness && user) {
+      // Only update if user actually changed (avoid unnecessary updates)
+      const userChanged = JSON.stringify(previousUserRef.current) !== JSON.stringify(user);
+      if (userChanged) {
+        console.log('[useYjs] Setting awareness user state:', user);
+        awareness.setLocalStateField('user', user);
+        previousUserRef.current = user;
+      }
+    }
+  }, [awareness, user]);
 
   // Manual reconnection function
   const forceReconnect = useCallback(() => {
