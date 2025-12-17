@@ -261,10 +261,14 @@ async function handler(args, agentToken) {
             });
 
             // Set cursor/selection with the provided relative positions
+            console.log('[set-agent-selection] Setting cursor field:', JSON.stringify({ anchor, head }, null, 2));
             awareness.setLocalStateField('cursor', {
               anchor,
               head,
             });
+
+            // Log the full awareness state after setting
+            console.log('[set-agent-selection] Full local awareness state:', JSON.stringify(awareness.getLocalState(), null, 2));
 
             // Set timeout to close connection after duration
             timeoutId = setTimeout(() => {
