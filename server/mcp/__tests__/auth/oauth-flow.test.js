@@ -107,7 +107,7 @@ describe('OAuth Flow', () => {
         expect.objectContaining({
           error: 'invalid_request',
           details: expect.arrayContaining([
-            expect.stringContaining('agent_client_id'),
+            expect.stringContaining('client_id'),
           ]),
         })
       );
@@ -198,7 +198,7 @@ describe('OAuth Flow', () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
     });
 
-    test('redirects unauthenticated user to login', async () => {
+    test('redirects unauthenticated user to consent page', async () => {
       mockReq.user = null;
       mockReq.query = {
         agent_client_id: 'claude-code',
@@ -210,7 +210,7 @@ describe('OAuth Flow', () => {
       await oauthFlow.handleAuthorize(mockReq, mockRes);
 
       expect(mockRes.redirect).toHaveBeenCalledWith(
-        expect.stringContaining('/login')
+        expect.stringContaining('/authorize?')
       );
     });
 
