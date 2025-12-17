@@ -50,8 +50,16 @@ describe('useYjs', () => {
           setImmediate(() => handler(true));
         }
       }),
+      once: vi.fn((event, handler) => {
+        // once() calls the handler only one time
+        if (event === 'sync') {
+          setImmediate(() => handler(true));
+        }
+      }),
       off: vi.fn(),
-      destroy: vi.fn()
+      destroy: vi.fn(),
+      disconnect: vi.fn(),
+      connect: vi.fn()
     };
     
     WebsocketProvider.mockImplementation(() => mockProvider);
