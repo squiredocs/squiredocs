@@ -482,13 +482,20 @@ async function handleDeleteDelegation(req, res) {
 /**
  * Handle POST /mcp/auth/register
  * Dynamic Client Registration (RFC 7591)
- * For now, returns the pre-registered claude-desktop client
  */
 async function handleRegister(req, res) {
-  console.log('[MCP OAuth] Client registration request:', req.body?.client_name || 'unknown');
+  const { client_name, redirect_uris } = req.body;
+  console.log('[MCP OAuth] Client registration request:', client_name, 'redirect_uris:', redirect_uris);
 
-  // For Claude Desktop, return the pre-registered client configuration
-  // In a full implementation, this would create a new client in the database
+  // Validate redirect_uris are provided
+  if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+    return res.status(400).json({
+      error: 'invalid_redirect_uri',
+      error_description: 'At least one redirect_uri must be provided',
+    });
+  }
+
+  // For Claude Desktop, use the pre-registered client ID but allow dynamic redirect URIs
   const agent = await getRegisteredAgent('claude-desktop');
 
   if (!agent) {
@@ -499,10 +506,11 @@ async function handleRegister(req, res) {
   }
 
   // Return client configuration per RFC 7591
+  // Use the redirect_uris provided by the client instead of wildcards
   res.status(201).json({
     client_id: agent.id,
-    client_name: agent.name,
-    redirect_uris: agent.allowed_redirect_uris,
+    client_name: client_name || agent.name,
+    redirect_uris: redirect_uris, // Use exact URIs from client
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
