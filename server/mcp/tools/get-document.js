@@ -4,7 +4,7 @@
  * Reads document content and metadata.
  */
 const Y = require('yjs');
-const { toPlainText, toStructured, loadYDoc } = require('../yjs/serialization');
+const { toStructured, loadYDoc } = require('../yjs/serialization');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -22,7 +22,8 @@ function init(persistence) {
  */
 const name = 'get_document';
 
-const description = 'Read document content and metadata';
+const description =
+  'Read document content as structured nodes (headings, paragraphs, lists, code blocks, etc.)';
 
 const inputSchema = {
   type: 'object',
@@ -32,13 +33,6 @@ const inputSchema = {
       format: 'uuid',
       description: 'The document UUID',
     },
-    format: {
-      type: 'string',
-      enum: ['plain-text', 'structured'],
-      default: 'plain-text',
-      description:
-        'Output format: "plain-text" for readable text, "structured" for hierarchical JSON with node types',
-    },
   },
   required: ['docGuid'],
 };
@@ -47,14 +41,13 @@ const inputSchema = {
  * Handler function for the tool
  * @param {object} args - Tool arguments
  * @param {string} args.docGuid - Document UUID
- * @param {string} args.format - Output format
  * @param {object} agentToken - Decoded agent JWT token
- * @returns {Promise<object>} { docGuid, content, format, role, updatedAt }
+ * @returns {Promise<object>} { docGuid, content, role, updatedAt }
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('get_document tool not initialized');
 
-  const { docGuid, format = 'plain-text' } = args;
+  const { docGuid } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
@@ -77,18 +70,12 @@ async function handler(args, agentToken) {
   const ydoc = await loadYDoc(pool, docGuid);
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  // Convert to requested format
-  let content;
-  if (format === 'structured') {
-    content = toStructured(xmlFragment);
-  } else {
-    content = toPlainText(xmlFragment);
-  }
+  // Always return structured format
+  const content = toStructured(xmlFragment);
 
   return {
     docGuid,
     content,
-    format,
     role,
     updatedAt,
   };

@@ -58,11 +58,59 @@ function toPlainText(xmlFragment) {
 function toStructured(xmlFragment) {
   const nodes = [];
 
+  /**
+   * Extract text content with marks from a Y.XmlText node
+   * @param {Y.XmlText} textNode - Yjs text node
+   * @returns {Array} Array of text content items (strings and formatted objects)
+   */
+  function extractTextWithMarks(textNode) {
+    const delta = textNode.toDelta();
+    const result = [];
+
+    for (const op of delta) {
+      if (typeof op.insert === 'string') {
+        const text = op.insert;
+        const attrs = op.attributes || {};
+
+        // Check if there are any marks
+        const marks = [];
+
+        if (attrs.bold) marks.push('bold');
+        if (attrs.italic) marks.push('italic');
+        if (attrs.underline) marks.push('underline');
+        if (attrs.strike) marks.push('strike');
+        if (attrs.link) {
+          marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+        }
+
+        if (marks.length > 0) {
+          result.push({ text, marks });
+        } else {
+          result.push(text);
+        }
+      }
+    }
+
+    return result;
+  }
+
   function processNode(node) {
     if (node instanceof Y.XmlText) {
+      // For text nodes, extract with marks
+      const textContent = extractTextWithMarks(node);
+
+      // If it's just a single plain string, simplify
+      if (textContent.length === 1 && typeof textContent[0] === 'string') {
+        return {
+          type: 'text',
+          content: textContent[0],
+        };
+      }
+
+      // Return content array for formatted text
       return {
         type: 'text',
-        content: node.toString(),
+        content: textContent,
       };
     } else if (node instanceof Y.XmlElement) {
       const tagName = node.nodeName;
@@ -88,12 +136,6 @@ function toStructured(xmlFragment) {
         }
       }
 
-      // Extract text content for simple nodes
-      const textContent = children
-        .filter((c) => c.type === 'text')
-        .map((c) => c.content)
-        .join('');
-
       const result = {
         type: tagName,
       };
@@ -103,22 +145,53 @@ function toStructured(xmlFragment) {
         result.level = parseInt(attrs.level, 10);
       }
 
-      // For simple content nodes, include text directly
-      if (
-        ['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName) &&
-        children.every((c) => c.type === 'text')
-      ) {
-        result.content = textContent;
-      } else if (children.length > 0) {
-        // For complex nodes, include children array
-        result.children = children;
+      // Add language for code blocks
+      if (attrs.language) {
+        result.language = attrs.language;
       }
 
-      // Add other attributes (excluding level which is handled separately)
-      const otherAttrs = { ...attrs };
-      delete otherAttrs.level;
-      if (Object.keys(otherAttrs).length > 0) {
-        result.attrs = otherAttrs;
+      // For content nodes (paragraph, heading, listItem, codeBlock)
+      if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+        // Check if all children are text nodes
+        const allText = children.every((c) => c.type === 'text');
+
+        if (allText && children.length > 0) {
+          // Flatten text content
+          const flatContent = [];
+          let hasMarks = false;
+
+          for (const child of children) {
+            if (Array.isArray(child.content)) {
+              flatContent.push(...child.content);
+              // Check if any item has marks
+              if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+                hasMarks = true;
+              }
+            } else if (typeof child.content === 'string') {
+              flatContent.push(child.content);
+            }
+          }
+
+          // For code blocks or simple text without marks, use plain string
+          if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
+            result.content = flatContent.join('');
+          } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+            // Single plain string
+            result.content = flatContent[0];
+          } else {
+            // Array with formatted content
+            result.content = flatContent;
+          }
+        } else if (children.length > 0) {
+          // Complex children (shouldn't happen for these node types, but handle it)
+          result.children = children;
+        }
+      } else if (['bulletList', 'orderedList'].includes(tagName)) {
+        // Lists have listItem children
+        result.children = children;
+      } else if (children.length > 0) {
+        // Other nodes with children
+        result.children = children;
       }
 
       return result;

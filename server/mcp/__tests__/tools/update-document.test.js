@@ -1,7 +1,7 @@
 /**
  * update_document tool tests
  *
- * Tests the MCP tool for updating document content.
+ * Tests the MCP tool for updating document content with structured nodes.
  */
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../../../postgres-persistence');
@@ -28,7 +28,7 @@ const persistenceProvider = new PostgresPersistence({
 // Import modules
 const documents = require('../../../documents');
 const updateDocument = require('../../tools/update-document');
-const { loadYDoc } = require('../../yjs/serialization');
+const { toStructured } = require('../../yjs/serialization');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
 
@@ -134,110 +134,435 @@ describe('update_document tool', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
-  describe('handler', () => {
-    test('appends content to document', async () => {
-      const agentToken = {
-        userId: testUserId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:write'],
-      };
+  const agentToken = () => ({
+    userId: testUserId,
+    delegationId: 'test-delegation-id',
+    agentId: 'claude-code:test',
+    scopes: ['documents:write'],
+  });
 
+  describe('replace operation', () => {
+    test('replaces document with structured nodes', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'replace',
+          nodes: [
+            { type: 'heading', level: 1, content: 'New Document' },
+            { type: 'paragraph', content: 'This is the new content.' },
+          ],
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('Replaced');
+      expect(result.message).toContain('2 nodes');
+
+      // Verify content
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(2);
+      expect(content[0].type).toBe('heading');
+      expect(content[0].level).toBe(1);
+      expect(content[0].content).toBe('New Document');
+      expect(content[1].type).toBe('paragraph');
+      expect(content[1].content).toBe('This is the new content.');
+    });
+
+    test('requires nodes array for replace', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'replace',
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/nodes array required/);
+    });
+  });
+
+  describe('append operation', () => {
+    test('appends nodes to document', async () => {
       const result = await updateDocument.handler(
         {
           docGuid: testDocId,
           operation: 'append',
-          content: 'Appended text',
+          nodes: [
+            { type: 'heading', level: 2, content: 'Conclusion' },
+            { type: 'paragraph', content: 'The end.' },
+          ],
         },
-        agentToken
+        agentToken()
       );
 
       expect(result.success).toBe(true);
       expect(result.message).toContain('Appended');
 
-      // Verify the content was actually saved - use the in-memory ydoc (source of truth)
+      // Verify content
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      const elements = xmlFragment.toArray();
-      expect(elements.length).toBe(2); // Original + appended paragraph
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(3); // Original + 2 appended
+      expect(content[0].type).toBe('paragraph');
+      expect(content[0].content).toBe('Initial content');
+      expect(content[1].type).toBe('heading');
+      expect(content[2].type).toBe('paragraph');
     });
 
-    test('replaces document content', async () => {
-      const agentToken = {
-        userId: testUserId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:write'],
-      };
-
+    test('appends list nodes', async () => {
       const result = await updateDocument.handler(
         {
           docGuid: testDocId,
-          operation: 'replace',
-          content: 'Completely new content',
+          operation: 'append',
+          nodes: [
+            {
+              type: 'bulletList',
+              children: [
+                { type: 'listItem', content: 'First item' },
+                { type: 'listItem', content: 'Second item' },
+              ],
+            },
+          ],
         },
-        agentToken
+        agentToken()
       );
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain('Replaced');
 
-      // Verify the content was replaced - use the in-memory ydoc (source of truth)
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      const elements = xmlFragment.toArray();
-      expect(elements.length).toBe(1); // Only new paragraph
+      const content = toStructured(xmlFragment);
 
-      const firstPara = elements[0];
-      const textContent = firstPara.firstChild.toString();
-      expect(textContent).toBe('Completely new content');
+      expect(content).toHaveLength(2);
+      expect(content[1].type).toBe('bulletList');
+      expect(content[1].children).toHaveLength(2);
+      expect(content[1].children[0].content).toBe('First item');
     });
+  });
 
-    test('creates only incremental updates, not full state', async () => {
-      const agentToken = {
-        userId: testUserId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:write'],
-      };
-
-      // Get the initial update count
-      const beforeResult = await pool.query(
-        'SELECT COUNT(*) as count FROM yjs_updates WHERE doc_guid = $1',
-        [testDocId]
-      );
-      const initialCount = parseInt(beforeResult.rows[0].count, 10);
-
-      // Append content
+  describe('insert operation', () => {
+    test('inserts nodes at position', async () => {
+      // First add more content
       await updateDocument.handler(
         {
           docGuid: testDocId,
           operation: 'append',
-          content: 'New paragraph',
+          nodes: [{ type: 'paragraph', content: 'Second paragraph' }],
         },
-        agentToken
+        agentToken()
       );
 
-      // Verify a new update was added
-      const afterResult = await pool.query(
-        'SELECT COUNT(*) as count, MAX(clock) as max_clock FROM yjs_updates WHERE doc_guid = $1',
-        [testDocId]
+      // Insert between first and second
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'insert',
+          position: 1,
+          nodes: [{ type: 'heading', level: 2, content: 'Inserted Heading' }],
+        },
+        agentToken()
       );
-      const finalCount = parseInt(afterResult.rows[0].count, 10);
-      expect(finalCount).toBe(initialCount + 1);
 
-      // Verify the update size is reasonable (incremental, not full state)
-      const updateResult = await pool.query(
-        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock DESC LIMIT 1',
-        [testDocId]
-      );
-      const updateSize = updateResult.rows[0].update_data.length;
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('Inserted');
+      expect(result.message).toContain('position 1');
 
-      // An incremental append should be much smaller than the full document
-      // The full document would be >100 bytes, incremental should be <100 bytes
-      expect(updateSize).toBeLessThan(100);
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(3);
+      expect(content[0].content).toBe('Initial content');
+      expect(content[1].type).toBe('heading');
+      expect(content[1].content).toBe('Inserted Heading');
+      expect(content[2].content).toBe('Second paragraph');
     });
 
+    test('requires position for insert', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'insert',
+            nodes: [{ type: 'paragraph', content: 'Test' }],
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/position required/);
+    });
+
+    test('insert at position 0 prepends', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'insert',
+          position: 0,
+          nodes: [{ type: 'heading', level: 1, content: 'Title' }],
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content[0].type).toBe('heading');
+      expect(content[0].content).toBe('Title');
+      expect(content[1].content).toBe('Initial content');
+    });
+  });
+
+  describe('delete operation', () => {
+    test('deletes nodes at position', async () => {
+      // Add more content
+      await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'append',
+          nodes: [
+            { type: 'paragraph', content: 'Second' },
+            { type: 'paragraph', content: 'Third' },
+          ],
+        },
+        agentToken()
+      );
+
+      // Delete the middle node
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'delete',
+          position: 1,
+          count: 1,
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('Deleted');
+      expect(result.message).toContain('1 node');
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(2);
+      expect(content[0].content).toBe('Initial content');
+      expect(content[1].content).toBe('Third');
+    });
+
+    test('requires position and count for delete', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'delete',
+            count: 1,
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/position required/);
+
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'delete',
+            position: 0,
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/count required/);
+    });
+
+    test('handles out of range delete gracefully', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'delete',
+          position: 100,
+          count: 1,
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('No nodes deleted');
+    });
+  });
+
+  describe('formatted text with marks', () => {
+    test('creates text with bold and italic marks', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'replace',
+          nodes: [
+            {
+              type: 'paragraph',
+              content: [
+                'Plain text ',
+                { text: 'bold text', marks: ['bold'] },
+                ' and ',
+                { text: 'italic text', marks: ['italic'] },
+              ],
+            },
+          ],
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(1);
+      expect(content[0].type).toBe('paragraph');
+      expect(Array.isArray(content[0].content)).toBe(true);
+
+      // Check that marks are preserved
+      const boldItem = content[0].content.find(
+        (item) => typeof item === 'object' && item.marks && item.marks.includes('bold')
+      );
+      expect(boldItem).toBeDefined();
+      expect(boldItem.text).toBe('bold text');
+    });
+
+    test('creates links', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'replace',
+          nodes: [
+            {
+              type: 'paragraph',
+              content: [
+                'Check out ',
+                { text: 'this link', marks: [{ type: 'link', href: 'https://example.com' }] },
+                ' for more info.',
+              ],
+            },
+          ],
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      const linkItem = content[0].content.find(
+        (item) =>
+          typeof item === 'object' &&
+          item.marks &&
+          item.marks.some((m) => m.type === 'link')
+      );
+      expect(linkItem).toBeDefined();
+      expect(linkItem.text).toBe('this link');
+    });
+  });
+
+  describe('code blocks', () => {
+    test('creates code block with language', async () => {
+      const result = await updateDocument.handler(
+        {
+          docGuid: testDocId,
+          operation: 'replace',
+          nodes: [
+            {
+              type: 'codeBlock',
+              language: 'javascript',
+              content: 'const x = 42;\nconsole.log(x);',
+            },
+          ],
+        },
+        agentToken()
+      );
+
+      expect(result.success).toBe(true);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const content = toStructured(xmlFragment);
+
+      expect(content).toHaveLength(1);
+      expect(content[0].type).toBe('codeBlock');
+      expect(content[0].language).toBe('javascript');
+      expect(content[0].content).toContain('const x = 42');
+    });
+  });
+
+  describe('validation', () => {
+    test('rejects invalid node type', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'replace',
+            nodes: [{ type: 'invalidType', content: 'Test' }],
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/Invalid node type/);
+    });
+
+    test('rejects invalid heading level', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'replace',
+            nodes: [{ type: 'heading', level: 5, content: 'Test' }],
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/level must be 1, 2, or 3/);
+    });
+
+    test('rejects empty list children', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'replace',
+            nodes: [{ type: 'bulletList', children: [] }],
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/non-empty children/);
+    });
+
+    test('rejects invalid mark', async () => {
+      await expect(
+        updateDocument.handler(
+          {
+            docGuid: testDocId,
+            operation: 'replace',
+            nodes: [
+              {
+                type: 'paragraph',
+                content: [{ text: 'test', marks: ['invalid-mark'] }],
+              },
+            ],
+          },
+          agentToken()
+        )
+      ).rejects.toThrow(/Invalid mark/);
+    });
+  });
+
+  describe('permissions', () => {
     test('rejects update without edit permission', async () => {
       // Create another user with viewer access
       const viewerResult = await pool.query(
@@ -249,21 +574,19 @@ describe('update_document tool', () => {
       const viewerId = viewerResult.rows[0].id;
       await documents.setRole(testDocId, viewerId, 'viewer');
 
-      const agentToken = {
-        userId: viewerId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:write'],
-      };
-
       await expect(
         updateDocument.handler(
           {
             docGuid: testDocId,
             operation: 'append',
-            content: 'Unauthorized content',
+            nodes: [{ type: 'paragraph', content: 'Unauthorized content' }],
           },
-          agentToken
+          {
+            userId: viewerId,
+            delegationId: 'test-delegation-id',
+            agentId: 'claude-code:test',
+            scopes: ['documents:write'],
+          }
         )
       ).rejects.toThrow('You do not have edit permission');
 

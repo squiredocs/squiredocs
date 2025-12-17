@@ -118,57 +118,13 @@ describe('get_document tool', () => {
       expect(getDocument.inputSchema.required).toContain('docGuid');
     });
 
-    test('format property has correct enum values', () => {
-      const formatProp = getDocument.inputSchema.properties.format;
-      expect(formatProp.enum).toContain('plain-text');
-      expect(formatProp.enum).toContain('structured');
+    test('does not have format parameter (always structured)', () => {
+      expect(getDocument.inputSchema.properties.format).toBeUndefined();
     });
   });
 
   describe('handler', () => {
-    test('returns document content in plain-text format', async () => {
-      const agentToken = {
-        userId: testUserId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:read'],
-      };
-
-      const result = await getDocument.handler(
-        { docGuid: testDocId, format: 'plain-text' },
-        agentToken
-      );
-
-      expect(result.docGuid).toBe(testDocId);
-      expect(result.content).toBeDefined();
-      expect(result.content).toContain('Hello, this is test content.');
-      expect(result.format).toBe('plain-text');
-    });
-
     test('returns document content in structured format', async () => {
-      const agentToken = {
-        userId: testUserId,
-        delegationId: 'test-delegation-id',
-        agentId: 'claude-code:test',
-        scopes: ['documents:read'],
-      };
-
-      const result = await getDocument.handler(
-        { docGuid: testDocId, format: 'structured' },
-        agentToken
-      );
-
-      expect(result.docGuid).toBe(testDocId);
-      expect(result.content).toBeDefined();
-      expect(Array.isArray(result.content)).toBe(true);
-      expect(result.format).toBe('structured');
-
-      // Check structure
-      const paragraph = result.content.find((node) => node.type === 'paragraph');
-      expect(paragraph).toBeDefined();
-    });
-
-    test('defaults to plain-text format', async () => {
       const agentToken = {
         userId: testUserId,
         delegationId: 'test-delegation-id',
@@ -178,7 +134,14 @@ describe('get_document tool', () => {
 
       const result = await getDocument.handler({ docGuid: testDocId }, agentToken);
 
-      expect(result.format).toBe('plain-text');
+      expect(result.docGuid).toBe(testDocId);
+      expect(result.content).toBeDefined();
+      expect(Array.isArray(result.content)).toBe(true);
+
+      // Check structure
+      const paragraph = result.content.find((node) => node.type === 'paragraph');
+      expect(paragraph).toBeDefined();
+      expect(paragraph.content).toContain('Hello, this is test content.');
     });
 
     test('returns document metadata', async () => {
@@ -221,7 +184,7 @@ describe('get_document tool', () => {
       ).rejects.toThrow(/not found|access/i);
     });
 
-    test('returns empty content for new document', async () => {
+    test('returns empty array for new document', async () => {
       // Create a document with no Yjs updates
       const emptyDocResult = await pool.query(
         `INSERT INTO documents (id, creator_id)
@@ -241,7 +204,8 @@ describe('get_document tool', () => {
 
       const result = await getDocument.handler({ docGuid: emptyDocId }, agentToken);
 
-      expect(result.content).toBe('');
+      expect(Array.isArray(result.content)).toBe(true);
+      expect(result.content).toHaveLength(0);
 
       // Clean up
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [emptyDocId]);
@@ -262,7 +226,57 @@ describe('get_document tool', () => {
       const result = await getDocument.handler({ docGuid: testDocId }, agentToken);
 
       expect(result.role).toBe('viewer');
-      expect(result.content).toContain('Hello, this is test content.');
+      expect(Array.isArray(result.content)).toBe(true);
+    });
+
+    test('returns formatted text with marks', async () => {
+      // Create a document with formatted text
+      const ydoc = new Y.Doc();
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+
+      const paragraph = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'plain ');
+      const boldText = new Y.XmlText();
+      boldText.insert(0, 'bold text', { bold: true });
+      paragraph.insert(0, [text, boldText]);
+      xmlFragment.insert(0, [paragraph]);
+
+      // Create new document for this test
+      const formattedDocResult = await pool.query(
+        `INSERT INTO documents (id, creator_id)
+         VALUES (uuid_generate_v4(), $1)
+         RETURNING id`,
+        [testUserId]
+      );
+      const formattedDocId = formattedDocResult.rows[0].id;
+      await documents.setRole(formattedDocId, testUserId, 'owner');
+
+      const update = Y.encodeStateAsUpdate(ydoc);
+      await pool.query(
+        'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)',
+        [formattedDocId, 1, Buffer.from(update)]
+      );
+
+      const agentToken = {
+        userId: testUserId,
+        delegationId: 'test-delegation-id',
+        agentId: 'claude-code:test',
+        scopes: ['documents:read'],
+      };
+
+      const result = await getDocument.handler({ docGuid: formattedDocId }, agentToken);
+
+      expect(Array.isArray(result.content)).toBe(true);
+      const paragraph2 = result.content[0];
+      expect(paragraph2.type).toBe('paragraph');
+      // Content should be an array with formatted items
+      expect(Array.isArray(paragraph2.content)).toBe(true);
+
+      // Clean up
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [formattedDocId]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [formattedDocId]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [formattedDocId]);
     });
   });
 });

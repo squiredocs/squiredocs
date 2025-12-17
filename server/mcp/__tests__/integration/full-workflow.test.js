@@ -151,14 +151,18 @@ describe('Full Agent Workflow', () => {
       expect(Array.isArray(listResult.documents)).toBe(true);
       expect(listResult.documents.map((d) => d.id)).toContain(testDocId);
 
-      // Step 7: Use get_document tool
+      // Step 7: Use get_document tool (now always returns structured format)
       const getResult = await getDocument.handler(
-        { docGuid: testDocId, format: 'plain-text' },
+        { docGuid: testDocId },
         mockReq.agentToken
       );
 
       expect(getResult.docGuid).toBe(testDocId);
-      expect(getResult.content).toContain('Integration test document content.');
+      expect(Array.isArray(getResult.content)).toBe(true);
+      // Find paragraph with expected content
+      const paragraph = getResult.content.find((node) => node.type === 'paragraph');
+      expect(paragraph).toBeDefined();
+      expect(paragraph.content).toContain('Integration test document content.');
       expect(getResult.role).toBe('owner');
     });
   });

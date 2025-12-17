@@ -1,10 +1,12 @@
 /**
  * update_document MCP Tool
  *
- * Updates document content by applying text operations.
+ * Updates document content using structured node operations.
  */
 const Y = require('yjs');
 const documentService = require('../../document-service');
+const { buildYjsNode } = require('../yjs/node-builder');
+const { validateNode } = require('../yjs/validation');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -22,8 +24,16 @@ function init(persistence) {
  */
 const name = 'update_document';
 
-const description =
-  'Update document content. Can replace all content or insert/delete at specific positions.';
+const description = `Update document content using structured nodes.
+
+Supports operations:
+- replace: Replace entire document with new nodes
+- append: Add nodes to end of document
+- insert: Insert nodes at specific position (node index, not character position)
+- delete: Remove nodes by position and count
+
+Nodes can be: paragraph, heading (level 1-3), bulletList, orderedList, codeBlock
+Text can have marks: bold, italic, underline, strike, link`;
 
 const inputSchema = {
   type: 'object',
@@ -31,27 +41,29 @@ const inputSchema = {
     docGuid: {
       type: 'string',
       format: 'uuid',
-      description: 'The document UUID',
+      description: 'Document UUID',
     },
     operation: {
       type: 'string',
       enum: ['replace', 'insert', 'delete', 'append'],
       description:
-        'Operation type: "replace" replaces all content, "insert" inserts at position, "delete" removes text, "append" adds to end',
+        'Operation: "replace" replaces all content, "insert" inserts at position, "delete" removes nodes, "append" adds to end',
     },
-    content: {
-      type: 'string',
-      description: 'Text content to insert or replace with (not needed for delete)',
+    nodes: {
+      type: 'array',
+      items: { type: 'object' },
+      description:
+        'Array of structured nodes to insert/append/replace. Each node has type, optional content/children, and type-specific properties.',
     },
     position: {
       type: 'integer',
       minimum: 0,
-      description: 'Character position for insert/delete operations (0-indexed)',
+      description: 'Node position (0-indexed) for insert/delete operations',
     },
-    length: {
+    count: {
       type: 'integer',
       minimum: 1,
-      description: 'Number of characters to delete (only for delete operation)',
+      description: 'Number of nodes to delete (required for delete operation)',
     },
   },
   required: ['docGuid', 'operation'],
@@ -62,18 +74,40 @@ const inputSchema = {
  * @param {object} args - Tool arguments
  * @param {string} args.docGuid - Document UUID
  * @param {string} args.operation - Operation type
- * @param {string} args.content - Text content
+ * @param {Array} args.nodes - Structured nodes
  * @param {number} args.position - Position for insert/delete
- * @param {number} args.length - Length for delete
+ * @param {number} args.count - Count for delete
  * @param {object} agentToken - Decoded agent JWT token
- * @returns {Promise<object>} { success, message }
+ * @returns {Promise<object>} { success, message, docGuid }
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('update_document tool not initialized');
 
-  const { docGuid, operation, content, position, length } = args;
+  const { docGuid, operation, nodes, position, count } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
+
+  // Validate required parameters for each operation
+  if (['replace', 'insert', 'append'].includes(operation)) {
+    if (!nodes || !Array.isArray(nodes) || nodes.length === 0) {
+      throw new Error(`nodes array required for ${operation} operation`);
+    }
+    // Validate each node
+    nodes.forEach((node) => validateNode(node));
+  }
+
+  if (operation === 'insert' && position === undefined) {
+    throw new Error('position required for insert operation');
+  }
+
+  if (operation === 'delete') {
+    if (position === undefined) {
+      throw new Error('position required for delete operation');
+    }
+    if (count === undefined) {
+      throw new Error('count required for delete operation');
+    }
+  }
 
   // Check if user has edit access to the document
   const accessResult = await pool.query(
@@ -105,93 +139,44 @@ async function handler(args, agentToken) {
 
       switch (operation) {
         case 'replace': {
-          if (content === undefined) {
-            throw new Error('content is required for replace operation');
-          }
-
-          // Clear existing content
+          // Clear entire document
           while (xmlFragment.length > 0) {
             xmlFragment.delete(0, 1);
           }
 
-          // Insert new content as a paragraph
-          const paragraph = new Y.XmlElement('paragraph');
-          const text = new Y.XmlText();
-          text.insert(0, content);
-          paragraph.insert(0, [text]);
-          xmlFragment.insert(0, [paragraph]);
+          // Insert new nodes
+          const yjsNodes = nodes.map((node) => buildYjsNode(node));
+          xmlFragment.insert(0, yjsNodes);
 
-          message = `Replaced document content with ${content.length} characters`;
+          message = `Replaced document with ${nodes.length} node${nodes.length !== 1 ? 's' : ''}`;
           break;
         }
 
         case 'append': {
-          if (content === undefined) {
-            throw new Error('content is required for append operation');
-          }
+          const yjsNodes = nodes.map((node) => buildYjsNode(node));
+          xmlFragment.insert(xmlFragment.length, yjsNodes);
 
-          // Add a new paragraph at the end
-          const paragraph = new Y.XmlElement('paragraph');
-          const text = new Y.XmlText();
-          text.insert(0, content);
-          paragraph.insert(0, [text]);
-          xmlFragment.insert(xmlFragment.length, [paragraph]);
-
-          message = `Appended ${content.length} characters to document`;
+          message = `Appended ${nodes.length} node${nodes.length !== 1 ? 's' : ''} to document`;
           break;
         }
 
         case 'insert': {
-          if (content === undefined) {
-            throw new Error('content is required for insert operation');
-          }
-          if (position === undefined) {
-            throw new Error('position is required for insert operation');
-          }
+          const insertPos = Math.min(position, xmlFragment.length);
+          const yjsNodes = nodes.map((node) => buildYjsNode(node));
+          xmlFragment.insert(insertPos, yjsNodes);
 
-          // Find the text node and position to insert at
-          const result = findTextPosition(xmlFragment, position);
-          if (result) {
-            result.textNode.insert(result.offset, content);
-            message = `Inserted ${content.length} characters at position ${position}`;
-          } else {
-            // Position is beyond document end, append instead
-            const paragraph = new Y.XmlElement('paragraph');
-            const text = new Y.XmlText();
-            text.insert(0, content);
-            paragraph.insert(0, [text]);
-            xmlFragment.insert(xmlFragment.length, [paragraph]);
-            message = `Position ${position} exceeds document length, appended content instead`;
-          }
+          message = `Inserted ${nodes.length} node${nodes.length !== 1 ? 's' : ''} at position ${insertPos}`;
           break;
         }
 
         case 'delete': {
-          if (position === undefined) {
-            throw new Error('position is required for delete operation');
+          const actualCount = Math.min(count, xmlFragment.length - position);
+          if (actualCount > 0) {
+            xmlFragment.delete(position, actualCount);
+            message = `Deleted ${actualCount} node${actualCount !== 1 ? 's' : ''} starting at position ${position}`;
+          } else {
+            message = `No nodes deleted (position ${position} out of range)`;
           }
-          if (length === undefined) {
-            throw new Error('length is required for delete operation');
-          }
-
-          // Find the text node and position to delete from
-          let remaining = length;
-          let currentPos = position;
-
-          while (remaining > 0) {
-            const result = findTextPosition(xmlFragment, currentPos);
-            if (!result) break;
-
-            const textLength = result.textNode.toString().length;
-            const availableToDelete = textLength - result.offset;
-            const toDelete = Math.min(remaining, availableToDelete);
-
-            result.textNode.delete(result.offset, toDelete);
-            remaining -= toDelete;
-          }
-
-          const deleted = length - remaining;
-          message = `Deleted ${deleted} characters starting at position ${position}`;
           break;
         }
 
@@ -200,7 +185,7 @@ async function handler(args, agentToken) {
       }
     },
     userId
-  ); // Pass userId for attribution
+  );
 
   // Update document timestamp
   await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
@@ -210,45 +195,6 @@ async function handler(args, agentToken) {
     message,
     docGuid,
   };
-}
-
-/**
- * Find the text node and offset for a character position
- */
-function findTextPosition(xmlFragment, targetPos) {
-  let currentPos = 0;
-
-  function search(node) {
-    if (node instanceof Y.XmlText) {
-      const length = node.toString().length;
-      if (currentPos + length > targetPos) {
-        return { textNode: node, offset: targetPos - currentPos };
-      }
-      currentPos += length;
-    } else if (node instanceof Y.XmlElement || node instanceof Y.XmlFragment) {
-      const children = node.toArray ? node.toArray() : [];
-      for (const child of children) {
-        const result = search(child);
-        if (result) return result;
-      }
-      // Add newline for block elements
-      if (node instanceof Y.XmlElement) {
-        const tagName = node.nodeName;
-        if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
-          currentPos += 1; // Count the newline
-        }
-      }
-    }
-    return null;
-  }
-
-  const children = xmlFragment.toArray();
-  for (const child of children) {
-    const result = search(child);
-    if (result) return result;
-  }
-
-  return null;
 }
 
 module.exports = {
