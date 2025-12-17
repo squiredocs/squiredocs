@@ -273,7 +273,8 @@ export function useYjs(docGuid, accessToken) {
               id: clientId,
               name: state.user.name,
               color: state.user.color,
-              picture: state.user.picture
+              picture: state.user.picture,
+              isAgent: state.user.isAgent
             };
           }
           return null;
