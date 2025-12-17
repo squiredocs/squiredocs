@@ -5,6 +5,7 @@
 
 const documents = require('./documents');
 const { verifyAccessToken } = require('./auth/jwt');
+const { verifyAgentToken } = require('./mcp/auth/jwt');
 
 /**
  * Permission levels required for different actions
@@ -26,34 +27,45 @@ const REQUIRED_ROLES = {
  * @returns {object|null} Decoded user or null
  */
 function extractUser({ authHeader, token, queryToken }) {
+  /**
+   * Helper to try verifying a token as both user and agent token
+   * @param {string} tokenString - JWT token string
+   * @returns {object|null} Decoded token or null
+   */
+  const tryVerifyToken = (tokenString) => {
+    // Try as regular user token first
+    try {
+      return verifyAccessToken(tokenString);
+    } catch (e) {
+      // Not a valid user token, try as agent token
+      try {
+        return verifyAgentToken(tokenString);
+      } catch (e2) {
+        // Not a valid agent token either
+        return null;
+      }
+    }
+  };
+
   // Try Authorization header first
   if (authHeader) {
     const parts = authHeader.split(' ');
     if (parts.length === 2 && parts[0] === 'Bearer') {
-      try {
-        return verifyAccessToken(parts[1]);
-      } catch (e) {
-        // Invalid token
-      }
+      const result = tryVerifyToken(parts[1]);
+      if (result) return result;
     }
   }
 
   // Try direct token
   if (token) {
-    try {
-      return verifyAccessToken(token);
-    } catch (e) {
-      // Invalid token
-    }
+    const result = tryVerifyToken(token);
+    if (result) return result;
   }
 
   // Try query string token
   if (queryToken) {
-    try {
-      return verifyAccessToken(queryToken);
-    } catch (e) {
-      // Invalid token
-    }
+    const result = tryVerifyToken(queryToken);
+    if (result) return result;
   }
 
   return null;

@@ -25,7 +25,8 @@ function requireAgentAuth(req, res, next) {
 
   try {
     const decoded = verifyAgentToken(token);
-    req.agentToken = decoded;
+    // Include the raw token string for use in WebSocket connections
+    req.agentToken = { ...decoded, rawToken: token };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -90,7 +91,8 @@ function optionalAgentAuth(req, res, next) {
   if (token) {
     const decoded = verifyAgentToken(token, { throwOnError: false });
     if (decoded) {
-      req.agentToken = decoded;
+      // Include the raw token string for use in WebSocket connections
+      req.agentToken = { ...decoded, rawToken: token };
     }
   }
 

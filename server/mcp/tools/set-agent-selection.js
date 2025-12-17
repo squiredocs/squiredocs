@@ -132,9 +132,13 @@ async function handler(args, agentToken) {
   const wsPort = process.env.WS_PORT || process.env.PORT || 3001;
   const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/s`;
 
-  // Generate agent access token for WebSocket connection
+  // Use the raw JWT token from the agentToken for WebSocket authentication
   // The agentToken parameter is already validated by MCP middleware
-  const accessToken = agentToken.accessToken || generateWebSocketToken(agentToken);
+  const accessToken = agentToken.rawToken;
+
+  if (!accessToken) {
+    throw new Error('No authentication token available for WebSocket connection');
+  }
 
   return new Promise((resolve, reject) => {
     const sessionId = `agent-selection-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
