@@ -24,7 +24,44 @@ export const CollaborationCursorWithSelection = Extension.create({
         const label = document.createElement('div');
         label.classList.add('collaboration-cursor__label');
         label.style.backgroundColor = user.color;
-        label.textContent = user.name;
+
+        // Check if this is an AI agent
+        const isAgent = user.isAgent === true;
+
+        if (isAgent) {
+          // Agent cursor with delegating user avatar overlay
+          label.classList.add('agent-cursor');
+
+          // Create avatar container
+          const avatarContainer = document.createElement('div');
+          avatarContainer.classList.add('agent-avatar-container');
+
+          // Robot emoji as main avatar
+          const robotAvatar = document.createElement('div');
+          robotAvatar.classList.add('agent-robot-avatar');
+          robotAvatar.textContent = '🤖';
+          avatarContainer.appendChild(robotAvatar);
+
+          // Delegating user's picture as overlay (if available)
+          if (user.picture) {
+            const userOverlay = document.createElement('img');
+            userOverlay.src = user.picture;
+            userOverlay.classList.add('agent-user-overlay');
+            userOverlay.alt = '';
+            avatarContainer.appendChild(userOverlay);
+          }
+
+          label.appendChild(avatarContainer);
+
+          // Name label
+          const nameText = document.createElement('span');
+          nameText.textContent = user.name;
+          label.appendChild(nameText);
+        } else {
+          // Regular user cursor
+          label.textContent = user.name;
+        }
+
         cursor.appendChild(label);
 
         return cursor;

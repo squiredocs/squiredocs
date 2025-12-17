@@ -253,11 +253,14 @@ async function handler(args, agentToken) {
             const awareness = provider.awareness;
 
             // Set user info
+            // Format: "Agent Name (Human Name)", e.g., "Claude Desktop (Sam Goldstein)"
+            const agentName = agentToken.agentName || 'AI Agent';
             awareness.setLocalStateField('user', {
-              name: `${userName} (AI Agent)`,
+              name: `${agentName} (${userName})`,
               email,
               picture,
               color: agentColor,
+              isAgent: true,
             });
 
             // Set cursor/selection with the provided relative positions

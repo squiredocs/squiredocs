@@ -292,7 +292,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         height: 32,
                         borderRadius: '50%',
                         marginLeft: i === 0 ? 0 : -8,
-                        overflow: 'hidden',
+                        overflow: u.isAgent ? 'visible' : 'hidden',
                         boxShadow: `0 0 0 2px ${u.color || '#667eea'}`,
                         zIndex: 5 - i,
                         position: 'relative',
@@ -301,7 +301,60 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       }}
                       title={u.name}
                     >
-                      {u.picture ? (
+                      {u.isAgent ? (
+                        // Agent avatar with delegating user overlay
+                        <>
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 20,
+                            background: 'rgba(255, 255, 255, 0.9)',
+                            borderRadius: '50%',
+                            overflow: 'hidden'
+                          }}>
+                            🤖
+                          </div>
+                          {/* Delegating user's avatar overlay */}
+                          <div style={{
+                            position: 'absolute',
+                            bottom: -2,
+                            right: -2,
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            border: `2px solid ${u.color || '#667eea'}`,
+                            overflow: 'hidden',
+                            background: '#fff',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                          }}>
+                            {u.picture ? (
+                              <img
+                                src={u.picture}
+                                alt=""
+                                referrerPolicy="no-referrer"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 7,
+                                fontWeight: 600,
+                                color: '#fff',
+                                background: u.color || '#667eea'
+                              }}>
+                                {u.name?.charAt(0).toUpperCase() || '?'}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : u.picture ? (
                         <img
                           src={u.picture}
                           alt={u.name}

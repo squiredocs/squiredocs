@@ -151,6 +151,45 @@
   transform: translateY(0);
 }
 
+/* Agent cursor styles */
+.editor-content .collaboration-cursor__label.agent-cursor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 3px;
+}
+
+.editor-content .agent-avatar-container {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.editor-content .agent-robot-avatar {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+.editor-content .agent-user-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  object-fit: cover;
+  background: white;
+}
+
 .editor-loading {
   display: flex;
   align-items: center;
