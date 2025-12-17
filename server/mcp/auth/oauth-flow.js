@@ -199,6 +199,8 @@ async function handleApprove(req, res) {
  */
 async function handleToken(req, res) {
   console.log('[MCP OAuth] Token request received');
+  console.log('[MCP OAuth] Content-Type:', req.headers['content-type']);
+  console.log('[MCP OAuth] Request body:', JSON.stringify(req.body, null, 2));
   console.log('[MCP OAuth] Grant type:', req.body.grant_type);
 
   const {
