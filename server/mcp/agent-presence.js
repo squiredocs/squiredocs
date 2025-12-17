@@ -261,6 +261,187 @@ function clearUserSessions(userId) {
 }
 
 /**
+ * Get or create a presence session for an agent
+ * Returns the provider and awareness object so the caller can add additional awareness fields
+ *
+ * @param {string} docGuid - Document UUID
+ * @param {object} agentToken - Decoded agent JWT token (must include rawToken)
+ * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
+ * @returns {Promise<object>} { provider, awareness, sessionId, agentInfo, expiresIn }
+ */
+async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
+  if (!persistenceProvider) {
+    throw new Error('Agent presence manager not initialized');
+  }
+
+  const duration = Math.max(1, Math.min(300, durationSeconds));
+  const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
+
+  // Check if user has access to the document
+  const accessResult = await pool.query(
+    `SELECT d.id, ds.role, u.name, u.email, u.picture
+     FROM documents d
+     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
+     JOIN users u ON u.id = $2
+     WHERE d.id = $1`,
+    [docGuid, userId]
+  );
+
+  if (accessResult.rows.length === 0) {
+    throw new Error('Document not found or you do not have access');
+  }
+
+  const { name: userName, email, picture } = accessResult.rows[0];
+  const agentColor = generateColorFromUserId(userId);
+  const agentName = agentToken.agentName || 'AI Agent';
+
+  const agentInfo = {
+    name: `${agentName} (${userName})`,
+    email,
+    picture,
+    color: agentColor,
+    isAgent: true,
+  };
+
+  // Check if we already have an active session for this user/doc combination
+  const existingSessionKey = `${userId}-${docGuid}`;
+  for (const [sid, session] of activeSessions.entries()) {
+    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected) {
+      // Extend the existing session
+      if (session.timeoutId) {
+        clearTimeout(session.timeoutId);
+      }
+      session.timeoutId = setTimeout(() => {
+        session.cleanup();
+      }, duration * 1000);
+
+      console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
+
+      return {
+        provider: session.provider,
+        awareness: session.provider.awareness,
+        sessionId: sid,
+        agentInfo,
+        expiresIn: duration,
+        reused: true,
+      };
+    }
+  }
+
+  // No existing session, create a new one
+  const accessToken = agentToken.rawToken;
+  if (!accessToken) {
+    throw new Error('No authentication token available for WebSocket connection');
+  }
+
+  const wsProtocol = process.env.WS_PROTOCOL || 'ws';
+  const wsHost = process.env.WS_HOST || 'localhost';
+  const wsPort = process.env.WS_PORT || process.env.PORT || 3001;
+  const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/s`;
+
+  const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
+
+  return new Promise((resolve, reject) => {
+    let timeoutId = null;
+    let provider = null;
+
+    // Cleanup function
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (provider) {
+        provider.destroy();
+        provider = null;
+      }
+      activeSessions.delete(sessionId);
+      console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
+    };
+
+    try {
+      // Create Yjs document
+      const ydoc = new Y.Doc();
+
+      // Create WebSocket provider
+      provider = new WebsocketProvider(wsUrl, docGuid, ydoc, {
+        connect: true,
+        params: { token: accessToken },
+        WebSocketPolyfill: WebSocket,
+      });
+
+      // Store session info
+      activeSessions.set(sessionId, {
+        docGuid,
+        userId,
+        key: existingSessionKey,
+        provider,
+        cleanup,
+        timeoutId: null,
+        createdAt: Date.now(),
+      });
+
+      // Wait for connection to establish
+      provider.on('status', ({ status }) => {
+        if (status === 'connected') {
+          try {
+            const awareness = provider.awareness;
+
+            // Set user info to make agent visible
+            awareness.setLocalStateField('user', agentInfo);
+
+            console.log(`[agent-presence] Created new session for ${agentInfo.name} in ${docGuid}`);
+
+            // Set timeout to close connection after duration
+            const session = activeSessions.get(sessionId);
+            if (session) {
+              session.timeoutId = setTimeout(() => {
+                cleanup();
+              }, duration * 1000);
+            }
+
+            resolve({
+              provider,
+              awareness,
+              sessionId,
+              agentInfo,
+              expiresIn: duration,
+              reused: false,
+            });
+          } catch (error) {
+            cleanup();
+            reject(new Error(`Failed to set presence: ${error.message}`));
+          }
+        }
+      });
+
+      // Handle connection errors
+      provider.on('connection-error', (error) => {
+        cleanup();
+        reject(new Error(`WebSocket connection failed: ${error.message}`));
+      });
+
+      // Handle connection close
+      provider.on('connection-close', () => {
+        cleanup();
+      });
+
+      // Set timeout for initial connection
+      setTimeout(() => {
+        if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
+          cleanup();
+          reject(new Error('Connection timeout: Could not establish WebSocket connection'));
+        }
+      }, 10000);
+    } catch (error) {
+      cleanup();
+      reject(new Error(`Failed to create agent presence: ${error.message}`));
+    }
+  });
+}
+
+/**
  * Get active sessions (for testing/debugging)
  * @returns {Map} Active sessions
  */
@@ -271,6 +452,7 @@ function getActiveSessions() {
 module.exports = {
   init,
   setAgentPresence,
+  getOrCreateSession,
   clearSession,
   clearUserSessions,
   getActiveSessions,

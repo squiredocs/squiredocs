@@ -27,6 +27,7 @@ const persistenceProvider = new PostgresPersistence({
 // Import modules
 const documents = require('../../../documents');
 const setAgentSelection = require('../../tools/set-agent-selection');
+const agentPresence = require('../../agent-presence');
 
 describe('set_agent_selection tool', () => {
   let testUserId;
@@ -37,6 +38,7 @@ describe('set_agent_selection tool', () => {
     // Initialize modules
     documents.init(pool);
     setAgentSelection.init(persistenceProvider);
+    agentPresence.init(persistenceProvider);
 
     // Create test users
     const userResult = await pool.query(
@@ -90,14 +92,14 @@ describe('set_agent_selection tool', () => {
     await documents.setRole(testDocId, testUserId, 'owner');
 
     // Clear any active sessions
-    setAgentSelection.clearUserSessions(testUserId);
-    setAgentSelection.clearUserSessions(testUser2Id);
+    agentPresence.clearUserSessions(testUserId);
+    agentPresence.clearUserSessions(testUser2Id);
   });
 
   afterEach(async () => {
     // Clean up sessions after each test
-    setAgentSelection.clearUserSessions(testUserId);
-    setAgentSelection.clearUserSessions(testUser2Id);
+    agentPresence.clearUserSessions(testUserId);
+    agentPresence.clearUserSessions(testUser2Id);
   });
 
   describe('Input Validation', () => {
@@ -170,7 +172,7 @@ describe('set_agent_selection tool', () => {
 
   describe('Session Management', () => {
     test('clearSession removes a specific session', () => {
-      const sessions = setAgentSelection.getActiveSessions();
+      const sessions = agentPresence.getActiveSessions();
       const testSessionId = 'test-session-123';
 
       // Create a cleanup function that actually removes the session
@@ -188,16 +190,16 @@ describe('set_agent_selection tool', () => {
       });
 
       expect(sessions.has(testSessionId)).toBe(true);
-      expect(setAgentSelection.clearSession(testSessionId)).toBe(true);
+      expect(agentPresence.clearSession(testSessionId)).toBe(true);
       expect(sessions.has(testSessionId)).toBe(false);
     });
 
     test('clearSession returns false for non-existent session', () => {
-      expect(setAgentSelection.clearSession('non-existent-session')).toBe(false);
+      expect(agentPresence.clearSession('non-existent-session')).toBe(false);
     });
 
     test('clearUserSessions removes all sessions for a user', () => {
-      const sessions = setAgentSelection.getActiveSessions();
+      const sessions = agentPresence.getActiveSessions();
 
       // Helper to create cleanup function
       const makeCleanup = (sessionId) => () => {
@@ -230,7 +232,7 @@ describe('set_agent_selection tool', () => {
       });
 
       expect(sessions.size).toBe(3);
-      const count = setAgentSelection.clearUserSessions(testUserId);
+      const count = agentPresence.clearUserSessions(testUserId);
       expect(count).toBe(2);
       expect(sessions.has('session-1')).toBe(false);
       expect(sessions.has('session-2')).toBe(false);
