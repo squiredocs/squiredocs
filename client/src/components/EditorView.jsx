@@ -47,7 +47,7 @@ function formatVersionTimestamp(timestamp) {
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
   const { logout, api, accessToken } = useAuth();
-  const { ydoc, provider, awareness, connected, synced, users, docTitle, setDocTitle } = useYjs(docGuid, accessToken);
+  const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount } = useYjs(docGuid, accessToken);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -223,10 +223,23 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Normal editor mode
   return (
     <div className="app">
-      {!connected && (
-        <div className="sync-banner sync-banner--disconnected">Offline</div>
+      {connectionState === 'disconnected' && (
+        <div className="sync-banner sync-banner--disconnected">
+          Offline
+          <button
+            onClick={forceReconnect}
+            style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px' }}
+          >
+            Retry
+          </button>
+        </div>
       )}
-      {connected && !synced && (
+      {connectionState === 'connecting' && (
+        <div className="sync-banner sync-banner--connecting">
+          {reconnectCount > 0 ? `Reconnecting... (${reconnectCount})` : 'Connecting...'}
+        </div>
+      )}
+      {connectionState === 'connected' && !synced && (
         <div className="sync-banner">Syncing...</div>
       )}
       <header className="app-header">

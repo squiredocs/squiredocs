@@ -19,6 +19,11 @@
   color: #4b5563;
 }
 
+.sync-banner--connecting {
+  background: #fed7aa;
+  color: #c2410c;
+}
+
 .app-header-left {
   display: flex;
   align-items: center;

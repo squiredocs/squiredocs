@@ -923,6 +923,29 @@ wss.on('connection', (ws, req) => {
     registerDocumentUser(docId, connId, userId);
   }
 
+  // Setup ping/pong keepalive mechanism
+  let isAlive = true;
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+    logPerf('WS_PONG', { connId });
+  });
+
+  // Send ping every 30 seconds
+  const pingInterval = setInterval(() => {
+    if (ws.isAlive === false) {
+      console.log(`✗ WebSocket connection ${connId} appears dead, terminating`);
+      logPerf('WS_TIMEOUT', { connId, duration: Date.now() - connStart });
+      clearInterval(pingInterval);
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+    logPerf('WS_PING', { connId });
+  }, 30000);
+
   // Create a message filter for viewers
   // We intercept messages before y-websocket processes them
   if (!canEdit) {
@@ -960,6 +983,8 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    // Clear ping interval
+    clearInterval(pingInterval);
     // Unregister user for version history attribution
     if (docId) {
       unregisterDocumentUser(docId, connId);

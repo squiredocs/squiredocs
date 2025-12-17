@@ -36,6 +36,36 @@ const logPerf = (label, data = {}) => {
 const instanceCache = new Map();
 let indexedDbAvailable = null; // null = not checked, true/false = result
 
+// Helper function to setup provider event listeners
+// This is extracted so it can be reused when recreating providers
+function setupProviderListeners(provider, ydoc, docGuid) {
+  provider.on('status', (event) => {
+    logPerf('WS_STATUS', { status: event.status });
+    console.log('[useYjs] Provider status:', event.status);
+  });
+
+  provider.on('connection-error', (error) => {
+    logPerf('WS_ERROR', { error: error.message });
+    console.error('[useYjs] Connection error:', error);
+  });
+
+  // Initialize default title only AFTER sync completes
+  // This ensures we don't overwrite an existing title from the server
+  let titleInitialized = false;
+  provider.on('sync', (isSynced) => {
+    logPerf('WS_SYNC', { synced: isSynced });
+
+    if (isSynced && !titleInitialized) {
+      titleInitialized = true;
+      const meta = ydoc.getMap('meta');
+      // Only set default title if server didn't provide one
+      if (meta.get('title') === undefined) {
+        meta.set('title', 'Untitled Document');
+      }
+    }
+  });
+}
+
 // Check if IndexedDB is available (fails in private browsing, some browsers)
 const checkIndexedDbAvailability = async (timeoutMs = 1000) => {
   if (indexedDbAvailable !== null) return indexedDbAvailable;
@@ -86,20 +116,39 @@ if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
 function getOrCreateInstances(docGuid, accessToken) {
   // Include token in cache key to reconnect if token changes
   const cacheKey = docGuid;
-  
+
   if (instanceCache.has(cacheKey)) {
     const cached = instanceCache.get(cacheKey);
-    // If token changed, reconnect with new token
+    // If token changed, properly recreate the provider with new token
     if (cached.accessToken !== accessToken && cached.provider) {
+      console.log(`[useYjs] Token changed for ${docGuid}, recreating provider`);
       cached.accessToken = accessToken;
-      // y-websocket constructs URL as: serverUrl (without trailing /) + '/' + roomname + '?' + params
-      // When manually setting provider.url, construct the same format
-      const baseUrl = WS_URL.replace(/\/+$/, ''); // Remove trailing slashes
-      const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
-      const newUrl = `${baseUrl}/${docGuid}${tokenParam}`;
-      cached.provider.disconnect();
-      cached.provider.url = newUrl;
-      cached.provider.connect();
+
+      // Store current awareness state to restore it after reconnection
+      const currentAwarenessState = cached.provider.awareness?.getLocalState();
+
+      // Properly destroy old provider
+      cached.provider.destroy();
+
+      // Create new provider with updated token
+      const wsParams = accessToken ? { token: accessToken } : {};
+      cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
+        connect: true,
+        params: wsParams
+      });
+
+      // Setup event listeners on new provider
+      setupProviderListeners(cached.provider, cached.ydoc, docGuid);
+
+      // Restore awareness state after reconnection
+      if (currentAwarenessState) {
+        cached.provider.on('status', (event) => {
+          if (event.status === 'connected' && currentAwarenessState.user) {
+            console.log('[useYjs] Re-broadcasting awareness state after token change');
+            cached.provider.awareness.setLocalStateField('user', currentAwarenessState.user);
+          }
+        });
+      }
     }
     return cached;
   }
@@ -114,7 +163,7 @@ function getOrCreateInstances(docGuid, accessToken) {
     const updateId = ++updateCounter;
     const updateSize = update.byteLength;
     const isLocal = origin === null || origin === ydoc.clientID;
-    
+
     if (isLocal) {
       updateTimestamps.set(updateId, performance.now());
       logPerf('LOCAL_UPDATE', { updateId, size: updateSize, origin: 'local' });
@@ -131,31 +180,8 @@ function getOrCreateInstances(docGuid, accessToken) {
     params: wsParams
   });
 
-  provider.on('status', (event) => {
-    logPerf('WS_STATUS', { status: event.status });
-    console.log('[useYjs] Provider status:', event.status);
-  });
-
-  provider.on('connection-error', (error) => {
-    logPerf('WS_ERROR', { error: error.message });
-    console.error('[useYjs] Connection error:', error);
-  });
-
-  // Initialize default title only AFTER sync completes
-  // This ensures we don't overwrite an existing title from the server
-  let titleInitialized = false;
-  provider.on('sync', (isSynced) => {
-    logPerf('WS_SYNC', { synced: isSynced });
-    
-    if (isSynced && !titleInitialized) {
-      titleInitialized = true;
-      const meta = ydoc.getMap('meta');
-      // Only set default title if server didn't provide one
-      if (meta.get('title') === undefined) {
-        meta.set('title', 'Untitled Document');
-      }
-    }
-  });
+  // Setup provider event listeners
+  setupProviderListeners(provider, ydoc, docGuid);
 
   // Create IndexedDB provider for offline persistence (async, non-blocking)
   let indexeddbProvider = null;
@@ -224,18 +250,21 @@ function getOrCreateInstances(docGuid, accessToken) {
 }
 
 export function useYjs(docGuid, accessToken) {
-  const [connected, setConnected] = useState(false);
+  // Connection state: 'connecting' | 'connected' | 'disconnected'
+  const [connectionState, setConnectionState] = useState('connecting');
   const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
   const [docTitle, setDocTitleState] = useState('Untitled Document');
   const instancesRef = useRef(null);
+  const lastSyncTimeRef = useRef(Date.now());
+  const reconnectCountRef = useRef(0);
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
     const instances = getOrCreateInstances(docGuid, accessToken);
     instancesRef.current = { ...instances, docGuid };
   }
-  
+
   // Update token if it changes
   if (instancesRef.current && instancesRef.current.accessToken !== accessToken) {
     getOrCreateInstances(docGuid, accessToken);
@@ -243,6 +272,18 @@ export function useYjs(docGuid, accessToken) {
 
   const { ydoc, provider, indexeddbProvider } = instancesRef.current;
   const awareness = provider?.awareness;
+
+  // Manual reconnection function
+  const forceReconnect = useCallback(() => {
+    if (!provider) return;
+    console.log('[useYjs] Forcing reconnection...');
+    reconnectCountRef.current += 1;
+    logPerf('FORCE_RECONNECT', { attempt: reconnectCountRef.current });
+    provider.disconnect();
+    setTimeout(() => {
+      provider.connect();
+    }, 100);
+  }, [provider]);
 
   useEffect(() => {
     if (!provider) return;
@@ -256,12 +297,29 @@ export function useYjs(docGuid, accessToken) {
 
     const handleStatus = (event) => {
       console.log('[useYjs] Status event:', event.status);
-      setConnected(event.status === 'connected');
+      setConnectionState(event.status);
+
+      // Re-broadcast awareness state after reconnection
+      if (event.status === 'connected') {
+        const currentAwarenessState = awareness.getLocalState();
+        if (currentAwarenessState?.user) {
+          console.log('[useYjs] Re-broadcasting awareness state after reconnection');
+          // Small delay to ensure connection is fully established
+          setTimeout(() => {
+            awareness.setLocalStateField('user', currentAwarenessState.user);
+          }, 50);
+        }
+      }
     };
 
     const handleSync = (isSynced) => {
       console.log('[useYjs] Sync event:', isSynced);
       setSynced(isSynced);
+      if (isSynced) {
+        lastSyncTimeRef.current = Date.now();
+        // Reset reconnect counter on successful sync
+        reconnectCountRef.current = 0;
+      }
     };
 
     const handleAwarenessChange = () => {
@@ -287,11 +345,11 @@ export function useYjs(docGuid, accessToken) {
     provider.on('sync', handleSync);
     awareness.on('change', handleAwarenessChange);
 
-    // Initial status check - use actual sync state from provider
-    const initialConnected = provider.wsconnected || false;
+    // Initial status check - determine actual state
+    const initialState = provider.wsconnected ? 'connected' : 'connecting';
     const initialSynced = provider.synced || false;
-    console.log('[useYjs] Initial state:', { connected: initialConnected, synced: initialSynced });
-    setConnected(initialConnected);
+    console.log('[useYjs] Initial state:', { connectionState: initialState, synced: initialSynced });
+    setConnectionState(initialState);
     setSynced(initialSynced);
 
     return () => {
@@ -300,6 +358,33 @@ export function useYjs(docGuid, accessToken) {
       awareness.off('change', handleAwarenessChange);
     };
   }, [provider, awareness]);
+
+  // Connection health monitoring - detect stale connections
+  useEffect(() => {
+    if (!provider) return;
+
+    const healthCheckInterval = setInterval(() => {
+      const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
+      const isConnected = connectionState === 'connected';
+
+      // If we think we're connected but haven't synced in 15 seconds, connection might be stale
+      if (isConnected && !synced && timeSinceLastSync > 15000) {
+        console.warn('[useYjs] Connection appears stale (no sync for 15s), forcing reconnect');
+        logPerf('STALE_CONNECTION_DETECTED', { timeSinceLastSync });
+        forceReconnect();
+      }
+
+      // Log connection health status periodically
+      logPerf('HEALTH_CHECK', {
+        connectionState,
+        synced,
+        timeSinceLastSync,
+        reconnectCount: reconnectCountRef.current
+      });
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(healthCheckInterval);
+  }, [provider, connectionState, synced, forceReconnect]);
 
   // Subscribe to document title changes from the shared metadata map
   useEffect(() => {
@@ -340,11 +425,14 @@ export function useYjs(docGuid, accessToken) {
     provider,
     indexeddbProvider,
     awareness,
-    connected,
+    connected: connectionState === 'connected', // Backward compatibility
+    connectionState, // New: 'connecting' | 'connected' | 'disconnected'
     synced,
     users,
     docGuid,
     docTitle,
-    setDocTitle
+    setDocTitle,
+    forceReconnect, // New: manual reconnection function
+    reconnectCount: reconnectCountRef.current // New: track reconnection attempts
   };
 }
