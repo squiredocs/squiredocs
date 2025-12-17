@@ -79,6 +79,7 @@ async function handleAuthorize(req, res) {
 
   // 6. Check if user is authenticated
   if (!req.user) {
+    console.log(`[MCP OAuth] User not authenticated, redirecting to login. ReturnTo: ${req.originalUrl}`);
     // Store auth request in session and redirect to login
     if (req.session) {
       req.session.pendingAuthRequest = {
@@ -93,6 +94,8 @@ async function handleAuthorize(req, res) {
     }
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
+
+  console.log(`[MCP OAuth] User authenticated: ${req.user.email || req.user.userId}`);
 
   // 7. Check for existing delegation
   const existingDelegation = await getActiveDelegation(req.user.userId, clientId);
