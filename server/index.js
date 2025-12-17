@@ -933,6 +933,19 @@ const SYNC_STEP2 = 1;  // Send full state (response)
 const SYNC_UPDATE = 2; // Send an update (edit)
 
 /**
+ * FIX FOR AWARENESS BUG: y-websocket has a bug where:
+ * 1. Server sends User A's awareness to new User B connection
+ * 2. User B's client re-broadcasts it back to server (y-websocket client does this)
+ * 3. Server adds User A's clientID to User B's "controlled IDs"
+ * 4. When User B disconnects, User A's awareness is incorrectly removed
+ *
+ * Solution: Track the TRUE owner of each clientID and don't let other connections
+ * steal ownership via re-broadcast.
+ */
+// Maps docGuid -> Map<clientId, WebSocket (owner connection)>
+const clientIdOwnerMap = new Map();
+
+/**
  * Check if a WebSocket message is an edit operation
  * @param {Buffer} data - Raw message data
  * @returns {boolean} True if this is an edit operation
@@ -1039,40 +1052,120 @@ wss.on('connection', (ws, req) => {
     logPerf('WS_SETUP_COMPLETE', { connId });
 
     // After setupWSConnection, we can access the awareness state
-    // Listen for awareness updates to detect agent connections
     if (docId) {
       const ydoc = getYDoc(docId);
-      if (ydoc && ydoc.awareness) {
-        const checkAwareness = () => {
-          const awarenessStates = ydoc.awareness.getStates();
-          for (const [clientId, state] of awarenessStates.entries()) {
-            if (state.user && state.user.isAgent && state.user.name) {
-              // This is an agent - register their name
-              // Note: awareness clientId is different from our connId
-              // We'll just use the agent name for the whole document
-              registerDocumentUser(docId, connId, userId, state.user.name);
-              console.log(`[Agent] Detected agent connection: ${state.user.name} for doc ${docId}`);
+      if (ydoc) {
+        // Debug: Log connection state
+        const connsCount = ydoc.conns ? ydoc.conns.size : 0;
+        const awarenessCount = ydoc.awareness ? ydoc.awareness.getStates().size : 0;
+        console.log(`[WS:${connId}] Connected to doc ${docId}: ${connsCount} conns, ${awarenessCount} awareness states`);
+
+        if (ydoc.awareness) {
+          // Initialize owner map for this document if needed
+          if (!clientIdOwnerMap.has(docId)) {
+            clientIdOwnerMap.set(docId, new Map());
+          }
+          const ownerMap = clientIdOwnerMap.get(docId);
+
+          // Log current awareness states
+          ydoc.awareness.getStates().forEach((state, clientId) => {
+            console.log(`  [awareness] Client ${clientId}: ${state?.user?.name || 'no user'}, owner: ${ownerMap.get(clientId) === ws ? 'this' : 'other'}`);
+          });
+
+          // Log controlled IDs for this connection
+          const controlledIds = ydoc.conns.get(ws);
+          console.log(`[WS:${connId}] Initial controlled IDs:`, controlledIds ? Array.from(controlledIds) : []);
+
+          /**
+           * FIX: Monitor controlled IDs and remove any that this connection
+           * shouldn't own. This prevents the re-broadcast bug from corrupting
+           * the controlled IDs tracking.
+           */
+          const fixControlledIdsHandler = ({ added, updated, removed }, origin) => {
+            const connControlledIds = ydoc.conns.get(ws);
+            if (!connControlledIds) return;
+
+            // For each "added" clientId, check if this connection should own it
+            for (const clientId of added) {
+              const existingOwner = ownerMap.get(clientId);
+
+              if (existingOwner && existingOwner !== ws) {
+                // Another connection already owns this clientId!
+                // This means the client re-broadcast someone else's awareness.
+                // Remove it from this connection's controlled IDs.
+                if (connControlledIds.has(clientId)) {
+                  console.log(`[WS:${connId}] FIX: Removing stolen clientId ${clientId} from controlled IDs (owned by another connection)`);
+                  connControlledIds.delete(clientId);
+                }
+              } else if (!existingOwner) {
+                // No owner yet - this connection becomes the owner
+                ownerMap.set(clientId, ws);
+                console.log(`[WS:${connId}] Claiming ownership of clientId ${clientId}`);
+              }
+              // else: this connection already owns it, that's fine
             }
-          }
-        };
 
-        // Check immediately in case awareness was set before we started listening
-        setTimeout(checkAwareness, 100);
+            // For removed clientIds, if this connection is the owner, clear ownership
+            for (const clientId of removed) {
+              if (ownerMap.get(clientId) === ws) {
+                ownerMap.delete(clientId);
+                console.log(`[WS:${connId}] Releasing ownership of clientId ${clientId}`);
+              }
+            }
 
-        // Also listen for future awareness changes
-        const awarenessHandler = () => {
-          checkAwareness();
-        };
-        ydoc.awareness.on('update', awarenessHandler);
+            // Debug log
+            if (added.length || removed.length) {
+              const states = ydoc.awareness.getStates();
+              const users = [];
+              states.forEach((s, cid) => {
+                const owner = ownerMap.get(cid) === ws ? 'this' : (ownerMap.has(cid) ? 'other' : 'none');
+                users.push(`${cid}:${s?.user?.name || 'anon'}(${owner})`);
+              });
+              console.log(`[WS:${connId}] Awareness after fix: [${users.join(', ')}]`);
+              console.log(`[WS:${connId}] Controlled IDs after fix:`, Array.from(connControlledIds));
+            }
+          };
 
-        // Clean up listener on close
-        const originalClose = ws.close.bind(ws);
-        ws.close = (...args) => {
-          if (ydoc.awareness) {
-            ydoc.awareness.off('update', awarenessHandler);
-          }
-          return originalClose(...args);
-        };
+          // Add our fix handler AFTER y-websocket's handler has run
+          // Use setImmediate to ensure our handler runs after y-websocket's
+          ydoc.awareness.on('update', (changes, origin) => {
+            setImmediate(() => fixControlledIdsHandler(changes, origin));
+          });
+
+          // Agent detection
+          const checkAwareness = () => {
+            const awarenessStates = ydoc.awareness.getStates();
+            for (const [clientId, state] of awarenessStates.entries()) {
+              if (state.user && state.user.isAgent && state.user.name) {
+                registerDocumentUser(docId, connId, userId, state.user.name);
+                console.log(`[Agent] Detected: ${state.user.name} for doc ${docId}`);
+              }
+            }
+          };
+          setTimeout(checkAwareness, 100);
+          ydoc.awareness.on('update', checkAwareness);
+
+          // Clean up on close
+          ws.on('close', () => {
+            // Clean up ownership for all clientIds this connection owned
+            for (const [clientId, owner] of ownerMap.entries()) {
+              if (owner === ws) {
+                console.log(`[WS:${connId}] CLOSING - releasing owned clientId ${clientId}`);
+                ownerMap.delete(clientId);
+              }
+            }
+
+            // Clean up owner map if document has no more connections
+            if (ownerMap.size === 0) {
+              clientIdOwnerMap.delete(docId);
+            }
+
+            const idsToRemove = ydoc.conns?.get(ws);
+            console.log(`[WS:${connId}] CLOSING - controlled IDs being removed:`, idsToRemove ? Array.from(idsToRemove) : []);
+
+            ydoc.awareness.off('update', checkAwareness);
+          });
+        }
       }
     }
   } catch (error) {
