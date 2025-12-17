@@ -320,10 +320,10 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                           {/* Delegating user's avatar overlay */}
                           <div style={{
                             position: 'absolute',
-                            bottom: -2,
-                            right: -2,
-                            width: 14,
-                            height: 14,
+                            bottom: -3,
+                            right: -3,
+                            width: 16,
+                            height: 16,
                             borderRadius: '50%',
                             border: `2px solid ${u.color || '#667eea'}`,
                             overflow: 'hidden',
@@ -335,7 +335,13 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                                 src={u.picture}
                                 alt=""
                                 referrerPolicy="no-referrer"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
+                                  objectPosition: 'center center',
+                                  display: 'block'
+                                }}
                               />
                             ) : (
                               <div style={{
