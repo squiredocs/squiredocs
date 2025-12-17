@@ -258,7 +258,6 @@ export function useYjs(docGuid, accessToken, user = null) {
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
   const reconnectCountRef = useRef(0);
-  const previousUserRef = useRef(null);
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
@@ -274,19 +273,18 @@ export function useYjs(docGuid, accessToken, user = null) {
   const { ydoc, provider, indexeddbProvider } = instancesRef.current;
   const awareness = provider?.awareness;
 
-  // Set awareness user state immediately when user info is available or changes
-  // This ensures awareness is always set before any rendering happens
-  useEffect(() => {
-    if (awareness && user) {
-      // Only update if user actually changed (avoid unnecessary updates)
-      const userChanged = JSON.stringify(previousUserRef.current) !== JSON.stringify(user);
-      if (userChanged) {
-        console.log('[useYjs] Setting awareness user state:', user);
-        awareness.setLocalStateField('user', user);
-        previousUserRef.current = user;
-      }
+  // Set awareness user state SYNCHRONOUSLY during render (not in useEffect)
+  // This ensures awareness is set before connection handlers run
+  // Critical for production where connection latency can cause race conditions
+  if (awareness && user) {
+    const currentState = awareness.getLocalState();
+    const currentUser = currentState?.user;
+    // Only update if user actually changed
+    if (!currentUser || currentUser.name !== user.name || currentUser.color !== user.color) {
+      console.log('[useYjs] Setting awareness user state (sync):', user.name);
+      awareness.setLocalStateField('user', user);
     }
-  }, [awareness, user]);
+  }
 
   // Manual reconnection function
   const forceReconnect = useCallback(() => {
@@ -314,9 +312,16 @@ export function useYjs(docGuid, accessToken, user = null) {
       console.log('[useYjs] Status event:', event.status);
       setConnectionState(event.status);
 
-      // Trust y-websocket's built-in awareness sync - it handles everything automatically
-      // Awareness state is set once by CollaborationCursorWithSelection and persists
-      // y-websocket syncs it to all clients without manual intervention
+      // When connected, ensure our awareness state is broadcast
+      // This handles the case where awareness was set before connection was established
+      if (event.status === 'connected') {
+        const localState = awareness.getLocalState();
+        if (localState?.user) {
+          console.log('[useYjs] Connection established, ensuring awareness is broadcast');
+          // Re-setting the same value triggers a broadcast
+          awareness.setLocalStateField('user', localState.user);
+        }
+      }
     };
 
     const handleSync = (isSynced) => {
