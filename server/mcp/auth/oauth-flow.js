@@ -479,12 +479,44 @@ async function handleDeleteDelegation(req, res) {
   res.json({ success: true });
 }
 
+/**
+ * Handle POST /mcp/auth/register
+ * Dynamic Client Registration (RFC 7591)
+ * For now, returns the pre-registered claude-desktop client
+ */
+async function handleRegister(req, res) {
+  console.log('[MCP OAuth] Client registration request:', req.body?.client_name || 'unknown');
+
+  // For Claude Desktop, return the pre-registered client configuration
+  // In a full implementation, this would create a new client in the database
+  const agent = await getRegisteredAgent('claude-desktop');
+
+  if (!agent) {
+    return res.status(500).json({
+      error: 'server_error',
+      error_description: 'Pre-registered client not found',
+    });
+  }
+
+  // Return client configuration per RFC 7591
+  res.status(201).json({
+    client_id: agent.id,
+    client_name: agent.name,
+    redirect_uris: agent.allowed_redirect_uris,
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    scope: agent.allowed_scopes.join(' '),
+  });
+}
+
 module.exports = {
   init,
   handleAuthorize,
   handleApprove,
   handleToken,
   handleRevoke,
+  handleRegister,
   handleListDelegations,
   handleDeleteDelegation,
 };

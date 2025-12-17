@@ -15,6 +15,7 @@ const router = express.Router();
 router.get('/authorize', optionalAuth, oauthFlow.handleAuthorize);
 router.post('/token', oauthFlow.handleToken);
 router.post('/revoke', oauthFlow.handleRevoke);
+router.post('/register', oauthFlow.handleRegister);
 
 // Protected endpoints (user-initiated, require session auth)
 router.post('/approve', requireAuth, oauthFlow.handleApprove);

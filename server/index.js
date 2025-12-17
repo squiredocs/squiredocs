@@ -214,6 +214,7 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     authorization_endpoint: `${baseUrl}/mcp/auth/authorize`,
     token_endpoint: `${baseUrl}/mcp/auth/token`,
     revocation_endpoint: `${baseUrl}/mcp/auth/revoke`,
+    registration_endpoint: `${baseUrl}/mcp/auth/register`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
