@@ -152,6 +152,46 @@ Sets the title of a document.
 - `title`: The title that was set
 - `message`: Confirmation message
 
+### set_agent_selection
+Sets a text selection in a document that is visible to all users, allowing the AI agent to highlight specific parts of the document. The selection appears with the agent's name and color, just like human user selections.
+
+**Arguments:**
+- `docGuid` (required): Document UUID
+- `from` (required): Start position of the selection (character offset, 0-indexed)
+- `to` (required): End position of the selection (character offset, 0-indexed). Set equal to `from` for cursor position.
+- `durationSeconds` (optional): How long to keep the selection visible (1-300 seconds, default: 60)
+
+**Returns:**
+- `success`: Boolean indicating if the operation succeeded
+- `message`: Confirmation message
+- `sessionId`: Unique ID for this selection session
+- `expiresIn`: Duration in seconds before the selection disappears
+- `selection`: Object with `from` and `to` positions
+- `agent`: Object with `name` and `color` of the agent
+
+**Use Cases:**
+- Draw attention to specific parts of the document
+- Highlight text being analyzed or referenced
+- Show which section is being edited or reviewed
+- Indicate focus areas during collaborative work
+
+**Example:**
+```javascript
+// Highlight characters 50-100 for 30 seconds
+{
+  "docGuid": "550e8400-e29b-41d4-a716-446655440000",
+  "from": 50,
+  "to": 100,
+  "durationSeconds": 30
+}
+```
+
+**Notes:**
+- Positions are character offsets in the plain text content (0-indexed)
+- Use `get_document` to read the content and calculate positions
+- The selection will automatically disappear after the specified duration
+- Multiple agents can have selections active simultaneously
+
 ## Troubleshooting
 
 ### Token Expired
