@@ -299,16 +299,27 @@ export function useYjs(docGuid, accessToken) {
       console.log('[useYjs] Status event:', event.status);
       setConnectionState(event.status);
 
-      // Re-broadcast awareness state after reconnection
+      // Only re-broadcast awareness if it was actually lost
+      // Note: y-websocket should automatically sync awareness states, so we only
+      // need to re-broadcast if we detect our local state is missing after sync
       if (event.status === 'connected') {
         const currentAwarenessState = awareness.getLocalState();
-        if (currentAwarenessState?.user) {
-          console.log('[useYjs] Re-broadcasting awareness state after reconnection');
-          // Small delay to ensure connection is fully established
-          setTimeout(() => {
-            awareness.setLocalStateField('user', currentAwarenessState.user);
-          }, 50);
-        }
+        console.log('[useYjs] Connected. Current local awareness state:', currentAwarenessState);
+
+        // Wait for sync to complete before checking if we need to re-broadcast
+        // This prevents us from interfering with the initial awareness sync from server
+        provider.once('sync', (isSynced) => {
+          if (isSynced) {
+            const stateAfterSync = awareness.getLocalState();
+            console.log('[useYjs] After sync, local state:', stateAfterSync);
+
+            // Only re-broadcast if we had a user state before but lost it after sync
+            if (currentAwarenessState?.user && !stateAfterSync?.user) {
+              console.log('[useYjs] Local awareness state was lost, re-broadcasting');
+              awareness.setLocalStateField('user', currentAwarenessState.user);
+            }
+          }
+        });
       }
     };
 
@@ -319,11 +330,30 @@ export function useYjs(docGuid, accessToken) {
         lastSyncTimeRef.current = Date.now();
         // Reset reconnect counter on successful sync
         reconnectCountRef.current = 0;
+
+        // Trigger awareness change handler after sync to ensure we have all states
+        // This is important because awareness states might not be fully synced until after document sync
+        setTimeout(() => {
+          console.log('[useYjs] Post-sync: Refreshing awareness states');
+          handleAwarenessChange();
+        }, 100);
       }
     };
 
     const handleAwarenessChange = () => {
       const states = Array.from(awareness.getStates().entries());
+
+      // Debug: Log all awareness states
+      console.log('[useYjs] Awareness changed. Total clients:', states.length);
+      states.forEach(([clientId, state]) => {
+        console.log(`  Client ${clientId}:`, {
+          hasUser: !!state.user,
+          userName: state.user?.name,
+          isAgent: state.user?.isAgent,
+          hasCursor: !!state.cursor,
+        });
+      });
+
       const userList = states
         .map(([clientId, state]) => {
           if (state.user) {
@@ -338,6 +368,8 @@ export function useYjs(docGuid, accessToken) {
           return null;
         })
         .filter(Boolean);
+
+      console.log('[useYjs] User list after filtering:', userList.length, userList.map(u => u.name));
       setUsers(userList);
     };
 
@@ -351,6 +383,13 @@ export function useYjs(docGuid, accessToken) {
     console.log('[useYjs] Initial state:', { connectionState: initialState, synced: initialSynced });
     setConnectionState(initialState);
     setSynced(initialSynced);
+
+    // Manually trigger awareness change handler to get initial state
+    // This ensures we show all connected users immediately
+    if (provider.wsconnected && provider.synced) {
+      console.log('[useYjs] Provider already connected and synced, getting initial awareness state');
+      handleAwarenessChange();
+    }
 
     return () => {
       provider.off('status', handleStatus);
