@@ -57,6 +57,9 @@ app.use((req, res, next) => {
 // Parse JSON bodies
 app.use(express.json());
 
+// Parse form-encoded bodies (required for OAuth token requests)
+app.use(express.urlencoded({ extended: true }));
+
 // Parse cookies for refresh token
 app.use(cookieParser());
 
