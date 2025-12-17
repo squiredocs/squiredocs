@@ -1,0 +1,40 @@
+name: Build and Push (Legacy - No Buildx)
+
+# Manual workflow dispatch for when Docker Hub is down
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main  # Only on main to avoid conflicts
+
+env:
+  REGISTRY: us-west1-docker.pkg.dev
+  IMAGE_PATH: us-west1-docker.pkg.dev/eqtgke/eqt/collab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.EQTGKE_JSON }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+
+      # Use legacy docker build (no buildx, no cache, but works without Docker Hub)
+      - name: Build image
+        run: |
+          docker build -t ${{ env.IMAGE_PATH }}:${{ github.sha }} .
+          docker tag ${{ env.IMAGE_PATH }}:${{ github.sha }} ${{ env.IMAGE_PATH }}:latest
+
+      - name: Push image
+        run: |
+          docker push ${{ env.IMAGE_PATH }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_PATH }}:latest

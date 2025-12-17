@@ -18,25 +18,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      # Set up Docker Buildx with retry logic for Docker Hub issues
+      - name: Set up Docker Buildx (attempt 1)
+        id: buildx1
         uses: docker/setup-buildx-action@v3
-        with:
-          # Use specific buildkit version to avoid Docker Hub issues
-          driver-opts: |
-            image=moby/buildkit:v0.12.5
         continue-on-error: true
 
-      # Wait and retry if first attempt failed (Docker Hub transient errors)
       - name: Wait before retry
-        if: failure()
-        run: sleep 10
+        if: steps.buildx1.outcome == 'failure'
+        run: sleep 30
 
-      - name: Retry Docker Buildx setup
-        if: failure()
+      - name: Set up Docker Buildx (attempt 2)
+        id: buildx2
+        if: steps.buildx1.outcome == 'failure'
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:v0.12.5
+        continue-on-error: true
+
+      - name: Wait before final retry
+        if: steps.buildx2.outcome == 'failure'
+        run: sleep 60
+
+      - name: Set up Docker Buildx (attempt 3)
+        if: steps.buildx2.outcome == 'failure'
+        uses: docker/setup-buildx-action@v3
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
