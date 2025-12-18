@@ -47,6 +47,31 @@ function setupProviderListeners(provider, ydoc, docGuid) {
   provider.on('connection-error', (error) => {
     logPerf('WS_ERROR', { error: error.message });
     console.error('[useYjs] Connection error:', error);
+
+    // Detect authentication/authorization failures
+    // WebSocket upgrade failures typically manifest as connection errors
+    // Common auth error: connection closes immediately without successful handshake
+    if (error && error.message) {
+      const errorMsg = error.message.toLowerCase();
+      if (errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
+          errorMsg.includes('403') || errorMsg.includes('forbidden') ||
+          errorMsg.includes('auth')) {
+        console.error('❌ AUTHENTICATION FAILED - Your session may have expired. Please refresh the page to log in again.');
+        logPerf('AUTH_ERROR_DETECTED', { error: error.message });
+      }
+    }
+  });
+
+  // Monitor connection close events for potential auth issues
+  provider.on('connection-close', (event) => {
+    logPerf('WS_CLOSE_EVENT', { code: event.code, reason: event.reason });
+
+    // WebSocket close codes: 1008 = Policy Violation (often used for auth failures)
+    // 1000 = Normal closure, 1001 = Going away, 1006 = Abnormal closure
+    if (event.code === 1008 || event.code === 4401 || event.code === 4403) {
+      console.error('❌ CONNECTION REJECTED - Authentication or authorization failed. Please refresh the page.');
+      logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
+    }
   });
 
   // Initialize default title only AFTER sync completes
@@ -254,6 +279,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
   const [docTitle, setDocTitleState] = useState('Untitled Document');
+  const [authError, setAuthError] = useState(false); // Track authentication errors
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
   const reconnectCountRef = useRef(0);
@@ -320,6 +346,31 @@ export function useYjs(docGuid, accessToken, user = null) {
           // Re-setting the same value triggers a broadcast
           awareness.setLocalStateField('user', localState.user);
         }
+        // Clear auth error on successful connection
+        setAuthError(false);
+      }
+    };
+
+    const handleConnectionError = (error) => {
+      // Detect authentication/authorization failures
+      if (error && error.message) {
+        const errorMsg = error.message.toLowerCase();
+        if (errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
+            errorMsg.includes('403') || errorMsg.includes('forbidden') ||
+            errorMsg.includes('auth')) {
+          console.error('❌ AUTHENTICATION FAILED - Your session may have expired. Please refresh the page to log in again.');
+          logPerf('AUTH_ERROR_DETECTED', { error: error.message });
+          setAuthError(true);
+        }
+      }
+    };
+
+    const handleConnectionClose = (event) => {
+      // WebSocket close codes: 1008 = Policy Violation (often used for auth failures)
+      if (event.code === 1008 || event.code === 4401 || event.code === 4403) {
+        console.error('❌ CONNECTION REJECTED - Authentication or authorization failed. Please refresh the page.');
+        logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
+        setAuthError(true);
       }
     };
 
@@ -371,6 +422,8 @@ export function useYjs(docGuid, accessToken, user = null) {
 
     provider.on('status', handleStatus);
     provider.on('sync', handleSync);
+    provider.on('connection-error', handleConnectionError);
+    provider.on('connection-close', handleConnectionClose);
     awareness.on('change', handleAwarenessChange);
 
     // Initial status check - determine actual state
@@ -390,6 +443,8 @@ export function useYjs(docGuid, accessToken, user = null) {
     return () => {
       provider.off('status', handleStatus);
       provider.off('sync', handleSync);
+      provider.off('connection-error', handleConnectionError);
+      provider.off('connection-close', handleConnectionClose);
       awareness.off('change', handleAwarenessChange);
     };
   }, [provider, awareness]);
@@ -470,6 +525,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     docTitle,
     setDocTitle,
     forceReconnect, // New: manual reconnection function
-    reconnectCount: reconnectCountRef.current // New: track reconnection attempts
+    reconnectCount: reconnectCountRef.current, // New: track reconnection attempts
+    authError // New: track authentication errors
   };
 }

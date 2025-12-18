@@ -61,7 +61,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     color: userColor
   }) : null, [user, userColor]);
 
-  const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount } = useYjs(docGuid, accessToken, collaborationUser);
+  const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount, authError } = useYjs(docGuid, accessToken, collaborationUser);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
@@ -225,7 +225,18 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Normal editor mode
   return (
     <div className="app">
-      {connectionState === 'disconnected' && (
+      {authError && (
+        <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
+          ❌ Authentication failed - Your session has expired.
+          <button
+            onClick={() => window.location.reload()}
+            style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px', backgroundColor: 'white', color: '#dc2626', border: 'none', borderRadius: '4px', fontWeight: '500' }}
+          >
+            Refresh Page
+          </button>
+        </div>
+      )}
+      {!authError && connectionState === 'disconnected' && (
         <div className="sync-banner sync-banner--disconnected">
           Offline
           <button
@@ -236,12 +247,12 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </button>
         </div>
       )}
-      {connectionState === 'connecting' && (
+      {!authError && connectionState === 'connecting' && (
         <div className="sync-banner sync-banner--connecting">
           {reconnectCount > 0 ? `Reconnecting... (${reconnectCount})` : 'Connecting...'}
         </div>
       )}
-      {connectionState === 'connected' && !synced && (
+      {!authError && connectionState === 'connected' && !synced && (
         <div className="sync-banner">Syncing...</div>
       )}
       <header className="app-header">

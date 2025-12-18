@@ -908,10 +908,12 @@ server.on('upgrade', async (request, socket, head) => {
   // Extract JWT from query string (client sends ?token=xxx)
   const token = url.searchParams.get('token');
   const user = permissions.extractUser({ queryToken: token });
-  
+
   if (!user) {
-    console.log('WebSocket auth failed: no valid token');
-    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    console.error('❌ WebSocket auth failed: no valid token for doc', docId);
+    console.error('   → This usually means the user\'s session has expired');
+    console.error('   → User should refresh the page to log in again');
+    socket.write('HTTP/1.1 401 Unauthorized\r\nX-Auth-Error: Invalid or expired token\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -919,8 +921,9 @@ server.on('upgrade', async (request, socket, head) => {
   // Check if user has at least view access
   const viewPermission = await permissions.can.view(user.userId, docId);
   if (!viewPermission.allowed) {
-    console.log(`WebSocket access denied for user ${user.userId} to doc ${docId}: ${viewPermission.reason}`);
-    socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+    console.error(`❌ WebSocket access denied for user ${user.userId} to doc ${docId}: ${viewPermission.reason}`);
+    console.error('   → User does not have permission to access this document');
+    socket.write('HTTP/1.1 403 Forbidden\r\nX-Auth-Error: Access denied\r\n\r\n');
     socket.destroy();
     return;
   }
