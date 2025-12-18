@@ -109,6 +109,18 @@ class PostgresPersistence {
         [docGuid, nextClock, Buffer.from(update), userId, agentName]
       );
 
+      // Update document timestamp (unified behavior for both regular user updates and MCP tool updates)
+      // This ensures the "last opened" date is always updated when a document is edited
+      // Note: If document doesn't exist in documents table, this will affect 0 rows (no error)
+      await client.query(
+        'UPDATE documents SET updated_at = now() WHERE id = $1',
+        [docGuid]
+      ).catch(err => {
+        // Log but don't fail the update if document record doesn't exist
+        // This can happen in edge cases where Yjs updates exist but document record doesn't
+        console.warn(`Could not update documents.updated_at for ${docGuid}:`, err.message);
+      });
+
       return nextClock;
     } finally {
       client.release();

@@ -202,8 +202,8 @@ async function handler(args, agentToken) {
     userId
   );
 
-  // Update document timestamp
-  await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
+  // Note: updated_at is now automatically updated by storeUpdate in postgres-persistence.js
+  // This ensures unified behavior for both regular user updates and MCP tool updates
 
   return {
     success: true,
