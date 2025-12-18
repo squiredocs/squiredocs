@@ -512,6 +512,19 @@ export function useYjs(docGuid, accessToken, user = null) {
     meta.set('title', newTitle);
   }, [ydoc]);
 
+  // Cleanup: Clear awareness state when component unmounts (navigating away from document)
+  // This ensures your avatar disappears when you leave, while keeping the provider cached
+  useEffect(() => {
+    return () => {
+      if (awareness && typeof awareness.setLocalStateField === 'function') {
+        console.log('[useYjs] Component unmounting, clearing awareness fields');
+        // Clear user and cursor fields specifically (don't clear entire state)
+        awareness.setLocalStateField('user', null);
+        awareness.setLocalStateField('cursor', null);
+      }
+    };
+  }, [awareness]);
+
   return {
     ydoc,
     provider,
