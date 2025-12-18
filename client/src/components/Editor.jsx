@@ -55,6 +55,7 @@ function renderSelection(user) {
 
 export default function Editor({ ydoc, awareness, provider, onEditorReady, editable = true, synced = false }) {
   const hideTimeoutRef = useRef(null);
+  const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
   const [linkPreview, setLinkPreview] = useState(null);
   const isMobile = useMobile();
@@ -194,18 +195,39 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, edita
     const initTimeout = setTimeout(showCursorLabels, 100);
 
     const handleAwarenessChange = ({ added, updated }) => {
-      // Show labels whenever any user's cursor/selection state changes
-      // This catches all cases including double/triple click selections
+      const localClientId = awareness.clientID;
+      const now = Date.now();
+
+      // Check for remote user changes
       const changedIds = [...added, ...updated];
-      
-      // Check if any changed user has cursor data
-      const hasCursorChange = changedIds.some(clientId => {
+      const hasRemoteChange = changedIds.some(clientId => {
+        if (clientId === localClientId) {
+          return false; // Skip local user
+        }
         const state = awareness.getStates().get(clientId);
         return state?.cursor != null;
       });
 
-      if (hasCursorChange || added.length > 0) {
+      // Check if local user cursor changed
+      const hasLocalCursorChange = updated.includes(localClientId) &&
+        awareness.getStates().get(localClientId)?.cursor != null;
+
+      // Show labels if:
+      // 1. Remote users changed (always show)
+      // 2. New users joined (always show)
+      // 3. Local cursor changed AND it's been >60 seconds since last local show (debounced)
+      if (hasRemoteChange || added.length > 0) {
         showCursorLabels();
+        // Update timestamp when showing due to remote changes
+        if (hasRemoteChange) {
+          lastLocalLabelShowRef.current = now;
+        }
+      } else if (hasLocalCursorChange) {
+        const timeSinceLastLocalShow = now - lastLocalLabelShowRef.current;
+        if (timeSinceLastLocalShow > 60000) { // 60 seconds
+          showCursorLabels();
+          lastLocalLabelShowRef.current = now;
+        }
       }
     };
 
@@ -246,6 +268,9 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, edita
     } else {
       setLinkPreview(null);
     }
+
+    // Note: Clicks that move the cursor will trigger awareness changes
+    // and go through the same debounced label logic as arrow key navigation
   }, []);
 
   const handleCopyLink = useCallback(() => {
