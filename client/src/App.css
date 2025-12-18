@@ -689,12 +689,17 @@
   word-break: break-all;
 }
 
-.connect-claude-btn {
+.connect-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.connect-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   text-decoration: none;
   border-radius: 8px;
@@ -703,6 +708,10 @@
   transition: all 0.2s ease;
   border: none;
   cursor: pointer;
+}
+
+.connect-claude-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
 }
 
@@ -716,7 +725,22 @@
   box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
 }
 
-.claude-icon {
+.connect-chatgpt-btn {
+  background: linear-gradient(135deg, #10a37f 0%, #0d8b6b 100%);
+  box-shadow: 0 2px 4px rgba(16, 163, 127, 0.2);
+}
+
+.connect-chatgpt-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.4);
+}
+
+.connect-chatgpt-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(16, 163, 127, 0.2);
+}
+
+.connect-icon {
   flex-shrink: 0;
 }
 
