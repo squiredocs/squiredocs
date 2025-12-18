@@ -336,5 +336,132 @@ describe('version-history module', () => {
       // This should be "Initial content", not "Final version"
       expect(restoredText).toBe('Initial content');
     });
+
+    test('applies restore update to in-memory document (would have failed before fix)', async () => {
+      // This test verifies that the restore update is applied to the in-memory document
+      // This would have failed before the fix because restore only persisted to DB
+      const updates = [];
+      let clock = 0;
+
+      const mockPersistence = {
+        storeUpdate: jest.fn(async (docGuid, update, userId) => {
+          clock++;
+          updates.push({ clock, update: new Uint8Array(update), userId });
+          return clock;
+        }),
+        getYDoc: jest.fn(async (docGuid) => {
+          const doc = new Y.Doc();
+          for (const { update } of updates) {
+            Y.applyUpdate(doc, update);
+          }
+          return doc;
+        }),
+        getUpdatesWithUsers: jest.fn(async (docGuid) => {
+          return updates.map(u => ({
+            clock: u.clock,
+            createdAt: new Date().toISOString(),
+            userId: u.userId,
+            userName: 'Test User',
+          }));
+        }),
+        getVersionById: jest.fn(),
+        getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+          const doc = new Y.Doc();
+          for (const { update, clock: updateClock } of updates) {
+            if (updateClock <= targetClock) {
+              Y.applyUpdate(doc, update);
+            }
+          }
+          return doc;
+        }),
+      };
+
+      // Helper to get text content from doc
+      const getText = (doc) => {
+        const fragment = doc.getXmlFragment('default');
+        let text = '';
+
+        const extractText = (item) => {
+          if (item instanceof Y.XmlText) {
+            return item.toString();
+          } else if (item instanceof Y.XmlElement) {
+            let result = '';
+            for (let i = 0; i < item.length; i++) {
+              result += extractText(item.get(i));
+            }
+            return result;
+          }
+          return '';
+        };
+
+        for (let i = 0; i < fragment.length; i++) {
+          const element = fragment.get(i);
+          text += extractText(element);
+        }
+
+        return text;
+      };
+
+      // Helper to set text content
+      const setText = (doc, text) => {
+        const fragment = doc.getXmlFragment('default');
+        doc.transact(() => {
+          // Clear existing content
+          while (fragment.length > 0) {
+            fragment.delete(0, fragment.length);
+          }
+          // Create a paragraph with text
+          const paragraph = new Y.XmlElement('paragraph');
+          const textContent = new Y.XmlText();
+          textContent.insert(0, text);
+          paragraph.insert(0, [textContent]);
+          fragment.insert(0, [paragraph]);
+        });
+      };
+
+      // Set up document versions
+      // Version 1: "Original content"
+      const doc1 = new Y.Doc();
+      setText(doc1, 'Original content');
+      const update1 = Y.encodeStateAsUpdate(doc1);
+      await mockPersistence.storeUpdate('test-doc', update1, 'user-1');
+
+      // Version 2: "Modified content"
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, update1);
+      setText(doc2, 'Modified content');
+      const stateVector1 = Y.encodeStateVector(doc1);
+      const update2 = Y.encodeStateAsUpdate(doc2, stateVector1);
+      await mockPersistence.storeUpdate('test-doc', update2, 'user-1');
+
+      // Create an in-memory document that simulates the shared document used by WebSocket clients
+      // This document starts with the current state (after both updates)
+      const inMemoryDoc = new Y.Doc();
+      Y.applyUpdate(inMemoryDoc, update1);
+      Y.applyUpdate(inMemoryDoc, update2);
+
+      // Verify in-memory doc has "Modified content" before restore
+      expect(getText(inMemoryDoc)).toBe('Modified content');
+
+      // Mock function to get the shared document (simulating documentService.getSharedDoc)
+      const getSharedDocFn = (docGuid) => {
+        if (docGuid === 'test-doc') {
+          return inMemoryDoc;
+        }
+        return null;
+      };
+
+      // Restore to version 1 (clock 1) - this should update the in-memory document
+      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1', getSharedDocFn);
+
+      // Verify that the in-memory document was actually updated with the restored content
+      // This is the key assertion - before the fix, this would fail because
+      // the restore update wasn't applied to the in-memory document
+      expect(getText(inMemoryDoc)).toBe('Original content');
+
+      // Also verify the database has the correct content
+      const restoredDoc = await mockPersistence.getYDoc('test-doc');
+      expect(getText(restoredDoc)).toBe('Original content');
+    });
   });
 });

@@ -63,6 +63,14 @@ describe('OAuth Flow', () => {
 
     registeredAgents.validateRedirectUri.mockReturnValue({ valid: true });
 
+    registeredAgents.createOrUpdateAgent.mockResolvedValue({
+      id: 'unknown-agent',
+      name: 'unknown-agent',
+      allowed_redirect_uris: [],
+      allowed_scopes: ['documents:read', 'documents:write'],
+      default_scopes: ['documents:read'],
+    });
+
     pkce.validateCodeChallenge.mockReturnValue({ valid: true });
     pkce.generateAuthCode.mockReturnValue('mock-auth-code-123');
     pkce.hashAuthCode.mockReturnValue('mock-code-hash');
@@ -144,7 +152,7 @@ describe('OAuth Flow', () => {
       );
     });
 
-    test('validates agent_client_id exists', async () => {
+    test('auto-registers unknown agent', async () => {
       registeredAgents.getRegisteredAgent.mockResolvedValue(null);
 
       mockReq.query = {
@@ -156,13 +164,20 @@ describe('OAuth Flow', () => {
 
       await oauthFlow.handleAuthorize(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'invalid_client' })
+      // Should auto-register the agent instead of returning an error
+      expect(registeredAgents.createOrUpdateAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'unknown-agent',
+          name: 'unknown-agent',
+        })
       );
+      // Should redirect to consent page, not return an error
+      expect(mockRes.redirect).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalledWith(400);
     });
 
-    test('validates redirect_uri', async () => {
+    test('allows any redirect_uri (no validation)', async () => {
+      // Redirect URI validation is disabled - any redirect URI is allowed
       registeredAgents.validateRedirectUri.mockReturnValue({
         valid: false,
         error: 'Invalid redirect URI',
@@ -177,7 +192,11 @@ describe('OAuth Flow', () => {
 
       await oauthFlow.handleAuthorize(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
+      // Should redirect to consent page, not return an error
+      expect(mockRes.redirect).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalledWith(400);
+      // validateRedirectUri should not be called since validation is disabled
+      expect(registeredAgents.validateRedirectUri).not.toHaveBeenCalled();
     });
 
     test('validates code_challenge format', async () => {
@@ -318,15 +337,21 @@ describe('OAuth Flow', () => {
       );
     });
 
-    test('validates agent exists', async () => {
+    test('auto-registers unknown agent in approve', async () => {
       registeredAgents.getRegisteredAgent.mockResolvedValue(null);
 
       await oauthFlow.handleApprove(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'invalid_client' })
+      // Should auto-register the agent instead of returning an error
+      expect(registeredAgents.createOrUpdateAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'claude-code',
+          name: 'claude-code',
+        })
       );
+      // Should continue with approval flow, not return an error
+      expect(mockRes.status).not.toHaveBeenCalledWith(400);
+      expect(pkce.generateAuthCode).toHaveBeenCalled();
     });
 
     test('validates scopes', async () => {

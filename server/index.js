@@ -718,7 +718,18 @@ app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to restore this document' });
     }
 
-    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId);
+    // Get function to access shared document for broadcasting restore update
+    const getSharedDocFn = (docGuid) => {
+      try {
+        return documentService.getSharedDoc(docGuid);
+      } catch (error) {
+        // Document service might not be initialized or document not loaded yet
+        console.warn(`[Restore] Could not get shared document for ${docGuid}:`, error.message);
+        return null;
+      }
+    };
+
+    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, getSharedDocFn);
     res.json(result);
   } catch (error) {
     console.error('Error restoring version:', error);
