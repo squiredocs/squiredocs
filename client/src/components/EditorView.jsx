@@ -393,7 +393,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         background: '#fff',
                         cursor: 'pointer'
                       }}
-                      title={`${u.name} - Click to jump to their cursor`}
+                      title={u.name}
                       onClick={() => handleUserAvatarClick(u.id)}
                     >
                       {u.isAgent ? (
