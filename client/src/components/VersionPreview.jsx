@@ -5,6 +5,7 @@ import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Collaboration from '@tiptap/extension-collaboration';
 import * as Y from 'yjs';
+import './EditorCommon.css';
 import './VersionPreview.css';
 
 /**
@@ -58,11 +59,6 @@ function VersionPreview({
   const editor = useEditor({
     extensions,
     editable: false,
-    editorProps: {
-      attributes: {
-        class: 'version-preview-editor',
-      },
-    },
   }, [extensions]);
 
   // Cleanup ydoc on unmount
@@ -94,9 +90,9 @@ function VersionPreview({
 
   return (
     <div className="version-preview">
-      <div className="version-preview-content">
+      <div className="editor-common-container version-preview-content">
         {editor ? (
-          <EditorContent editor={editor} />
+          <EditorContent editor={editor} className="editor-common-content" />
         ) : (
           <div className="version-preview-loading">Loading version...</div>
         )}

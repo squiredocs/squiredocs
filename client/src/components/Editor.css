@@ -1,119 +1,7 @@
-.editor-container {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  display: flex;
-  flex-direction: column;
-}
-
-.editor-content {
-  background-color: #ffffff;
-  padding: 0 48px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.editor-content .ProseMirror {
-  outline: none;
-  max-width: 816px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 96px;
-  background-color: #ffffff;
-  border-left: 1px solid #e0e0e0;
-  border-right: 1px solid #e0e0e0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: #333;
-  box-sizing: border-box;
-  flex: 1;
-}
-
-.editor-content .ProseMirror p {
-  margin: 0 0 12px 0;
-}
-
-.editor-content .ProseMirror h1 {
-  font-size: 32px;
-  font-weight: 700;
-  margin: 24px 0 16px 0;
-  line-height: 1.2;
-}
-
-.editor-content .ProseMirror h2 {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 20px 0 12px 0;
-  line-height: 1.3;
-}
-
-.editor-content .ProseMirror h3 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 16px 0 10px 0;
-  line-height: 1.4;
-}
-
-.editor-content .ProseMirror ul,
-.editor-content .ProseMirror ol {
-  margin: 12px 0;
-  padding-left: 24px;
-}
-
-.editor-content .ProseMirror li {
-  margin: 4px 0;
-}
-
-.editor-content .ProseMirror li p{
-  margin: 0;
-}
-
-.editor-content .ProseMirror code {
-  background-color: #f4f4f4;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-}
-
-.editor-content .ProseMirror pre {
-  background-color: #f4f4f4;
-  padding: 12px;
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-
-.editor-content .ProseMirror pre code {
-  background-color: transparent;
-  padding: 0;
-}
-
-.editor-content .ProseMirror strong {
-  font-weight: 700;
-}
-
-.editor-content .ProseMirror em {
-  font-style: italic;
-}
-
-.editor-content .ProseMirror u {
-  text-decoration: underline;
-}
-
-.editor-content .ProseMirror s {
-  text-decoration: line-through;
-}
-
-.editor-content .ProseMirror a {
-  color: #2563eb;
-  text-decoration: underline;
-  cursor: pointer;
-}
+/* Editor-specific styles - base styles are in EditorCommon.css */
 
 /* Collaboration cursor styles */
-.editor-content .collaboration-cursor__caret {
+.editor-common-content .collaboration-cursor__caret {
   border-left: 2px solid;
   margin-left: -1px;
   margin-right: -1px;
@@ -123,11 +11,11 @@
 }
 
 /* Collaboration selection highlight */
-.editor-content .collaboration-cursor__selection {
+.editor-common-content .collaboration-cursor__selection {
   pointer-events: none;
 }
 
-.editor-content .collaboration-cursor__label {
+.editor-common-content .collaboration-cursor__label {
   border-radius: 3px 3px 3px 0;
   color: #fff;
   font-size: 12px;
@@ -146,27 +34,27 @@
   pointer-events: none;
 }
 
-.editor-content .collaboration-cursor__label--visible {
+.editor-common-content .collaboration-cursor__label--visible {
   opacity: 1;
   transform: translateY(0);
 }
 
 /* Agent cursor styles */
-.editor-content .collaboration-cursor__label.agent-cursor {
+.editor-common-content .collaboration-cursor__label.agent-cursor {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 3px 8px 3px 3px;
 }
 
-.editor-content .agent-avatar-container {
+.editor-common-content .agent-avatar-container {
   position: relative;
   width: 20px;
   height: 20px;
   flex-shrink: 0;
 }
 
-.editor-content .agent-robot-avatar {
+.editor-common-content .agent-robot-avatar {
   width: 20px;
   height: 20px;
   display: flex;
@@ -178,7 +66,7 @@
   border-radius: 50%;
 }
 
-.editor-content .agent-user-overlay {
+.editor-common-content .agent-user-overlay {
   position: absolute;
   bottom: -2px;
   right: -2px;
@@ -190,6 +78,7 @@
   background: white;
 }
 
+/* Loading state */
 .editor-loading {
   display: flex;
   align-items: center;
@@ -198,23 +87,11 @@
   color: #666;
 }
 
-/* Mobile responsive styles */
+/* Mobile responsive styles - editor-specific overrides */
 @media (max-width: 768px) {
   .editor-container {
     /* Ensure cursor stays visible above the fixed format bar when scrolling into view */
     scroll-padding-bottom: 80px;
-  }
-
-  .editor-content {
-    padding: 0;
-  }
-
-  .editor-content .ProseMirror {
-    max-width: 100%;
-    padding: 16px;
-    padding-bottom: 100px;
-    border-left: none;
-    border-right: none;
   }
 }
 

@@ -1,0 +1,142 @@
+/* Shared ProseMirror editor styles used by both Editor and VersionPreview components */
+
+/* Container for the editor content */
+.editor-common-container {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Content wrapper with horizontal padding */
+.editor-common-content {
+  background-color: #ffffff;
+  padding: 0 48px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ProseMirror editor base styles */
+.editor-common-content .ProseMirror {
+  outline: none;
+  max-width: 816px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 96px;
+  background-color: #ffffff;
+  border-left: 1px solid #e0e0e0;
+  border-right: 1px solid #e0e0e0;
+  font-size: 16px;
+  line-height: 1.2;
+  color: #333;
+  box-sizing: border-box;
+  flex: 1;
+}
+
+/* Paragraph spacing */
+.editor-common-content .ProseMirror p {
+  margin: 0 0 12px 0;
+}
+
+/* Heading 1 */
+.editor-common-content .ProseMirror h1 {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 24px 0 16px 0;
+  line-height: 1.2;
+}
+
+/* Heading 2 */
+.editor-common-content .ProseMirror h2 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 20px 0 12px 0;
+  line-height: 1.3;
+}
+
+/* Heading 3 */
+.editor-common-content .ProseMirror h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 16px 0 10px 0;
+  line-height: 1.4;
+}
+
+/* Lists */
+.editor-common-content .ProseMirror ul,
+.editor-common-content .ProseMirror ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.editor-common-content .ProseMirror li {
+  margin: 4px 0;
+}
+
+.editor-common-content .ProseMirror li p{
+  margin: 0;
+}
+
+/* Inline code */
+.editor-common-content .ProseMirror code {
+  background-color: #f4f4f4;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+
+/* Code blocks */
+.editor-common-content .ProseMirror pre {
+  background-color: #f4f4f4;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.editor-common-content .ProseMirror pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+/* Text formatting */
+.editor-common-content .ProseMirror strong {
+  font-weight: 700;
+}
+
+.editor-common-content .ProseMirror em {
+  font-style: italic;
+}
+
+.editor-common-content .ProseMirror u {
+  text-decoration: underline;
+}
+
+.editor-common-content .ProseMirror s {
+  text-decoration: line-through;
+}
+
+/* Links */
+.editor-common-content .ProseMirror a {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .editor-common-content {
+    padding: 0;
+  }
+
+  .editor-common-content .ProseMirror {
+    max-width: 100%;
+    padding: 16px;
+    padding-bottom: 100px;
+    border-left: none;
+    border-right: none;
+  }
+}

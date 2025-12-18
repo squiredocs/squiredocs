@@ -8,6 +8,7 @@ import LinkPreview from './LinkPreview';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
+import './EditorCommon.css';
 import './Editor.css';
 
 // Create cursor element with label
@@ -307,8 +308,8 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, edita
   }
 
   return (
-    <div className="editor-container" ref={containerRef} onClick={handleClick}>
-      <EditorContent editor={editor} className="editor-content" />
+    <div className="editor-common-container editor-container" ref={containerRef} onClick={handleClick}>
+      <EditorContent editor={editor} className="editor-common-content editor-content" />
       {linkPreview && (
         <LinkPreview
           href={linkPreview.href}

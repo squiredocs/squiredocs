@@ -1,3 +1,5 @@
+/* VersionPreview-specific styles - base editor styles are in EditorCommon.css */
+
 .version-preview {
   display: flex;
   flex-direction: column;
@@ -5,113 +7,7 @@
   background: #fff;
 }
 
-.version-preview-content {
-  flex: 1;
-  overflow-y: auto;
-  background-color: #ffffff;
-  padding: 0 48px;
-  display: flex;
-  flex-direction: column;
-}
-
-.ProseMirror.version-preview-editor {
-  outline: none;
-  max-width: 816px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 96px;
-  background-color: #ffffff;
-  border-left: 1px solid #e0e0e0;
-  border-right: 1px solid #e0e0e0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: #333;
-  box-sizing: border-box;
-  flex: 1;
-}
-
-.ProseMirror.version-preview-editor p {
-  margin: 0 0 12px 0;
-}
-
-.ProseMirror.version-preview-editor h1 {
-  font-size: 32px;
-  font-weight: 700;
-  margin: 24px 0 16px 0;
-  line-height: 1.2;
-}
-
-.ProseMirror.version-preview-editor h2 {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 20px 0 12px 0;
-  line-height: 1.3;
-}
-
-.ProseMirror.version-preview-editor h3 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 16px 0 10px 0;
-  line-height: 1.4;
-}
-
-.ProseMirror.version-preview-editor ul,
-.ProseMirror.version-preview-editor ol {
-  margin: 12px 0;
-  padding-left: 24px;
-}
-
-.ProseMirror.version-preview-editor li {
-  margin: 4px 0;
-}
-
-.ProseMirror.version-preview-editor li p{
-  margin: 0;
-}
-
-.ProseMirror.version-preview-editor code {
-  background-color: #f4f4f4;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-}
-
-.ProseMirror.version-preview-editor pre {
-  background-color: #f4f4f4;
-  padding: 12px;
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-
-.ProseMirror.version-preview-editor pre code {
-  background-color: transparent;
-  padding: 0;
-}
-
-.ProseMirror.version-preview-editor strong {
-  font-weight: 700;
-}
-
-.ProseMirror.version-preview-editor em {
-  font-style: italic;
-}
-
-.ProseMirror.version-preview-editor u {
-  text-decoration: underline;
-}
-
-.ProseMirror.version-preview-editor s {
-  text-decoration: line-through;
-}
-
-.ProseMirror.version-preview-editor a {
-  color: #2563eb;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
+/* Loading state */
 .version-preview-loading {
   display: flex;
   align-items: center;
@@ -146,17 +42,3 @@
   font-weight: 500;
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .version-preview-content {
-    padding: 0;
-  }
-
-  .ProseMirror.version-preview-editor {
-    max-width: 100%;
-    padding: 16px;
-    padding-bottom: 100px;
-    border-left: none;
-    border-right: none;
-  }
-}
