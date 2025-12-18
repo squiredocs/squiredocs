@@ -431,3 +431,17 @@
     border-radius: 50%;
   }
 }
+
+/* User avatar animations */
+.user-avatar {
+  animation: avatarFadeIn 0.3s ease-out;
+}
+
+@keyframes avatarFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

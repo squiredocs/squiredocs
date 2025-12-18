@@ -72,6 +72,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
 
+  // Filter out current user from the users list
+  const displayUsers = React.useMemo(() => {
+    return users.filter(u => u.id !== awareness?.clientID);
+  }, [users, awareness?.clientID]);
+
   // Handle clicking on a user avatar to jump to their cursor
   const handleUserAvatarClick = (userId) => {
     if (!awareness || !editor || !ydoc) {
@@ -367,14 +372,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </div>
           <div className="app-header-right">
             {/* Active collaborators (excluding current user) */}
-            {users.filter(u => u.id !== awareness?.clientID).length > 0 && (
+            {displayUsers.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', marginRight: 8 }}>
-                {users
-                  .filter(u => u.id !== awareness?.clientID)
+                {displayUsers
                   .slice(0, 5)
                   .map((u, i) => (
                     <div
                       key={u.id}
+                      className="user-avatar"
                       style={{
                         width: 32,
                         height: 32,
@@ -474,7 +479,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       )}
                     </div>
                   ))}
-                {users.filter(u => u.id !== awareness?.clientID).length > 5 && (
+                {displayUsers.length > 5 && (
                   <div style={{
                     width: 32,
                     height: 32,
