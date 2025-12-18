@@ -2,18 +2,25 @@
  * create_document MCP Tool
  *
  * Creates a new document with optional initial content.
+ * Uses the same application logic as regular user document creation.
  */
 const Y = require('yjs');
+const { randomUUID } = require('crypto');
+const documentService = require('../../document-service');
+const { buildYjsNode } = require('../yjs/node-builder');
 
-// Persistence provider - set by init function
+// Persistence provider and documents module - set by init function
 let persistenceProvider = null;
+let documents = null;
 
 /**
- * Initialize the tool with a persistence provider
+ * Initialize the tool with a persistence provider and documents module
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Import documents module here to avoid circular dependencies
+  documents = require('../../documents');
 }
 
 /**
@@ -41,53 +48,44 @@ const inputSchema = {
  * @returns {Promise<object>} { docGuid, message }
  */
 async function handler(args, agentToken) {
-  if (!persistenceProvider) throw new Error('create_document tool not initialized');
+  if (!persistenceProvider || !documents) throw new Error('create_document tool not initialized');
 
   const { content } = args;
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
 
-  // Create the document record with a database-generated UUID
-  const docResult = await pool.query(
-    `INSERT INTO documents (id, creator_id)
-     VALUES (uuid_generate_v4(), $1)
-     RETURNING id`,
-    [userId]
-  );
-  const docGuid = docResult.rows[0].id;
+  // Generate UUID (same approach as client-side, but using Node.js crypto)
+  const docGuid = randomUUID();
 
-  // Set the creator as owner
-  await pool.query(
-    `INSERT INTO document_shares (doc_id, user_id, role)
-     VALUES ($1, $2, 'owner')`,
-    [docGuid, userId]
-  );
+  // Create the document using the same application logic as regular users
+  // This ensures consistent behavior: creates document record and sets owner role
+  await documents.createDocument(docGuid, userId);
 
-  // If content was provided, create initial Yjs document
+  // If content was provided, add it using the same update path as regular edits
+  // This ensures the content goes through the normal Yjs update flow and persistence
   if (content) {
-    const ydoc = new Y.Doc();
-    const xmlFragment = ydoc.get('default', Y.XmlFragment);
+    // Convert plain text content to structured nodes (paragraphs)
+    // Split by newlines and create paragraph nodes, preserving empty lines as empty paragraphs
+    const lines = content.split('\n');
+    const nodes = lines.map(line => ({
+      type: 'paragraph',
+      content: line || '' // Empty lines become empty paragraphs
+    }));
 
-    // Split content into paragraphs
-    const paragraphs = content.split('\n');
-    for (const para of paragraphs) {
-      const paragraph = new Y.XmlElement('paragraph');
-      const text = new Y.XmlText();
-      text.insert(0, para);
-      paragraph.insert(0, [text]);
-      xmlFragment.insert(xmlFragment.length, [paragraph]);
-    }
-
-    // Save the initial update
-    const update = Y.encodeStateAsUpdate(ydoc);
-    await pool.query(
-      'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, 0, $2)',
-      [docGuid, Buffer.from(update)]
+    // Use documentService.updateDocument to apply initial content
+    // This ensures it goes through the same code path as regular updates:
+    // - Broadcasts to WebSocket clients
+    // - Persists via storeUpdate (which now updates updated_at automatically)
+    // - Uses the same attribution and version history tracking
+    await documentService.updateDocument(
+      docGuid,
+      (ydoc) => {
+        const xmlFragment = ydoc.get('default', Y.XmlFragment);
+        const yjsNodes = nodes.map((node) => buildYjsNode(node));
+        xmlFragment.insert(0, yjsNodes);
+      },
+      userId
     );
   }
-
-  // Update document timestamp
-  await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
 
   return {
     docGuid,
