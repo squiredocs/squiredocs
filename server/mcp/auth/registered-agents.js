@@ -89,10 +89,43 @@ async function listRegisteredAgents() {
   return result.rows;
 }
 
+/**
+ * Create or update a registered agent
+ * Allows dynamic registration of new agents
+ */
+async function createOrUpdateAgent({
+  id,
+  name,
+  description = null,
+  icon_url = null,
+  allowed_scopes = ['documents:read', 'documents:write'],
+  default_scopes = ['documents:read'],
+  allowed_redirect_uris = [],
+  is_public_client = true,
+}) {
+  const result = await pool.query(
+    `INSERT INTO registered_agents
+     (id, name, description, icon_url, allowed_scopes, default_scopes, allowed_redirect_uris, is_public_client, is_enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+     ON CONFLICT (id) DO UPDATE
+     SET name = EXCLUDED.name,
+         description = COALESCE(EXCLUDED.description, registered_agents.description),
+         icon_url = COALESCE(EXCLUDED.icon_url, registered_agents.icon_url),
+         allowed_scopes = EXCLUDED.allowed_scopes,
+         default_scopes = EXCLUDED.default_scopes,
+         allowed_redirect_uris = EXCLUDED.allowed_redirect_uris,
+         updated_at = NOW()
+     RETURNING *`,
+    [id, name, description, icon_url, allowed_scopes, default_scopes, allowed_redirect_uris, is_public_client]
+  );
+  return result.rows[0];
+}
+
 module.exports = {
   init,
   getRegisteredAgent,
   validateScopes,
   validateRedirectUri,
   listRegisteredAgents,
+  createOrUpdateAgent,
 };

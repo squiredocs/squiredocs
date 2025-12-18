@@ -4,7 +4,7 @@
  * Implements authorization code flow with PKCE.
  */
 const crypto = require('crypto');
-const { getRegisteredAgent, validateScopes, validateRedirectUri } = require('./registered-agents');
+const { getRegisteredAgent, validateScopes, validateRedirectUri, createOrUpdateAgent } = require('./registered-agents');
 const { validateCodeChallenge, generateAuthCode, hashAuthCode, validateCodeVerifier } = require('./pkce');
 const { generateAgentToken } = require('./jwt');
 const { createDelegation, getActiveDelegation } = require('./delegation');
@@ -58,17 +58,23 @@ async function handleAuthorize(req, res) {
     return res.status(400).json({ error: 'invalid_request', details: challengeValidation.error });
   }
 
-  // 3. Get registered agent
-  const agent = await getRegisteredAgent(clientId);
+  // 3. Get or create registered agent (allow dynamic registration)
+  let agent = await getRegisteredAgent(clientId);
   if (!agent) {
-    return res.status(400).json({ error: 'invalid_client', details: 'Unknown client_id' });
+    // Auto-register new agents on first authorization request
+    agent = await createOrUpdateAgent({
+      id: clientId,
+      name: clientId,
+      description: `Auto-registered agent: ${clientId}`,
+      allowed_scopes: ['documents:read', 'documents:write'],
+      default_scopes: ['documents:read'],
+      allowed_redirect_uris: [], // No redirect URI restrictions
+      is_public_client: true,
+    });
+    console.log(`[MCP OAuth] Auto-registered new agent: ${clientId}`);
   }
 
-  // 4. Validate redirect URI
-  const uriValidation = validateRedirectUri(agent, redirect_uri);
-  if (!uriValidation.valid) {
-    return res.status(400).json({ error: 'invalid_request', details: uriValidation.error });
-  }
+  // 4. No redirect URI validation - allow any redirect URI
 
   // 5. Validate scopes
   const requestedScopes = scope || agent.default_scopes.join(' ');
@@ -145,10 +151,20 @@ async function handleApprove(req, res) {
     return res.redirect(redirectUrl);
   }
 
-  // 3. Re-validate everything server-side
-  const agent = await getRegisteredAgent(agent_client_id);
+  // 3. Get or create registered agent (allow dynamic registration)
+  let agent = await getRegisteredAgent(agent_client_id);
   if (!agent) {
-    return res.status(400).json({ error: 'invalid_client' });
+    // Auto-register new agents if they don't exist
+    agent = await createOrUpdateAgent({
+      id: agent_client_id,
+      name: agent_client_id,
+      description: `Auto-registered agent: ${agent_client_id}`,
+      allowed_scopes: ['documents:read', 'documents:write'],
+      default_scopes: ['documents:read'],
+      allowed_redirect_uris: [],
+      is_public_client: true,
+    });
+    console.log(`[MCP OAuth] Auto-registered new agent in approve: ${agent_client_id}`);
   }
 
   const scopeArray = Array.isArray(scopes) ? scopes : scopes.split(' ');
@@ -257,7 +273,9 @@ async function handleAuthCodeExchange(req, res, { code, code_verifier, redirect_
   const authCode = codeResult.rows[0];
   console.log('[MCP OAuth] Found auth code for user:', authCode.user_id, 'agent:', authCode.agent_client_id);
 
-  // 3. Validate redirect_uri matches
+  // 3. Validate redirect_uri matches (security: ensure it matches what was stored)
+  // Note: We no longer validate against allowed patterns, but we still check it matches
+  // the redirect_uri from the authorization request for security
   if (authCode.redirect_uri !== redirect_uri) {
     return res.status(400).json({
       error: 'invalid_grant',
@@ -501,35 +519,39 @@ async function handleDeleteDelegation(req, res) {
 /**
  * Handle POST /mcp/auth/register
  * Dynamic Client Registration (RFC 7591)
+ * 
+ * Allows any service to register as an MCP agent dynamically.
  */
 async function handleRegister(req, res) {
-  const { client_name, redirect_uris } = req.body;
+  const { client_name, redirect_uris, scopes } = req.body;
   console.log('[MCP OAuth] Client registration request:', client_name, 'redirect_uris:', redirect_uris);
 
-  // Validate redirect_uris are provided
-  if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
-    return res.status(400).json({
-      error: 'invalid_redirect_uri',
-      error_description: 'At least one redirect_uri must be provided',
-    });
-  }
+  // Generate a unique client ID if not provided
+  const clientId = req.body.client_id || `client_${crypto.randomBytes(16).toString('hex')}`;
 
-  // For Claude Desktop, use the pre-registered client ID but allow dynamic redirect URIs
-  const agent = await getRegisteredAgent('claude-desktop');
+  // Default scopes if not provided
+  const allowedScopes = scopes && Array.isArray(scopes) 
+    ? scopes 
+    : ['documents:read', 'documents:write'];
 
-  if (!agent) {
-    return res.status(500).json({
-      error: 'server_error',
-      error_description: 'Pre-registered client not found',
-    });
-  }
+  // Create or update the agent
+  const agent = await createOrUpdateAgent({
+    id: clientId,
+    name: client_name || clientId,
+    description: `Dynamically registered agent: ${client_name || clientId}`,
+    allowed_scopes: allowedScopes,
+    default_scopes: allowedScopes,
+    allowed_redirect_uris: redirect_uris || [], // Store but don't enforce
+    is_public_client: true,
+  });
+
+  console.log(`[MCP OAuth] Registered new agent: ${clientId}`);
 
   // Return client configuration per RFC 7591
-  // Use the redirect_uris provided by the client instead of wildcards
   res.status(201).json({
     client_id: agent.id,
-    client_name: client_name || agent.name,
-    redirect_uris: redirect_uris, // Use exact URIs from client
+    client_name: agent.name,
+    redirect_uris: redirect_uris || [],
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
