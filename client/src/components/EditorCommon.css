@@ -135,7 +135,7 @@
   .editor-common-content .ProseMirror {
     max-width: 100%;
     padding: 16px;
-    padding-bottom: 100px;
+    padding-bottom: 400px;
     border-left: none;
     border-right: none;
   }
