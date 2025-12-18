@@ -53,7 +53,7 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, onEditorReady, editable = true, synced = false }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false }) {
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
@@ -131,6 +131,13 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, edita
       onEditorReady(editor);
     }
   }, [editor, onEditorReady]);
+
+  // Provide showCursorLabels function to parent
+  useEffect(() => {
+    if (onShowLabelsReady) {
+      onShowLabelsReady(showCursorLabels);
+    }
+  }, [onShowLabelsReady, showCursorLabels]);
 
   // Scroll to top when document syncs to prevent browser scroll restoration
   useEffect(() => {

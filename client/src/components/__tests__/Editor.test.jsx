@@ -514,5 +514,104 @@ describe('Editor', () => {
       );
     });
   });
+
+  describe('cursor label visibility', () => {
+    beforeEach(() => {
+      // Mock DOM methods for cursor labels
+      document.querySelectorAll = vi.fn(() => []);
+    });
+
+    it('shows labels when remote user cursor changes', () => {
+      // Mock awareness state with cursor data
+      const remoteUserId = 999;
+      const mockGetStates = vi.fn(() => new Map([
+        [remoteUserId, { cursor: { anchor: 10, head: 10 }, user: { name: 'Remote User' } }]
+      ]));
+      mockAwareness.getStates = mockGetStates;
+
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+        />
+      );
+
+      // Get the awareness change handler
+      const changeHandler = mockAwareness.on.mock.calls.find(
+        call => call[0] === 'change'
+      )?.[1];
+
+      expect(changeHandler).toBeDefined();
+
+      // Simulate remote user cursor change
+      const mockLabels = [{ classList: { add: vi.fn(), remove: vi.fn() } }];
+      document.querySelectorAll = vi.fn(() => mockLabels);
+
+      act(() => {
+        changeHandler({
+          added: [],
+          updated: [remoteUserId], // Remote user ID different from mockAwareness.clientID
+          removed: []
+        });
+      });
+
+      // Labels should be shown (visible class added)
+      expect(mockLabels[0].classList.add).toHaveBeenCalledWith(
+        'collaboration-cursor__label--visible'
+      );
+    });
+
+    it('does not show labels for local user cursor changes without cursor data', () => {
+      // Mock awareness state WITHOUT cursor data (simulates typing without cursor update)
+      const mockGetStates = vi.fn(() => new Map([
+        [mockAwareness.clientID, { user: { name: 'Local User' } }]
+      ]));
+      mockAwareness.getStates = mockGetStates;
+
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+        />
+      );
+
+      const changeHandler = mockAwareness.on.mock.calls.find(
+        call => call[0] === 'change'
+      )?.[1];
+
+      const mockLabels = [{ classList: { add: vi.fn(), remove: vi.fn() } }];
+      document.querySelectorAll = vi.fn(() => mockLabels);
+
+      // Local user change without cursor - should NOT show labels
+      act(() => {
+        changeHandler({
+          added: [],
+          updated: [mockAwareness.clientID],
+          removed: []
+        });
+      });
+
+      // Labels should not be shown for local changes without cursor
+      expect(mockLabels[0].classList.add).not.toHaveBeenCalled();
+    });
+
+    it('calls onShowLabelsReady callback with showCursorLabels function', () => {
+      const onShowLabelsReady = vi.fn();
+
+      render(
+        <Editor
+          ydoc={mockYdoc}
+          awareness={mockAwareness}
+          provider={mockProvider}
+          onShowLabelsReady={onShowLabelsReady}
+        />
+      );
+
+      // The callback should be called during render with the showCursorLabels function
+      expect(onShowLabelsReady).toHaveBeenCalledWith(expect.any(Function));
+    });
+  });
 });
 

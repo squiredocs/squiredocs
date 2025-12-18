@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as Y from 'yjs';
+import { ySyncPluginKey, relativePositionToAbsolutePosition } from 'y-prosemirror';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';
@@ -66,8 +68,68 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
+  const [showLabelsCallback, setShowLabelsCallback] = useState(null);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
+
+  // Handle clicking on a user avatar to jump to their cursor
+  const handleUserAvatarClick = (userId) => {
+    if (!awareness || !editor || !ydoc) {
+      return;
+    }
+
+    // Get the y-prosemirror sync state
+    const ystate = ySyncPluginKey.getState(editor.state);
+    if (!ystate || !ystate.binding) {
+      console.log('[Jump] y-prosemirror binding not ready');
+      return;
+    }
+
+    // Get the user's cursor position from awareness
+    const states = awareness.getStates();
+
+    for (const [clientId, state] of states.entries()) {
+      if (clientId === userId && state.cursor) {
+        try {
+          // Convert JSON cursor positions to relative positions, then to absolute
+          const relAnchor = Y.createRelativePositionFromJSON(state.cursor.anchor);
+          const relHead = Y.createRelativePositionFromJSON(state.cursor.head);
+
+          // Convert to absolute ProseMirror positions
+          const anchor = relativePositionToAbsolutePosition(
+            ydoc,
+            ystate.type,
+            relAnchor,
+            ystate.binding.mapping
+          );
+
+          const head = relativePositionToAbsolutePosition(
+            ydoc,
+            ystate.type,
+            relHead,
+            ystate.binding.mapping
+          );
+
+          if (anchor !== null && head !== null) {
+            // Create selection range
+            editor.commands.focus();
+            editor.commands.setTextSelection({ from: anchor, to: head });
+
+            // Scroll the cursor position into view
+            editor.commands.scrollIntoView();
+
+            // Show cursor labels
+            if (showLabelsCallback) {
+              showLabelsCallback();
+            }
+          }
+        } catch (err) {
+          console.error('[Jump] Error jumping to cursor:', err);
+        }
+        break;
+      }
+    }
+  };
 
   // Version history hook
   const {
@@ -323,9 +385,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         zIndex: 5 - i,
                         position: 'relative',
                         flexShrink: 0,
-                        background: '#fff'
+                        background: '#fff',
+                        cursor: 'pointer'
                       }}
-                      title={u.name}
+                      title={`${u.name} - Click to jump to their cursor`}
+                      onClick={() => handleUserAvatarClick(u.id)}
                     >
                       {u.isAgent ? (
                         // Agent avatar with delegating user overlay
@@ -485,6 +549,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             provider={provider}
             awareness={awareness}
             onEditorReady={setEditor}
+            onShowLabelsReady={(callback) => setShowLabelsCallback(() => callback)}
             editable={userRole !== 'viewer'}
             synced={synced}
           />
