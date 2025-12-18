@@ -67,9 +67,10 @@ function setupProviderListeners(provider, ydoc, docGuid) {
 }
 
 // Check if IndexedDB is available (fails in private browsing, some browsers)
-const checkIndexedDbAvailability = async (timeoutMs = 1000) => {
+// Reduced timeout to 100ms for faster detection
+const checkIndexedDbAvailability = async (timeoutMs = 100) => {
   if (indexedDbAvailable !== null) return indexedDbAvailable;
-  
+
   try {
     if (typeof indexedDB === 'undefined') {
       console.warn('[useYjs] IndexedDB not available in this environment');
@@ -90,11 +91,11 @@ const checkIndexedDbAvailability = async (timeoutMs = 1000) => {
           resolve(true);
         };
       }),
-      new Promise((_, reject) => 
+      new Promise((_, reject) =>
         setTimeout(() => reject(new Error('IndexedDB timeout')), timeoutMs)
       )
     ]);
-    
+
     indexedDbAvailable = result;
     console.log('[useYjs] IndexedDB available:', result);
     return result;
@@ -133,7 +134,7 @@ function getOrCreateInstances(docGuid, accessToken) {
       // Create new provider with updated token
       const wsParams = accessToken ? { token: accessToken } : {};
       cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
-        connect: true,
+        connect: true, // On token change, connect immediately (IndexedDB already loaded)
         params: wsParams
       });
 
@@ -174,16 +175,19 @@ function getOrCreateInstances(docGuid, accessToken) {
 
   // Create WebSocket provider with auth token in params
   // NOTE: y-websocket ignores query params in the URL, must use params option
+  // IMPORTANT: Start with connect=false, we'll connect after IndexedDB loads
   const wsParams = accessToken ? { token: accessToken } : {};
   const provider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
-    connect: true,
+    connect: false,
     params: wsParams
   });
 
   // Setup provider event listeners
   setupProviderListeners(provider, ydoc, docGuid);
 
-  // Create IndexedDB provider for offline persistence (async, non-blocking)
+  // Create IndexedDB provider for offline persistence
+  // CRITICAL: Initialize IndexedDB FIRST, then connect WebSocket
+  // This ensures local data is fully loaded before network sync begins
   let indexeddbProvider = null;
   (async () => {
     try {
@@ -191,56 +195,51 @@ function getOrCreateInstances(docGuid, accessToken) {
       if (!isAvailable) {
         console.log('[useYjs] Skipping IndexedDB persistence (not available)');
         logPerf('INDEXEDDB_SKIP', { reason: 'not available' });
+        // Connect WebSocket immediately if IndexedDB not available
+        provider.connect();
         return;
       }
 
       indexeddbProvider = new IndexeddbPersistence(docGuid, ydoc);
       logPerf('INDEXEDDB_INIT', { docGuid });
-      
+
       // Update cache with indexeddb provider
       const cached = instanceCache.get(docGuid);
       if (cached) {
         cached.indexeddbProvider = indexeddbProvider;
       }
-      
-      // Verify IndexedDB persistence after sync
-      indexeddbProvider.on('synced', async () => {
+
+      // Wait for IndexedDB to load local data, then connect WebSocket
+      // This prevents race conditions and ensures faster perceived connection time
+      indexeddbProvider.once('synced', () => {
         logPerf('INDEXEDDB_SYNCED', {});
-        try {
-          const db = await new Promise((resolve, reject) => {
-            const req = indexedDB.open(docGuid);
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          });
-          
-          const stores = Array.from(db.objectStoreNames);
-          let totalEntries = 0;
-          for (const storeName of stores) {
-            const count = await new Promise((resolve, reject) => {
-              const tx = db.transaction([storeName], 'readonly');
-              const store = tx.objectStore(storeName);
-              const req = store.count();
-              req.onsuccess = () => resolve(req.result);
-              req.onerror = () => reject(req.error);
-            });
-            totalEntries += count;
-          }
-          console.log(`[useYjs] ✓ IndexedDB synced: ${stores.length} object store(s), ${totalEntries} total entries`);
-          db.close();
-        } catch (e) {
-          console.warn('[useYjs] Could not verify IndexedDB:', e.message);
-        }
+        console.log('[useYjs] ✓ IndexedDB synced, connecting WebSocket');
+        // Now that local data is loaded, connect to server
+        provider.connect();
       });
+
+      // Fallback: If IndexedDB takes too long, connect anyway
+      setTimeout(() => {
+        if (!provider.wsconnected && !provider.shouldConnect) {
+          console.log('[useYjs] IndexedDB sync timeout, connecting WebSocket anyway');
+          provider.connect();
+        }
+      }, 500);
 
       // Handle IndexedDB errors gracefully
       indexeddbProvider.on('error', (error) => {
         console.warn('[useYjs] IndexedDB error (continuing without local persistence):', error.message);
         logPerf('INDEXEDDB_ERROR', { error: error.message });
+        // Connect WebSocket even if IndexedDB fails
+        if (!provider.shouldConnect) {
+          provider.connect();
+        }
       });
     } catch (e) {
       console.warn('[useYjs] Failed to initialize IndexedDB persistence:', e.message);
       logPerf('INDEXEDDB_INIT_FAILED', { error: e.message });
-      // App continues to work via WebSocket sync
+      // Connect WebSocket even if IndexedDB init fails
+      provider.connect();
     }
   })();
 
@@ -410,14 +409,16 @@ export function useYjs(docGuid, accessToken, user = null) {
         forceReconnect();
       }
 
-      // Log connection health status periodically
-      logPerf('HEALTH_CHECK', {
-        connectionState,
-        synced,
-        timeSinceLastSync,
-        reconnectCount: reconnectCountRef.current
-      });
-    }, 5000); // Check every 5 seconds
+      // Only log health check if there's an issue (connection problems)
+      if (connectionState !== 'connected' || !synced) {
+        logPerf('HEALTH_CHECK', {
+          connectionState,
+          synced,
+          timeSinceLastSync,
+          reconnectCount: reconnectCountRef.current
+        });
+      }
+    }, 30000); // Check every 30 seconds (reduced from 5s for less noise)
 
     return () => clearInterval(healthCheckInterval);
   }, [provider, connectionState, synced, forceReconnect]);
