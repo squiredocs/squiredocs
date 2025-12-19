@@ -298,8 +298,10 @@ async function handler(args, agentToken) {
     throw new Error('Viewer role cannot update document blocks');
   }
 
-  // Get the Yjs document from persistence
-  const ydoc = await persistenceProvider.getYDoc(docGuid);
+  // Connect to the shared WebSocket-managed document
+  // This ensures changes sync to all connected clients in real-time
+  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, durationSeconds);
+  const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
   // Validate element index
@@ -323,9 +325,8 @@ async function handler(args, agentToken) {
     xmlFragment.insert(elementIndex, [newNode]);
   });
 
-  // The document is automatically persisted by the y-websocket server
-  // But we can also force a save here if needed
-  await persistenceProvider.storeUpdate(docGuid, Y.encodeStateAsUpdate(ydoc));
+  // No need to manually persist - the y-websocket server's update listener
+  // automatically persists all changes to the database
 
   // Highlight the updated block
   let highlighted = false;
@@ -338,8 +339,7 @@ async function handler(args, agentToken) {
     const anchor = Y.relativePositionToJSON(anchorPos);
     const head = Y.relativePositionToJSON(headPos);
 
-    // Set agent selection
-    const session = await agentPresence.getOrCreateSession(docGuid, agentToken, durationSeconds);
+    // Set cursor on the session we already created
     session.awareness.setLocalStateField('cursor', { anchor, head });
     highlighted = true;
   } catch (error) {

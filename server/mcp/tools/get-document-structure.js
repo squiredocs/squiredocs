@@ -6,7 +6,7 @@
  */
 const Y = require('yjs');
 const { formatDocumentStructure } = require('../yjs/block-structure');
-const { loadYDoc } = require('../yjs/serialization');
+const agentPresence = require('../agent-presence');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -129,8 +129,10 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  // Load the Yjs document
-  const ydoc = await loadYDoc(pool, docGuid);
+  // Connect to the shared WebSocket-managed document
+  // This ensures we see the latest real-time state
+  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 30);
+  const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
   // Format the structure

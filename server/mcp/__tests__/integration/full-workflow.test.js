@@ -3,12 +3,70 @@
  *
  * Tests the complete flow: delegation → token → authentication → tool usage
  */
-const { Pool } = require('pg');
-const { PostgresPersistence } = require('../../../postgres-persistence');
-const Y = require('yjs');
 
 // Set test secrets
 process.env.MCP_JWT_SECRET = 'test-mcp-secret';
+
+// Mock agent presence to avoid WebSocket connections in tests
+// Must be before imports due to Jest hoisting
+jest.mock('../../agent-presence', () => {
+  const Y = require('yjs');
+  const { Pool } = require('pg');
+
+  // Create a pool for the mock (will be used to load documents)
+  const mockPool = new Pool({
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'collab_db',
+    user: process.env.DB_USER || process.env.USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+  });
+
+  return {
+    init: jest.fn(),
+    getOrCreateSession: jest.fn(async (docGuid, agentToken, durationSeconds) => {
+      // Load the document from database for the test
+      const result = await mockPool.query(
+        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docGuid]
+      );
+
+      const ydoc = new Y.Doc();
+      if (result.rows.length > 0) {
+        ydoc.transact(() => {
+          for (const row of result.rows) {
+            Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
+          }
+        });
+      }
+
+      // Return a mock session with the loaded document
+      return {
+        provider: {
+          doc: ydoc,
+        },
+        awareness: {
+          setLocalStateField: jest.fn(),
+        },
+        sessionId: 'mock-session-id',
+        agentInfo: {
+          name: 'Test Agent',
+          color: '#000000',
+        },
+        expiresIn: durationSeconds,
+        reused: false,
+      };
+    }),
+    setAgentPresence: jest.fn(),
+    clearSession: jest.fn(),
+    clearUserSessions: jest.fn(),
+    getActiveSessions: jest.fn(() => new Map()),
+  };
+});
+
+const { Pool } = require('pg');
+const { PostgresPersistence } = require('../../../postgres-persistence');
+const Y = require('yjs');
 
 // Test database configuration
 const pool = new Pool({
@@ -35,6 +93,7 @@ const { requireAgentAuth, requireScope } = require('../../auth/middleware');
 const listDocuments = require('../../tools/list-documents');
 const getDocumentStructure = require('../../tools/get-document-structure');
 const documents = require('../../../documents');
+const agentPresence = require('../../agent-presence');
 
 describe('Full Agent Workflow', () => {
   let testUserId;
@@ -46,6 +105,7 @@ describe('Full Agent Workflow', () => {
     documents.init(pool);
     listDocuments.init(persistenceProvider);
     getDocumentStructure.init(persistenceProvider);
+    agentPresence.init(persistenceProvider);
 
     // Create test user
     const userResult = await pool.query(
