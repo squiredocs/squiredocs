@@ -83,89 +83,128 @@ function prettifyHTML(html) {
  * Shows elementIndex (for MCP API) and character offsets
  * Only shows top-level elements to match xmlFragment.get(elementIndex) behavior
  */
-function formatBlocks(editor) {
-  const doc = editor.state.doc;
-  let output = 'Block Structure (for MCP create_selection_position tool)\n';
+/**
+ * Get text content from a Yjs node
+ */
+function getTextContent(node) {
+  if (node instanceof Y.XmlText) {
+    return node.toString();
+  } else if (node instanceof Y.XmlElement) {
+    let text = '';
+    for (let i = 0; i < node.length; i++) {
+      const child = node.get(i);
+      text += getTextContent(child);
+    }
+    return text;
+  }
+  return '';
+}
+
+/**
+ * Get attributes from a Yjs node
+ */
+function getNodeAttributes(node) {
+  if (!(node instanceof Y.XmlElement)) return null;
+
+  const attrs = {};
+  const level = node.getAttribute('level');
+  if (level !== undefined) attrs.level = level;
+
+  const language = node.getAttribute('language');
+  if (language !== undefined) attrs.language = language;
+
+  const start = node.getAttribute('start');
+  if (start !== undefined) attrs.start = start;
+
+  const type = node.getAttribute('type');
+  if (type !== undefined) attrs.type = type;
+
+  return Object.keys(attrs).length > 0 ? attrs : null;
+}
+
+/**
+ * Format block structure for debugging
+ * Uses Yjs document directly (same source as server-side MCP tools)
+ */
+function formatBlocks(ydoc) {
+  const xmlFragment = ydoc.get('default', Y.XmlFragment);
+  let output = 'Block Structure (for MCP API)\n';
   output += '─'.repeat(70) + '\n\n';
 
-  let elementIndex = 0;
+  const state = { elementIndex: 0 };
   let cumulativeOffset = 0;
 
-  // Helper to recursively show nested structure with offsets
-  // topLevelOffset tracks position relative to the top-level element with an elementIndex
   function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0) {
     const indent = '  '.repeat(depth);
-    const textContent = node.textContent;
+    const textContent = getTextContent(node);
     const textLength = textContent.length;
-
-    // Get attributes if any
-    const attrs = node.attrs && Object.keys(node.attrs).length > 0
-      ? ` ${JSON.stringify(node.attrs)}`
-      : '';
 
     let result = '';
 
     // Only top-level blocks get an elementIndex
     if (depth === 0) {
       const preview = textContent ? ` "${textContent.slice(0, 50)}${textContent.length > 50 ? '...' : ''}"` : '';
-      // Use inclusive range notation: if length is 0, show start-start, otherwise start to (start+length-1)
-      const endPos = textLength > 0 ? absoluteOffset + textLength - 1 : absoluteOffset;
-      result += `${indent}[${elementIndex}] <${node.type.name}>${attrs} offsets:${absoluteOffset}-${endPos}${preview}\n`;
-      elementIndex++;
+      const endPos = absoluteOffset + textLength; // Exclusive end position
+      const attrs = getNodeAttributes(node);
+      const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
 
-      // For top-level, recursively process children with offset 0 (relative to this element)
-      if (node.content && node.content.size > 0) {
+      result += `${indent}[${state.elementIndex}] <${node.nodeName}>${attrsStr} offsets:${absoluteOffset}-${endPos}${preview}\n`;
+      state.elementIndex++;
+
+      // Process children
+      if (node.length > 0) {
         let childOffset = 0;
-        node.content.forEach((child) => {
-          if (child.isBlock && child.type.name !== 'doc') {
+        for (let i = 0; i < node.length; i++) {
+          const child = node.get(i);
+          if (child instanceof Y.XmlElement) {
             result += formatNode(child, depth + 1, childOffset, absoluteOffset + childOffset);
-            childOffset += child.textContent.length;
+            childOffset += getTextContent(child).length;
           }
-        });
+        }
       }
     } else {
-      // Nested blocks show their offset range within the TOP-LEVEL element
+      // Nested blocks show offset within TOP-LEVEL element
       const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
-      // Use inclusive range notation
-      const endPos = textLength > 0 ? topLevelOffset + textLength - 1 : topLevelOffset;
-      result += `${indent}  ↳ <${node.type.name}>${attrs} offsets:${topLevelOffset}-${endPos}${preview}\n`;
+      const endPos = topLevelOffset + textLength; // Exclusive end position
+      const attrs = getNodeAttributes(node);
+      const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
 
-      // Recursively process children, maintaining offset relative to top-level element
-      if (node.content && node.content.size > 0) {
+      result += `${indent}  ↳ <${node.nodeName}>${attrsStr} offsets:${topLevelOffset}-${endPos}${preview}\n`;
+
+      // Process children
+      if (node.length > 0) {
         let childOffset = topLevelOffset;
-        node.content.forEach((child) => {
-          if (child.isBlock && child.type.name !== 'doc') {
+        for (let i = 0; i < node.length; i++) {
+          const child = node.get(i);
+          if (child instanceof Y.XmlElement) {
             result += formatNode(child, depth + 1, childOffset, absoluteOffset + (childOffset - topLevelOffset));
-            childOffset += child.textContent.length;
+            childOffset += getTextContent(child).length;
           }
-        });
+        }
       }
     }
 
     return result;
   }
 
-  // Only iterate top-level blocks
-  doc.content.forEach((node) => {
-    if (node.isBlock && node.type.name !== 'doc') {
+  for (let i = 0; i < xmlFragment.length; i++) {
+    const node = xmlFragment.get(i);
+    if (node instanceof Y.XmlElement) {
       output += formatNode(node, 0, 0, cumulativeOffset);
-      cumulativeOffset += node.textContent.length;
+      cumulativeOffset += getTextContent(node).length;
     }
-  });
+  }
 
-  if (elementIndex === 0) {
+  if (state.elementIndex === 0) {
     return 'No block elements found';
   }
 
   output += '\n' + '─'.repeat(70) + '\n';
-  output += `Total top-level elements: ${elementIndex}\n\n`;
+  output += `Total top-level elements: ${state.elementIndex}\n\n`;
   output += 'Usage with MCP API:\n';
-  output += '  create_selection_position({ elementIndex: N, textOffset: X })\n';
   output += '  - elementIndex: Use the [N] value (top-level only)\n';
   output += '  - textOffset: Use any value in the offset range shown\n';
-  output += '  - For nested items (↳), use parent\'s elementIndex with nested offsets\n';
-  output += '\nExample: To select "2" in "Item 2" at offsets:11-12\n';
-  output += '  create_selection_position({ elementIndex: 1, textOffset: 11 })\n';
+  output += '  - Nested items (↳) are inside their parent element\n';
 
   return output;
 }
@@ -796,7 +835,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 {!editor ? 'Loading...' :
                   sourceFormat === 'json' ? JSON.stringify(editor.getJSON(), null, 2) :
                   sourceFormat === 'html' ? prettifyHTML(editor.getHTML()) :
-                  sourceFormat === 'blocks' ? formatBlocks(editor) :
+                  sourceFormat === 'blocks' ? formatBlocks(ydoc) :
                   editor.getText()}
               </pre>
             </div>

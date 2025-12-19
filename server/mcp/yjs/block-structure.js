@@ -26,7 +26,7 @@ function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0, sta
   // Only top-level blocks get an elementIndex
   if (depth === 0) {
     const preview = textContent ? ` "${textContent.slice(0, 50)}${textContent.length > 50 ? '...' : ''}"` : '';
-    const endPos = textLength > 0 ? absoluteOffset + textLength - 1 : absoluteOffset;
+    const endPos = absoluteOffset + textLength; // Exclusive end position
     const attrs = getNodeAttributes(node);
     const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
 
@@ -47,7 +47,7 @@ function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0, sta
   } else {
     // Nested blocks show offset within TOP-LEVEL element
     const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
-    const endPos = textLength > 0 ? topLevelOffset + textLength - 1 : topLevelOffset;
+    const endPos = topLevelOffset + textLength; // Exclusive end position
     const attrs = getNodeAttributes(node);
     const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
 
