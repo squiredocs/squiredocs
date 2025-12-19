@@ -209,12 +209,27 @@ function getOrCreateInstances(docGuid, accessToken) {
       }
 
       // Case 3: Token refreshed (both old and new are non-null)
-      // No action needed - WebSocket doesn't need to reconnect for token refresh
-      // The token is only used during initial handshake, not for ongoing connection
       if (hadToken && hasToken) {
-        console.log('[useYjs] Token refreshed, keeping existing WebSocket connection');
-        // Just update the token reference, don't recreate provider
-        return cached;
+        // If provider is connected, keep it (token only used for initial handshake)
+        // If provider is disconnected, recreate it with new token for reconnection
+        if (cached.provider && cached.provider.wsconnected) {
+          console.log('[useYjs] Token refreshed, keeping existing WebSocket connection');
+          return cached;
+        } else {
+          console.log('[useYjs] Token refreshed while disconnected, recreating provider with new token');
+          // Destroy old provider
+          if (cached.provider) {
+            cached.provider.destroy();
+          }
+          // Create new provider with new token
+          const wsParams = { token: accessToken };
+          cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
+            connect: true,
+            params: wsParams
+          });
+          setupProviderListeners(cached.provider, cached.ydoc, docGuid);
+          return cached;
+        }
       }
     }
     return cached;
