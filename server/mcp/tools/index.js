@@ -13,6 +13,7 @@ const getDocumentStructure = require('./get-document-structure');
 const getDocumentSchema = require('./get-document-schema');
 const readDocumentBlock = require('./read-document-block');
 const updateDocumentBlock = require('./update-document-block');
+const selectTextRange = require('./select-text-range');
 const agentPresence = require('../agent-presence');
 
 // All available tools
@@ -26,6 +27,7 @@ const tools = {
   get_document_schema: getDocumentSchema,
   read_document_block: readDocumentBlock,
   update_document_block: updateDocumentBlock,
+  select_text_range: selectTextRange,
 };
 
 /**
