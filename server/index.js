@@ -1004,7 +1004,9 @@ wss.on('connection', (ws, req) => {
     logPerf('WS_PONG', { connId });
   });
 
-  // Send ping every 30 seconds
+  // Send ping every 5 seconds (reduced from 30s to quickly detect stale connections)
+  // This helps clean up awareness states from page refreshes faster
+  const PING_INTERVAL = 5000; // 5 seconds
   const pingInterval = setInterval(() => {
     if (ws.isAlive === false) {
       console.log(`✗ WebSocket connection ${connId} appears dead, terminating`);
@@ -1016,7 +1018,7 @@ wss.on('connection', (ws, req) => {
     ws.isAlive = false;
     ws.ping();
     logPerf('WS_PING', { connId });
-  }, 30000);
+  }, PING_INTERVAL);
 
   // Create a message filter for viewers
   // We intercept messages before y-websocket processes them

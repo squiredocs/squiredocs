@@ -118,6 +118,47 @@ describe('useYjs', () => {
     expect(mockProvider.destroy).toBeDefined();
   });
 
+  it('clears awareness on beforeunload event', () => {
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+    // Verify awareness is set up
+    expect(result.current.awareness).toBeDefined();
+    expect(result.current.awareness.setLocalStateField).toBeDefined();
+
+    // Mock setLocalStateField calls
+    const setLocalStateFieldSpy = vi.spyOn(result.current.awareness, 'setLocalStateField');
+
+    // Trigger beforeunload event
+    const beforeUnloadEvent = new Event('beforeunload');
+    window.dispatchEvent(beforeUnloadEvent);
+
+    // Verify awareness was cleared
+    expect(setLocalStateFieldSpy).toHaveBeenCalledWith('user', null);
+    expect(setLocalStateFieldSpy).toHaveBeenCalledWith('cursor', null);
+
+    setLocalStateFieldSpy.mockRestore();
+  });
+
+  it('disconnects provider on beforeunload event', () => {
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+    // Verify provider is set up
+    expect(result.current.provider).toBeDefined();
+    expect(result.current.provider.disconnect).toBeDefined();
+
+    // Mock disconnect
+    const disconnectSpy = vi.spyOn(result.current.provider, 'disconnect');
+
+    // Trigger beforeunload event
+    const beforeUnloadEvent = new Event('beforeunload');
+    window.dispatchEvent(beforeUnloadEvent);
+
+    // Verify provider was disconnected
+    expect(disconnectSpy).toHaveBeenCalled();
+
+    disconnectSpy.mockRestore();
+  });
+
   describe('user awareness', () => {
     it('returns users array from hook', () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));

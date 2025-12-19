@@ -608,13 +608,38 @@ export function useYjs(docGuid, accessToken, user = null) {
   useEffect(() => {
     return () => {
       if (awareness && typeof awareness.setLocalStateField === 'function') {
-        console.log('[useYjs] Component unmounting, clearing awareness fields');
+        const clientId = awareness.clientID;
+        console.log('[useYjs] Component unmounting, clearing awareness for client', clientId);
         // Clear user and cursor fields specifically (don't clear entire state)
         awareness.setLocalStateField('user', null);
         awareness.setLocalStateField('cursor', null);
       }
     };
   }, [awareness]);
+
+  // CRITICAL: Clear awareness on page unload (refresh/close)
+  // This prevents ghost users when page refreshes don't complete cleanup
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (awareness && typeof awareness.setLocalStateField === 'function') {
+        const clientId = awareness.clientID;
+        console.log('[useYjs] Page unloading, clearing awareness for client', clientId);
+        // Synchronously clear awareness before page unloads
+        awareness.setLocalStateField('user', null);
+        awareness.setLocalStateField('cursor', null);
+      }
+      // Also disconnect provider to ensure WebSocket closes cleanly
+      if (provider && typeof provider.disconnect === 'function') {
+        console.log('[useYjs] Page unloading, disconnecting provider');
+        provider.disconnect();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [awareness, provider]);
 
   return {
     ydoc,
