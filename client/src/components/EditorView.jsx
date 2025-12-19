@@ -66,6 +66,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount, authError } = useYjs(docGuid, accessToken, collaborationUser);
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
@@ -531,6 +532,19 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 <span>History</span>
               </a>
             )}
+            {/* Source button - debugging feature to view raw document */}
+            {docInfoLoaded && userRole && (
+              <button
+                className="source-btn"
+                onClick={() => setSourceModalOpen(true)}
+                title="View raw document source"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+                </svg>
+                <span>Source</span>
+              </button>
+            )}
             {/* Share button - shown to anyone with access */}
             {docInfoLoaded && userRole && (
               <button
@@ -597,6 +611,29 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
       />
+
+      {/* Source modal - debugging feature */}
+      {sourceModalOpen && (
+        <div className="modal-overlay" onClick={() => setSourceModalOpen(false)}>
+          <div className="source-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="source-modal-header">
+              <h2>Raw Document Source</h2>
+              <button
+                className="source-modal-close"
+                onClick={() => setSourceModalOpen(false)}
+                title="Close"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+              </button>
+            </div>
+            <div className="source-modal-content">
+              <pre>{editor ? JSON.stringify(editor.getJSON(), null, 2) : 'Loading...'}</pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile format bar at bottom - only shows when keyboard is active */}
       {userRole !== 'viewer' && isMobile && visualViewport?.isKeyboardOpen && (
