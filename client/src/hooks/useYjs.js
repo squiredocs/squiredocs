@@ -382,8 +382,18 @@ export function useYjs(docGuid, accessToken, user = null) {
     } else if (accessToken && authError) {
       // CRITICAL FIX: Clear auth error when token is restored
       // This prevents the "Session expired" banner from getting stuck when token refresh succeeds
-      console.log('[useYjs] Token restored, clearing auth error');
+      console.log('[useYjs] Token restored, clearing auth error and reconnecting');
       setAuthError(false);
+
+      // Re-enable reconnection and attempt to connect
+      if (instancesRef.current?.provider) {
+        const provider = instancesRef.current.provider;
+        provider.shouldConnect = true;
+        if (!provider.wsconnected) {
+          console.log('[useYjs] Reconnecting WebSocket after auth restoration');
+          provider.connect();
+        }
+      }
     }
   }, [accessToken, authError, docGuid]);
 
