@@ -178,42 +178,43 @@ function getOrCreateInstances(docGuid, accessToken) {
 
   if (instanceCache.has(cacheKey)) {
     const cached = instanceCache.get(cacheKey);
-    // If token changed, properly recreate the provider with new token
-    if (cached.accessToken !== accessToken && cached.provider) {
-      console.log(`[useYjs] Token changed for ${docGuid}, recreating provider`);
+    // If token changed, handle based on the type of change
+    if (cached.accessToken !== accessToken) {
+      const hadToken = !!cached.accessToken;
+      const hasToken = !!accessToken;
+
+      // Update cached token reference
       cached.accessToken = accessToken;
 
-      // Properly destroy old provider
-      cached.provider.destroy();
-
-      // FIX 1: If token is now null, don't create a new provider
-      if (!accessToken) {
+      // Case 1: Token went from something to null (logout/expiry)
+      if (hadToken && !hasToken && cached.provider) {
         console.warn('[useYjs] Token cleared, disconnecting WebSocket');
+        cached.provider.destroy();
         cached.provider = null;
         return cached;
       }
 
-      // Store current awareness state to restore it after reconnection
-      const currentAwarenessState = cached.provider?.awareness?.getLocalState();
+      // Case 2: Token went from null to something (login)
+      // This shouldn't happen with current cache key logic, but handle it
+      if (!hadToken && hasToken && !cached.provider) {
+        console.log(`[useYjs] Token set, creating provider for ${docGuid}`);
+        // Create new provider (fall through to creation logic below)
+        const wsParams = { token: accessToken };
+        cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
+          connect: true,
+          params: wsParams
+        });
+        setupProviderListeners(cached.provider, cached.ydoc, docGuid);
+        return cached;
+      }
 
-      // Create new provider with updated token
-      const wsParams = { token: accessToken };
-      cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
-        connect: true, // On token change, connect immediately (IndexedDB already loaded)
-        params: wsParams
-      });
-
-      // Setup event listeners on new provider
-      setupProviderListeners(cached.provider, cached.ydoc, docGuid);
-
-      // Restore awareness state immediately on new provider
-      // y-websocket will sync this to other clients automatically
-      if (currentAwarenessState && Object.keys(currentAwarenessState).length > 0) {
-        console.log('[useYjs] Restoring awareness state after token change:', Object.keys(currentAwarenessState));
-        // Restore entire local state, not just user field
-        for (const [key, value] of Object.entries(currentAwarenessState)) {
-          cached.provider.awareness.setLocalStateField(key, value);
-        }
+      // Case 3: Token refreshed (both old and new are non-null)
+      // No action needed - WebSocket doesn't need to reconnect for token refresh
+      // The token is only used during initial handshake, not for ongoing connection
+      if (hadToken && hasToken) {
+        console.log('[useYjs] Token refreshed, keeping existing WebSocket connection');
+        // Just update the token reference, don't recreate provider
+        return cached;
       }
     }
     return cached;

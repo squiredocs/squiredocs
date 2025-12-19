@@ -287,6 +287,37 @@ export function AuthProvider({ children }) {
   }, [devLogin, refreshAccessToken, fetchUser]); // Run once on mount
 
   /**
+   * FIX 5: Refresh token on tab focus (P2 - Proactive prevention)
+   * When user returns to the tab after being away, proactively refresh the token
+   * This prevents auth failures before they happen
+   */
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      // Only refresh when tab becomes visible and we're not loading
+      if (document.visibilityState === 'visible' && !loading && accessToken) {
+        console.log('[AuthContext] Tab became visible, proactively refreshing token');
+        try {
+          const newToken = await refreshAccessToken();
+          if (newToken) {
+            console.log('[AuthContext] Token refreshed successfully on tab focus');
+            await fetchUser(newToken);
+          }
+        } catch (e) {
+          // Refresh failed - token likely expired
+          console.warn('[AuthContext] Token refresh failed on tab focus:', e.message);
+          // Clear auth state - user will be redirected to login
+          clearYjsInstanceCache();
+          setAccessToken(null);
+          setUser(null);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [loading, accessToken, refreshAccessToken, fetchUser]);
+
+  /**
    * DEV ONLY: Force token expiration for testing
    * Clears tokens to simulate session expiration
    */
