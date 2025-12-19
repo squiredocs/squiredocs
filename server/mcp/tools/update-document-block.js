@@ -4,7 +4,7 @@
  * Updates a specific block element by replacing it with new content and highlights the change.
  */
 const Y = require('yjs');
-const { buildNode } = require('../yjs/node-builder');
+const { buildYjsNode } = require('../yjs/node-builder');
 const { loadYDoc } = require('../yjs/serialization');
 const agentPresence = require('../agent-presence');
 
@@ -319,7 +319,7 @@ async function handler(args, agentToken) {
     xmlFragment.delete(elementIndex, 1);
 
     // Build and insert the new element
-    const newNode = buildNode(newContent);
+    const newNode = buildYjsNode(newContent);
     xmlFragment.insert(elementIndex, [newNode]);
   });
 
