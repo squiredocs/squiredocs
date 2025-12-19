@@ -168,8 +168,9 @@ async function getAccessibleDocuments(userId) {
   if (!pool) throw new Error('Documents module not initialized');
 
   const result = await pool.query(
-    `SELECT 
+    `SELECT
        d.id as doc_id,
+       d.title,
        d.created_at,
        d.updated_at,
        ds.role,

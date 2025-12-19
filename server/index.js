@@ -194,8 +194,19 @@ setPersistence({
 
       const persistStart = Date.now();
       persistenceProvider.storeUpdate(docGuid, update, userId, agentName)
-        .then(() => {
+        .then(async () => {
           logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
+
+          // Sync the title to the documents table for fast list queries
+          // Extract current title from Yjs meta map
+          const meta = ydoc.getMap('meta');
+          const title = meta.get('title') || null;
+
+          // Update documents table with current title (denormalized for performance)
+          await persistenceProvider.updateDocumentTitle(docGuid, title).catch(err => {
+            // Log but don't fail if title update fails
+            console.warn(`Failed to sync title for ${docGuid}:`, err.message);
+          });
         })
         .catch(err => {
           console.error(`Error persisting update for ${docGuid}:`, err);
@@ -369,24 +380,19 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     const userId = req.user.userId;
 
     // Get documents the user has access to with their role
+    // The title is now included directly from the documents table (denormalized for performance)
     const accessibleDocs = await documents.getAccessibleDocuments(userId);
 
-    // Fetch metadata (title) directly from the database for each accessible document
-    // This ensures we're reading from the DB and not relying on any in-memory cache
-    const docs = await Promise.all(
-      accessibleDocs.map(async (doc) => {
-        const meta = await persistenceProvider.getDocumentMeta(doc.doc_id);
-        return {
-          docGuid: doc.doc_id,
-          title: meta.title || null,
-          updatedAt: doc.updated_at || doc.created_at,
-          role: doc.role,
-          ownerName: doc.owner_name,
-          ownerEmail: doc.owner_email,
-          shareCount: parseInt(doc.share_count, 10) || 0,
-        };
-      })
-    );
+    // Transform to response format
+    const docs = accessibleDocs.map((doc) => ({
+      docGuid: doc.doc_id,
+      title: doc.title || null,
+      updatedAt: doc.updated_at || doc.created_at,
+      role: doc.role,
+      ownerName: doc.owner_name,
+      ownerEmail: doc.owner_email,
+      shareCount: parseInt(doc.share_count, 10) || 0,
+    }));
 
     // Sort by updatedAt descending
     docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
@@ -395,8 +401,8 @@ app.get('/api/docs', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching documents:', error);
     const errorMessage = error.message || 'Failed to fetch documents';
-    const hint = errorMessage.includes('doc_guid') 
-      ? ' (Have you run the migration? npm run migrate)' 
+    const hint = errorMessage.includes('doc_guid')
+      ? ' (Have you run the migration? npm run migrate)'
       : '';
     res.status(500).json({ error: errorMessage + hint });
   }

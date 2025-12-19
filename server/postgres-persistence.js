@@ -259,6 +259,26 @@ class PostgresPersistence {
   }
 
   /**
+   * Update the denormalized title in the documents table
+   * This keeps the title in sync for fast list queries
+   * @param {string} docGuid - Document GUID
+   * @param {string|null} title - New title value
+   * @returns {Promise<void>}
+   */
+  async updateDocumentTitle(docGuid, title) {
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      await client.query(
+        'UPDATE documents SET title = $1 WHERE id = $2',
+        [title, docGuid]
+      );
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Get all documents with their metadata (title, updatedAt)
    * @returns {Promise<Array<{docGuid: string, title: string|null, updatedAt: Date}>>}
    */
