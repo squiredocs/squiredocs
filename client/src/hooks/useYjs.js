@@ -379,8 +379,13 @@ export function useYjs(docGuid, accessToken, user = null) {
       setConnectionState('disconnected');
     } else if (accessToken === null) {
       console.log('[useYjs] Token is null but no provider - likely initial load or already cleaned up');
+    } else if (accessToken && authError) {
+      // CRITICAL FIX: Clear auth error when token is restored
+      // This prevents the "Session expired" banner from getting stuck when token refresh succeeds
+      console.log('[useYjs] Token restored, clearing auth error');
+      setAuthError(false);
     }
-  }, [accessToken, docGuid]);
+  }, [accessToken, authError, docGuid]);
 
   useEffect(() => {
     if (!provider) return;
