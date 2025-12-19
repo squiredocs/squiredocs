@@ -89,13 +89,14 @@ function formatBlocks(editor) {
   output += '─'.repeat(70) + '\n\n';
 
   let elementIndex = 0;
+  let cumulativeOffset = 0;
 
   // Helper to recursively show nested structure with offsets
-  function formatNode(node, depth = 0, startOffset = 0, parentElementIndex = null) {
+  // topLevelOffset tracks position relative to the top-level element with an elementIndex
+  function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0) {
     const indent = '  '.repeat(depth);
     const textContent = node.textContent;
     const textLength = textContent.length;
-    const endOffset = startOffset + textLength;
 
     // Get attributes if any
     const attrs = node.attrs && Object.keys(node.attrs).length > 0
@@ -103,29 +104,42 @@ function formatBlocks(editor) {
       : '';
 
     let result = '';
-    let currentElementIndex = parentElementIndex;
 
     // Only top-level blocks get an elementIndex
     if (depth === 0) {
-      currentElementIndex = elementIndex;
       const preview = textContent ? ` "${textContent.slice(0, 50)}${textContent.length > 50 ? '...' : ''}"` : '';
-      result += `${indent}[${elementIndex}] <${node.type.name}>${attrs} offsets:0-${textLength}${preview}\n`;
+      // Use inclusive range notation: if length is 0, show start-start, otherwise start to (start+length-1)
+      const endPos = textLength > 0 ? absoluteOffset + textLength - 1 : absoluteOffset;
+      result += `${indent}[${elementIndex}] <${node.type.name}>${attrs} offsets:${absoluteOffset}-${endPos}${preview}\n`;
       elementIndex++;
-    } else {
-      // Nested blocks show their offset range within the parent element
-      const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
-      result += `${indent}  ↳ <${node.type.name}>${attrs} offsets:${startOffset}-${endOffset}${preview}\n`;
-    }
 
-    // Show nested children (like list items inside bulletList)
-    if (node.content && node.content.size > 0) {
-      let childOffset = 0;
-      node.content.forEach((child) => {
-        if (child.isBlock && child.type.name !== 'doc') {
-          result += formatNode(child, depth + 1, childOffset, currentElementIndex);
-          childOffset += child.textContent.length;
-        }
-      });
+      // For top-level, recursively process children with offset 0 (relative to this element)
+      if (node.content && node.content.size > 0) {
+        let childOffset = 0;
+        node.content.forEach((child) => {
+          if (child.isBlock && child.type.name !== 'doc') {
+            result += formatNode(child, depth + 1, childOffset, absoluteOffset + childOffset);
+            childOffset += child.textContent.length;
+          }
+        });
+      }
+    } else {
+      // Nested blocks show their offset range within the TOP-LEVEL element
+      const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
+      // Use inclusive range notation
+      const endPos = textLength > 0 ? topLevelOffset + textLength - 1 : topLevelOffset;
+      result += `${indent}  ↳ <${node.type.name}>${attrs} offsets:${topLevelOffset}-${endPos}${preview}\n`;
+
+      // Recursively process children, maintaining offset relative to top-level element
+      if (node.content && node.content.size > 0) {
+        let childOffset = topLevelOffset;
+        node.content.forEach((child) => {
+          if (child.isBlock && child.type.name !== 'doc') {
+            result += formatNode(child, depth + 1, childOffset, absoluteOffset + (childOffset - topLevelOffset));
+            childOffset += child.textContent.length;
+          }
+        });
+      }
     }
 
     return result;
@@ -134,7 +148,8 @@ function formatBlocks(editor) {
   // Only iterate top-level blocks
   doc.content.forEach((node) => {
     if (node.isBlock && node.type.name !== 'doc') {
-      output += formatNode(node, 0);
+      output += formatNode(node, 0, 0, cumulativeOffset);
+      cumulativeOffset += node.textContent.length;
     }
   });
 
