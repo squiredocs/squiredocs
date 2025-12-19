@@ -48,7 +48,7 @@ function formatVersionTimestamp(timestamp) {
 }
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
-  const { logout, api, accessToken } = useAuth();
+  const { logout, api, accessToken, isAuthenticated, expireTokenForTesting } = useAuth();
 
   // Generate user color deterministically from user ID
   const userColor = useMemo(() => {
@@ -203,11 +203,26 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   useEffect(() => {
     const title = docTitle || 'Untitled document';
     document.title = `${title} - HeroDocs`;
-    
+
     return () => {
       document.title = 'HeroDocs';
     };
   }, [docTitle]);
+
+  // FIX 6: Session expired redirect to login
+  // When auth error is detected and user is not authenticated, redirect to login
+  useEffect(() => {
+    console.log('[EditorView] Auth state check:', { authError, isAuthenticated, accessToken: !!accessToken });
+    if (authError && !isAuthenticated) {
+      console.log('[EditorView] Auth error detected, redirecting to login in 1 second...');
+      // Small delay to ensure state is settled and logs are visible
+      const timer = setTimeout(() => {
+        console.log('[EditorView] Redirecting to /login');
+        window.location.href = '/login';
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [authError, isAuthenticated, accessToken]);
 
   // Version history mode - dedicated full-screen view
   if (showVersionHistory) {
@@ -294,13 +309,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     <div className="app">
       {authError && (
         <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
-          ❌ Authentication failed - Your session has expired.
-          <button
-            onClick={() => window.location.reload()}
-            style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px', backgroundColor: 'white', color: '#dc2626', border: 'none', borderRadius: '4px', fontWeight: '500' }}
-          >
-            Refresh Page
-          </button>
+          ❌ Session expired - Redirecting to login...
         </div>
       )}
       {!authError && connectionState === 'disconnected' && (
@@ -536,6 +545,26 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </button>
             )}
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
+            {/* DEV ONLY: Token expiration test button */}
+            {import.meta.env.DEV && expireTokenForTesting && (
+              <button
+                onClick={expireTokenForTesting}
+                style={{
+                  marginLeft: '8px',
+                  padding: '8px 12px',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}
+                title="DEV: Expire token to test auth flow"
+              >
+                🧪 Expire Token
+              </button>
+            )}
           </div>
         </div>
       </header>

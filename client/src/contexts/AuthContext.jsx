@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { clearYjsInstanceCache } from '../hooks/useYjs';
 
 // API base URL - use same host in production, configured URL in development
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -122,10 +123,13 @@ export function AuthProvider({ children }) {
     } catch (error) {
       console.error('Logout error:', error);
     }
-    
+
+    // FIX 3: Clear WebSocket instance cache on logout
+    clearYjsInstanceCache();
+
     setAccessToken(null);
     setUser(null);
-    
+
     // Clear URL and redirect to login
     window.history.replaceState({}, '', '/login');
   }, [accessToken]);
@@ -184,8 +188,12 @@ export function AuthProvider({ children }) {
           } catch (refreshError) {
             isRefreshing.current = false;
             notifyRefreshSubscribers(null);
-            
-            // Refresh failed - redirect to login
+
+            // FIX 3: Clear WebSocket instance cache on auth failure
+            console.warn('[AuthContext] Token refresh failed, clearing cache');
+            clearYjsInstanceCache();
+
+            // Refresh failed - clear auth state
             setAccessToken(null);
             setUser(null);
             return Promise.reject(error);
@@ -278,6 +286,20 @@ export function AuthProvider({ children }) {
     };
   }, [devLogin, refreshAccessToken, fetchUser]); // Run once on mount
 
+  /**
+   * DEV ONLY: Force token expiration for testing
+   * Clears tokens to simulate session expiration
+   */
+  const expireTokenForTesting = useCallback(() => {
+    if (import.meta.env.DEV) {
+      console.warn('[AuthContext] DEV: Manually expiring tokens');
+      // FIX 3: Clear WebSocket instance cache
+      clearYjsInstanceCache();
+      setAccessToken(null);
+      setUser(null);
+    }
+  }, []);
+
   const value = {
     user,
     accessToken,
@@ -287,6 +309,8 @@ export function AuthProvider({ children }) {
     login,
     logout,
     api, // Export configured axios instance for other components
+    // DEV ONLY: Testing utility
+    expireTokenForTesting: import.meta.env.DEV ? expireTokenForTesting : undefined,
   };
 
   return (

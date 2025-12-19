@@ -36,6 +36,20 @@ const logPerf = (label, data = {}) => {
 const instanceCache = new Map();
 let indexedDbAvailable = null; // null = not checked, true/false = result
 
+// FIX 3: Export function to clear instance cache on auth failure
+export function clearYjsInstanceCache() {
+  console.log('[useYjs] Clearing instance cache due to auth failure');
+  instanceCache.forEach((cached) => {
+    if (cached.provider) {
+      cached.provider.destroy();
+    }
+    if (cached.indexeddbProvider) {
+      cached.indexeddbProvider.destroy();
+    }
+  });
+  instanceCache.clear();
+}
+
 // Helper function to setup provider event listeners
 // This is extracted so it can be reused when recreating providers
 function setupProviderListeners(provider, ydoc, docGuid) {
@@ -62,15 +76,20 @@ function setupProviderListeners(provider, ydoc, docGuid) {
     }
   });
 
-  // Monitor connection close events for potential auth issues
+  // FIX 2: Enhanced close event monitoring for auth issues
   provider.on('connection-close', (event) => {
     logPerf('WS_CLOSE_EVENT', { code: event.code, reason: event.reason });
 
-    // WebSocket close codes: 1008 = Policy Violation (often used for auth failures)
-    // 1000 = Normal closure, 1001 = Going away, 1006 = Abnormal closure
-    if (event.code === 1008 || event.code === 4401 || event.code === 4403) {
-      console.error('❌ CONNECTION REJECTED - Authentication or authorization failed. Please refresh the page.');
+    // WebSocket close codes:
+    // - 4401, 4403: Custom auth/permission errors (if server implements them)
+    // - 1008: Policy Violation (standard code often used for auth failures)
+    // - 1006: Abnormal closure (can indicate upgrade failure)
+    const authRelatedCodes = [1008, 1006, 4401, 4403];
+
+    if (authRelatedCodes.includes(event.code)) {
+      console.error(`❌ CONNECTION CLOSED (code ${event.code}) - Likely auth failure. Reason: ${event.reason || 'none'}`);
       logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
+      // Note: authError state is set in the useEffect handler below
     }
   });
 
@@ -140,6 +159,20 @@ if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
 
 // Get or create Yjs instances for a document
 function getOrCreateInstances(docGuid, accessToken) {
+  // FIX 1: Proactive Token Validation - Don't create WebSocket without valid token
+  // This prevents auth failures at the source by not attempting connection without credentials
+  if (!accessToken) {
+    console.warn('[useYjs] No access token available, skipping WebSocket connection');
+    // Return minimal structure with no provider - prevents connection attempts
+    // The ydoc can still be used for offline work if needed
+    return {
+      ydoc: new Y.Doc(),
+      provider: null,
+      indexeddbProvider: null,
+      accessToken: null
+    };
+  }
+
   // Include token in cache key to reconnect if token changes
   const cacheKey = docGuid;
 
@@ -150,14 +183,21 @@ function getOrCreateInstances(docGuid, accessToken) {
       console.log(`[useYjs] Token changed for ${docGuid}, recreating provider`);
       cached.accessToken = accessToken;
 
-      // Store current awareness state to restore it after reconnection
-      const currentAwarenessState = cached.provider.awareness?.getLocalState();
-
       // Properly destroy old provider
       cached.provider.destroy();
 
+      // FIX 1: If token is now null, don't create a new provider
+      if (!accessToken) {
+        console.warn('[useYjs] Token cleared, disconnecting WebSocket');
+        cached.provider = null;
+        return cached;
+      }
+
+      // Store current awareness state to restore it after reconnection
+      const currentAwarenessState = cached.provider?.awareness?.getLocalState();
+
       // Create new provider with updated token
-      const wsParams = accessToken ? { token: accessToken } : {};
+      const wsParams = { token: accessToken };
       cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
         connect: true, // On token change, connect immediately (IndexedDB already loaded)
         params: wsParams
@@ -323,6 +363,24 @@ export function useYjs(docGuid, accessToken, user = null) {
     }, 100);
   }, [provider]);
 
+  // FIX 1 & FIX 4: Handle token becoming null (auth expired/failed)
+  useEffect(() => {
+    console.log('[useYjs] Token state changed:', {
+      hasToken: !!accessToken,
+      hasProvider: !!instancesRef.current?.provider,
+      currentAuthError: authError,
+      docGuid
+    });
+
+    if (accessToken === null && instancesRef.current?.provider) {
+      console.warn('[useYjs] ⚠️ Token cleared while provider exists - AUTH FAILURE DETECTED');
+      setAuthError(true);
+      setConnectionState('disconnected');
+    } else if (accessToken === null) {
+      console.log('[useYjs] Token is null but no provider - likely initial load or already cleaned up');
+    }
+  }, [accessToken, docGuid]);
+
   useEffect(() => {
     if (!provider) return;
 
@@ -352,25 +410,57 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
 
     const handleConnectionError = (error) => {
-      // Detect authentication/authorization failures
+      // FIX 2: Enhanced auth error detection
+      // Detect authentication/authorization failures from error messages
       if (error && error.message) {
         const errorMsg = error.message.toLowerCase();
-        if (errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
-            errorMsg.includes('403') || errorMsg.includes('forbidden') ||
-            errorMsg.includes('auth')) {
-          console.error('❌ AUTHENTICATION FAILED - Your session may have expired. Please refresh the page to log in again.');
+        const hasAuthKeyword = errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
+                                errorMsg.includes('403') || errorMsg.includes('forbidden') ||
+                                errorMsg.includes('auth');
+
+        if (hasAuthKeyword) {
+          console.error('❌ AUTHENTICATION FAILED - Your session may have expired.');
           logPerf('AUTH_ERROR_DETECTED', { error: error.message });
           setAuthError(true);
+          // Prevent further reconnection attempts
+          if (provider) {
+            provider.shouldConnect = false;
+          }
+        }
+      }
+
+      // Track failed connection attempts
+      reconnectCountRef.current += 1;
+
+      // If we've failed to connect multiple times in a row, likely an auth issue
+      const MAX_RETRIES_BEFORE_AUTH_ERROR = 5;
+      if (reconnectCountRef.current >= MAX_RETRIES_BEFORE_AUTH_ERROR) {
+        console.error(`❌ CONNECTION FAILED after ${reconnectCountRef.current} attempts - Likely auth issue`);
+        logPerf('MAX_RETRIES_REACHED', { attempts: reconnectCountRef.current });
+        setAuthError(true);
+        // Prevent further reconnection attempts
+        if (provider) {
+          provider.shouldConnect = false;
         }
       }
     };
 
     const handleConnectionClose = (event) => {
-      // WebSocket close codes: 1008 = Policy Violation (often used for auth failures)
-      if (event.code === 1008 || event.code === 4401 || event.code === 4403) {
-        console.error('❌ CONNECTION REJECTED - Authentication or authorization failed. Please refresh the page.');
+      // FIX 2: Detect auth failures from close codes
+      // WebSocket close codes:
+      // - 4401, 4403: Custom auth/permission errors
+      // - 1008: Policy Violation (often used for auth failures)
+      // - 1006: Abnormal closure (can indicate HTTP 401/403 during upgrade)
+      const authRelatedCodes = [1008, 1006, 4401, 4403];
+
+      if (authRelatedCodes.includes(event.code)) {
+        console.error(`❌ CONNECTION REJECTED (code ${event.code}) - Authentication or authorization failed.`);
         logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
         setAuthError(true);
+        // Prevent further reconnection attempts
+        if (provider) {
+          provider.shouldConnect = false;
+        }
       }
     };
 

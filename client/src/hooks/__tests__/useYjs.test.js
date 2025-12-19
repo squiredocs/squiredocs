@@ -12,6 +12,8 @@ vi.mock('y-indexeddb');
 
 // Test document GUID
 const TEST_DOC_GUID = '12345678-1234-4123-8123-123456789abc';
+// Mock access token for tests
+const TEST_ACCESS_TOKEN = 'mock-access-token-12345';
 
 describe('useYjs', () => {
   let mockProvider;
@@ -76,21 +78,21 @@ describe('useYjs', () => {
   });
 
   it('creates Yjs document and providers', () => {
-    const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
     expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
     expect(result.current.provider).toBeDefined();
     expect(result.current.awareness).toBeDefined();
   });
 
   it('returns the provided docGuid', () => {
-    const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
     expect(result.current.docGuid).toBe(TEST_DOC_GUID);
   });
 
   it('initializes with provider wsconnected state', () => {
-    const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
     // The hook initializes connected state based on provider.wsconnected
     // Since mockProvider.wsconnected is true, connected should be true
@@ -98,8 +100,8 @@ describe('useYjs', () => {
   });
 
   it('updates connected state when provider status changes', async () => {
-    const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
     // Wait for async handler to be called via setImmediate
     await waitFor(() => {
       expect(result.current.connected).toBe(true);
@@ -107,10 +109,10 @@ describe('useYjs', () => {
   });
 
   it('cleans up providers on unmount', () => {
-    const { unmount } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
+    const { unmount } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
     unmount();
-    
+
     // Note: With caching pattern, cleanup might not happen immediately
     // This test verifies the hook structure is correct
     expect(mockProvider.destroy).toBeDefined();
@@ -118,16 +120,16 @@ describe('useYjs', () => {
 
   describe('user awareness', () => {
     it('returns users array from hook', () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // The hook should return a users array
       expect(result.current.users).toBeDefined();
       expect(Array.isArray(result.current.users)).toBe(true);
     });
 
     it('returns awareness object from hook', () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // The hook should return awareness for cursor tracking
       expect(result.current.awareness).toBeDefined();
     });
@@ -140,9 +142,9 @@ describe('useYjs', () => {
         setImmediate(() => handler(new Error('Connection failed')));
       }
     });
-    
-    const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-    
+
+    const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
     // Should not crash on error - provider should be defined immediately
     expect(result.current.provider).toBeDefined();
   });
@@ -151,13 +153,13 @@ describe('useYjs', () => {
     it('works without IndexedDB (e.g., Firefox private mode)', async () => {
       // The hook should work even when IndexedDB is unavailable
       // (y-indexeddb is mocked, so this tests the hook's resilience)
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // Hook should still work - WebSocket provider should be created
       expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
       expect(result.current.provider).toBeDefined();
       expect(result.current.awareness).toBeDefined();
-      
+
       // Core functionality works regardless of IndexedDB
       await waitFor(() => {
         expect(result.current.connected).toBeDefined();
@@ -168,25 +170,25 @@ describe('useYjs', () => {
 
   describe('document title', () => {
     it('initializes with default document title', async () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // Initial title should be 'Untitled Document'
       expect(result.current.docTitle).toBe('Untitled Document');
     });
 
     it('provides setDocTitle function', () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       expect(result.current.setDocTitle).toBeDefined();
       expect(typeof result.current.setDocTitle).toBe('function');
     });
 
     it('updates title via setDocTitle', async () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // Update the title
       result.current.setDocTitle('My New Document');
-      
+
       // Wait for state to update
       await waitFor(() => {
         expect(result.current.docTitle).toBe('My New Document');
@@ -194,14 +196,14 @@ describe('useYjs', () => {
     });
 
     it('allows setting title to empty string', async () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // First set a title
       result.current.setDocTitle('Some Title');
       await waitFor(() => {
         expect(result.current.docTitle).toBe('Some Title');
       });
-      
+
       // Then clear it
       result.current.setDocTitle('');
       await waitFor(() => {
@@ -210,11 +212,11 @@ describe('useYjs', () => {
     });
 
     it('stores title in Y.Map meta', async () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // Update the title
       result.current.setDocTitle('Test Title');
-      
+
       // Verify it's stored in the Y.Map
       const meta = result.current.ydoc.getMap('meta');
       await waitFor(() => {
@@ -223,12 +225,12 @@ describe('useYjs', () => {
     });
 
     it('syncs title changes from Y.Map', async () => {
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID));
-      
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
       // Simulate another client updating the title directly via Y.Map
       const meta = result.current.ydoc.getMap('meta');
       meta.set('title', 'Title From Another Client');
-      
+
       // The hook should pick up the change
       await waitFor(() => {
         expect(result.current.docTitle).toBe('Title From Another Client');

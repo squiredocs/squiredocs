@@ -143,15 +143,6 @@ function AppContent() {
   // Login page - redirect to docs if already authenticated
   if (route.view === 'login') {
     if (isAuthenticated) {
-      // Check for returnTo parameter in URL
-      const params = new URLSearchParams(window.location.search);
-      const returnTo = params.get('returnTo');
-      if (returnTo) {
-        // Redirect to the returnTo URL
-        window.location.href = returnTo;
-        return null;
-      }
-      // Otherwise redirect to docs
       navigateToDocs();
       return null;
     }
