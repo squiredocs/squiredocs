@@ -458,5 +458,138 @@ describe('version-history module', () => {
       const restoredDoc = await mockPersistence.getYDoc('test-doc');
       expect(getText(restoredDoc)).toBe('Original content');
     });
+
+    test('preserves text marks (bold, italic, strike) when restoring', async () => {
+      // Test that marks like strikethrough, bold, italic are preserved
+      const updates = [];
+      let clock = 0;
+
+      const mockPersistence = {
+        storeUpdate: jest.fn(async (docGuid, update, userId) => {
+          clock++;
+          updates.push({ clock, update: new Uint8Array(update), userId });
+          return clock;
+        }),
+        getYDoc: jest.fn(async (docGuid) => {
+          const doc = new Y.Doc();
+          for (const { update } of updates) {
+            Y.applyUpdate(doc, update);
+          }
+          return doc;
+        }),
+        getUpdatesWithUsers: jest.fn(async (docGuid) => {
+          return updates.map(u => ({
+            clock: u.clock,
+            createdAt: new Date().toISOString(),
+            userId: u.userId,
+            userName: 'Test User',
+          }));
+        }),
+        getVersionById: jest.fn(),
+        getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+          const doc = new Y.Doc();
+          for (const { update, clock: updateClock } of updates) {
+            if (updateClock <= targetClock) {
+              Y.applyUpdate(doc, update);
+            }
+          }
+          return doc;
+        }),
+      };
+
+      // Helper to create a paragraph with formatted text
+      const setFormattedText = (doc, segments) => {
+        const fragment = doc.getXmlFragment('default');
+        doc.transact(() => {
+          // Clear existing content
+          while (fragment.length > 0) {
+            fragment.delete(0, fragment.length);
+          }
+          // Create a paragraph with formatted text segments
+          const paragraph = new Y.XmlElement('paragraph');
+          const textElements = [];
+
+          for (const seg of segments) {
+            const textContent = new Y.XmlText();
+            textContent.insert(0, seg.text, seg.attrs);
+            textElements.push(textContent);
+          }
+
+          paragraph.insert(0, textElements);
+          fragment.insert(0, [paragraph]);
+        });
+      };
+
+      // Helper to get marks from text
+      const getMarks = (doc) => {
+        const fragment = doc.getXmlFragment('default');
+        const marks = [];
+
+        for (let i = 0; i < fragment.length; i++) {
+          const element = fragment.get(i);
+          if (element instanceof Y.XmlElement) {
+            for (let j = 0; j < element.length; j++) {
+              const child = element.get(j);
+              if (child instanceof Y.XmlText) {
+                const delta = child.toDelta();
+                for (const op of delta) {
+                  if (op.attributes) {
+                    marks.push({ text: op.insert, attrs: op.attributes });
+                  } else {
+                    marks.push({ text: op.insert, attrs: {} });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        return marks;
+      };
+
+      // Version 1: Text with strikethrough, bold, and italic
+      const doc1 = new Y.Doc();
+      setFormattedText(doc1, [
+        { text: 'Strikethrough text', attrs: { strike: true } },
+        { text: ' normal ', attrs: {} },
+        { text: 'bold', attrs: { bold: true } },
+        { text: ' and ', attrs: {} },
+        { text: 'italic', attrs: { italic: true } },
+      ]);
+      const update1 = Y.encodeStateAsUpdate(doc1);
+      await mockPersistence.storeUpdate('test-doc', update1, 'user-1');
+
+      // Version 2: Replace with plain text (loses marks)
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, update1);
+      setFormattedText(doc2, [
+        { text: 'Plain text only', attrs: {} },
+      ]);
+      const stateVector1 = Y.encodeStateVector(doc1);
+      const update2 = Y.encodeStateAsUpdate(doc2, stateVector1);
+      await mockPersistence.storeUpdate('test-doc', update2, 'user-1');
+
+      // Current doc should have plain text only
+      const currentDoc = await mockPersistence.getYDoc('test-doc');
+      const currentMarks = getMarks(currentDoc);
+      expect(currentMarks).toHaveLength(1);
+      expect(currentMarks[0].text).toBe('Plain text only');
+      expect(currentMarks[0].attrs).toEqual({});
+
+      // Now restore to version 1 (with formatting)
+      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+
+      // Get the document after restore
+      const restoredDoc = await mockPersistence.getYDoc('test-doc');
+      const restoredMarks = getMarks(restoredDoc);
+
+      // Verify all marks are preserved
+      expect(restoredMarks).toHaveLength(5);
+      expect(restoredMarks[0]).toEqual({ text: 'Strikethrough text', attrs: { strike: true } });
+      expect(restoredMarks[1]).toEqual({ text: ' normal ', attrs: {} });
+      expect(restoredMarks[2]).toEqual({ text: 'bold', attrs: { bold: true } });
+      expect(restoredMarks[3]).toEqual({ text: ' and ', attrs: {} });
+      expect(restoredMarks[4]).toEqual({ text: 'italic', attrs: { italic: true } });
+    });
   });
 });

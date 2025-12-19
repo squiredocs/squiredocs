@@ -436,7 +436,16 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
   const cloneXmlElement = (sourceElement) => {
     if (sourceElement instanceof Y.XmlText) {
       const clone = new Y.XmlText();
-      clone.insert(0, sourceElement.toString());
+      // Use toDelta() to preserve marks (bold, italic, strike, etc.)
+      const delta = sourceElement.toDelta();
+      let offset = 0;
+      for (const op of delta) {
+        if (typeof op.insert === 'string') {
+          // Insert text with its formatting attributes
+          clone.insert(offset, op.insert, op.attributes);
+          offset += op.insert.length;
+        }
+      }
       return clone;
     } else if (sourceElement instanceof Y.XmlElement) {
       const clone = new Y.XmlElement(sourceElement.nodeName);

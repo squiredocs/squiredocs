@@ -8,7 +8,6 @@ const listDocuments = require('./list-documents');
 const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
-const setAgentSelection = require('./set-agent-selection');
 const getDocumentStructure = require('./get-document-structure');
 const getDocumentSchema = require('./get-document-schema');
 const readDocumentBlock = require('./read-document-block');
@@ -22,7 +21,6 @@ const tools = {
   create_document: createDocument,
   share_document: shareDocument,
   set_document_title: setDocumentTitle,
-  set_agent_selection: setAgentSelection,
   get_document_structure: getDocumentStructure,
   get_document_schema: getDocumentSchema,
   read_document_block: readDocumentBlock,
