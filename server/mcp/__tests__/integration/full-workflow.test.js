@@ -33,7 +33,7 @@ const delegation = require('../../auth/delegation');
 const { generateAgentToken, verifyAgentToken } = require('../../auth/jwt');
 const { requireAgentAuth, requireScope } = require('../../auth/middleware');
 const listDocuments = require('../../tools/list-documents');
-const getDocument = require('../../tools/get-document');
+const getDocumentStructure = require('../../tools/get-document-structure');
 const documents = require('../../../documents');
 
 describe('Full Agent Workflow', () => {
@@ -45,7 +45,7 @@ describe('Full Agent Workflow', () => {
     delegation.init(pool);
     documents.init(pool);
     listDocuments.init(persistenceProvider);
-    getDocument.init(persistenceProvider);
+    getDocumentStructure.init(persistenceProvider);
 
     // Create test user
     const userResult = await pool.query(
@@ -151,19 +151,16 @@ describe('Full Agent Workflow', () => {
       expect(Array.isArray(listResult.documents)).toBe(true);
       expect(listResult.documents.map((d) => d.id)).toContain(testDocId);
 
-      // Step 7: Use get_document tool (now always returns structured format)
-      const getResult = await getDocument.handler(
+      // Step 7: Use get_document_structure tool
+      const structureResult = await getDocumentStructure.handler(
         { docGuid: testDocId },
         mockReq.agentToken
       );
 
-      expect(getResult.docGuid).toBe(testDocId);
-      expect(Array.isArray(getResult.content)).toBe(true);
-      // Find paragraph with expected content
-      const paragraph = getResult.content.find((node) => node.type === 'paragraph');
-      expect(paragraph).toBeDefined();
-      expect(paragraph.content).toContain('Integration test document content.');
-      expect(getResult.role).toBe('owner');
+      expect(structureResult.docGuid).toBe(testDocId);
+      expect(structureResult.structure).toBeDefined();
+      expect(structureResult.totalElements).toBe(1);
+      expect(structureResult.structure).toContain('Integration test document content.');
     });
   });
 
@@ -349,7 +346,7 @@ describe('Full Agent Workflow', () => {
 
       // Try to access other user's private document
       await expect(
-        getDocument.handler({ docGuid: privateDocId }, decoded)
+        getDocumentStructure.handler({ docGuid: privateDocId }, decoded)
       ).rejects.toThrow(/not found|access/i);
     });
 

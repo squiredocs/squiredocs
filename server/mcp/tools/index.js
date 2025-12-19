@@ -5,25 +5,27 @@
  */
 
 const listDocuments = require('./list-documents');
-const getDocument = require('./get-document');
-const updateDocument = require('./update-document');
 const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 const setAgentSelection = require('./set-agent-selection');
-const createSelectionPosition = require('./create-selection-position');
+const getDocumentStructure = require('./get-document-structure');
+const getDocumentSchema = require('./get-document-schema');
+const readDocumentBlock = require('./read-document-block');
+const updateDocumentBlock = require('./update-document-block');
 const agentPresence = require('../agent-presence');
 
 // All available tools
 const tools = {
   list_documents: listDocuments,
-  get_document: getDocument,
-  update_document: updateDocument,
   create_document: createDocument,
   share_document: shareDocument,
   set_document_title: setDocumentTitle,
   set_agent_selection: setAgentSelection,
-  create_selection_position: createSelectionPosition,
+  get_document_structure: getDocumentStructure,
+  get_document_schema: getDocumentSchema,
+  read_document_block: readDocumentBlock,
+  update_document_block: updateDocumentBlock,
 };
 
 /**

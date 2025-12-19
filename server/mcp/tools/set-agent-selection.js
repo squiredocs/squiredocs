@@ -22,103 +22,93 @@ function init(persistence) {
  */
 const name = 'set_agent_selection';
 
-const description = `Set a text selection in a document that is visible to all users.
+const description = `ADVANCED: Set a custom text selection visible to all users in real-time.
 
-This tool allows the AI agent to highlight a specific range of text in the document,
-making it visible to all connected users in real-time, just like when a human user
-selects text. The selection appears with the agent's name (e.g. "Claude (AI Agent)")
-and a unique color.
+═══════════════════════════════════════════════════════════════════════════
+WHEN TO USE THIS TOOL
+═══════════════════════════════════════════════════════════════════════════
 
-USE CASES:
-- Draw attention to specific parts of the document during analysis
-- Highlight text being analyzed or referenced in explanations
-- Show which section is being edited or reviewed
-- Indicate focus areas during collaborative work
-- Visual feedback during document processing
+NOTE: You usually DON'T need this tool! The read_document_block and
+update_document_block tools automatically highlight blocks for you.
 
-PARAMETERS:
-- docGuid: The document UUID (get from list_documents)
-- anchor: Start position of the selection (Yjs relative position object)
-- head: End position of the selection (Yjs relative position object)
-- durationSeconds: (Optional) How long to keep the selection visible (1-300 seconds, default: 60)
+Use this ADVANCED tool only when you need to:
+- Highlight a specific text range WITHIN a block (not the whole block)
+- Draw attention to multiple blocks at once
+- Create custom selection ranges for analysis
 
-POSITION FORMAT:
-Positions must be Yjs relative position objects. These are JSON objects that
-represent stable positions in the document that remain valid even as other users
-edit the document.
+For most editing workflows, use the simpler block-based tools instead.
 
-DO NOT try to create relative position objects manually. Instead, use the
-create_selection_position helper tool which handles this for you.
+═══════════════════════════════════════════════════════════════════════════
+ABOUT SELECTIONS IN THIS COLLABORATIVE EDITOR
+═══════════════════════════════════════════════════════════════════════════
 
-COMPLETE WORKFLOW:
-Step 1: Understand the document structure
-  get_document({ docGuid: "abc-123", format: "structured" })
-  This shows you elements and their indices
+This is a real-time collaborative editor where multiple users work together:
+- Your selections appear to ALL connected users instantly
+- Each agent/user has a unique color
+- Selections show your agent name (e.g., "Claude (AI Agent)")
+- Users can see exactly what you're highlighting in real-time
 
-Step 2: Create anchor position (start of selection)
-  create_selection_position({
-    docGuid: "abc-123",
-    elementIndex: 0,
-    textOffset: 0
-  })
-  Save the returned "position" object
+═══════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════
 
-Step 3: Create head position (end of selection)
-  create_selection_position({
-    docGuid: "abc-123",
-    elementIndex: 2,
-    textOffset: 100
-  })
-  Save the returned "position" object
+You provide:
+- anchor: Start position (Yjs relative position object)
+- head: End position (Yjs relative position object)
+- durationSeconds: How long to show the selection
 
-Step 4: Set the selection
-  set_agent_selection({
-    docGuid: "abc-123",
-    anchor: anchorPositionFromStep2.position,
-    head: headPositionFromStep3.position,
-    durationSeconds: 60
-  })
+The selection is rendered in the document and visible to everyone.
 
-EXAMPLE - Highlighting the first two paragraphs:
-// Step 1: Get document structure
-const doc = get_document({ docGuid: "abc-123", format: "structured" });
-// Shows: [{ type: "paragraph", content: "First..." }, { type: "paragraph", content: "Second..." }]
+POSITION OBJECTS:
+These are special Yjs relative position objects that remain stable even as
+other users edit the document. They're created by looking at the document
+structure from get_document_structure.
 
-// Step 2: Create anchor at start of element 0
-const anchor = create_selection_position({ docGuid: "abc-123", elementIndex: 0 });
+WARNING: Creating position objects manually is complex. This is an advanced
+tool - consider using read_document_block instead for most use cases.
 
-// Step 3: Create head at end of element 1
-const head = create_selection_position({ docGuid: "abc-123", elementIndex: 1 });
+═══════════════════════════════════════════════════════════════════════════
+PARAMETERS
+═══════════════════════════════════════════════════════════════════════════
 
-// Step 4: Set selection
-set_agent_selection({
-  docGuid: "abc-123",
-  anchor: anchor.position,
-  head: head.position,
-  durationSeconds: 45
-});
+- docGuid: Document UUID
+- anchor: Yjs relative position object (start of selection)
+- head: Yjs relative position object (end of selection)
+- durationSeconds: How long to display (1-300 seconds, default: 60)
 
-RETURNS:
+═══════════════════════════════════════════════════════════════════════════
+RETURNS
+═══════════════════════════════════════════════════════════════════════════
+
 - success: true if selection was set
 - message: Confirmation message
 - sessionId: Unique ID for this selection session
 - expiresIn: Seconds until selection disappears
 - selection: The anchor and head positions used
-- agent: Object with name and color of the agent
+- agent: Object with your agent name and color
 
-IMPORTANT NOTES:
-- The selection is visible to ALL users viewing the document
-- Selections automatically disappear after the specified duration
+═══════════════════════════════════════════════════════════════════════════
+VISIBILITY & BEHAVIOR
+═══════════════════════════════════════════════════════════════════════════
+
+- Selection is visible to ALL users viewing the document
+- Shows your agent name and color
+- Automatically disappears after durationSeconds
 - Multiple agents can have selections active simultaneously
-- If the WebSocket connection drops, the selection will disappear
+- Survives document edits (positions are relative)
+- Disappears if WebSocket connection drops
 - Requires at least viewer access to the document
-- The agent's name will be shown as "Your Name (AI Agent)"
 
-VISIBILITY:
-When you set a selection, users will see:
-- Highlighted text in the document with the agent's color
-- A cursor/label showing the agent's name
-- The selection updates in real-time for all connected users`;
+═══════════════════════════════════════════════════════════════════════════
+RECOMMENDATION
+═══════════════════════════════════════════════════════════════════════════
+
+For most editing workflows, use these simpler tools instead:
+1. get_document_structure - See block layout
+2. read_document_block - Read and auto-highlight a block
+3. update_document_block - Update and auto-highlight a block
+
+Use set_agent_selection only for advanced custom highlighting needs.`;
 
 const inputSchema = {
   type: 'object',
