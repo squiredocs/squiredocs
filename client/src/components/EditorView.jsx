@@ -47,6 +47,127 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
+/**
+ * Prettify HTML with proper indentation
+ */
+function prettifyHTML(html) {
+  let formatted = '';
+  let indent = 0;
+  const tab = '  ';
+
+  // Split by tags
+  html.split(/(<[^>]+>)/g).forEach(part => {
+    if (!part.trim()) return;
+
+    // Closing tag
+    if (part.match(/^<\/\w/)) {
+      indent = Math.max(0, indent - 1);
+      formatted += tab.repeat(indent) + part + '\n';
+    }
+    // Self-closing tag or text content
+    else if (part.match(/\/>$/) || !part.match(/^</)) {
+      formatted += tab.repeat(indent) + part + '\n';
+    }
+    // Opening tag
+    else {
+      formatted += tab.repeat(indent) + part + '\n';
+      indent++;
+    }
+  });
+
+  return formatted.trim();
+}
+
+/**
+ * Format document block structure with indexes
+ * Shows elementIndex (for MCP API) and character offsets
+ * Only shows top-level elements to match xmlFragment.get(elementIndex) behavior
+ */
+function formatBlocks(editor) {
+  const doc = editor.state.doc;
+  let output = 'Block Structure (for MCP create_selection_position tool)\n';
+  output += '─'.repeat(70) + '\n\n';
+
+  let elementIndex = 0;
+
+  // Helper to recursively show nested structure with offsets
+  function formatNode(node, depth = 0, startOffset = 0, parentElementIndex = null) {
+    const indent = '  '.repeat(depth);
+    const textContent = node.textContent;
+    const textLength = textContent.length;
+    const endOffset = startOffset + textLength;
+
+    // Get attributes if any
+    const attrs = node.attrs && Object.keys(node.attrs).length > 0
+      ? ` ${JSON.stringify(node.attrs)}`
+      : '';
+
+    let result = '';
+    let currentElementIndex = parentElementIndex;
+
+    // Only top-level blocks get an elementIndex
+    if (depth === 0) {
+      currentElementIndex = elementIndex;
+      const preview = textContent ? ` "${textContent.slice(0, 50)}${textContent.length > 50 ? '...' : ''}"` : '';
+      result += `${indent}[${elementIndex}] <${node.type.name}>${attrs} offsets:0-${textLength}${preview}\n`;
+      elementIndex++;
+    } else {
+      // Nested blocks show their offset range within the parent element
+      const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
+      result += `${indent}  ↳ <${node.type.name}>${attrs} offsets:${startOffset}-${endOffset}${preview}\n`;
+    }
+
+    // Show nested children (like list items inside bulletList)
+    if (node.content && node.content.size > 0) {
+      let childOffset = 0;
+      node.content.forEach((child) => {
+        if (child.isBlock && child.type.name !== 'doc') {
+          result += formatNode(child, depth + 1, childOffset, currentElementIndex);
+          childOffset += child.textContent.length;
+        }
+      });
+    }
+
+    return result;
+  }
+
+  // Only iterate top-level blocks
+  doc.content.forEach((node) => {
+    if (node.isBlock && node.type.name !== 'doc') {
+      output += formatNode(node, 0);
+    }
+  });
+
+  if (elementIndex === 0) {
+    return 'No block elements found';
+  }
+
+  output += '\n' + '─'.repeat(70) + '\n';
+  output += `Total top-level elements: ${elementIndex}\n\n`;
+  output += 'Usage with MCP API:\n';
+  output += '  create_selection_position({ elementIndex: N, textOffset: X })\n';
+  output += '  - elementIndex: Use the [N] value (top-level only)\n';
+  output += '  - textOffset: Use any value in the offset range shown\n';
+  output += '  - For nested items (↳), use parent\'s elementIndex with nested offsets\n';
+  output += '\nExample: To select "2" in "Item 2" at offsets:11-12\n';
+  output += '  create_selection_position({ elementIndex: 1, textOffset: 11 })\n';
+
+  return output;
+}
+
+/**
+ * Get depth of a node in the document tree
+ */
+function getDepth(node, doc) {
+  let depth = 0;
+  let current = node;
+  while (current && current !== doc) {
+    depth++;
+    current = current.parent;
+  }
+  return depth;
+}
+
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
   const { logout, api, accessToken, isAuthenticated, expireTokenForTesting } = useAuth();
 
@@ -67,6 +188,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
+  const [sourceFormat, setSourceFormat] = useState('json');
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
@@ -617,7 +739,33 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         <div className="modal-overlay" onClick={() => setSourceModalOpen(false)}>
           <div className="source-modal" onClick={(e) => e.stopPropagation()}>
             <div className="source-modal-header">
-              <h2>Raw Document Source</h2>
+              <h2>Document Source</h2>
+              <div className="source-format-tabs">
+                <button
+                  className={`source-format-tab ${sourceFormat === 'json' ? 'active' : ''}`}
+                  onClick={() => setSourceFormat('json')}
+                >
+                  JSON
+                </button>
+                <button
+                  className={`source-format-tab ${sourceFormat === 'html' ? 'active' : ''}`}
+                  onClick={() => setSourceFormat('html')}
+                >
+                  HTML
+                </button>
+                <button
+                  className={`source-format-tab ${sourceFormat === 'blocks' ? 'active' : ''}`}
+                  onClick={() => setSourceFormat('blocks')}
+                >
+                  Blocks
+                </button>
+                <button
+                  className={`source-format-tab ${sourceFormat === 'text' ? 'active' : ''}`}
+                  onClick={() => setSourceFormat('text')}
+                >
+                  Text
+                </button>
+              </div>
               <button
                 className="source-modal-close"
                 onClick={() => setSourceModalOpen(false)}
@@ -629,7 +777,13 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </button>
             </div>
             <div className="source-modal-content">
-              <pre>{editor ? JSON.stringify(editor.getJSON(), null, 2) : 'Loading...'}</pre>
+              <pre>
+                {!editor ? 'Loading...' :
+                  sourceFormat === 'json' ? JSON.stringify(editor.getJSON(), null, 2) :
+                  sourceFormat === 'html' ? prettifyHTML(editor.getHTML()) :
+                  sourceFormat === 'blocks' ? formatBlocks(editor) :
+                  editor.getText()}
+              </pre>
             </div>
           </div>
         </div>
