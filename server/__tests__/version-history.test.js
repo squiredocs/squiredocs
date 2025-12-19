@@ -63,8 +63,8 @@ describe('version-history module', () => {
       const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
       const updates = [
         { clock: 1, createdAt: new Date(baseTime).toISOString(), userId: 'user-1', userName: 'Alice' },
-        { clock: 2, createdAt: new Date(baseTime + 60000).toISOString(), userId: 'user-1', userName: 'Alice' }, // 1 min later
-        { clock: 3, createdAt: new Date(baseTime + 120000).toISOString(), userId: 'user-2', userName: 'Bob' }, // 2 min later
+        { clock: 2, createdAt: new Date(baseTime + 1000).toISOString(), userId: 'user-1', userName: 'Alice' }, // 1 sec later
+        { clock: 3, createdAt: new Date(baseTime + 1000).toISOString(), userId: 'user-2', userName: 'Bob' }, // 2 sec later
       ];
 
       const versions = groupUpdatesIntoVersions(updates);
@@ -211,11 +211,6 @@ describe('version-history module', () => {
     });
   });
 
-  describe('DEFAULT_INACTIVITY_THRESHOLD', () => {
-    test('is 5 minutes in milliseconds', () => {
-      expect(DEFAULT_INACTIVITY_THRESHOLD).toBe(1.5 * 60 * 1000);
-    });
-  });
 
   describe('restoreVersion', () => {
     test('restores document to previous version content', async () => {

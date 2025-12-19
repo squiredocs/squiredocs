@@ -6,7 +6,7 @@
 const Y = require('yjs');
 
 // Default inactivity threshold for grouping updates into versions (5 minutes)
-const DEFAULT_INACTIVITY_THRESHOLD = 1.5 * 60 * 1000;
+const DEFAULT_INACTIVITY_THRESHOLD = 10 * 1000;
 
 /**
  * Generate a deterministic color from a user ID
