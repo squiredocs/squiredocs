@@ -16,6 +16,7 @@ const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
 const mcp = require('./mcp');
 const documentService = require('./document-service');
+const wsSimulator = require('./websocket-simulator');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -885,6 +886,9 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);
 
+  // Log WebSocket simulator status
+  wsSimulator.logStatus();
+
   // Initialize document service with y-websocket functions
   documentService.init(getYDoc, extractDocGuid);
 });
@@ -938,9 +942,11 @@ server.on('upgrade', async (request, socket, head) => {
   request.user = user;
   request.userRole = viewPermission.role;
   request.docId = docId;
-  
+
   wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
+    // Apply connection simulation if enabled
+    const wrappedWs = wsSimulator.simulateFlakyConnection(ws);
+    wss.emit('connection', wrappedWs, request);
   });
 });
 
