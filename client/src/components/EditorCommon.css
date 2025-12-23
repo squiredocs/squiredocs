@@ -70,6 +70,13 @@
   margin: 12px 0;
   padding-left: 24px;
 }
+.editor-common-content .ProseMirror ul ul,
+.editor-common-content .ProseMirror ol ol,
+.editor-common-content .ProseMirror ul ol,
+.editor-common-content .ProseMirror ol ul {
+  margin: 0;
+  padding-left: 24px;
+}
 
 .editor-common-content .ProseMirror li {
   margin: 4px 0;
