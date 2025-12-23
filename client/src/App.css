@@ -161,7 +161,7 @@
 
   /* Hide collaborator avatars on very small screens */
   @media (max-width: 480px) {
-    .app-header-right > div:first-child {
+    .app-header-right > div:first-child:not(.tools-menu-wrapper) {
       display: none;
     }
   }

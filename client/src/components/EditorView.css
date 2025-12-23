@@ -114,16 +114,19 @@
   background: #e5e7eb;
 }
 
-/* Tools menu - contains History and Source buttons */
+/* Tools menu - contains Share, History, and Source buttons */
 .tools-menu-wrapper {
   position: relative;
   flex-shrink: 0;
   margin-right: 8px;
+  display: flex;
 }
 
 .tools-menu-btn {
   width: 40px;
   height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border: none;
   background: transparent;
   border-radius: 50%;
@@ -135,10 +138,15 @@
   flex-shrink: 0;
   transition: background-color 0.15s ease;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tools-menu-btn:hover {
   background-color: #e8eaed;
+}
+
+.tools-menu-btn:active {
+  background-color: #dadce0;
 }
 
 .tools-menu-btn svg {
@@ -271,6 +279,31 @@
 
   .share-btn span {
     display: none;
+  }
+
+  /* Ensure tools menu is visible and has proper touch target on mobile */
+  .tools-menu-wrapper {
+    display: flex !important;
+    flex-shrink: 0;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .tools-menu-btn {
+    display: flex !important;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    /* Ensure button is visible on iOS */
+    background: rgba(0, 0, 0, 0.05);
+    color: #202124;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .tools-menu-btn:active {
+    background-color: rgba(0, 0, 0, 0.1);
   }
 }
 
