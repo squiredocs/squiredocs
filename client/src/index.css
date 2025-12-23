@@ -28,3 +28,12 @@ code {
   flex-direction: column;
 }
 
+/* Prevent page scroll on mobile - only allow scrolling within editor container */
+@media (max-width: 768px) {
+  html, body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+}
+
