@@ -336,9 +336,11 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [synced, setSynced] = useState(false);
   const [docTitle, setDocTitleState] = useState('Untitled Document');
   const [authError, setAuthError] = useState(false); // Track authentication errors
+  const [reconnectCount, setReconnectCount] = useState(0); // Track reconnection attempts (useState for UI updates)
+  const reconnectCountRef = useRef(0); // Internal ref for synchronous MAX_RETRIES check
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
-  const reconnectCountRef = useRef(0);
+  const lastForceReconnectRef = useRef(0); // For debouncing forceReconnect
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
@@ -367,11 +369,21 @@ export function useYjs(docGuid, accessToken, user = null) {
     }
   }
 
-  // Manual reconnection function
+  // Manual reconnection function with debouncing
   const forceReconnect = useCallback(() => {
     if (!provider) return;
+
+    // Debounce: ignore calls within 300ms of last call
+    const now = Date.now();
+    if (now - lastForceReconnectRef.current < 300) {
+      console.log('[useYjs] forceReconnect debounced (called too quickly)');
+      return;
+    }
+    lastForceReconnectRef.current = now;
+
     console.log('[useYjs] Forcing reconnection...');
     reconnectCountRef.current += 1;
+    setReconnectCount(reconnectCountRef.current);
     logPerf('FORCE_RECONNECT', { attempt: reconnectCountRef.current });
     provider.disconnect();
     setTimeout(() => {
@@ -399,6 +411,9 @@ export function useYjs(docGuid, accessToken, user = null) {
       // This prevents the "Session expired" banner from getting stuck when token refresh succeeds
       console.log('[useYjs] Token restored, clearing auth error and reconnecting');
       setAuthError(false);
+      // Reset reconnect count on successful token restoration
+      reconnectCountRef.current = 0;
+      setReconnectCount(0);
 
       // Re-enable reconnection and attempt to connect
       if (instancesRef.current?.provider) {
@@ -462,6 +477,7 @@ export function useYjs(docGuid, accessToken, user = null) {
 
       // Track failed connection attempts
       reconnectCountRef.current += 1;
+      setReconnectCount(reconnectCountRef.current);
 
       // If we've failed to connect multiple times in a row, likely an auth issue
       const MAX_RETRIES_BEFORE_AUTH_ERROR = 5;
@@ -502,6 +518,7 @@ export function useYjs(docGuid, accessToken, user = null) {
         lastSyncTimeRef.current = Date.now();
         // Reset reconnect counter on successful sync
         reconnectCountRef.current = 0;
+        setReconnectCount(0);
 
         // y-websocket automatically syncs awareness states after document sync
         // The awareness 'change' event will fire naturally - no manual trigger needed
@@ -684,7 +701,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     docTitle,
     setDocTitle,
     forceReconnect, // New: manual reconnection function
-    reconnectCount: reconnectCountRef.current, // New: track reconnection attempts
+    reconnectCount, // Track reconnection attempts (triggers re-render on change)
     authError // New: track authentication errors
   };
 }

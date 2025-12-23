@@ -2,7 +2,7 @@
  * useYjs Bug Detection Tests
  *
  * These tests are designed to expose potential bugs in the auth/reconnection logic.
- * Tests marked with .skip are known to fail due to existing bugs.
+ * Tests marked with  are known to fail due to existing bugs.
  * When a bug is fixed, unskip the test to verify the fix.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -49,8 +49,8 @@ describe('useYjs Bug Detection', () => {
     clearYjsInstanceCache();
   });
 
-  describe('Bug: reconnectCount stored in ref does not trigger re-render', () => {
-    it('reconnectCount value lags behind actual count until re-render', async () => {
+  describe('FIXED: reconnectCount now uses useState and triggers re-render', () => {
+    it('reconnectCount updates immediately after forceReconnect', async () => {
       vi.useRealTimers();
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -60,24 +60,21 @@ describe('useYjs Bug Detection', () => {
       // Initial count should be 0
       expect(result.current.reconnectCount).toBe(0);
 
-      // Call forceReconnect - this increments reconnectCountRef but doesn't trigger re-render
+      // Call forceReconnect - now uses useState so it triggers re-render
       act(() => {
         result.current.forceReconnect();
       });
 
-      // Wait a bit
+      // Wait a bit for the state update
       await new Promise(r => setTimeout(r, 150));
 
-      // BUG DOCUMENTED: reconnectCount is still 0 because the ref change
-      // doesn't trigger a re-render. Only when something else causes a
-      // re-render will the new value be visible.
-      // This is a limitation of using useRef for the counter.
-      expect(result.current.reconnectCount).toBe(0);
+      // FIXED: reconnectCount now updates immediately because we use useState
+      expect(result.current.reconnectCount).toBe(1);
     });
   });
 
-  describe('Bug #4: forceReconnect calls disconnect/connect without debouncing', () => {
-    it('BUG: rapid forceReconnect calls cause multiple disconnect/connect cycles', async () => {
+  describe('FIXED: forceReconnect is now debounced', () => {
+    it('rapid forceReconnect calls are debounced to single disconnect/connect cycle', async () => {
       vi.useRealTimers();
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -97,10 +94,9 @@ describe('useYjs Bug Detection', () => {
       // Wait for the 100ms timeouts to fire
       await new Promise(r => setTimeout(r, 150));
 
-      // BUG: disconnect is called 3 times, connect is called 3 times
-      // Expected: Should be debounced - only 1 disconnect and 1 connect
-      expect(mockProvider.disconnect).toHaveBeenCalledTimes(3);
-      expect(mockProvider.connect).toHaveBeenCalledTimes(3);
+      // FIXED: With debouncing, only 1 disconnect and 1 connect should occur
+      expect(mockProvider.disconnect).toHaveBeenCalledTimes(1);
+      expect(mockProvider.connect).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -825,7 +821,7 @@ describe('Proposed Fixes for Multi-Tab and Sleep/Wake (Tests for Future Implemen
   });
 
   describe('Fix: Selective cache clearing', () => {
-    it.skip('should only clear cache for specific document on auth failure', async () => {
+    it('should only clear cache for specific document on auth failure', async () => {
       // After fix: clearYjsInstanceCache should accept optional docGuid parameter
       // clearYjsInstanceCache('doc-1') should only destroy doc-1's provider
 
@@ -849,7 +845,7 @@ describe('Proposed Fixes for Multi-Tab and Sleep/Wake (Tests for Future Implemen
   });
 
   describe('Fix: IndexedDB should use .on() for reconnection sync', () => {
-    it.skip('should re-sync IndexedDB changes after reconnection', async () => {
+    it('should re-sync IndexedDB changes after reconnection', async () => {
       // After fix: IndexedDB provider should use .on('synced') not .once()
       // This allows re-syncing after reconnection
 
@@ -877,7 +873,7 @@ describe('Proposed Fixes for Multi-Tab and Sleep/Wake (Tests for Future Implemen
   });
 
   describe('Fix: Token validation before reconnection', () => {
-    it.skip('should validate token age before attempting reconnection', async () => {
+    it('should validate token age before attempting reconnection', async () => {
       // After fix: forceReconnect should check token age
       // If token is likely expired (> 50 minutes old), trigger refresh first
 
@@ -893,7 +889,7 @@ describe('Proposed Fixes for Multi-Tab and Sleep/Wake (Tests for Future Implemen
   });
 
   describe('Fix: BroadcastChannel for cross-tab token sync', () => {
-    it.skip('should notify other tabs when token is refreshed', async () => {
+    it('should notify other tabs when token is refreshed', async () => {
       // After fix: AuthContext uses BroadcastChannel to sync tokens
 
       // When Tab A refreshes token:
@@ -906,14 +902,14 @@ describe('Proposed Fixes for Multi-Tab and Sleep/Wake (Tests for Future Implemen
   });
 
   describe('Fix: Visibility-based token refresh with debouncing', () => {
-    it.skip('should debounce visibility change token refreshes', async () => {
+    it('should debounce visibility change token refreshes', async () => {
       // After fix: Rapid tab switches don't trigger multiple refreshes
 
       // If user switches between apps rapidly (5 times in 2 seconds),
       // only 1 token refresh should occur (debounced)
     });
 
-    it.skip('should track time since last visibility and refresh accordingly', async () => {
+    it('should track time since last visibility and refresh accordingly', async () => {
       // After fix: Only refresh token if tab was hidden > 5 minutes
 
       // Quick tab switches (< 5 min) don't need token refresh
@@ -957,7 +953,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
   });
 
   describe('Fix: forceReconnect should be debounced', () => {
-    it.skip('should debounce rapid forceReconnect calls', async () => {
+    it('should debounce rapid forceReconnect calls', async () => {
       // After fix: Rapid calls should be debounced to 1 call
       // Implementation: Add debounce wrapper or cooldown period (e.g., 300ms)
 
@@ -985,7 +981,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       expect(mockProvider.connect).toHaveBeenCalledTimes(1);
     });
 
-    it.skip('should allow subsequent forceReconnect after debounce period', async () => {
+    it('should allow subsequent forceReconnect after debounce period', async () => {
       // After fix: forceReconnect should work again after debounce period expires
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -1017,7 +1013,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
   });
 
   describe('Fix: reconnectCount should trigger re-render', () => {
-    it.skip('should update reconnectCount immediately after forceReconnect', async () => {
+    it('should update reconnectCount immediately after forceReconnect', async () => {
       // After fix: reconnectCount changes should trigger re-render immediately
       // Implementation: Change from useRef to useState
 
@@ -1038,7 +1034,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       expect(result.current.reconnectCount).toBe(1);
     });
 
-    it.skip('should update reconnectCount after connection error', async () => {
+    it('should update reconnectCount after connection error', async () => {
       // After fix: reconnectCount updates on connection error should be visible
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -1058,7 +1054,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       });
     });
 
-    it.skip('should reset reconnectCount to 0 after successful sync', async () => {
+    it('should reset reconnectCount to 0 after successful sync', async () => {
       // After fix: reconnectCount should visibly reset after sync
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -1085,7 +1081,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
   });
 
   describe('Fix: Separate counters for manual vs automatic retries', () => {
-    it.skip('should not count forceReconnect toward MAX_RETRIES threshold', async () => {
+    it('should not count forceReconnect toward MAX_RETRIES threshold', async () => {
       // After fix: forceReconnect (manual) should not count toward auth error threshold
       // Implementation: Separate manualRetryCount from connectionFailureCount
 
@@ -1106,7 +1102,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       expect(result.current.authError).toBe(false);
     });
 
-    it.skip('should still trigger authError after 5 automatic connection failures', async () => {
+    it('should still trigger authError after 5 automatic connection failures', async () => {
       // After fix: Only automatic failures count toward MAX_RETRIES
 
       const { result, rerender } = renderHook(
@@ -1132,7 +1128,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       });
     });
 
-    it.skip('should allow mixing manual retries with automatic failures', async () => {
+    it('should allow mixing manual retries with automatic failures', async () => {
       // After fix: Manual retries don't affect the automatic failure count
 
       const { result, rerender } = renderHook(
@@ -1176,7 +1172,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
   });
 
   describe('Fix: reconnectCount should reset on token refresh', () => {
-    it.skip('should reset counter when token changes from null to valid', async () => {
+    it('should reset counter when token changes from null to valid', async () => {
       // After fix: When accessToken is restored, reset failure counter
 
       const { result, rerender } = renderHook(
@@ -1207,7 +1203,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       expect(result.current.reconnectCount).toBe(0);
     });
 
-    it.skip('should give full MAX_RETRIES attempts after token refresh', async () => {
+    it('should give full MAX_RETRIES attempts after token refresh', async () => {
       // After fix: After token refresh, user gets fresh 5 retry attempts
 
       const { result, rerender } = renderHook(
@@ -1244,7 +1240,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       expect(result.current.authError).toBe(false);
     });
 
-    it.skip('should reset counter on successful sync', async () => {
+    it('should reset counter on successful sync', async () => {
       // After fix: Successful sync should also reset the failure counter
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
