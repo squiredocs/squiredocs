@@ -348,10 +348,9 @@ export function useYjs(docGuid, accessToken, user = null) {
     instancesRef.current = { ...instances, docGuid };
   }
 
-  // Update token if it changes
-  if (instancesRef.current && instancesRef.current.accessToken !== accessToken) {
-    getOrCreateInstances(docGuid, accessToken);
-  }
+  // NOTE: Don't update instancesRef in render phase!
+  // Token changes are handled in the useEffect below to ensure proper auth detection
+  // and provider cleanup/recreation timing
 
   const { ydoc, provider, indexeddbProvider } = instancesRef.current;
   const awareness = provider?.awareness;
@@ -415,15 +414,23 @@ export function useYjs(docGuid, accessToken, user = null) {
       reconnectCountRef.current = 0;
       setReconnectCount(0);
 
+      // Update instances when token is restored (might create new provider)
+      const instances = getOrCreateInstances(docGuid, accessToken);
+      instancesRef.current = { ...instances, docGuid };
+
       // Re-enable reconnection and attempt to connect
-      if (instancesRef.current?.provider) {
-        const provider = instancesRef.current.provider;
-        provider.shouldConnect = true;
-        if (!provider.wsconnected) {
+      if (instances.provider) {
+        instances.provider.shouldConnect = true;
+        if (!instances.provider.wsconnected) {
           console.log('[useYjs] Reconnecting WebSocket after auth restoration');
-          provider.connect();
+          instances.provider.connect();
         }
       }
+    } else if (accessToken && instancesRef.current && instancesRef.current.accessToken !== accessToken) {
+      // Token changed (refresh) while connected - update the provider reference
+      console.log('[useYjs] Token refreshed, updating provider reference');
+      const instances = getOrCreateInstances(docGuid, accessToken);
+      instancesRef.current = { ...instances, docGuid };
     }
   }, [accessToken, authError, docGuid]);
 

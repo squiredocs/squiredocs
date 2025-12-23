@@ -650,6 +650,53 @@ describe('Sleep/Wake Scenarios', () => {
     });
   });
 
+  describe('Bug: Connection state stuck on connecting after token refresh', () => {
+    it('BUG: connectionState gets stuck on "connecting" when provider is recreated', async () => {
+      vi.useRealTimers();
+
+      const { result, rerender } = renderHook(
+        ({ token }) => useYjs(TEST_DOC_GUID, token),
+        { initialProps: { token: TEST_ACCESS_TOKEN } }
+      );
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Simulate: Connection was established and working
+      act(() => {
+        mockProvider._emitStatus('connected');
+      });
+
+      await waitFor(() => expect(result.current.connectionState).toBe('connected'));
+
+      // User closes laptop, connection drops
+      act(() => {
+        mockProvider._emitStatus('disconnected');
+      });
+      mockProvider.wsconnected = false;
+
+      await waitFor(() => expect(result.current.connectionState).toBe('disconnected'));
+
+      // User opens laptop, tab becomes visible, token is refreshed
+      // This triggers provider recreation in getOrCreateInstances
+      rerender({ token: 'new-refreshed-token' });
+
+      // Wait for provider recreation to complete
+      await new Promise(r => setTimeout(r, 100));
+
+      // The NEW provider connects and emits status event
+      act(() => {
+        mockProvider._emitStatus('connected');
+      });
+
+      // BUG: connectionState should update to "connected" but stays "connecting"
+      // This happens because the status event fires before the useEffect
+      // can attach the React state handlers
+      await waitFor(() => {
+        expect(result.current.connectionState).toBe('connected');
+      }, { timeout: 2000 });
+    });
+  });
+
   describe('Bug: WebSocket reconnect without token validation', () => {
     it('BUG: forceReconnect does not validate token freshness', async () => {
       // When WebSocket reconnects, it doesn't check if the token is still valid
