@@ -550,9 +550,19 @@ export function useYjs(docGuid, accessToken, user = null) {
         // y-websocket syncs awareness from other clients, but we need to ensure
         // our LOCAL awareness state is sent out after reconnection
         const localState = awareness.getLocalState();
-        if (localState?.user) {
-          console.log('[useYjs] Sync complete, rebroadcasting local awareness:', localState.user.name);
-          awareness.setLocalStateField('user', localState.user);
+        if (localState) {
+          console.log('[useYjs] Sync complete, rebroadcasting local awareness');
+          // Rebroadcast user presence if it exists
+          if (localState.user) {
+            console.log('  - User:', localState.user.name);
+            awareness.setLocalStateField('user', localState.user);
+          }
+          // CRITICAL: Also rebroadcast cursor position if it exists
+          // y-prosemirror stores cursor/selection in a separate field
+          if (localState.cursor) {
+            console.log('  - Cursor position');
+            awareness.setLocalStateField('cursor', localState.cursor);
+          }
         }
       }
     };
@@ -731,14 +741,22 @@ export function useYjs(docGuid, accessToken, user = null) {
       if (!document.hidden) {
         console.log('[useYjs] Page became visible, checking awareness state');
 
-        // If we're connected and have a user state, rebroadcast it
+        // If we're connected and have awareness state, rebroadcast it
         const isConnected = provider.wsconnected;
         const localState = awareness.getLocalState();
 
-        if (isConnected && localState?.user) {
-          console.log('[useYjs] Rebroadcasting awareness after visibility change:', localState.user.name);
-          // Re-setting triggers a broadcast to all peers
-          awareness.setLocalStateField('user', localState.user);
+        if (isConnected && localState) {
+          console.log('[useYjs] Rebroadcasting awareness after visibility change');
+          // Rebroadcast user presence
+          if (localState.user) {
+            console.log('  - User:', localState.user.name);
+            awareness.setLocalStateField('user', localState.user);
+          }
+          // CRITICAL: Also rebroadcast cursor position if it exists
+          if (localState.cursor) {
+            console.log('  - Cursor position');
+            awareness.setLocalStateField('cursor', localState.cursor);
+          }
         } else if (!isConnected) {
           console.log('[useYjs] Page visible but not connected, will rebroadcast on reconnect');
         }
