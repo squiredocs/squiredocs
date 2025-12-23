@@ -317,20 +317,6 @@ export function AuthProvider({ children }) {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loading, accessToken, refreshAccessToken, fetchUser]);
 
-  /**
-   * DEV ONLY: Force token expiration for testing
-   * Clears tokens to simulate session expiration
-   */
-  const expireTokenForTesting = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.warn('[AuthContext] DEV: Manually expiring tokens');
-      // FIX 3: Clear WebSocket instance cache
-      clearYjsInstanceCache();
-      setAccessToken(null);
-      setUser(null);
-    }
-  }, []);
-
   const value = {
     user,
     accessToken,
@@ -340,8 +326,6 @@ export function AuthProvider({ children }) {
     login,
     logout,
     api, // Export configured axios instance for other components
-    // DEV ONLY: Testing utility
-    expireTokenForTesting: import.meta.env.DEV ? expireTokenForTesting : undefined,
   };
 
   return (

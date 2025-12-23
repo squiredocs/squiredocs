@@ -223,7 +223,7 @@ function getDepth(node, doc) {
 }
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
-  const { logout, api, accessToken, isAuthenticated, expireTokenForTesting } = useAuth();
+  const { logout, api, accessToken, isAuthenticated } = useAuth();
 
   // Generate user color deterministically from user ID
   const userColor = useMemo(() => {
@@ -735,26 +735,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </button>
             )}
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
-            {/* DEV ONLY: Token expiration test button */}
-            {import.meta.env.DEV && expireTokenForTesting && (
-              <button
-                onClick={expireTokenForTesting}
-                style={{
-                  marginLeft: '8px',
-                  padding: '8px 12px',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: '500'
-                }}
-                title="DEV: Expire token to test auth flow"
-              >
-                🧪 Expire Token
-              </button>
-            )}
           </div>
         </div>
       </header>
