@@ -545,8 +545,15 @@ export function useYjs(docGuid, accessToken, user = null) {
         setReconnectCount(0);
         autoFailureCountRef.current = 0;
 
-        // y-websocket automatically syncs awareness states after document sync
-        // The awareness 'change' event will fire naturally - no manual trigger needed
+        // FIX: Rebroadcast awareness after sync completes
+        // This ensures stale tabs (e.g., after laptop sleep) rebroadcast their presence
+        // y-websocket syncs awareness from other clients, but we need to ensure
+        // our LOCAL awareness state is sent out after reconnection
+        const localState = awareness.getLocalState();
+        if (localState?.user) {
+          console.log('[useYjs] Sync complete, rebroadcasting local awareness:', localState.user.name);
+          awareness.setLocalStateField('user', localState.user);
+        }
       }
     };
 
@@ -710,6 +717,37 @@ export function useYjs(docGuid, accessToken, user = null) {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [awareness, provider]);
+
+  // FIX: Rebroadcast awareness when tab becomes visible again
+  // This handles the case where a laptop was closed and reopened, or tab was backgrounded
+  // The connection might still be alive but awareness wasn't rebroadcast to other clients
+  useEffect(() => {
+    if (!awareness || !provider) return;
+
+    const handleVisibilityChange = () => {
+      // Only act when page becomes visible (not when it becomes hidden)
+      if (!document.hidden) {
+        console.log('[useYjs] Page became visible, checking awareness state');
+
+        // If we're connected and have a user state, rebroadcast it
+        const isConnected = provider.wsconnected;
+        const localState = awareness.getLocalState();
+
+        if (isConnected && localState?.user) {
+          console.log('[useYjs] Rebroadcasting awareness after visibility change:', localState.user.name);
+          // Re-setting triggers a broadcast to all peers
+          awareness.setLocalStateField('user', localState.user);
+        } else if (!isConnected) {
+          console.log('[useYjs] Page visible but not connected, will rebroadcast on reconnect');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [awareness, provider]);
 
