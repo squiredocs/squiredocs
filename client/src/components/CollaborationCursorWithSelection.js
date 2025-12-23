@@ -1,5 +1,6 @@
 import { Extension } from '@tiptap/core';
 import { yCursorPlugin } from 'y-prosemirror';
+import { colorToRgba } from '../utils/colorUtils';
 
 /**
  * Custom CollaborationCursor extension that supports selection rendering.
@@ -64,16 +65,7 @@ export const CollaborationCursorWithSelection = Extension.create({
       },
       selectionRender: (user) => {
         // Return decoration attributes object, NOT a DOM element
-        // Parse color and convert to rgba
-        const temp = document.createElement('div');
-        temp.style.color = user.color;
-        document.body.appendChild(temp);
-        const computed = getComputedStyle(temp).color;
-        document.body.removeChild(temp);
-        const match = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-        const bgColor = match 
-          ? `rgba(${match[1]}, ${match[2]}, ${match[3]}, 0.3)`
-          : 'rgba(0, 0, 0, 0.3)';
+        const bgColor = colorToRgba(user.color, 0.3);
         return {
           style: `background-color: ${bgColor};`,
           class: 'collaboration-cursor__selection',

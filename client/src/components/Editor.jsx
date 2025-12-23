@@ -8,6 +8,7 @@ import LinkPreview from './LinkPreview';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
+import { colorToRgba } from '../utils/colorUtils';
 import './EditorCommon.css';
 import './Editor.css';
 
@@ -24,24 +25,6 @@ function renderCursor(user) {
   cursor.appendChild(label);
 
   return cursor;
-}
-
-// Convert any color format to rgba with opacity
-function colorToRgba(color, opacity) {
-  // Create a temporary element to parse the color
-  const temp = document.createElement('div');
-  temp.style.color = color;
-  document.body.appendChild(temp);
-  const computed = getComputedStyle(temp).color;
-  document.body.removeChild(temp);
-  
-  // computed is in format "rgb(r, g, b)" or "rgba(r, g, b, a)"
-  const match = computed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (match) {
-    return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${opacity})`;
-  }
-  // Fallback
-  return `rgba(0, 0, 0, ${opacity})`;
 }
 
 // Create selection highlight - returns decoration ATTRIBUTES, not a DOM element
