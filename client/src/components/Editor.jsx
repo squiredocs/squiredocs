@@ -58,11 +58,16 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
   const initialScrollDoneRef = useRef(false); // Track if we've done the initial scroll-to-top
+  const labelsVisibleRef = useRef(false); // Track if labels should currently be visible
+  const mutationObserverRef = useRef(null); // Track MutationObserver
   const [linkPreview, setLinkPreview] = useState(null);
   const isMobile = useMobile();
 
   // Show all cursor labels, then hide after 2 seconds
   const showCursorLabels = useCallback(() => {
+    // Set visibility state to true
+    labelsVisibleRef.current = true;
+
     // Apply visibility to existing labels immediately
     document.querySelectorAll('.collaboration-cursor__label')
       .forEach(label => label.classList.add('collaboration-cursor__label--visible'));
@@ -82,6 +87,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
 
     // Hide after 2 seconds (query fresh elements)
     hideTimeoutRef.current = setTimeout(() => {
+      labelsVisibleRef.current = false;
       document.querySelectorAll('.collaboration-cursor__label')
         .forEach(label => label.classList.remove('collaboration-cursor__label--visible'));
     }, 2000);
@@ -208,6 +214,51 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
     viewport.addEventListener('resize', handleResize);
     return () => viewport.removeEventListener('resize', handleResize);
   }, [isMobile, editor]);
+
+  // Set up MutationObserver to watch for newly created cursor labels
+  // This catches cursors that are created/recreated by yCursorPlugin after we apply visibility
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const observer = new MutationObserver((mutations) => {
+      // Only process if labels should be visible
+      if (!labelsVisibleRef.current) return;
+
+      // Check all added nodes for cursor labels
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          // Check if the added node is a cursor label
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node;
+
+            // If it's a label itself
+            if (element.classList?.contains('collaboration-cursor__label')) {
+              element.classList.add('collaboration-cursor__label--visible');
+            }
+
+            // Or if it contains labels
+            const labels = element.querySelectorAll?.('.collaboration-cursor__label');
+            if (labels) {
+              labels.forEach(label => label.classList.add('collaboration-cursor__label--visible'));
+            }
+          }
+        }
+      }
+    });
+
+    // Observe the editor container for added nodes
+    observer.observe(containerRef.current, {
+      childList: true,
+      subtree: true, // Watch all descendants
+    });
+
+    mutationObserverRef.current = observer;
+
+    return () => {
+      observer.disconnect();
+      mutationObserverRef.current = null;
+    };
+  }, []);
 
   // Track cursor movements and selection changes via awareness, show labels
   useEffect(() => {
