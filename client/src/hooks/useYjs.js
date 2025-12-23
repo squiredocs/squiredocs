@@ -341,6 +341,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
   const lastForceReconnectRef = useRef(0); // For debouncing forceReconnect
+  const [providerVersion, setProviderVersion] = useState(0); // Force re-render when provider changes
 
   // Get or create instances for this docGuid
   if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
@@ -417,6 +418,8 @@ export function useYjs(docGuid, accessToken, user = null) {
       // Update instances when token is restored (might create new provider)
       const instances = getOrCreateInstances(docGuid, accessToken);
       instancesRef.current = { ...instances, docGuid };
+      // Force re-render so useEffect picks up the new provider and attaches event handlers
+      setProviderVersion(v => v + 1);
 
       // Re-enable reconnection and attempt to connect
       if (instances.provider) {
@@ -431,6 +434,8 @@ export function useYjs(docGuid, accessToken, user = null) {
       console.log('[useYjs] Token refreshed, updating provider reference');
       const instances = getOrCreateInstances(docGuid, accessToken);
       instancesRef.current = { ...instances, docGuid };
+      // Force re-render so useEffect picks up the new provider and attaches event handlers
+      setProviderVersion(v => v + 1);
     }
   }, [accessToken, authError, docGuid]);
 
