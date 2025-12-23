@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as Y from 'yjs';
 import { ySyncPluginKey, relativePositionToAbsolutePosition } from 'y-prosemirror';
 import Editor from './Editor';
@@ -231,6 +231,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const menuRef = useRef(null);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
 
@@ -333,6 +335,19 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     window.history.back();
   };
 
+  const handleMenuToggle = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpenMenuId(openMenuId ? null : 'tools');
+  };
+
+  const handleMenuItemClick = (e, callback) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpenMenuId(null);
+    callback();
+  };
+
   // Fetch document info to determine user's role
   useEffect(() => {
     const fetchDocInfo = async () => {
@@ -385,6 +400,20 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       return () => clearTimeout(timer);
     }
   }, [authError, isAuthenticated, accessToken]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpenMenuId(null);
+      }
+    };
+
+    if (openMenuId) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [openMenuId]);
 
   // Version history mode - dedicated full-screen view
   if (showVersionHistory) {
@@ -670,54 +699,67 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 )}
               </div>
             )}
-            {/* History button - shown to anyone with access */}
+            {/* Tools menu - contains Share, History, and Source buttons */}
             {docInfoLoaded && userRole && (
-              <a
-                href={`/d/${docGuid}/versions`}
-                className="history-btn"
-                onClick={(e) => {
-                  // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
-                  if (shouldUseBrowserLinkBehavior(e)) {
-                    return; // Let the browser handle it
-                  }
+              <div className="tools-menu-wrapper" ref={menuRef}>
+                <button
+                  className="tools-menu-btn"
+                  aria-label="More options"
+                  onClick={handleMenuToggle}
+                  title="More options"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="2"/>
+                    <circle cx="12" cy="12" r="2"/>
+                    <circle cx="12" cy="19" r="2"/>
+                  </svg>
+                </button>
+                {openMenuId === 'tools' && (
+                  <div className="tools-menu-dropdown">
+                    <button
+                      className="tools-menu-item"
+                      onClick={(e) => handleMenuItemClick(e, () => setShareDialogOpen(true))}
+                      title="Share document"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                      </svg>
+                      <span>Share</span>
+                    </button>
+                    {!isMobile && (
+                      <a
+                        href={`/d/${docGuid}/versions`}
+                        className="tools-menu-item"
+                        onClick={(e) => {
+                          // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                          if (shouldUseBrowserLinkBehavior(e)) {
+                            return; // Let the browser handle it
+                          }
 
-                  // For normal clicks, use SPA navigation
-                  e.preventDefault();
-                  handleOpenVersionHistory();
-                }}
-                title="Version history"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
-                </svg>
-                <span>History</span>
-              </a>
-            )}
-            {/* Source button - debugging feature to view raw document */}
-            {docInfoLoaded && userRole && (
-              <button
-                className="source-btn"
-                onClick={() => setSourceModalOpen(true)}
-                title="View raw document source"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
-                </svg>
-                <span>Source</span>
-              </button>
-            )}
-            {/* Share button - shown to anyone with access */}
-            {docInfoLoaded && userRole && (
-              <button
-                className="share-btn"
-                onClick={() => setShareDialogOpen(true)}
-                title="Share document"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-                </svg>
-                <span>Share</span>
-              </button>
+                          // For normal clicks, use SPA navigation
+                          handleMenuItemClick(e, handleOpenVersionHistory);
+                        }}
+                        title="Version history"
+                      >
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+                        </svg>
+                        <span>History</span>
+                      </a>
+                    )}
+                    <button
+                      className="tools-menu-item"
+                      onClick={(e) => handleMenuItemClick(e, () => setSourceModalOpen(true))}
+                      title="View raw document source"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+                      </svg>
+                      <span>Source</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
