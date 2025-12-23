@@ -63,8 +63,17 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
 
   // Show all cursor labels, then hide after 2 seconds
   const showCursorLabels = useCallback(() => {
+    // Apply visibility to existing labels immediately
     document.querySelectorAll('.collaboration-cursor__label')
       .forEach(label => label.classList.add('collaboration-cursor__label--visible'));
+
+    // Re-query after DOM updates to catch newly created cursor elements
+    // This handles the race condition where yCursorPlugin creates new cursors
+    // after the initial query (especially when moving to start of list items)
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.collaboration-cursor__label')
+        .forEach(label => label.classList.add('collaboration-cursor__label--visible'));
+    });
 
     // Clear existing timeout
     if (hideTimeoutRef.current) {

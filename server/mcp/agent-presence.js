@@ -214,9 +214,27 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 }
 
 /**
+ * Convert HSL to RGB
+ */
+function hslToRgb(h, s, l) {
+  s /= 100;
+  l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [
+    Math.round(255 * f(0)),
+    Math.round(255 * f(8)),
+    Math.round(255 * f(4))
+  ];
+}
+
+/**
  * Generate a consistent color for a user ID
+ * Returns RGB format for compatibility with y-prosemirror cursor plugin
  * @param {string} userId - User ID
- * @returns {string} Hex color
+ * @returns {string} RGB color
  */
 function generateColorFromUserId(userId) {
   // Generate a hash from the user ID
@@ -227,7 +245,9 @@ function generateColorFromUserId(userId) {
 
   // Generate a color with good saturation and lightness for visibility
   const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 70%, 50%)`;
+  // Convert to RGB for y-prosemirror compatibility (it doesn't support HSL)
+  const [r, g, b] = hslToRgb(hue, 70, 50);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 /**
