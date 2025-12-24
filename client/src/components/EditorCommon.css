@@ -138,6 +138,8 @@
   .editor-common-container {
     /* Prevent this container from scrolling the page */
     overscroll-behavior: contain;
+    /* Only allow vertical scrolling within this container */
+    touch-action: pan-y;
   }
 
   .editor-common-content {
@@ -150,5 +152,7 @@
     padding-bottom: 400px;
     border-left: none;
     border-right: none;
+    /* Prevent touch gestures from affecting page layout during text selection */
+    touch-action: pan-y;
   }
 }

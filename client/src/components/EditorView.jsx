@@ -13,6 +13,7 @@ import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
 import './EditorView.css';
@@ -235,6 +236,9 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const menuRef = useRef(null);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
+
+  // Prevent page-level scrolling on mobile
+  usePreventPageScroll();
 
   // Filter out current user from the users list
   const displayUsers = React.useMemo(() => {
