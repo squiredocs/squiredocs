@@ -106,32 +106,97 @@ kubectl logs --tail=50 deployment/app-dev -n collab
 
 ## Port Forwarding
 
-To access services running in the pod from your local browser:
+To access services running in the pod from your local browser or other devices on your network:
 
-### Forward Vite Dev Server (Frontend)
+### Quick Setup: Use the Port-Forward Script
 
+The easiest way to set up port-forwards for both local and network access:
+
+```bash
+# Use default ports (50308 for frontend, 3001 for backend)
+./script/port-forward.sh
+
+# Or specify custom ports
+./script/port-forward.sh 4567 3001
+```
+
+This script:
+- Sets up port-forwards with `--address 0.0.0.0` (accessible from local network)
+- Starts both frontend and backend port-forwards in the background
+- Shows your local IP address for network access
+- Provides process IDs for stopping the port-forwards later
+
+### Manual Port Forwarding
+
+#### Forward Vite Dev Server (Frontend)
+
+**Local access only:**
 ```bash
 # Forward local port 4567 to pod's port 5173 (Vite)
 kubectl port-forward deployment/app-dev 4567:5173 -n collab
 ```
 
+**Network access (for mobile testing):**
+```bash
+# Use --address 0.0.0.0 to allow access from other devices
+kubectl port-forward deployment/app-dev --address 0.0.0.0 4567:5173 -n collab
+```
+
 Then open http://localhost:4567 in your browser.
 
-### Forward Express Server (Backend)
+#### Forward Express Server (Backend)
 
+**Local access only:**
 ```bash
 # Forward local port 3001 to pod's port 3001 (Express)
 kubectl port-forward deployment/app-dev 3001:3001 -n collab
 ```
 
-### Forward Multiple Ports
+**Network access (for mobile testing):**
+```bash
+# Use --address 0.0.0.0 to allow access from other devices
+kubectl port-forward deployment/app-dev --address 0.0.0.0 3001:3001 -n collab
+```
 
+#### Forward Multiple Ports
+
+**Local access only:**
 ```bash
 # Forward both frontend and backend
 kubectl port-forward deployment/app-dev 4567:5173 3001:3001 -n collab
 ```
 
+**Network access (for mobile testing):**
+```bash
+# Forward both with network access
+kubectl port-forward deployment/app-dev --address 0.0.0.0 4567:5173 3001:3001 -n collab
+```
+
 **Note:** The Vite config is set up to work with port-forward. HMR (Hot Module Reload) is configured to use the forwarded port.
+
+### Stopping Port-Forwards
+
+If you used the script, it will show you the process IDs. To stop:
+
+```bash
+# Stop specific processes (use PIDs shown by script)
+kill <FRONTEND_PID> <BACKEND_PID>
+
+# Or kill all port-forwards for the deployment
+pkill -f 'kubectl port-forward.*app-dev'
+```
+
+### Finding Your Local IP Address
+
+To access from other devices on your network, you'll need your local IP:
+
+```bash
+# On macOS/Linux
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Or use the port-forward script which shows it automatically
+./script/port-forward.sh
+```
 
 ## How Mutagen Sync Works
 
@@ -340,15 +405,31 @@ To test the application on a mobile device connected to the same local network:
 
 ### 1. Set Up Port-Forward for Network Access
 
+**Recommended: Use the port-forward script:**
+
+```bash
+./script/port-forward.sh
+```
+
+This automatically sets up both frontend and backend port-forwards with network access enabled.
+
+**Manual setup:**
+
 Use the `--address 0.0.0.0` flag to bind port-forward to all network interfaces:
 
 ```bash
-kubectl port-forward deployment/app-dev --address 0.0.0.0 60175:5173 -n collab
+# Forward frontend (default port 50308)
+kubectl port-forward deployment/app-dev --address 0.0.0.0 50308:5173 -n collab
+
+# Forward backend (default port 3001)
+kubectl port-forward deployment/app-dev --address 0.0.0.0 3001:3001 -n collab
 ```
 
 This makes the app accessible from any device on your local network.
 
 ### 2. Find Your Local IP Address
+
+The port-forward script automatically shows your local IP. Or find it manually:
 
 ```bash
 # On macOS/Linux
@@ -360,10 +441,15 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 Open your mobile browser and navigate to:
 
 ```
-http://YOUR_LOCAL_IP:60175
+http://YOUR_LOCAL_IP:FRONTEND_PORT
 ```
 
-For example: `http://192.168.50.121:60175`
+For example, if your local IP is `192.168.50.122` and you're using port `50308`:
+```
+http://192.168.50.122:50308
+```
+
+The port-forward script will display the exact URL to use.
 
 ### 4. Enable Auth Bypass
 
@@ -530,8 +616,11 @@ mutagen sync terminate app-sync                               # Stop sync
 ./script/mutagen.sh                                           # Setup sync
 
 # === Port Forwarding ===
-kubectl port-forward deployment/app-dev 4567:5173 -n collab  # Forward Vite
-kubectl port-forward deployment/app-dev 3001:3001 -n collab  # Forward Express
+./script/port-forward.sh                                      # Quick setup (network access)
+kubectl port-forward deployment/app-dev 4567:5173 -n collab  # Forward Vite (local only)
+kubectl port-forward deployment/app-dev 3001:3001 -n collab  # Forward Express (local only)
+kubectl port-forward deployment/app-dev --address 0.0.0.0 50308:5173 3001:3001 -n collab  # Network access
+pkill -f 'kubectl port-forward.*app-dev'                     # Stop all port-forwards
 
 # === Development ===
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run dev"      # Start servers
