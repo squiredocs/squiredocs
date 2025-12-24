@@ -135,6 +135,11 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  .editor-common-container {
+    /* Prevent this container from scrolling the page */
+    overscroll-behavior: contain;
+  }
+
   .editor-common-content {
     padding: 0;
   }

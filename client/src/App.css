@@ -116,6 +116,7 @@
   .app {
     height: 100%;
     overflow: hidden;
+    position: relative;
   }
 
   .app-header {
