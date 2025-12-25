@@ -1034,8 +1034,11 @@ wss.on('connection', (ws, req) => {
   const docId = req.docId;
   const canEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
 
-  logPerf('WS_CONNECT', { connId, url: req.url, role: userRole, canEdit });
-  console.log(`✓ WebSocket connection established: ${req.url} (role: ${userRole})`);
+  // Sanitize URL to remove token from logs
+  const sanitizedUrl = req.url?.split('?')[0] || req.url;
+
+  logPerf('WS_CONNECT', { connId, url: sanitizedUrl, role: userRole, canEdit });
+  console.log(`✓ WebSocket connection established: ${sanitizedUrl} (role: ${userRole})`);
 
   // Register user for version history attribution
   if (userId && docId) {
@@ -1111,7 +1114,7 @@ wss.on('connection', (ws, req) => {
       unregisterDocumentUser(docId, connId);
     }
     logPerf('WS_CLOSE', { connId, duration: Date.now() - connStart });
-    console.log('WebSocket connection closed:', req.url);
+    console.log('WebSocket connection closed:', sanitizedUrl);
   });
   
   try {
