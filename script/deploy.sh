@@ -167,6 +167,12 @@ kubectl apply -f k8s/namespace.yaml
 # Deploy PostgreSQL secret if it doesn't exist
 kubectl apply -f k8s/postgres-secret.yaml -n collab
 
+# Deploy Redis
+echo "Deploying Redis..."
+kubectl apply -f k8s/redis-data-persistentvolumeclaim.yaml -n collab
+kubectl apply -f k8s/redis-deployment.yaml -n collab
+kubectl apply -f k8s/redis-service.yaml -n collab
+
 # Deploy MCP auth secret if it exists
 if [[ -f "k8s/mcp-auth-secret.yaml" ]]; then
   echo "Applying MCP auth secret..."

@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { PostgresPersistence } = require('./postgres-persistence');
+const { redisPersistence } = require('./redis-persistence');
 const Y = require('yjs');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const documents = require('./documents');
@@ -174,6 +175,8 @@ setPersistence({
     // Extract the clean UUID
     const docGuid = extractDocGuid(docName);
     const startTime = Date.now();
+    const redisEnabled = redisPersistence.isEnabled();
+    console.log(`[bindState] START for ${docGuid}, redisEnabled=${redisEnabled}`);
 
     // IMPORTANT: Set up update listener FIRST, before any async operations!
     // y-websocket does NOT await bindState, so client updates can arrive
@@ -194,6 +197,8 @@ setPersistence({
       const agentName = getDocumentAgentName(docGuid);
 
       const persistStart = Date.now();
+
+      // Persist to PostgreSQL (source of truth)
       persistenceProvider.storeUpdate(docGuid, update, userId, agentName)
         .then(async () => {
           logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
@@ -212,22 +217,58 @@ setPersistence({
         .catch(err => {
           console.error(`Error persisting update for ${docGuid}:`, err);
         });
+
+      // Update Redis cache with current document state (async, non-blocking)
+      if (redisPersistence.isEnabled()) {
+        redisPersistence.storeDoc(docGuid, ydoc).catch(err => {
+          console.error(`Error caching doc to Redis ${docGuid}:`, err);
+        });
+      }
     });
-    
+
     try {
-      // Load persisted document from PostgreSQL
-      const loadStart = Date.now();
-      const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
-      logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
-      
+      let persistedYdoc = null;
+
+      // Try to load from Redis cache first (faster)
+      if (redisEnabled) {
+        console.log(`[bindState] Trying Redis for ${docGuid}`);
+        const redisStart = Date.now();
+        persistedYdoc = await redisPersistence.getDoc(docGuid);
+        if (persistedYdoc) {
+          console.log(`[bindState] Redis hit for ${docGuid} in ${Date.now() - redisStart}ms`);
+          logPerf('REDIS_LOAD', { docGuid, duration: Date.now() - redisStart });
+        } else {
+          console.log(`[bindState] Redis miss for ${docGuid}`);
+        }
+      }
+
+      // Fall back to PostgreSQL if not in Redis
+      if (!persistedYdoc) {
+        console.log(`[bindState] Loading from PostgreSQL for ${docGuid}`);
+        const loadStart = Date.now();
+        persistedYdoc = await persistenceProvider.getYDoc(docGuid);
+        console.log(`[bindState] PostgreSQL loaded ${docGuid} in ${Date.now() - loadStart}ms`);
+        logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
+
+        // Cache in Redis for next time
+        if (redisEnabled) {
+          redisPersistence.storeDoc(docGuid, persistedYdoc).catch(err => {
+            console.error(`Error caching doc to Redis ${docGuid}:`, err);
+          });
+        }
+      }
+
       // Apply persisted state to the in-memory document
       // Use ORIGIN_DB_LOAD so the update listener knows to skip persisting this
+      console.log(`[bindState] Applying state for ${docGuid}`);
       Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
-      
+
+      console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
       // If document doesn't exist in persistence, that's okay - start with empty doc
       // Update listener is already set up above
+      console.log(`[bindState] NEW DOC for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
     }
   },
