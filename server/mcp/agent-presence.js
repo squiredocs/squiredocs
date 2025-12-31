@@ -14,6 +14,10 @@ let persistenceProvider = null;
 // Track active presence sessions
 const activeSessions = new Map();
 
+// Track in-progress session creation promises to prevent race conditions
+// Key: "${userId}-${docGuid}", Value: Promise
+const pendingSessionCreations = new Map();
+
 // Default presence duration (in seconds)
 const DEFAULT_PRESENCE_DURATION = 60; // 1 minute
 
@@ -76,14 +80,41 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
     throw new Error('No authentication token available for WebSocket connection');
   }
 
-  // Create a unique session ID
-  const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
+  const sessionKey = `${userId}-${docGuid}`;
+
+  // CRITICAL: Check if there's already a session creation in progress
+  // This prevents race conditions when multiple tools are called concurrently
+  if (pendingSessionCreations.has(sessionKey)) {
+    console.log(`[agent-presence] Session creation already in progress for ${userName} in ${docGuid}, waiting...`);
+
+    // Wait for the pending creation to complete
+    const pendingResult = await pendingSessionCreations.get(sessionKey);
+
+    // Now extend the newly created session
+    const session = activeSessions.get(pendingResult.sessionId);
+    if (session) {
+      if (session.timeoutId) {
+        clearTimeout(session.timeoutId);
+      }
+      session.timeoutId = setTimeout(() => {
+        session.cleanup();
+      }, duration * 1000);
+
+      console.log(`[agent-presence] Extended presence (after waiting) for ${userName} in ${docGuid} for ${duration}s`);
+      return {
+        success: true,
+        sessionId: pendingResult.sessionId,
+        expiresIn: duration,
+        extended: true,
+        waitedForCreation: true,
+      };
+    }
+  }
 
   // Check if we already have an active session for this user/doc combination
   // If so, extend it instead of creating a new one
-  const existingSessionKey = `${userId}-${docGuid}`;
   for (const [sid, session] of activeSessions.entries()) {
-    if (session.key === existingSessionKey) {
+    if (session.key === sessionKey) {
       // Extend the existing session
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
@@ -102,7 +133,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
     }
   }
 
-  return new Promise((resolve, reject) => {
+  // Create a unique session ID
+  const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
+
+  // Create the promise and store it immediately to prevent race conditions
+  const sessionPromise = new Promise((resolve, reject) => {
     let timeoutId = null;
     let provider = null;
 
@@ -117,6 +152,8 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         provider = null;
       }
       activeSessions.delete(sessionId);
+      // Clean up from pending creations map
+      pendingSessionCreations.delete(sessionKey);
       console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
     };
 
@@ -135,7 +172,7 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
       activeSessions.set(sessionId, {
         docGuid,
         userId,
-        key: existingSessionKey,
+        key: sessionKey,
         provider,
         cleanup,
         timeoutId: null,
@@ -171,6 +208,9 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
                 cleanup();
               }, duration * 1000);
             }
+
+            // Clean up from pending creations since we're done
+            pendingSessionCreations.delete(sessionKey);
 
             resolve({
               success: true,
@@ -211,6 +251,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
       reject(new Error(`Failed to create agent presence: ${error.message}`));
     }
   });
+
+  // Store the promise immediately to prevent concurrent creations
+  pendingSessionCreations.set(sessionKey, sessionPromise);
+
+  return sessionPromise;
 }
 
 /**
@@ -395,7 +440,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
       activeSessions.set(sessionId, {
         docGuid,
         userId,
-        key: existingSessionKey,
+        key: sessionKey,
         provider,
         cleanup,
         timeoutId: null,
