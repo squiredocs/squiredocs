@@ -236,7 +236,7 @@ describe('insert_document_block tool', () => {
 
       const newBlock = xmlFragment.get(0);
       expect(newBlock.nodeName).toBe('heading');
-      expect(newBlock.getAttribute('level')).toBe('1');
+      expect(newBlock.getAttribute('level')).toBe(1);
 
       // Old first paragraph should now be at index 1
       const oldFirst = xmlFragment.get(1);
@@ -292,7 +292,7 @@ describe('insert_document_block tool', () => {
       const heading = xmlFragment.get(0);
 
       expect(heading.nodeName).toBe('heading');
-      expect(heading.getAttribute('level')).toBe('2');
+      expect(heading.getAttribute('level')).toBe(2);
       expect(heading.get(0).toString()).toBe('Section Header');
     });
 

@@ -57,7 +57,7 @@ describe('buildYjsNode', () => {
       const yjsNode = integrateNode(node);
 
       expect(yjsNode.nodeName).toBe('heading');
-      expect(yjsNode.getAttribute('level')).toBe('2');
+      expect(yjsNode.getAttribute('level')).toBe(2);
 
       const text = yjsNode.get(0);
       expect(text.toString()).toBe('Title');
@@ -67,14 +67,24 @@ describe('buildYjsNode', () => {
       const node = { type: 'heading', level: 1, content: 'Main Title' };
       const yjsNode = integrateNode(node);
 
-      expect(yjsNode.getAttribute('level')).toBe('1');
+      expect(yjsNode.getAttribute('level')).toBe(1);
     });
 
     test('builds heading level 3', () => {
       const node = { type: 'heading', level: 3, content: 'Section' };
       const yjsNode = integrateNode(node);
 
-      expect(yjsNode.getAttribute('level')).toBe('3');
+      expect(yjsNode.getAttribute('level')).toBe(3);
+    });
+
+    test('level attribute is integer not string', () => {
+      const node = { type: 'heading', level: 2, content: 'Test' };
+      const yjsNode = integrateNode(node);
+
+      const level = yjsNode.getAttribute('level');
+      expect(typeof level).toBe('number');
+      expect(level).toBe(2);
+      expect(level).not.toBe('2');
     });
   });
 
@@ -325,7 +335,7 @@ describe('integration: buildYjsNode with formatted content', () => {
     const yjsNode = integrateNode(node);
 
     expect(yjsNode.nodeName).toBe('heading');
-    expect(yjsNode.getAttribute('level')).toBe('2');
+    expect(yjsNode.getAttribute('level')).toBe(2);
     expect(yjsNode.length).toBe(2);
 
     const linkDelta = yjsNode.get(1).toDelta();

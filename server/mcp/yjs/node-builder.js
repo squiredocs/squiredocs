@@ -17,7 +17,7 @@ function buildYjsNode(node) {
 
   // Set attributes
   if (level !== undefined) {
-    element.setAttribute('level', level.toString());
+    element.setAttribute('level', level);
   }
   if (language !== undefined) {
     element.setAttribute('language', language);
