@@ -284,9 +284,10 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           );
 
           if (anchor !== null && head !== null) {
-            // Create selection range
+            // Move cursor to the beginning of their selection (anchor position)
+            // Don't select text - just place cursor there
             editor.commands.focus();
-            editor.commands.setTextSelection({ from: anchor, to: head });
+            editor.commands.setTextSelection(anchor);
 
             // Scroll the cursor position into view
             editor.commands.scrollIntoView();
