@@ -78,6 +78,11 @@ RETURN VALUES
 - affectedText: The text that was formatted
 - highlighted: Whether the change was highlighted
 
+ERROR: Throws an error if the position range is invalid (e.g., positions that
+don't map to valid text). This typically happens when positions become stale
+after document changes. Solution: refresh positions using get_document_structure
+or read_document_blocks before retrying.
+
 ═══════════════════════════════════════════════════════════════════════════
 WORKFLOW EXAMPLE
 ═══════════════════════════════════════════════════════════════════════════
@@ -207,7 +212,17 @@ NOTES
 - Requires "editor" or "owner" role
 - Can add and remove marks in the same operation
 - Preserves text content exactly
-- Range is highlighted for visual feedback`;
+- Range is highlighted for visual feedback
+
+IMPORTANT - Position Validation:
+If you receive an "Invalid position range" error, it means the positions you
+provided don't map to valid text. This can happen if:
+  1. The document structure has changed since you read the positions
+  2. The positions are out of bounds for the current block content
+  3. Other tools modified the document between reading and applying marks
+
+Solution: Call get_document_structure or read_document_blocks to get fresh
+positions, then retry your operation with the updated positions.`;
 
 const inputSchema = {
   type: 'object',
@@ -341,6 +356,17 @@ async function handler(args, agentToken) {
     const result = doApplyMarks(element, startPosition, endPosition, addMarks, removeMarks, link);
     affectedText = result.affectedText;
   });
+
+  // Validate that the operation actually affected text
+  // If the range is non-zero but no text was extracted, positions are likely stale/invalid
+  const rangeLength = endPosition - startPosition;
+  if (rangeLength > 0 && affectedText === '') {
+    throw new Error(
+      `Invalid position range: positions ${startPosition}-${endPosition} do not map to valid text. ` +
+        `This typically happens when the document has changed since positions were calculated. ` +
+        `Please call get_document_structure or read_document_blocks to get updated positions and retry.`
+    );
+  }
 
   // Highlight the block
   let highlighted = false;
