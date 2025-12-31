@@ -318,7 +318,7 @@ function applyMarks(element, startPosition, endPosition, addMarks = [], removeMa
     return { affectedText };
   }
 
-  // Complex case: multiple text nodes
+  // Complex case: multiple text nodes or nested elements
   // We need to apply formatting across nodes
   let currentPos = 0;
 
@@ -355,6 +355,24 @@ function applyMarks(element, startPosition, endPosition, addMarks = [], removeMa
             child.format(formatStart, formatLength, { link: { href: link.href } });
           }
         }
+      }
+
+      currentPos = nodeEnd;
+    } else if (child instanceof Y.XmlElement) {
+      // Handle nested elements (like list items)
+      const nestedLength = getElementTextLength(child);
+      const nodeStart = currentPos;
+      const nodeEnd = currentPos + nestedLength;
+
+      if (endPosition <= nodeStart) {
+        break;
+      }
+
+      if (startPosition < nodeEnd) {
+        // Recursively apply marks to nested element
+        const nestedStart = Math.max(0, startPosition - nodeStart);
+        const nestedEnd = Math.min(nestedLength, endPosition - nodeStart);
+        applyMarks(child, nestedStart, nestedEnd, addMarks, removeMarks, link);
       }
 
       currentPos = nodeEnd;
