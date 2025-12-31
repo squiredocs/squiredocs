@@ -1,7 +1,7 @@
 /**
- * delete_document_block tool tests
+ * insert_document_blocks tool tests
  *
- * Tests the MCP tool for deleting blocks from documents.
+ * Tests the MCP tool for inserting single or multiple blocks into documents.
  */
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../../../postgres-persistence');
@@ -27,7 +27,7 @@ const persistenceProvider = new PostgresPersistence({
 
 // Import modules
 const documents = require('../../../documents');
-const deleteDocumentBlock = require('../../tools/delete-document-block');
+const insertDocumentBlocks = require('../../tools/insert-document-blocks');
 const agentPresence = require('../../agent-presence');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
@@ -35,7 +35,7 @@ const documentService = require('../../../document-service');
 // Mock agent presence to avoid WebSocket connections in tests
 jest.mock('../../agent-presence');
 
-describe('delete_document_block tool', () => {
+describe('insert_document_blocks tool', () => {
   let testUserId;
   let testDocId;
 
@@ -78,13 +78,13 @@ describe('delete_document_block tool', () => {
 
     // Initialize modules
     documents.init(pool);
-    deleteDocumentBlock.init(persistenceProvider);
+    insertDocumentBlocks.init(persistenceProvider);
     agentPresence.init(persistenceProvider);
 
     // Create test user
     const userResult = await pool.query(
       `INSERT INTO users (id, google_id, email, name)
-       VALUES (uuid_generate_v4(), 'google-delete-test', 'delete-test@example.com', 'Delete Test User')
+       VALUES (uuid_generate_v4(), 'google-insert-blocks-test', 'insert-blocks-test@example.com', 'Insert Blocks Test User')
        ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
        RETURNING id`
     );
@@ -114,31 +114,23 @@ describe('delete_document_block tool', () => {
     testDocId = docResult.rows[0].id;
     await documents.setRole(testDocId, testUserId, 'owner');
 
-    // Add initial content - 3 blocks for testing deletion
+    // Add initial content - 2 paragraphs
     const ydoc = new Y.Doc();
     const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-    // Heading
-    const heading = new Y.XmlElement('heading');
-    heading.setAttribute('level', '1');
-    const headingText = new Y.XmlText();
-    headingText.insert(0, 'Document Title');
-    heading.insert(0, [headingText]);
-    xmlFragment.insert(0, [heading]);
 
     // First paragraph
     const para1 = new Y.XmlElement('paragraph');
     const text1 = new Y.XmlText();
     text1.insert(0, 'First paragraph');
     para1.insert(0, [text1]);
-    xmlFragment.insert(1, [para1]);
+    xmlFragment.insert(0, [para1]);
 
     // Second paragraph
     const para2 = new Y.XmlElement('paragraph');
     const text2 = new Y.XmlText();
     text2.insert(0, 'Second paragraph');
     para2.insert(0, [text2]);
-    xmlFragment.insert(2, [para2]);
+    xmlFragment.insert(1, [para2]);
 
     const update = Y.encodeStateAsUpdate(ydoc);
     await pool.query(
@@ -164,15 +156,16 @@ describe('delete_document_block tool', () => {
 
   describe('schema', () => {
     test('has correct tool definition', () => {
-      expect(deleteDocumentBlock.name).toBe('delete_document_block');
-      expect(deleteDocumentBlock.description).toBeDefined();
-      expect(deleteDocumentBlock.inputSchema).toBeDefined();
-      expect(deleteDocumentBlock.inputSchema.type).toBe('object');
+      expect(insertDocumentBlocks.name).toBe('insert_document_blocks');
+      expect(insertDocumentBlocks.description).toBeDefined();
+      expect(insertDocumentBlocks.inputSchema).toBeDefined();
+      expect(insertDocumentBlocks.inputSchema.type).toBe('object');
     });
 
     test('requires correct parameters', () => {
-      expect(deleteDocumentBlock.inputSchema.required).toContain('docGuid');
-      expect(deleteDocumentBlock.inputSchema.required).toContain('elementIndex');
+      expect(insertDocumentBlocks.inputSchema.required).toContain('docGuid');
+      expect(insertDocumentBlocks.inputSchema.required).toContain('position');
+      expect(insertDocumentBlocks.inputSchema.required).toContain('blocks');
     });
   });
 
@@ -188,111 +181,203 @@ describe('delete_document_block tool', () => {
       agentToken.userId = testUserId;
     });
 
-    test('deletes first block', async () => {
-      const result = await deleteDocumentBlock.handler(
+    test('inserts single block at specific position', async () => {
+      const result = await insertDocumentBlocks.handler(
         {
           docGuid: testDocId,
-          elementIndex: 0,
-          durationSeconds: 1, // Short duration for tests
+          position: 1,
+          blocks: [
+            {
+              type: 'paragraph',
+              content: 'New paragraph',
+            },
+          ],
         },
         agentToken
       );
 
       expect(result.success).toBe(true);
-      expect(result.deletedContent).toBe('Document Title');
-      expect(result.deletedType).toBe('heading');
-      expect(result.totalElements).toBe(2);
+      expect(result.insertedIndices).toEqual([1]);
+      expect(result.insertedCount).toBe(1);
+      expect(result.totalElements).toBe(3);
 
-      // Verify the block was deleted
+      // Verify the block was inserted
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      expect(xmlFragment.length).toBe(2);
+      expect(xmlFragment.length).toBe(3);
 
-      // First block should now be the first paragraph
-      const newFirst = xmlFragment.get(0);
-      expect(newFirst.nodeName).toBe('paragraph');
-      expect(newFirst.get(0).toString()).toBe('First paragraph');
+      expect(xmlFragment.get(0).get(0).toString()).toBe('First paragraph');
+      expect(xmlFragment.get(1).get(0).toString()).toBe('New paragraph');
+      expect(xmlFragment.get(2).get(0).toString()).toBe('Second paragraph');
     });
 
-    test('deletes middle block', async () => {
-      const result = await deleteDocumentBlock.handler(
+    test('inserts multiple blocks at once', async () => {
+      const result = await insertDocumentBlocks.handler(
         {
           docGuid: testDocId,
-          elementIndex: 1,
-          durationSeconds: 1,
+          position: 1,
+          blocks: [
+            { type: 'heading', level: 2, content: 'Section Title' },
+            { type: 'paragraph', content: 'First new paragraph' },
+            { type: 'paragraph', content: 'Second new paragraph' },
+          ],
         },
         agentToken
       );
 
       expect(result.success).toBe(true);
-      expect(result.deletedContent).toBe('First paragraph');
-      expect(result.deletedType).toBe('paragraph');
-      expect(result.totalElements).toBe(2);
+      expect(result.insertedIndices).toEqual([1, 2, 3]);
+      expect(result.insertedCount).toBe(3);
+      expect(result.totalElements).toBe(5);
 
-      // Verify the correct block was deleted
+      // Verify all blocks were inserted
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      expect(xmlFragment.length).toBe(2);
+      expect(xmlFragment.length).toBe(5);
 
+      expect(xmlFragment.get(0).get(0).toString()).toBe('First paragraph');
+      expect(xmlFragment.get(1).nodeName).toBe('heading');
+      expect(xmlFragment.get(1).get(0).toString()).toBe('Section Title');
+      expect(xmlFragment.get(2).get(0).toString()).toBe('First new paragraph');
+      expect(xmlFragment.get(3).get(0).toString()).toBe('Second new paragraph');
+      expect(xmlFragment.get(4).get(0).toString()).toBe('Second paragraph');
+    });
+
+    test('inserts at start with position "start"', async () => {
+      const result = await insertDocumentBlocks.handler(
+        {
+          docGuid: testDocId,
+          position: 'start',
+          blocks: [
+            { type: 'heading', level: 1, content: 'Document Title' },
+            { type: 'paragraph', content: 'Introduction' },
+          ],
+        },
+        agentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.insertedIndices).toEqual([0, 1]);
+      expect(result.totalElements).toBe(4);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
       expect(xmlFragment.get(0).nodeName).toBe('heading');
-      expect(xmlFragment.get(1).nodeName).toBe('paragraph');
-      expect(xmlFragment.get(1).get(0).toString()).toBe('Second paragraph');
+      expect(xmlFragment.get(0).get(0).toString()).toBe('Document Title');
+      expect(xmlFragment.get(1).get(0).toString()).toBe('Introduction');
+      expect(xmlFragment.get(2).get(0).toString()).toBe('First paragraph');
     });
 
-    test('deletes last block', async () => {
-      const result = await deleteDocumentBlock.handler(
+    test('appends at end with position "end"', async () => {
+      const result = await insertDocumentBlocks.handler(
         {
           docGuid: testDocId,
-          elementIndex: 2,
-          durationSeconds: 1,
+          position: 'end',
+          blocks: [
+            { type: 'paragraph', content: 'Conclusion' },
+            { type: 'paragraph', content: 'Final thoughts' },
+          ],
         },
         agentToken
       );
 
       expect(result.success).toBe(true);
-      expect(result.deletedContent).toBe('Second paragraph');
-      expect(result.deletedType).toBe('paragraph');
-      expect(result.totalElements).toBe(2);
+      expect(result.insertedIndices).toEqual([2, 3]);
+      expect(result.totalElements).toBe(4);
 
-      // Verify the last block was deleted
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      expect(xmlFragment.length).toBe(2);
-
-      expect(xmlFragment.get(0).get(0).toString()).toBe('Document Title');
-      expect(xmlFragment.get(1).get(0).toString()).toBe('First paragraph');
+      expect(xmlFragment.get(2).get(0).toString()).toBe('Conclusion');
+      expect(xmlFragment.get(3).get(0).toString()).toBe('Final thoughts');
     });
 
-    test('deletes all blocks sequentially', async () => {
-      // Delete from the end to avoid index shifting issues in this test
-      await deleteDocumentBlock.handler(
-        { docGuid: testDocId, elementIndex: 2, durationSeconds: 1 },
-        agentToken
-      );
-
-      await deleteDocumentBlock.handler(
-        { docGuid: testDocId, elementIndex: 1, durationSeconds: 1 },
-        agentToken
-      );
-
-      const result = await deleteDocumentBlock.handler(
-        { docGuid: testDocId, elementIndex: 0, durationSeconds: 1 },
+    test('inserts bullet list with multiple items', async () => {
+      const result = await insertDocumentBlocks.handler(
+        {
+          docGuid: testDocId,
+          position: 'end',
+          blocks: [
+            {
+              type: 'bulletList',
+              children: [
+                { type: 'listItem', content: 'Item 1' },
+                { type: 'listItem', content: 'Item 2' },
+                { type: 'listItem', content: 'Item 3' },
+              ],
+            },
+          ],
+        },
         agentToken
       );
 
       expect(result.success).toBe(true);
-      expect(result.totalElements).toBe(0);
+      expect(result.insertedIndices).toEqual([2]);
 
       const ydoc = documentService.getSharedDoc(testDocId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      expect(xmlFragment.length).toBe(0);
+      const list = xmlFragment.get(2);
+
+      expect(list.nodeName).toBe('bulletList');
+      expect(list.length).toBe(3);
     });
 
-    test('rejects deletion by viewer', async () => {
+    test('inserts code block with language', async () => {
+      const result = await insertDocumentBlocks.handler(
+        {
+          docGuid: testDocId,
+          position: 1,
+          blocks: [
+            {
+              type: 'codeBlock',
+              language: 'javascript',
+              content: 'const x = 42;\nconsole.log(x);',
+            },
+          ],
+        },
+        agentToken
+      );
+
+      expect(result.success).toBe(true);
+
+      const ydoc = documentService.getSharedDoc(testDocId);
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      const code = xmlFragment.get(1);
+
+      expect(code.nodeName).toBe('codeBlock');
+      expect(code.getAttribute('language')).toBe('javascript');
+    });
+
+    test('rejects empty blocks array', async () => {
+      await expect(
+        insertDocumentBlocks.handler(
+          {
+            docGuid: testDocId,
+            position: 0,
+            blocks: [],
+          },
+          agentToken
+        )
+      ).rejects.toThrow('non-empty array');
+    });
+
+    test('rejects out of bounds position', async () => {
+      await expect(
+        insertDocumentBlocks.handler(
+          {
+            docGuid: testDocId,
+            position: 10,
+            blocks: [{ type: 'paragraph', content: 'Test' }],
+          },
+          agentToken
+        )
+      ).rejects.toThrow('out of bounds');
+    });
+
+    test('rejects insertion by viewer', async () => {
       // Create viewer user
       const viewerResult = await pool.query(
         `INSERT INTO users (id, google_id, email, name)
-         VALUES (uuid_generate_v4(), 'google-viewer', 'viewer@example.com', 'Viewer User')
+         VALUES (uuid_generate_v4(), 'google-viewer-ins', 'viewer-ins@example.com', 'Viewer User')
          ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
          RETURNING id`
       );
@@ -302,38 +387,25 @@ describe('delete_document_block tool', () => {
       const viewerToken = { ...agentToken, userId: viewerId };
 
       await expect(
-        deleteDocumentBlock.handler(
+        insertDocumentBlocks.handler(
           {
             docGuid: testDocId,
-            elementIndex: 0,
-            durationSeconds: 1,
+            position: 0,
+            blocks: [{ type: 'paragraph', content: 'Unauthorized' }],
           },
           viewerToken
         )
-      ).rejects.toThrow('Viewer role cannot delete document blocks');
+      ).rejects.toThrow('Viewer role cannot insert document blocks');
 
       // Clean up
       await pool.query('DELETE FROM users WHERE id = $1', [viewerId]);
     });
 
-    test('rejects out of bounds index', async () => {
-      await expect(
-        deleteDocumentBlock.handler(
-          {
-            docGuid: testDocId,
-            elementIndex: 10,
-            durationSeconds: 1,
-          },
-          agentToken
-        )
-      ).rejects.toThrow('out of bounds');
-    });
-
-    test('allows editors to delete', async () => {
+    test('allows editors to insert', async () => {
       // Create editor user
       const editorResult = await pool.query(
         `INSERT INTO users (id, google_id, email, name)
-         VALUES (uuid_generate_v4(), 'google-editor', 'editor@example.com', 'Editor User')
+         VALUES (uuid_generate_v4(), 'google-editor-ins', 'editor-ins@example.com', 'Editor User')
          ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
          RETURNING id`
       );
@@ -342,11 +414,11 @@ describe('delete_document_block tool', () => {
 
       const editorToken = { ...agentToken, userId: editorId };
 
-      const result = await deleteDocumentBlock.handler(
+      const result = await insertDocumentBlocks.handler(
         {
           docGuid: testDocId,
-          elementIndex: 1,
-          durationSeconds: 1,
+          position: 'end',
+          blocks: [{ type: 'paragraph', content: 'Editor added this' }],
         },
         editorToken
       );
@@ -357,37 +429,18 @@ describe('delete_document_block tool', () => {
       await pool.query('DELETE FROM users WHERE id = $1', [editorId]);
     });
 
-    test('returns correct content for complex blocks', async () => {
-      // Add a bullet list to test
-      const ydoc = documentService.getSharedDoc(testDocId);
-      const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-      const list = new Y.XmlElement('bulletList');
-      const item1 = new Y.XmlElement('listItem');
-      const item1Text = new Y.XmlText();
-      item1Text.insert(0, 'Item 1');
-      item1.insert(0, [item1Text]);
-
-      const item2 = new Y.XmlElement('listItem');
-      const item2Text = new Y.XmlText();
-      item2Text.insert(0, 'Item 2');
-      item2.insert(0, [item2Text]);
-
-      list.insert(0, [item1, item2]);
-      xmlFragment.insert(3, [list]);
-
-      const result = await deleteDocumentBlock.handler(
+    test('sets highlighted flag when highlight succeeds', async () => {
+      const result = await insertDocumentBlocks.handler(
         {
           docGuid: testDocId,
-          elementIndex: 3,
-          durationSeconds: 1,
+          position: 1,
+          blocks: [{ type: 'paragraph', content: 'Test' }],
+          durationSeconds: 20,
         },
         agentToken
       );
 
-      expect(result.success).toBe(true);
-      expect(result.deletedContent).toBe('Item 1Item 2');
-      expect(result.deletedType).toBe('bulletList');
+      expect(result.highlighted).toBe(true);
     });
   });
 });

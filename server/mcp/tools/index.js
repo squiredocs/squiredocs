@@ -11,10 +11,10 @@ const setDocumentTitle = require('./set-document-title');
 const getDocumentStructure = require('./get-document-structure');
 const getDocumentSchema = require('./get-document-schema');
 const readDocumentBlock = require('./read-document-block');
-const updateDocumentBlock = require('./update-document-block');
 const selectTextRange = require('./select-text-range');
-const insertDocumentBlock = require('./insert-document-block');
-const deleteDocumentBlock = require('./delete-document-block');
+const insertDocumentBlocks = require('./insert-document-blocks');
+const deleteDocumentBlocks = require('./delete-document-blocks');
+const replaceDocumentBlocks = require('./replace-document-blocks');
 const replaceText = require('./replace-text');
 const insertText = require('./insert-text');
 const deleteText = require('./delete-text');
@@ -32,10 +32,10 @@ const tools = {
   get_document_structure: getDocumentStructure,
   get_document_schema: getDocumentSchema,
   read_document_block: readDocumentBlock,
-  update_document_block: updateDocumentBlock,
   select_text_range: selectTextRange,
-  insert_document_block: insertDocumentBlock,
-  delete_document_block: deleteDocumentBlock,
+  insert_document_blocks: insertDocumentBlocks,
+  delete_document_blocks: deleteDocumentBlocks,
+  replace_document_blocks: replaceDocumentBlocks,
   replace_text: replaceText,
   insert_text: insertText,
   delete_text: deleteText,
