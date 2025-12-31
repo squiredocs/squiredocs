@@ -13,6 +13,14 @@ const getDocumentSchema = require('./get-document-schema');
 const readDocumentBlock = require('./read-document-block');
 const updateDocumentBlock = require('./update-document-block');
 const selectTextRange = require('./select-text-range');
+const insertDocumentBlock = require('./insert-document-block');
+const deleteDocumentBlock = require('./delete-document-block');
+const replaceText = require('./replace-text');
+const insertText = require('./insert-text');
+const deleteText = require('./delete-text');
+const applyMarks = require('./apply-marks');
+const searchDocument = require('./search-document');
+const getDocumentText = require('./get-document-text');
 const agentPresence = require('../agent-presence');
 
 // All available tools
@@ -26,6 +34,14 @@ const tools = {
   read_document_block: readDocumentBlock,
   update_document_block: updateDocumentBlock,
   select_text_range: selectTextRange,
+  insert_document_block: insertDocumentBlock,
+  delete_document_block: deleteDocumentBlock,
+  replace_text: replaceText,
+  insert_text: insertText,
+  delete_text: deleteText,
+  apply_marks: applyMarks,
+  search_document: searchDocument,
+  get_document_text: getDocumentText,
 };
 
 /**
