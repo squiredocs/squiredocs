@@ -325,8 +325,11 @@ describe('insert_document_block tool', () => {
       const item2 = list.get(1);
       expect(item1.nodeName).toBe('listItem');
       expect(item2.nodeName).toBe('listItem');
-      expect(item1.get(0).toString()).toBe('Item 1');
-      expect(item2.get(0).toString()).toBe('Item 2');
+      // ListItems now contain paragraphs (TipTap schema requirement)
+      expect(item1.get(0).nodeName).toBe('paragraph');
+      expect(item2.get(0).nodeName).toBe('paragraph');
+      expect(item1.get(0).get(0).toString()).toBe('Item 1');
+      expect(item2.get(0).get(0).toString()).toBe('Item 2');
     });
 
     test('inserts paragraph with formatting marks', async () => {

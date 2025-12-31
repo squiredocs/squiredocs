@@ -33,18 +33,41 @@ function buildYjsNode(node) {
     // Lists: process child nodes
     const childElements = children.map((child) => buildYjsNode(child));
     element.insert(0, childElements);
+  } else if (type === 'listItem') {
+    // CRITICAL: ListItems must contain a paragraph as first child (TipTap schema requirement)
+    // Schema: content: 'paragraph block*'
+    // We need to wrap the text content in a paragraph node
+    const paragraph = new Y.XmlElement('paragraph');
+
+    if (content !== undefined && content !== null) {
+      const textElements = buildTextContent(content);
+      if (textElements.length > 0) {
+        paragraph.insert(0, textElements);
+      } else {
+        // Empty content - add empty text node
+        const emptyText = new Y.XmlText();
+        paragraph.insert(0, [emptyText]);
+      }
+    } else {
+      // No content provided - add empty text node
+      const emptyText = new Y.XmlText();
+      paragraph.insert(0, [emptyText]);
+    }
+
+    // Insert the paragraph into the listItem
+    element.insert(0, [paragraph]);
   } else if (content !== undefined && content !== null) {
-    // Text content: may include marks
+    // Text content: may include marks (for paragraphs, headings, etc.)
     const textElements = buildTextContent(content);
     if (textElements.length > 0) {
       element.insert(0, textElements);
-    } else if (type === 'listItem' || type === 'paragraph' || type === 'heading') {
+    } else if (type === 'paragraph' || type === 'heading') {
       // For content blocks, if content is explicitly provided but empty,
       // insert an empty text node to prevent invisible blocks
       const emptyText = new Y.XmlText();
       element.insert(0, [emptyText]);
     }
-  } else if (type === 'listItem' || type === 'paragraph' || type === 'heading') {
+  } else if (type === 'paragraph' || type === 'heading') {
     // If no content was provided at all for a content block,
     // still insert an empty text node to prevent invisible blocks
     const emptyText = new Y.XmlText();

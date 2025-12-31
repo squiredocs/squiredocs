@@ -108,11 +108,16 @@ describe('buildYjsNode', () => {
 
       const firstItem = yjsNode.get(0);
       expect(firstItem.nodeName).toBe('listItem');
-      expect(firstItem.get(0).toString()).toBe('First');
+      // ListItems now contain paragraphs (TipTap schema requirement)
+      const firstPara = firstItem.get(0);
+      expect(firstPara.nodeName).toBe('paragraph');
+      expect(firstPara.get(0).toString()).toBe('First');
 
       const secondItem = yjsNode.get(1);
       expect(secondItem.nodeName).toBe('listItem');
-      expect(secondItem.get(0).toString()).toBe('Second');
+      const secondPara = secondItem.get(0);
+      expect(secondPara.nodeName).toBe('paragraph');
+      expect(secondPara.get(0).toString()).toBe('Second');
     });
 
     test('builds orderedList with children', () => {
@@ -318,12 +323,17 @@ describe('integration: buildYjsNode with formatted content', () => {
     const yjsNode = integrateNode(node);
 
     expect(yjsNode.nodeName).toBe('listItem');
-    expect(yjsNode.length).toBe(2);
-    expect(yjsNode.get(0).toString()).toContain('Action item');
-    expect(yjsNode.get(1).toString()).toBe(': Complete by Friday');
+    // ListItems now contain a paragraph wrapper (TipTap schema requirement)
+    expect(yjsNode.length).toBe(1);
+
+    const paragraph = yjsNode.get(0);
+    expect(paragraph.nodeName).toBe('paragraph');
+    expect(paragraph.length).toBe(2);
+    expect(paragraph.get(0).toString()).toContain('Action item');
+    expect(paragraph.get(1).toString()).toBe(': Complete by Friday');
 
     // Verify marks via delta
-    const boldDelta = yjsNode.get(0).toDelta();
+    const boldDelta = paragraph.get(0).toDelta();
     expect(boldDelta[0].attributes.bold).toBe(true);
   });
 
