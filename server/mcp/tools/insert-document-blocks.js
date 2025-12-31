@@ -93,7 +93,7 @@ PARAMETERS
 - docGuid: Document UUID (required)
 - position: Where to insert (required) - number, "start", or "end"
 - blocks: Array of block specifications (required, min 1 block)
-- durationSeconds: How long to highlight after insertion (default: 15)
+- durationSeconds: How long to keep selection active (default: 30)
 
 Block specification format - see get_document_schema for full details:
   - type: Block type (paragraph, heading, bulletList, codeBlock, etc.)
@@ -220,7 +220,7 @@ const inputSchema = {
       type: 'integer',
       minimum: 1,
       maximum: 300,
-      description: 'How long to highlight after insertion (1-300 seconds, default: 15)',
+      description: 'How long to keep selection active (1-300 seconds, default: 30)',
     },
   },
   required: ['docGuid', 'position', 'blocks'],
@@ -232,14 +232,14 @@ const inputSchema = {
  * @param {string} args.docGuid - Document UUID
  * @param {number|string} args.position - Where to insert (number, "start", or "end")
  * @param {Array} args.blocks - Array of block specifications
- * @param {number} [args.durationSeconds=15] - Duration to show highlight
+ * @param {number} [args.durationSeconds=30] - Duration to keep selection active
  * @param {object} agentToken - Decoded agent JWT token
  * @returns {Promise<object>} Insert result
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('insert_document_blocks tool not initialized');
 
-  const { docGuid, position, blocks, durationSeconds = 15 } = args;
+  const { docGuid, position, blocks, durationSeconds = 30 } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
@@ -312,6 +312,8 @@ async function handler(args, agentToken) {
   }
 
   // Highlight the inserted range
+  // Keep the selection active for the duration (30 seconds by default)
+  // It will automatically clear when the session expires or another tool call changes it
   let highlighted = false;
   try {
     const anchorPos = Y.createRelativePositionFromTypeIndex(xmlFragment, insertIndex);
@@ -323,14 +325,8 @@ async function handler(args, agentToken) {
 
     session.awareness.setLocalStateField('cursor', { anchor, head });
     highlighted = true;
-
-    // Brief delay to show the highlight
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Clear the cursor highlight
-    session.awareness.setLocalStateField('cursor', null);
   } catch (error) {
-    console.error('[insert-document-blocks] Failed to set/clear highlight:', error);
+    console.error('[insert-document-blocks] Failed to set highlight:', error);
     // Continue even if highlight fails
   }
 

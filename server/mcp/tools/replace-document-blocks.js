@@ -96,7 +96,7 @@ PARAMETERS
 - fromIndex: Starting index to replace (required)
 - toIndex: Ending index to replace (optional, defaults to fromIndex)
 - blocks: Array of new block specifications (required, min 1 block)
-- durationSeconds: How long to highlight after replacement (default: 15)
+- durationSeconds: How long to keep selection active (default: 30)
 
 Block specification format - see get_document_schema for full details.
 
@@ -235,7 +235,7 @@ const inputSchema = {
       type: 'integer',
       minimum: 1,
       maximum: 300,
-      description: 'How long to highlight after replacement (1-300 seconds, default: 15)',
+      description: 'How long to keep selection active (1-300 seconds, default: 30)',
     },
   },
   required: ['docGuid', 'fromIndex', 'blocks'],
@@ -248,14 +248,14 @@ const inputSchema = {
  * @param {number} args.fromIndex - Starting index to replace (inclusive)
  * @param {number} [args.toIndex] - Ending index to replace (inclusive, defaults to fromIndex)
  * @param {Array} args.blocks - Array of new block specifications
- * @param {number} [args.durationSeconds=15] - Duration to show highlight
+ * @param {number} [args.durationSeconds=30] - Duration to keep selection active
  * @param {object} agentToken - Decoded agent JWT token
  * @returns {Promise<object>} Replace result
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('replace_document_blocks tool not initialized');
 
-  const { docGuid, fromIndex, blocks, durationSeconds = 15 } = args;
+  const { docGuid, fromIndex, blocks, durationSeconds = 30 } = args;
   // Default toIndex to fromIndex for single block replacement
   const toIndex = args.toIndex !== undefined ? args.toIndex : fromIndex;
   const userId = agentToken.userId;
@@ -347,6 +347,8 @@ async function handler(args, agentToken) {
   }
 
   // Highlight the replaced range
+  // Keep the selection active for the duration (30 seconds by default)
+  // It will automatically clear when the session expires or another tool call changes it
   let highlighted = false;
   try {
     const anchorPos = Y.createRelativePositionFromTypeIndex(xmlFragment, fromIndex);
@@ -358,14 +360,8 @@ async function handler(args, agentToken) {
 
     session.awareness.setLocalStateField('cursor', { anchor, head });
     highlighted = true;
-
-    // Brief delay to show the highlight
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Clear the cursor highlight
-    session.awareness.setLocalStateField('cursor', null);
   } catch (error) {
-    console.error('[replace-document-blocks] Failed to set/clear highlight:', error);
+    console.error('[replace-document-blocks] Failed to set highlight:', error);
     // Continue even if highlight fails
   }
 
