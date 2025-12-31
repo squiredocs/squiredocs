@@ -25,6 +25,23 @@ const name = 'insert_text';
 
 const description = `Insert text at a specific position within a block.
 
+✅ INDEX SAFETY: This tool does NOT change element indices
+⚠️  CHARACTER POSITION WARNING: Changes positions WITHIN the block
+═══════════════════════════════════════════════════════════════════════════
+
+Block indices remain unchanged, but character positions AFTER the insert
+point will shift right.
+
+BEFORE insert at position 10:  "The quick fox jumps"
+                                          ↑ position 10
+AFTER  insert "brown " at 10:  "The quick brown fox jumps"
+                                          ↑ inserted here
+                                                ↑ "fox" was at 10, now at 16
+
+If you need to perform multiple operations in the same block:
+- Read the block again with read_document_block to see updated positions
+- Or calculate new positions: new_pos = old_pos + inserted_text_length
+
 ═══════════════════════════════════════════════════════════════════════════
 ADD TEXT WITHOUT REPLACING
 ═══════════════════════════════════════════════════════════════════════════

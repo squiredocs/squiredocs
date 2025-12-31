@@ -25,6 +25,25 @@ const name = 'replace_text';
 
 const description = `Replace a specific range of text within a block.
 
+✅ INDEX SAFETY: This tool does NOT change element indices
+⚠️  CHARACTER POSITION WARNING: May change positions WITHIN the block
+═══════════════════════════════════════════════════════════════════════════
+
+Block indices remain unchanged. Character positions AFTER the replacement
+will shift if the new text has different length than the old text.
+
+BEFORE replace 10-15:  "The quick brown fox jumps"
+                              ^^^^^ replace "brown" (5 chars)
+AFTER  replace with "red":  "The quick red fox jumps"
+                                   ^^^ new text (3 chars)
+                                      ↑ "fox" was at 16, now at 14
+
+Length changed by: new_length - old_length = 3 - 5 = -2
+Positions after 15 shift left by 2
+
+If replacement length equals original length, positions don't change.
+Otherwise, read the block again or calculate: new_pos = old_pos + length_diff
+
 ═══════════════════════════════════════════════════════════════════════════
 SURGICAL TEXT EDITING
 ═══════════════════════════════════════════════════════════════════════════

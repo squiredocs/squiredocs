@@ -25,6 +25,24 @@ const name = 'insert_document_block';
 
 const description = `Insert a new block at a specific position in the document.
 
+⚠️  CRITICAL: INDEX INVALIDATION WARNING
+═══════════════════════════════════════════════════════════════════════════
+
+This tool CHANGES element indices! After insertion, blocks at or after the
+insert position will have NEW indices.
+
+BEFORE insert at position 1:  [0] heading, [1] paragraph, [2] paragraph
+AFTER  insert at position 1:  [0] heading, [1] NEW BLOCK, [2] paragraph, [3] paragraph
+                                            ↑ inserted   ↑ was [1]   ↑ was [2]
+
+REQUIRED NEXT STEP: After using this tool, you MUST call get_document_structure
+to get updated indices before performing any other block operations.
+
+Example workflow:
+  1. insert_document_block({ position: 1, ... })
+  2. get_document_structure({ docGuid })  ← REQUIRED to refresh indices
+  3. Now safe to use other tools with updated indices
+
 ═══════════════════════════════════════════════════════════════════════════
 POSITION OPTIONS
 ═══════════════════════════════════════════════════════════════════════════
@@ -133,11 +151,33 @@ await insert_document_block({
 NOTES
 ═══════════════════════════════════════════════════════════════════════════
 
-- Blocks at/after insert position shift down
+- ⚠️  INVALIDATES INDICES: Blocks at/after insert position get new indices
+- After insertion, ALWAYS call get_document_structure to refresh indices
 - Changes sync to all users in real-time
 - Automatically saved to database
 - Requires "editor" or "owner" role
-- New block is highlighted for visual feedback`;
+- New block is highlighted for visual feedback
+
+═══════════════════════════════════════════════════════════════════════════
+SAFE MULTI-BLOCK INSERTION
+═══════════════════════════════════════════════════════════════════════════
+
+To insert multiple blocks safely:
+
+APPROACH 1 - Insert from end to beginning (no index refresh needed):
+  insert_document_block({ position: "end", ... })
+  insert_document_block({ position: "end", ... })
+  insert_document_block({ position: "end", ... })
+
+APPROACH 2 - Insert and refresh indices each time:
+  insert_document_block({ position: 2, ... })
+  const { structure } = get_document_structure({ docGuid })  // refresh
+  insert_document_block({ position: 5, ... })  // use updated indices
+  const { structure } = get_document_structure({ docGuid })  // refresh again
+
+APPROACH 3 - Insert at beginning (earlier indices shift):
+  insert_document_block({ position: "start", ... })
+  get_document_structure({ docGuid })  // required before next operation`;
 
 const inputSchema = {
   type: 'object',

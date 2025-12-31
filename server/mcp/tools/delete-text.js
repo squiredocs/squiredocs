@@ -25,6 +25,22 @@ const name = 'delete_text';
 
 const description = `Delete a specific range of text within a block.
 
+✅ INDEX SAFETY: This tool does NOT change element indices
+⚠️  CHARACTER POSITION WARNING: Changes positions WITHIN the block
+═══════════════════════════════════════════════════════════════════════════
+
+Block indices remain unchanged, but character positions AFTER the deleted
+range will shift left.
+
+BEFORE delete positions 4-9:  "The very quick fox"
+                                   ^^^^^ delete this
+AFTER  delete positions 4-9:  "The quick fox"
+                                   ↑ "quick" was at 9, now at 4
+
+If you need to perform multiple operations in the same block:
+- Read the block again with read_document_block to see updated positions
+- Or calculate new positions: new_pos = old_pos - deleted_length
+
 ═══════════════════════════════════════════════════════════════════════════
 REMOVE TEXT WITHOUT REPLACING
 ═══════════════════════════════════════════════════════════════════════════

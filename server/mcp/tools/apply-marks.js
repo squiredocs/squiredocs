@@ -25,6 +25,20 @@ const name = 'apply_marks';
 
 const description = `Apply or remove formatting marks to a text range.
 
+✅ INDEX SAFETY: This tool does NOT change element indices
+✅ CHARACTER POSITION SAFETY: Does NOT change positions within the block
+═══════════════════════════════════════════════════════════════════════════
+
+This tool ONLY changes formatting. Both block indices and character positions
+remain unchanged. Safe to use without refreshing any positions.
+
+BEFORE apply bold to 8-17:  "This is important text"
+                                    ^^^^^^^^^
+AFTER  apply bold to 8-17:  "This is **important** text"
+                                    ^^^^^^^^^ (still positions 8-17)
+
+Character positions stay the same - only formatting changes.
+
 ═══════════════════════════════════════════════════════════════════════════
 FORMAT TEXT WITHOUT CHANGING CONTENT
 ═══════════════════════════════════════════════════════════════════════════

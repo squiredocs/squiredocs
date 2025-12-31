@@ -25,6 +25,24 @@ const name = 'delete_document_block';
 
 const description = `Delete a block from the document at a specific index.
 
+⚠️  CRITICAL: INDEX INVALIDATION WARNING
+═══════════════════════════════════════════════════════════════════════════
+
+This tool CHANGES element indices! After deletion, blocks after the deleted
+position will have NEW indices.
+
+BEFORE delete at index 1:  [0] heading, [1] paragraph, [2] paragraph, [3] paragraph
+AFTER  delete at index 1:  [0] heading, [1] paragraph, [2] paragraph
+                                        ↑ was [2]   ↑ was [3]
+
+REQUIRED NEXT STEP: After using this tool, you MUST call get_document_structure
+to get updated indices before performing any other block operations.
+
+Example workflow:
+  1. delete_document_block({ elementIndex: 1 })
+  2. get_document_structure({ docGuid })  ← REQUIRED to refresh indices
+  3. Now safe to use other tools with updated indices
+
 ═══════════════════════════════════════════════════════════════════════════
 HOW IT WORKS
 ═══════════════════════════════════════════════════════════════════════════
@@ -94,13 +112,37 @@ const result = await delete_document_block({
 NOTES
 ═══════════════════════════════════════════════════════════════════════════
 
+- ⚠️  INVALIDATES INDICES: Blocks after deletion get new indices
+- After deletion, ALWAYS call get_document_structure to refresh indices
 - Deletion is permanent and immediate
 - Changes sync to all users in real-time
 - Automatically saved to database
 - Requires "editor" or "owner" role
-- Element indices shift after deletion
 - Brief highlight for visual feedback
-- Returns deleted content for logging/undo`;
+- Returns deleted content for logging/undo
+
+═══════════════════════════════════════════════════════════════════════════
+SAFE MULTI-BLOCK DELETION
+═══════════════════════════════════════════════════════════════════════════
+
+To delete multiple blocks safely:
+
+APPROACH 1 - Delete from end to beginning (no index refresh needed):
+  // If you need to delete blocks [2], [5], and [7]
+  delete_document_block({ elementIndex: 7 })  // delete highest first
+  delete_document_block({ elementIndex: 5 })  // middle
+  delete_document_block({ elementIndex: 2 })  // lowest last
+
+APPROACH 2 - Delete and refresh indices each time:
+  delete_document_block({ elementIndex: 2 })
+  const { structure } = get_document_structure({ docGuid })  // refresh
+  delete_document_block({ elementIndex: 3 })  // use updated index
+  const { structure } = get_document_structure({ docGuid })  // refresh again
+
+AVOID: Deleting from beginning to end without refreshing (indices will be wrong!)
+  ❌ delete_document_block({ elementIndex: 2 })
+  ❌ delete_document_block({ elementIndex: 5 })  // WRONG! Was [5], now [4]
+  ❌ delete_document_block({ elementIndex: 7 })  // WRONG! Was [7], now [5]`;
 
 const inputSchema = {
   type: 'object',

@@ -26,6 +26,19 @@ const name = 'update_document_block';
 
 const description = `Update a block by replacing it with new content - WORKFLOW STEP 3.
 
+✅ INDEX SAFETY: This tool does NOT change element indices
+═══════════════════════════════════════════════════════════════════════════
+
+This tool replaces a block IN PLACE. Element indices remain valid after use.
+No need to call get_document_structure unless the document changes from
+another source.
+
+BEFORE update at index 1:  [0] heading, [1] paragraph, [2] paragraph
+AFTER  update at index 1:  [0] heading, [1] NEW CONTENT, [2] paragraph
+                                        ↑ replaced    ↑ still [2]
+
+Safe to continue using same indices after this tool.
+
 ═══════════════════════════════════════════════════════════════════════════
 WORKFLOW STEP 3: UPDATE BLOCKS
 ═══════════════════════════════════════════════════════════════════════════
