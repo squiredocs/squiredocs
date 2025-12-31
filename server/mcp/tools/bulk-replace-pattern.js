@@ -77,9 +77,7 @@ RETURN VALUES
 
 - success: true if operation succeeded
 - matchesFound: Number of blocks that matched the pattern
-- replacementsM
-
-ade: Number of blocks actually replaced
+- replacementsMade: Number of blocks actually replaced
 - totalElements: Final block count after replacements
 - highlighted: Whether the affected range was highlighted
 
@@ -122,28 +120,6 @@ await bulk_replace_pattern({
   blockType: "paragraph",
   contentTransform: "*$1*"
 });
-
-═══════════════════════════════════════════════════════════════════════════
-WORKFLOW COMPARISON
-═══════════════════════════════════════════════════════════════════════════
-
-❌ OLD WAY (search + multiple replaces):
-  const results = await search_document({ query: "##" })
-  for (const result of results.matches) {
-    await replace_document_blocks({
-      fromIndex: result.index,  // indices invalidate!
-      blocks: [...]
-    })
-    await get_document_structure()  // refresh indices
-  }
-
-✅ NEW WAY (single bulk operation):
-  await bulk_replace_pattern({
-    pattern: "^##\\s+(.+)$",
-    blockType: "heading",
-    attributes: { level: 2 },
-    contentTransform: "$1"
-  })
 
 ═══════════════════════════════════════════════════════════════════════════`;
 

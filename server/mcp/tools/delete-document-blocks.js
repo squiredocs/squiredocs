@@ -1,8 +1,7 @@
 /**
  * delete_document_blocks MCP Tool
  *
- * Deletes a RANGE of blocks with a brief highlight before removal.
- * More efficient than multiple delete_document_block calls.
+ * Deletes one or more blocks with visual feedback.
  */
 const Y = require('yjs');
 const { getTextContent } = require('../yjs/block-structure');

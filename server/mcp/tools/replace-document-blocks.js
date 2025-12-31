@@ -1,8 +1,7 @@
 /**
  * replace_document_blocks MCP Tool
  *
- * Replaces one or more blocks with new blocks in a single transaction.
- * More efficient and safer than separate delete + insert operations.
+ * Replaces one or more blocks with new blocks in a single atomic transaction.
  */
 const Y = require('yjs');
 const { buildYjsNode } = require('../yjs/node-builder');

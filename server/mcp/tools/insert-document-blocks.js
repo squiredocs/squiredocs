@@ -1,8 +1,7 @@
 /**
  * insert_document_blocks MCP Tool
  *
- * Inserts one or more blocks at a specified position.
- * More efficient than multiple insert_document_block calls.
+ * Inserts one or more blocks at a specified position with visual feedback.
  */
 const Y = require('yjs');
 const { buildYjsNode } = require('../yjs/node-builder');

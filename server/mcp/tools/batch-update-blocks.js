@@ -2,7 +2,6 @@
  * batch_update_blocks MCP Tool
  *
  * Performs multiple block operations in a single atomic transaction.
- * This eliminates index invalidation issues between operations.
  */
 const Y = require('yjs');
 const { buildYjsNode } = require('../yjs/node-builder');
@@ -50,7 +49,6 @@ HOW IT WORKS
 - Accepts an array of operations: insert, delete, or replace
 - All operations execute in a single atomic Yjs transaction
 - Operations are automatically ordered to prevent index invalidation
-- Much more efficient than multiple separate tool calls
 
 Supported operations:
   - insert: Insert blocks at a position
@@ -142,26 +140,6 @@ const result = await batch_update_blocks({
     { action: "insert", insertedCount: 1 }
   ]
 }
-
-═══════════════════════════════════════════════════════════════════════════
-BENEFITS OVER INDIVIDUAL CALLS
-═══════════════════════════════════════════════════════════════════════════
-
-❌ OLD WAY (3 separate calls, indices invalidate):
-  delete_document_blocks({ fromIndex: 1 })
-  get_document_structure()  // refresh indices
-  replace_document_blocks({ fromIndex: 2, ... })  // NEW indices!
-  get_document_structure()  // refresh again
-  insert_document_blocks({ position: 1, ... })  // NEW indices again!
-
-✅ NEW WAY (1 call, no invalidation):
-  batch_update_blocks({
-    operations: [
-      { action: "delete", fromIndex: 1 },
-      { action: "replace", fromIndex: 3, ... },  // ORIGINAL indices!
-      { action: "insert", position: 2, ... }     // ORIGINAL indices!
-    ]
-  })
 
 ═══════════════════════════════════════════════════════════════════════════`;
 
