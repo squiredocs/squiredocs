@@ -106,7 +106,7 @@ await bulk_replace_pattern({
 // Convert code-like paragraphs to code blocks
 await bulk_replace_pattern({
   docGuid: "abc-123",
-  pattern: "^\\`\\`\\`(\\w+)\\n([\\s\\S]+?)\\`\\`\\`$",
+  pattern: "^```(\\w+)\\n([\\s\\S]+?)```$",
   flags: "m",
   blockType: "codeBlock",
   attributes: { language: "$1" },  // First capture group
