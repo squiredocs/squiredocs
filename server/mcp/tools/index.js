@@ -15,6 +15,9 @@ const selectTextRange = require('./select-text-range');
 const insertDocumentBlocks = require('./insert-document-blocks');
 const deleteDocumentBlocks = require('./delete-document-blocks');
 const replaceDocumentBlocks = require('./replace-document-blocks');
+const batchUpdateBlocks = require('./batch-update-blocks');
+const convertBlockType = require('./convert-block-type');
+const bulkReplacePattern = require('./bulk-replace-pattern');
 const replaceText = require('./replace-text');
 const insertText = require('./insert-text');
 const deleteText = require('./delete-text');
@@ -36,6 +39,9 @@ const tools = {
   insert_document_blocks: insertDocumentBlocks,
   delete_document_blocks: deleteDocumentBlocks,
   replace_document_blocks: replaceDocumentBlocks,
+  batch_update_blocks: batchUpdateBlocks,
+  convert_block_type: convertBlockType,
+  bulk_replace_pattern: bulkReplacePattern,
   replace_text: replaceText,
   insert_text: insertText,
   delete_text: deleteText,
