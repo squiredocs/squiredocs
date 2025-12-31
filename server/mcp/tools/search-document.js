@@ -114,10 +114,10 @@ search_document({
 2. CASE-SENSITIVE SEARCH:
 search_document({
   docGuid: "abc-123",
-  query: "TODO",
+  query: "ERROR",
   caseSensitive: true
 })
-// Only finds: "TODO" (not "todo" or "Todo")
+// Only finds: "ERROR" (not "error" or "Error")
 
 3. SEARCH WITHOUT HIGHLIGHTING:
 search_document({

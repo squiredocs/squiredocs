@@ -22,7 +22,7 @@ function init(persistence) {
  */
 const name = 'set_document_title';
 
-const description = 'Set the title of a document';
+const description = 'Update the title of a document. Changes the document title metadata and syncs to all users viewing the document.';
 
 const inputSchema = {
   type: 'object',
