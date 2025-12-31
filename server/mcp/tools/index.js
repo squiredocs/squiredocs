@@ -10,7 +10,7 @@ const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 const getDocumentStructure = require('./get-document-structure');
 const getDocumentSchema = require('./get-document-schema');
-const readDocumentBlock = require('./read-document-block');
+const readDocumentBlocks = require('./read-document-blocks');
 const selectTextRange = require('./select-text-range');
 const insertDocumentBlocks = require('./insert-document-blocks');
 const deleteDocumentBlocks = require('./delete-document-blocks');
@@ -31,7 +31,7 @@ const tools = {
   set_document_title: setDocumentTitle,
   get_document_structure: getDocumentStructure,
   get_document_schema: getDocumentSchema,
-  read_document_block: readDocumentBlock,
+  read_document_blocks: readDocumentBlocks,
   select_text_range: selectTextRange,
   insert_document_blocks: insertDocumentBlocks,
   delete_document_blocks: deleteDocumentBlocks,

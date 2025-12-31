@@ -1,7 +1,7 @@
 /**
- * read_document_block MCP Tool
+ * read_document_blocks MCP Tool
  *
- * Reads a specific block element by index and highlights it with the agent's cursor.
+ * Reads one or more block elements and highlights them with the agent's cursor.
  */
 const Y = require('yjs');
 const { getBlockDetails } = require('../yjs/block-structure');
@@ -21,60 +21,72 @@ function init(persistence) {
 /**
  * Tool definition for MCP discovery
  */
-const name = 'read_document_block';
+const name = 'read_document_blocks';
 
-const description = `Read a specific block from the document and highlight it for users.
+const description = `Read one or more blocks from the document and highlight them for users.
 
 ═══════════════════════════════════════════════════════════════════════════
 WORKFLOW STEP 2: READ BLOCKS
 ═══════════════════════════════════════════════════════════════════════════
 
 After calling get_document_structure, use this tool to read specific blocks.
-The block will be automatically highlighted so all users can see what you're reading.
+The blocks will be automatically highlighted so all users can see what you're reading.
 
 TYPICAL USAGE PATTERN:
 1. get_document_structure → See what blocks exist
-2. read_document_block → Read the blocks you need to understand/modify
-3. update_document_block → Make changes to specific blocks
+2. read_document_blocks → Read the blocks you need to understand/modify
+3. insert/delete/replace_document_blocks → Make changes
+
+═══════════════════════════════════════════════════════════════════════════
+HOW IT WORKS
+═══════════════════════════════════════════════════════════════════════════
+
+- Reads blocks from fromIndex to toIndex (INCLUSIVE)
+- If toIndex is omitted, reads only the single block at fromIndex
+- Highlights the entire range for visual feedback
+- Returns array of block details
+
+Examples:
+  // Read single block
+  read_document_blocks({ fromIndex: 5 })
+  → Reads 1 block: index 5
+
+  // Read range of blocks
+  read_document_blocks({ fromIndex: 5, toIndex: 10 })
+  → Reads 6 blocks: indices 5, 6, 7, 8, 9, 10
 
 ═══════════════════════════════════════════════════════════════════════════
 WHAT YOU GET BACK
 ═══════════════════════════════════════════════════════════════════════════
 
-BLOCK METADATA:
+For each block:
 - elementIndex: Which block this is (matches get_document_structure)
 - type: Block type (paragraph, heading, bulletList, orderedList, codeBlock)
 - attributes: Type-specific attributes (level for headings, language for code, etc.)
 - textContent: Plain text content (all formatting removed)
 - textLength: Character count
-
-BLOCK STRUCTURE:
-A formatted view showing the block and all nested content with offsets.
-This is useful for understanding lists and other nested structures.
-
-Example for a bullet list:
-[0] <bulletList> offsets:0-50
-  ↳ <listItem> offsets:0-20 "First item"
-  ↳ <listItem> offsets:21-50 "Second item"
-
-Example for a paragraph with formatting:
-[0] <paragraph> offsets:0-25 "This is bold and italic text"
+- structure: Formatted view showing the block and all nested content with offsets
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
 ═══════════════════════════════════════════════════════════════════════════
 
-- docGuid: Document UUID (from list_documents or get_document_structure)
-- elementIndex: Which block to read (from get_document_structure output)
-- durationSeconds: How long to highlight (default: 30, max: 300)
+- docGuid: Document UUID (required)
+- fromIndex: Starting index (required)
+- toIndex: Ending index (optional, defaults to fromIndex for single block)
+- durationSeconds: How long to keep selection active (default: 30)
+
+IMPORTANT: Both fromIndex and toIndex are INCLUSIVE.
+  Range 5-10 reads: [5], [6], [7], [8], [9], [10] = 6 blocks total
+  Single block: fromIndex: 5 (no toIndex) reads only [5]
 
 ═══════════════════════════════════════════════════════════════════════════
 SIDE EFFECTS (VISUAL FEEDBACK)
 ═══════════════════════════════════════════════════════════════════════════
 
-- The entire block is highlighted in the document
+- The entire range is highlighted in the document
 - All connected users see the highlight with your agent name
-- Highlight automatically fades after durationSeconds
+- Highlight stays active for 30 seconds (or until another tool call)
 - This helps users understand what you're analyzing
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -85,27 +97,41 @@ COMPLETE EXAMPLE
 const { structure, totalElements } = await get_document_structure({
   docGuid: "abc-123"
 });
-// Output shows: [0] paragraph, [1] heading, [2] bulletList
+// Output shows: [0] paragraph, [1] heading, [2] bulletList, [3] paragraph
 
-// Step 2: Read the bullet list at index 2
-const block = await read_document_block({
+// Step 2: Read multiple blocks
+const result = await read_document_blocks({
   docGuid: "abc-123",
-  elementIndex: 2,
+  fromIndex: 1,
+  toIndex: 2,
   durationSeconds: 45
 });
 
 // Returns:
 {
-  elementIndex: 2,
-  type: "bulletList",
-  attributes: null,
-  textContent: "First itemSecond item",
-  textLength: 21,
-  structure: "[0] <bulletList>\\n  ↳ <listItem> offsets:0-10...",
+  blocks: [
+    {
+      elementIndex: 1,
+      type: "heading",
+      attributes: { level: 2 },
+      textContent: "Section Title",
+      textLength: 13,
+      structure: "[1] <heading level=2> offsets:0-13 \"Section Title\""
+    },
+    {
+      elementIndex: 2,
+      type: "bulletList",
+      attributes: null,
+      textContent: "First itemSecond item",
+      textLength: 21,
+      structure: "[2] <bulletList>\\n  ↳ <listItem> offsets:0-10..."
+    }
+  ],
+  readCount: 2,
   highlighted: true
 }
 
-// Step 3: Now you can analyze or update this block`;
+// Step 3: Now you can analyze or modify these blocks`;
 
 const inputSchema = {
   type: 'object',
@@ -115,36 +141,51 @@ const inputSchema = {
       format: 'uuid',
       description: 'The document UUID',
     },
-    elementIndex: {
+    fromIndex: {
       type: 'integer',
       minimum: 0,
-      description: 'The index of the block element to read',
+      description: 'Starting index (inclusive). For single block, only provide this.',
+    },
+    toIndex: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Ending index (inclusive, optional). Omit for single block.',
     },
     durationSeconds: {
       type: 'integer',
       minimum: 1,
       maximum: 300,
-      description: 'How long to highlight the block (1-300 seconds, default: 30)',
+      description: 'How long to keep selection active (1-300 seconds, default: 30)',
     },
   },
-  required: ['docGuid', 'elementIndex'],
+  required: ['docGuid', 'fromIndex'],
 };
 
 /**
  * Handler function for the tool
  * @param {object} args - Tool arguments
  * @param {string} args.docGuid - Document UUID
- * @param {number} args.elementIndex - Element index
- * @param {number} [args.durationSeconds=30] - Duration to highlight
+ * @param {number} args.fromIndex - Starting index (inclusive)
+ * @param {number} [args.toIndex] - Ending index (inclusive, defaults to fromIndex)
+ * @param {number} [args.durationSeconds=30] - Duration to keep selection active
  * @param {object} agentToken - Decoded agent JWT token
  * @returns {Promise<object>} Block details
  */
 async function handler(args, agentToken) {
-  if (!persistenceProvider) throw new Error('read_document_block tool not initialized');
+  if (!persistenceProvider) throw new Error('read_document_blocks tool not initialized');
 
-  const { docGuid, elementIndex, durationSeconds = 30 } = args;
+  const { docGuid, fromIndex, durationSeconds = 30 } = args;
+  // Default toIndex to fromIndex for single block reading
+  const toIndex = args.toIndex !== undefined ? args.toIndex : fromIndex;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
+
+  // Validate range
+  if (fromIndex > toIndex) {
+    throw new Error(
+      `Invalid range: fromIndex (${fromIndex}) must be <= toIndex (${toIndex})`
+    );
+  }
 
   // Check if user has access to the document
   const accessResult = await pool.query(
@@ -165,31 +206,48 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  // Get block details
-  const blockDetails = getBlockDetails(xmlFragment, elementIndex);
+  // Validate indices
+  if (fromIndex >= xmlFragment.length) {
+    throw new Error(
+      `fromIndex ${fromIndex} out of bounds (document has ${xmlFragment.length} elements)`
+    );
+  }
 
-  // Highlight the block by creating a selection at the start and end
+  if (toIndex >= xmlFragment.length) {
+    throw new Error(
+      `toIndex ${toIndex} out of bounds (document has ${xmlFragment.length} elements)`
+    );
+  }
+
+  // Read all blocks in the range
+  const blocks = [];
+  for (let i = fromIndex; i <= toIndex; i++) {
+    const blockDetails = getBlockDetails(xmlFragment, i);
+    blocks.push(blockDetails);
+  }
+
+  // Highlight the entire range
+  // Keep the selection active for the duration (30 seconds by default)
+  // It will automatically clear when the session expires or another tool call changes it
   let highlighted = false;
   try {
-    // Create relative positions for the entire block
-    const anchorPos = Y.createRelativePositionFromTypeIndex(xmlFragment, elementIndex);
-    // Head position should be at the next element (or end of fragment)
-    const headIndex = elementIndex + 1;
+    const anchorPos = Y.createRelativePositionFromTypeIndex(xmlFragment, fromIndex);
+    const headIndex = toIndex + 1; // Head is exclusive
     const headPos = Y.createRelativePositionFromTypeIndex(xmlFragment, headIndex);
 
     const anchor = Y.relativePositionToJSON(anchorPos);
     const head = Y.relativePositionToJSON(headPos);
 
-    // Set cursor on the session we already created
     session.awareness.setLocalStateField('cursor', { anchor, head });
     highlighted = true;
   } catch (error) {
-    console.error('[read-document-block] Failed to set highlight:', error);
+    console.error('[read-document-blocks] Failed to set highlight:', error);
     // Don't fail the whole operation if highlighting fails
   }
 
   return {
-    ...blockDetails,
+    blocks,
+    readCount: blocks.length,
     highlighted,
   };
 }
