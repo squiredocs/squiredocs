@@ -47,7 +47,11 @@ describe('buildYjsNode', () => {
       const yjsNode = integrateNode(node);
 
       expect(yjsNode.nodeName).toBe('paragraph');
-      expect(yjsNode.length).toBe(0);
+      // Empty paragraphs should have one empty text node to prevent invisible blocks
+      expect(yjsNode.length).toBe(1);
+      const textNode = yjsNode.get(0);
+      expect(textNode.constructor.name).toBe('YXmlText');
+      expect(textNode.toString()).toBe('');
     });
   });
 

@@ -329,12 +329,29 @@ async function handler(args, agentToken) {
   const oldType = oldElement.nodeName;
 
   // Perform the update in a transaction
+  let newNode;
+  try {
+    // Build the new node first (outside transaction to catch errors)
+    newNode = buildYjsNode(newContent);
+
+    // Validate that the node was created
+    if (!newNode) {
+      throw new Error('Failed to build new node: buildYjsNode returned null/undefined');
+    }
+
+    // Log for debugging
+    console.log(`[update-document-block] Built new node: type=${newNode.nodeName}, children=${newNode.length}`);
+  } catch (buildError) {
+    console.error('[update-document-block] Error building node:', buildError);
+    throw new Error(`Failed to build new block content: ${buildError.message}`);
+  }
+
+  // Now perform the update in a transaction
   ydoc.transact(() => {
     // Delete the old element
     xmlFragment.delete(elementIndex, 1);
 
-    // Build and insert the new element
-    const newNode = buildYjsNode(newContent);
+    // Insert the new element
     xmlFragment.insert(elementIndex, [newNode]);
   });
 

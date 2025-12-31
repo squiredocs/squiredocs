@@ -33,12 +33,22 @@ function buildYjsNode(node) {
     // Lists: process child nodes
     const childElements = children.map((child) => buildYjsNode(child));
     element.insert(0, childElements);
-  } else if (content) {
+  } else if (content !== undefined && content !== null) {
     // Text content: may include marks
     const textElements = buildTextContent(content);
     if (textElements.length > 0) {
       element.insert(0, textElements);
+    } else if (type === 'listItem' || type === 'paragraph' || type === 'heading') {
+      // For content blocks, if content is explicitly provided but empty,
+      // insert an empty text node to prevent invisible blocks
+      const emptyText = new Y.XmlText();
+      element.insert(0, [emptyText]);
     }
+  } else if (type === 'listItem' || type === 'paragraph' || type === 'heading') {
+    // If no content was provided at all for a content block,
+    // still insert an empty text node to prevent invisible blocks
+    const emptyText = new Y.XmlText();
+    element.insert(0, [emptyText]);
   }
 
   return element;
