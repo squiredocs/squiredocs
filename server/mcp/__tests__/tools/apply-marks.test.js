@@ -171,6 +171,123 @@ describe('apply_marks tool', () => {
     });
   });
 
+  describe('removeMarks', () => {
+    test('returns clean affectedText when removing marks', async () => {
+      // First add italic formatting
+      await handler(
+        {
+          docGuid: 'test-guid',
+          elementIndex: 0,
+          startPosition: 0,
+          endPosition: 5,
+          addMarks: ['italic'],
+        },
+        { userId: 'user-123' }
+      );
+
+      // Verify italic was applied
+      const element = xmlFragment.get(0);
+      const textNode = element.get(0);
+      let formatted = textNode.toDelta();
+      expect(formatted).toEqual([
+        { insert: 'Hello', attributes: { italic: true } },
+        { insert: ' world' },
+      ]);
+
+      // Now remove the italic formatting
+      const result = await handler(
+        {
+          docGuid: 'test-guid',
+          elementIndex: 0,
+          startPosition: 0,
+          endPosition: 5,
+          removeMarks: ['italic'],
+        },
+        { userId: 'user-123' }
+      );
+
+      // The bug: affectedText should be clean text, not XML markup
+      expect(result.success).toBe(true);
+      expect(result.affectedText).toBe('Hello');
+      expect(result.affectedText).not.toContain('<italic>');
+      expect(result.affectedText).not.toContain('<ital');
+
+      // Verify italic was removed
+      formatted = textNode.toDelta();
+      expect(formatted).toEqual([{ insert: 'Hello world' }]);
+    });
+
+    test('returns clean affectedText when removing marks from nested list items', async () => {
+      // Clear and create list with three items
+      xmlFragment.delete(0, xmlFragment.length);
+
+      const orderedList = new Y.XmlElement('orderedList');
+      orderedList.setAttribute('start', 1);
+
+      // Create three list items
+      const listItem1 = new Y.XmlElement('listItem');
+      const paragraph1 = new Y.XmlElement('paragraph');
+      paragraph1.insert(0, [new Y.XmlText('Tidy office')]);
+      listItem1.insert(0, [paragraph1]);
+
+      const listItem2 = new Y.XmlElement('listItem');
+      const paragraph2 = new Y.XmlElement('paragraph');
+      paragraph2.insert(0, [new Y.XmlText('Clean office')]);
+      listItem2.insert(0, [paragraph2]);
+
+      const listItem3 = new Y.XmlElement('listItem');
+      const paragraph3 = new Y.XmlElement('paragraph');
+      paragraph3.insert(0, [new Y.XmlText('Break down cedar branches')]);
+      listItem3.insert(0, [paragraph3]);
+
+      orderedList.insert(0, [listItem1, listItem2, listItem3]);
+      xmlFragment.insert(0, [orderedList]);
+
+      // Apply italic to first item
+      await handler(
+        {
+          docGuid: 'test-guid',
+          elementIndex: 0,
+          startPosition: 0,
+          endPosition: 11,
+          addMarks: ['italic'],
+        },
+        { userId: 'user-123' }
+      );
+
+      // Apply italic to second item
+      await handler(
+        {
+          docGuid: 'test-guid',
+          elementIndex: 0,
+          startPosition: 11,
+          endPosition: 23,
+          addMarks: ['italic'],
+        },
+        { userId: 'user-123' }
+      );
+
+      // Remove italic from first two items
+      const result = await handler(
+        {
+          docGuid: 'test-guid',
+          elementIndex: 0,
+          startPosition: 0,
+          endPosition: 23,
+          removeMarks: ['italic'],
+        },
+        { userId: 'user-123' }
+      );
+
+      // The bug: affectedText should be clean text, not XML markup
+      expect(result.success).toBe(true);
+      expect(result.affectedText).toBe('Tidy officeClean office');
+      expect(result.affectedText).not.toContain('<italic>');
+      expect(result.affectedText).not.toContain('<ital');
+      expect(result.affectedText).not.toContain('</italic>');
+    });
+  });
+
   describe('error handling - invalid positions', () => {
     test('throws error when non-zero range maps to no text', async () => {
       // Try to apply marks to a position range that's beyond the text length

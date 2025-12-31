@@ -15,7 +15,11 @@ function toPlainText(xmlFragment) {
 
   function processNode(node) {
     if (node instanceof Y.XmlText) {
-      parts.push(node.toString());
+      // Use toDelta() to get plain text without XML markup
+      // toString() returns XML serialization when text has formatting marks
+      const delta = node.toDelta();
+      const text = delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
+      parts.push(text);
     } else if (node instanceof Y.XmlElement) {
       const tagName = node.nodeName;
 

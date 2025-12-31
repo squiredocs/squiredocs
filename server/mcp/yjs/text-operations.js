@@ -242,7 +242,10 @@ function extractText(element, startPosition, endPosition) {
     const child = element.get(i);
 
     if (child instanceof Y.XmlText) {
-      const nodeText = child.toString();
+      // Use toDelta() to get plain text without XML markup
+      // toString() returns XML serialization when text has formatting marks
+      const delta = child.toDelta();
+      const nodeText = delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
       const nodeStart = currentPos;
       const nodeEnd = currentPos + nodeText.length;
 

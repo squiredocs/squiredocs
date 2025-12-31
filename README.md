@@ -5,6 +5,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 ## Features
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
+- **AI Agent Integration**: Model Context Protocol (MCP) support with 21 tools for AI-powered document editing
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions of documents
@@ -20,6 +21,8 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Persistence**: PostgreSQL for server-side storage, IndexedDB for client-side offline support
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
+- **Caching**: Redis for session and state management
+- **AI Integration**: Model Context Protocol (MCP) with OAuth 2.0 for AI agents
 
 ## Prerequisites
 
@@ -189,6 +192,90 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 
 See [docs/permissions.md](docs/permissions.md) for detailed permission documentation.
 
+## AI Agent Integration (Model Context Protocol)
+
+This editor supports AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude.
+
+### Features
+
+- **21 MCP tools** for comprehensive document operations
+- **OAuth 2.0 authentication** with PKCE flow for secure agent access
+- **Real-time collaboration** between humans and AI agents
+- **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
+
+### Available Tools
+
+**Document Management:**
+- `create_document` - Create new documents
+- `list_documents` - List accessible documents
+- `share_document` - Share with users and set permissions
+- `search_document` - Search document content
+- `set_document_title` - Update document titles
+
+**Text Operations:**
+- `insert_text` - Insert text at specific positions
+- `delete_text` - Delete text ranges
+- `replace_text` - Replace text with new content
+- `apply_marks` - Add/remove formatting (bold, italic, etc.)
+
+**Block Operations:**
+- `read_document_blocks` - Read structured block content
+- `insert_document_blocks` - Insert new blocks (paragraphs, headings, lists)
+- `replace_document_blocks` - Replace block content
+- `delete_document_blocks` - Delete blocks
+- `convert_block_type` - Convert between block types (e.g., paragraph → heading)
+- `batch_update_blocks` - Update multiple blocks efficiently
+
+**Advanced Operations:**
+- `bulk_replace_pattern` - Find and replace across entire document
+- `select_text_range` - Select text for highlighting
+- `get_document_structure` - Get document outline and structure
+- `get_document_text` - Get full document text
+- `get_document_schema` - Get document schema for validation
+
+### Quick Start
+
+1. **Generate MCP OAuth secrets** (required for agent authentication):
+   ```bash
+   ./script/generate-mcp-secrets.sh
+   ```
+   Add the output to your `.env` file.
+
+2. **Configure your AI agent** to connect to the MCP server:
+   ```json
+   {
+     "mcpServers": {
+       "collaborative-editor": {
+         "command": "node",
+         "args": ["path/to/collab/server/mcp/index.js"],
+         "env": {
+           "DATABASE_URL": "postgresql://user:pass@localhost:5432/collab_db"
+         }
+       }
+     }
+   }
+   ```
+
+3. **Authenticate and start editing** - The agent will guide you through OAuth authentication, then you can use natural language to edit documents.
+
+### Documentation
+
+- [MCP Quickstart Guide](docs/mcp-quickstart.md) - Complete setup instructions
+- [MCP Integration Summary](docs/mcp-integration-summary.md) - Full feature documentation
+- [MCP File Structure](docs/mcp-file-structure.md) - Understanding the MCP codebase
+- [MCP Auth Production Plan](docs/mcp-auth-production-plan.md) - OAuth implementation details
+
+### Example Usage
+
+```javascript
+// AI agents can use natural language like:
+"Create a new document called 'Meeting Notes'"
+"Add a heading 'Action Items' at the end"
+"Make the word 'urgent' bold in the second paragraph"
+"Search for all instances of 'TODO' in the document"
+"Share this document with john@example.com as an editor"
+```
+
 ## Programmatically Updating Documents
 
 You can programmatically update documents using Node.js scripts. This is useful for automation, migrations, or bulk edits.
@@ -283,7 +370,14 @@ paragraphs.forEach((node, index) => {
 │   ├── postgres-persistence.js  # PostgreSQL persistence adapter
 │   ├── permissions.js        # Centralized permission checks
 │   ├── documents.js          # Document and share management
-│   └── auth/                 # Authentication (OAuth, JWT)
+│   ├── redis.js              # Redis caching layer
+│   ├── auth/                 # Human authentication (Google OAuth, JWT)
+│   └── mcp/                  # Model Context Protocol integration
+│       ├── index.js          # MCP server entry point
+│       ├── tools/            # 21 MCP tools for document operations
+│       ├── yjs/              # Yjs utilities and serialization
+│       ├── auth/             # MCP OAuth 2.0 and PKCE flow
+│       └── agent-presence.js # Agent session management
 ├── client/
 │   ├── src/
 │   │   ├── components/       # React components
@@ -299,7 +393,11 @@ paragraphs.forEach((node, index) => {
 │   └── package.json
 ├── migrations/               # Database migrations
 ├── script/                   # Utility scripts
+│   ├── generate-mcp-secrets.sh # Generate MCP OAuth secrets
+│   └── edit-default-doc.js  # Example programmatic editing
 ├── docs/                     # Documentation
+│   ├── mcp-quickstart.md    # MCP setup guide
+│   ├── mcp-integration-summary.md # Complete MCP documentation
 │   ├── permissions.md        # Permission system details
 │   └── dev.md                # Development environment guide
 └── package.json
@@ -467,6 +565,16 @@ cd client && npm run test:coverage
 - `client/src/**/__tests__/` - Component and hook tests
 - `__tests__/integration/` - End-to-end collaboration tests
 - `client/src/test/utils.jsx` - Shared test utilities and mocks
+
+## Documentation
+
+For more detailed information, see:
+
+- **[MCP Quickstart](docs/mcp-quickstart.md)** - Get started with AI agent integration
+- **[MCP Integration Summary](docs/mcp-integration-summary.md)** - Complete MCP feature documentation
+- **[Permissions Guide](docs/permissions.md)** - Permission system details and role-based access control
+- **[Development Guide](docs/dev.md)** - Development environment setup and best practices
+- **[MCP Auth Production Plan](docs/mcp-auth-production-plan.md)** - OAuth 2.0 implementation for production
 
 ## License
 

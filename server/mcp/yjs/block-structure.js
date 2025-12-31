@@ -76,7 +76,10 @@ function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0, sta
  */
 function getTextContent(node) {
   if (node instanceof Y.XmlText) {
-    return node.toString();
+    // Use toDelta() to get plain text without XML markup
+    // toString() returns XML serialization when text has formatting marks
+    const delta = node.toDelta();
+    return delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
   } else if (node instanceof Y.XmlElement) {
     let text = '';
     for (let i = 0; i < node.length; i++) {
