@@ -63,7 +63,11 @@ function createCursorPosition(xmlFragment, blockIndex, charOffset) {
 
     const lastTextNode = getLastTextNode(block);
     if (!lastTextNode) {
-      throw new Error(`Block ${blockIndex} contains no text nodes`);
+      // Block has no text nodes - create one
+      const newTextNode = new Y.XmlText();
+      block.insert(0, [newTextNode]);
+      const relPos = Y.createRelativePositionFromTypeIndex(newTextNode, 0);
+      return Y.relativePositionToJSON(relPos);
     }
 
     const relPos = Y.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);

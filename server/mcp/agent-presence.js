@@ -587,12 +587,16 @@ function initializeCursorAtStart(xmlFragment) {
     }
 
     const firstTextNode = findFirstTextNode(blocks[0]);
-    if (!firstTextNode) {
-      return null;
+    let textNode = firstTextNode;
+
+    if (!textNode) {
+      // First block has no text nodes - create one
+      textNode = new Y.XmlText();
+      blocks[0].insert(0, [textNode]);
     }
 
     // Create RelativePosition at position 0
-    const relPos = Y.createRelativePositionFromTypeIndex(firstTextNode, 0);
+    const relPos = Y.createRelativePositionFromTypeIndex(textNode, 0);
     const posJson = Y.relativePositionToJSON(relPos);
 
     return {
