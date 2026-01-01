@@ -184,6 +184,7 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 
       // Store session info
       activeSessions.set(sessionId, {
+        sessionId,
         docGuid,
         userId,
         key: sessionKey,
@@ -479,6 +480,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
       // Store session info
       activeSessions.set(sessionId, {
+        sessionId,
         docGuid,
         userId,
         key: existingSessionKey,
