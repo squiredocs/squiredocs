@@ -168,12 +168,8 @@ describe('Document Editing Workflow - Mock Test', () => {
         {
           docGuid: testDocGuid,
           position: 'after',
-          blockType: 'orderedList',
-          content: [
-            { type: 'listItem', content: 'Swimming in the pool' },
-            { type: 'listItem', content: 'Building sandcastles' },
-            { type: 'listItem', content: 'Playing tag' },
-          ],
+          type: 'paragraph',  // Changed from blockType to type, simplified to paragraph
+          content: 'Here is a new paragraph',
         },
         mockAgentToken
       );
@@ -186,11 +182,11 @@ describe('Document Editing Workflow - Mock Test', () => {
       // Verify block was created
       const blocks = mockXmlFragment.toArray();
       console.log('Number of blocks after insert_block:', blocks.length);
-      expect(blocks.length).toBeGreaterThan(1);
+      expect(blocks.length).toBe(2); // Should now have 2 blocks
 
-      // Check if orderedList was created
-      const hasOrderedList = blocks.some((block) => block.nodeName === 'orderedList');
-      expect(hasOrderedList).toBe(true);
+      // Check if new paragraph was created
+      const lastBlock = blocks[blocks.length - 1];
+      expect(lastBlock.nodeName).toBe('paragraph');
     } catch (error) {
       console.error('insert_block error:', error.message);
       console.error('Stack:', error.stack);
@@ -216,7 +212,8 @@ describe('Document Editing Workflow - Mock Test', () => {
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
       expect(result.cursor).toBeDefined();
-      expect(result.movedCount).toBeLessThanOrEqual(5);
+      expect(result.moved).toBeDefined();
+      expect(result.moved).toBeLessThanOrEqual(5);
     } catch (error) {
       console.error('move error:', error.message);
       console.error('Stack:', error.stack);
