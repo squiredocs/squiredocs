@@ -6,7 +6,6 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { toPlainText, toStructured } = require('../yjs/serialization');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -175,9 +174,125 @@ async function handler(args, agentToken) {
   // Format output
   let content;
   if (format === 'text') {
-    content = toPlainText(rangeBlocks);
+    // Convert blocks array to plain text
+    const parts = [];
+    function processNode(node) {
+      if (node instanceof Y.XmlText) {
+        const delta = node.toDelta();
+        const text = delta.map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
+        parts.push(text);
+      } else if (node instanceof Y.XmlElement) {
+        const tagName = node.nodeName;
+        if (tagName === 'heading' && parts.length > 0 && !parts[parts.length - 1].endsWith('\n\n')) {
+          parts.push('\n\n');
+        }
+        for (const child of node.toArray()) {
+          processNode(child);
+        }
+        if (['paragraph', 'heading', 'codeBlock'].includes(tagName)) {
+          parts.push('\n');
+        } else if (tagName === 'listItem') {
+          parts.push('\n');
+        } else if (['bulletList', 'orderedList'].includes(tagName)) {
+          parts.push('\n');
+        }
+      }
+    }
+    for (const block of rangeBlocks) {
+      processNode(block);
+    }
+    content = parts.join('').trim();
   } else {
-    content = toStructured(rangeBlocks);
+    // Convert blocks array to structured format
+    const structuredBlocks = [];
+
+    function extractTextWithMarks(textNode) {
+      const delta = textNode.toDelta();
+      const result = [];
+      for (const op of delta) {
+        if (typeof op.insert === 'string') {
+          const text = op.insert;
+          const attrs = op.attributes || {};
+          const marks = [];
+          if (attrs.bold) marks.push('bold');
+          if (attrs.italic) marks.push('italic');
+          if (attrs.underline) marks.push('underline');
+          if (attrs.strike) marks.push('strike');
+          if (attrs.link) marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+          if (marks.length > 0) {
+            result.push({ text, marks });
+          } else {
+            result.push(text);
+          }
+        }
+      }
+      return result;
+    }
+
+    function processBlock(node) {
+      if (node instanceof Y.XmlElement) {
+        const tagName = node.nodeName;
+        const attrs = {};
+        const level = node.getAttribute('level');
+        if (level !== undefined) attrs.level = level;
+        const language = node.getAttribute('language');
+        if (language !== undefined) attrs.language = language;
+
+        const children = [];
+        for (const child of node.toArray()) {
+          if (child instanceof Y.XmlText) {
+            const textContent = extractTextWithMarks(child);
+            children.push({ type: 'text', content: textContent });
+          } else if (child instanceof Y.XmlElement) {
+            children.push(processBlock(child));
+          }
+        }
+
+        const result = { type: tagName };
+        if (attrs.level) result.level = parseInt(attrs.level, 10);
+        if (attrs.language) result.language = attrs.language;
+
+        if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+          const allText = children.every((c) => c.type === 'text');
+          if (allText && children.length > 0) {
+            const flatContent = [];
+            let hasMarks = false;
+            for (const child of children) {
+              if (Array.isArray(child.content)) {
+                flatContent.push(...child.content);
+                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+                  hasMarks = true;
+                }
+              } else if (typeof child.content === 'string') {
+                flatContent.push(child.content);
+              }
+            }
+            if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
+              result.content = flatContent.join('');
+            } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+              result.content = flatContent[0];
+            } else {
+              result.content = flatContent;
+            }
+          } else if (children.length > 0) {
+            result.children = children;
+          }
+        } else {
+          if (children.length > 0) result.children = children;
+        }
+
+        return result;
+      }
+      return null;
+    }
+
+    for (const block of rangeBlocks) {
+      const processed = processBlock(block);
+      if (processed) {
+        structuredBlocks.push(processed);
+      }
+    }
+    content = structuredBlocks;
   }
 
   return {
