@@ -411,14 +411,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
       console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
 
-      return {
-        provider: session.provider,
-        awareness: session.provider.awareness,
-        sessionId: sid,
-        agentInfo,
-        expiresIn: duration,
-        reused: true,
-      };
+      // Return the session object
+      return session;
     }
   }
 
@@ -522,14 +516,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
               }, duration * 1000);
             }
 
-            resolve({
-              provider,
-              awareness,
-              sessionId,
-              agentInfo,
-              expiresIn: duration,
-              reused: false,
-            });
+            // Return the session object
+            resolve(session);
           } catch (error) {
             cleanup();
             reject(new Error(`Failed to set presence: ${error.message}`));
