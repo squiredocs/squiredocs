@@ -143,6 +143,20 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 
     // Cleanup function
     const cleanup = () => {
+      // Get session to clean up UndoManager and awareness
+      const session = activeSessions.get(sessionId);
+      if (session) {
+        // Destroy UndoManager
+        if (session.undoManager) {
+          session.undoManager.destroy();
+          session.undoManager = null;
+        }
+        // Clear awareness cursor
+        if (session.provider && session.provider.awareness) {
+          session.provider.awareness.setLocalStateField('cursor', null);
+        }
+      }
+
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
@@ -177,6 +191,9 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         cleanup,
         timeoutId: null,
         createdAt: Date.now(),
+        cursor: null,            // Will be initialized after connection
+        undoManager: null,       // Will be created after connection
+        lastActivityAt: Date.now(),
       });
 
       // Wait for connection to establish
@@ -185,6 +202,17 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
           try {
             // Get awareness
             const awareness = provider.awareness;
+
+            // Initialize cursor and UndoManager
+            const xmlFragment = ydoc.get('default', Y.XmlFragment);
+            const session = activeSessions.get(sessionId);
+            if (session) {
+              // Create UndoManager
+              session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+
+              // Initialize cursor at document start
+              session.cursor = initializeCursorAtStart(xmlFragment);
+            }
 
             // Set user info to make agent visible
             // Format: "Agent Name (Human Name)", e.g., "Claude Desktop (Sam Goldstein)"
@@ -202,7 +230,6 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
             );
 
             // Set timeout to close connection after duration
-            const session = activeSessions.get(sessionId);
             if (session) {
               session.timeoutId = setTimeout(() => {
                 cleanup();
@@ -413,6 +440,20 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
     // Cleanup function
     const cleanup = () => {
+      // Get session to clean up UndoManager and awareness
+      const session = activeSessions.get(sessionId);
+      if (session) {
+        // Destroy UndoManager
+        if (session.undoManager) {
+          session.undoManager.destroy();
+          session.undoManager = null;
+        }
+        // Clear awareness cursor
+        if (session.provider && session.provider.awareness) {
+          session.provider.awareness.setLocalStateField('cursor', null);
+        }
+      }
+
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
@@ -440,11 +481,14 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
       activeSessions.set(sessionId, {
         docGuid,
         userId,
-        key: sessionKey,
+        key: existingSessionKey,
         provider,
         cleanup,
         timeoutId: null,
         createdAt: Date.now(),
+        cursor: null,            // Will be initialized after connection
+        undoManager: null,       // Will be created after connection
+        lastActivityAt: Date.now(),
       });
 
       // Wait for connection to establish
@@ -453,13 +497,23 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
           try {
             const awareness = provider.awareness;
 
+            // Initialize cursor and UndoManager
+            const xmlFragment = ydoc.get('default', Y.XmlFragment);
+            const session = activeSessions.get(sessionId);
+            if (session) {
+              // Create UndoManager
+              session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+
+              // Initialize cursor at document start
+              session.cursor = initializeCursorAtStart(xmlFragment);
+            }
+
             // Set user info to make agent visible
             awareness.setLocalStateField('user', agentInfo);
 
             console.log(`[agent-presence] Created new session for ${agentInfo.name} in ${docGuid}`);
 
             // Set timeout to close connection after duration
-            const session = activeSessions.get(sessionId);
             if (session) {
               session.timeoutId = setTimeout(() => {
                 cleanup();
@@ -514,6 +568,84 @@ function getActiveSessions() {
   return activeSessions;
 }
 
+/**
+ * Initialize cursor at the start of a document
+ * @param {Y.XmlFragment} xmlFragment - The document fragment
+ * @returns {object|null} Cursor state with anchor and head, or null if document is empty
+ */
+function initializeCursorAtStart(xmlFragment) {
+  try {
+    // Check if document has any blocks
+    const blocks = xmlFragment.toArray();
+    if (blocks.length === 0) {
+      // Empty document - return null cursor (will be set when content is added)
+      return null;
+    }
+
+    // Find first text node in the document
+    function findFirstTextNode(node) {
+      if (node instanceof Y.XmlText) {
+        return node;
+      } else if (node instanceof Y.XmlElement) {
+        const children = node.toArray();
+        for (const child of children) {
+          const textNode = findFirstTextNode(child);
+          if (textNode) return textNode;
+        }
+      }
+      return null;
+    }
+
+    const firstTextNode = findFirstTextNode(blocks[0]);
+    if (!firstTextNode) {
+      return null;
+    }
+
+    // Create RelativePosition at position 0
+    const relPos = Y.createRelativePositionFromTypeIndex(firstTextNode, 0);
+    const posJson = Y.relativePositionToJSON(relPos);
+
+    return {
+      anchor: posJson,
+      head: posJson,  // Collapsed cursor
+    };
+  } catch (error) {
+    console.error('[agent-presence] Error initializing cursor:', error);
+    return null;
+  }
+}
+
+/**
+ * Update session cursor position and broadcast to awareness
+ * @param {string} sessionId - Session ID
+ * @param {object} anchor - Anchor RelativePosition (JSON)
+ * @param {object} head - Head RelativePosition (JSON)
+ */
+function updateSessionCursor(sessionId, anchor, head) {
+  const session = activeSessions.get(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+
+  // Update session cursor state
+  session.cursor = { anchor, head };
+  session.lastActivityAt = Date.now();
+
+  // Broadcast to awareness
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalStateField('cursor', { anchor, head });
+  }
+}
+
+/**
+ * Get a session by ID
+ * @param {string} sessionId - Session ID
+ * @returns {object|null} Session object or null if not found
+ */
+function getSession(sessionId) {
+  return activeSessions.get(sessionId) || null;
+}
+
 module.exports = {
   init,
   setAgentPresence,
@@ -521,4 +653,6 @@ module.exports = {
   clearSession,
   clearUserSessions,
   getActiveSessions,
+  updateSessionCursor,
+  getSession,
 };

@@ -198,10 +198,13 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 
 ### Features
 
+- **Cursor-based editing API** - Natural editing with persistent cursor state
 - **21 MCP tools** for comprehensive document operations
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
+- **Undo/redo support** - Independent undo stack per agent
+- **Streaming text insertion** - Visible typing animation for other users
 
 ### Available Tools
 
@@ -209,29 +212,36 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `create_document` - Create new documents
 - `list_documents` - List accessible documents
 - `share_document` - Share with users and set permissions
-- `search_document` - Search document content
 - `set_document_title` - Update document titles
 
-**Text Operations:**
-- `insert_text` - Insert text at specific positions
-- `delete_text` - Delete text ranges
-- `replace_text` - Replace text with new content
-- `apply_marks` - Add/remove formatting (bold, italic, etc.)
+**Session Management:**
+- `open_document` - Initialize cursor session on a document
+- `close_document` - End cursor session and remove presence
 
-**Block Operations:**
-- `read_document_blocks` - Read structured block content
-- `insert_document_blocks` - Insert new blocks (paragraphs, headings, lists)
-- `replace_document_blocks` - Replace block content
-- `delete_document_blocks` - Delete blocks
-- `convert_block_type` - Convert between block types (e.g., paragraph → heading)
-- `batch_update_blocks` - Update multiple blocks efficiently
+**Navigation:**
+- `goto` - Move cursor to absolute location (start, end, block, position)
+- `move` - Move cursor relative to current position (by char, word, block)
+- `find` - Search for text and navigate/select/peek results
 
-**Advanced Operations:**
-- `bulk_replace_pattern` - Find and replace across entire document
-- `select_text_range` - Select text for highlighting
-- `get_document_structure` - Get document outline and structure
-- `get_document_text` - Get full document text
-- `get_document_schema` - Get document schema for validation
+**Selection:**
+- `select` - Create selections (word, block, all, to block start/end, none)
+- `get_selection` - Query current cursor position and selection
+
+**Reading:**
+- `read_document` - Read entire document or specific blocks
+- `read_context` - Get text around cursor position
+- `get_collaborators` - See who else is editing and their cursor positions
+
+**Editing:**
+- `insert` - Insert text at cursor (supports streaming mode)
+- `delete` - Delete selected text or by direction/unit/count
+- `format` - Apply/remove formatting to selection (bold, italic, underline, strike, links)
+- `insert_block` - Insert new blocks (paragraph, heading, list, code)
+- `set_block_type` - Convert block to different type
+
+**History:**
+- `undo` - Undo last operation
+- `redo` - Redo previously undone operation
 
 ### Quick Start
 
@@ -268,12 +278,31 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 ### Example Usage
 
 ```javascript
-// AI agents can use natural language like:
-"Create a new document called 'Meeting Notes'"
-"Add a heading 'Action Items' at the end"
-"Make the word 'urgent' bold in the second paragraph"
-"Search for all instances of 'TODO' in the document"
-"Share this document with john@example.com as an editor"
+// AI agents use cursor-based workflow:
+
+// 1. Open document (establishes cursor session)
+await open_document({ docGuid: "abc-123" });
+
+// 2. Navigate to location
+await find({ docGuid: "abc-123", query: "TODO", options: { action: "goto" } });
+
+// 3. Select and edit
+await select({ docGuid: "abc-123", mode: "word" });
+await format({ docGuid: "abc-123", add: ["bold"] });
+
+// 4. Insert new content
+await goto({ docGuid: "abc-123", target: { type: "document_end" } });
+await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 } });
+await insert({ docGuid: "abc-123", text: "Action Items" });
+
+// 5. Close when done
+await close_document({ docGuid: "abc-123" });
+
+// Natural language examples:
+"Open the document and find the word 'TODO'"
+"Select the current paragraph and make it bold"
+"Go to the end and add a new heading 'Conclusion'"
+"Undo the last change"
 ```
 
 ## Programmatically Updating Documents

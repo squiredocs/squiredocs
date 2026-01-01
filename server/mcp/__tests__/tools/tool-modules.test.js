@@ -13,28 +13,32 @@
  */
 
 describe('Tool Module Smoke Tests', () => {
-  // List of all tool modules
+  // List of all tool modules (V2 cursor-based + document management)
   const toolModules = [
+    // Document management
     'list-documents',
     'create-document',
     'share-document',
     'set-document-title',
-    'get-document-structure',
-    'get-document-schema',
-    'read-document-blocks',
-    'select-text-range',
-    'insert-document-blocks',
-    'delete-document-blocks',
-    'replace-document-blocks',
-    'batch-update-blocks',
-    'convert-block-type',
-    'bulk-replace-pattern',
-    'replace-text',
-    'insert-text',
-    'delete-text',
-    'apply-marks',
-    'search-document',
-    'get-document-text',
+
+    // V2 cursor-based editing tools
+    'open-document',
+    'close-document',
+    'read-document',
+    'read-context',
+    'get-selection',
+    'get-collaborators',
+    'goto',
+    'move',
+    'find',
+    'select',
+    'insert',
+    'delete',
+    'format',
+    'insert-block',
+    'set-block-type',
+    'undo',
+    'redo',
   ];
 
   describe('Module Loading', () => {
@@ -129,9 +133,10 @@ describe('Tool Module Smoke Tests', () => {
         // Description should be meaningful (more than just a title)
         expect(description.length).toBeGreaterThan(50);
 
-        // Should not have obvious placeholder text
-        expect(description.toLowerCase()).not.toContain('todo');
-        expect(description.toLowerCase()).not.toContain('fixme');
+        // Should not have obvious placeholder text (e.g., "TODO:", "FIXME:")
+        // Note: "todo" and "fixme" in examples are fine, we're checking for actual placeholders
+        expect(description).not.toMatch(/TODO:/i);
+        expect(description).not.toMatch(/FIXME:/i);
       });
     });
   });
@@ -175,28 +180,31 @@ describe('Tool Registry Integration', () => {
     const toolRegistry = require('../../tools/index');
     const toolList = toolRegistry.getToolList();
 
-    // Expected tool names
+    // Expected tool names (V2 cursor-based + document management)
     const expectedTools = [
+      // Document management
       'list_documents',
       'create_document',
       'share_document',
       'set_document_title',
-      'get_document_structure',
-      'get_document_schema',
-      'read_document_blocks',
-      'select_text_range',
-      'insert_document_blocks',
-      'delete_document_blocks',
-      'replace_document_blocks',
-      'batch_update_blocks',
-      'convert_block_type',
-      'bulk_replace_pattern',
-      'replace_text',
-      'insert_text',
-      'delete_text',
-      'apply_marks',
-      'search_document',
-      'get_document_text',
+      // V2 cursor-based editing tools
+      'open_document',
+      'close_document',
+      'read_document',
+      'read_context',
+      'get_selection',
+      'get_collaborators',
+      'goto',
+      'move',
+      'find',
+      'select',
+      'insert',
+      'delete',
+      'format',
+      'insert_block',
+      'set_block_type',
+      'undo',
+      'redo',
     ];
 
     // Check each tool is registered
@@ -215,18 +223,18 @@ describe('Tool Registry Integration', () => {
   test('getTool returns correct tool module', () => {
     const toolRegistry = require('../../tools/index');
 
-    // Test a few tools
-    const batchTool = toolRegistry.getTool('batch_update_blocks');
-    expect(batchTool).toBeDefined();
-    expect(batchTool.name).toBe('batch_update_blocks');
+    // Test a few V2 tools
+    const openTool = toolRegistry.getTool('open_document');
+    expect(openTool).toBeDefined();
+    expect(openTool.name).toBe('open_document');
 
-    const convertTool = toolRegistry.getTool('convert_block_type');
-    expect(convertTool).toBeDefined();
-    expect(convertTool.name).toBe('convert_block_type');
+    const gotoTool = toolRegistry.getTool('goto');
+    expect(gotoTool).toBeDefined();
+    expect(gotoTool.name).toBe('goto');
 
-    const bulkTool = toolRegistry.getTool('bulk_replace_pattern');
-    expect(bulkTool).toBeDefined();
-    expect(bulkTool.name).toBe('bulk_replace_pattern');
+    const insertTool = toolRegistry.getTool('insert');
+    expect(insertTool).toBeDefined();
+    expect(insertTool.name).toBe('insert');
   });
 
   test('getTool returns null for unknown tool', () => {

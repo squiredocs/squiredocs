@@ -4,50 +4,59 @@
  * Manages registration and execution of MCP tools.
  */
 
+// Document management tools (keep these)
 const listDocuments = require('./list-documents');
 const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
-const getDocumentStructure = require('./get-document-structure');
-const getDocumentSchema = require('./get-document-schema');
-const readDocumentBlocks = require('./read-document-blocks');
-const selectTextRange = require('./select-text-range');
-const insertDocumentBlocks = require('./insert-document-blocks');
-const deleteDocumentBlocks = require('./delete-document-blocks');
-const replaceDocumentBlocks = require('./replace-document-blocks');
-const batchUpdateBlocks = require('./batch-update-blocks');
-const convertBlockType = require('./convert-block-type');
-const bulkReplacePattern = require('./bulk-replace-pattern');
-const replaceText = require('./replace-text');
-const insertText = require('./insert-text');
-const deleteText = require('./delete-text');
-const applyMarks = require('./apply-marks');
-const searchDocument = require('./search-document');
-const getDocumentText = require('./get-document-text');
+
+// V2 cursor-based editing tools
+const openDocument = require('./open-document');
+const closeDocument = require('./close-document');
+const readDocument = require('./read-document');
+const readContext = require('./read-context');
+const getSelection = require('./get-selection');
+const getCollaborators = require('./get-collaborators');
+const goto = require('./goto');
+const move = require('./move');
+const find = require('./find');
+const select = require('./select');
+const insert = require('./insert');
+const deleteOp = require('./delete');
+const format = require('./format');
+const insertBlock = require('./insert-block');
+const setBlockType = require('./set-block-type');
+const undo = require('./undo');
+const redo = require('./redo');
+
 const agentPresence = require('../agent-presence');
 
 // All available tools
 const tools = {
+  // Document management
   list_documents: listDocuments,
   create_document: createDocument,
   share_document: shareDocument,
   set_document_title: setDocumentTitle,
-  get_document_structure: getDocumentStructure,
-  get_document_schema: getDocumentSchema,
-  read_document_blocks: readDocumentBlocks,
-  select_text_range: selectTextRange,
-  insert_document_blocks: insertDocumentBlocks,
-  delete_document_blocks: deleteDocumentBlocks,
-  replace_document_blocks: replaceDocumentBlocks,
-  batch_update_blocks: batchUpdateBlocks,
-  convert_block_type: convertBlockType,
-  bulk_replace_pattern: bulkReplacePattern,
-  replace_text: replaceText,
-  insert_text: insertText,
-  delete_text: deleteText,
-  apply_marks: applyMarks,
-  search_document: searchDocument,
-  get_document_text: getDocumentText,
+
+  // V2 cursor-based editing tools
+  open_document: openDocument,
+  close_document: closeDocument,
+  read_document: readDocument,
+  read_context: readContext,
+  get_selection: getSelection,
+  get_collaborators: getCollaborators,
+  goto: goto,
+  move: move,
+  find: find,
+  select: select,
+  insert: insert,
+  delete: deleteOp,
+  format: format,
+  insert_block: insertBlock,
+  set_block_type: setBlockType,
+  undo: undo,
+  redo: redo,
 };
 
 /**
