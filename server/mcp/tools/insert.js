@@ -200,18 +200,22 @@ async function handler(args, agentToken) {
       throw new Error('Could not resolve selection positions');
     }
 
+    // For now, only support single-block selections
+    if (anchorResolved.blockIndex !== headResolved.blockIndex) {
+      throw new Error('Multi-block selections not yet supported for replacement');
+    }
+
     // Delete the selection
+    const blocks = xmlFragment.toArray();
+    const block = blocks[anchorResolved.blockIndex];
+
     ydoc.transact(() => {
-      // Determine which position is earlier
-      const isForward = anchorResolved.blockIndex < headResolved.blockIndex ||
-        (anchorResolved.blockIndex === headResolved.blockIndex && anchorResolved.offset < headResolved.offset);
+      // Determine which offset is earlier
+      const startOffset = Math.min(anchorResolved.offset, headResolved.offset);
+      const endOffset = Math.max(anchorResolved.offset, headResolved.offset);
 
-      const startResolved = isForward ? anchorResolved : headResolved;
-      const endResolved = isForward ? headResolved : anchorResolved;
-
-      // Delete text in selection
-      deleteText(xmlFragment, startResolved.blockIndex, startResolved.offset,
-        endResolved.blockIndex, endResolved.offset);
+      // Delete text in selection (single block only)
+      deleteText(block, startOffset, endOffset);
     }, undoManager);
 
     // Use anchor position for insertion
@@ -269,8 +273,11 @@ async function handler(args, agentToken) {
     );
   } else {
     // Regular insert (instant)
+    const blocks = xmlFragment.toArray();
+    const block = blocks[insertResolved.blockIndex];
+
     ydoc.transact(() => {
-      insertText(xmlFragment, insertResolved.blockIndex, insertResolved.offset, text, marks);
+      insertText(block, insertResolved.offset, text, marks);
     }, undoManager);
   }
 
