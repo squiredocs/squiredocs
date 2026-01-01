@@ -11,3 +11,4 @@ if (fs.existsSync(testDataDir)) {
 // Set test environment variables
 process.env.NODE_ENV = 'test';
 process.env.PORT = '0'; // Use random port for tests
+process.env.DATABASE_URL = 'postgresql://localhost/collab_test_db';

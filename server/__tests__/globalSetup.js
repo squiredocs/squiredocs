@@ -9,7 +9,10 @@ module.exports = async () => {
     execSync('npm run migrate', {
       cwd: path.join(__dirname, '../..'),
       stdio: 'pipe',
-      env: { ...process.env }
+      env: {
+        ...process.env,
+        DATABASE_URL: 'postgresql://localhost/collab_test_db'
+      }
     });
     console.log('✅ Migrations complete.\n');
   } catch (error) {
