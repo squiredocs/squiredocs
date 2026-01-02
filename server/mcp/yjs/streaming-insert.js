@@ -1,14 +1,15 @@
 /**
  * Streaming Insert for MCP V2 API
  *
- * Provides character-by-character text insertion with visual typing animation.
- * Other users see the text appear gradually, as if the AI is typing.
+ * Provides chunked text insertion with visual streaming animation.
+ * Text is divided into 5 chunks and inserted over 500ms (100ms between chunks).
+ * This provides visual feedback without significantly blocking the agent.
  */
 
 const Y = require('yjs');
 
 /**
- * Insert text with streaming animation (character-by-character)
+ * Insert text with streaming animation (5 chunks over 500ms)
  * @param {Y.Doc} ydoc - The Yjs document
  * @param {Y.XmlElement|Y.XmlText} targetNode - Node to insert text into
  * @param {number} position - Position within the node
@@ -16,7 +17,7 @@ const Y = require('yjs');
  * @param {Array} marks - Formatting marks to apply
  * @param {object} awareness - Awareness instance for cursor updates
  * @param {object} cursorStartPos - Initial cursor RelativePosition (JSON)
- * @param {number} delayMs - Delay between character batches (default: 40ms)
+ * @param {number} delayMs - Delay between chunks (default: 100ms)
  * @returns {Promise<object>} { finalPosition, insertedLength }
  */
 async function streamingInsert(
@@ -27,24 +28,25 @@ async function streamingInsert(
   marks = [],
   awareness = null,
   cursorStartPos = null,
-  delayMs = 40
+  delayMs = 100
 ) {
   if (!text || text.length === 0) {
     return { finalPosition: cursorStartPos, insertedLength: 0 };
   }
 
-  // Batch size: insert 1-3 characters at a time for smooth but not too slow animation
-  const batchSize = text.length > 100 ? 3 : text.length > 20 ? 2 : 1;
+  // Divide text into 5 chunks for streaming (total time: ~500ms)
+  const numChunks = 5;
+  const chunkSize = Math.ceil(text.length / numChunks);
 
   // Wrap all operations in a single transaction for atomic undo
   return new Promise((resolve) => {
-    let inserted = 0;
+    let chunkIndex = 0;
     let currentPos = position;
 
-    // Update loop
-    const insertBatch = () => {
-      if (inserted >= text.length) {
-        // All text inserted
+    // Insert chunks one at a time
+    const insertChunk = () => {
+      if (chunkIndex >= numChunks) {
+        // All chunks inserted
         // Create final cursor position
         const finalTextNode = targetNode instanceof Y.XmlText ? targetNode : findTextNodeAtPosition(targetNode, currentPos);
         if (finalTextNode) {
@@ -66,10 +68,10 @@ async function streamingInsert(
         return;
       }
 
-      // Insert next batch
-      const remaining = text.length - inserted;
-      const chunkSize = Math.min(batchSize, remaining);
-      const chunk = text.substring(inserted, inserted + chunkSize);
+      // Calculate chunk boundaries
+      const startIdx = chunkIndex * chunkSize;
+      const endIdx = Math.min(startIdx + chunkSize, text.length);
+      const chunk = text.substring(startIdx, endIdx);
 
       // Perform insert in a transaction
       ydoc.transact(() => {
@@ -86,8 +88,8 @@ async function streamingInsert(
         }
       });
 
-      inserted += chunkSize;
-      currentPos += chunkSize;
+      currentPos += chunk.length;
+      chunkIndex++;
 
       // Update awareness cursor to show typing progress
       if (awareness) {
@@ -102,12 +104,12 @@ async function streamingInsert(
         }
       }
 
-      // Schedule next batch
-      setTimeout(insertBatch, delayMs);
+      // Schedule next chunk
+      setTimeout(insertChunk, delayMs);
     };
 
     // Start insertion
-    insertBatch();
+    insertChunk();
   });
 }
 

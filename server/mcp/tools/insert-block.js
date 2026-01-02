@@ -34,6 +34,9 @@ PARAMETERS:
   - For heading: {level: 1|2|3}
   - For codeBlock: {language: "javascript"}
 - content: Initial text content (optional)
+  - Inserted instantly (not streamed)
+  - Best for short content like headings or list items
+  - For longer content, create empty block then use 'insert' tool (which streams automatically)
 - parentPath: Array of indices specifying parent location (optional)
   - Example: [2] inserts as child of block 2
   - Example: [2, 1] inserts as child of listItem 1 in block 2
@@ -41,7 +44,10 @@ PARAMETERS:
 - autoListItem: Automatically wrap in listItem when inserting into lists (optional, default: true)
 
 RETURNS:
-- success, newBlockIndex or newPath, cursor (moved to new block)`;
+- success, newBlockIndex or newPath, cursor (moved to new block)
+
+TIP: The 'insert' tool automatically streams text in chunks for visual feedback.
+For longer content, create an empty block here, then use 'insert' to add the text.`;
 
 const inputSchema = {
   type: 'object',

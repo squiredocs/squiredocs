@@ -34,10 +34,16 @@ PARAMETERS:
 - type: Block type to create (required): "paragraph", "heading", "bulletList", "orderedList"
 - attributes: Type-specific attributes (optional)
 - content: Initial text content (optional)
+  - Inserted instantly (not streamed)
+  - Best for short content like headings or list items
+  - For longer content, create empty block then use 'insert' tool (which streams automatically)
 - childIndex: Position within parent children (optional, defaults to end)
 
 RETURNS:
-- success, newPath (full path to the nested block)`;
+- success, newPath (full path to the nested block)
+
+TIP: The 'insert' tool automatically streams text in chunks for visual feedback.
+For longer content, create an empty nested block here, then use 'insert' to add the text.`;
 
 const inputSchema = {
   type: 'object',

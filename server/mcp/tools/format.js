@@ -7,7 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition, getTextInSelection } = require('../yjs/cursor-operations');
-const { applyMarks } = require('../yjs/text-operations');
+const { applyMarksToDocument } = require('../yjs/text-operations');
 
 let persistenceProvider = null;
 
@@ -127,7 +127,7 @@ async function handler(args, agentToken) {
   endAbsPos += endResolved.offset;
 
   ydoc.transact(() => {
-    applyMarks(xmlFragment, startAbsPos, endAbsPos, add, remove, link);
+    applyMarksToDocument(xmlFragment, startAbsPos, endAbsPos, add, remove, link);
   }, undoManager);
 
   return {

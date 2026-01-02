@@ -386,6 +386,48 @@ function applyMarks(element, startPosition, endPosition, addMarks = [], removeMa
 }
 
 /**
+ * Apply marks to a selection that spans multiple blocks in the document
+ * @param {Y.XmlFragment} xmlFragment - The document fragment
+ * @param {number} startAbsPos - Start position (absolute across entire document)
+ * @param {number} endAbsPos - End position (absolute across entire document)
+ * @param {Array} [addMarks] - Marks to add
+ * @param {Array} [removeMarks] - Marks to remove
+ * @param {Object} [link] - Link to add/remove ({ href } or null to remove)
+ * @returns {{ affectedText: string }} Result
+ */
+function applyMarksToDocument(xmlFragment, startAbsPos, endAbsPos, addMarks = [], removeMarks = [], link = undefined) {
+  const blocks = xmlFragment.toArray();
+  let currentAbsPos = 0;
+  let affectedText = '';
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const blockLength = getElementTextLength(block);
+    const blockStart = currentAbsPos;
+    const blockEnd = currentAbsPos + blockLength;
+
+    // Check if this block intersects with the selection
+    if (endAbsPos <= blockStart) {
+      break; // Selection ends before this block
+    }
+
+    if (startAbsPos < blockEnd) {
+      // Selection intersects with this block
+      const blockRelativeStart = Math.max(0, startAbsPos - blockStart);
+      const blockRelativeEnd = Math.min(blockLength, endAbsPos - blockStart);
+
+      // Apply marks to this block
+      const result = applyMarks(block, blockRelativeStart, blockRelativeEnd, addMarks, removeMarks, link);
+      affectedText += result.affectedText;
+    }
+
+    currentAbsPos = blockEnd;
+  }
+
+  return { affectedText };
+}
+
+/**
  * Build attributes object from marks array
  * @param {Array} marks - Marks array
  * @returns {Object|undefined} Attributes object
@@ -416,4 +458,5 @@ module.exports = {
   deleteText,
   extractText,
   applyMarks,
+  applyMarksToDocument,
 };

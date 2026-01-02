@@ -136,7 +136,6 @@ describe('Document Editing Workflow - Mock Test', () => {
         {
           docGuid: testDocGuid,
           text: textToInsert,
-          streaming: false,
         },
         mockAgentToken
       );

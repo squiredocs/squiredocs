@@ -33,13 +33,16 @@ const name = 'insert';
 const description = `Insert text at cursor position.
 
 ═══════════════════════════════════════════════════════════════════════════
-TEXT INSERTION
+TEXT INSERTION WITH AUTOMATIC STREAMING
 ═══════════════════════════════════════════════════════════════════════════
 
 Insert text at current cursor position. If selection exists, replaces selection.
 Cursor moves to end of inserted text.
 
-Supports streaming mode for character-by-character insertion visible to other users.
+TEXT IS AUTOMATICALLY STREAMED IN 5 CHUNKS OVER 500ms:
+This provides visual feedback to human collaborators without significantly
+blocking the agent. The text appears progressively (100ms between chunks),
+creating a natural typing effect visible to all users.
 
 WHEN TO USE THIS:
 - Add text at cursor
@@ -50,7 +53,8 @@ WHEN TO USE THIS:
 BEHAVIOR:
 - If selection exists: Deletes selection first, inserts at anchor position
 - If no selection: Inserts at cursor (head) position
-- Cursor always moves to end of inserted text
+- Text inserted in 5 chunks over ~500ms total
+- Cursor moves progressively, ending at end of inserted text
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -61,9 +65,6 @@ PARAMETERS
 - marks: Formatting marks (optional)
   - Array of: "bold", "italic", "underline", "strike"
   - Or objects: [{ type: "link", href: "url" }]
-- streaming: Insert with typing animation (optional, default: false)
-  - true: Character-by-character insertion (visible to others)
-  - false: Instant insertion
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
@@ -74,28 +75,30 @@ RETURNS
 - replacedSelection: true if selection was replaced
 - cursor: New cursor position
 
+Note: The tool returns after all 5 chunks are inserted (~500ms total).
+
 ═══════════════════════════════════════════════════════════════════════════
 EXAMPLES
 ═══════════════════════════════════════════════════════════════════════════
 
-// Insert plain text
+// Insert plain text (automatically streamed in 5 chunks)
 await insert({
   docGuid: "abc-123",
   text: "Hello world"
 });
 
-// Insert with bold formatting
+// Insert with bold formatting (automatically streamed)
 await insert({
   docGuid: "abc-123",
   text: "Important!",
   marks: ["bold"]
 });
 
-// Insert with streaming animation
+// Insert with link (automatically streamed)
 await insert({
   docGuid: "abc-123",
-  text: "Typing this slowly...",
-  streaming: true
+  text: "Click here",
+  marks: [{ type: "link", href: "https://example.com" }]
 });`;
 
 const inputSchema = {
@@ -108,21 +111,17 @@ const inputSchema = {
     },
     text: {
       type: 'string',
-      description: 'Text to insert',
+      description: 'Text to insert (automatically streamed in 5 chunks over 500ms)',
     },
     marks: {
       type: 'array',
-      description: 'Formatting marks',
+      description: 'Formatting marks to apply to the inserted text',
       items: {
         oneOf: [
           { type: 'string', enum: ['bold', 'italic', 'underline', 'strike'] },
           { type: 'object', properties: { type: { const: 'link' }, href: { type: 'string' } } },
         ],
       },
-    },
-    streaming: {
-      type: 'boolean',
-      description: 'Insert with typing animation (default: false)',
     },
   },
   required: ['docGuid', 'text'],
@@ -134,14 +133,13 @@ const inputSchema = {
  * @param {string} args.docGuid - Document UUID
  * @param {string} args.text - Text to insert
  * @param {Array} [args.marks=[]] - Formatting marks
- * @param {boolean} [args.streaming=false] - Streaming mode
  * @param {object} agentToken - Decoded agent JWT token
  * @returns {Promise<object>} Insert result
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('insert tool not initialized');
 
-  const { docGuid, text, marks = [], streaming = false } = args;
+  const { docGuid, text, marks = [] } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
@@ -220,57 +218,46 @@ async function handler(args, agentToken) {
     throw new Error('Could not resolve insert position');
   }
 
-  // Perform insertion
-  if (streaming) {
-    // Streaming insert (character-by-character)
-    const blocks = xmlFragment.toArray();
-    const block = blocks[insertResolved.blockIndex];
+  // Perform streaming insertion (always in 5 chunks over 500ms)
+  const blocks = xmlFragment.toArray();
+  const block = blocks[insertResolved.blockIndex];
 
-    // Find text node at position
-    function findTextNodeAtOffset(element, targetOffset) {
-      let currentOffset = 0;
-      function traverse(node) {
-        if (node instanceof Y.XmlText) {
-          if (currentOffset + node.length >= targetOffset) {
-            return { textNode: node, offset: targetOffset - currentOffset };
-          }
-          currentOffset += node.length;
-        } else if (node instanceof Y.XmlElement) {
-          for (const child of node.toArray()) {
-            const result = traverse(child);
-            if (result) return result;
-          }
+  // Find text node at position
+  function findTextNodeAtOffset(element, targetOffset) {
+    let currentOffset = 0;
+    function traverse(node) {
+      if (node instanceof Y.XmlText) {
+        if (currentOffset + node.length >= targetOffset) {
+          return { textNode: node, offset: targetOffset - currentOffset };
         }
-        return null;
+        currentOffset += node.length;
+      } else if (node instanceof Y.XmlElement) {
+        for (const child of node.toArray()) {
+          const result = traverse(child);
+          if (result) return result;
+        }
       }
-      return traverse(element);
+      return null;
     }
-
-    const nodeInfo = findTextNodeAtOffset(block, insertResolved.offset);
-    if (!nodeInfo) {
-      throw new Error('Could not find text node at insert position');
-    }
-
-    // Use streaming insert
-    await streamingInsert(
-      ydoc,
-      nodeInfo.textNode,
-      nodeInfo.offset,
-      text,
-      marks,
-      session.provider.awareness,
-      insertPos,
-      40  // 40ms delay between chars
-    );
-  } else {
-    // Regular insert (instant)
-    const blocks = xmlFragment.toArray();
-    const block = blocks[insertResolved.blockIndex];
-
-    ydoc.transact(() => {
-      insertText(block, insertResolved.offset, text, marks);
-    }, undoManager);
+    return traverse(element);
   }
+
+  const nodeInfo = findTextNodeAtOffset(block, insertResolved.offset);
+  if (!nodeInfo) {
+    throw new Error('Could not find text node at insert position');
+  }
+
+  // Use streaming insert (5 chunks, 100ms between chunks = 500ms total)
+  await streamingInsert(
+    ydoc,
+    nodeInfo.textNode,
+    nodeInfo.offset,
+    text,
+    marks,
+    session.provider.awareness,
+    insertPos,
+    100  // 100ms delay between chunks
+  );
 
   // Move cursor to end of inserted text
   const newOffset = insertResolved.offset + text.length;
