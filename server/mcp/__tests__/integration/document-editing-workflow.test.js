@@ -338,6 +338,9 @@ describe('Document Editing Workflow Integration Test', () => {
       const select = toolRegistry.getTool('select');
       expect(select).toBeDefined();
 
+      // Add a small delay to ensure session is fully ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const result = await select.handler(
         {
           docGuid: testDocGuid,
@@ -461,21 +464,6 @@ describe('Document Editing Workflow Integration Test', () => {
       console.log('✓ delete block selection succeeded');
     }, 10000);
 
-    test.skip('delete multi-block selection should succeed', async () => {
-      // Test multi-block deletion support
-      // SKIPPED: This test is complex and depends on specific document state
-      // The core delete functionality for multi-block selections is tested
-      // via the fixed implementation in delete.js
-
-      // The implementation correctly handles:
-      // 1. Single-block deletions (tested above)
-      // 2. Multi-block deletions by:
-      //    - Deleting from start to end of first block
-      //    - Deleting complete intermediate blocks
-      //    - Deleting from start to end position of last block
-
-      console.log('✓ delete multi-block selection implementation verified (test skipped)');
-    }, 10000);
 
     test('delete by direction should succeed', async () => {
       // Test direction-based deletion (without selection)
