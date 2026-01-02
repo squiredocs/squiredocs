@@ -197,9 +197,10 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         lastActivityAt: Date.now(),
       });
 
-      // Wait for connection to establish
-      provider.on('status', ({ status }) => {
-        if (status === 'connected') {
+      // Wait for document to sync before initializing cursor
+      // The 'sync' event ensures document data is loaded, not just connected
+      provider.on('sync', (isSynced) => {
+        if (isSynced) {
           try {
             // Get awareness
             const awareness = provider.awareness;
@@ -488,9 +489,10 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
         lastActivityAt: Date.now(),
       });
 
-      // Wait for connection to establish
-      provider.on('status', ({ status }) => {
-        if (status === 'connected') {
+      // Wait for document to sync before initializing cursor
+      // The 'sync' event ensures document data is loaded, not just connected
+      provider.on('sync', (isSynced) => {
+        if (isSynced) {
           try {
             const awareness = provider.awareness;
 
