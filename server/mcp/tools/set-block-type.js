@@ -7,7 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition, createCursorPosition } = require('../yjs/cursor-operations');
-const { buildYjsNode } = require('../yjs/node-builder');
+const { buildYjsNode, createNodeSpec } = require('../yjs/node-builder');
 
 let persistenceProvider = null;
 
@@ -99,28 +99,9 @@ async function handler(args, agentToken) {
 
   const content = extractContent(currentBlock);
 
-  // Build new block with same content
-  let newBlock;
-
-  if (type === 'bulletList' || type === 'orderedList') {
-    // Lists MUST have at least one listItem child
-    newBlock = buildYjsNode({
-      type,
-      ...attributes,
-      children: [
-        {
-          type: 'listItem',
-          content,
-        },
-      ],
-    });
-  } else {
-    newBlock = buildYjsNode({
-      type,
-      ...attributes,
-      content,
-    });
-  }
+  // Build new block with same content (handles list vs non-list blocks)
+  const nodeSpec = createNodeSpec(type, attributes, content);
+  const newBlock = buildYjsNode(nodeSpec);
 
   ydoc.transact(() => {
     xmlFragment.delete(blockIndex, 1);

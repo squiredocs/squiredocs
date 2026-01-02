@@ -128,4 +128,48 @@ function buildTextContent(content) {
   return result;
 }
 
-module.exports = { buildYjsNode, buildTextContent };
+/**
+ * Create a proper node specification for a block type
+ * Handles special cases like lists that require children instead of content
+ *
+ * @param {string} type - Block type
+ * @param {object} attributes - Type-specific attributes
+ * @param {string|Array} content - Text content (string or array of content objects)
+ * @returns {object} Node specification ready for buildYjsNode
+ */
+function createNodeSpec(type, attributes = {}, content = '') {
+  const isListType = type === 'bulletList' || type === 'orderedList';
+
+  // Normalize content to array format
+  let contentArray;
+  if (typeof content === 'string') {
+    contentArray = content ? [{ type: 'text', text: content }] : [];
+  } else if (Array.isArray(content)) {
+    contentArray = content;
+  } else {
+    contentArray = [];
+  }
+
+  if (isListType) {
+    // Lists MUST have at least one listItem child
+    return {
+      type,
+      ...attributes,
+      children: [
+        {
+          type: 'listItem',
+          content: contentArray,
+        },
+      ],
+    };
+  }
+
+  // Regular blocks (paragraph, heading, codeBlock, etc.)
+  return {
+    type,
+    ...attributes,
+    content: contentArray,
+  };
+}
+
+module.exports = { buildYjsNode, buildTextContent, createNodeSpec };

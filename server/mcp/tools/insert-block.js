@@ -7,7 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition, createCursorPosition } = require('../yjs/cursor-operations');
-const { buildYjsNode } = require('../yjs/node-builder');
+const { buildYjsNode, createNodeSpec } = require('../yjs/node-builder');
 
 let persistenceProvider = null;
 
@@ -81,30 +81,8 @@ async function handler(args, agentToken) {
   const currentResolved = resolveCursorPosition(xmlFragment, session.cursor.head);
   const currentBlockIndex = currentResolved.blockIndex;
 
-  // Build node specification
-  let nodeSpec;
-
-  if (type === 'bulletList' || type === 'orderedList') {
-    // Lists MUST have at least one listItem child
-    nodeSpec = {
-      type,
-      ...attributes,
-      children: [
-        {
-          type: 'listItem',
-          content: content ? [{ type: 'text', text: content }] : [],
-        },
-      ],
-    };
-  } else {
-    nodeSpec = {
-      type,
-      ...attributes,
-      content: content ? [{ type: 'text', text: content }] : [],
-    };
-  }
-
-  // Build Yjs node
+  // Build node specification (handles list vs non-list blocks)
+  const nodeSpec = createNodeSpec(type, attributes, content);
   const newBlock = buildYjsNode(nodeSpec);
 
   // Calculate insertion index
