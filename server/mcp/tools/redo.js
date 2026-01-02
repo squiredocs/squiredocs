@@ -6,7 +6,7 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { resolveCursorPosition, getCursorContext } = require('../yjs/cursor-operations');
+const { createCursorPosition, resolveCursorPosition, getCursorContext } = require('../yjs/cursor-operations');
 
 let persistenceProvider = null;
 
@@ -92,16 +92,22 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  const currentHead = session.cursor.head;
-  const resolved = resolveCursorPosition(xmlFragment, currentHead);
+  let currentHead = session.cursor.head;
+  let resolved = resolveCursorPosition(xmlFragment, currentHead);
+  let warning = null;
 
   if (!resolved) {
-    throw new Error('Cursor position became invalid after redo');
+    // Cursor position became invalid, reset to document start
+    const safePos = createCursorPosition(xmlFragment, 0, 0);
+    agentPresence.updateSessionCursor(session.sessionId, safePos, safePos);
+    currentHead = safePos;
+    resolved = resolveCursorPosition(xmlFragment, currentHead);
+    warning = 'Cursor position became invalid after redo, reset to document start';
   }
 
   const context = getCursorContext(xmlFragment, currentHead, 50, 50);
 
-  return {
+  const result = {
     success: true,
     redone: true,
     cursor: {
@@ -111,6 +117,12 @@ async function handler(args, agentToken) {
       context: context ? `${context.before}|${context.after}` : '',
     },
   };
+
+  if (warning) {
+    result.warning = warning;
+  }
+
+  return result;
 }
 
 module.exports = { init, name, description, inputSchema, handler };
