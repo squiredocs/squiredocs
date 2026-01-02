@@ -6,7 +6,7 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { createCursorPosition, resolveCursorPosition, getCursorContext } = require('../yjs/cursor-operations');
+const { createCursorPosition, resolveCursorPosition, getCursorContext, createCursorPositionFromPath } = require('../yjs/cursor-operations');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -45,6 +45,7 @@ TARGET TYPES:
 - block_start: Start of current block
 - block_end: End of current block
 - position: Specific block + offset (requires block and offset parameters)
+- path: Navigate to nested element by path (requires path array, optional offset)
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -58,6 +59,11 @@ PARAMETERS
   - { type: "block_start" }
   - { type: "block_end" }
   - { type: "position", block: number, offset: number }
+  - { type: "path", path: [number, ...], offset?: number }
+    - path: Array of indices to navigate nested structure
+    - Example: [6, 0] = first child of block 6 (e.g., first listItem in bulletList)
+    - Example: [6, 1, 0] = first child of second child of block 6
+    - offset: Character position within the target element (default: 0)
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
@@ -90,6 +96,18 @@ await goto({
 await goto({
   docGuid: "abc-123",
   target: { type: "position", block: 3, offset: 10 }
+});
+
+// Navigate to nested list item (first item in bulletList at block 6)
+await goto({
+  docGuid: "abc-123",
+  target: { type: "path", path: [6, 0], offset: 0 }
+});
+
+// Navigate deep into nested structure
+await goto({
+  docGuid: "abc-123",
+  target: { type: "path", path: [6, 1, 0], offset: 5 }
 });`;
 
 const inputSchema = {
@@ -110,6 +128,7 @@ const inputSchema = {
         { type: 'object', properties: { type: { const: 'block_end' } }, required: ['type'] },
         { type: 'object', properties: { type: { const: 'block' }, index: { type: 'integer', minimum: 0 } }, required: ['type', 'index'] },
         { type: 'object', properties: { type: { const: 'position' }, block: { type: 'integer', minimum: 0 }, offset: { type: 'integer', minimum: 0 } }, required: ['type', 'block', 'offset'] },
+        { type: 'object', properties: { type: { const: 'path' }, path: { type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 1 }, offset: { type: 'integer', minimum: 0 } }, required: ['type', 'path'] },
       ],
     },
   },
@@ -197,6 +216,11 @@ async function handler(args, agentToken) {
         throw new Error(`Block index ${target.block} out of bounds (0-${blocks.length - 1})`);
       }
       newPos = createCursorPosition(xmlFragment, target.block, target.offset);
+      break;
+
+    case 'path':
+      // Navigate to nested element by path
+      newPos = createCursorPositionFromPath(xmlFragment, target.path, target.offset || 0);
       break;
 
     default:
