@@ -5,7 +5,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 ## Features
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
-- **AI Agent Integration**: Model Context Protocol (MCP) support with 21 tools for AI-powered document editing
+- **AI Agent Integration**: Model Context Protocol (MCP) support with 23 tools for AI-powered document editing including hierarchical content manipulation
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions of documents
@@ -199,7 +199,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 ### Features
 
 - **Cursor-based editing API** - Natural editing with persistent cursor state
-- **21 MCP tools** for comprehensive document operations
+- **21 MCP tools** for comprehensive document operations including hierarchical editing
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
@@ -236,8 +236,12 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `insert` - Insert text at cursor (supports streaming mode)
 - `delete` - Delete selected text or by direction/unit/count
 - `format` - Apply/remove formatting to selection (bold, italic, underline, strike, links)
-- `insert_block` - Insert new blocks (paragraph, heading, list, code)
+- `insert_block` - Insert new blocks (paragraph, heading, list, code) with optional hierarchical placement
 - `set_block_type` - Convert block to different type
+
+**Hierarchy & Structure:**
+- `indent_block` - Move current block into previous sibling's children (create hierarchy)
+- `outdent_block` - Move current block up one level (reduce nesting)
 
 **History:**
 - `undo` - Undo last operation
@@ -295,6 +299,23 @@ await goto({ docGuid: "abc-123", target: { type: "document_end" } });
 await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 } });
 await insert({ docGuid: "abc-123", text: "Action Items" });
 
+// Insert nested content
+await insert_block({
+  docGuid: "abc-123",
+  parentPath: [2, 1],  // Nest under listItem 1 of block 2
+  type: "paragraph",
+  content: "Nested content"
+});
+
+// Automatically add to existing list (auto-wraps in listItem)
+await insert_block({
+  docGuid: "abc-123",
+  parentPath: [0],  // Insert into list at block 0
+  type: "paragraph",
+  content: "New list item"
+  // autoListItem defaults to true - automatically wraps in listItem
+});
+
 // 5. Close when done
 await close_document({ docGuid: "abc-123" });
 
@@ -303,6 +324,82 @@ await close_document({ docGuid: "abc-123" });
 "Select the current paragraph and make it bold"
 "Go to the end and add a new heading 'Conclusion'"
 "Undo the last change"
+
+## Hierarchical Document Editing
+
+This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization. The MCP tools now enable creation and manipulation of nested document structures.
+
+### Creating Nested Content
+
+**Insert blocks at specific hierarchy levels:**
+```javascript
+// Create a nested list structure
+await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Main item" });
+await nest_block({
+  docGuid: "abc-123",
+  parentPath: [0, 0],  // Under first list item
+  type: "bulletList",
+  content: "Sub item"
+});
+```
+
+**Add items to existing lists:**
+```javascript
+// Extend an existing list instead of creating a new one
+await add_list_item({ docGuid: "abc-123", content: "Additional list item" });
+```
+
+### Restructuring Content
+
+**Indent/outdent blocks to change hierarchy:**
+```javascript
+// Move current block into previous sibling (indent)
+await indent_block({ docGuid: "abc-123" });
+
+// Move current block up one level (outdent)
+await outdent_block({ docGuid: "abc-123" });
+```
+
+
+### Path-Based Addressing
+
+Many operations now support hierarchical paths for precise content placement:
+
+- `[0]` - First top-level block
+- `[0, 1]` - Second child of first top-level block
+- `[0, 1, 0]` - First child of second child of first top-level block
+
+### Example: Creating a Complex Document Structure
+
+```javascript
+// 1. Create main heading
+await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 1 }, content: "Project Plan" });
+
+// 2. Add main sections
+await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 }, content: "Objectives" });
+await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 }, content: "Timeline" });
+
+// 3. Add nested content under Objectives
+await goto({ docGuid: "abc-123", target: { type: "block", index: 1 } }); // Go to Objectives heading
+await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Increase user engagement" });
+await add_list_item({ docGuid: "abc-123", content: "Improve performance metrics" });
+
+// 4. Create sub-list under first objective
+await nest_block({
+  docGuid: "abc-123",
+  parentPath: [2, 0],  // Under first list item of the bullet list
+  type: "bulletList",
+  content: "Implement new UI components"
+});
+await nest_block({
+  docGuid: "abc-123",
+  parentPath: [2, 0, 1, 0],  // Under first item of the nested list
+  type: "paragraph",
+  content: "Detailed implementation plan..."
+});
+```
+
+This enables AI agents to create professional documents with proper hierarchical structure, including nested lists, subsections, and complex content organization.
 ```
 
 ## Programmatically Updating Documents

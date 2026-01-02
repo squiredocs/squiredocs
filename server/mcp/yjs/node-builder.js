@@ -29,14 +29,11 @@ function buildYjsNode(node) {
     const text = new Y.XmlText();
     text.insert(0, content || '');
     element.insert(0, [text]);
-  } else if (children) {
-    // Lists: process child nodes
-    const childElements = children.map((child) => buildYjsNode(child));
-    element.insert(0, childElements);
   } else if (type === 'listItem') {
     // CRITICAL: ListItems must contain a paragraph as first child (TipTap schema requirement)
     // Schema: content: 'paragraph block*'
-    // We need to wrap the text content in a paragraph node
+
+    // Always create content paragraph first
     const paragraph = new Y.XmlElement('paragraph');
 
     if (content !== undefined && content !== null) {
@@ -54,8 +51,18 @@ function buildYjsNode(node) {
       paragraph.insert(0, [emptyText]);
     }
 
-    // Insert the paragraph into the listItem
+    // Insert the content paragraph into the listItem
     element.insert(0, [paragraph]);
+
+    // If children are provided, add them after the content paragraph
+    if (children && children.length > 0) {
+      const childElements = children.map((child) => buildYjsNode(child));
+      element.insert(1, childElements);
+    }
+  } else if (children) {
+    // Lists: process child nodes
+    const childElements = children.map((child) => buildYjsNode(child));
+    element.insert(0, childElements);
   } else if (content !== undefined && content !== null) {
     // Text content: may include marks (for paragraphs, headings, etc.)
     const textElements = buildTextContent(content);
@@ -135,9 +142,10 @@ function buildTextContent(content) {
  * @param {string} type - Block type
  * @param {object} attributes - Type-specific attributes
  * @param {string|Array} content - Text content (string or array of content objects)
+ * @param {Array} children - For lists: array of listItem specs; for other blocks: nested children
  * @returns {object} Node specification ready for buildYjsNode
  */
-function createNodeSpec(type, attributes = {}, content = '') {
+function createNodeSpec(type, attributes = {}, content = '', children = null) {
   const isListType = type === 'bulletList' || type === 'orderedList';
 
   // Normalize content to array format
@@ -151,16 +159,35 @@ function createNodeSpec(type, attributes = {}, content = '') {
   }
 
   if (isListType) {
-    // Lists MUST have at least one listItem child
+    // Lists MUST have children (listItems)
+    if (children && Array.isArray(children)) {
+      // Use provided children (allows multi-item lists)
+      return {
+        type,
+        ...attributes,
+        children,
+      };
+    } else {
+      // Backward compatibility: create single listItem from content
+      return {
+        type,
+        ...attributes,
+        children: [
+          {
+            type: 'listItem',
+            content: contentArray,
+          },
+        ],
+      };
+    }
+  }
+
+  // For blocks that can have nested children (like listItems)
+  if (children && Array.isArray(children)) {
     return {
       type,
       ...attributes,
-      children: [
-        {
-          type: 'listItem',
-          content: contentArray,
-        },
-      ],
+      children,
     };
   }
 

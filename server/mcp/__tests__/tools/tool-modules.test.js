@@ -203,6 +203,8 @@ describe('Tool Registry Integration', () => {
       'format',
       'insert_block',
       'set_block_type',
+      'indent_block',
+      'outdent_block',
       'undo',
       'redo',
     ];

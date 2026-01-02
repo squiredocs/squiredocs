@@ -29,6 +29,10 @@ const setBlockType = require('./set-block-type');
 const undo = require('./undo');
 const redo = require('./redo');
 
+// V2 hierarchy manipulation tools
+const indentBlock = require('./indent-block');
+const outdentBlock = require('./outdent-block');
+
 const agentPresence = require('../agent-presence');
 
 // All available tools
@@ -57,6 +61,10 @@ const tools = {
   set_block_type: setBlockType,
   undo: undo,
   redo: redo,
+
+  // V2 hierarchy manipulation tools
+  indent_block: indentBlock,
+  outdent_block: outdentBlock,
 };
 
 /**

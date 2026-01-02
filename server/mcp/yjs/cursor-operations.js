@@ -3,6 +3,8 @@
  *
  * Utilities for managing cursor positions using Yjs RelativePosition.
  * These positions automatically adjust when the document is edited concurrently.
+ *
+ * Supports both linear (blockIndex, offset) and path-based addressing for hierarchical documents.
  */
 
 const Y = require('yjs');
@@ -510,6 +512,204 @@ function getTextInSelection(xmlFragment, anchorPos, headPos) {
   return allText.substring(startPos, endPos);
 }
 
+/**
+ * PATH-BASED CURSOR OPERATIONS
+ * Support for hierarchical document navigation using paths like [blockIndex, childIndex, ...]
+ */
+
+/**
+ * Create a cursor position from a hierarchical path and character offset
+ * @param {Y.XmlFragment} xmlFragment - The document fragment
+ * @param {Array<number>} path - Hierarchical path [blockIndex, childIndex, ...]
+ * @param {number} charOffset - Character offset within the target element
+ * @returns {object} JSON-serialized RelativePosition
+ * @throws {Error} If path is invalid or out of bounds
+ */
+function createCursorPositionFromPath(xmlFragment, path, charOffset = 0) {
+  if (!Array.isArray(path) || path.length === 0) {
+    throw new Error('Path must be a non-empty array');
+  }
+
+  const blocks = xmlFragment.toArray();
+  const [blockIndex, ...childIndices] = path;
+
+  if (blockIndex < 0 || blockIndex >= blocks.length) {
+    throw new Error(`Block index ${blockIndex} out of bounds (0-${blocks.length - 1})`);
+  }
+
+  let currentElement = blocks[blockIndex];
+
+  // Navigate through the path
+  for (let i = 0; i < childIndices.length; i++) {
+    const childIndex = childIndices[i];
+    if (!(currentElement instanceof Y.XmlElement)) {
+      throw new Error(`Path element at depth ${i} is not an XmlElement`);
+    }
+
+    const children = currentElement.toArray();
+    if (childIndex < 0 || childIndex >= children.length) {
+      throw new Error(`Child index ${childIndex} out of bounds at depth ${i + 1}`);
+    }
+
+    currentElement = children[childIndex];
+  }
+
+  // Now find the text node at the specified character offset within currentElement
+  let currentOffset = 0;
+
+  function findTextNodeAtOffset(node, targetOffset) {
+    if (node instanceof Y.XmlText) {
+      const textLength = node.length;
+      if (currentOffset + textLength >= targetOffset) {
+        const offsetInNode = targetOffset - currentOffset;
+        return { textNode: node, offset: offsetInNode };
+      }
+      currentOffset += textLength;
+    } else if (node instanceof Y.XmlElement) {
+      const children = node.toArray();
+      for (const child of children) {
+        const result = findTextNodeAtOffset(child, targetOffset);
+        if (result) return result;
+      }
+    }
+    return null;
+  }
+
+  const result = findTextNodeAtOffset(currentElement, charOffset);
+
+  if (!result) {
+    // Offset is beyond the element - use the end of the last text node
+    function getLastTextNode(node) {
+      if (node instanceof Y.XmlText) {
+        return node;
+      } else if (node instanceof Y.XmlElement) {
+        const children = node.toArray();
+        if (children.length > 0) {
+          return getLastTextNode(children[children.length - 1]);
+        }
+      }
+      return null;
+    }
+
+    const lastTextNode = getLastTextNode(currentElement);
+    if (!lastTextNode) {
+      // Element has no text nodes - create one
+      const newTextNode = new Y.XmlText();
+      currentElement.insert(0, [newTextNode]);
+      const relPos = Y.createRelativePositionFromTypeIndex(newTextNode, 0);
+      return Y.relativePositionToJSON(relPos);
+    }
+
+    const relPos = Y.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
+    return Y.relativePositionToJSON(relPos);
+  }
+
+  const relPos = Y.createRelativePositionFromTypeIndex(result.textNode, result.offset);
+  return Y.relativePositionToJSON(relPos);
+}
+
+/**
+ * Resolve a RelativePosition to a hierarchical path and character offset
+ * @param {Y.XmlFragment} xmlFragment - The document fragment
+ * @param {object} relativePos - JSON RelativePosition
+ * @returns {object} { path: [blockIndex, childIndex, ...], offset: number, blockType: string } or null if invalid
+ */
+function resolveCursorPositionToPath(xmlFragment, relativePos) {
+  try {
+    const relPos = Y.createRelativePositionFromJSON(relativePos);
+    const absPos = Y.createAbsolutePositionFromRelativePosition(relPos, xmlFragment.doc);
+
+    if (!absPos) {
+      return null;
+    }
+
+    const blocks = xmlFragment.toArray();
+    const path = [];
+    let charOffset = 0;
+    let blockType = null;
+
+    // Find which block contains this position and build the path
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      let foundInBlock = false;
+
+      function traverseAndBuildPath(node, currentPath, depth = 0) {
+        if (foundInBlock) return;
+
+        if (node === absPos.type) {
+          // Found the exact node
+          path.push(...currentPath);
+          blockType = blocks[i].nodeName;
+          foundInBlock = true;
+          return;
+        }
+
+        if (node instanceof Y.XmlText) {
+          if (!foundInBlock) {
+            charOffset += node.length;
+          }
+        } else if (node instanceof Y.XmlElement) {
+          const children = node.toArray();
+          for (let childIdx = 0; childIdx < children.length; childIdx++) {
+            const childPath = [...currentPath, childIdx];
+            traverseAndBuildPath(children[childIdx], childPath, depth + 1);
+            if (foundInBlock) break;
+          }
+        }
+      }
+
+      // Reset offset for each block
+      const prevOffset = charOffset;
+      charOffset = 0;
+      traverseAndBuildPath(block, [i]);
+
+      if (foundInBlock) {
+        break;
+      }
+
+      // This block doesn't contain the position, restore offset
+      charOffset = prevOffset;
+    }
+
+    if (path.length === 0) {
+      return null;
+    }
+
+    return {
+      path,
+      offset: charOffset,
+      blockType,
+    };
+  } catch (error) {
+    console.error('[cursor-operations] Error resolving cursor position to path:', error);
+    return null;
+  }
+}
+
+/**
+ * Get the parent path of a given path
+ * @param {Array<number>} path - Hierarchical path
+ * @returns {Array<number>} Parent path, or empty array if at root level
+ */
+function getParentPath(path) {
+  if (!Array.isArray(path) || path.length <= 1) {
+    return [];
+  }
+  return path.slice(0, -1);
+}
+
+/**
+ * Get the sibling index of a path (last element)
+ * @param {Array<number>} path - Hierarchical path
+ * @returns {number} Sibling index, or -1 if path is empty
+ */
+function getSiblingIndex(path) {
+  if (!Array.isArray(path) || path.length === 0) {
+    return -1;
+  }
+  return path[path.length - 1];
+}
+
 // Helper functions
 
 function getBlockTextLength(block) {
@@ -621,4 +821,9 @@ module.exports = {
   moveCursor,
   findFromCursor,
   getTextInSelection,
+  // Path-based operations for hierarchical documents
+  createCursorPositionFromPath,
+  resolveCursorPositionToPath,
+  getParentPath,
+  getSiblingIndex,
 };
