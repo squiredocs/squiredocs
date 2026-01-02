@@ -157,22 +157,45 @@ async function handler(args, agentToken) {
       const pathInfo = resolveCursorPositionToPath(xmlFragment, headPos);
 
       if (pathInfo && pathInfo.path.length > 1) {
-        // We're in a nested position - delete the containing element
-        const path = pathInfo.path;
+        // We're in a nested position - find the nearest block-level element to delete
+        const cursorPath = pathInfo.path;
         const blocks = xmlFragment.toArray();
 
-        // Navigate to parent and delete the child at the appropriate index
-        const [blockIndex, ...childIndices] = path;
-        let parentElement = blocks[blockIndex];
+        // Block-level elements that should be deleted as units
+        const blockTypes = ['paragraph', 'heading', 'listItem', 'codeBlock', 'bulletList', 'orderedList'];
+
+        // Navigate the path to find the nearest block-level element
+        const [blockIndex, ...childIndices] = cursorPath;
+        let currentElement = blocks[blockIndex];
+        let blockPath = [blockIndex];
+
+        // Traverse down the path, stopping at the first block-level element
+        for (let i = 0; i < childIndices.length; i++) {
+          const children = currentElement.toArray();
+          const childIndex = childIndices[i];
+          const childElement = children[childIndex];
+
+          if (childElement instanceof Y.XmlElement && blockTypes.includes(childElement.nodeName)) {
+            // Found a block-level element - this is what we want to delete
+            blockPath = [blockIndex, ...childIndices.slice(0, i + 1)];
+            break;
+          }
+
+          currentElement = childElement;
+        }
+
+        // Now delete the element at blockPath
+        const [targetBlockIndex, ...targetChildIndices] = blockPath;
+        let parentElement = blocks[targetBlockIndex];
 
         // Navigate to the direct parent of the element to delete
-        for (let i = 0; i < childIndices.length - 1; i++) {
+        for (let i = 0; i < targetChildIndices.length - 1; i++) {
           const children = parentElement.toArray();
-          parentElement = children[childIndices[i]];
+          parentElement = children[targetChildIndices[i]];
         }
 
         // Get the index of the element to delete within its parent
-        const deleteIndex = childIndices[childIndices.length - 1];
+        const deleteIndex = targetChildIndices[targetChildIndices.length - 1];
         const parentChildren = parentElement.toArray();
 
         if (deleteIndex >= 0 && deleteIndex < parentChildren.length) {
@@ -184,13 +207,13 @@ async function handler(args, agentToken) {
           let newPath;
           if (deleteIndex > 0) {
             // Move to previous sibling
-            newPath = [...path.slice(0, -1), deleteIndex - 1];
+            newPath = [...blockPath.slice(0, -1), deleteIndex - 1];
           } else if (parentChildren.length > 1) {
             // Move to next sibling (which is now at the same index)
-            newPath = path;
+            newPath = blockPath;
           } else {
             // No siblings left, move to parent
-            newPath = path.slice(0, -1);
+            newPath = blockPath.slice(0, -1);
           }
 
           newCursorPos = createCursorPositionFromPath(xmlFragment, newPath, 0);
@@ -202,7 +225,7 @@ async function handler(args, agentToken) {
             deletedText: '',
             deletedLength: 0,
             deletedBlock: true,
-            deletedPath: path,
+            deletedPath: blockPath,
             cursor: {
               block: newResolved.blockIndex,
               offset: newResolved.offset,
