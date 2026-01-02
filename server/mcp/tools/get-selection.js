@@ -117,20 +117,11 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  // Get session
-  const sessionKey = `${userId}-${docGuid}`;
-  const activeSessions = agentPresence.getActiveSessions();
-
-  let session = null;
-  for (const [sid, sess] of activeSessions.entries()) {
-    if (sess.key === sessionKey) {
-      session = sess;
-      break;
-    }
-  }
+  // Get or create session (reuses existing WebSocket if available)
+  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 3600);
 
   if (!session || !session.cursor) {
-    throw new Error('No active session found. Use open_document first.');
+    throw new Error('Failed to get session');
   }
 
   const ydoc = session.provider.doc;

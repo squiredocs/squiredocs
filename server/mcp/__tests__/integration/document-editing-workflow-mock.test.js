@@ -73,6 +73,7 @@ describe('Document Editing Workflow - Mock Test', () => {
     const activeSessions = new Map([[sessionId, mockSession]]);
     mockAgentPresence = {
       getActiveSessions: jest.fn(() => activeSessions),
+      getOrCreateSession: jest.fn(async () => mockSession),
       updateSessionCursor: jest.fn((sid, anchor, head) => {
         const session = activeSessions.get(sid);
         if (session) {

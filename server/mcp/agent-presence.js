@@ -400,7 +400,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   // Check if we already have an active session for this user/doc combination
   const existingSessionKey = `${userId}-${docGuid}`;
   for (const [sid, session] of activeSessions.entries()) {
-    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected) {
+    // Only reuse if the session is fully initialized (has cursor)
+    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected && session.cursor) {
       // Extend the existing session
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
