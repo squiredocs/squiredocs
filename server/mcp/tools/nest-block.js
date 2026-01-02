@@ -129,8 +129,16 @@ async function handler(args, agentToken) {
     throw new Error('Parent element must be an XmlElement that can contain children');
   }
 
+  // Auto-wrap content in listItem if inserting into a list
+  let actualType = type;
+  if (['bulletList', 'orderedList'].includes(parentElement.nodeName) && type !== 'listItem') {
+    // When inserting into a list, wrap in listItem
+    actualType = 'listItem';
+    // The original type becomes a child of the listItem
+  }
+
   // Create the new block
-  const nodeSpec = createNodeSpec(type, attributes, content);
+  const nodeSpec = createNodeSpec(actualType, attributes, content);
   const newBlock = buildYjsNode(nodeSpec);
 
   // Insert as child
@@ -142,7 +150,7 @@ async function handler(args, agentToken) {
 
   // Move cursor to the new nested block
   const newPath = [...parentPath, insertAt];
-  const newPos = createCursorPositionFromPath(xmlFragment, [...newPath, 0, 0], 0); // Assume first child is paragraph with text
+  const newPos = createCursorPositionFromPath(xmlFragment, newPath, 0);
 
   agentPresence.updateSessionCursor(session.sessionId, newPos, newPos);
 
