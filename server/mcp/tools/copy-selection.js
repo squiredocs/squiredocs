@@ -261,37 +261,21 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
   const nodesToCopy = [];
 
   if (startResolved.blockIndex === endResolved.blockIndex) {
-    // Selection within a single block
+    // Selection within a single block - do partial extraction
     const block = blocks[startResolved.blockIndex];
     const partialBlock = extractPartialBlock(block, startResolved.offset, endResolved.offset);
     if (partialBlock) {
       nodesToCopy.push(partialBlock);
     }
   } else {
-    // Multi-block selection
-
-    // First block (partial)
-    const firstBlock = blocks[startResolved.blockIndex];
-    const firstBlockLength = getBlockTextLength(firstBlock);
-    const firstPartial = extractPartialBlock(firstBlock, startResolved.offset, firstBlockLength);
-    if (firstPartial) {
-      nodesToCopy.push(firstPartial);
-    }
-
-    // Middle blocks (complete)
-    for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
+    // Multi-block selection - copy complete blocks to avoid content loss
+    // This is simpler and more reliable than partial extraction of complex nested structures
+    for (let i = startResolved.blockIndex; i <= endResolved.blockIndex; i++) {
       const block = blocks[i];
       const clone = cloneYjsNode(block);
       if (clone) {
         nodesToCopy.push(clone);
       }
-    }
-
-    // Last block (partial)
-    const lastBlock = blocks[endResolved.blockIndex];
-    const lastPartial = extractPartialBlock(lastBlock, 0, endResolved.offset);
-    if (lastPartial) {
-      nodesToCopy.push(lastPartial);
     }
   }
 
