@@ -6,7 +6,7 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { resolveCursorPosition, moveCursor, getTextInSelection, createCursorPosition } = require('../yjs/cursor-operations');
+const { resolveCursorPosition, moveCursor, getTextInSelection, createCursorPosition, resolveCursorPositionToPath, createCursorPositionFromPath } = require('../yjs/cursor-operations');
 const { deleteText, getElementTextLength } = require('../yjs/text-operations');
 
 // Persistence provider - set by init function
@@ -151,9 +151,68 @@ async function handler(args, agentToken) {
     // Delete by direction/unit/count
     const currentResolved = resolveCursorPosition(xmlFragment, headPos);
 
-    // Special case: if unit is 'block' and current block is empty, delete the block itself
-    // Check this BEFORE trying to move cursor
+    // Special case: if unit is 'block', delete the block or nested element
     if (unit === 'block') {
+      // Check if we're at a nested position (e.g., inside a listItem)
+      const pathInfo = resolveCursorPositionToPath(xmlFragment, headPos);
+
+      if (pathInfo && pathInfo.path.length > 1) {
+        // We're in a nested position - delete the containing element
+        const path = pathInfo.path;
+        const blocks = xmlFragment.toArray();
+
+        // Navigate to parent and delete the child at the appropriate index
+        const [blockIndex, ...childIndices] = path;
+        let parentElement = blocks[blockIndex];
+
+        // Navigate to the direct parent of the element to delete
+        for (let i = 0; i < childIndices.length - 1; i++) {
+          const children = parentElement.toArray();
+          parentElement = children[childIndices[i]];
+        }
+
+        // Get the index of the element to delete within its parent
+        const deleteIndex = childIndices[childIndices.length - 1];
+        const parentChildren = parentElement.toArray();
+
+        if (deleteIndex >= 0 && deleteIndex < parentChildren.length) {
+          ydoc.transact(() => {
+            parentElement.delete(deleteIndex, 1);
+          }, undoManager);
+
+          // Move cursor to previous sibling, next sibling, or parent
+          let newPath;
+          if (deleteIndex > 0) {
+            // Move to previous sibling
+            newPath = [...path.slice(0, -1), deleteIndex - 1];
+          } else if (parentChildren.length > 1) {
+            // Move to next sibling (which is now at the same index)
+            newPath = path;
+          } else {
+            // No siblings left, move to parent
+            newPath = path.slice(0, -1);
+          }
+
+          newCursorPos = createCursorPositionFromPath(xmlFragment, newPath, 0);
+          agentPresence.updateSessionCursor(session.sessionId, newCursorPos, newCursorPos);
+
+          const newResolved = resolveCursorPosition(xmlFragment, newCursorPos);
+          return {
+            success: true,
+            deletedText: '',
+            deletedLength: 0,
+            deletedBlock: true,
+            deletedPath: path,
+            cursor: {
+              block: newResolved.blockIndex,
+              offset: newResolved.offset,
+              blockType: newResolved.blockType,
+            },
+          };
+        }
+      }
+
+      // Top-level block deletion (original logic)
       const blocks = xmlFragment.toArray();
       const currentBlock = blocks[currentResolved.blockIndex];
       const blockLength = getElementTextLength(currentBlock);
