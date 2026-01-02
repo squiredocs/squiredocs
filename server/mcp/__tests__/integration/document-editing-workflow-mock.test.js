@@ -960,4 +960,198 @@ describe('Document Editing Workflow - Mock Test', () => {
       throw error;
     }
   });
+
+  test('10. Multiple format calls (offset bug reproduction)', async () => {
+    try {
+      const find = require('../../tools/find');
+      find.init(mockPersistence);
+
+      // Create a document with bullet lists to test the offset bug
+      mockYdoc.transact(() => {
+        mockXmlFragment.delete(0, mockXmlFragment.length);
+
+        // Block 0: Simple paragraph
+        const p1 = new Y.XmlElement('paragraph');
+        const p1Text = new Y.XmlText();
+        p1Text.insert(0, 'Introduction text here to create some offset.');
+        p1.insert(0, [p1Text]);
+        mockXmlFragment.insert(0, [p1]);
+
+        // Block 1: Bullet list with multiple items
+        const bulletList = new Y.XmlElement('bulletList');
+
+        const items = [
+          'First item with some text',
+          'Second item: this is the target',
+          'Third item: another target here',
+        ];
+
+        for (const itemText of items) {
+          const listItem = new Y.XmlElement('listItem');
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, itemText);
+          paragraph.insert(0, [text]);
+          listItem.insert(0, [paragraph]);
+          bulletList.insert(bulletList.length, [listItem]);
+        }
+
+        mockXmlFragment.insert(1, [bulletList]);
+      });
+
+      // Reset cursor to start
+      const firstBlock = mockXmlFragment.get(0);
+      const firstTextNode = firstBlock.get(0);
+      const startPos = Y.createRelativePositionFromTypeIndex(firstTextNode, 0);
+      const startPosJson = Y.relativePositionToJSON(startPos);
+      mockSession.cursor = { anchor: startPosJson, head: startPosJson };
+
+      console.log('\n=== MULTIPLE FORMAT CALLS TEST ===');
+
+      const { getElementTextLength } = require('../../yjs/text-operations');
+      const blocks = mockXmlFragment.toArray();
+
+      function getBlockLength(block) {
+        let len = 0;
+        function traverse(node) {
+          if (node instanceof Y.XmlText) {
+            len += node.length;
+          } else if (node instanceof Y.XmlElement) {
+            for (let i = 0; i < node.length; i++) {
+              traverse(node.get(i));
+            }
+          }
+        }
+        traverse(block);
+        return len;
+      }
+
+      console.log('Block 0 length:', getElementTextLength(blocks[0]));
+      console.log('Block 1 (bulletList) length:', getElementTextLength(blocks[1]));
+
+      // FIRST FORMAT CALL: Find and bold "Introduction"
+      console.log('\n--- First format call: "Introduction" ---');
+      const find1 = await find.handler(
+        {
+          docGuid: testDocGuid,
+          query: 'Introduction',
+          options: { action: 'select' },
+        },
+        mockAgentToken
+      );
+      expect(find1.found).toBe(true);
+      console.log('Find 1:', { text: find1.match.text, block: find1.match.block, offset: find1.match.offset });
+
+      const format1 = await format.handler({ docGuid: testDocGuid, add: ['bold'] }, mockAgentToken);
+      expect(format1.success).toBe(true);
+
+      // Check block structure after first format
+      console.log('\n--- Block structure after first format ---');
+      const blocksAfter1 = mockXmlFragment.toArray();
+      console.log('Block 0 structure:', blocksAfter1[0].toArray().map(n => `${n.constructor.name}[${n.length}]`));
+      console.log('Block 1 (bulletList) length after format1:', getBlockLength(blocksAfter1[1]), 'chars');
+
+      // SECOND FORMAT CALL: Find and bold "this is the target"
+      console.log('\n--- Second format call: "this is the target" ---');
+      const find2 = await find.handler(
+        {
+          docGuid: testDocGuid,
+          query: 'this is the target',
+          options: { action: 'select' },
+        },
+        mockAgentToken
+      );
+      expect(find2.found).toBe(true);
+      console.log('Find 2:', { text: find2.match.text, block: find2.match.block, offset: find2.match.offset });
+
+      const format2 = await format.handler({ docGuid: testDocGuid, add: ['bold'] }, mockAgentToken);
+      expect(format2.success).toBe(true);
+
+      // Check block structure after second format
+      console.log('\n--- Block structure after second format ---');
+      const blocksAfter2 = mockXmlFragment.toArray();
+      console.log('Block 0 length after format2:', getBlockLength(blocksAfter2[0]), 'chars');
+      console.log('Block 1 (bulletList) length after format2:', getBlockLength(blocksAfter2[1]), 'chars');
+
+      // THIRD FORMAT CALL: Find and bold "Third item"
+      console.log('\n--- Third format call: "Third item" ---');
+      const find3 = await find.handler(
+        {
+          docGuid: testDocGuid,
+          query: 'Third item',
+          options: { action: 'select' },
+        },
+        mockAgentToken
+      );
+      expect(find3.found).toBe(true);
+      console.log('Find 3:', { text: find3.match.text, block: find3.match.block, offset: find3.match.offset });
+
+      const format3 = await format.handler({ docGuid: testDocGuid, add: ['bold'] }, mockAgentToken);
+      expect(format3.success).toBe(true);
+
+      console.log('\n=== Checking where bold was applied ===');
+
+      function getAllText(element, path = '') {
+        const results = [];
+        if (element instanceof Y.XmlText) {
+          const delta = element.toDelta();
+          delta.forEach(op => {
+            results.push({
+              path,
+              text: op.insert,
+              bold: op.attributes && op.attributes.bold ? true : false,
+            });
+          });
+        } else if (element instanceof Y.XmlElement) {
+          for (let i = 0; i < element.length; i++) {
+            const child = element.get(i);
+            results.push(...getAllText(child, `${path}>${element.nodeName}[${i}]`));
+          }
+        }
+        return results;
+      }
+
+      // Check entire document
+      const allBlocks = mockXmlFragment.toArray();
+      console.log('\n--- All bold text in document ---');
+      allBlocks.forEach((block, i) => {
+        const textItems = getAllText(block, `block[${i}]:${block.nodeName}`);
+        textItems.forEach(item => {
+          if (item.bold) {
+            console.log(`  [BOLD] "${item.text}" at ${item.path}`);
+          }
+        });
+      });
+
+      // Collect all bold text
+      const allBoldText = [];
+      allBlocks.forEach(block => {
+        const textItems = getAllText(block, '');
+        textItems.forEach(item => {
+          if (item.bold) {
+            allBoldText.push(item.text);
+          }
+        });
+      });
+
+      const boldTextJoined = allBoldText.join('');
+      console.log('\nAll bold text:', boldTextJoined);
+
+      // Verify all three targets are bold
+      const expectedBoldParts = ['Introduction', 'this is the target', 'Third item'];
+      expectedBoldParts.forEach(expected => {
+        if (!boldTextJoined.includes(expected)) {
+          console.error(`ERROR: Expected "${expected}" to be bold, but it's not!`);
+          console.error('Actual bold text:', boldTextJoined);
+          throw new Error(`Bug reproduced - "${expected}" not bolded correctly`);
+        }
+      });
+
+      console.log('✓ Multiple format calls test passed');
+    } catch (error) {
+      console.error('Multiple format calls test error:', error.message);
+      console.error('Stack:', error.stack);
+      throw error;
+    }
+  });
 });

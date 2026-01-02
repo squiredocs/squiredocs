@@ -639,6 +639,33 @@ If you encounter database connection errors:
 - **Permission System**: Centralized RBAC enforcement (see `server/permissions.js`)
 - **UI Features**: Word processor-style editor with visible margins, share badges, and role-based UI
 
+### ⚠️ Common Pitfall: Y.XmlText Methods
+
+**CRITICAL:** When working with `Y.XmlText` nodes that may contain formatting (bold, italic, etc.), always use `toDelta()` to extract plain text, **never** `toString()`.
+
+```javascript
+// ❌ WRONG - toString() returns XML markup when text has formatting
+const text = xmlTextNode.toString();  // Returns "<bold>Hello</bold> world"
+
+// ✅ CORRECT - toDelta() returns plain text regardless of formatting
+const delta = xmlTextNode.toDelta();
+const text = delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');  // Returns "Hello world"
+```
+
+**Why this matters:**
+- `toString()` returns XML serialization like `<bold>text</bold>` when formatting is present
+- This causes incorrect text length calculations and position offsets
+- Results in formatting being applied at wrong locations or complete failures
+- Particularly affects `find` + `format` operations after text has been formatted
+
+**Where to check:**
+- Any function that traverses or counts text characters
+- Position/offset calculations in `cursor-operations.js`
+- Text extraction in `text-operations.js`
+- Find/search operations
+
+See `server/mcp/yjs/cursor-operations.js` (getAllText function) and `server/mcp/yjs/text-operations.js` (extractText function) for correct examples.
+
 ## UI/UX Features
 
 ### Editor Interface

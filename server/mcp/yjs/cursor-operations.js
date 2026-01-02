@@ -735,7 +735,11 @@ function getAllText(xmlFragment) {
 
   function traverse(node) {
     if (node instanceof Y.XmlText) {
-      text += node.toString();
+      // Use toDelta() to get plain text without XML markup
+      // toString() returns XML serialization when text has formatting marks
+      const delta = node.toDelta();
+      const plainText = delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
+      text += plainText;
     } else if (node instanceof Y.XmlElement) {
       const children = node.toArray();
       for (const child of children) {
