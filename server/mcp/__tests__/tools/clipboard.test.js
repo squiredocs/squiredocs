@@ -122,10 +122,10 @@ describe('Clipboard Tools', () => {
       // copiedLength may be 0 if extraction doesn't produce content, but clipboard should exist
       expect(result.clipboardId).toBeDefined();
       expect(mockSession.clipboard).toBeDefined();
-      expect(mockSession.clipboard.content).toBeDefined();
-      expect(Array.isArray(mockSession.clipboard.content)).toBe(true);
-      // Verify we have at least some structured content
-      expect(mockSession.clipboard.content.length).toBeGreaterThan(0);
+      expect(mockSession.clipboard.binary).toBeDefined();
+      expect(mockSession.clipboard.binary).toBeInstanceOf(Uint8Array);
+      // Verify we have content in the binary clipboard
+      expect(mockSession.clipboard.binary.length).toBeGreaterThan(0);
     });
 
     test('should return empty result when no selection exists', async () => {
@@ -249,9 +249,9 @@ describe('Clipboard Tools', () => {
       // cutLength may be 0 due to extraction issues, but clipboard should exist
       expect(result.clipboardId).toBeDefined();
       expect(mockSession.clipboard).toBeDefined();
-      // Verify clipboard has content
-      expect(mockSession.clipboard.content).toBeDefined();
-      expect(Array.isArray(mockSession.clipboard.content)).toBe(true);
+      // Verify clipboard has content in binary format
+      expect(mockSession.clipboard.binary).toBeDefined();
+      expect(mockSession.clipboard.binary).toBeInstanceOf(Uint8Array);
     });
 
     test('should return empty result when no selection exists', async () => {

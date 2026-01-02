@@ -7,7 +7,6 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition, createCursorPosition } = require('../yjs/cursor-operations');
-const { buildYjsNode } = require('../yjs/node-builder');
 const { deleteText, getElementTextLength } = require('../yjs/text-operations');
 
 // Persistence provider - set by init function
@@ -139,7 +138,7 @@ async function handler(args, agentToken) {
   }
 
   // Check if clipboard has content
-  if (!session.clipboard || !session.clipboard.content || session.clipboard.content.length === 0) {
+  if (!session.clipboard || !session.clipboard.binary) {
     return {
       success: true,
       clipboardEmpty: true,
@@ -162,7 +161,21 @@ async function handler(args, agentToken) {
     actualMode = hasSelection ? 'replace' : 'after';
   }
 
-  const clipboardContent = session.clipboard.content;
+  // Reconstruct clipboard document from binary
+  const clipboardDoc = new Y.Doc();
+  Y.applyUpdate(clipboardDoc, session.clipboard.binary);
+  const clipboardFragment = clipboardDoc.get('clipboard', Y.XmlFragment);
+  const clipboardNodes = clipboardFragment.toArray();
+
+  if (clipboardNodes.length === 0) {
+    return {
+      success: true,
+      clipboardEmpty: true,
+      pastedBlocks: 0,
+      pastedLength: 0,
+    };
+  }
+
   let replacedSelection = false;
   let pastePosition;
 
@@ -230,59 +243,94 @@ async function handler(args, agentToken) {
     throw new Error('Could not resolve paste position');
   }
 
+  // Helper: Deep clone a Yjs node
+  function cloneYjsNode(node) {
+    if (node instanceof Y.XmlText) {
+      const clone = new Y.XmlText();
+      const delta = node.toDelta();
+      let offset = 0;
+      for (const op of delta) {
+        if (typeof op.insert === 'string') {
+          clone.insert(offset, op.insert, op.attributes);
+          offset += op.insert.length;
+        }
+      }
+      return clone;
+    } else if (node instanceof Y.XmlElement) {
+      const clone = new Y.XmlElement(node.nodeName);
+
+      // Copy attributes
+      const attrs = node.getAttributes();
+      for (const [key, value] of Object.entries(attrs)) {
+        clone.setAttribute(key, value);
+      }
+
+      // Clone children recursively
+      const children = node.toArray();
+      const clonedChildren = children.map(child => cloneYjsNode(child));
+      if (clonedChildren.length > 0) {
+        clone.insert(0, clonedChildren);
+      }
+
+      return clone;
+    }
+    return null;
+  }
+
+  // Helper: Get text length from Yjs nodes
+  function getTextLength(node) {
+    let length = 0;
+
+    function traverse(n) {
+      if (n instanceof Y.XmlText) {
+        length += n.length;
+      } else if (n instanceof Y.XmlElement) {
+        for (const child of n.toArray()) {
+          traverse(child);
+        }
+      }
+    }
+
+    traverse(node);
+    return length;
+  }
+
   // Determine if we're pasting inline or as blocks
-  const isInlineContent = clipboardContent.length === 1 &&
-    (clipboardContent[0].type === 'paragraph' || clipboardContent[0].type === 'heading') &&
+  const isInlineContent = clipboardNodes.length === 1 &&
+    (clipboardNodes[0].nodeName === 'paragraph' || clipboardNodes[0].nodeName === 'heading') &&
     pasteResolved.offset > 0 &&
     pasteResolved.offset < getElementTextLength(xmlFragment.toArray()[pasteResolved.blockIndex]);
 
   let newCursorPos;
   let pastedLength = 0;
 
-  // Calculate pasted text length
-  function calculateTextLength(nodes) {
-    let length = 0;
-    for (const node of nodes) {
-      if (node.content) {
-        if (typeof node.content === 'string') {
-          length += node.content.length;
-        } else if (Array.isArray(node.content)) {
-          for (const item of node.content) {
-            if (typeof item === 'string') {
-              length += item.length;
-            } else if (item.text) {
-              length += item.text.length;
-            }
-          }
-        }
-      }
-      if (node.children) {
-        length += calculateTextLength(node.children);
-      }
-    }
-    return length;
+  // Calculate total pasted length
+  for (const node of clipboardNodes) {
+    pastedLength += getTextLength(node);
   }
-
-  pastedLength = calculateTextLength(clipboardContent);
 
   if (isInlineContent) {
     // Paste inline: insert text content into current block
     const block = xmlFragment.toArray()[pasteResolved.blockIndex];
-    const pasteContent = clipboardContent[0].content;
+    const sourceNode = clipboardNodes[0];
 
-    // Build text to insert
+    // Extract all text from the source node
     let textToInsert = '';
-    if (typeof pasteContent === 'string') {
-      textToInsert = pasteContent;
-    } else if (Array.isArray(pasteContent)) {
-      for (const item of pasteContent) {
-        if (typeof item === 'string') {
-          textToInsert += item;
-        } else if (item.text) {
-          textToInsert += item.text;
+    function extractText(node) {
+      if (node instanceof Y.XmlText) {
+        const delta = node.toDelta();
+        for (const op of delta) {
+          if (typeof op.insert === 'string') {
+            textToInsert += op.insert;
+          }
+        }
+      } else if (node instanceof Y.XmlElement) {
+        for (const child of node.toArray()) {
+          extractText(child);
         }
       }
     }
+    extractText(sourceNode);
 
     // Insert text at cursor position
     ydoc.transact(() => {
@@ -314,11 +362,8 @@ async function handler(args, agentToken) {
     newCursorPos = createCursorPosition(xmlFragment, pasteResolved.blockIndex, pasteResolved.offset + textToInsert.length);
   } else {
     // Paste as blocks: insert new blocks at cursor position
-    const blocks = xmlFragment.toArray();
-    const currentBlock = blocks[pasteResolved.blockIndex];
-
-    // Build Yjs nodes from clipboard content
-    const nodesToInsert = clipboardContent.map(node => buildYjsNode(node));
+    // Clone all nodes from clipboard
+    const nodesToInsert = clipboardNodes.map(node => cloneYjsNode(node));
 
     ydoc.transact(() => {
       if (pasteResolved.offset === 0 && actualMode === 'before') {
@@ -346,7 +391,7 @@ async function handler(args, agentToken) {
   return {
     success: true,
     clipboardEmpty: false,
-    pastedBlocks: clipboardContent.length,
+    pastedBlocks: clipboardNodes.length,
     pastedLength,
     replacedSelection,
     cursor: {

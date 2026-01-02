@@ -7,7 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition } = require('../yjs/cursor-operations');
-const { toStructured } = require('../yjs/serialization');
+const { toPlainText } = require('../yjs/serialization');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -93,18 +93,18 @@ const inputSchema = {
 };
 
 /**
- * Extract content between two cursor positions
+ * Extract content between two cursor positions as Yjs binary data
  * @param {Y.XmlFragment} xmlFragment - Document fragment
  * @param {object} anchorPos - Start position (RelativePosition JSON)
  * @param {object} headPos - End position (RelativePosition JSON)
- * @returns {Array} Array of structured nodes representing the copied content
+ * @returns {object} Object with clipboardDoc (Y.Doc) and metadata
  */
 function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
   const anchorResolved = resolveCursorPosition(xmlFragment, anchorPos);
   const headResolved = resolveCursorPosition(xmlFragment, headPos);
 
   if (!anchorResolved || !headResolved) {
-    return [];
+    return { clipboardDoc: null, blockCount: 0, textLength: 0 };
   }
 
   // Determine selection direction
@@ -115,26 +115,13 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
   const endResolved = isForward ? headResolved : anchorResolved;
 
   const blocks = xmlFragment.toArray();
-  const extractedBlocks = [];
 
-  // Helper: Clone a Yjs node to a temporary fragment for serialization
-  function cloneNodeToFragment(node) {
-    const tempDoc = new Y.Doc();
-    const tempFragment = tempDoc.get('temp', Y.XmlFragment);
+  // Create a temporary document to hold the clipboard content
+  const clipboardDoc = new Y.Doc();
+  const clipboardFragment = clipboardDoc.get('clipboard', Y.XmlFragment);
 
-    // Clone node using transactions to avoid access warnings
-    tempDoc.transact(() => {
-      const clone = cloneYjsNode(node, tempDoc);
-      if (clone) {
-        tempFragment.insert(0, [clone]);
-      }
-    });
-
-    return tempFragment;
-  }
-
-  // Helper: Deep clone a Yjs XmlElement or XmlText within a document context
-  function cloneYjsNode(node, doc) {
+  // Helper: Deep clone a Yjs XmlElement or XmlText
+  function cloneYjsNode(node) {
     if (node instanceof Y.XmlText) {
       const clone = new Y.XmlText();
       const delta = node.toDelta();
@@ -149,25 +136,17 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
     } else if (node instanceof Y.XmlElement) {
       const clone = new Y.XmlElement(node.nodeName);
 
-      // Copy attributes - access them before inserting into document
-      try {
-        const attrs = node.getAttributes();
-        for (const [key, value] of Object.entries(attrs)) {
-          clone.setAttribute(key, value);
-        }
-      } catch (e) {
-        // Ignore attribute access errors for nodes not yet in document
+      // Copy attributes
+      const attrs = node.getAttributes();
+      for (const [key, value] of Object.entries(attrs)) {
+        clone.setAttribute(key, value);
       }
 
       // Clone children recursively
-      try {
-        const children = node.toArray();
-        const clonedChildren = children.map(child => cloneYjsNode(child, doc));
-        if (clonedChildren.length > 0) {
-          clone.insert(0, clonedChildren);
-        }
-      } catch (e) {
-        // Ignore child access errors for nodes not yet in document
+      const children = node.toArray();
+      const clonedChildren = children.map(child => cloneYjsNode(child));
+      if (clonedChildren.length > 0) {
+        clone.insert(0, clonedChildren);
       }
 
       return clone;
@@ -177,8 +156,7 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
 
   // Helper: Extract partial text from a block
   function extractPartialBlock(block, startOffset, endOffset) {
-    const tempDoc = new Y.Doc();
-    const clone = cloneYjsNode(block, tempDoc);
+    const clone = cloneYjsNode(block);
 
     // Find and trim text nodes
     let currentOffset = 0;
@@ -194,7 +172,6 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
         const keepEnd = Math.min(length, trimEnd - nodeStart);
 
         if (keepEnd <= keepStart) {
-          // Nothing to keep from this node
           currentOffset += length;
           return null;
         }
@@ -210,7 +187,6 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
             const opStart = offset;
             const opEnd = offset + op.insert.length;
 
-            // Check if this delta op overlaps with our keep range
             const overlapStart = Math.max(opStart, keepStart);
             const overlapEnd = Math.min(opEnd, keepEnd);
 
@@ -281,15 +257,15 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
     return length;
   }
 
+  // Extract blocks into clipboard document
+  const nodesToCopy = [];
+
   if (startResolved.blockIndex === endResolved.blockIndex) {
     // Selection within a single block
     const block = blocks[startResolved.blockIndex];
     const partialBlock = extractPartialBlock(block, startResolved.offset, endResolved.offset);
-
     if (partialBlock) {
-      const tempFragment = cloneNodeToFragment(partialBlock);
-      const structured = toStructured(tempFragment);
-      extractedBlocks.push(...structured);
+      nodesToCopy.push(partialBlock);
     }
   } else {
     // Multi-block selection
@@ -298,33 +274,42 @@ function extractContentBetweenPositions(xmlFragment, anchorPos, headPos) {
     const firstBlock = blocks[startResolved.blockIndex];
     const firstBlockLength = getBlockTextLength(firstBlock);
     const firstPartial = extractPartialBlock(firstBlock, startResolved.offset, firstBlockLength);
-
     if (firstPartial) {
-      const tempFragment = cloneNodeToFragment(firstPartial);
-      const structured = toStructured(tempFragment);
-      extractedBlocks.push(...structured);
+      nodesToCopy.push(firstPartial);
     }
 
     // Middle blocks (complete)
     for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
       const block = blocks[i];
-      const tempFragment = cloneNodeToFragment(block);
-      const structured = toStructured(tempFragment);
-      extractedBlocks.push(...structured);
+      const clone = cloneYjsNode(block);
+      if (clone) {
+        nodesToCopy.push(clone);
+      }
     }
 
     // Last block (partial)
     const lastBlock = blocks[endResolved.blockIndex];
     const lastPartial = extractPartialBlock(lastBlock, 0, endResolved.offset);
-
     if (lastPartial) {
-      const tempFragment = cloneNodeToFragment(lastPartial);
-      const structured = toStructured(tempFragment);
-      extractedBlocks.push(...structured);
+      nodesToCopy.push(lastPartial);
     }
   }
 
-  return extractedBlocks;
+  // Insert all nodes into clipboard fragment in a single transaction
+  clipboardDoc.transact(() => {
+    if (nodesToCopy.length > 0) {
+      clipboardFragment.insert(0, nodesToCopy);
+    }
+  });
+
+  // Calculate text length for metadata
+  const textLength = toPlainText(clipboardFragment).length;
+
+  return {
+    clipboardDoc,
+    blockCount: nodesToCopy.length,
+    textLength,
+  };
 }
 
 /**
@@ -379,54 +364,42 @@ async function handler(args, agentToken) {
     };
   }
 
-  // Extract selected content
-  const extractedContent = extractContentBetweenPositions(xmlFragment, anchorPos, headPos);
+  // Extract selected content as Yjs document
+  const { clipboardDoc, blockCount, textLength } = extractContentBetweenPositions(xmlFragment, anchorPos, headPos);
+
+  if (!clipboardDoc || blockCount === 0) {
+    return {
+      success: true,
+      hasSelection: false,
+      copiedBlocks: 0,
+      copiedLength: 0,
+      contentPreview: '',
+    };
+  }
 
   // Generate clipboard ID
   const clipboardId = `clipboard-${userId}-${Date.now()}`;
 
+  // Encode the clipboard document as binary updates for storage
+  const clipboardBinary = Y.encodeStateAsUpdate(clipboardDoc);
+
+  // Get plain text for preview
+  const clipboardFragment = clipboardDoc.get('clipboard', Y.XmlFragment);
+  const plainText = toPlainText(clipboardFragment);
+  const contentPreview = plainText.substring(0, 100);
+
   // Store in session
   session.clipboard = {
     id: clipboardId,
-    content: extractedContent,
+    binary: clipboardBinary, // Store as Uint8Array
     copiedAt: Date.now(),
   };
-
-  // Calculate statistics
-  const copiedBlocks = extractedContent.length;
-
-  // Get plain text for preview and length
-  let plainText = '';
-  function extractPlainText(nodes) {
-    for (const node of nodes) {
-      if (node.content) {
-        if (typeof node.content === 'string') {
-          plainText += node.content;
-        } else if (Array.isArray(node.content)) {
-          for (const item of node.content) {
-            if (typeof item === 'string') {
-              plainText += item;
-            } else if (item.text) {
-              plainText += item.text;
-            }
-          }
-        }
-      }
-      if (node.children) {
-        extractPlainText(node.children);
-      }
-    }
-  }
-  extractPlainText(extractedContent);
-
-  const copiedLength = plainText.length;
-  const contentPreview = plainText.substring(0, 100);
 
   return {
     success: true,
     hasSelection: true,
-    copiedBlocks,
-    copiedLength,
+    copiedBlocks: blockCount,
+    copiedLength: textLength,
     contentPreview: contentPreview + (plainText.length > 100 ? '...' : ''),
     clipboardId,
   };
