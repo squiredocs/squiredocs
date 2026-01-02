@@ -7,7 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { resolveCursorPosition, moveCursor, getTextInSelection } = require('../yjs/cursor-operations');
-const { deleteText } = require('../yjs/text-operations');
+const { deleteText, getElementTextLength } = require('../yjs/text-operations');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -102,15 +102,47 @@ async function handler(args, agentToken) {
     const anchorResolved = resolveCursorPosition(xmlFragment, anchorPos);
     const headResolved = resolveCursorPosition(xmlFragment, headPos);
 
+    if (!anchorResolved || !headResolved) {
+      throw new Error('Could not resolve selection positions');
+    }
+
     const isForward = anchorResolved.blockIndex < headResolved.blockIndex ||
       (anchorResolved.blockIndex === headResolved.blockIndex && anchorResolved.offset < headResolved.offset);
 
     const startResolved = isForward ? anchorResolved : headResolved;
     const endResolved = isForward ? headResolved : anchorResolved;
 
+    const blocks = xmlFragment.toArray();
+
     ydoc.transact(() => {
-      deleteText(xmlFragment, startResolved.blockIndex, startResolved.offset,
-        endResolved.blockIndex, endResolved.offset);
+      if (startResolved.blockIndex === endResolved.blockIndex) {
+        // Single-block deletion
+        const block = blocks[startResolved.blockIndex];
+        deleteText(block, startResolved.offset, endResolved.offset);
+      } else {
+        // Multi-block deletion
+        // Delete from start position to end of first block
+        const startBlock = blocks[startResolved.blockIndex];
+        const startBlockLength = getElementTextLength(startBlock);
+        if (startResolved.offset < startBlockLength) {
+          deleteText(startBlock, startResolved.offset, startBlockLength);
+        }
+
+        // Delete complete blocks in between
+        for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
+          xmlFragment.delete(startResolved.blockIndex + 1, 1);
+        }
+
+        // Delete from start of last block to end position
+        // Note: block index shifts after deletions, so we need to recalculate
+        const adjustedEndBlockIndex = startResolved.blockIndex + 1;
+        if (adjustedEndBlockIndex < xmlFragment.length) {
+          const endBlock = xmlFragment.get(adjustedEndBlockIndex);
+          if (endResolved.offset > 0) {
+            deleteText(endBlock, 0, endResolved.offset);
+          }
+        }
+      }
     }, undoManager);
 
     // Cursor at deletion point
@@ -163,9 +195,40 @@ async function handler(args, agentToken) {
     const startResolved = resolveCursorPosition(xmlFragment, startPos);
     const endResolved = resolveCursorPosition(xmlFragment, endPos);
 
+    if (!startResolved || !endResolved) {
+      throw new Error('Could not resolve deletion positions');
+    }
+
+    const blocks = xmlFragment.toArray();
+
     ydoc.transact(() => {
-      deleteText(xmlFragment, startResolved.blockIndex, startResolved.offset,
-        endResolved.blockIndex, endResolved.offset);
+      if (startResolved.blockIndex === endResolved.blockIndex) {
+        // Single-block deletion
+        const block = blocks[startResolved.blockIndex];
+        deleteText(block, startResolved.offset, endResolved.offset);
+      } else {
+        // Multi-block deletion
+        // Delete from start position to end of first block
+        const startBlock = blocks[startResolved.blockIndex];
+        const startBlockLength = getElementTextLength(startBlock);
+        if (startResolved.offset < startBlockLength) {
+          deleteText(startBlock, startResolved.offset, startBlockLength);
+        }
+
+        // Delete complete blocks in between
+        for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
+          xmlFragment.delete(startResolved.blockIndex + 1, 1);
+        }
+
+        // Delete from start of last block to end position
+        const adjustedEndBlockIndex = startResolved.blockIndex + 1;
+        if (adjustedEndBlockIndex < xmlFragment.length) {
+          const endBlock = xmlFragment.get(adjustedEndBlockIndex);
+          if (endResolved.offset > 0) {
+            deleteText(endBlock, 0, endResolved.offset);
+          }
+        }
+      }
     }, undoManager);
 
     newCursorPos = startPos;
