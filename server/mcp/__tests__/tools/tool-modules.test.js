@@ -37,6 +37,9 @@ describe('Tool Module Smoke Tests', () => {
     'format',
     'insert-block',
     'set-block-type',
+    'indent-block',
+    'outdent-block',
+    'nest-block',
     'undo',
     'redo',
   ];
@@ -205,6 +208,7 @@ describe('Tool Registry Integration', () => {
       'set_block_type',
       'indent_block',
       'outdent_block',
+      'nest_block',
       'undo',
       'redo',
     ];

@@ -32,6 +32,7 @@ const redo = require('./redo');
 // V2 hierarchy manipulation tools
 const indentBlock = require('./indent-block');
 const outdentBlock = require('./outdent-block');
+const nestBlock = require('./nest-block');
 
 const agentPresence = require('../agent-presence');
 
@@ -65,6 +66,7 @@ const tools = {
   // V2 hierarchy manipulation tools
   indent_block: indentBlock,
   outdent_block: outdentBlock,
+  nest_block: nestBlock,
 };
 
 /**
