@@ -34,6 +34,11 @@ const indentBlock = require('./indent-block');
 const outdentBlock = require('./outdent-block');
 const nestBlock = require('./nest-block');
 
+// Clipboard tools
+const copySelection = require('./copy-selection');
+const paste = require('./paste');
+const cutSelection = require('./cut-selection');
+
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
 // All available tools
@@ -67,6 +72,11 @@ const tools = {
   indent_block: indentBlock,
   outdent_block: outdentBlock,
   nest_block: nestBlock,
+
+  // Clipboard tools
+  copy_selection: copySelection,
+  paste: paste,
+  cut_selection: cutSelection,
 };
 
 /**

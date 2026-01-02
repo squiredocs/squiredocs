@@ -42,6 +42,11 @@ describe('Tool Module Smoke Tests', () => {
     'nest-block',
     'undo',
     'redo',
+
+    // Clipboard tools
+    'copy-selection',
+    'paste',
+    'cut-selection',
   ];
 
   describe('Module Loading', () => {
@@ -211,6 +216,10 @@ describe('Tool Registry Integration', () => {
       'nest_block',
       'undo',
       'redo',
+      // Clipboard tools
+      'copy_selection',
+      'paste',
+      'cut_selection',
     ];
 
     // Check each tool is registered

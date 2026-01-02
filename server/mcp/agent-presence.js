@@ -194,6 +194,7 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         createdAt: Date.now(),
         cursor: null,            // Will be initialized after connection
         undoManager: null,       // Will be created after connection
+        clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
       });
 
@@ -486,6 +487,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
         createdAt: Date.now(),
         cursor: null,            // Will be initialized after connection
         undoManager: null,       // Will be created after connection
+        clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
       });
 

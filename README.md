@@ -227,6 +227,11 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `select` - Create selections (word, block, all, to block start/end, none)
 - `get_selection` - Query current cursor position and selection
 
+**Clipboard:**
+- `copy_selection` - Copy current selection to clipboard
+- `paste` - Paste clipboard content at cursor position
+- `cut_selection` - Cut selection to clipboard (copy + delete)
+
 **Reading:**
 - `read_document` - Read entire document or specific blocks
 - `read_context` - Get text around cursor position
@@ -317,13 +322,21 @@ await insert_block({
   // autoListItem defaults to true - automatically wraps in listItem
 });
 
-// 5. Close when done
+// 5. Copy and paste content
+await select({ docGuid: "abc-123", mode: "block" });
+await copy_selection({ docGuid: "abc-123" });
+await goto({ docGuid: "abc-123", target: { type: "document_end" } });
+await paste({ docGuid: "abc-123", mode: "after" });
+
+// 6. Close when done
 await close_document({ docGuid: "abc-123" });
 
 // Natural language examples:
 "Open the document and find the word 'TODO'"
 "Select the current paragraph and make it bold"
 "Go to the end and add a new heading 'Conclusion'"
+"Copy the current section and paste it at the end"
+"Move the introduction to the end of the document"
 "Undo the last change"
 
 ## Hierarchical Document Editing
