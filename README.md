@@ -5,7 +5,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 ## Features
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
-- **AI Agent Integration**: Model Context Protocol (MCP) support with 23 tools for AI-powered document editing including hierarchical content manipulation
+- **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing including hierarchical content manipulation
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions of documents
@@ -199,7 +199,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 ### Features
 
 - **Cursor-based editing API** - Natural editing with persistent cursor state
-- **21 MCP tools** for comprehensive document operations including hierarchical editing
+- **Comprehensive MCP tools** for document operations including hierarchical editing
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
@@ -242,6 +242,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 **Hierarchy & Structure:**
 - `indent_block` - Move current block into previous sibling's children (create hierarchy)
 - `outdent_block` - Move current block up one level (reduce nesting)
+- `nest_block` - Insert a new block nested under a specific parent path
 
 **History:**
 - `undo` - Undo last operation
@@ -343,12 +344,6 @@ await nest_block({
 });
 ```
 
-**Add items to existing lists:**
-```javascript
-// Extend an existing list instead of creating a new one
-await add_list_item({ docGuid: "abc-123", content: "Additional list item" });
-```
-
 ### Restructuring Content
 
 **Indent/outdent blocks to change hierarchy:**
@@ -382,7 +377,7 @@ await insert_block({ docGuid: "abc-123", position: "after", type: "heading", att
 // 3. Add nested content under Objectives
 await goto({ docGuid: "abc-123", target: { type: "block", index: 1 } }); // Go to Objectives heading
 await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Increase user engagement" });
-await add_list_item({ docGuid: "abc-123", content: "Improve performance metrics" });
+await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Improve performance metrics" });
 
 // 4. Create sub-list under first objective
 await nest_block({
@@ -400,7 +395,6 @@ await nest_block({
 ```
 
 This enables AI agents to create professional documents with proper hierarchical structure, including nested lists, subsections, and complex content organization.
-```
 
 ## Programmatically Updating Documents
 

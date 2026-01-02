@@ -6,7 +6,7 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { resolveCursorPosition, moveCursor, getTextInSelection } = require('../yjs/cursor-operations');
+const { resolveCursorPosition, moveCursor, getTextInSelection, createCursorPosition } = require('../yjs/cursor-operations');
 const { deleteText, getElementTextLength } = require('../yjs/text-operations');
 
 // Persistence provider - set by init function
@@ -158,6 +158,40 @@ async function handler(args, agentToken) {
       // Move backward to find start
       const moveResult = moveCursor(xmlFragment, headPos, 'backward', unit, count);
       if (!moveResult || moveResult.movedCount === 0) {
+        // Special case: if unit is 'block' and current block is empty, delete the block itself
+        if (unit === 'block') {
+          const blocks = xmlFragment.toArray();
+          const currentBlock = blocks[currentResolved.blockIndex];
+          const blockLength = getElementTextLength(currentBlock);
+
+          if (blockLength === 0 && blocks.length > 1) {
+            // Block is empty and we have other blocks, delete it
+            ydoc.transact(() => {
+              xmlFragment.delete(currentResolved.blockIndex, 1);
+            }, undoManager);
+
+            // Move cursor to previous block or next block
+            const newBlockIndex = currentResolved.blockIndex > 0
+              ? currentResolved.blockIndex - 1
+              : 0;
+            newCursorPos = createCursorPosition(xmlFragment, newBlockIndex, 0);
+            agentPresence.updateSessionCursor(session.sessionId, newCursorPos, newCursorPos);
+
+            const newResolved = resolveCursorPosition(xmlFragment, newCursorPos);
+            return {
+              success: true,
+              deletedText: '',
+              deletedLength: 0,
+              deletedBlock: true,
+              cursor: {
+                block: newResolved.blockIndex,
+                offset: newResolved.offset,
+                blockType: newResolved.blockType,
+              },
+            };
+          }
+        }
+
         return {
           success: true,
           deletedText: '',
@@ -175,6 +209,40 @@ async function handler(args, agentToken) {
       // Move forward to find end
       const moveResult = moveCursor(xmlFragment, headPos, 'forward', unit, count);
       if (!moveResult || moveResult.movedCount === 0) {
+        // Special case: if unit is 'block' and current block is empty, delete the block itself
+        if (unit === 'block') {
+          const blocks = xmlFragment.toArray();
+          const currentBlock = blocks[currentResolved.blockIndex];
+          const blockLength = getElementTextLength(currentBlock);
+
+          if (blockLength === 0 && blocks.length > 1) {
+            // Block is empty and we have other blocks, delete it
+            ydoc.transact(() => {
+              xmlFragment.delete(currentResolved.blockIndex, 1);
+            }, undoManager);
+
+            // Move cursor to previous block or next block
+            const newBlockIndex = currentResolved.blockIndex > 0
+              ? currentResolved.blockIndex - 1
+              : 0;
+            newCursorPos = createCursorPosition(xmlFragment, newBlockIndex, 0);
+            agentPresence.updateSessionCursor(session.sessionId, newCursorPos, newCursorPos);
+
+            const newResolved = resolveCursorPosition(xmlFragment, newCursorPos);
+            return {
+              success: true,
+              deletedText: '',
+              deletedLength: 0,
+              deletedBlock: true,
+              cursor: {
+                block: newResolved.blockIndex,
+                offset: newResolved.offset,
+                blockType: newResolved.blockType,
+              },
+            };
+          }
+        }
+
         return {
           success: true,
           deletedText: '',
