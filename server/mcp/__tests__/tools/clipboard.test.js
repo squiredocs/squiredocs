@@ -327,4 +327,165 @@ describe('Clipboard Tools', () => {
       expect(result).toHaveProperty('cursor');
     });
   });
+
+  describe('Error Handling and Edge Cases', () => {
+    test('cut handles multi-block deletion without cursor errors', async () => {
+      // Create multi-block content (heading + list)
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', 2);
+      const headingText = new Y.XmlText();
+      headingText.insert(0, 'Test Heading');
+      heading.insert(0, [headingText]);
+
+      const bulletList = new Y.XmlElement('bulletList');
+      const listItem = new Y.XmlElement('listItem');
+      const listPara = new Y.XmlElement('paragraph');
+      const listText = new Y.XmlText();
+      listText.insert(0, 'List item text');
+      listPara.insert(0, [listText]);
+      listItem.insert(0, [listPara]);
+      bulletList.insert(0, [listItem]);
+
+      mockXmlFragment.insert(2, [heading, bulletList]);
+
+      // Select both blocks (blocks 2-3)
+      const headingTextNode = mockXmlFragment.get(2).toArray()[0];
+      const listTextNode = mockXmlFragment.get(3).toArray()[0].toArray()[0].toArray()[0];
+
+      const anchorPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(headingTextNode, 0)
+      );
+      const headPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(listTextNode, listText.length)
+      );
+
+      mockSession.cursor = { anchor: anchorPos, head: headPos };
+
+      // Cut should succeed without errors
+      const result = await cutSelection.handler(
+        { docGuid: testDocGuid },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.hasSelection).toBe(true);
+      expect(result.cutBlocks).toBe(2);
+      expect(result.cursor).toBeDefined();
+      expect(result.cursor.block).toBeDefined();
+      expect(result.cursor.offset).toBeDefined();
+
+      // Verify blocks were deleted
+      expect(mockXmlFragment.length).toBe(2); // Back to original 2 paragraphs
+    });
+
+    test('delete operation creates valid cursor after multi-block deletion', async () => {
+      // Import delete tool
+      const deleteOp = require('../../tools/delete');
+      deleteOp.init(mockPersistence);
+
+      // Create multi-block content
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', 2);
+      const headingText = new Y.XmlText();
+      headingText.insert(0, 'Heading to delete');
+      heading.insert(0, [headingText]);
+
+      mockXmlFragment.insert(2, [heading]);
+
+      // Select blocks 2 (new heading)
+      const block2Text = mockXmlFragment.get(2).toArray()[0];
+      const anchorPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(block2Text, 0)
+      );
+      const headPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(block2Text, headingText.length)
+      );
+
+      mockSession.cursor = { anchor: anchorPos, head: headPos };
+
+      // Delete should succeed and return valid cursor
+      const result = await deleteOp.handler(
+        { docGuid: testDocGuid },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.cursor).toBeDefined();
+      expect(result.cursor.block).toBeGreaterThanOrEqual(0);
+      expect(result.cursor.offset).toBeGreaterThanOrEqual(0);
+      expect(result.cursor.blockType).toBeDefined();
+    });
+
+    test('cut with complex nested list structure preserves all content', async () => {
+      // Create complex nested structure (orderedList with nested bulletList)
+      const orderedList = new Y.XmlElement('orderedList');
+
+      for (let i = 0; i < 3; i++) {
+        const listItem = new Y.XmlElement('listItem');
+        const para = new Y.XmlElement('paragraph');
+        const text = new Y.XmlText();
+        text.insert(0, `Item ${i + 1} main text`);
+        para.insert(0, [text]);
+
+        // Add nested bulletList
+        const nestedList = new Y.XmlElement('bulletList');
+        const nestedItem = new Y.XmlElement('listItem');
+        const nestedPara = new Y.XmlElement('paragraph');
+        const nestedText = new Y.XmlText();
+        nestedText.insert(0, `Nested item ${i + 1}`);
+        nestedPara.insert(0, [nestedText]);
+        nestedItem.insert(0, [nestedPara]);
+        nestedList.insert(0, [nestedItem]);
+
+        listItem.insert(0, [para, nestedList]);
+        orderedList.insert(i, [listItem]);
+      }
+
+      mockXmlFragment.insert(2, [orderedList]);
+
+      // Select the ordered list
+      const firstItemText = mockXmlFragment.get(2).toArray()[0].toArray()[0].toArray()[0];
+      const lastItemText = mockXmlFragment.get(2).toArray()[2].toArray()[1].toArray()[0].toArray()[0].toArray()[0];
+
+      const anchorPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(firstItemText, 0)
+      );
+      const headPos = Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(lastItemText, lastItemText.length)
+      );
+
+      mockSession.cursor = { anchor: anchorPos, head: headPos };
+
+      // Cut and paste
+      const cutResult = await cutSelection.handler(
+        { docGuid: testDocGuid },
+        mockAgentToken
+      );
+
+      expect(cutResult.success).toBe(true);
+      expect(cutResult.cutBlocks).toBe(1);
+      expect(mockSession.clipboard.binary).toBeDefined();
+
+      // Paste and verify structure
+      const pasteResult = await paste.handler(
+        { docGuid: testDocGuid },
+        mockAgentToken
+      );
+
+      expect(pasteResult.success).toBe(true);
+      expect(pasteResult.pastedBlocks).toBe(1);
+
+      // Verify the pasted list has all 3 items with nested lists
+      const pastedList = mockXmlFragment.get(2);
+      expect(pastedList.nodeName).toBe('orderedList');
+      expect(pastedList.toArray().length).toBe(3);
+
+      // Verify each item has nested content
+      for (let i = 0; i < 3; i++) {
+        const item = pastedList.toArray()[i];
+        expect(item.toArray().length).toBe(2); // paragraph + bulletList
+        expect(item.toArray()[1].nodeName).toBe('bulletList');
+      }
+    });
+  });
 });

@@ -128,7 +128,17 @@ async function handler(args, agentToken) {
     }, undoManager);
 
     // Cursor at deletion point
-    newCursorPos = isForward ? anchorPos : headPos;
+    // For multi-block deletion, create a new cursor at the deletion point
+    // (old cursor positions point to deleted blocks and can't be resolved)
+    if (startResolved.blockIndex !== endResolved.blockIndex) {
+      // Multi-block: position cursor at start of where blocks were deleted
+      // But ensure the index is within bounds after deletion
+      const safeBlockIndex = Math.min(startResolved.blockIndex, Math.max(0, xmlFragment.length - 1));
+      newCursorPos = createCursorPosition(xmlFragment, safeBlockIndex, 0);
+    } else {
+      // Single-block: use original cursor position
+      newCursorPos = isForward ? anchorPos : headPos;
+    }
   } else {
     // Delete by direction/unit/count
     const currentResolved = resolveCursorPosition(xmlFragment, headPos);
@@ -337,6 +347,22 @@ async function handler(args, agentToken) {
   agentPresence.updateSessionCursor(session.sessionId, newCursorPos, newCursorPos);
 
   const newResolved = resolveCursorPosition(xmlFragment, newCursorPos);
+
+  // Safety check: if cursor can't be resolved, position at document start
+  if (!newResolved) {
+    const fallbackPos = createCursorPosition(xmlFragment, 0, 0);
+    agentPresence.updateSessionCursor(session.sessionId, fallbackPos, fallbackPos);
+    return {
+      success: true,
+      deletedText,
+      deletedLength: deletedText.length,
+      cursor: {
+        block: 0,
+        offset: 0,
+        blockType: xmlFragment.length > 0 ? xmlFragment.get(0).nodeName : 'paragraph',
+      },
+    };
+  }
 
   return {
     success: true,
