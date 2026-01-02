@@ -92,9 +92,42 @@ async function handler(args, agentToken) {
   const startResolved = isForward ? anchorResolved : headResolved;
   const endResolved = isForward ? headResolved : anchorResolved;
 
+  // Convert blockIndex/offset to absolute positions within xmlFragment
+  const blocks = xmlFragment.toArray();
+
+  // Helper to get text length of a block
+  function getBlockTextLength(block) {
+    let length = 0;
+    function traverse(node) {
+      if (node instanceof Y.XmlText) {
+        length += node.length;
+      } else if (node instanceof Y.XmlElement) {
+        const children = node.toArray();
+        for (const child of children) {
+          traverse(child);
+        }
+      }
+    }
+    traverse(block);
+    return length;
+  }
+
+  // Calculate absolute start position
+  let startAbsPos = 0;
+  for (let i = 0; i < startResolved.blockIndex; i++) {
+    startAbsPos += getBlockTextLength(blocks[i]);
+  }
+  startAbsPos += startResolved.offset;
+
+  // Calculate absolute end position
+  let endAbsPos = 0;
+  for (let i = 0; i < endResolved.blockIndex; i++) {
+    endAbsPos += getBlockTextLength(blocks[i]);
+  }
+  endAbsPos += endResolved.offset;
+
   ydoc.transact(() => {
-    applyMarks(xmlFragment, startResolved.blockIndex, startResolved.offset,
-      endResolved.blockIndex, endResolved.offset, add, remove, link);
+    applyMarks(xmlFragment, startAbsPos, endAbsPos, add, remove, link);
   }, undoManager);
 
   return {

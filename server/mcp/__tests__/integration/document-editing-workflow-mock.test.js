@@ -245,4 +245,68 @@ describe('Document Editing Workflow - Mock Test', () => {
       throw error;
     }
   });
+
+  test('6. format should actually apply marks to text (regression test)', async () => {
+    try {
+      // First, select some text
+      const selectResult = await select.handler(
+        {
+          docGuid: testDocGuid,
+          mode: 'word',
+        },
+        mockAgentToken
+      );
+
+      expect(selectResult.success).toBe(true);
+      expect(selectResult.selection).toBeDefined();
+      const selectedText = selectResult.selection.text;
+
+      // Apply bold formatting
+      const formatResult = await format.handler(
+        {
+          docGuid: testDocGuid,
+          add: ['bold'],
+        },
+        mockAgentToken
+      );
+
+      console.log('format result:', JSON.stringify(formatResult, null, 2));
+
+      expect(formatResult).toBeDefined();
+      expect(formatResult.success).toBe(true);
+
+      // CRITICAL: Verify that the formatting was actually applied in the Yjs document
+      // This checks the actual document structure, not just the return value
+      const blocks = mockXmlFragment.toArray();
+      let foundFormattedText = false;
+
+      // Search through all blocks and text nodes to find the formatted text
+      for (const block of blocks) {
+        if (block instanceof Y.XmlElement) {
+          const children = block.toArray();
+          for (const child of children) {
+            if (child instanceof Y.XmlText) {
+              const delta = child.toDelta();
+              // Check if any delta segment has bold formatting and matches our selected text
+              for (const op of delta) {
+                if (op.attributes && op.attributes.bold && op.insert.includes(selectedText)) {
+                  foundFormattedText = true;
+                  console.log('✓ Found formatted text in delta:', op);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (foundFormattedText) break;
+      }
+
+      expect(foundFormattedText).toBe(true);
+      console.log('✓ Format test passed - bold marks were actually applied to the document');
+    } catch (error) {
+      console.error('format error:', error.message);
+      console.error('Stack:', error.stack);
+      throw error;
+    }
+  });
 });
