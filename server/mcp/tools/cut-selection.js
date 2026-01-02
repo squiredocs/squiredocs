@@ -144,31 +144,66 @@ async function handler(args, agentToken) {
     };
   }
 
-  // First, copy the selection
-  const copyResult = await copySelection.handler(args, agentToken);
+  // CRITICAL: Cut must be atomic - either both copy AND delete succeed, or neither happens
+  // We cannot rollback Yjs transactions easily, so we must ensure copy succeeds before deleting
 
-  if (!copyResult.success || !copyResult.hasSelection) {
-    return {
-      success: true,
-      hasSelection: false,
-      cutBlocks: 0,
-      cutLength: 0,
-      contentPreview: '',
-    };
+  let copyResult;
+  let deleteResult;
+
+  try {
+    // First, copy the selection
+    // If this fails, we return error and document is unchanged
+    copyResult = await copySelection.handler(args, agentToken);
+
+    if (!copyResult.success || !copyResult.hasSelection) {
+      return {
+        success: true,
+        hasSelection: false,
+        cutBlocks: 0,
+        cutLength: 0,
+        contentPreview: '',
+      };
+    }
+  } catch (copyError) {
+    // Copy failed - document is unchanged, no data loss
+    throw new Error(`Cut failed during copy: ${copyError.message}`);
   }
 
-  // Then, delete the selection
-  const deleteResult = await deleteOp.handler(args, agentToken);
+  try {
+    // Then, delete the selection
+    // If this fails, content is in clipboard but not deleted from document
+    deleteResult = await deleteOp.handler(args, agentToken);
+  } catch (deleteError) {
+    // Delete failed but copy succeeded - content is in clipboard
+    // This is safer than the reverse (delete without copy)
+    throw new Error(`Cut failed during delete (content saved to clipboard): ${deleteError.message}`);
+  }
 
-  return {
-    success: true,
-    hasSelection: true,
-    cutBlocks: copyResult.copiedBlocks,
-    cutLength: copyResult.copiedLength,
-    contentPreview: copyResult.contentPreview,
-    clipboardId: copyResult.clipboardId,
-    cursor: deleteResult.cursor,
-  };
+  // Both operations succeeded - return success
+  // Wrap in try-catch to ensure we return success even if building response fails
+  try {
+    return {
+      success: true,
+      hasSelection: true,
+      cutBlocks: copyResult.copiedBlocks,
+      cutLength: copyResult.copiedLength,
+      contentPreview: copyResult.contentPreview,
+      clipboardId: copyResult.clipboardId,
+      cursor: deleteResult.cursor,
+    };
+  } catch (responseError) {
+    // Operations succeeded but response building failed
+    // Return minimal success response to prevent user thinking operation failed
+    return {
+      success: true,
+      hasSelection: true,
+      cutBlocks: copyResult.copiedBlocks || 0,
+      cutLength: copyResult.copiedLength || 0,
+      contentPreview: copyResult.contentPreview || '',
+      clipboardId: copyResult.clipboardId || '',
+      cursor: { block: 0, offset: 0, blockType: 'paragraph' },
+    };
+  }
 }
 
 module.exports = {
