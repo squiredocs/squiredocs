@@ -6,7 +6,7 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { resolveCursorPosition } = require('../yjs/cursor-operations');
+const { resolveCursorPosition, createCursorPosition } = require('../yjs/cursor-operations');
 const { buildYjsNode } = require('../yjs/node-builder');
 
 let persistenceProvider = null;
@@ -100,25 +100,47 @@ async function handler(args, agentToken) {
   const content = extractContent(currentBlock);
 
   // Build new block with same content
-  const newBlock = buildYjsNode({
-    type,
-    ...attributes,
-    content,
-  });
+  let newBlock;
+
+  if (type === 'bulletList' || type === 'orderedList') {
+    // Lists MUST have at least one listItem child
+    newBlock = buildYjsNode({
+      type,
+      ...attributes,
+      children: [
+        {
+          type: 'listItem',
+          content,
+        },
+      ],
+    });
+  } else {
+    newBlock = buildYjsNode({
+      type,
+      ...attributes,
+      content,
+    });
+  }
 
   ydoc.transact(() => {
     xmlFragment.delete(blockIndex, 1);
     xmlFragment.insert(blockIndex, [newBlock]);
   }, undoManager);
 
+  // Update cursor position to point inside the new block
+  const newPos = createCursorPosition(xmlFragment, blockIndex, Math.min(currentResolved.offset, 0));
+  agentPresence.updateSessionCursor(session.sessionId, newPos, newPos);
+
+  const newResolved = resolveCursorPosition(xmlFragment, newPos);
+
   return {
     success: true,
     previousType,
     newType: type,
     cursor: {
-      block: blockIndex,
-      offset: currentResolved.offset,
-      blockType: type,
+      block: newResolved.blockIndex,
+      offset: newResolved.offset,
+      blockType: newResolved.blockType,
     },
   };
 }

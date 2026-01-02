@@ -82,11 +82,27 @@ async function handler(args, agentToken) {
   const currentBlockIndex = currentResolved.blockIndex;
 
   // Build node specification
-  const nodeSpec = {
-    type,
-    ...attributes,
-    content: content ? [{ type: 'text', text: content }] : [],
-  };
+  let nodeSpec;
+
+  if (type === 'bulletList' || type === 'orderedList') {
+    // Lists MUST have at least one listItem child
+    nodeSpec = {
+      type,
+      ...attributes,
+      children: [
+        {
+          type: 'listItem',
+          content: content ? [{ type: 'text', text: content }] : [],
+        },
+      ],
+    };
+  } else {
+    nodeSpec = {
+      type,
+      ...attributes,
+      content: content ? [{ type: 'text', text: content }] : [],
+    };
+  }
 
   // Build Yjs node
   const newBlock = buildYjsNode(nodeSpec);

@@ -511,6 +511,134 @@ describe('Document Editing Workflow Integration Test', () => {
       console.log('✓ delete by direction succeeded');
     }, 10000);
 
+    test('insert_block with bulletList should succeed', async () => {
+      // Test inserting a bulletList block (reproduces reported bug)
+      const insertBlock = toolRegistry.getTool('insert_block');
+      const insert = toolRegistry.getTool('insert');
+
+      // First insert some content
+      await insert.handler(
+        {
+          docGuid: testDocGuid,
+          text: 'Before list',
+        },
+        mockAgentToken
+      );
+
+      // Insert a bulletList after current block
+      const result = await insertBlock.handler(
+        {
+          docGuid: testDocGuid,
+          position: 'after',
+          type: 'bulletList',
+          content: 'First bullet item',
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.newBlockIndex).toBeDefined();
+      expect(result.cursor).toBeDefined();
+
+      console.log('✓ insert_block with bulletList succeeded');
+    }, 10000);
+
+    test('insert_block with orderedList should succeed', async () => {
+      // Test inserting an orderedList block (reproduces reported bug)
+      const insertBlock = toolRegistry.getTool('insert_block');
+      const insert = toolRegistry.getTool('insert');
+
+      // First insert some content
+      await insert.handler(
+        {
+          docGuid: testDocGuid,
+          text: 'Before numbered list',
+        },
+        mockAgentToken
+      );
+
+      // Insert an orderedList after current block
+      const result = await insertBlock.handler(
+        {
+          docGuid: testDocGuid,
+          position: 'after',
+          type: 'orderedList',
+          content: 'First numbered item',
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.newBlockIndex).toBeDefined();
+      expect(result.cursor).toBeDefined();
+
+      console.log('✓ insert_block with orderedList succeeded');
+    }, 10000);
+
+    test('insert_block after orderedList should succeed', async () => {
+      // This is the EXACT bug scenario from the bug report:
+      // Converting a block to orderedList, then inserting new blocks after it
+
+      const setBlockType = toolRegistry.getTool('set_block_type');
+      const insertBlock = toolRegistry.getTool('insert_block');
+      const insert = toolRegistry.getTool('insert');
+
+      // Insert a paragraph
+      await insertBlock.handler(
+        {
+          docGuid: testDocGuid,
+          position: 'after',
+          type: 'paragraph',
+          content: 'Watch the sunrise together as a family',
+        },
+        mockAgentToken
+      );
+
+      // Convert it to orderedList (this is what the bug report did)
+      const setResult = await setBlockType.handler(
+        {
+          docGuid: testDocGuid,
+          newType: 'orderedList',
+        },
+        mockAgentToken
+      );
+
+      expect(setResult).toBeDefined();
+      expect(setResult.success).toBe(true);
+
+      // Now try to insert a bulletList after it (this was failing)
+      const insertResult1 = await insertBlock.handler(
+        {
+          docGuid: testDocGuid,
+          position: 'after',
+          type: 'bulletList',
+          content: 'Sub-item A',
+        },
+        mockAgentToken
+      );
+
+      expect(insertResult1).toBeDefined();
+      expect(insertResult1.success).toBe(true);
+
+      // Try to insert another orderedList (this was also failing)
+      const insertResult2 = await insertBlock.handler(
+        {
+          docGuid: testDocGuid,
+          position: 'after',
+          type: 'orderedList',
+          content: 'Next numbered item',
+        },
+        mockAgentToken
+      );
+
+      expect(insertResult2).toBeDefined();
+      expect(insertResult2.success).toBe(true);
+
+      console.log('✓ insert_block after orderedList succeeded');
+    }, 10000);
+
     test('undo should succeed', async () => {
       const undo = toolRegistry.getTool('undo');
       expect(undo).toBeDefined();
