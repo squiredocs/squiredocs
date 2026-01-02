@@ -448,8 +448,8 @@ describe('applyMarks', () => {
         const formatted1 = textNode1.toDelta();
 
         expect(formatted1).toEqual([
-          { insert: 'First para', attributes: { bold: true } },
-          { insert: 'graph' },
+          { insert: 'First para' },
+          { insert: 'graph', attributes: { bold: true } },
         ]);
 
         // Check second block: positions 0-9 should be bold (relative to block)

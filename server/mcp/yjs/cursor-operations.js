@@ -758,7 +758,9 @@ function absolutePositionToBlockOffset(xmlFragment, absPos) {
 
   for (let i = 0; i < blocks.length; i++) {
     const blockLength = getBlockTextLength(blocks[i]);
-    if (currentPos + blockLength >= absPos) {
+    // Check if absPos falls within this block
+    // Use > instead of >= to avoid off-by-one error at block boundaries
+    if (currentPos + blockLength > absPos) {
       return {
         blockIndex: i,
         offset: absPos - currentPos,
