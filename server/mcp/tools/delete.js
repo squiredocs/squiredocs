@@ -120,28 +120,10 @@ async function handler(args, agentToken) {
         const block = blocks[startResolved.blockIndex];
         deleteText(block, startResolved.offset, endResolved.offset);
       } else {
-        // Multi-block deletion
-        // Delete from start position to end of first block
-        const startBlock = blocks[startResolved.blockIndex];
-        const startBlockLength = getElementTextLength(startBlock);
-        if (startResolved.offset < startBlockLength) {
-          deleteText(startBlock, startResolved.offset, startBlockLength);
-        }
-
-        // Delete complete blocks in between
-        for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
-          xmlFragment.delete(startResolved.blockIndex + 1, 1);
-        }
-
-        // Delete from start of last block to end position
-        // Note: block index shifts after deletions, so we need to recalculate
-        const adjustedEndBlockIndex = startResolved.blockIndex + 1;
-        if (adjustedEndBlockIndex < xmlFragment.length) {
-          const endBlock = xmlFragment.get(adjustedEndBlockIndex);
-          if (endResolved.offset > 0) {
-            deleteText(endBlock, 0, endResolved.offset);
-          }
-        }
+        // Multi-block deletion - delete complete blocks to match copy behavior
+        // This ensures cut/paste operations are symmetric and don't leave remnants
+        const blockCount = endResolved.blockIndex - startResolved.blockIndex + 1;
+        xmlFragment.delete(startResolved.blockIndex, blockCount);
       }
     }, undoManager);
 
