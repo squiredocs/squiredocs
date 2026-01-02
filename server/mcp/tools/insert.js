@@ -11,7 +11,7 @@ const {
   getTextInSelection,
   createCursorPosition,
 } = require('../yjs/cursor-operations');
-const { insertText, deleteText } = require('../yjs/text-operations');
+const { insertText, deleteText, getElementTextLength } = require('../yjs/text-operations');
 const { streamingInsert } = require('../yjs/streaming-insert');
 
 // Persistence provider - set by init function
@@ -189,26 +189,48 @@ async function handler(args, agentToken) {
       throw new Error('Could not resolve selection positions');
     }
 
-    // For now, only support single-block selections
-    if (anchorResolved.blockIndex !== headResolved.blockIndex) {
-      throw new Error('Multi-block selections not yet supported for replacement');
-    }
+    // Determine selection direction
+    const isForward = anchorResolved.blockIndex < headResolved.blockIndex ||
+      (anchorResolved.blockIndex === headResolved.blockIndex && anchorResolved.offset < headResolved.offset);
 
-    // Delete the selection
+    const startResolved = isForward ? anchorResolved : headResolved;
+    const endResolved = isForward ? headResolved : anchorResolved;
+
     const blocks = xmlFragment.toArray();
-    const block = blocks[anchorResolved.blockIndex];
 
     ydoc.transact(() => {
-      // Determine which offset is earlier
-      const startOffset = Math.min(anchorResolved.offset, headResolved.offset);
-      const endOffset = Math.max(anchorResolved.offset, headResolved.offset);
+      if (startResolved.blockIndex === endResolved.blockIndex) {
+        // Single-block deletion
+        const block = blocks[startResolved.blockIndex];
+        deleteText(block, startResolved.offset, endResolved.offset);
+      } else {
+        // Multi-block deletion
+        // Delete from start position to end of first block
+        const startBlock = blocks[startResolved.blockIndex];
+        const startBlockLength = getElementTextLength(startBlock);
+        if (startResolved.offset < startBlockLength) {
+          deleteText(startBlock, startResolved.offset, startBlockLength);
+        }
 
-      // Delete text in selection (single block only)
-      deleteText(block, startOffset, endOffset);
+        // Delete complete blocks in between
+        for (let i = startResolved.blockIndex + 1; i < endResolved.blockIndex; i++) {
+          xmlFragment.delete(startResolved.blockIndex + 1, 1);
+        }
+
+        // Delete from start of last block to end position
+        // Note: block index shifts after deletions, so we need to recalculate
+        const adjustedEndBlockIndex = startResolved.blockIndex + 1;
+        if (adjustedEndBlockIndex < xmlFragment.length) {
+          const endBlock = xmlFragment.get(adjustedEndBlockIndex);
+          if (endResolved.offset > 0) {
+            deleteText(endBlock, 0, endResolved.offset);
+          }
+        }
+      }
     }, undoManager);
 
-    // Use anchor position for insertion
-    insertPos = anchorPos;
+    // Use start position for insertion (where selection began)
+    insertPos = isForward ? anchorPos : headPos;
     replacedSelection = true;
   }
 
