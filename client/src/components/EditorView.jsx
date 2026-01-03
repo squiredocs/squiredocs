@@ -553,10 +553,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </svg>
             </a>
             <div className="title-toolbar-stack">
-              <input
-                type="text"
+              <textarea
                 value={docTitle}
-                onChange={(e) => setDocTitle(e.target.value)}
+                onChange={(e) => {
+                  setDocTitle(e.target.value);
+                  // Auto-resize textarea
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
                 onFocus={(e) => e.target.select()}
                 onKeyDown={(e) => {
                   if (e.key === 'Tab' && !e.shiftKey) {
@@ -565,11 +569,24 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       editor.commands.focus();
                     }
                   }
+                  // Prevent Enter key from creating new lines
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                  }
                 }}
                 className="app-title-input"
                 placeholder="Document title"
                 spellCheck={false}
                 readOnly={userRole === 'viewer'}
+                rows={1}
+                wrap="soft"
+                ref={(el) => {
+                  if (el) {
+                    // Initial resize
+                    el.style.height = 'auto';
+                    el.style.height = el.scrollHeight + 'px';
+                  }
+                }}
               />
               {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
               {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}

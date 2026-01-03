@@ -35,9 +35,17 @@
   padding: 4px 8px;
   margin: -4px -8px;
   border-radius: 4px;
-  min-width: 120px;
-  max-width: 400px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: normal;
+  font-family: inherit;
+  line-height: 1.3;
 }
 
 .app-title-input:hover {
@@ -136,9 +144,9 @@
 
   .app-title-input {
     font-size: 16px;
-    max-width: 100%;
-    flex: 1;
     min-width: 0;
+    width: 100%;
+    max-width: 100%;
   }
 
   .app-header-right {
