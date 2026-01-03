@@ -253,8 +253,8 @@ describe('list_documents tool', () => {
       const doc1 = result.documents.find((d) => d.id === testDoc1Id);
       const doc2 = result.documents.find((d) => d.id === testDoc2Id);
 
-      expect(doc1.shareCount).toBe(1); // Only owner
-      expect(doc2.shareCount).toBe(2); // Owner + editor
+      expect(doc1.shareCount).toBe(0); // Not shared with anyone (owner not counted)
+      expect(doc2.shareCount).toBe(1); // Shared with 1 editor (owner not counted)
     });
   });
 });

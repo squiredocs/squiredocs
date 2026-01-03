@@ -58,7 +58,7 @@ async function handler(args, agentToken) {
         d.created_at,
         d.updated_at,
         ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count
+        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
       FROM documents d
       JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
       WHERE ds.role = 'owner'
@@ -71,7 +71,7 @@ async function handler(args, agentToken) {
         d.created_at,
         d.updated_at,
         ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count
+        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
       FROM documents d
       JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
       WHERE ds.role != 'owner'
@@ -85,7 +85,7 @@ async function handler(args, agentToken) {
         d.created_at,
         d.updated_at,
         ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count
+        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
       FROM documents d
       JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
       ORDER BY d.updated_at DESC
