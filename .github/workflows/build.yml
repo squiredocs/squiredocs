@@ -1,4 +1,4 @@
-name: Build and Push to Artifact Registry
+name: Build and Push
 
 on:
   push:
@@ -6,40 +6,17 @@ on:
       - '*'
 
 env:
-  REGISTRY: us-west1-docker.pkg.dev
   IMAGE_PATH: us-west1-docker.pkg.dev/eqtgke/eqt/collab
-  CACHE_TAG: buildcache
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Set up Docker Buildx with retry logic for Docker Hub issues
-      - name: Set up Docker Buildx (attempt 1)
-        id: buildx1
-        uses: docker/setup-buildx-action@v3
-        continue-on-error: true
-
-      - name: Wait before retry
-        if: steps.buildx1.outcome == 'failure'
-        run: sleep 30
-
-      - name: Set up Docker Buildx (attempt 2)
-        id: buildx2
-        if: steps.buildx1.outcome == 'failure'
-        uses: docker/setup-buildx-action@v3
-        continue-on-error: true
-
-      - name: Wait before final retry
-        if: steps.buildx2.outcome == 'failure'
-        run: sleep 60
-
-      - name: Set up Docker Buildx (attempt 3)
-        if: steps.buildx2.outcome == 'failure'
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Authenticate to Google Cloud
@@ -48,8 +25,7 @@ jobs:
           credentials_json: ${{ secrets.EQTGKE_JSON }}
 
       - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -60,6 +36,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_PATH }}:${{ github.sha }}
             ${{ env.IMAGE_PATH }}:latest
-          cache-from: type=registry,ref=${{ env.IMAGE_PATH }}:${{ env.CACHE_TAG }}
-          cache-to: type=registry,ref=${{ env.IMAGE_PATH }}:${{ env.CACHE_TAG }},mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE_PATH }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PATH }}:buildcache,mode=max
 
