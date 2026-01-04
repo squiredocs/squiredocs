@@ -27,13 +27,39 @@ const documentSubscriptions = new Map();
 // Track initialization state
 let initialized = false;
 
+// Track warning state to avoid spamming logs
+let disabledWarningLogged = false;
+let disabledWarningInterval = null;
+
 /**
  * Initialize Redis pub/sub clients
  * Call this once when the server starts
  */
 async function init() {
   if (!isRedisEnabled()) {
-    console.log('[RedisPubSub] Redis not enabled, skipping initialization');
+    console.warn('');
+    console.warn('╔══════════════════════════════════════════════════════════════════════════════╗');
+    console.warn('║  ⚠️  WARNING: REDIS PUB/SUB DISABLED - CROSS-INSTANCE SYNC NOT AVAILABLE ⚠️   ║');
+    console.warn('╠══════════════════════════════════════════════════════════════════════════════╣');
+    console.warn('║  REDIS_HOST environment variable is not set.                                 ║');
+    console.warn('║                                                                              ║');
+    console.warn('║  CONSEQUENCES:                                                               ║');
+    console.warn('║  • User presence/cursors will NOT sync across server instances               ║');
+    console.warn('║  • Document edits will NOT propagate in real-time across instances           ║');
+    console.warn('║  • Users on different servers will see stale/inconsistent data               ║');
+    console.warn('║                                                                              ║');
+    console.warn('║  TO FIX: Set REDIS_HOST environment variable (e.g., REDIS_HOST=localhost)    ║');
+    console.warn('╚══════════════════════════════════════════════════════════════════════════════╝');
+    console.warn('');
+
+    // Log periodic reminders every 5 minutes while disabled
+    if (!disabledWarningInterval) {
+      disabledWarningInterval = setInterval(() => {
+        console.warn('[RedisPubSub] ⚠️  REMINDER: Cross-instance sync DISABLED - REDIS_HOST not configured. User presence and edits will NOT sync between server instances.');
+      }, 5 * 60 * 1000);
+      disabledWarningInterval.unref(); // Don't prevent process exit
+    }
+
     return;
   }
 
@@ -42,13 +68,20 @@ async function init() {
     return;
   }
 
-  console.log('[RedisPubSub] Initializing pub/sub clients...');
+  console.log('[RedisPubSub] Initializing pub/sub clients for cross-instance sync...');
 
   subscriberClient = createPubSubClient();
   publisherClient = createPubSubClient();
 
   if (!subscriberClient || !publisherClient) {
-    console.error('[RedisPubSub] Failed to create Redis clients');
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════════════════════╗');
+    console.error('║  ❌ ERROR: FAILED TO CREATE REDIS PUB/SUB CLIENTS                            ║');
+    console.error('╠══════════════════════════════════════════════════════════════════════════════╣');
+    console.error('║  Cross-instance synchronization will NOT work.                               ║');
+    console.error('║  User presence and document edits will NOT sync between server instances.    ║');
+    console.error('╚══════════════════════════════════════════════════════════════════════════════╝');
+    console.error('');
     return;
   }
 
@@ -95,7 +128,20 @@ async function init() {
   ]);
 
   initialized = true;
-  console.log('[RedisPubSub] Initialized successfully');
+
+  // Clear any disabled warning interval since we're now enabled
+  if (disabledWarningInterval) {
+    clearInterval(disabledWarningInterval);
+    disabledWarningInterval = null;
+  }
+
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════════════════════════╗');
+  console.log('║  ✅ REDIS PUB/SUB INITIALIZED - CROSS-INSTANCE SYNC ENABLED                  ║');
+  console.log('╠══════════════════════════════════════════════════════════════════════════════╣');
+  console.log('║  User presence and document edits will sync across all server instances.     ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════════════╝');
+  console.log('');
 }
 
 /**
@@ -209,6 +255,12 @@ function isSubscribed(docId) {
 async function cleanup() {
   console.log('[RedisPubSub] Cleaning up...');
 
+  // Clear warning interval
+  if (disabledWarningInterval) {
+    clearInterval(disabledWarningInterval);
+    disabledWarningInterval = null;
+  }
+
   // Unsubscribe from all documents
   for (const docId of documentSubscriptions.keys()) {
     unsubscribeFromDocument(docId);
@@ -226,6 +278,7 @@ async function cleanup() {
   }
 
   initialized = false;
+  disabledWarningLogged = false;
   console.log('[RedisPubSub] Cleanup complete');
 }
 
@@ -245,5 +298,10 @@ module.exports = {
     initialized = false;
     subscriberClient = null;
     publisherClient = null;
+    disabledWarningLogged = false;
+    if (disabledWarningInterval) {
+      clearInterval(disabledWarningInterval);
+      disabledWarningInterval = null;
+    }
   },
 };
