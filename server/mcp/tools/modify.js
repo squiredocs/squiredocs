@@ -28,6 +28,54 @@ const name = 'modify';
 const description = `Modify the document using a TypeScript script.
 
 ═══════════════════════════════════════════════════════════════════════════
+⭐ INCREMENTAL AUTHORING - READ THIS FIRST ⭐
+═══════════════════════════════════════════════════════════════════════════
+
+ALWAYS build documents incrementally using MULTIPLE modify calls.
+Users watch the document in real-time - they should see content appear
+progressively, not all at once.
+
+WHY INCREMENTAL IS BETTER:
+✓ Users see progress as you work (engaging experience)
+✓ Each change syncs immediately to all connected viewers
+✓ Smaller scripts are more reliable and faster
+✓ Errors don't lose all work (partial content preserved)
+✓ Natural undo boundaries (each modify = one undo step)
+
+RECOMMENDED STRATEGIES (choose based on content):
+
+Strategy 1: SECTION BY SECTION (best for new documents)
+  modify: Add document title (h1)
+  modify: Add introduction paragraph
+  modify: Add "Background" section (h2 + paragraphs)
+  modify: Add "Methods" section (h2 + paragraphs)
+  modify: Add "Results" section (h2 + bullet list)
+  modify: Add "Conclusion" section (h2 + paragraphs)
+
+Strategy 2: STRUCTURE FIRST (best for complex docs)
+  modify: Add all headings (h1, h2s, h3s)
+  modify: Fill in introduction content
+  modify: Fill in section 1 content
+  modify: Fill in section 2 content
+  modify: Add lists and tables
+
+Strategy 3: BY CONTENT TYPE (best for formatting tasks)
+  modify: Update all headings (change levels, fix text)
+  modify: Format all TODO items as bold
+  modify: Convert all URLs to proper links
+  modify: Add bullet list items
+
+Strategy 4: ITEM BY ITEM (best for long lists)
+  modify: Create list with first 3 items
+  modify: Add next 3 items
+  modify: Add final items
+
+ANTI-PATTERNS TO AVOID:
+❌ Writing entire document in one massive script
+❌ Deleting everything and recreating from scratch
+❌ Scripts longer than ~50 lines (break them up!)
+
+═══════════════════════════════════════════════════════════════════════════
 SANDBOXED TYPESCRIPT EXECUTION
 ═══════════════════════════════════════════════════════════════════════════
 
@@ -56,31 +104,26 @@ Scripts must export a default function that receives the document fragment:
   }
 
 ═══════════════════════════════════════════════════════════════════════════
-BEST PRACTICES
+BEST PRACTICES FOR EACH SCRIPT
 ═══════════════════════════════════════════════════════════════════════════
 
+Each modify call should do ONE logical thing:
+✅ Good: Add a single section (heading + 2-3 paragraphs)
+✅ Good: Add a bullet list with 3-5 items
+✅ Good: Format all instances of a pattern (TODOs, links, etc.)
+✅ Good: Update all headings of a certain level
+
 ❌ DON'T: Rewrite entire documents from scratch
-  - Deleting all blocks and recreating the document is inefficient
+  - Deleting all blocks and recreating is inefficient
   - Breaks real-time collaboration (other users see flickering)
   - Loses document history and undo/redo state
-  - Increases network traffic and operation count
+  - User sees blank doc then sudden content (jarring)
 
-✅ DO: Make targeted modifications to existing content
-  - Find specific blocks/text and modify them in place
-  - Insert new content where needed, delete only what's necessary
-  - Use format() to change styling without rewriting text
-  - Break large tasks into logical chunks (one script per logical change)
-
-Examples:
-  ❌ Bad: Delete all blocks, recreate entire document with changes
-  ✅ Good: Find headings, update their level attribute
-  ✅ Good: Find TODO items, format them as bold
-  ✅ Good: Insert new section at specific location
-
-When working on large documents:
-  - Break work into multiple modify calls (one per section/task)
-  - Each script should have a single, clear purpose
-  - Preserve existing content that doesn't need changes
+✅ DO: Make targeted modifications
+  - Insert new content at specific positions
+  - Find and modify existing blocks in place
+  - Use format() to change styling without rewriting
+  - Keep scripts focused and under ~50 lines
 
 ═══════════════════════════════════════════════════════════════════════════
 BUILT-IN HELPER FUNCTIONS
