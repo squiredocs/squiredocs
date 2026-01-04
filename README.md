@@ -337,6 +337,30 @@ await close_document({ docGuid: "abc-123" });
 "Find all links and convert them to a reference list"
 "Reorganize the document with all headings first"
 
+// IMPORTANT: Creating mixed formatting
+// When inserting text with different formatting, ALWAYS pass {} for unformatted text:
+
+await execute_script({
+  docGuid: "abc-123",
+  script: `
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+
+      // ✅ CORRECT - pass {} to prevent inheriting formatting
+      text.insert(0, 'BOLD', { bold: true });
+      text.insert(4, ' normal', {});  // Empty object prevents inheriting bold!
+
+      // ❌ WRONG - omitting attributes inherits formatting from previous position
+      // text.insert(0, 'BOLD', { bold: true });
+      // text.insert(4, ' normal');  // This would be bold too!
+
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+    }
+  `
+});
+
 ## Hierarchical Document Editing
 
 This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization using the `execute_script` tool with direct Yjs API access.

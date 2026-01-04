@@ -241,6 +241,34 @@ await execute_script({
   \`
 });
 
+// Example 5: Create mixed formatting (bold + normal text)
+await execute_script({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+
+      // Method 1: Insert with explicit formatting (recommended for sequential inserts)
+      text.insert(0, 'Important: ', { bold: true });
+      text.insert(11, 'This is a normal message', {});  // Empty {} prevents inheriting bold!
+
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+
+      // Method 2: Insert plain text first, then format (recommended for complex formatting)
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Some bold text and some italic text');
+      text2.format(5, 4, { bold: true });    // Format 'bold' as bold
+      text2.format(23, 6, { italic: true }); // Format 'italic' as italic
+
+      para2.insert(0, [text2]);
+      doc.insert(doc.length, [para2]);
+    }
+  \`
+});
+
 ═══════════════════════════════════════════════════════════════════════════
 TIPS
 ═══════════════════════════════════════════════════════════════════════════
@@ -260,6 +288,20 @@ TIPS
 5. If script fails mid-execution, all changes are automatically rolled back
 
 6. Scripts run on the live document - changes sync to all users in real-time
+
+7. IMPORTANT: When creating mixed formatting, ALWAYS pass {} for unformatted text
+
+   ❌ WRONG - text inherits bold from previous insertion:
+     text.insert(0, 'BOLD', { bold: true });
+     text.insert(4, ' normal');  // Inherits bold!
+
+   ✅ CORRECT - explicitly clear formatting with empty object:
+     text.insert(0, 'BOLD', { bold: true });
+     text.insert(4, ' normal', {});  // No formatting
+
+   ✅ ALSO CORRECT - insert plain text first, then format:
+     text.insert(0, 'BOLD normal');
+     text.format(0, 4, { bold: true });  // Only format 'BOLD'
 `;
 
 const inputSchema = {
