@@ -208,5 +208,57 @@ describe('Yjs operation interceptor', () => {
       expect(ops[1].args[0]).toBe(1);
       expect(ops[2].args[0]).toBe(2);
     });
+
+    test('calls onOperation callback when provided', () => {
+      const callbackOps = [];
+      const onOperation = (op, target) => {
+        callbackOps.push({ op, target });
+      };
+
+      const wrapped = wrapForTracking(xmlFragment, tracker, [], onOperation);
+
+      // Mutation
+      const paragraph = new Y.XmlElement('paragraph');
+      wrapped.insert(0, [paragraph]);
+
+      // Read
+      wrapped.toArray();
+
+      expect(callbackOps.length).toBe(2);
+      expect(callbackOps[0].op.category).toBe('mutation');
+      expect(callbackOps[0].op.type).toBe('insert');
+      expect(callbackOps[1].op.category).toBe('read');
+      expect(callbackOps[1].op.type).toBe('toArray');
+    });
+
+    test('passes onOperation to nested wrapped objects', () => {
+      const callbackOps = [];
+      const onOperation = (op) => {
+        callbackOps.push(op);
+      };
+
+      const paragraph = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      paragraph.insert(0, [text]);
+      xmlFragment.insert(0, [paragraph]);
+
+      tracker.reset();
+      callbackOps.length = 0;
+
+      const wrapped = wrapForTracking(xmlFragment, tracker, [], onOperation);
+      const wrappedBlocks = wrapped.toArray();
+      const wrappedParagraph = wrappedBlocks[0];
+      const wrappedText = wrappedParagraph.get(0);
+
+      wrappedText.insert(0, 'Hello');
+
+      // Should have: toArray (read), get (read), insert (mutation)
+      const mutations = callbackOps.filter(op => op.category === 'mutation');
+      const reads = callbackOps.filter(op => op.category === 'read');
+
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('insert');
+      expect(reads.length).toBe(2);
+    });
   });
 });

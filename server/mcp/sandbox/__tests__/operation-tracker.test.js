@@ -46,6 +46,7 @@ describe('Operation tracker', () => {
     test('preserves operation details', () => {
       const operation = {
         type: 'insert',
+        category: 'mutation',
         target: 'XmlFragment',
         path: [0, 1],
         args: [0, 'test'],
@@ -148,126 +149,6 @@ describe('Operation tracker', () => {
         delete: 1,
         setAttribute: 1,
       });
-    });
-  });
-
-  describe('generateCursorSequence', () => {
-    test('generates sequence for text insert', () => {
-      tracker.record({
-        type: 'insert',
-        target: 'XmlText',
-        path: [0],
-        args: [0, 'Hello'],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(1);
-      expect(sequence[0].type).toBe('insert');
-      expect(sequence[0].path).toEqual([0]);
-      expect(sequence[0].offset).toBe(0);
-      expect(sequence[0].text).toBe('Hello');
-      expect(sequence[0].duration).toBeDefined();
-    });
-
-    test('generates sequence for text delete', () => {
-      tracker.record({
-        type: 'delete',
-        target: 'XmlText',
-        path: [0],
-        args: [5, 3],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(1);
-      expect(sequence[0].type).toBe('delete');
-      expect(sequence[0].path).toEqual([0]);
-      expect(sequence[0].offset).toBe(5);
-      expect(sequence[0].length).toBe(3);
-    });
-
-    test('generates sequence for format operation', () => {
-      tracker.record({
-        type: 'format',
-        target: 'XmlText',
-        path: [0],
-        args: [0, 5, { bold: true }],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(1);
-      expect(sequence[0].type).toBe('format');
-      expect(sequence[0].attributes).toEqual({ bold: true });
-    });
-
-    test('generates sequence for block insert', () => {
-      tracker.record({
-        type: 'insert',
-        target: 'XmlFragment',
-        path: [],
-        args: [0, []],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(1);
-      expect(sequence[0].type).toBe('insert_block');
-    });
-
-    test('generates sequence for setAttribute', () => {
-      tracker.record({
-        type: 'setAttribute',
-        target: 'heading',
-        path: [0],
-        args: ['level', 2],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(1);
-      expect(sequence[0].type).toBe('set_attribute');
-      expect(sequence[0].attribute).toBe('level');
-      expect(sequence[0].value).toBe(2);
-    });
-
-    test('generates sequence for multiple operations', () => {
-      tracker.record({
-        type: 'insert',
-        target: 'XmlText',
-        path: [0],
-        args: [0, 'Hello'],
-        timestamp: Date.now(),
-      });
-
-      tracker.record({
-        type: 'format',
-        target: 'XmlText',
-        path: [0],
-        args: [0, 5, { bold: true }],
-        timestamp: Date.now() + 10,
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence.length).toBe(2);
-      expect(sequence[0].type).toBe('insert');
-      expect(sequence[1].type).toBe('format');
-    });
-
-    test('limits text insert duration', () => {
-      // Very long text should have capped duration
-      const longText = 'a'.repeat(1000);
-      tracker.record({
-        type: 'insert',
-        target: 'XmlText',
-        path: [0],
-        args: [0, longText],
-        timestamp: Date.now(),
-      });
-
-      const sequence = tracker.generateCursorSequence();
-      expect(sequence[0].duration).toBeLessThanOrEqual(2000);
     });
   });
 

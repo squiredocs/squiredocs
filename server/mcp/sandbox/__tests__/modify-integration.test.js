@@ -38,7 +38,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false, // Disable animation for testing
       });
 
       expect(result.success).toBe(true);
@@ -60,7 +59,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -94,7 +92,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -121,7 +118,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -166,7 +162,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -190,7 +185,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(false);
@@ -207,7 +201,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(false);
@@ -227,7 +220,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -255,7 +247,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(false);
@@ -314,7 +305,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);
@@ -342,7 +332,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 100,
-        animate: false,
       });
 
       expect(result.success).toBe(false);
@@ -363,7 +352,6 @@ describe('modify Integration', () => {
 
       const result = await executeScript(script, mockSession, xmlFragment, {
         timeout: 5000,
-        animate: false,
       });
 
       expect(result.success).toBe(true);

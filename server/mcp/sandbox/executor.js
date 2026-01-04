@@ -22,10 +22,11 @@ const helpers = require('./helpers');
  * @param {object} wrappedFragment - Wrapped Y.XmlFragment with operation tracking
  * @param {object} tracker - Operation tracker for recording operations
  * @param {number} timeout - Execution timeout in milliseconds
+ * @param {Function} [onOperation] - Optional callback called when an operation is recorded
  * @returns {object} - Execution result
  * @throws {Error} - If execution fails or times out
  */
-function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000) {
+function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOperation = null) {
   // Create wrapped constructors that automatically track operations
   // while preserving instanceof checks
   const createWrappedConstructor = (Constructor) => {
@@ -33,7 +34,7 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000) {
     const WrappedConstructor = function(...args) {
       const instance = new Constructor(...args);
       // Wrap the newly created instance for tracking
-      return wrapForTracking(instance, tracker, []);
+      return wrapForTracking(instance, tracker, [], onOperation);
     };
 
     // Preserve the prototype so instanceof works

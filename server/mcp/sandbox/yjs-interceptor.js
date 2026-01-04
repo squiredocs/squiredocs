@@ -10,9 +10,10 @@ const Y = require('yjs');
  * @param {Y.XmlFragment | Y.XmlElement | Y.XmlText} yjsObject - Yjs object to wrap
  * @param {object} tracker - Operation tracker to record operations
  * @param {Array<number>} path - Current path in document tree (e.g., [0, 1] for second child of first block)
+ * @param {Function} [onOperation] - Optional callback called when an operation is recorded
  * @returns {Proxy} - Wrapped object with operation tracking
  */
-function wrapForTracking(yjsObject, tracker, path = []) {
+function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
   // Track wrapped objects to avoid double-wrapping
   if (yjsObject.__wrapped) {
     return yjsObject;
@@ -29,38 +30,46 @@ function wrapForTracking(yjsObject, tracker, path = []) {
 
           // Record mutation operations
           if (isMutationMethod(prop)) {
-            tracker.record({
+            const operation = {
               type: prop,
               category: 'mutation',
               target: getTargetType(target),
               path: [...path],
               args: [...args],
               timestamp: Date.now(),
-            });
+            };
+            tracker.record(operation);
+            if (onOperation) {
+              onOperation(operation, target);
+            }
           }
 
           // Record read operations
           if (isReadMethod(prop)) {
-            tracker.record({
+            const operation = {
               type: prop,
               category: 'read',
               target: getTargetType(target),
               path: [...path],
               args: [...args],
               timestamp: Date.now(),
-            });
+            };
+            tracker.record(operation);
+            if (onOperation) {
+              onOperation(operation, target);
+            }
           }
 
           // If result is a Yjs object, wrap it recursively
           if (isYjsObject(result)) {
-            return wrapForTracking(result, tracker, path);
+            return wrapForTracking(result, tracker, path, onOperation);
           }
 
           // If method returns an array, wrap any Yjs objects in it
           if (Array.isArray(result)) {
             return result.map((item, index) => {
               if (isYjsObject(item)) {
-                return wrapForTracking(item, tracker, [...path, index]);
+                return wrapForTracking(item, tracker, [...path, index], onOperation);
               }
               return item;
             });
@@ -74,9 +83,9 @@ function wrapForTracking(yjsObject, tracker, path = []) {
       if (isYjsObject(value)) {
         // For indexed access (e.g., doc[0]), include index in path
         if (typeof prop === 'string' && !isNaN(Number(prop))) {
-          return wrapForTracking(value, tracker, [...path, Number(prop)]);
+          return wrapForTracking(value, tracker, [...path, Number(prop)], onOperation);
         }
-        return wrapForTracking(value, tracker, path);
+        return wrapForTracking(value, tracker, path, onOperation);
       }
 
       return value;

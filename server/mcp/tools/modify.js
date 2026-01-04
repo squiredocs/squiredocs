@@ -637,7 +637,6 @@ async function handler(args, agentToken) {
     // Execute the script
     const result = await executeScript(script, session, xmlFragment, {
       timeout: validatedTimeout,
-      animate: true,
     });
 
     if (result.success) {
