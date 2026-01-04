@@ -2,15 +2,18 @@
  * Tests for sandbox executor
  */
 const { executeSandboxed } = require('../executor');
+const { OperationTracker } = require('../operation-tracker');
 const Y = require('yjs');
 
 describe('Sandbox executor', () => {
   let ydoc;
   let xmlFragment;
+  let tracker;
 
   beforeEach(() => {
     ydoc = new Y.Doc();
     xmlFragment = ydoc.get('default', Y.XmlFragment);
+    tracker = new OperationTracker();
   });
 
   describe('executeSandboxed', () => {
@@ -25,7 +28,7 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      const result = executeSandboxed(jsCode, xmlFragment, 5000);
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
 
       expect(result.success).toBe(true);
 
@@ -42,7 +45,7 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      const result = executeSandboxed(jsCode, xmlFragment, 5000);
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
 
       expect(result.success).toBe(true);
 
@@ -58,7 +61,7 @@ describe('Sandbox executor', () => {
       `;
 
       // Should not throw
-      expect(() => executeSandboxed(jsCode, xmlFragment, 5000)).not.toThrow();
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).not.toThrow();
     });
 
     test('throws error for script without default export', () => {
@@ -68,7 +71,7 @@ describe('Sandbox executor', () => {
         }
       `;
 
-      expect(() => executeSandboxed(jsCode, xmlFragment, 5000)).toThrow(/default function/i);
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(/default function/i);
     });
 
     test('throws error for script that throws', () => {
@@ -78,7 +81,31 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      expect(() => executeSandboxed(jsCode, xmlFragment, 5000)).toThrow(/Script error/i);
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(/Script error/i);
+    });
+
+    test('wrapped constructors track all operations on new objects', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          // Create new elements - these should be wrapped and tracked
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Hello world'); // Should be tracked
+          paragraph.insert(0, [text]); // Should be tracked
+          doc.insert(0, [paragraph]); // Should be tracked
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Wrapped constructors should track operations on new objects
+      // At minimum, inserting into the doc should be tracked
+      expect(tracker.getOperationCount()).toBeGreaterThan(0);
+
+      const summary = tracker.getOperationSummary();
+      expect(summary.insert).toBeGreaterThan(0);
     });
 
     test('respects timeout for infinite loop', () => {
@@ -90,7 +117,7 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      expect(() => executeSandboxed(jsCode, xmlFragment, 100)).toThrow(/timed out/i);
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 100)).toThrow(/timed out/i);
     }, 10000); // Give test itself more time
 
     test('script can access Yjs fragment methods', () => {
@@ -101,7 +128,7 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      const result = executeSandboxed(jsCode, xmlFragment, 5000);
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
 
       expect(result.success).toBe(true);
     });
@@ -115,7 +142,7 @@ describe('Sandbox executor', () => {
       `;
 
       // Should throw because require is not available in sandbox
-      expect(() => executeSandboxed(jsCode, xmlFragment, 5000)).toThrow();
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow();
     });
 
     test('script cannot access process', () => {
@@ -126,7 +153,7 @@ describe('Sandbox executor', () => {
       `;
 
       // Should throw because process is not available in sandbox
-      expect(() => executeSandboxed(jsCode, xmlFragment, 5000)).toThrow();
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow();
     });
 
     test('handles complex script with helper functions', () => {
@@ -146,7 +173,7 @@ describe('Sandbox executor', () => {
         };
       `;
 
-      const result = executeSandboxed(jsCode, xmlFragment, 5000);
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
 
       expect(result.success).toBe(true);
 

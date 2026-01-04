@@ -13,26 +13,47 @@
 
 const vm = require('vm');
 const Y = require('yjs');
+const { wrapForTracking } = require('./yjs-interceptor');
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment
  * @param {string} jsCode - Compiled JavaScript code
  * @param {object} wrappedFragment - Wrapped Y.XmlFragment with operation tracking
+ * @param {object} tracker - Operation tracker for recording operations
  * @param {number} timeout - Execution timeout in milliseconds
  * @returns {object} - Execution result
  * @throws {Error} - If execution fails or times out
  */
-function executeSandboxed(jsCode, wrappedFragment, timeout = 5000) {
+function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000) {
+  // Create wrapped constructors that automatically track operations
+  // while preserving instanceof checks
+  const createWrappedConstructor = (Constructor) => {
+    // Create a wrapper function that wraps instances
+    const WrappedConstructor = function(...args) {
+      const instance = new Constructor(...args);
+      // Wrap the newly created instance for tracking
+      return wrapForTracking(instance, tracker, []);
+    };
+
+    // Preserve the prototype so instanceof works
+    // This allows: wrappedInstance instanceof Y.XmlElement to work
+    Object.setPrototypeOf(WrappedConstructor, Constructor);
+    WrappedConstructor.prototype = Constructor.prototype;
+
+    return WrappedConstructor;
+  };
+
   // Create a sandbox context with limited access
   const sandbox = {
     // Expose wrapped fragment
     _doc: wrappedFragment,
 
-    // Expose Yjs namespace for creating new elements
+    // Expose Yjs namespace with wrapped constructors
+    // This ensures all new objects created in scripts are tracked
     Y: {
-      XmlFragment: Y.XmlFragment,
-      XmlElement: Y.XmlElement,
-      XmlText: Y.XmlText,
+      XmlFragment: Y.XmlFragment, // Don't wrap XmlFragment constructor
+      XmlElement: createWrappedConstructor(Y.XmlElement),
+      XmlText: createWrappedConstructor(Y.XmlText),
       Doc: Y.Doc,
     },
 
@@ -82,10 +103,42 @@ function executeSandboxed(jsCode, wrappedFragment, timeout = 5000) {
 
     return { success: true };
   } catch (error) {
+    // Enhanced error handling with better context
     if (error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
-      throw new Error(`Script execution timed out after ${timeout}ms`);
+      throw new Error(
+        `Script execution timed out after ${timeout}ms.\n` +
+        `Hint: Check for infinite loops or long-running operations.`
+      );
     }
-    throw new Error(`Script execution failed: ${error.message}`);
+
+    // Extract line number from stack trace if available
+    let lineInfo = '';
+    if (error.stack) {
+      const stackMatch = error.stack.match(/sandbox-script\.js:(\d+):(\d+)/);
+      if (stackMatch) {
+        lineInfo = ` at line ${stackMatch[1]}, column ${stackMatch[2]}`;
+      }
+    }
+
+    // Common error types with helpful messages
+    let hint = '';
+    if (error.message.includes('is not defined')) {
+      const match = error.message.match(/(\w+) is not defined/);
+      if (match) {
+        hint = `\nHint: "${match[1]}" is not available in the sandbox. ` +
+               `Only Y.XmlElement, Y.XmlText, and the doc parameter are available.`;
+      }
+    } else if (error.message.includes('is not a function')) {
+      hint = `\nHint: Check that you're calling methods on the correct Yjs object types.`;
+    } else if (error.message.includes('default function')) {
+      hint = `\nHint: Your script must export a default function like:\n` +
+             `  export default function edit(doc) { ... }`;
+    }
+
+    throw new Error(
+      `Script execution failed${lineInfo}: ${error.message}${hint}\n\n` +
+      `Stack trace:\n${error.stack || 'No stack trace available'}`
+    );
   }
 }
 

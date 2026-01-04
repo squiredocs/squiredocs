@@ -50,7 +50,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     const ydoc = session.provider.doc;
     ydoc.transact(() => {
       try {
-        executeSandboxed(jsCode, wrappedFragment, timeout);
+        executeSandboxed(jsCode, wrappedFragment, tracker, timeout);
       } catch (error) {
         // Capture error but don't throw yet (transaction will commit)
         executionError = error;

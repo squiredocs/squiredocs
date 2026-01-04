@@ -286,6 +286,56 @@ const inputSchema = {
 };
 
 /**
+ * Validates script for common errors before execution
+ * @param {string} script - TypeScript script to validate
+ * @throws {Error} - If validation fails
+ */
+function validateScript(script) {
+  const errors = [];
+
+  // Check for empty script
+  if (!script || script.trim().length === 0) {
+    errors.push('Script cannot be empty');
+  }
+
+  // Check for export default
+  if (!script.includes('export default')) {
+    errors.push(
+      'Script must include "export default function edit(doc) { ... }".\n' +
+      '  Hint: Scripts must export a default function that receives the document as a parameter.'
+    );
+  }
+
+  // Warn about dangerous patterns (but don't block)
+  const warnings = [];
+
+  if (script.includes('while (true)') || script.includes('while(true)')) {
+    warnings.push('Detected "while(true)" - this will cause a timeout unless there\'s a break condition');
+  }
+
+  if (script.includes('require(')) {
+    warnings.push('Detected "require()" - Node.js modules are not available in the sandbox');
+  }
+
+  if (script.includes('import ') && script.includes('from ')) {
+    warnings.push('Detected "import from" - external modules are not available in the sandbox');
+  }
+
+  if (script.includes('process.') || script.includes('__dirname') || script.includes('__filename')) {
+    warnings.push('Detected Node.js globals - these are not available in the sandbox');
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Script validation failed:\n` +
+      errors.map(e => `  - ${e}`).join('\n')
+    );
+  }
+
+  return warnings;
+}
+
+/**
  * Tool handler
  * @param {object} args - Tool arguments
  * @param {object} agentToken - Decoded agent JWT token
@@ -297,6 +347,9 @@ async function handler(args, agentToken) {
   }
 
   const { docGuid, script, timeout = 5000 } = args;
+
+  // Validate script before execution
+  const warnings = validateScript(script);
 
   // Validate timeout
   const validatedTimeout = Math.max(100, Math.min(30000, timeout));
