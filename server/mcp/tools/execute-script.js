@@ -329,6 +329,159 @@ TIPS
    ✅ ALSO CORRECT - insert plain text first, then format:
      text.insert(0, 'BOLD normal');
      text.format(0, 4, { bold: true });  // Only format 'BOLD'
+
+═══════════════════════════════════════════════════════════════════════════
+COMMON PITFALLS
+═══════════════════════════════════════════════════════════════════════════
+
+⚠️ PITFALL 1: Reusing Yjs Elements Without Cloning
+
+PROBLEM: Yjs elements (XmlElement, XmlText) can only exist in ONE location in the
+document tree at a time. If you try to insert the same object instance in multiple
+places or move it between parents, the operation will silently fail or behave
+unexpectedly.
+
+WHEN CLONING IS REQUIRED:
+- Moving an element from one parent to another
+- Reusing the same element structure in multiple locations
+- Creating template elements to insert multiple times
+
+WHEN CLONING IS NOT REQUIRED:
+- Modifying elements in place (setAttribute, format, etc.)
+- Creating new unique elements for each insertion
+- Deleting elements from their current location and inserting new ones
+
+❌ WRONG - Reusing the same element instance:
+  export default function edit(doc) {
+    // Create a template paragraph
+    const template = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();
+    text.insert(0, 'Template text');
+    template.insert(0, [text]);
+
+    // Try to insert the same instance multiple times
+    doc.insert(0, [template]);  // First insert works
+    doc.insert(1, [template]);  // ❌ FAILS SILENTLY - element already has a parent!
+  }
+
+✅ CORRECT - Clone the element for reuse:
+  export default function edit(doc) {
+    // Create a template paragraph
+    const template = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();
+    text.insert(0, 'Template text');
+    template.insert(0, [text]);
+
+    // Clone for each insertion
+    doc.insert(0, [template.clone()]);
+    doc.insert(1, [template.clone()]);
+    doc.insert(2, [template.clone()]);
+  }
+
+❌ WRONG - Moving element between parents without proper handling:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const firstPara = blocks[0]; // Get existing paragraph
+
+    // Try to move it to a list (this won't work as expected)
+    const list = new Y.XmlElement('bulletList');
+    const item = new Y.XmlElement('listItem');
+    item.insert(0, [firstPara]);  // ❌ Element still belongs to doc!
+
+    doc.insert(1, [list]);
+  }
+
+✅ CORRECT - Delete from old location, create new structure:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const firstPara = blocks[0];
+
+    // Clone the element to preserve its content
+    const clonedPara = firstPara.clone();
+
+    // Delete from original location
+    doc.delete(0, 1);
+
+    // Create new structure with cloned content
+    const list = new Y.XmlElement('bulletList');
+    const item = new Y.XmlElement('listItem');
+    item.insert(0, [clonedPara]);
+    list.insert(0, [item]);
+
+    doc.insert(0, [list]);
+  }
+
+✅ ALSO CORRECT - Extract content and rebuild:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const firstPara = blocks[0];
+
+    // Extract text content
+    const textNode = firstPara.get(0);
+    const textContent = textNode instanceof Y.XmlText
+      ? textNode.toDelta().map(op => typeof op.insert === 'string' ? op.insert : '').join('')
+      : '';
+
+    // Delete original
+    doc.delete(0, 1);
+
+    // Create new structure with same content
+    const list = new Y.XmlElement('bulletList');
+    const item = new Y.XmlElement('listItem');
+    const newPara = new Y.XmlElement('paragraph');
+    const newText = new Y.XmlText();
+    newText.insert(0, textContent);
+    newPara.insert(0, [newText]);
+    item.insert(0, [newPara]);
+    list.insert(0, [item]);
+
+    doc.insert(0, [list]);
+  }
+
+⚠️ PITFALL 2: Using toString() Instead of toDelta()
+
+See TIP #1 above for details on why toDelta() is essential for extracting text
+from Y.XmlText nodes that may contain formatting.
+
+⚠️ PITFALL 3: Deleting While Iterating
+
+❌ WRONG - Deleting elements while iterating forward:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    for (let i = 0; i < blocks.length; i++) {
+      if (shouldDelete(blocks[i])) {
+        doc.delete(i, 1);  // ❌ Shifts subsequent indices, causes skipping!
+      }
+    }
+  }
+
+✅ CORRECT - Iterate backward when deleting:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (shouldDelete(blocks[i])) {
+        doc.delete(i, 1);  // ✅ Safe - doesn't affect previous indices
+      }
+    }
+  }
+
+✅ ALSO CORRECT - Collect indices first, then delete:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const toDelete = [];
+
+    // First pass: identify what to delete
+    for (let i = 0; i < blocks.length; i++) {
+      if (shouldDelete(blocks[i])) {
+        toDelete.push(i);
+      }
+    }
+
+    // Second pass: delete from end to start
+    for (let i = toDelete.length - 1; i >= 0; i--) {
+      doc.delete(toDelete[i], 1);
+    }
+  }
 `;
 
 const inputSchema = {
