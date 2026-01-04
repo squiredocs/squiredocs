@@ -210,7 +210,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 ### Available Tools
 
 **Document Management:**
-- `create_document` - Create new documents
+- `create_document` - Create new documents with a title (use `modify` to add content)
 - `list_documents` - List accessible documents
 - `share_document` - Share with users and set permissions
 - `set_document_title` - Update document titles
@@ -274,12 +274,15 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 ```typescript
 // AI agents use TypeScript scripts for editing:
 
-// 1. Open document (establishes session)
-await open_document({ docGuid: "abc-123" });
+// 1. Create a new document with a title
+const { docGuid } = await create_document({ title: "My Document" });
 
-// 2. Execute script to edit document
-await execute_script({
-  docGuid: "abc-123",
+// 2. Open document (establishes session)
+await open_document({ docGuid });
+
+// 3. Execute script to add content
+await modify({
+  docGuid,
   script: `
     export default function edit(doc) {
       // Find and format all TODO items as bold
@@ -327,10 +330,10 @@ await execute_script({
   `
 });
 
-// 3. Close when done
-await close_document({ docGuid: "abc-123" });
+// 4. Close when done
+await close_document({ docGuid });
 
-// Natural language examples with execute_script:
+// Natural language examples with modify:
 "Find all TODO items and make them bold"
 "Add a summary section at the end with bullet points"
 "Create a table of contents based on headings"

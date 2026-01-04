@@ -14,9 +14,11 @@ const Y = require('yjs');
 const WebSocket = require('ws');
 const http = require('http');
 const toolRegistry = require('../../tools/index');
-const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
+const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
 const { PostgresPersistence } = require('../../../postgres-persistence');
 const agentPresence = require('../../agent-presence');
+const documents = require('../../../documents');
+const documentService = require('../../../document-service');
 
 // Mock agent token
 const mockAgentToken = {
@@ -61,7 +63,9 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
       },
     });
 
-    // Initialize tool registry
+    // Initialize modules
+    documents.init(pool);
+    documentService.init(getYDoc, extractDocGuid);
     toolRegistry.init({ getPool: () => pool });
 
     // Initialize agent presence with persistence
@@ -156,6 +160,216 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
     // Cleanup persistence
     await persistence.destroy();
+  });
+
+  describe('Create Document Workflow', () => {
+    test('Complete workflow: create document with title, open, add content via modify, verify, close', async () => {
+      // Step 1: Create a new document with a title
+      console.log('\n=== Step 1: Create document with title ===');
+      const createDoc = toolRegistry.getTool('create_document');
+      expect(createDoc).toBeDefined();
+
+      let result = await createDoc.handler(
+        {
+          title: 'AI-Created Document',
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.docGuid).toBeDefined();
+      expect(result.title).toBe('AI-Created Document');
+      expect(result.message).toContain('AI-Created Document');
+
+      const newDocGuid = result.docGuid;
+      console.log(`✓ Step 1: create_document succeeded (docGuid: ${newDocGuid})`);
+
+      // Wait for persistence to complete
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Add share for the test user to access the document
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Step 2: Open the newly created document
+      console.log('\n=== Step 2: Open the new document ===');
+      const openDoc = toolRegistry.getTool('open_document');
+      expect(openDoc).toBeDefined();
+
+      result = await openDoc.handler(
+        {
+          docGuid: newDocGuid,
+          position: 'start',
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.documentInfo).toBeDefined();
+      expect(result.documentInfo.title).toBe('AI-Created Document');
+      console.log('✓ Step 2: open_document succeeded');
+
+      // Step 3: Add content via modify
+      console.log('\n=== Step 3: Add content via modify ===');
+      const modify = toolRegistry.getTool('modify');
+      expect(modify).toBeDefined();
+
+      const script = `
+export default function edit(doc) {
+  // Add a heading
+  const heading = new Y.XmlElement('heading');
+  heading.setAttribute('level', 1);
+  const headingText = new Y.XmlText();
+  headingText.insert(0, 'Welcome to AI-Created Document');
+  heading.insert(0, [headingText]);
+  doc.insert(0, [heading]);
+
+  // Add a paragraph
+  const para = new Y.XmlElement('paragraph');
+  const paraText = new Y.XmlText();
+  paraText.insert(0, 'This document was created programmatically via the MCP create_document tool.');
+  para.insert(0, [paraText]);
+  doc.insert(1, [para]);
+
+  // Add a bullet list
+  const bulletList = new Y.XmlElement('bulletList');
+  const items = ['First item', 'Second item', 'Third item'];
+
+  for (const itemText of items) {
+    const listItem = new Y.XmlElement('listItem');
+    const itemPara = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();
+    text.insert(0, itemText);
+    itemPara.insert(0, [text]);
+    listItem.insert(0, [itemPara]);
+    bulletList.insert(bulletList.length, [listItem]);
+  }
+  doc.insert(2, [bulletList]);
+}
+`;
+
+      result = await modify.handler(
+        {
+          docGuid: newDocGuid,
+          script,
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.operationCount).toBeGreaterThan(0);
+      console.log('✓ Step 3: modify succeeded');
+      console.log(`  Operations: ${result.operationCount}`);
+
+      // Step 4: Verify document content
+      console.log('\n=== Step 4: Verify document content ===');
+      const readDoc = toolRegistry.getTool('read_document');
+      expect(readDoc).toBeDefined();
+
+      result = await readDoc.handler(
+        {
+          docGuid: newDocGuid,
+          format: 'text',
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.content).toContain('Welcome to AI-Created Document');
+      expect(result.content).toContain('created programmatically');
+      expect(result.content).toContain('First item');
+      expect(result.content).toContain('Second item');
+      expect(result.content).toContain('Third item');
+      console.log('✓ Step 4: Document content verified');
+      console.log('\nFinal document content:');
+      console.log(result.content);
+
+      // Step 5: Close document
+      console.log('\n=== Step 5: Close document ===');
+      const closeDoc = toolRegistry.getTool('close_document');
+      expect(closeDoc).toBeDefined();
+
+      result = await closeDoc.handler(
+        {
+          docGuid: newDocGuid,
+        },
+        mockAgentToken
+      );
+
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      console.log('✓ Step 5: close_document succeeded');
+
+      // Cleanup the created document
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+      console.log('\n✓ Test document cleaned up');
+    }, 60000);
+
+    test('create_document returns valid UUID', async () => {
+      const createDoc = toolRegistry.getTool('create_document');
+
+      const result = await createDoc.handler(
+        { title: 'UUID Test Document' },
+        mockAgentToken
+      );
+
+      expect(result.docGuid).toBeDefined();
+
+      // Verify it's a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      expect(result.docGuid).toMatch(uuidRegex);
+
+      // Cleanup
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [result.docGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [result.docGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [result.docGuid]);
+    }, 10000);
+
+    test('create_document sets title in Yjs metadata', async () => {
+      const createDoc = toolRegistry.getTool('create_document');
+      const openDoc = toolRegistry.getTool('open_document');
+      const closeDoc = toolRegistry.getTool('close_document');
+
+      const result = await createDoc.handler(
+        { title: 'Metadata Title Test' },
+        mockAgentToken
+      );
+
+      const newDocGuid = result.docGuid;
+
+      // Wait for persistence to complete
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Add share for access
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Open document to verify title is in metadata
+      const openResult = await openDoc.handler(
+        { docGuid: newDocGuid },
+        mockAgentToken
+      );
+
+      expect(openResult.documentInfo.title).toBe('Metadata Title Test');
+
+      // Close and cleanup
+      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+    }, 10000);
   });
 
   describe('Bug Report Workflow', () => {
