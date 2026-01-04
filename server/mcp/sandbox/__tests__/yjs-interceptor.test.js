@@ -72,12 +72,12 @@ describe('Yjs operation interceptor', () => {
 
       wrappedText.insert(0, 'Hello');
 
-      expect(tracker.getOperationCount()).toBe(1);
-      const ops = tracker.getOperations();
-      expect(ops[0].type).toBe('insert');
-      expect(ops[0].target).toBe('XmlText');
-      expect(ops[0].args[0]).toBe(0);
-      expect(ops[0].args[1]).toBe('Hello');
+      const mutations = tracker.getOperations().filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('insert');
+      expect(mutations[0].target).toBe('XmlText');
+      expect(mutations[0].args[0]).toBe(0);
+      expect(mutations[0].args[1]).toBe('Hello');
     });
 
     test('tracks XmlText format operations', () => {
@@ -96,10 +96,10 @@ describe('Yjs operation interceptor', () => {
 
       wrappedText.format(0, 5, { bold: true });
 
-      expect(tracker.getOperationCount()).toBe(1);
-      const ops = tracker.getOperations();
-      expect(ops[0].type).toBe('format');
-      expect(ops[0].args[2]).toEqual({ bold: true });
+      const mutations = tracker.getOperations().filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('format');
+      expect(mutations[0].args[2]).toEqual({ bold: true });
     });
 
     test('tracks XmlElement setAttribute operations', () => {
@@ -114,13 +114,13 @@ describe('Yjs operation interceptor', () => {
 
       wrappedHeading.setAttribute('level', 1);
 
-      expect(tracker.getOperationCount()).toBe(1);
-      const ops = tracker.getOperations();
-      expect(ops[0].type).toBe('setAttribute');
-      expect(ops[0].args).toEqual(['level', 1]);
+      const mutations = tracker.getOperations().filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('setAttribute');
+      expect(mutations[0].args).toEqual(['level', 1]);
     });
 
-    test('does not track read operations', () => {
+    test('tracks read operations with category read', () => {
       const paragraph = new Y.XmlElement('paragraph');
       xmlFragment.insert(0, [paragraph]);
 
@@ -131,10 +131,16 @@ describe('Yjs operation interceptor', () => {
       // Read operations
       wrapped.toArray();
       wrapped.get(0);
-      const length = wrapped.length;
 
-      // Should not track any operations
-      expect(tracker.getOperationCount()).toBe(0);
+      // Should track read operations with category 'read'
+      const reads = tracker.getOperations().filter(op => op.category === 'read');
+      expect(reads.length).toBe(2);
+      expect(reads[0].type).toBe('toArray');
+      expect(reads[1].type).toBe('get');
+
+      // Should not have any mutations
+      const mutations = tracker.getOperations().filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(0);
     });
 
     test('tracks path in nested operations', () => {

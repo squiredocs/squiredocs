@@ -17,9 +17,10 @@ class OperationTracker {
   }
 
   /**
-   * Records a mutation operation
+   * Records an operation
    * @param {object} operation - Operation details
    * @param {string} operation.type - Operation type (insert, delete, format, etc.)
+   * @param {string} operation.category - Operation category ('mutation' or 'read')
    * @param {string} operation.target - Target Yjs type (XmlFragment, XmlElement, XmlText)
    * @param {number[]} operation.path - Path in document tree
    * @param {any[]} operation.args - Operation arguments
@@ -28,6 +29,7 @@ class OperationTracker {
   record(operation) {
     this.operations.push({
       type: operation.type,
+      category: operation.category,
       target: operation.target,
       path: operation.path,
       args: operation.args,

@@ -102,6 +102,76 @@ const inputSchema = {
 };
 
 /**
+ * Find the first text node in a block (depth-first)
+ * @param {Y.XmlElement} node - Block to search
+ * @returns {Y.XmlText|null} First text node or null
+ */
+function findFirstTextNode(node) {
+  if (node instanceof Y.XmlText) {
+    return node;
+  }
+  if (node instanceof Y.XmlElement) {
+    const children = node.toArray();
+    for (const child of children) {
+      const textNode = findFirstTextNode(child);
+      if (textNode) return textNode;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the last text node in a block (depth-first, reversed)
+ * @param {Y.XmlElement} node - Block to search
+ * @returns {Y.XmlText|null} Last text node or null
+ */
+function findLastTextNode(node) {
+  if (node instanceof Y.XmlText) {
+    return node;
+  }
+  if (node instanceof Y.XmlElement) {
+    const children = node.toArray();
+    for (let i = children.length - 1; i >= 0; i--) {
+      const textNode = findLastTextNode(children[i]);
+      if (textNode) return textNode;
+    }
+  }
+  return null;
+}
+
+/**
+ * Create a selection spanning the given blocks
+ * @param {Array<Y.XmlElement>} blocks - Blocks to select
+ * @returns {object|null} { anchor, head } RelativePositions or null
+ */
+function createSelectionForBlocks(blocks) {
+  if (!blocks || blocks.length === 0) {
+    return null;
+  }
+
+  // Find first text node in first block
+  const firstTextNode = findFirstTextNode(blocks[0]);
+  if (!firstTextNode) {
+    return null;
+  }
+
+  // Find last text node in last block
+  const lastTextNode = findLastTextNode(blocks[blocks.length - 1]);
+  if (!lastTextNode) {
+    return null;
+  }
+
+  // Create RelativePositions
+  const anchorRel = Y.createRelativePositionFromTypeIndex(firstTextNode, 0);
+  const headRel = Y.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
+
+  return {
+    anchor: Y.relativePositionToJSON(anchorRel),
+    head: Y.relativePositionToJSON(headRel),
+  };
+}
+
+/**
  * Handler function for the tool
  * @param {object} args - Tool arguments
  * @param {string} args.docGuid - Document UUID
@@ -153,6 +223,17 @@ async function handler(args, agentToken) {
 
   // Extract specified range
   const rangeBlocks = blocks.slice(startIdx, endIdx + 1);
+
+  // Highlight the read range for 3 seconds
+  try {
+    const selection = createSelectionForBlocks(rangeBlocks);
+    if (selection) {
+      agentPresence.setTemporarySelection(session.sessionId, selection.anchor, selection.head, 3000);
+    }
+  } catch (err) {
+    // Non-fatal: log but don't fail the read
+    console.warn('[read-document] Could not highlight selection:', err.message);
+  }
 
   // Count characters
   let characterCount = 0;

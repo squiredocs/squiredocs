@@ -657,6 +657,51 @@ function updateSessionCursor(sessionId, anchor, head) {
 }
 
 /**
+ * Set a temporary selection that auto-clears after a duration.
+ * Used to highlight content the agent is reading.
+ * @param {string} sessionId - Session ID
+ * @param {object} anchor - Anchor RelativePosition (JSON)
+ * @param {object} head - Head RelativePosition (JSON)
+ * @param {number} [durationMs=3000] - Duration to show selection in ms
+ * @returns {boolean} True if selection was set
+ */
+function setTemporarySelection(sessionId, anchor, head, durationMs = 3000) {
+  const session = activeSessions.get(sessionId);
+  if (!session) {
+    return false;
+  }
+
+  // Clear any existing temporary selection timeout
+  if (session.tempSelectionTimeoutId) {
+    clearTimeout(session.tempSelectionTimeoutId);
+    session.tempSelectionTimeoutId = null;
+  }
+
+  // Store the original cursor to restore later
+  const originalCursor = session.cursor;
+
+  // Set the temporary selection
+  const tempSelection = { anchor, head };
+  session.lastActivityAt = Date.now();
+
+  // Broadcast to awareness
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalStateField('cursor', tempSelection);
+  }
+
+  // Set timeout to restore original cursor
+  session.tempSelectionTimeoutId = setTimeout(() => {
+    session.tempSelectionTimeoutId = null;
+    // Restore original cursor
+    if (session.provider && session.provider.awareness) {
+      session.provider.awareness.setLocalStateField('cursor', originalCursor);
+    }
+  }, durationMs);
+
+  return true;
+}
+
+/**
  * Get a session by ID
  * @param {string} sessionId - Session ID
  * @returns {object|null} Session object or null if not found
@@ -673,5 +718,6 @@ module.exports = {
   clearUserSessions,
   getActiveSessions,
   updateSessionCursor,
+  setTemporarySelection,
   getSession,
 };

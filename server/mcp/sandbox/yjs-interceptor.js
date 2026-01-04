@@ -22,7 +22,7 @@ function wrapForTracking(yjsObject, tracker, path = []) {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, target);
 
-      // Handle methods that mutate the document
+      // Handle methods that mutate or read the document
       if (typeof value === 'function') {
         return function(...args) {
           const result = value.apply(target, args);
@@ -31,6 +31,19 @@ function wrapForTracking(yjsObject, tracker, path = []) {
           if (isMutationMethod(prop)) {
             tracker.record({
               type: prop,
+              category: 'mutation',
+              target: getTargetType(target),
+              path: [...path],
+              args: [...args],
+              timestamp: Date.now(),
+            });
+          }
+
+          // Record read operations
+          if (isReadMethod(prop)) {
+            tracker.record({
+              type: prop,
+              category: 'read',
               target: getTargetType(target),
               path: [...path],
               args: [...args],
@@ -117,6 +130,38 @@ function isMutationMethod(methodName) {
   ];
 
   return mutationMethods.includes(methodName);
+}
+
+/**
+ * Checks if a method is a read operation
+ * @param {string} methodName - Method name
+ * @returns {boolean}
+ */
+function isReadMethod(methodName) {
+  const readMethods = [
+    // XmlFragment/XmlElement read operations
+    'get',
+    'toArray',
+    'toJSON',
+    'clone',
+    'slice',
+
+    // XmlElement attribute reads
+    'getAttribute',
+    'getAttributes',
+    'hasAttribute',
+
+    // XmlText read operations
+    'toDelta',
+    'toString',
+    'toDOM',
+
+    // Common accessors
+    'firstChild',
+    'length',
+  ];
+
+  return readMethods.includes(methodName);
 }
 
 /**
