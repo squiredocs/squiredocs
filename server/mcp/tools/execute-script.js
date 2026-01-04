@@ -397,10 +397,12 @@ async function handler(args, agentToken) {
   const validatedTimeout = Math.max(100, Math.min(30000, timeout));
 
   // Get or create session (establishes WebSocket presence)
+  // Use 5 minute timeout to match open_document
+  // This ensures cursor persists across multiple execute_script calls
   const session = await agentPresence.getOrCreateSession(
     docGuid,
     agentToken,
-    Math.ceil(validatedTimeout / 1000) + 60 // Session duration = timeout + 1 minute buffer
+    300 // 5 minute session duration
   );
 
   const ydoc = session.provider.doc;

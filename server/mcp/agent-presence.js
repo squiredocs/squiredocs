@@ -123,6 +123,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         session.cleanup();
       }, duration * 1000);
 
+      // Ensure cursor is broadcast to awareness (in case it was cleared)
+      if (session.provider && session.provider.awareness && session.cursor) {
+        session.provider.awareness.setLocalStateField('cursor', session.cursor);
+      }
+
       console.log(`[agent-presence] Extended presence for ${userName} in ${docGuid} for ${duration}s`);
       return {
         success: true,
@@ -416,6 +421,11 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
       session.timeoutId = setTimeout(() => {
         session.cleanup();
       }, duration * 1000);
+
+      // Ensure cursor is broadcast to awareness (in case it was cleared)
+      if (session.provider && session.provider.awareness && session.cursor) {
+        session.provider.awareness.setLocalStateField('cursor', session.cursor);
+      }
 
       console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
 
