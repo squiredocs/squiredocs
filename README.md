@@ -198,13 +198,14 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 
 ### Features
 
-- **Cursor-based editing API** - Natural editing with persistent cursor state
-- **Comprehensive MCP tools** for document operations including hierarchical editing
+- **Sandboxed TypeScript execution** - Write scripts with direct Yjs API access for complex edits
+- **Type-safe editing** - Full TypeScript support with type definitions
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
-- **Undo/redo support** - Independent undo stack per agent
-- **Streaming text insertion** - Visible typing animation for other users
+- **Atomic operations** - Entire scripts execute as single undo step
+- **Operation tracking** - Visual cursor animations show edit operations
+- **Automatic rollback** - Scripts fail safely without corrupting document
 
 ### Available Tools
 
@@ -215,39 +216,22 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `set_document_title` - Update document titles
 
 **Session Management:**
-- `open_document` - Initialize cursor session on a document
-- `close_document` - End cursor session and remove presence
-
-**Navigation:**
-- `goto` - Move cursor to absolute location (start, end, block, position)
-- `move` - Move cursor relative to current position (by char, word, block)
-- `find` - Search for text and navigate/select/peek results
-
-**Selection:**
-- `select` - Create selections (word, block, all, to block start/end, none)
-- `get_selection` - Query current cursor position and selection
-
-**Clipboard:**
-- `copy_selection` - Copy current selection to clipboard
-- `paste` - Paste clipboard content at cursor position
-- `cut_selection` - Cut selection to clipboard (copy + delete)
+- `open_document` - Initialize session on a document
+- `close_document` - End session and remove presence
 
 **Reading:**
 - `read_document` - Read entire document or specific blocks
-- `read_context` - Get text around cursor position
-- `get_collaborators` - See who else is editing and their cursor positions
+- `read_context` - Get text around current position
+- `get_selection` - Query current cursor position and selection
+- `get_collaborators` - See who else is editing
 
-**Editing:**
-- `insert` - Insert text at cursor (supports streaming mode)
-- `delete` - Delete selected text or by direction/unit/count
-- `format` - Apply/remove formatting to selection (bold, italic, underline, strike, links)
-- `insert_block` - Insert new blocks (paragraph, heading, list, code) with optional hierarchical placement
-- `set_block_type` - Convert block to different type
-
-**Hierarchy & Structure:**
-- `indent_block` - Move current block into previous sibling's children (create hierarchy)
-- `outdent_block` - Move current block up one level (reduce nesting)
-- `nest_block` - Insert a new block nested under a specific parent path
+**Sandboxed Script Execution:**
+- `execute_script` - Execute TypeScript scripts with direct Yjs API access
+  - Edit text, format content, create/modify blocks
+  - Build complex nested structures
+  - Find and replace patterns
+  - All changes atomic (single undo)
+  - Real-time sync to all users
 
 **History:**
 - `undo` - Undo last operation
@@ -287,127 +271,169 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 
 ### Example Usage
 
-```javascript
-// AI agents use cursor-based workflow:
+```typescript
+// AI agents use TypeScript scripts for editing:
 
-// 1. Open document (establishes cursor session)
+// 1. Open document (establishes session)
 await open_document({ docGuid: "abc-123" });
 
-// 2. Navigate to location
-await find({ docGuid: "abc-123", query: "TODO", options: { action: "goto" } });
-
-// 3. Select and edit
-await select({ docGuid: "abc-123", mode: "word" });
-await format({ docGuid: "abc-123", add: ["bold"] });
-
-// 4. Insert new content
-await goto({ docGuid: "abc-123", target: { type: "document_end" } });
-await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 } });
-await insert({ docGuid: "abc-123", text: "Action Items" });
-
-// Insert nested content
-await insert_block({
+// 2. Execute script to edit document
+await execute_script({
   docGuid: "abc-123",
-  parentPath: [2, 1],  // Nest under listItem 1 of block 2
-  type: "paragraph",
-  content: "Nested content"
+  script: `
+    export default function edit(doc) {
+      // Find and format all TODO items as bold
+      const blocks = doc.toArray();
+      blocks.forEach(block => {
+        if (block instanceof Y.XmlElement) {
+          const text = findTextNode(block);
+          if (text) {
+            const content = extractText(text);
+            const index = content.indexOf('TODO');
+            if (index >= 0) {
+              text.format(index, 4, { bold: true });
+            }
+          }
+        }
+      });
+
+      // Add a summary section at the end
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', 2);
+      const headingText = new Y.XmlText();
+      headingText.insert(0, 'Action Items');
+      heading.insert(0, [headingText]);
+
+      doc.insert(doc.length, [heading]);
+    }
+
+    function findTextNode(element) {
+      for (const child of element.toArray()) {
+        if (child instanceof Y.XmlText) return child;
+        if (child instanceof Y.XmlElement) {
+          const found = findTextNode(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    function extractText(xmlText) {
+      const delta = xmlText.toDelta();
+      return delta.map(op =>
+        typeof op.insert === 'string' ? op.insert : ''
+      ).join('');
+    }
+  `
 });
 
-// Automatically add to existing list (auto-wraps in listItem)
-await insert_block({
-  docGuid: "abc-123",
-  parentPath: [0],  // Insert into list at block 0
-  type: "paragraph",
-  content: "New list item"
-  // autoListItem defaults to true - automatically wraps in listItem
-});
-
-// 5. Copy and paste content
-await select({ docGuid: "abc-123", mode: "block" });
-await copy_selection({ docGuid: "abc-123" });
-await goto({ docGuid: "abc-123", target: { type: "document_end" } });
-await paste({ docGuid: "abc-123", mode: "after" });
-
-// 6. Close when done
+// 3. Close when done
 await close_document({ docGuid: "abc-123" });
 
-// Natural language examples:
-"Open the document and find the word 'TODO'"
-"Select the current paragraph and make it bold"
-"Go to the end and add a new heading 'Conclusion'"
-"Copy the current section and paste it at the end"
-"Move the introduction to the end of the document"
-"Undo the last change"
+// Natural language examples with execute_script:
+"Find all TODO items and make them bold"
+"Add a summary section at the end with bullet points"
+"Create a table of contents based on headings"
+"Find all links and convert them to a reference list"
+"Reorganize the document with all headings first"
 
 ## Hierarchical Document Editing
 
-This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization. The MCP tools now enable creation and manipulation of nested document structures.
+This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization using the `execute_script` tool with direct Yjs API access.
 
 ### Creating Nested Content
 
-**Insert blocks at specific hierarchy levels:**
-```javascript
-// Create a nested list structure
-await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Main item" });
-await nest_block({
+**Build complex hierarchical structures with TypeScript:**
+```typescript
+await execute_script({
   docGuid: "abc-123",
-  parentPath: [0, 0],  // Under first list item
-  type: "bulletList",
-  content: "Sub item"
+  script: `
+    export default function edit(doc) {
+      // Create a nested bullet list
+      const list = new Y.XmlElement('bulletList');
+
+      // Main item
+      const item1 = new Y.XmlElement('listItem');
+      const p1 = new Y.XmlElement('paragraph');
+      const t1 = new Y.XmlText();
+      t1.insert(0, 'Main item');
+      p1.insert(0, [t1]);
+      item1.insert(0, [p1]);
+
+      // Nested sub-list
+      const subList = new Y.XmlElement('bulletList');
+      const subItem = new Y.XmlElement('listItem');
+      const subP = new Y.XmlElement('paragraph');
+      const subT = new Y.XmlText();
+      subT.insert(0, 'Sub item');
+      subP.insert(0, [subT]);
+      subItem.insert(0, [subP]);
+      subList.insert(0, [subItem]);
+
+      // Add sub-list to main item
+      item1.insert(1, [subList]);
+      list.insert(0, [item1]);
+
+      doc.insert(0, [list]);
+    }
+  `
 });
 ```
-
-### Restructuring Content
-
-**Indent/outdent blocks to change hierarchy:**
-```javascript
-// Move current block into previous sibling (indent)
-await indent_block({ docGuid: "abc-123" });
-
-// Move current block up one level (outdent)
-await outdent_block({ docGuid: "abc-123" });
-```
-
-
-### Path-Based Addressing
-
-Many operations now support hierarchical paths for precise content placement:
-
-- `[0]` - First top-level block
-- `[0, 1]` - Second child of first top-level block
-- `[0, 1, 0]` - First child of second child of first top-level block
 
 ### Example: Creating a Complex Document Structure
 
-```javascript
-// 1. Create main heading
-await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 1 }, content: "Project Plan" });
-
-// 2. Add main sections
-await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 }, content: "Objectives" });
-await insert_block({ docGuid: "abc-123", position: "after", type: "heading", attributes: { level: 2 }, content: "Timeline" });
-
-// 3. Add nested content under Objectives
-await goto({ docGuid: "abc-123", target: { type: "block", index: 1 } }); // Go to Objectives heading
-await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Increase user engagement" });
-await insert_block({ docGuid: "abc-123", position: "after", type: "bulletList", content: "Improve performance metrics" });
-
-// 4. Create sub-list under first objective
-await nest_block({
+```typescript
+await execute_script({
   docGuid: "abc-123",
-  parentPath: [2, 0],  // Under first list item of the bullet list
-  type: "bulletList",
-  content: "Implement new UI components"
-});
-await nest_block({
-  docGuid: "abc-123",
-  parentPath: [2, 0, 1, 0],  // Under first item of the nested list
-  type: "paragraph",
-  content: "Detailed implementation plan..."
+  script: `
+    export default function edit(doc) {
+      // Helper to create heading
+      function createHeading(level, text) {
+        const h = new Y.XmlElement('heading');
+        h.setAttribute('level', level);
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        h.insert(0, [t]);
+        return h;
+      }
+
+      // Helper to create bullet list item
+      function createListItem(text) {
+        const item = new Y.XmlElement('listItem');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        p.insert(0, [t]);
+        item.insert(0, [p]);
+        return item;
+      }
+
+      // 1. Create main heading
+      doc.insert(0, [createHeading(1, 'Project Plan')]);
+
+      // 2. Add sections with nested content
+      doc.insert(1, [createHeading(2, 'Objectives')]);
+
+      const list = new Y.XmlElement('bulletList');
+      const obj1 = createListItem('Increase user engagement');
+      const obj2 = createListItem('Improve performance metrics');
+
+      // Add nested items under first objective
+      const nestedList = new Y.XmlElement('bulletList');
+      nestedList.insert(0, [
+        createListItem('Implement new UI components'),
+        createListItem('Add interactive features')
+      ]);
+      obj1.insert(1, [nestedList]);
+
+      list.insert(0, [obj1, obj2]);
+      doc.insert(2, [list]);
+    }
+  `
 });
 ```
 
-This enables AI agents to create professional documents with proper hierarchical structure, including nested lists, subsections, and complex content organization.
+This approach enables AI agents to create professional documents with proper hierarchical structure, including nested lists, subsections, and complex content organization - all in a single atomic operation.
 
 ## Programmatically Updating Documents
 

@@ -10,34 +10,15 @@ const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 
-// V2 cursor-based editing tools
+// Session and reading tools (kept)
 const openDocument = require('./open-document');
 const closeDocument = require('./close-document');
 const readDocument = require('./read-document');
 const readContext = require('./read-context');
 const getSelection = require('./get-selection');
 const getCollaborators = require('./get-collaborators');
-const goto = require('./goto');
-const move = require('./move');
-const find = require('./find');
-const select = require('./select');
-const insert = require('./insert');
-const deleteOp = require('./delete');
-const format = require('./format');
-const insertBlock = require('./insert-block');
-const setBlockType = require('./set-block-type');
 const undo = require('./undo');
 const redo = require('./redo');
-
-// V2 hierarchy manipulation tools
-const indentBlock = require('./indent-block');
-const outdentBlock = require('./outdent-block');
-const nestBlock = require('./nest-block');
-
-// Clipboard tools
-const copySelection = require('./copy-selection');
-const paste = require('./paste');
-const cutSelection = require('./cut-selection');
 
 // Sandbox execution
 const executeScript = require('./execute-script');
@@ -52,36 +33,17 @@ const tools = {
   share_document: shareDocument,
   set_document_title: setDocumentTitle,
 
-  // V2 cursor-based editing tools
+  // Session and reading tools
   open_document: openDocument,
   close_document: closeDocument,
   read_document: readDocument,
   read_context: readContext,
   get_selection: getSelection,
   get_collaborators: getCollaborators,
-  goto: goto,
-  move: move,
-  find: find,
-  select: select,
-  insert: insert,
-  delete: deleteOp,
-  format: format,
-  insert_block: insertBlock,
-  set_block_type: setBlockType,
   undo: undo,
   redo: redo,
 
-  // V2 hierarchy manipulation tools
-  indent_block: indentBlock,
-  outdent_block: outdentBlock,
-  nest_block: nestBlock,
-
-  // Clipboard tools
-  copy_selection: copySelection,
-  paste: paste,
-  cut_selection: cutSelection,
-
-  // Sandbox execution
+  // Sandbox execution (replaces 15 deprecated editing tools)
   execute_script: executeScript,
 };
 

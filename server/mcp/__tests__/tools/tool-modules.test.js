@@ -13,7 +13,7 @@
  */
 
 describe('Tool Module Smoke Tests', () => {
-  // List of all tool modules (V2 cursor-based + document management)
+  // List of all tool modules
   const toolModules = [
     // Document management
     'list-documents',
@@ -21,32 +21,15 @@ describe('Tool Module Smoke Tests', () => {
     'share-document',
     'set-document-title',
 
-    // V2 cursor-based editing tools
+    // Session and reading tools
     'open-document',
     'close-document',
     'read-document',
     'read-context',
     'get-selection',
     'get-collaborators',
-    'goto',
-    'move',
-    'find',
-    'select',
-    'insert',
-    'delete',
-    'format',
-    'insert-block',
-    'set-block-type',
-    'indent-block',
-    'outdent-block',
-    'nest-block',
     'undo',
     'redo',
-
-    // Clipboard tools
-    'copy-selection',
-    'paste',
-    'cut-selection',
 
     // Sandbox execution
     'execute-script',
@@ -191,38 +174,22 @@ describe('Tool Registry Integration', () => {
     const toolRegistry = require('../../tools/index');
     const toolList = toolRegistry.getToolList();
 
-    // Expected tool names (V2 cursor-based + document management)
+    // Expected tool names
     const expectedTools = [
       // Document management
       'list_documents',
       'create_document',
       'share_document',
       'set_document_title',
-      // V2 cursor-based editing tools
+      // Session and reading tools
       'open_document',
       'close_document',
       'read_document',
       'read_context',
       'get_selection',
       'get_collaborators',
-      'goto',
-      'move',
-      'find',
-      'select',
-      'insert',
-      'delete',
-      'format',
-      'insert_block',
-      'set_block_type',
-      'indent_block',
-      'outdent_block',
-      'nest_block',
       'undo',
       'redo',
-      // Clipboard tools
-      'copy_selection',
-      'paste',
-      'cut_selection',
       // Sandbox execution
       'execute_script',
     ];
@@ -243,18 +210,20 @@ describe('Tool Registry Integration', () => {
   test('getTool returns correct tool module', () => {
     const toolRegistry = require('../../tools/index');
 
-    // Test a few V2 tools
+    // Test document management tool
+    const createTool = toolRegistry.getTool('create_document');
+    expect(createTool).toBeDefined();
+    expect(createTool.name).toBe('create_document');
+
+    // Test session tool
     const openTool = toolRegistry.getTool('open_document');
     expect(openTool).toBeDefined();
     expect(openTool.name).toBe('open_document');
 
-    const gotoTool = toolRegistry.getTool('goto');
-    expect(gotoTool).toBeDefined();
-    expect(gotoTool.name).toBe('goto');
-
-    const insertTool = toolRegistry.getTool('insert');
-    expect(insertTool).toBeDefined();
-    expect(insertTool.name).toBe('insert');
+    // Test sandbox execution tool
+    const execTool = toolRegistry.getTool('execute_script');
+    expect(execTool).toBeDefined();
+    expect(execTool.name).toBe('execute_script');
   });
 
   test('getTool returns null for unknown tool', () => {
