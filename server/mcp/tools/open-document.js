@@ -163,12 +163,18 @@ async function handler(args, agentToken) {
         const endPos = createCursorPosition(xmlFragment, lastBlockIndex, Infinity);
         cursorPos = { anchor: endPos, head: endPos };
 
-        // Update session
+        // Update session and broadcast to awareness
         agentPresence.updateSessionCursor(session.sessionId, endPos, endPos);
       } catch (error) {
         console.error('[open_document] Error creating end position:', error);
         // Keep default start position
       }
+    }
+  } else if (cursorPos && session.provider && session.provider.awareness) {
+    // Cursor already exists - ensure it's broadcast to awareness
+    const currentCursor = session.provider.awareness.getLocalState()?.cursor;
+    if (!currentCursor) {
+      session.provider.awareness.setLocalStateField('cursor', cursorPos);
     }
   }
 

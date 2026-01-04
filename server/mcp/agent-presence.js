@@ -215,6 +215,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 
               // Initialize cursor at document start
               session.cursor = initializeCursorAtStart(xmlFragment);
+
+              // Broadcast cursor to awareness so it's visible to other users
+              if (session.cursor) {
+                awareness.setLocalStateField('cursor', session.cursor);
+              }
             }
 
             // Set user info to make agent visible
@@ -507,6 +512,11 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
               // Initialize cursor at document start
               session.cursor = initializeCursorAtStart(xmlFragment);
+
+              // Broadcast cursor to awareness so it's visible to other users
+              if (session.cursor) {
+                awareness.setLocalStateField('cursor', session.cursor);
+              }
             }
 
             // Set user info to make agent visible

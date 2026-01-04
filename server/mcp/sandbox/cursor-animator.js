@@ -45,12 +45,8 @@ async function playSequence(session, xmlFragment, sequence) {
     }
   }
 
-  // Clear cursor at the end
-  try {
-    agentPresence.updateSessionCursor(session.sessionId, null, null);
-  } catch (error) {
-    // Ignore errors clearing cursor
-  }
+  // Keep cursor at the last position (already set by the last step)
+  // Don't clear it - this allows the cursor to persist within the session
 }
 
 /**
