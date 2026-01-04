@@ -56,6 +56,33 @@ Scripts must export a default function that receives the document fragment:
   }
 
 ═══════════════════════════════════════════════════════════════════════════
+BEST PRACTICES
+═══════════════════════════════════════════════════════════════════════════
+
+❌ DON'T: Rewrite entire documents from scratch
+  - Deleting all blocks and recreating the document is inefficient
+  - Breaks real-time collaboration (other users see flickering)
+  - Loses document history and undo/redo state
+  - Increases network traffic and operation count
+
+✅ DO: Make targeted modifications to existing content
+  - Find specific blocks/text and modify them in place
+  - Insert new content where needed, delete only what's necessary
+  - Use format() to change styling without rewriting text
+  - Break large tasks into logical chunks (one script per logical change)
+
+Examples:
+  ❌ Bad: Delete all blocks, recreate entire document with changes
+  ✅ Good: Find headings, update their level attribute
+  ✅ Good: Find TODO items, format them as bold
+  ✅ Good: Insert new section at specific location
+
+When working on large documents:
+  - Break work into multiple execute_script calls (one per section/task)
+  - Each script should have a single, clear purpose
+  - Preserve existing content that doesn't need changes
+
+═══════════════════════════════════════════════════════════════════════════
 YJS API AVAILABLE IN SCRIPTS
 ═══════════════════════════════════════════════════════════════════════════
 
