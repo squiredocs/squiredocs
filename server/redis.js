@@ -79,8 +79,32 @@ if (isRedisEnabled()) {
   getRedisClient();
 }
 
+/**
+ * Create a new Redis client for pub/sub operations
+ * Redis requires dedicated connections for pub/sub (can't mix with regular commands)
+ * @returns {Redis|null} New Redis client or null if Redis is disabled
+ */
+function createPubSubClient() {
+  if (!isRedisEnabled()) {
+    return null;
+  }
+
+  const client = new Redis(REDIS_CONFIG);
+
+  client.on('connect', () => {
+    console.log('[Redis PubSub] Connected to', REDIS_CONFIG.host + ':' + REDIS_CONFIG.port);
+  });
+
+  client.on('error', (err) => {
+    console.error('[Redis PubSub] Connection error:', err.message);
+  });
+
+  return client;
+}
+
 module.exports = {
   getRedisClient,
+  createPubSubClient,
   isRedisEnabled,
   isRedisReady,
   closeRedis,

@@ -9,7 +9,9 @@ const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { PostgresPersistence } = require('./postgres-persistence');
 const { redisPersistence } = require('./redis-persistence');
+const redisPubSub = require('./redis-pubsub');
 const Y = require('yjs');
+const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const documents = require('./documents');
 const permissions = require('./permissions');
@@ -93,6 +95,7 @@ const extractDocGuid = (docName) => {
 // bindState is async but not awaited by y-websocket - it applies persisted state when it completes
 // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
 const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
+const ORIGIN_REDIS = 'redis'; // Origin marker for updates from Redis pub/sub (cross-instance sync)
 
 // Track active users per document for version history attribution
 // Maps docGuid -> Map<clientId, userId>
@@ -932,6 +935,11 @@ const server = app.listen(PORT, () => {
 
   // Initialize document service with y-websocket functions
   documentService.init(getYDoc, extractDocGuid);
+
+  // Initialize Redis pub/sub for cross-instance synchronization
+  redisPubSub.init().catch((err) => {
+    console.error('[RedisPubSub] Failed to initialize:', err.message);
+  });
 });
 
 // Create WebSocket server attached to HTTP server
@@ -1150,6 +1158,77 @@ wss.on('connection', (ws, req) => {
       const awarenessCount = doc.awareness ? doc.awareness.getStates().size : 0;
       console.log(`[WS:${connId}] Connected to doc ${docId} (wsName: ${wsDocName}): ${connsCount} conns, ${awarenessCount} awareness states`);
 
+      // ========== REDIS PUB/SUB SYNC ==========
+      // Set up cross-instance synchronization via Redis (once per doc instance)
+      if (!doc._redisSyncInitialized && redisPubSub.isEnabled()) {
+        doc._redisSyncInitialized = true;
+        console.log(`[RedisPubSub] Setting up sync for doc ${docId}`);
+
+        // Subscribe to Redis channels for this document
+        redisPubSub.subscribeToDocument(docId, {
+          // Handle awareness updates from other server instances
+          onAwareness: (buffer) => {
+            try {
+              awarenessProtocol.applyAwarenessUpdate(
+                doc.awareness,
+                new Uint8Array(buffer),
+                ORIGIN_REDIS
+              );
+            } catch (err) {
+              console.error(`[RedisPubSub] Error applying awareness update for ${docId}:`, err.message);
+            }
+          },
+          // Handle document updates from other server instances
+          onUpdate: (buffer) => {
+            try {
+              Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
+            } catch (err) {
+              console.error(`[RedisPubSub] Error applying doc update for ${docId}:`, err.message);
+            }
+          },
+        });
+
+        // Publish local awareness changes to Redis for other instances
+        const redisAwarenessHandler = ({ added, updated, removed }, origin) => {
+          // Skip if update came from Redis (prevent feedback loops)
+          if (origin === ORIGIN_REDIS) return;
+
+          const changedClients = added.concat(updated);
+          if (changedClients.length > 0) {
+            try {
+              const update = awarenessProtocol.encodeAwarenessUpdate(
+                doc.awareness,
+                changedClients
+              );
+              redisPubSub.publishAwareness(docId, update);
+            } catch (err) {
+              console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
+            }
+          }
+        };
+
+        // Publish local document updates to Redis for other instances
+        const redisUpdateHandler = (update, origin) => {
+          // Skip if update came from Redis or DB load (prevent feedback loops)
+          if (origin === ORIGIN_REDIS || origin === ORIGIN_DB_LOAD) return;
+
+          try {
+            redisPubSub.publishUpdate(docId, update);
+          } catch (err) {
+            console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
+          }
+        };
+
+        // Register handlers
+        doc.awareness.on('update', redisAwarenessHandler);
+        doc.on('update', redisUpdateHandler);
+
+        // Store handlers for cleanup
+        doc._redisAwarenessHandler = redisAwarenessHandler;
+        doc._redisUpdateHandler = redisUpdateHandler;
+      }
+      // ========== END REDIS PUB/SUB SYNC ==========
+
       if (doc.awareness) {
         // Log current awareness states
         doc.awareness.getStates().forEach((state, clientId) => {
@@ -1245,6 +1324,29 @@ wss.on('connection', (ws, req) => {
 
           doc.awareness.off('update', fixControlledIdsHandler);
           doc.awareness.off('update', checkAwareness);
+
+          // ========== REDIS PUB/SUB CLEANUP ==========
+          // If no more local connections, unsubscribe from Redis after a delay
+          // (delay handles rapid reconnect scenarios)
+          setTimeout(() => {
+            if (doc.conns.size === 0 && redisPubSub.isEnabled()) {
+              console.log(`[RedisPubSub] No more connections for doc ${docId}, cleaning up`);
+
+              redisPubSub.unsubscribeFromDocument(docId);
+              doc._redisSyncInitialized = false;
+
+              // Remove Redis handlers
+              if (doc._redisAwarenessHandler) {
+                doc.awareness.off('update', doc._redisAwarenessHandler);
+                doc._redisAwarenessHandler = null;
+              }
+              if (doc._redisUpdateHandler) {
+                doc.off('update', doc._redisUpdateHandler);
+                doc._redisUpdateHandler = null;
+              }
+            }
+          }, 1000); // 1 second delay
+          // ========== END REDIS PUB/SUB CLEANUP ==========
         });
       }
     }
@@ -1263,6 +1365,7 @@ wss.on('error', (error) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  await redisPubSub.cleanup();
   await persistenceProvider.destroy();
   server.close(() => {
     console.log('Server closed');
