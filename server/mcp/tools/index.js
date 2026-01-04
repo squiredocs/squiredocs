@@ -39,6 +39,9 @@ const copySelection = require('./copy-selection');
 const paste = require('./paste');
 const cutSelection = require('./cut-selection');
 
+// Sandbox execution
+const executeScript = require('./execute-script');
+
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
 // All available tools
@@ -77,6 +80,9 @@ const tools = {
   copy_selection: copySelection,
   paste: paste,
   cut_selection: cutSelection,
+
+  // Sandbox execution
+  execute_script: executeScript,
 };
 
 /**

@@ -47,6 +47,9 @@ describe('Tool Module Smoke Tests', () => {
     'copy-selection',
     'paste',
     'cut-selection',
+
+    // Sandbox execution
+    'execute-script',
   ];
 
   describe('Module Loading', () => {
@@ -220,6 +223,8 @@ describe('Tool Registry Integration', () => {
       'copy_selection',
       'paste',
       'cut_selection',
+      // Sandbox execution
+      'execute_script',
     ];
 
     // Check each tool is registered
