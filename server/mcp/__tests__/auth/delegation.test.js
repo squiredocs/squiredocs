@@ -4,19 +4,11 @@
  * Tests the agent delegation module which manages OAuth-style delegations
  * allowing AI agents to act on behalf of users.
  */
-const { Pool } = require('pg');
-
-// Test database configuration
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'collab_db',
-  user: process.env.DB_USER || process.env.USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-});
-
-// Import after setting up pool
+const { createPool, createTestUser, cleanupTestUser } = require('../../../__tests__/helpers/db');
 const delegation = require('../../auth/delegation');
+
+// Create shared pool for this test suite
+const pool = createPool();
 
 describe('Agent Delegation Module', () => {
   let testUserId;
@@ -25,21 +17,13 @@ describe('Agent Delegation Module', () => {
     // Initialize the delegation module with the pool
     delegation.init(pool);
 
-    // Create a test user
-    const userResult = await pool.query(
-      `INSERT INTO users (id, google_id, email, name)
-       VALUES (uuid_generate_v4(), 'test-google-id-' || random(), 'delegation-test@example.com', 'Delegation Test User')
-       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
-       RETURNING id`
-    );
-    testUserId = userResult.rows[0].id;
+    // Create a test user using shared helper
+    testUserId = await createTestUser(pool, 'delegation-test@example.com');
   });
 
   afterAll(async () => {
-    // Clean up test data
-    await pool.query('DELETE FROM agent_activity_log WHERE user_id = $1', [testUserId]);
-    await pool.query('DELETE FROM agent_delegations WHERE user_id = $1', [testUserId]);
-    await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
+    // Clean up test data using shared helper
+    await cleanupTestUser(pool, testUserId);
     await pool.end();
   });
 

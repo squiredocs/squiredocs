@@ -134,7 +134,12 @@ router.post('/', requireAgentAuth, async (req, res) => {
     res.json(jsonRpcResponse(id, result));
   } catch (error) {
     console.error('MCP error:', error);
-    res.json(jsonRpcError(id, INTERNAL_ERROR, error.message));
+    // Pass full error details including stack trace in data field
+    // This ensures detailed error messages from tools (like execute_script) are preserved
+    res.json(jsonRpcError(id, INTERNAL_ERROR, error.message, {
+      stack: error.stack,
+      name: error.name,
+    }));
   }
 });
 
@@ -236,7 +241,14 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Tool execution error:', error);
-    res.status(500).json({ error: error.message });
+    // Return full error details to help with debugging
+    res.status(500).json({
+      error: error.message,
+      details: {
+        name: error.name,
+        stack: error.stack,
+      },
+    });
   }
 });
 

@@ -14,6 +14,7 @@
 const vm = require('vm');
 const Y = require('yjs');
 const { wrapForTracking } = require('./yjs-interceptor');
+const helpers = require('./helpers');
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment
@@ -56,6 +57,15 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000) {
       XmlText: createWrappedConstructor(Y.XmlText),
       Doc: Y.Doc,
     },
+
+    // Helper functions to reduce boilerplate
+    // These are common operations that users would otherwise copy-paste
+    findTextNode: helpers.findTextNode,
+    extractText: helpers.extractText,
+    getTextContent: helpers.getTextContent,
+    findElements: helpers.findElements,
+    findByNodeName: helpers.findByNodeName,
+    findByText: helpers.findByText,
 
     // Exports object for module pattern
     exports: {},

@@ -3,26 +3,11 @@
  *
  * Tests the MCP tool for listing documents accessible to an agent.
  */
-const { Pool } = require('pg');
-const { PostgresPersistence } = require('../../../postgres-persistence');
+const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 
-// Test database configuration
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'collab_db',
-  user: process.env.DB_USER || process.env.USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-});
-
-// Create persistence provider
-const persistenceProvider = new PostgresPersistence({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'collab_db',
-  user: process.env.DB_USER || process.env.USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-});
+// Use shared test database configuration
+const pool = createPool();
+const persistenceProvider = createPersistence();
 
 // Import modules
 const documents = require('../../../documents');

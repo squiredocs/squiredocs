@@ -83,6 +83,44 @@ When working on large documents:
   - Preserve existing content that doesn't need changes
 
 ═══════════════════════════════════════════════════════════════════════════
+BUILT-IN HELPER FUNCTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+These helpers are available globally in your scripts - no need to define them!
+
+findTextNode(element)
+  - Find first Y.XmlText node in element (recursive)
+  - Returns Y.XmlText or null
+  - Example: const text = findTextNode(paragraph);
+
+extractText(xmlText)
+  - Extract plain text from Y.XmlText using toDelta()
+  - CRITICAL: Use this instead of toString() for formatted text
+  - Returns string
+  - Example: const content = extractText(text);
+
+getTextContent(node)
+  - Get all text from element recursively
+  - Works with XmlElement or XmlText
+  - Returns string
+  - Example: const allText = getTextContent(bulletList);
+
+findElements(container, predicate)
+  - Find all elements matching a predicate function
+  - Returns Y.XmlElement[]
+  - Example: findElements(doc, el => el.nodeName === 'heading')
+
+findByNodeName(container, nodeName)
+  - Find all elements by node name
+  - Returns Y.XmlElement[]
+  - Example: const headings = findByNodeName(doc, 'heading');
+
+findByText(container, searchText, caseSensitive=false)
+  - Find all elements containing specific text
+  - Returns Y.XmlElement[]
+  - Example: const todos = findByText(doc, 'TODO');
+
+═══════════════════════════════════════════════════════════════════════════
 YJS API AVAILABLE IN SCRIPTS
 ═══════════════════════════════════════════════════════════════════════════
 
@@ -146,22 +184,29 @@ await execute_script({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
-      function findTextNode(element) {
-        for (const child of element.toArray()) {
-          if (child instanceof Y.XmlText) return child;
-          if (child instanceof Y.XmlElement) {
-            const found = findTextNode(child);
-            if (found) return found;
+      // Use built-in helper to find all blocks containing "TODO"
+      const todos = findByText(doc, 'TODO');
+
+      todos.forEach(block => {
+        const text = findTextNode(block);
+        if (text) {
+          const content = extractText(text);
+          const todoIndex = content.indexOf('TODO');
+          if (todoIndex >= 0) {
+            text.format(todoIndex, 4, { bold: true });
           }
         }
-        return null;
-      }
+      });
+    }
+  \`
+});
 
-      function extractText(xmlText) {
-        const delta = xmlText.toDelta();
-        return delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
-      }
-
+// Example 1b: Same as above, manual iteration (shows helper usage)
+await execute_script({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // No need to define findTextNode and extractText - they're built-in!
       const blocks = doc.toArray();
       blocks.forEach(block => {
         if (block instanceof Y.XmlElement) {

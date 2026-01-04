@@ -1,8 +1,8 @@
 /**
  * Tests for documents module (RBAC)
  */
-const { Pool } = require('pg');
 const documents = require('../documents');
+const { createPool } = require('./helpers/db');
 
 describe('Documents module', () => {
   let pool;
@@ -11,13 +11,8 @@ describe('Documents module', () => {
   let testDocId;
 
   beforeAll(async () => {
-    pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || ''
-    });
+    // Use shared test database configuration
+    pool = createPool();
 
     documents.init(pool);
 

@@ -1,10 +1,9 @@
 /**
  * Tests for document title denormalization and sync functionality
  */
-const { Pool } = require('pg');
 const Y = require('yjs');
-const { PostgresPersistence } = require('../postgres-persistence');
 const documents = require('../documents');
+const { createPool, createPersistence } = require('./helpers/db');
 
 describe('Document Titles', () => {
   let pool;
@@ -13,16 +12,9 @@ describe('Document Titles', () => {
   let testDocId;
 
   beforeAll(async () => {
-    const dbConfig = {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || ''
-    };
-
-    pool = new Pool(dbConfig);
-    persistence = new PostgresPersistence(dbConfig);
+    // Use shared test database configuration
+    pool = createPool();
+    persistence = createPersistence();
     await persistence._init();
 
     documents.init(pool);

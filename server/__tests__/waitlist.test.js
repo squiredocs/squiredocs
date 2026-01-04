@@ -3,26 +3,18 @@
  */
 const request = require('supertest');
 const express = require('express');
-const { Pool } = require('pg');
 const crypto = require('crypto');
 
 const waitlist = require('../waitlist');
+const { createPool } = require('./helpers/db');
 
 describe('Waitlist API', () => {
   let app;
   let pool;
 
-  // Test database config
-  const testDbConfig = process.env.TEST_DATABASE_URL || {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.TEST_DB_NAME || 'collab_db',
-    user: process.env.DB_USER || process.env.USER || 'postgres',
-    password: process.env.DB_PASSWORD || ''
-  };
-
   beforeAll(async () => {
-    pool = new Pool(testDbConfig);
+    // Use shared test database configuration
+    pool = createPool();
     waitlist.init(pool);
 
     // Set up Express app for testing

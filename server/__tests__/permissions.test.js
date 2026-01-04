@@ -1,10 +1,10 @@
 /**
  * Tests for permissions module
  */
-const { Pool } = require('pg');
 const permissions = require('../permissions');
 const documents = require('../documents');
 const { generateAccessToken } = require('../auth/jwt');
+const { createPool } = require('./helpers/db');
 
 // y-websocket protocol constants (same as server/index.js)
 const MESSAGE_SYNC = 0;
@@ -21,13 +21,8 @@ describe('Permissions module', () => {
   let testAccessToken;
 
   beforeAll(async () => {
-    pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || ''
-    });
+    // Use shared test database configuration
+    pool = createPool();
 
     documents.init(pool);
 
