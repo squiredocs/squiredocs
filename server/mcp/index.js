@@ -135,7 +135,7 @@ router.post('/', requireAgentAuth, async (req, res) => {
   } catch (error) {
     console.error('MCP error:', error);
     // Pass full error details including stack trace in data field
-    // This ensures detailed error messages from tools (like execute_script) are preserved
+    // This ensures detailed error messages from tools (like modify) are preserved
     res.json(jsonRpcError(id, INTERNAL_ERROR, error.message, {
       stack: error.stack,
       name: error.name,

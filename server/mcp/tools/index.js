@@ -20,8 +20,8 @@ const getCollaborators = require('./get-collaborators');
 const undo = require('./undo');
 const redo = require('./redo');
 
-// Sandbox execution
-const executeScript = require('./execute-script');
+// Document modification
+const modify = require('./modify');
 
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
@@ -43,8 +43,8 @@ const tools = {
   undo: undo,
   redo: redo,
 
-  // Sandbox execution (replaces 15 deprecated editing tools)
-  execute_script: executeScript,
+  // Document modification (replaces 15 deprecated editing tools)
+  modify: modify,
 };
 
 /**

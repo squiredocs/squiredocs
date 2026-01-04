@@ -1,5 +1,5 @@
 /**
- * Integration test for document editing workflow using execute_script
+ * Integration test for document editing workflow using modify tool
  *
  * Tests the complete workflow reported in bug:
  * 1. Open existing document
@@ -25,7 +25,7 @@ const mockAgentToken = {
   rawToken: null, // Will be set in beforeAll
 };
 
-describe('Document Editing Workflow Integration Test (execute_script)', () => {
+describe('Document Editing Workflow Integration Test (modify)', () => {
   let pool;
   let testUserId;
   let testDocGuid;
@@ -159,7 +159,7 @@ describe('Document Editing Workflow Integration Test (execute_script)', () => {
   });
 
   describe('Bug Report Workflow', () => {
-    test('Complete workflow: open, execute_script (insert text + block), verify, close', async () => {
+    test('Complete workflow: open, modify (insert text + block), verify, close', async () => {
       let sessionId;
 
       // Step 1: Open document
@@ -187,7 +187,7 @@ describe('Document Editing Workflow Integration Test (execute_script)', () => {
 
       // Step 2: Execute script to add text and create ordered list
       console.log('\n=== Step 2: Execute script to add text and ordered list ===');
-      const executeScript = toolRegistry.getTool('execute_script');
+      const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
 
       const script = `
@@ -223,7 +223,7 @@ export default function edit(doc) {
       expect(result.success).toBe(true);
       expect(result.operationCount).toBeGreaterThan(0);
 
-      console.log('✓ Step 2: execute_script succeeded');
+      console.log('✓ Step 2: modify succeeded');
       console.log(`  Operations: ${result.operationCount}`);
       console.log(`  Summary: ${result.summary}`);
 
@@ -291,8 +291,8 @@ export default function edit(doc) {
       await closeDoc.handler({ docGuid: testDocGuid }, mockAgentToken);
     });
 
-    test('execute_script: append text to existing paragraph', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: append text to existing paragraph', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
 
       const script = `
@@ -315,11 +315,11 @@ export default function edit(doc) {
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
 
-      console.log('✓ execute_script: append text succeeded');
+      console.log('✓ modify: append text succeeded');
     }, 10000);
 
-    test('execute_script: format text with bold marks', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: format text with bold marks', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
 
       const script = `
@@ -353,12 +353,12 @@ export default function edit(doc) {
       // Verify operation had an effect (text content is present)
       expect(readResult.content).toBeDefined();
 
-      console.log('✓ execute_script: format text succeeded');
+      console.log('✓ modify: format text succeeded');
       console.log('  Verified: Formatting operation completed (bold marks applied)');
     }, 10000);
 
-    test('execute_script: delete text range', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: delete text range', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
 
       const script = `
@@ -381,11 +381,11 @@ export default function edit(doc) {
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
 
-      console.log('✓ execute_script: delete text succeeded');
+      console.log('✓ modify: delete text succeeded');
     }, 10000);
 
-    test('execute_script: delete entire block', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: delete entire block', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
       expect(executeScript).toBeDefined();
 
@@ -450,12 +450,12 @@ export default function edit(doc) {
       }, mockAgentToken);
       expect(readResult.content).not.toContain(uniqueText);
 
-      console.log('✓ execute_script: delete block succeeded');
+      console.log('✓ modify: delete block succeeded');
       console.log('  Verified: Block with unique content was added then deleted');
     }, 10000);
 
-    test('execute_script: insert bulletList', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: insert bulletList', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
       expect(executeScript).toBeDefined();
 
@@ -491,12 +491,12 @@ export default function edit(doc) {
       }, mockAgentToken);
       expect(readResult.content).toContain(uniqueText);
 
-      console.log('✓ execute_script: insert bulletList succeeded');
+      console.log('✓ modify: insert bulletList succeeded');
       console.log('  Verified: Bullet list item added to document');
     }, 10000);
 
-    test('execute_script: insert orderedList', async () => {
-      const executeScript = toolRegistry.getTool('execute_script');
+    test('modify: insert orderedList', async () => {
+      const executeScript = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
       expect(executeScript).toBeDefined();
 
@@ -532,15 +532,15 @@ export default function edit(doc) {
       }, mockAgentToken);
       expect(readResult.content).toContain(uniqueText);
 
-      console.log('✓ execute_script: insert orderedList succeeded');
+      console.log('✓ modify: insert orderedList succeeded');
       console.log('  Verified: Ordered list item added to document');
     }, 10000);
 
-    test('execute_script: complex workflow with multiple list items (bug scenario)', async () => {
+    test('modify: complex workflow with multiple list items (bug scenario)', async () => {
       // This is the EXACT bug scenario from the original report:
       // Creating an ordered list, then inserting bullet and ordered lists after it
 
-      const executeScript = toolRegistry.getTool('execute_script');
+      const executeScript = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
       expect(executeScript).toBeDefined();
 
@@ -589,13 +589,13 @@ export default function edit(doc) {
       expect(readResult.content).toContain('Sub-item A');
       expect(readResult.content).toContain('Next numbered item');
 
-      console.log('✓ execute_script: complex workflow succeeded');
+      console.log('✓ modify: complex workflow succeeded');
       console.log('  Verified: All 3 list items (orderedList, bulletList, orderedList) added successfully');
     }, 10000);
 
     test('undo should succeed', async () => {
       // First make a change
-      const executeScript = toolRegistry.getTool('execute_script');
+      const executeScript = toolRegistry.getTool('modify');
       await executeScript.handler(
         {
           docGuid: testDocGuid,
@@ -652,7 +652,7 @@ export default function edit(doc) {
       // It ensures we don't accidentally format the wrong block (e.g., a list item
       // instead of the paragraph).
 
-      const executeScript = toolRegistry.getTool('execute_script');
+      const executeScript = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
       expect(executeScript).toBeDefined();
 

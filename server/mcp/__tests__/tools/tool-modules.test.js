@@ -31,8 +31,8 @@ describe('Tool Module Smoke Tests', () => {
     'undo',
     'redo',
 
-    // Sandbox execution
-    'execute-script',
+    // Document modification
+    'modify',
   ];
 
   describe('Module Loading', () => {
@@ -190,8 +190,8 @@ describe('Tool Registry Integration', () => {
       'get_collaborators',
       'undo',
       'redo',
-      // Sandbox execution
-      'execute_script',
+      // Document modification
+      'modify',
     ];
 
     // Check each tool is registered
@@ -220,10 +220,10 @@ describe('Tool Registry Integration', () => {
     expect(openTool).toBeDefined();
     expect(openTool.name).toBe('open_document');
 
-    // Test sandbox execution tool
-    const execTool = toolRegistry.getTool('execute_script');
-    expect(execTool).toBeDefined();
-    expect(execTool.name).toBe('execute_script');
+    // Test document modification tool
+    const modifyTool = toolRegistry.getTool('modify');
+    expect(modifyTool).toBeDefined();
+    expect(modifyTool.name).toBe('modify');
   });
 
   test('getTool returns null for unknown tool', () => {

@@ -1,7 +1,7 @@
 /**
- * execute_script MCP Tool
+ * modify MCP Tool
  *
- * Execute a TypeScript script to edit a document.
+ * Modify a document using a TypeScript script.
  * Scripts run in a sandboxed environment with access to Yjs API.
  */
 
@@ -23,9 +23,9 @@ function init(persistence) {
 /**
  * Tool definition for MCP discovery
  */
-const name = 'execute_script';
+const name = 'modify';
 
-const description = `Execute a TypeScript script to edit the document.
+const description = `Modify the document using a TypeScript script.
 
 ═══════════════════════════════════════════════════════════════════════════
 SANDBOXED TYPESCRIPT EXECUTION
@@ -78,7 +78,7 @@ Examples:
   ✅ Good: Insert new section at specific location
 
 When working on large documents:
-  - Break work into multiple execute_script calls (one per section/task)
+  - Break work into multiple modify calls (one per section/task)
   - Each script should have a single, clear purpose
   - Preserve existing content that doesn't need changes
 
@@ -180,7 +180,7 @@ EXAMPLES
 ═══════════════════════════════════════════════════════════════════════════
 
 // Example 1: Format all TODO items as bold
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -202,7 +202,7 @@ await execute_script({
 });
 
 // Example 1b: Same as above, manual iteration (shows helper usage)
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -225,7 +225,7 @@ await execute_script({
 });
 
 // Example 2: Add a summary section at the start
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -249,7 +249,7 @@ await execute_script({
 });
 
 // Example 3: Create a nested bullet list
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -284,7 +284,7 @@ await execute_script({
 });
 
 // Example 4: Find and replace text across all blocks
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -314,7 +314,7 @@ await execute_script({
 });
 
 // Example 5: Create mixed formatting (bold + normal text)
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
@@ -623,7 +623,7 @@ async function handler(args, agentToken) {
 
   // Get or create session (establishes WebSocket presence)
   // Use 5 minute timeout to match open_document
-  // This ensures cursor persists across multiple execute_script calls
+  // This ensures cursor persists across multiple modify calls
   const session = await agentPresence.getOrCreateSession(
     docGuid,
     agentToken,

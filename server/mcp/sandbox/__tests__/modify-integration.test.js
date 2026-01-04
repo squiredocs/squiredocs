@@ -1,11 +1,11 @@
 /**
- * Integration test for execute_script sandbox
+ * Integration test for modify tool sandbox
  * Tests end-to-end TypeScript execution with Yjs documents
  */
 const Y = require('yjs');
 const { executeScript } = require('../index');
 
-describe('execute_script Integration', () => {
+describe('modify Integration', () => {
   let ydoc;
   let xmlFragment;
   let mockSession;
