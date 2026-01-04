@@ -224,11 +224,11 @@ async function handler(args, agentToken) {
   // Extract specified range
   const rangeBlocks = blocks.slice(startIdx, endIdx + 1);
 
-  // Highlight the read range for 3 seconds
+  // Highlight the read range
   try {
     const selection = createSelectionForBlocks(rangeBlocks);
     if (selection) {
-      agentPresence.setTemporarySelection(session.sessionId, selection.anchor, selection.head, 3000);
+      agentPresence.setTemporarySelection(session.sessionId, selection.anchor, selection.head);
     }
   } catch (err) {
     // Non-fatal: log but don't fail the read

@@ -62,6 +62,10 @@ function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
 
           // If result is a Yjs object, wrap it recursively
           if (isYjsObject(result)) {
+            // For get(index) calls, include the index in the path
+            if (prop === 'get' && typeof args[0] === 'number') {
+              return wrapForTracking(result, tracker, [...path, args[0]], onOperation);
+            }
             return wrapForTracking(result, tracker, path, onOperation);
           }
 

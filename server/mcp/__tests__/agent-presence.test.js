@@ -17,8 +17,7 @@ describe('Agent Presence Manager', () => {
       const result = agentPresence.setTemporarySelection(
         'non-existent-session-id',
         { type: null, tname: null, item: null },
-        { type: null, tname: null, item: null },
-        3000
+        { type: null, tname: null, item: null }
       );
 
       expect(result).toBe(false);
@@ -28,8 +27,8 @@ describe('Agent Presence Manager', () => {
       expect(typeof agentPresence.setTemporarySelection).toBe('function');
     });
 
-    test('setTemporarySelection has 3 required parameters (durationMs has default)', () => {
-      // Function.length only counts required params (before first default)
+    test('setTemporarySelection has 3 required parameters', () => {
+      // sessionId, anchor, head are required
       expect(agentPresence.setTemporarySelection.length).toBe(3);
     });
   });

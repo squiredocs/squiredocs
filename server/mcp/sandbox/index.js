@@ -36,12 +36,24 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
   // Create onOperation callback for real-time selection highlighting
   const onOperation = (operation, target) => {
     try {
+      let pos = null;
+
       if (operation.path.length > 0) {
-        const pos = createCursorPositionFromPath(xmlFragment, operation.path, 0);
-        if (pos) {
-          // All operations get a 3 second highlight
-          agentPresence.setTemporarySelection(session.sessionId, pos, pos, 3000);
+        // Path-based operation - use the path directly
+        pos = createCursorPositionFromPath(xmlFragment, operation.path, 0);
+      } else if (operation.args && typeof operation.args[0] === 'number') {
+        // Root-level operation with index argument (e.g., doc.insert(0, [...]))
+        // Use the index as the block path
+        const blockIndex = operation.args[0];
+        const blocks = xmlFragment.toArray();
+        if (blockIndex >= 0 && blockIndex < blocks.length) {
+          pos = createCursorPositionFromPath(xmlFragment, [blockIndex], 0);
         }
+      }
+
+      if (pos) {
+        // Update cursor to show where the operation occurred
+        agentPresence.setTemporarySelection(session.sessionId, pos, pos);
       }
     } catch (err) {
       // Non-fatal: log but don't interrupt execution

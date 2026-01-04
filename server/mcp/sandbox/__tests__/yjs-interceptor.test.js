@@ -161,6 +161,28 @@ describe('Yjs operation interceptor', () => {
       expect(Array.isArray(ops[0].path)).toBe(true);
     });
 
+    test('updates path correctly for get(index) calls', () => {
+      const paragraph = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello');
+      paragraph.insert(0, [text]);
+      xmlFragment.insert(0, [paragraph]);
+
+      tracker.reset();
+
+      const wrapped = wrapForTracking(xmlFragment, tracker);
+      const wrappedBlock = wrapped.get(0); // Should add [0] to path
+      const wrappedText = wrappedBlock.get(0); // Should add [0, 0] to path
+
+      wrappedText.format(0, 5, { bold: true });
+
+      const mutations = tracker.getOperations().filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('format');
+      // Path should be [0, 0] - first block, first child
+      expect(mutations[0].path).toEqual([0, 0]);
+    });
+
     test('avoids double-wrapping', () => {
       const wrapped1 = wrapForTracking(xmlFragment, tracker);
       const wrapped2 = wrapForTracking(wrapped1, tracker);
