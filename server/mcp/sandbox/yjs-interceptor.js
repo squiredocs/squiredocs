@@ -5,6 +5,10 @@
 
 const Y = require('yjs');
 
+// WeakMap to track which objects have been wrapped for a given tracker
+// Key: tracker, Value: WeakMap<yjsObject, proxy>
+const wrappedObjectsByTracker = new WeakMap();
+
 /**
  * Wraps a Yjs object to track all mutation operations
  * @param {Y.XmlFragment | Y.XmlElement | Y.XmlText} yjsObject - Yjs object to wrap
@@ -14,9 +18,17 @@ const Y = require('yjs');
  * @returns {Proxy} - Wrapped object with operation tracking
  */
 function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
-  // Track wrapped objects to avoid double-wrapping
-  if (yjsObject.__wrapped) {
-    return yjsObject;
+  // Get or create the WeakMap for this tracker
+  let trackerMap = wrappedObjectsByTracker.get(tracker);
+  if (!trackerMap) {
+    trackerMap = new WeakMap();
+    wrappedObjectsByTracker.set(tracker, trackerMap);
+  }
+
+  // Check if this object is already wrapped for this tracker
+  const existingProxy = trackerMap.get(yjsObject);
+  if (existingProxy) {
+    return existingProxy;
   }
 
   const handler = {
@@ -111,12 +123,10 @@ function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
 
   const proxy = new Proxy(yjsObject, handler);
 
-  // Mark as wrapped to avoid double-wrapping
-  Object.defineProperty(proxy, '__wrapped', {
-    value: true,
-    enumerable: false,
-    configurable: false,
-  });
+  // Store the proxy in the WeakMap to avoid double-wrapping
+  trackerMap.set(yjsObject, proxy);
+  // Also map proxy back to itself so wrapping a proxy returns the same proxy
+  trackerMap.set(proxy, proxy);
 
   return proxy;
 }

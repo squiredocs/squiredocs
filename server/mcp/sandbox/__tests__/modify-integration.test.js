@@ -130,6 +130,294 @@ describe('modify Integration', () => {
       expect(delta[0].attributes?.bold).toBe(true);
     });
 
+    test('tracks format operations that remove formatting (bold: null)', async () => {
+      // Pre-populate document with bold text
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello world');
+      text.format(0, 5, { bold: true }); // Make "Hello" bold
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const block = doc.get(0);
+          const textNode = block.get(0);
+          textNode.format(0, 5, { bold: null }); // Remove bold
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(1); // Should track the format operation
+
+      // Verify formatting was removed
+      const updatedBlock = xmlFragment.get(0);
+      const updatedText = updatedBlock.get(0);
+      const delta = updatedText.toDelta();
+      expect(delta[0].attributes?.bold).toBeUndefined();
+    });
+
+    test('tracks format operations when iterating with forEach', async () => {
+      // Pre-populate document with two paragraphs with bold text
+      const para1 = new Y.XmlElement('paragraph');
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'sunrise');
+      text1.format(0, 7, { bold: true });
+      para1.insert(0, [text1]);
+
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'walk');
+      text2.format(0, 4, { bold: true });
+      para2.insert(0, [text2]);
+
+      xmlFragment.insert(0, [para1, para2]);
+
+      const script = `
+        export default function edit(doc) {
+          const blocks = doc.toArray();
+          blocks.forEach(block => {
+            const children = block.toArray();
+            children.forEach(child => {
+              if (child instanceof Y.XmlText) {
+                const text = child.toString();
+                child.format(0, text.length, { bold: null });
+              }
+            });
+          });
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(2); // Should track both format operations
+    });
+
+    test('tracks format operations when using helper functions', async () => {
+      // Pre-populate document with bold text
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello world');
+      text.format(0, 5, { bold: true });
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        function findTextNodes(element: any): any[] {
+          const results: any[] = [];
+          const children = element.toArray();
+          for (const child of children) {
+            if (child instanceof Y.XmlText) {
+              results.push(child);
+            } else if (child instanceof Y.XmlElement) {
+              results.push(...findTextNodes(child));
+            }
+          }
+          return results;
+        }
+
+        export default function edit(doc) {
+          const blocks = doc.toArray();
+          for (const block of blocks) {
+            const textNodes = findTextNodes(block);
+            for (const textNode of textNodes) {
+              textNode.format(0, 5, { bold: null });
+            }
+          }
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(1); // Should track the format operation
+    });
+
+    test('tracks format operations when using built-in findTextNode helper', async () => {
+      // Pre-populate document with bold text
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'sunrise walk');
+      text.format(0, 7, { bold: true }); // Bold "sunrise"
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const blocks = doc.toArray();
+          for (const block of blocks) {
+            const textNode = findTextNode(block);
+            if (textNode) {
+              const content = extractText(textNode);
+              textNode.format(0, content.length, { bold: null });
+            }
+          }
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(1); // Should track the format operation
+    });
+
+    test('tracks removing bold with empty object {}', async () => {
+      // Pre-populate document with bold text
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'bold text');
+      text.format(0, 4, { bold: true }); // "bold" is bold
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const block = doc.get(0);
+          const textNode = block.get(0);
+          textNode.format(0, 4, {}); // Remove formatting with empty object
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(1);
+    });
+
+    test('tracks removing multiple bold words in sequence', async () => {
+      // Pre-populate document with multiple bold words
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'sunrise and walk are keywords');
+      text.format(0, 7, { bold: true }); // "sunrise" bold
+      text.format(12, 4, { bold: true }); // "walk" bold
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const block = doc.get(0);
+          const textNode = block.get(0);
+          const content = extractText(textNode);
+
+          // Find and unbold "sunrise"
+          const sunriseIdx = content.indexOf('sunrise');
+          if (sunriseIdx >= 0) {
+            textNode.format(sunriseIdx, 7, { bold: null });
+          }
+
+          // Find and unbold "walk"
+          const walkIdx = content.indexOf('walk');
+          if (walkIdx >= 0) {
+            textNode.format(walkIdx, 4, { bold: null });
+          }
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(2); // Should track both format operations
+    });
+
+    test('tracks removing bold across multiple blocks', async () => {
+      // Pre-populate document with bold text in multiple paragraphs
+      const para1 = new Y.XmlElement('paragraph');
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'First keyword here');
+      text1.format(6, 7, { bold: true }); // "keyword" bold
+      para1.insert(0, [text1]);
+
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Second keyword there');
+      text2.format(7, 7, { bold: true }); // "keyword" bold
+      para2.insert(0, [text2]);
+
+      xmlFragment.insert(0, [para1, para2]);
+
+      const script = `
+        export default function edit(doc) {
+          const blocks = doc.toArray();
+          blocks.forEach(block => {
+            if (block instanceof Y.XmlElement) {
+              const textNode = findTextNode(block);
+              if (textNode) {
+                const content = extractText(textNode);
+                const idx = content.indexOf('keyword');
+                if (idx >= 0) {
+                  textNode.format(idx, 7, { bold: null });
+                }
+              }
+            }
+          });
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(2); // Should track both format operations
+    });
+
+    test('tracks removing bold using findByText helper', async () => {
+      // Pre-populate document with bold keywords
+      const para1 = new Y.XmlElement('paragraph');
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'TODO: fix this');
+      text1.format(0, 4, { bold: true }); // "TODO" bold
+      para1.insert(0, [text1]);
+
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Another TODO item');
+      text2.format(8, 4, { bold: true }); // "TODO" bold
+      para2.insert(0, [text2]);
+
+      xmlFragment.insert(0, [para1, para2]);
+
+      const script = `
+        export default function edit(doc) {
+          // Use findByText helper to find all blocks with TODO
+          const todoBlocks = findByText(doc, 'TODO');
+          todoBlocks.forEach(block => {
+            const textNode = findTextNode(block);
+            if (textNode) {
+              const content = extractText(textNode);
+              const idx = content.indexOf('TODO');
+              if (idx >= 0) {
+                textNode.format(idx, 4, { bold: null }); // Remove bold
+              }
+            }
+          });
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.summary.format).toBe(2); // Should track both format operations
+    });
+
     test('supports complex nested structures', async () => {
       const script = `
         export default function edit(doc) {

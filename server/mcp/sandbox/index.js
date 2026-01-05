@@ -33,9 +33,24 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
   let tracker;
   let executionError = null;
 
+  // Flag to prevent recursive onOperation calls during cursor position creation
+  let inOnOperation = false;
+
   // Create onOperation callback for real-time selection highlighting
   const onOperation = (operation, target) => {
+    // Prevent recursion - createCursorPositionFromPath uses toArray which triggers onOperation
+    if (inOnOperation) {
+      return;
+    }
+
+    // Only highlight mutations, not reads (to avoid noise)
+    if (operation.category !== 'mutation') {
+      return;
+    }
+
     try {
+      inOnOperation = true;
+
       let anchor = null;
       let head = null;
 
@@ -87,6 +102,8 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     } catch (err) {
       // Non-fatal: log but don't interrupt execution
       console.warn('[executeScript] onOperation error:', err.message);
+    } finally {
+      inOnOperation = false;
     }
   };
 
