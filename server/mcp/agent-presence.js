@@ -156,6 +156,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
           session.undoManager.destroy();
           session.undoManager = null;
         }
+        // Clear temporary selection timeout
+        if (session.tempSelectionTimeoutId) {
+          clearTimeout(session.tempSelectionTimeoutId);
+          session.tempSelectionTimeoutId = null;
+        }
         // Clear awareness cursor
         if (session.provider && session.provider.awareness) {
           session.provider.awareness.setLocalStateField('cursor', null);
@@ -461,6 +466,11 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
           session.undoManager.destroy();
           session.undoManager = null;
         }
+        // Clear temporary selection timeout
+        if (session.tempSelectionTimeoutId) {
+          clearTimeout(session.tempSelectionTimeoutId);
+          session.tempSelectionTimeoutId = null;
+        }
         // Clear awareness cursor
         if (session.provider && session.provider.awareness) {
           session.provider.awareness.setLocalStateField('cursor', null);
@@ -657,18 +667,25 @@ function updateSessionCursor(sessionId, anchor, head) {
 }
 
 /**
- * Set the agent's cursor/selection position.
+ * Set the agent's cursor/selection position temporarily.
  * Used to highlight content the agent is reading or modifying.
- * The position persists until the next operation or session cleanup.
+ * The selection auto-clears after the specified duration.
  * @param {string} sessionId - Session ID
  * @param {object} anchor - Anchor RelativePosition (JSON)
  * @param {object} head - Head RelativePosition (JSON)
+ * @param {number} [durationMs=10000] - How long to show selection before clearing (ms)
  * @returns {boolean} True if selection was set
  */
-function setTemporarySelection(sessionId, anchor, head) {
+function setTemporarySelection(sessionId, anchor, head, durationMs = 10000) {
   const session = activeSessions.get(sessionId);
   if (!session) {
     return false;
+  }
+
+  // Clear any existing temporary selection timeout
+  if (session.tempSelectionTimeoutId) {
+    clearTimeout(session.tempSelectionTimeoutId);
+    session.tempSelectionTimeoutId = null;
   }
 
   // Update session cursor state
@@ -680,6 +697,16 @@ function setTemporarySelection(sessionId, anchor, head) {
   if (session.provider && session.provider.awareness) {
     session.provider.awareness.setLocalStateField('cursor', newCursor);
   }
+
+  // Set timeout to clear the selection
+  session.tempSelectionTimeoutId = setTimeout(() => {
+    session.tempSelectionTimeoutId = null;
+    // Clear the selection by setting cursor to null
+    session.cursor = null;
+    if (session.provider && session.provider.awareness) {
+      session.provider.awareness.setLocalStateField('cursor', null);
+    }
+  }, durationMs);
 
   return true;
 }
