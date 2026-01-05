@@ -272,7 +272,7 @@ describe('modify Integration', () => {
       expect(result.summary.format).toBe(1); // Should track the format operation
     });
 
-    test('tracks removing bold with empty object {}', async () => {
+    test('format with empty object {} does NOT remove formatting', async () => {
       // Pre-populate document with bold text
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
@@ -285,7 +285,9 @@ describe('modify Integration', () => {
         export default function edit(doc) {
           const block = doc.get(0);
           const textNode = block.get(0);
-          textNode.format(0, 4, {}); // Remove formatting with empty object
+          // NOTE: Empty object {} does NOT remove formatting!
+          // Use { bold: null } to remove bold.
+          textNode.format(0, 4, {});
         }
       `;
 
@@ -295,6 +297,12 @@ describe('modify Integration', () => {
 
       expect(result.success).toBe(true);
       expect(result.summary.format).toBe(1);
+
+      // Verify formatting is STILL present (empty object doesn't remove it)
+      const updatedBlock = xmlFragment.get(0);
+      const updatedText = updatedBlock.get(0);
+      const delta = updatedText.toDelta();
+      expect(delta[0].attributes?.bold).toBe(true); // Still bold!
     });
 
     test('tracks removing multiple bold words in sequence', async () => {
