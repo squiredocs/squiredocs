@@ -36,24 +36,53 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
   // Create onOperation callback for real-time selection highlighting
   const onOperation = (operation, target) => {
     try {
-      let pos = null;
+      let anchor = null;
+      let head = null;
 
-      if (operation.path.length > 0) {
-        // Path-based operation - use the path directly
-        pos = createCursorPositionFromPath(xmlFragment, operation.path, 0);
-      } else if (operation.args && typeof operation.args[0] === 'number') {
-        // Root-level operation with index argument (e.g., doc.insert(0, [...]))
-        // Use the index as the block path
+      // Determine the path to use
+      let path = operation.path;
+      if (path.length === 0 && operation.args && typeof operation.args[0] === 'number') {
+        // Root-level operation - use the index as the block path
         const blockIndex = operation.args[0];
         const blocks = xmlFragment.toArray();
         if (blockIndex >= 0 && blockIndex < blocks.length) {
-          pos = createCursorPositionFromPath(xmlFragment, [blockIndex], 0);
+          path = [blockIndex];
         }
       }
 
-      if (pos) {
-        // Update cursor to show where the operation occurred
-        agentPresence.setTemporarySelection(session.sessionId, pos, pos);
+      if (path.length === 0) {
+        return; // Can't create a selection without a valid path
+      }
+
+      // Calculate selection range based on operation type
+      const { type, args } = operation;
+
+      if (type === 'insert' && operation.target === 'XmlText' && typeof args[0] === 'number') {
+        // text.insert(offset, content) - select the inserted text
+        const startOffset = args[0];
+        const content = args[1];
+        const length = typeof content === 'string' ? content.length : 0;
+        anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
+        head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
+      } else if (type === 'format' && typeof args[0] === 'number' && typeof args[1] === 'number') {
+        // text.format(offset, length, attrs) - select the formatted range
+        const startOffset = args[0];
+        const length = args[1];
+        anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
+        head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
+      } else if (type === 'delete' && typeof args[0] === 'number') {
+        // delete(offset, length) - just show cursor at deletion point
+        const offset = args[0];
+        anchor = createCursorPositionFromPath(xmlFragment, path, offset);
+        head = anchor;
+      } else {
+        // Default: show cursor at start of the affected element
+        anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+        head = anchor;
+      }
+
+      if (anchor && head) {
+        agentPresence.setTemporarySelection(session.sessionId, anchor, head);
       }
     } catch (err) {
       // Non-fatal: log but don't interrupt execution
