@@ -698,13 +698,14 @@ function setTemporarySelection(sessionId, anchor, head, durationMs = 10000) {
     session.provider.awareness.setLocalStateField('cursor', newCursor);
   }
 
-  // Set timeout to clear the selection
+  // Set timeout to collapse the selection to a cursor at the end position
   session.tempSelectionTimeoutId = setTimeout(() => {
     session.tempSelectionTimeoutId = null;
-    // Clear the selection by setting cursor to null
-    session.cursor = null;
+    // Collapse selection to cursor at head (end) position
+    const collapsedCursor = { anchor: head, head: head };
+    session.cursor = collapsedCursor;
     if (session.provider && session.provider.awareness) {
-      session.provider.awareness.setLocalStateField('cursor', null);
+      session.provider.awareness.setLocalStateField('cursor', collapsedCursor);
     }
   }, durationMs);
 
