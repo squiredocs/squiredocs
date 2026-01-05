@@ -277,4 +277,103 @@ describe('Sandbox Helpers', () => {
       expect(todos.length).toBeGreaterThanOrEqual(2); // Original + nested
     });
   });
+
+  describe('createFormattedText', () => {
+    it('should create plain text from string segments', () => {
+      const text = helpers.createFormattedText(['Hello', ' ', 'world']);
+      // Need to attach to doc before reading
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      expect(delta).toHaveLength(1);
+      expect(delta[0].insert).toBe('Hello world');
+      expect(delta[0].attributes).toBeUndefined();
+    });
+
+    it('should create text with single formatted segment', () => {
+      const text = helpers.createFormattedText([
+        'Visit ',
+        { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+        ' for more info'
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      expect(delta).toHaveLength(3);
+      expect(delta[0].insert).toBe('Visit ');
+      expect(delta[0].attributes).toBeUndefined();
+      expect(delta[1].insert).toBe('Example Site');
+      expect(delta[1].attributes).toEqual({ link: { href: 'https://example.com' } });
+      expect(delta[2].insert).toBe(' for more info');
+      expect(delta[2].attributes).toBeUndefined();
+    });
+
+    it('should create text with multiple formatted segments', () => {
+      const text = helpers.createFormattedText([
+        { text: 'Important:', attrs: { bold: true } },
+        ' This is ',
+        { text: 'italic', attrs: { italic: true } },
+        ' text'
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      expect(delta).toHaveLength(4);
+      expect(delta[0].insert).toBe('Important:');
+      expect(delta[0].attributes).toEqual({ bold: true });
+      expect(delta[1].insert).toBe(' This is ');
+      expect(delta[2].insert).toBe('italic');
+      expect(delta[2].attributes).toEqual({ italic: true });
+      expect(delta[3].insert).toBe(' text');
+    });
+
+    it('should maintain correct text order (avoiding reversal bug)', () => {
+      // This is the key test - verifies the bug is avoided
+      const text = helpers.createFormattedText([
+        'Plain intro ',
+        { text: 'linked text', attrs: { link: { href: 'https://example.com' } } }
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const fullText = helpers.extractText(text);
+      expect(fullText).toBe('Plain intro linked text');
+      // NOT 'linked textPlain intro ' which would happen with the bug
+    });
+
+    it('should handle segment with empty attrs as plain text', () => {
+      const text = helpers.createFormattedText([
+        { text: 'Plain', attrs: {} },
+        ' text'
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      // Empty attrs should not create formatting
+      expect(delta).toHaveLength(1);
+      expect(delta[0].insert).toBe('Plain text');
+    });
+
+    it('should throw for empty array', () => {
+      expect(() => helpers.createFormattedText([])).toThrow('non-empty array');
+    });
+
+    it('should throw for non-array input', () => {
+      expect(() => helpers.createFormattedText('string')).toThrow('non-empty array');
+      expect(() => helpers.createFormattedText(null)).toThrow('non-empty array');
+    });
+  });
 });

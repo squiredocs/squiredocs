@@ -173,6 +173,81 @@ function findByText(container, searchText, caseSensitive = false) {
   });
 }
 
+/**
+ * Create a Y.XmlText from text segments with optional formatting
+ *
+ * IMPORTANT: This helper avoids the text reversal bug that can occur when using
+ * sequential insert() calls with different attributes on unattached XmlText nodes.
+ * See PITFALL 5 in the modify tool documentation.
+ *
+ * Uses a segment-based API that eliminates error-prone position counting.
+ * Just specify your text segments in order - no need to calculate offsets!
+ *
+ * @param {Array<string|{text: string, attrs?: object}>} segments - Array of text segments
+ *   Each segment is either:
+ *   - A plain string (no formatting)
+ *   - An object with { text: string, attrs?: object } for formatted text
+ * @returns {Y.XmlText} A new XmlText with the specified formatting
+ *
+ * @example
+ *   // Create text with a link (no position counting needed!)
+ *   const text = createFormattedText([
+ *     'Visit ',
+ *     { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+ *     ' for more info'
+ *   ]);
+ *
+ * @example
+ *   // Create text with multiple formats
+ *   const text = createFormattedText([
+ *     { text: 'Important:', attrs: { bold: true } },
+ *     ' This is ',
+ *     { text: 'italic', attrs: { italic: true } },
+ *     ' text'
+ *   ]);
+ *
+ * @example
+ *   // Plain text only (no formatting)
+ *   const text = createFormattedText(['Hello world']);
+ */
+function createFormattedText(segments) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    throw new Error('createFormattedText requires a non-empty array of segments');
+  }
+
+  const xmlText = new Y.XmlText();
+
+  // First pass: collect all text and track format ranges
+  const formatRanges = [];
+  let fullText = '';
+
+  for (const segment of segments) {
+    if (typeof segment === 'string') {
+      fullText += segment;
+    } else if (segment && typeof segment.text === 'string') {
+      const start = fullText.length;
+      fullText += segment.text;
+      if (segment.attrs && Object.keys(segment.attrs).length > 0) {
+        formatRanges.push({
+          start,
+          length: segment.text.length,
+          attrs: segment.attrs,
+        });
+      }
+    }
+  }
+
+  // Insert all text at once (avoids the reversal bug)
+  xmlText.insert(0, fullText);
+
+  // Apply formatting to each range
+  for (const range of formatRanges) {
+    xmlText.format(range.start, range.length, range.attrs);
+  }
+
+  return xmlText;
+}
+
 module.exports = {
   findTextNode,
   extractText,
@@ -180,4 +255,5 @@ module.exports = {
   findElements,
   findByNodeName,
   findByText,
+  createFormattedText,
 };

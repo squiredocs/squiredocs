@@ -163,6 +163,19 @@ findByText(container, searchText, caseSensitive=false)
   - Returns Y.XmlElement[]
   - Example: const todos = findByText(doc, 'TODO');
 
+createFormattedText(segments)
+  - Create Y.XmlText from segments (avoids text reversal bug!)
+  - No position counting needed - just list segments in order
+  - Each segment: string OR { text: string, attrs: object }
+  - Returns Y.XmlText
+  - Example:
+      const text = createFormattedText([
+        'Visit ',
+        { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+        ' for more info'
+      ]);
+      para.insert(0, [text]);
+
 ═══════════════════════════════════════════════════════════════════════════
 YJS API AVAILABLE IN SCRIPTS
 ═══════════════════════════════════════════════════════════════════════════
@@ -357,21 +370,26 @@ await modify({
 });
 
 // Example 5: Create mixed formatting (bold + normal text)
+// ⚠️ IMPORTANT: Use insert-then-format to avoid text ordering issues!
+// See PITFALL 5 below for details on why sequential inserts can fail.
 await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
+      // RECOMMENDED: Insert all text first, then apply formatting
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
 
-      // Method 1: Insert with explicit formatting (recommended for sequential inserts)
-      text.insert(0, 'Important: ', { bold: true });
-      text.insert(11, 'This is a normal message', {});  // Empty {} prevents inheriting bold!
+      // Step 1: Insert all text as plain text
+      text.insert(0, 'Important: This is a normal message');
+
+      // Step 2: Format specific ranges
+      text.format(0, 10, { bold: true });  // Format 'Important:' as bold
 
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
 
-      // Method 2: Insert plain text first, then format (recommended for complex formatting)
+      // Another example with multiple formats
       const para2 = new Y.XmlElement('paragraph');
       const text2 = new Y.XmlText();
       text2.insert(0, 'Some bold text and some italic text');
@@ -380,6 +398,15 @@ await modify({
 
       para2.insert(0, [text2]);
       doc.insert(doc.length, [para2]);
+
+      // Example with link formatting
+      const para3 = new Y.XmlElement('paragraph');
+      const text3 = new Y.XmlText();
+      text3.insert(0, 'Visit Example Site for more info');
+      text3.format(6, 12, { link: { href: 'https://example.com' } });
+
+      para3.insert(0, [text3]);
+      doc.insert(doc.length, [para3]);
     }
   \`
 });
@@ -414,19 +441,24 @@ TIPS
      text.format(0, 5, { italic: null });   // Removes italic
      text.format(0, 5, { bold: null, italic: null });  // Removes both
 
-8. IMPORTANT: When creating mixed formatting, ALWAYS pass {} for unformatted text
+8. IMPORTANT: For mixed formatting, use insert-then-format pattern
 
-   ❌ WRONG - text inherits bold from previous insertion:
-     text.insert(0, 'BOLD', { bold: true });
-     text.insert(4, ' normal');  // Inherits bold!
+   ⚠️ Sequential inserts with different attributes can cause REVERSED text
+   order when the XmlText is not yet attached to the document (see PITFALL 5).
 
-   ✅ CORRECT - explicitly clear formatting with empty object:
-     text.insert(0, 'BOLD', { bold: true });
-     text.insert(4, ' normal', {});  // No formatting
+   ❌ WRONG - sequential inserts on unattached XmlText can reverse order:
+     const text = new Y.XmlText();  // Not attached!
+     text.insert(0, 'Intro ', {});
+     text.insert(text.length, 'Link', { link: {...} });
+     // May result in: "LinkIntro " - REVERSED!
 
-   ✅ ALSO CORRECT - insert plain text first, then format:
-     text.insert(0, 'BOLD normal');
-     text.format(0, 4, { bold: true });  // Only format 'BOLD'
+   ✅ CORRECT - insert all text first, then format (RECOMMENDED):
+     const text = new Y.XmlText();
+     text.insert(0, 'Intro Link');
+     text.format(6, 4, { link: {...} });
+     // Result: "Intro Link" with 'Link' formatted - CORRECT!
+
+   This pattern is reliable regardless of whether XmlText is attached.
 
 ═══════════════════════════════════════════════════════════════════════════
 COMMON PITFALLS
@@ -615,6 +647,74 @@ from Y.XmlText nodes that may contain formatting.
       doc.delete(toDelete[i], 1);
     }
   }
+
+⚠️ PITFALL 5: Sequential Inserts with Different Attributes on Unattached XmlText
+
+PROBLEM: When you call insert() multiple times with DIFFERENT formatting attributes
+on a Y.XmlText that is NOT YET attached to the document, the text segments may
+appear in REVERSED order. This is a Yjs behavior where unattached nodes don't
+properly track insertion positions across attribute boundaries.
+
+WHEN THIS HAPPENS:
+- Creating a new Y.XmlText()
+- Calling insert() multiple times with different attributes (e.g., {} then {link:...})
+- THEN adding the XmlText to the document
+
+THE TEXT WILL BE REVERSED!
+
+❌ WRONG - Sequential inserts with different attributes on unattached XmlText:
+  export default function edit(doc) {
+    const para = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();  // Not attached to doc yet!
+
+    // These inserts happen while text is unattached
+    text.insert(0, 'Visit our website at ', {});
+    text.insert(text.length, 'Example Site', { link: { href: 'https://example.com' } });
+
+    para.insert(0, [text]);
+    doc.insert(doc.length, [para]);
+    // Result: "Example SiteVisit our website at " - REVERSED!
+  }
+
+✅ CORRECT - Insert all text first, then format (RECOMMENDED):
+  export default function edit(doc) {
+    const para = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();
+
+    // Insert all text as plain text first
+    text.insert(0, 'Visit our website at Example Site');
+    // Then apply formatting to specific ranges
+    text.format(21, 12, { link: { href: 'https://example.com' } });
+
+    para.insert(0, [text]);
+    doc.insert(doc.length, [para]);
+    // Result: "Visit our website at Example Site" - CORRECT!
+  }
+
+✅ ALSO CORRECT - Attach to document first, then insert:
+  export default function edit(doc) {
+    const para = new Y.XmlElement('paragraph');
+    const text = new Y.XmlText();
+
+    // Attach to document FIRST
+    para.insert(0, [text]);
+    doc.insert(doc.length, [para]);
+
+    // NOW sequential inserts work correctly
+    text.insert(0, 'Visit our website at ', {});
+    text.insert(text.length, 'Example Site', { link: { href: 'https://example.com' } });
+    // Result: "Visit our website at Example Site" - CORRECT!
+  }
+
+WHY THIS HAPPENS:
+Yjs uses a CRDT (Conflict-free Replicated Data Type) algorithm that assigns unique
+IDs to each operation. When an XmlText is not attached to a document, it doesn't
+have proper context for ordering operations with different attributes. The
+insert-then-format pattern avoids this because all text shares the same (empty)
+attributes during insertion, and format() operates on already-positioned content.
+
+RECOMMENDATION: Always use the insert-then-format pattern for mixed formatting.
+It's the most reliable approach and works regardless of attachment state.
 `;
 
 const inputSchema = {
