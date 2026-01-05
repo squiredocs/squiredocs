@@ -715,6 +715,72 @@ attributes during insertion, and format() operates on already-positioned content
 
 RECOMMENDATION: Always use the insert-then-format pattern for mixed formatting.
 It's the most reliable approach and works regardless of attachment state.
+
+⚠️ PITFALL 6: Modifying Without Understanding Document Structure
+
+PROBLEM: Jumping directly into editing without first understanding the document
+hierarchy leads to errors, misplaced content, or accessing non-existent elements.
+
+WHEN THIS HAPPENS:
+- Assuming a listItem has a nested bulletList at index 1 (it might not)
+- Assuming blocks are paragraphs when they might be headings or lists
+- Guessing at nesting levels without verification
+
+❌ WRONG - Assuming structure without verification:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const item = blocks[0];  // Assume it's a listItem
+    const bulletList = item.get(1);  // Assume there's a nested list at index 1
+    bulletList.insert(0, [newItem]);  // ❌ May error - bulletList might not exist!
+  }
+
+✅ CORRECT - Use read_document first to understand structure:
+  // Step 1: Read document structure BEFORE writing your modify script
+  await read_document({
+    docGuid: "abc-123",
+    format: "structured"
+  });
+
+  // Step 2: Study the returned structure:
+  // [
+  //   { type: "orderedList", children: [
+  //     { type: "listItem", children: [
+  //       { type: "paragraph", content: "Travel Item" },
+  //       { type: "bulletList", children: [...] }  // <-- NOW you know index 1 is bulletList
+  //     ]}
+  //   ]}
+  // ]
+
+  // Step 3: Write your modify script with confidence
+  await modify({
+    docGuid: "abc-123",
+    script: \`
+      export default function edit(doc) {
+        const list = doc.get(0);  // orderedList
+        const item = list.get(0);  // listItem
+        const bulletList = item.get(1);  // bulletList - verified!
+        // Safe to proceed...
+      }
+    \`
+  });
+
+✅ ALSO CORRECT - Verify structure within the script:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    const item = blocks[0];
+
+    if (item instanceof Y.XmlElement && item.nodeName === 'listItem') {
+      const maybeList = item.get(1);
+      if (maybeList instanceof Y.XmlElement && maybeList.nodeName === 'bulletList') {
+        // Safe to proceed
+        maybeList.insert(0, [newItem]);
+      }
+    }
+  }
+
+RECOMMENDATION: Always use read_document with format: "structured" before writing
+complex modify scripts. Understanding the document tree prevents wasted effort
+and runtime errors.
 `;
 
 const inputSchema = {
