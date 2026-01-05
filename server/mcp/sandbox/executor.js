@@ -68,6 +68,50 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
     findByNodeName: helpers.findByNodeName,
     findByText: helpers.findByText,
 
+    // createFormattedText needs special handling - it must use the wrapped
+    // Y.XmlText constructor so operations are tracked. We create a closure
+    // that captures the wrapped constructor.
+    createFormattedText: (function(WrappedXmlText) {
+      return function createFormattedText(segments) {
+        if (!Array.isArray(segments) || segments.length === 0) {
+          throw new Error('createFormattedText requires a non-empty array of segments');
+        }
+
+        // Use the wrapped constructor so operations are tracked
+        const xmlText = new WrappedXmlText();
+
+        // First pass: collect all text and track format ranges
+        const formatRanges = [];
+        let fullText = '';
+
+        for (const segment of segments) {
+          if (typeof segment === 'string') {
+            fullText += segment;
+          } else if (segment && typeof segment.text === 'string') {
+            const start = fullText.length;
+            fullText += segment.text;
+            if (segment.attrs && Object.keys(segment.attrs).length > 0) {
+              formatRanges.push({
+                start,
+                length: segment.text.length,
+                attrs: segment.attrs,
+              });
+            }
+          }
+        }
+
+        // Insert all text at once (avoids the reversal bug)
+        xmlText.insert(0, fullText);
+
+        // Apply formatting to each range
+        for (const range of formatRanges) {
+          xmlText.format(range.start, range.length, range.attrs);
+        }
+
+        return xmlText;
+      };
+    })(createWrappedConstructor(Y.XmlText)),
+
     // Exports object for module pattern
     exports: {},
     module: { exports: {} },

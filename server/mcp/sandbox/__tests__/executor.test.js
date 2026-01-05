@@ -180,5 +180,115 @@ describe('Sandbox executor', () => {
       const blocks = xmlFragment.toArray();
       expect(blocks.length).toBe(2);
     });
+
+    test('createFormattedText helper is available and works correctly', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const paragraph = new Y.XmlElement('paragraph');
+
+          // Use the createFormattedText helper with segment-based API
+          const text = createFormattedText([
+            'Visit ',
+            { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+            ' for more info'
+          ]);
+
+          paragraph.insert(0, [text]);
+          doc.insert(0, [paragraph]);
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Verify the text was created with correct order (not reversed)
+      const blocks = xmlFragment.toArray();
+      expect(blocks.length).toBe(1);
+
+      const textNode = blocks[0].get(0);
+      const delta = textNode.toDelta();
+
+      // Should have 3 segments in correct order
+      expect(delta.length).toBe(3);
+      expect(delta[0].insert).toBe('Visit ');
+      expect(delta[1].insert).toBe('Example Site');
+      expect(delta[1].attributes).toEqual({ link: { href: 'https://example.com' } });
+      expect(delta[2].insert).toBe(' for more info');
+    });
+
+    test('createFormattedText tracks operations', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = createFormattedText([
+            { text: 'Bold', attrs: { bold: true } },
+            ' and normal'
+          ]);
+          paragraph.insert(0, [text]);
+          doc.insert(0, [paragraph]);
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Verify operations were tracked
+      const operations = tracker.getOperations();
+      const mutations = operations.filter(op => op.category === 'mutation');
+
+      // Should have: insert (text), format (bold), insert (paragraph into doc)
+      expect(mutations.length).toBeGreaterThanOrEqual(2);
+
+      // Should have at least one format operation
+      const formatOps = mutations.filter(op => op.type === 'format');
+      expect(formatOps.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('createFormattedText throws for invalid input', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          // Should throw - empty array
+          createFormattedText([]);
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000))
+        .toThrow('non-empty array');
+    });
+
+    test('all documented helper functions are available in sandbox', () => {
+      // This test ensures all helpers documented in modify.js are actually available
+      // If you add a new helper, add it here to ensure it's exposed to scripts
+      const jsCode = `
+        exports.default = function(doc) {
+          // Check each helper is defined and is a function
+          const helpers = {
+            findTextNode: typeof findTextNode,
+            extractText: typeof extractText,
+            getTextContent: typeof getTextContent,
+            findElements: typeof findElements,
+            findByNodeName: typeof findByNodeName,
+            findByText: typeof findByText,
+            createFormattedText: typeof createFormattedText,
+          };
+
+          // Verify all are functions
+          for (const [name, type] of Object.entries(helpers)) {
+            if (type !== 'function') {
+              throw new Error(name + ' is not available (got ' + type + ')');
+            }
+          }
+
+          // Also verify Y namespace has expected constructors
+          if (typeof Y.XmlElement !== 'function') throw new Error('Y.XmlElement not available');
+          if (typeof Y.XmlText !== 'function') throw new Error('Y.XmlText not available');
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+      expect(result.success).toBe(true);
+    });
   });
 });
