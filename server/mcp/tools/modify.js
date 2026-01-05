@@ -404,7 +404,17 @@ TIPS
 
 6. Scripts run on the live document - changes sync to all users in real-time
 
-7. IMPORTANT: When creating mixed formatting, ALWAYS pass {} for unformatted text
+7. REMOVING FORMATTING: Use { attribute: null }, NOT empty object {}
+
+   ❌ WRONG - empty object does nothing:
+     text.format(0, 5, {});  // No effect! Text stays bold
+
+   ✅ CORRECT - explicitly set attribute to null:
+     text.format(0, 5, { bold: null });     // Removes bold
+     text.format(0, 5, { italic: null });   // Removes italic
+     text.format(0, 5, { bold: null, italic: null });  // Removes both
+
+8. IMPORTANT: When creating mixed formatting, ALWAYS pass {} for unformatted text
 
    ❌ WRONG - text inherits bold from previous insertion:
      text.insert(0, 'BOLD', { bold: true });
@@ -526,12 +536,47 @@ WHEN CLONING IS NOT REQUIRED:
     doc.insert(0, [list]);
   }
 
-⚠️ PITFALL 2: Using toString() Instead of toDelta()
+⚠️ PITFALL 2: Using Empty Object {} to Remove Formatting
+
+PROBLEM: An empty object {} in format() does NOT remove formatting - it leaves
+the text unchanged. To remove formatting, you must explicitly set each attribute
+to null.
+
+❌ WRONG - empty object has no effect:
+  export default function edit(doc) {
+    const text = findTextNode(doc.get(0));
+    const content = extractText(text);
+    // This does NOTHING - bold text stays bold
+    text.format(0, content.length, {});
+  }
+
+✅ CORRECT - set attribute to null:
+  export default function edit(doc) {
+    const text = findTextNode(doc.get(0));
+    const content = extractText(text);
+    // This removes bold formatting
+    text.format(0, content.length, { bold: null });
+  }
+
+✅ CORRECT - remove multiple attributes:
+  export default function edit(doc) {
+    const text = findTextNode(doc.get(0));
+    const content = extractText(text);
+    // Remove all common formatting
+    text.format(0, content.length, {
+      bold: null,
+      italic: null,
+      underline: null,
+      strike: null
+    });
+  }
+
+⚠️ PITFALL 3: Using toString() Instead of toDelta()
 
 See TIP #1 above for details on why toDelta() is essential for extracting text
 from Y.XmlText nodes that may contain formatting.
 
-⚠️ PITFALL 3: Deleting While Iterating
+⚠️ PITFALL 4: Deleting While Iterating
 
 ❌ WRONG - Deleting elements while iterating forward:
   export default function edit(doc) {
