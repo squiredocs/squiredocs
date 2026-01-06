@@ -1063,7 +1063,6 @@ wss.on('connection', (ws, req) => {
 
   ws.on('pong', () => {
     ws.isAlive = true;
-    logPerf('WS_PONG', { connId });
   });
 
   // Send ping every 5 seconds (reduced from 30s to quickly detect stale connections)
@@ -1079,7 +1078,6 @@ wss.on('connection', (ws, req) => {
 
     ws.isAlive = false;
     ws.ping();
-    logPerf('WS_PING', { connId });
   }, PING_INTERVAL);
 
   // Create a message filter for viewers
@@ -1100,18 +1098,6 @@ wss.on('connection', (ws, req) => {
       return originalEmit(event, ...args);
     };
   }
-
-  // Profile incoming messages
-  ws.on('message', (data) => {
-    logPerf('WS_MSG_IN', { connId, size: data.byteLength || data.length });
-  });
-
-  // Profile outgoing messages
-  const originalSend = ws.send.bind(ws);
-  ws.send = (data, cb) => {
-    logPerf('WS_MSG_OUT', { connId, size: data.byteLength || data.length });
-    return originalSend(data, cb);
-  };
 
   ws.on('error', (error) => {
     logPerf('WS_ERROR', { connId, error: error.message });
