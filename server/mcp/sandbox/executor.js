@@ -16,6 +16,56 @@ const Y = require('yjs');
 const { wrapForTracking } = require('./yjs-interceptor');
 const helpers = require('./helpers');
 const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
+const { createCursorPositionFromPath } = require('../yjs/cursor-operations');
+
+/**
+ * Get the path from document root to a Yjs node
+ * @param {Y.XmlFragment} root - Document root
+ * @param {Y.XmlElement|Y.XmlText} target - Target node to find
+ * @returns {number[]|null} - Array of indices representing path, or null if not found
+ */
+function getNodePath(root, target) {
+  // Breadth-first search to find the node and build path
+  const queue = [{ node: root, path: [] }];
+
+  while (queue.length > 0) {
+    const { node, path } = queue.shift();
+
+    // Check if this node has children
+    if (typeof node.toArray === 'function') {
+      const children = node.toArray();
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const childPath = [...path, i];
+
+        // Check if this is the target
+        if (child === target) {
+          return childPath;
+        }
+
+        // Add to queue to search children
+        queue.push({ node: child, path: childPath });
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the total text length of a Yjs node (recursive)
+ * @param {Y.XmlElement|Y.XmlText|Y.XmlFragment} node - Node to measure
+ * @returns {number} - Total character count
+ */
+function getNodeTextLength(node) {
+  if (node instanceof Y.XmlText) {
+    return node.length;
+  }
+  if (typeof node.toArray === 'function') {
+    return node.toArray().reduce((sum, child) => sum + getNodeTextLength(child), 0);
+  }
+  return 0;
+}
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment
@@ -24,10 +74,13 @@ const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
  * @param {object} tracker - Operation tracker for recording operations
  * @param {number} timeout - Execution timeout in milliseconds
  * @param {Function} [onOperation] - Optional callback called when an operation is recorded
+ * @param {object} [highlightContext] - Optional context for xpath highlighting
+ * @param {Y.XmlFragment} [highlightContext.xmlFragment] - Document fragment for cursor position creation
+ * @param {Function} [highlightContext.queueHighlights] - Function to queue highlight positions
  * @returns {object} - Execution result
  * @throws {Error} - If execution fails or times out
  */
-function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOperation = null) {
+function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOperation = null, highlightContext = null) {
   // Create wrapped constructors that automatically track operations
   // while preserving instanceof checks
   const createWrappedConstructor = (Constructor) => {
@@ -77,6 +130,36 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
       const context = contextNode || wrappedFragment;
       // Query and wrap results for operation tracking
       const results = xpathQuery(expression, context);
+
+      // Queue highlights for visual feedback if context is available
+      // Note: We query the UNWRAPPED xmlFragment to get correct node references for path finding
+      if (highlightContext && highlightContext.queueHighlights && results.length > 0) {
+        try {
+          // Query the unwrapped fragment to get real Yjs node references
+          const unwrappedResults = xpathQuery(expression, highlightContext.xmlFragment);
+          const positions = [];
+          for (const node of unwrappedResults) {
+            // Get the path to this node in the document
+            const path = getNodePath(highlightContext.xmlFragment, node);
+            if (path) {
+              const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, path, 0);
+              // Calculate actual text length for proper full-element highlighting
+              const textLength = getNodeTextLength(node);
+              const head = createCursorPositionFromPath(highlightContext.xmlFragment, path, textLength);
+              if (anchor && head) {
+                positions.push({ anchor, head });
+              }
+            }
+          }
+          if (positions.length > 0) {
+            highlightContext.queueHighlights(positions);
+          }
+        } catch (err) {
+          // Non-fatal: don't interrupt execution if highlighting fails
+          console.warn('[xpath] highlight error:', err.message);
+        }
+      }
+
       return results.map(node => wrapForTracking(node, tracker, [], onOperation));
     },
 
@@ -84,6 +167,28 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
       const context = contextNode || wrappedFragment;
       const result = xpathFirstQuery(expression, context);
       if (result) {
+        // Queue single highlight for visual feedback if context is available
+        // Note: We query the UNWRAPPED xmlFragment to get correct node reference for path finding
+        if (highlightContext && highlightContext.queueHighlights) {
+          try {
+            const unwrappedResult = xpathFirstQuery(expression, highlightContext.xmlFragment);
+            if (unwrappedResult) {
+              const path = getNodePath(highlightContext.xmlFragment, unwrappedResult);
+              if (path) {
+                const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, path, 0);
+                // Calculate actual text length for proper full-element highlighting
+                const textLength = getNodeTextLength(unwrappedResult);
+                const head = createCursorPositionFromPath(highlightContext.xmlFragment, path, textLength);
+                if (anchor && head) {
+                  highlightContext.queueHighlights([{ anchor, head }]);
+                }
+              }
+            }
+          } catch (err) {
+            // Non-fatal: don't interrupt execution if highlighting fails
+            console.warn('[xpathFirst] highlight error:', err.message);
+          }
+        }
         return wrapForTracking(result, tracker, [], onOperation);
       }
       return null;

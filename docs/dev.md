@@ -399,6 +399,195 @@ VITE_BYPASS_AUTH=false
 
 Or simply remove the environment variable.
 
+## MCP API Testing
+
+The MCP (Model Context Protocol) API allows AI agents to interact with documents. For testing the MCP endpoint locally, you need to generate a valid agent token.
+
+### MCP Agent Token Structure
+
+MCP agent tokens are JWTs with a specific structure:
+
+```javascript
+{
+  delegationId: 'test-delegation',  // ID of the OAuth delegation
+  userId: '<user-uuid>',            // User ID the agent acts on behalf of
+  agentId: 'test-agent',            // Unique agent identifier
+  agentName: 'Test Agent',          // Human-readable agent name
+  scopes: ['read', 'write'],        // Granted permissions
+  isAgent: true                     // Required flag
+}
+```
+
+### Generating a Test Token
+
+Create a test token using Node.js:
+
+```bash
+node -e "
+const jwt = require('jsonwebtoken');
+const token = jwt.sign({
+  delegationId: 'test-delegation',
+  userId: '10937127-083d-4359-b0be-6c1390878780',  // Replace with actual user ID
+  agentId: 'test-agent',
+  agentName: 'Test Agent',
+  scopes: ['read', 'write'],
+  isAgent: true
+}, 'dev-mcp-secret-change-in-production', {
+  expiresIn: '1h',
+  issuer: 'collab-app-mcp'
+});
+console.log(token);
+"
+```
+
+**Important:** The secret (`dev-mcp-secret-change-in-production`) and issuer (`collab-app-mcp`) must match what's configured in `server/mcp/auth/jwt.js`.
+
+### Finding a User ID
+
+To find the Dev Test User's ID from the database:
+
+```bash
+kubectl exec -it deployment/collab-postgres -n collab -- \
+  psql -U postgres -d collab_db -c "SELECT id, name, email FROM users WHERE email = 'dev@test.local';"
+```
+
+### Making MCP API Requests
+
+Save a test token to a file for easier testing:
+
+```bash
+node -e "
+const jwt = require('jsonwebtoken');
+const token = jwt.sign({
+  delegationId: 'test-delegation',
+  userId: 'YOUR-USER-ID-HERE',
+  agentId: 'test-agent',
+  agentName: 'Test Agent',
+  scopes: ['read', 'write'],
+  isAgent: true
+}, 'dev-mcp-secret-change-in-production', {
+  expiresIn: '1h',
+  issuer: 'collab-app-mcp'
+});
+const fs = require('fs');
+fs.writeFileSync('/tmp/mcp-token.txt', token);
+console.log('Token saved to /tmp/mcp-token.txt');
+"
+```
+
+Then make requests:
+
+```bash
+# List available tools
+TOKEN=$(cat /tmp/mcp-token.txt)
+curl -s -X POST http://127.0.0.1:3001/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq .
+```
+
+### Example: Testing XPath Queries
+
+The `modify` tool supports XPath queries for selecting document elements. Here's how to test it:
+
+```bash
+# Create test request file
+cat > /tmp/xpath-test.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "modify",
+    "arguments": {
+      "docGuid": "YOUR-DOC-GUID-HERE",
+      "script": "export default function edit(doc) {\n  const headings = xpath('//heading');\n  console.log('Found', headings.length, 'headings');\n}"
+    }
+  }
+}
+EOF
+
+# Execute the request
+TOKEN=$(cat /tmp/mcp-token.txt)
+curl -s -X POST http://127.0.0.1:3001/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d @/tmp/xpath-test.json | jq .
+```
+
+### Common XPath Test Queries
+
+```javascript
+// Find all headings
+xpath('//heading')
+
+// Find level-2 headings
+xpath('//heading[@level=2]')
+
+// Find paragraphs containing "TODO"
+xpath('//paragraph[contains(., "TODO")]')
+
+// Find all paragraphs
+xpath('//paragraph')
+
+// Find first heading
+xpathFirst('//heading[@level=1]')
+```
+
+### Reading Documents
+
+```bash
+cat > /tmp/read-doc.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "read_document",
+    "arguments": {
+      "docGuid": "YOUR-DOC-GUID-HERE"
+    }
+  }
+}
+EOF
+
+TOKEN=$(cat /tmp/mcp-token.txt)
+curl -s -X POST http://127.0.0.1:3001/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d @/tmp/read-doc.json | jq .
+```
+
+### Listing Documents
+
+```bash
+TOKEN=$(cat /tmp/mcp-token.txt)
+curl -s -X POST http://127.0.0.1:3001/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_documents","arguments":{}}}' | jq .
+```
+
+### Debugging Tips
+
+1. **Token validation errors**: Ensure the secret and issuer match `server/mcp/auth/jwt.js`
+2. **User not found**: The `userId` in the token must exist in the database
+3. **Permission denied**: Check that `scopes` includes the required permissions (`read`, `write`)
+4. **Document not found**: Verify the `docGuid` exists and the user has access
+
+### Visual Testing with Agent Presence
+
+When testing XPath queries, the agent's cursor/selection will be broadcast to connected clients. To see the visual highlighting:
+
+1. Open the document in a browser (logged in as the same user)
+2. Run the MCP query from the command line
+3. Watch the editor - you'll see highlights animate through matched elements
+
+The highlighting behavior:
+- Each matched element highlights sequentially (80-240ms random delay between each)
+- The final element stays highlighted for 10 seconds
+- Mutations during script execution clear any pending highlights
+
 ## Mobile Testing on Local Network
 
 To test the application on a mobile device connected to the same local network:

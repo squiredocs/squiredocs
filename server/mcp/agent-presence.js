@@ -22,6 +22,9 @@ const pendingSessionCreations = new Map();
 // Default presence duration (in seconds)
 const DEFAULT_PRESENCE_DURATION = 60; // 1 minute
 
+// Default temporary selection duration (in milliseconds)
+const DEFAULT_SELECTION_DURATION_MS = 10000; // 10 seconds
+
 /**
  * Initialize the agent presence manager with a persistence provider
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
@@ -714,16 +717,106 @@ function updateSessionCursor(sessionId, anchor, head) {
 }
 
 /**
+ * Queue a sequence of highlights to show XPath query results
+ * Each highlight is shown with a random delay before moving to the next.
+ * The final highlight uses setTemporarySelection for consistent timeout behavior.
+ * @param {string} sessionId - Session ID
+ * @param {Array<{anchor: object, head: object}>} positions - Array of cursor positions to highlight
+ * @param {number} [minIntervalMs=80] - Minimum interval between highlights (ms)
+ * @param {number} [maxIntervalMs=240] - Maximum interval between highlights (ms)
+ * @returns {boolean} True if queue was started
+ */
+function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxIntervalMs = 240) {
+  const session = activeSessions.get(sessionId);
+  if (!session || !positions || positions.length === 0) {
+    return false;
+  }
+
+  // Clear any existing highlight queue for this session
+  clearHighlightQueue(sessionId);
+
+  // Create queue state
+  session.highlightQueue = {
+    positions,
+    currentIndex: 0,
+    minIntervalMs,
+    maxIntervalMs,
+    timeoutId: null,
+  };
+
+  // Function to show next highlight in sequence
+  const showNextHighlight = () => {
+    const queue = session.highlightQueue;
+    if (!queue || queue.currentIndex >= queue.positions.length) {
+      // Queue exhausted or cleared
+      if (session.highlightQueue) {
+        session.highlightQueue = null;
+      }
+      return;
+    }
+
+    const pos = queue.positions[queue.currentIndex];
+    const isLastHighlight = queue.currentIndex === queue.positions.length - 1;
+    queue.currentIndex++;
+
+    if (isLastHighlight) {
+      // Final highlight - use setTemporarySelection for consistent timeout behavior
+      // This will show the selection, then collapse to cursor at end after DEFAULT_SELECTION_DURATION_MS
+      session.highlightQueue = null;
+      setTemporarySelection(sessionId, pos.anchor, pos.head);
+    } else {
+      // Intermediate highlight - update cursor directly
+      session.cursor = { anchor: pos.anchor, head: pos.head };
+      session.lastActivityAt = Date.now();
+
+      // Broadcast to awareness
+      if (session.provider && session.provider.awareness) {
+        session.provider.awareness.setLocalStateField('cursor', session.cursor);
+      }
+
+      // Schedule next highlight with random delay
+      const randomDelay = queue.minIntervalMs + Math.random() * (queue.maxIntervalMs - queue.minIntervalMs);
+      queue.timeoutId = setTimeout(showNextHighlight, randomDelay);
+    }
+  };
+
+  // Start the sequence
+  showNextHighlight();
+  return true;
+}
+
+/**
+ * Clear any pending highlight queue for a session
+ * Called when mutations occur to interrupt query highlighting
+ * @param {string} sessionId - Session ID
+ * @returns {boolean} True if a queue was cleared
+ */
+function clearHighlightQueue(sessionId) {
+  const session = activeSessions.get(sessionId);
+  if (!session || !session.highlightQueue) {
+    return false;
+  }
+
+  // Clear the timeout
+  if (session.highlightQueue.timeoutId) {
+    clearTimeout(session.highlightQueue.timeoutId);
+  }
+
+  session.highlightQueue = null;
+  return true;
+}
+
+/**
  * Set the agent's cursor/selection position temporarily.
  * Used to highlight content the agent is reading or modifying.
  * The selection auto-clears after the specified duration.
  * @param {string} sessionId - Session ID
  * @param {object} anchor - Anchor RelativePosition (JSON)
  * @param {object} head - Head RelativePosition (JSON)
- * @param {number} [durationMs=10000] - How long to show selection before clearing (ms)
+ * @param {number} [durationMs] - How long to show selection before collapsing (ms), defaults to DEFAULT_SELECTION_DURATION_MS
  * @returns {boolean} True if selection was set
  */
-function setTemporarySelection(sessionId, anchor, head, durationMs = 10000) {
+function setTemporarySelection(sessionId, anchor, head, durationMs = DEFAULT_SELECTION_DURATION_MS) {
   const session = activeSessions.get(sessionId);
   if (!session) {
     return false;
@@ -777,5 +870,7 @@ module.exports = {
   getActiveSessions,
   updateSessionCursor,
   setTemporarySelection,
+  queueHighlightSequence,
+  clearHighlightQueue,
   getSession,
 };

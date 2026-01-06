@@ -6,7 +6,7 @@
  * 1. TypeScript compilation
  * 2. Yjs object wrapping with operation tracking
  * 3. Sandboxed execution
- * 4. Real-time selection highlighting
+ * 4. Real-time selection highlighting (mutations and XPath queries)
  */
 
 const { compileTypeScript } = require('./compiler');
@@ -47,6 +47,10 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     if (operation.category !== 'mutation') {
       return;
     }
+
+    // Clear any pending XPath highlight queue when a mutation occurs
+    // This ensures mutations take precedence over query highlights
+    agentPresence.clearHighlightQueue(session.sessionId);
 
     try {
       inOnOperation = true;
@@ -117,18 +121,27 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     // 3. Wrap Yjs fragment with operation tracking and real-time selection callback
     const wrappedFragment = wrapForTracking(xmlFragment, tracker, [], onOperation);
 
-    // 4. Execute script in a transaction for atomic undo
+    // 4. Create highlight context for XPath query visualization
+    const highlightContext = {
+      xmlFragment,
+      queueHighlights: (positions) => {
+        // Random delay between 80-240ms for each highlight
+        agentPresence.queueHighlightSequence(session.sessionId, positions);
+      },
+    };
+
+    // 5. Execute script in a transaction for atomic undo
     const ydoc = session.provider.doc;
     ydoc.transact(() => {
       try {
-        executeSandboxed(jsCode, wrappedFragment, tracker, timeout, onOperation);
+        executeSandboxed(jsCode, wrappedFragment, tracker, timeout, onOperation, highlightContext);
       } catch (error) {
         // Capture error but don't throw yet (transaction will commit)
         executionError = error;
       }
     }, session.undoManager);
 
-    // 5. If execution failed, undo the changes and return error
+    // 6. If execution failed, undo the changes and return error
     if (executionError) {
       // Undo the changes that were made before the error
       if (session.undoManager.canUndo()) {
@@ -141,7 +154,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       };
     }
 
-    // 6. Get operation summary
+    // 7. Get operation summary
     const operationCount = tracker.getOperationCount();
     const summary = tracker.getOperationSummary();
 
