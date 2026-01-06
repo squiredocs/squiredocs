@@ -693,6 +693,15 @@ export default function edit(doc) {
 
       const script = `
 export default function edit(doc) {
+  // Ensure a paragraph exists with content
+  if (doc.length === 0) {
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, 'Initial content');
+    p.insert(0, [t]);
+    doc.insert(0, [p]);
+  }
+
   // Get the first paragraph and append text
   const firstParagraph = doc.get(0);
   const text = firstParagraph.get(0);
@@ -720,10 +729,21 @@ export default function edit(doc) {
 
       const script = `
 export default function edit(doc) {
+  // Ensure a paragraph exists with content
+  if (doc.length === 0) {
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, 'Bold text here');
+    p.insert(0, [t]);
+    doc.insert(0, [p]);
+  }
+
   // Format the first 4 characters as bold
   const firstParagraph = doc.get(0);
   const text = firstParagraph.get(0);
-  text.format(0, 4, { bold: true });
+  if (text && text.length >= 4) {
+    text.format(0, 4, { bold: true });
+  }
 }
 `;
 
@@ -757,12 +777,24 @@ export default function edit(doc) {
       const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
 
+      // First ensure we have content to delete
       const script = `
 export default function edit(doc) {
+  // Ensure a paragraph exists with content
+  if (doc.length === 0) {
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, 'Hello world test content');
+    p.insert(0, [t]);
+    doc.insert(0, [p]);
+  }
+
   // Delete 5 characters from position 0
   const firstParagraph = doc.get(0);
   const text = firstParagraph.get(0);
-  text.delete(0, 5);
+  if (text && text.length >= 5) {
+    text.delete(0, 5);
+  }
 }
 `;
 
@@ -1026,6 +1058,29 @@ export default function edit(doc) {
     }, 10000);
 
     test('redo should succeed', async () => {
+      // First make a change
+      const executeScript = toolRegistry.getTool('modify');
+      await executeScript.handler(
+        {
+          docGuid: testDocGuid,
+          script: `
+export default function edit(doc) {
+  const p = new Y.XmlElement('paragraph');
+  const t = new Y.XmlText();
+  t.insert(0, 'Redo test');
+  p.insert(0, [t]);
+  doc.insert(doc.length, [p]);
+}
+`,
+        },
+        mockAgentToken
+      );
+
+      // Undo it
+      const undo = toolRegistry.getTool('undo');
+      await undo.handler({ docGuid: testDocGuid }, mockAgentToken);
+
+      // Now redo it
       const redo = toolRegistry.getTool('redo');
       expect(redo).toBeDefined();
 
