@@ -64,7 +64,6 @@ jobs:
         run: npm run test:client
 
   build:
-    needs: test
     runs-on: ubuntu-latest
 
     steps:
