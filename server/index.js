@@ -187,7 +187,11 @@ setPersistence({
     ydoc.on('update', (update, origin) => {
       // Skip persisting updates that come from loading persisted state
       // (they're already in the DB, no need to save again)
-      if (origin === ORIGIN_DB_LOAD) {
+      // Also skip updates from Redis pub/sub - those originated on another server
+      // and were already persisted there. Re-persisting here would:
+      // 1. Cause "invalid uuid: redis" error (ORIGIN_REDIS is the string "redis")
+      // 2. Create duplicate persistence attempts
+      if (origin === ORIGIN_DB_LOAD || origin === ORIGIN_REDIS) {
         return;
       }
 
@@ -1181,7 +1185,16 @@ wss.on('connection', (ws, req) => {
           // Handle document updates from other server instances
           onUpdate: (buffer) => {
             try {
+              // DIAGNOSTIC: Log Redis updates to debug duplicate heading bug
+              const xmlFragment = doc.get('default', Y.XmlFragment);
+              const blockCountBefore = xmlFragment.toArray().length;
+
               Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
+
+              const blockCountAfter = xmlFragment.toArray().length;
+              if (blockCountAfter !== blockCountBefore) {
+                console.log(`[RedisPubSub:DIAGNOSTIC] docId=${docId} blocksChanged: ${blockCountBefore} -> ${blockCountAfter} (buffer size: ${buffer.length})`);
+              }
             } catch (err) {
               console.error(`[RedisPubSub] Error applying doc update for ${docId}:`, err.message);
             }
