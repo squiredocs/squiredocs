@@ -15,6 +15,7 @@ const vm = require('vm');
 const Y = require('yjs');
 const { wrapForTracking } = require('./yjs-interceptor');
 const helpers = require('./helpers');
+const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment
@@ -67,6 +68,26 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
     findElements: helpers.findElements,
     findByNodeName: helpers.findByNodeName,
     findByText: helpers.findByText,
+
+    // XPath query functions for flexible element selection
+    // These allow selecting elements using standard XPath expressions
+    // instead of fragile index-based access
+    xpath: (expression, contextNode = null) => {
+      // Use document root if no context provided
+      const context = contextNode || wrappedFragment;
+      // Query and wrap results for operation tracking
+      const results = xpathQuery(expression, context);
+      return results.map(node => wrapForTracking(node, tracker, [], onOperation));
+    },
+
+    xpathFirst: (expression, contextNode = null) => {
+      const context = contextNode || wrappedFragment;
+      const result = xpathFirstQuery(expression, context);
+      if (result) {
+        return wrapForTracking(result, tracker, [], onOperation);
+      }
+      return null;
+    },
 
     // createFormattedText needs special handling - it must use the wrapped
     // Y.XmlText constructor so operations are tracked. We create a closure
@@ -181,7 +202,7 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
       const match = error.message.match(/(\w+) is not defined/);
       if (match) {
         hint = `\nHint: "${match[1]}" is not available in the sandbox. ` +
-               `Only Y.XmlElement, Y.XmlText, and the doc parameter are available.`;
+               `Available: Y.XmlElement, Y.XmlText, doc, xpath(), xpathFirst(), and helper functions.`;
       }
     } else if (error.message.includes('is not a function')) {
       hint = `\nHint: Check that you're calling methods on the correct Yjs object types.`;

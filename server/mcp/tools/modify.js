@@ -176,6 +176,51 @@ createFormattedText(segments)
       ]);
       para.insert(0, [text]);
 
+───────────────────────────────────────────────────────────────────────────
+XPATH QUERY FUNCTIONS (Recommended for element selection!)
+───────────────────────────────────────────────────────────────────────────
+
+xpath(expression, contextNode?)
+  - Execute XPath query, return all matching nodes
+  - Uses standard XPath syntax - no fragile index-based access!
+  - If contextNode omitted, queries from document root
+  - Returns Y.XmlElement[] (actual Yjs nodes you can modify)
+  - Examples:
+      // Find all headings
+      const headings = xpath('//heading');
+
+      // Find level-2 headings
+      const h2s = xpath('//heading[@level=2]');
+
+      // Find elements containing text
+      const todos = xpath('//paragraph[contains(., "TODO")]');
+
+      // Find list after a specific heading
+      const list = xpath('//heading[contains(., "June 13")]/following-sibling::bulletList[1]');
+
+      // Query from a specific element
+      const items = xpath('.//listItem', bulletList);
+
+xpathFirst(expression, contextNode?)
+  - Execute XPath query, return first matching node (or null)
+  - Same syntax as xpath(), just returns single result
+  - Returns Y.XmlElement | null
+  - Example:
+      const firstHeading = xpathFirst('//heading');
+      if (firstHeading) {
+        firstHeading.setAttribute('level', 1);
+      }
+
+Supported XPath features:
+  ✓ //element           - Descendant selection
+  ✓ [@attr=value]       - Attribute predicates
+  ✓ [contains(., text)] - Text content predicates
+  ✓ child::*            - Child axis
+  ✓ following-sibling:: - Following sibling axis
+  ✓ preceding-sibling:: - Preceding sibling axis
+  ✗ parent::            - Not supported (Yjs limitation)
+  ✗ ancestor::          - Not supported (Yjs limitation)
+
 ═══════════════════════════════════════════════════════════════════════════
 YJS API AVAILABLE IN SCRIPTS
 ═══════════════════════════════════════════════════════════════════════════
