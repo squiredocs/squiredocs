@@ -6,7 +6,7 @@
  * 1. TypeScript compilation
  * 2. Yjs object wrapping with operation tracking
  * 3. Sandboxed execution
- * 4. Real-time selection highlighting (mutations and XPath queries)
+ * 4. Real-time selection highlighting via unified queue (mutations and XPath queries)
  */
 
 const { compileTypeScript } = require('./compiler');
@@ -47,10 +47,6 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     if (operation.category !== 'mutation') {
       return;
     }
-
-    // Clear any pending XPath highlight queue when a mutation occurs
-    // This ensures mutations take precedence over query highlights
-    agentPresence.clearHighlightQueue(session.sessionId);
 
     try {
       inOnOperation = true;
@@ -100,8 +96,9 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
         head = anchor;
       }
 
+      // Queue the highlight (adds to queue with random delay)
       if (anchor && head) {
-        agentPresence.setTemporarySelection(session.sessionId, anchor, head);
+        agentPresence.queueHighlight(session.sessionId, anchor, head);
       }
     } catch (err) {
       // Non-fatal: log but don't interrupt execution

@@ -717,9 +717,47 @@ function updateSessionCursor(sessionId, anchor, head) {
 }
 
 /**
+ * Queue a single highlight to be shown with a random delay
+ * Used for both mutations and XPath results - unified API
+ * @param {string} sessionId - Session ID
+ * @param {object} anchor - Anchor RelativePosition (JSON)
+ * @param {object} head - Head RelativePosition (JSON)
+ * @param {number} [minIntervalMs=80] - Minimum interval before showing (ms)
+ * @param {number} [maxIntervalMs=240] - Maximum interval before showing (ms)
+ * @returns {boolean} True if highlight was queued
+ */
+function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxIntervalMs = 240) {
+  const session = activeSessions.get(sessionId);
+  if (!session || !anchor || !head) {
+    return false;
+  }
+
+  // Initialize queue if it doesn't exist
+  if (!session.highlightQueue) {
+    session.highlightQueue = {
+      positions: [],
+      currentIndex: 0,
+      minIntervalMs,
+      maxIntervalMs,
+      timeoutId: null,
+      isProcessing: false,
+    };
+  }
+
+  // Add position to queue
+  session.highlightQueue.positions.push({ anchor, head });
+
+  // Start processing if not already running
+  if (!session.highlightQueue.isProcessing) {
+    processHighlightQueue(sessionId);
+  }
+
+  return true;
+}
+
+/**
  * Queue a sequence of highlights to show XPath query results
  * Each highlight is shown with a random delay before moving to the next.
- * The final highlight uses setTemporarySelection for consistent timeout behavior.
  * @param {string} sessionId - Session ID
  * @param {Array<{anchor: object, head: object}>} positions - Array of cursor positions to highlight
  * @param {number} [minIntervalMs=80] - Minimum interval between highlights (ms)
@@ -732,23 +770,46 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
     return false;
   }
 
-  // Clear any existing highlight queue for this session
-  clearHighlightQueue(sessionId);
+  // Initialize queue if it doesn't exist
+  if (!session.highlightQueue) {
+    session.highlightQueue = {
+      positions: [],
+      currentIndex: 0,
+      minIntervalMs,
+      maxIntervalMs,
+      timeoutId: null,
+      isProcessing: false,
+    };
+  }
 
-  // Create queue state
-  session.highlightQueue = {
-    positions,
-    currentIndex: 0,
-    minIntervalMs,
-    maxIntervalMs,
-    timeoutId: null,
-  };
+  // Add all positions to queue
+  session.highlightQueue.positions.push(...positions);
 
-  // Function to show next highlight in sequence
+  // Start processing if not already running
+  if (!session.highlightQueue.isProcessing) {
+    processHighlightQueue(sessionId);
+  }
+
+  return true;
+}
+
+/**
+ * Process the highlight queue - shows highlights with random delays
+ * Internal function used by queueHighlight and queueHighlightSequence
+ * @param {string} sessionId - Session ID
+ */
+function processHighlightQueue(sessionId) {
+  const session = activeSessions.get(sessionId);
+  if (!session || !session.highlightQueue) {
+    return;
+  }
+
+  const queue = session.highlightQueue;
+  queue.isProcessing = true;
+
   const showNextHighlight = () => {
-    const queue = session.highlightQueue;
-    if (!queue || queue.currentIndex >= queue.positions.length) {
-      // Queue exhausted or cleared
+    if (!session.highlightQueue || queue.currentIndex >= queue.positions.length) {
+      // Queue exhausted - clean up
       if (session.highlightQueue) {
         session.highlightQueue = null;
       }
@@ -782,28 +843,6 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
 
   // Start the sequence
   showNextHighlight();
-  return true;
-}
-
-/**
- * Clear any pending highlight queue for a session
- * Called when mutations occur to interrupt query highlighting
- * @param {string} sessionId - Session ID
- * @returns {boolean} True if a queue was cleared
- */
-function clearHighlightQueue(sessionId) {
-  const session = activeSessions.get(sessionId);
-  if (!session || !session.highlightQueue) {
-    return false;
-  }
-
-  // Clear the timeout
-  if (session.highlightQueue.timeoutId) {
-    clearTimeout(session.highlightQueue.timeoutId);
-  }
-
-  session.highlightQueue = null;
-  return true;
 }
 
 /**
@@ -870,7 +909,7 @@ module.exports = {
   getActiveSessions,
   updateSessionCursor,
   setTemporarySelection,
+  queueHighlight,
   queueHighlightSequence,
-  clearHighlightQueue,
   getSession,
 };

@@ -7,7 +7,7 @@ const { executeScript, executeSandboxed, wrapForTracking, OperationTracker } = r
 
 // Spy on agent-presence functions
 let mockQueueHighlightSequence;
-let mockClearHighlightQueue;
+let mockQueueHighlight;
 
 describe('XPath query highlighting', () => {
   let doc;
@@ -17,7 +17,7 @@ describe('XPath query highlighting', () => {
   beforeEach(() => {
     // Set up spies
     mockQueueHighlightSequence = jest.spyOn(agentPresence, 'queueHighlightSequence').mockImplementation(() => true);
-    mockClearHighlightQueue = jest.spyOn(agentPresence, 'clearHighlightQueue').mockImplementation(() => true);
+    mockQueueHighlight = jest.spyOn(agentPresence, 'queueHighlight').mockImplementation(() => true);
 
     doc = new Y.Doc();
     fragment = doc.get('test', Y.XmlFragment);
@@ -111,12 +111,12 @@ describe('XPath query highlighting', () => {
     expect(mockQueueHighlightSequence).not.toHaveBeenCalled();
   });
 
-  it('should clear highlight queue when mutation occurs', async () => {
+  it('should queue highlights for mutations', async () => {
     const script = `
       export default function edit(doc) {
         // First query triggers highlights
         const headings = xpath('//heading');
-        // Then mutation should clear the queue
+        // Then mutation should also queue a highlight
         headings[0].setAttribute('modified', true);
       }
     `;
@@ -124,8 +124,10 @@ describe('XPath query highlighting', () => {
     const result = await executeScript(script, mockSession, fragment);
     expect(result.success).toBe(true);
 
-    // Should have cleared highlight queue when mutation occurred
-    expect(mockClearHighlightQueue).toHaveBeenCalledWith('test-session');
+    // Should have queued highlights for XPath query
+    expect(mockQueueHighlightSequence).toHaveBeenCalled();
+    // Should have queued highlight for mutation
+    expect(mockQueueHighlight).toHaveBeenCalledWith('test-session', expect.any(Object), expect.any(Object));
   });
 
   it('should handle multiple xpath queries', async () => {
