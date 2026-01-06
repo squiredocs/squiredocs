@@ -11,7 +11,8 @@ module.exports = async () => {
       stdio: 'pipe',
       env: {
         ...process.env,
-        DATABASE_URL: 'postgresql://localhost/collab_test_db'
+        // Use existing DATABASE_URL if set (e.g., in CI), otherwise default for local dev
+        DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost/collab_test_db'
       }
     });
     console.log('✅ Migrations complete.\n');
