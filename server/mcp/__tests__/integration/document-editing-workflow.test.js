@@ -163,6 +163,188 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
   });
 
   describe('Create Document Workflow', () => {
+    test('BUG REPRO: Single H1 heading should NOT be duplicated', async () => {
+      // This test reproduces the exact bug scenario:
+      // 1. Create new document
+      // 2. Open document
+      // 3. Add SINGLE H1 heading via modify
+      // 4. Verify only ONE heading exists (not duplicated)
+      //
+      // The bug causes TWO identical H1 headings to appear.
+
+      console.log('\n=== BUG REPRO: Single H1 heading duplication ===');
+
+      // Step 1: Create a new document
+      const createDoc = toolRegistry.getTool('create_document');
+      const openDoc = toolRegistry.getTool('open_document');
+      const modify = toolRegistry.getTool('modify');
+      const readDoc = toolRegistry.getTool('read_document');
+      const closeDoc = toolRegistry.getTool('close_document');
+
+      const createResult = await createDoc.handler(
+        { title: 'H1 Duplication Test' },
+        mockAgentToken
+      );
+      const newDocGuid = createResult.docGuid;
+      console.log(`✓ Created document: ${newDocGuid}`);
+
+      // Wait for persistence
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Add share for test user
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Step 2: Open the document
+      const openResult = await openDoc.handler(
+        { docGuid: newDocGuid, position: 'start' },
+        mockAgentToken
+      );
+      expect(openResult.success).toBe(true);
+      console.log('✓ Opened document');
+      console.log(`  Initial blockCount: ${openResult.documentInfo.blockCount}`);
+
+      // Step 3: Add SINGLE H1 heading (minimal reproduce case)
+      const script = `
+export default function edit(doc) {
+  const heading = new Y.XmlElement('heading');
+  heading.setAttribute('level', 1);
+  const headingText = new Y.XmlText();
+  headingText.insert(0, 'H1 Duplication Test Heading');
+  heading.insert(0, [headingText]);
+
+  doc.insert(0, [heading]);
+}
+`;
+
+      const modifyResult = await modify.handler(
+        { docGuid: newDocGuid, script },
+        mockAgentToken
+      );
+      expect(modifyResult.success).toBe(true);
+      console.log(`✓ modify completed with ${modifyResult.operationCount} operations`);
+
+      // Step 4: Verify document structure - should have exactly ONE heading
+      const readResult = await readDoc.handler(
+        { docGuid: newDocGuid, format: 'structured' },
+        mockAgentToken
+      );
+
+      console.log('\n=== Document structure ===');
+      console.log(JSON.stringify(readResult.content, null, 2));
+      console.log(`Block count: ${readResult.blockCount}`);
+
+      // THE BUG: This assertion FAILS when the bug is present
+      // Expected: 1 block (one H1 heading)
+      // Actual (bug): 2 blocks (two identical H1 headings)
+      expect(readResult.blockCount).toBe(1);
+
+      // Verify it's a heading with level 1
+      expect(readResult.content).toHaveLength(1);
+      expect(readResult.content[0].type).toBe('heading');
+      expect(readResult.content[0].level).toBe(1);
+      expect(readResult.content[0].content).toBe('H1 Duplication Test Heading');
+
+      // Cleanup
+      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+      console.log('✓ Cleaned up test document');
+    }, 30000);
+
+    test('BUG REPRO: Rapid open+modify should not cause duplicates', async () => {
+      // This test simulates a race condition by calling open_document
+      // and modify in rapid succession, without waiting for the session
+      // to be fully established.
+
+      console.log('\n=== BUG REPRO: Rapid open+modify race condition ===');
+
+      const createDoc = toolRegistry.getTool('create_document');
+      const openDoc = toolRegistry.getTool('open_document');
+      const modify = toolRegistry.getTool('modify');
+      const readDoc = toolRegistry.getTool('read_document');
+      const closeDoc = toolRegistry.getTool('close_document');
+
+      const createResult = await createDoc.handler(
+        { title: 'Rapid Test' },
+        mockAgentToken
+      );
+      const newDocGuid = createResult.docGuid;
+      console.log(`✓ Created document: ${newDocGuid}`);
+
+      // Minimal wait - just enough for database
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Call open_document and modify in rapid succession
+      // This simulates the MCP client calling tools quickly
+      const script = `
+export default function edit(doc) {
+  const heading = new Y.XmlElement('heading');
+  heading.setAttribute('level', 1);
+  const headingText = new Y.XmlText();
+  headingText.insert(0, 'Rapid Test Heading');
+  heading.insert(0, [headingText]);
+  doc.insert(0, [heading]);
+}
+`;
+
+      // Start both operations - open_document first but don't await
+      console.log('Starting open_document...');
+      const openPromise = openDoc.handler(
+        { docGuid: newDocGuid, position: 'start' },
+        mockAgentToken
+      );
+
+      // Wait just 10ms then call modify
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      console.log('Starting modify (while open might still be connecting)...');
+      const modifyPromise = modify.handler(
+        { docGuid: newDocGuid, script },
+        mockAgentToken
+      );
+
+      // Now await both
+      const [openResult, modifyResult] = await Promise.all([openPromise, modifyPromise]);
+
+      expect(openResult.success).toBe(true);
+      expect(modifyResult.success).toBe(true);
+      console.log(`✓ Both operations completed`);
+
+      // Verify document structure
+      const readResult = await readDoc.handler(
+        { docGuid: newDocGuid, format: 'structured' },
+        mockAgentToken
+      );
+
+      console.log('\n=== Document structure ===');
+      console.log(JSON.stringify(readResult.content, null, 2));
+      console.log(`Block count: ${readResult.blockCount}`);
+
+      // Should have exactly ONE heading
+      expect(readResult.blockCount).toBe(1);
+      expect(readResult.content).toHaveLength(1);
+
+      // Cleanup
+      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+      console.log('✓ Cleaned up test document');
+    }, 30000);
+
     test('Complete workflow: create document with title, open, add content via modify, verify, close', async () => {
       // Step 1: Create a new document with a title
       console.log('\n=== Step 1: Create document with title ===');

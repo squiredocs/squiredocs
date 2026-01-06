@@ -887,11 +887,23 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
+  // DIAGNOSTIC LOGGING: Capture state before and after script execution
+  // This helps debug the duplicate H1 heading bug
+  const blockCountBefore = xmlFragment.toArray().length;
+  console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
+  console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
+  console.log(`[modify:DIAGNOSTIC] blockCountBefore=${blockCountBefore}`);
+
   try {
     // Execute the script
     const result = await executeScript(script, session, xmlFragment, {
       timeout: validatedTimeout,
     });
+
+    // DIAGNOSTIC LOGGING: Capture state after script execution
+    const blockCountAfter = xmlFragment.toArray().length;
+    console.log(`[modify:DIAGNOSTIC] blockCountAfter=${blockCountAfter}`);
+    console.log(`[modify:DIAGNOSTIC] blocksAdded=${blockCountAfter - blockCountBefore}`);
 
     if (result.success) {
       return {

@@ -135,6 +135,12 @@ async function handler(args, agentToken) {
   const blocks = xmlFragment.toArray();
   const blockCount = blocks.length;
 
+  // DIAGNOSTIC LOGGING: Capture state when opening document
+  // This helps debug the duplicate H1 heading bug
+  console.log(`[open_document:DIAGNOSTIC] docGuid=${docGuid}`);
+  console.log(`[open_document:DIAGNOSTIC] sessionId=${session.sessionId}`);
+  console.log(`[open_document:DIAGNOSTIC] blockCount=${blockCount}`);
+
   let characterCount = 0;
   function countChars(node) {
     if (node instanceof Y.XmlText) {

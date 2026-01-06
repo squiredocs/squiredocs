@@ -93,14 +93,23 @@ async function handler(args, agentToken) {
 
   // Also set the document title in Yjs metadata for consistency
   // This ensures it goes through the normal Yjs update flow and persistence
+  let blockCountAfterCreate = 0;
   await documentService.updateDocument(
     docGuid,
     (ydoc) => {
       const meta = ydoc.getMap('meta');
       meta.set('title', title);
+
+      // DIAGNOSTIC LOGGING: Check if any content exists after creation
+      // This helps debug the duplicate H1 heading bug
+      const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      blockCountAfterCreate = xmlFragment.toArray().length;
     },
     userId
   );
+
+  console.log(`[create_document:DIAGNOSTIC] docGuid=${docGuid}`);
+  console.log(`[create_document:DIAGNOSTIC] blockCountAfterCreate=${blockCountAfterCreate}`);
 
   return {
     docGuid,
