@@ -16,6 +16,7 @@ const activeSessions = new Map();
 
 // Track in-progress session creation promises to prevent race conditions
 // Key: "${userId}-${docGuid}", Value: Promise
+// Used by both setAgentPresence and getOrCreateSession
 const pendingSessionCreations = new Map();
 
 // Default presence duration (in seconds)
@@ -202,7 +203,8 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         cleanup,
         timeoutId: null,
         createdAt: Date.now(),
-        cursor: null,            // Will be initialized after connection
+        cursor: null,            // Will be initialized after connection (can be null for empty docs)
+        initialized: false,      // Set to true after sync completes - used for session reuse check
         undoManager: null,       // Will be created after connection
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
@@ -223,8 +225,11 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
               // Create UndoManager
               session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
 
-              // Initialize cursor at document start
+              // Initialize cursor at document start (can be null for empty docs - that's OK)
               session.cursor = initializeCursorAtStart(xmlFragment);
+
+              // Mark session as fully initialized
+              session.initialized = true;
 
               // Broadcast cursor to awareness so it's visible to other users
               if (session.cursor) {
@@ -414,11 +419,34 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
     isAgent: true,
   };
 
-  // Check if we already have an active session for this user/doc combination
   const existingSessionKey = `${userId}-${docGuid}`;
+
+  // CRITICAL: Check if there's already a session creation in progress
+  // This prevents race conditions when multiple tools are called concurrently
+  // (e.g., open_document followed immediately by modify)
+  if (pendingSessionCreations.has(existingSessionKey)) {
+    console.log(`[agent-presence] getOrCreateSession: Session creation already in progress for ${userName} in ${docGuid}, waiting...`);
+
+    // Wait for the pending creation to complete
+    const pendingSession = await pendingSessionCreations.get(existingSessionKey);
+
+    // Extend the session timeout
+    if (pendingSession && pendingSession.timeoutId) {
+      clearTimeout(pendingSession.timeoutId);
+      pendingSession.timeoutId = setTimeout(() => {
+        pendingSession.cleanup();
+      }, duration * 1000);
+    }
+
+    console.log(`[agent-presence] Reusing session (after waiting) for ${userName} in ${docGuid}`);
+    return pendingSession;
+  }
+
+  // Check if we already have an active session for this user/doc combination
   for (const [sid, session] of activeSessions.entries()) {
-    // Only reuse if the session is fully initialized (has cursor)
-    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected && session.cursor) {
+    // Reuse if session is connected and initialized
+    // Note: cursor can be null for empty documents - that's OK, we check 'initialized' flag instead
+    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected && session.initialized) {
       // Extend the existing session
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
@@ -452,7 +480,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
 
-  return new Promise((resolve, reject) => {
+  // Create the session creation promise and store it to prevent race conditions
+  const sessionPromise = new Promise((resolve, reject) => {
     let timeoutId = null;
     let provider = null;
 
@@ -510,7 +539,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
         cleanup,
         timeoutId: null,
         createdAt: Date.now(),
-        cursor: null,            // Will be initialized after connection
+        cursor: null,            // Will be initialized after connection (can be null for empty docs)
+        initialized: false,      // Set to true after sync completes - used for session reuse check
         undoManager: null,       // Will be created after connection
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
@@ -530,8 +560,12 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
               // Create UndoManager
               session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
 
-              // Initialize cursor at document start
+              // Initialize cursor at document start (can be null for empty docs - that's OK)
               session.cursor = initializeCursorAtStart(xmlFragment);
+
+              // Mark session as fully initialized - this is used for session reuse check
+              // Note: cursor can be null for empty documents, but session is still valid
+              session.initialized = true;
 
               // Broadcast cursor to awareness so it's visible to other users
               if (session.cursor) {
@@ -551,9 +585,13 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
               }, duration * 1000);
             }
 
+            // Clean up from pending creations since we're done
+            pendingSessionCreations.delete(existingSessionKey);
+
             // Return the session object
             resolve(session);
           } catch (error) {
+            pendingSessionCreations.delete(existingSessionKey);
             cleanup();
             reject(new Error(`Failed to set presence: ${error.message}`));
           }
@@ -562,27 +600,36 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
       // Handle connection errors
       provider.on('connection-error', (error) => {
+        pendingSessionCreations.delete(existingSessionKey);
         cleanup();
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
       // Handle connection close
       provider.on('connection-close', () => {
+        pendingSessionCreations.delete(existingSessionKey);
         cleanup();
       });
 
       // Set timeout for initial connection
       setTimeout(() => {
         if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
+          pendingSessionCreations.delete(existingSessionKey);
           cleanup();
           reject(new Error('Connection timeout: Could not establish WebSocket connection'));
         }
       }, 10000);
     } catch (error) {
+      pendingSessionCreations.delete(existingSessionKey);
       cleanup();
       reject(new Error(`Failed to create agent presence: ${error.message}`));
     }
   });
+
+  // Store the promise immediately to prevent concurrent session creations
+  pendingSessionCreations.set(existingSessionKey, sessionPromise);
+
+  return sessionPromise;
 }
 
 /**
