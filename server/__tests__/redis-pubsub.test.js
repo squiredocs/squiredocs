@@ -249,6 +249,9 @@ describe('redis-pubsub', () => {
   });
 
   describe('message routing', () => {
+    // Use a fake instance ID for simulating messages from other servers
+    const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
+
     test('routes awareness messages to correct handler', async () => {
       await redisPubSub.init();
 
@@ -258,9 +261,9 @@ describe('redis-pubsub', () => {
       redisPubSub.subscribeToDocument('doc-123', { onAwareness, onUpdate });
       await tick();
 
-      // Simulate receiving a message from Redis
+      // Simulate receiving a message from another server
       const subscriber = MockRedis.instances[0];
-      const testMessage = Buffer.from([1, 2, 3]);
+      const testMessage = redisPubSub.encodeMessage(Buffer.from([1, 2, 3]), OTHER_SERVER_ID);
       subscriber.emit('message', 'awareness:doc-123', testMessage);
 
       await tick();
@@ -278,9 +281,9 @@ describe('redis-pubsub', () => {
       redisPubSub.subscribeToDocument('doc-123', { onAwareness, onUpdate });
       await tick();
 
-      // Simulate receiving a message from Redis
+      // Simulate receiving a message from another server
       const subscriber = MockRedis.instances[0];
-      const testMessage = Buffer.from([4, 5, 6]);
+      const testMessage = redisPubSub.encodeMessage(Buffer.from([4, 5, 6]), OTHER_SERVER_ID);
       subscriber.emit('message', 'updates:doc-123', testMessage);
 
       await tick();
@@ -349,6 +352,8 @@ describe('redis-pubsub', () => {
   });
 
   describe('cross-instance communication', () => {
+    const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
+
     test('messages published by one instance are received by subscribers', async () => {
       // This simulates two server instances sharing Redis
       await redisPubSub.init();
@@ -362,8 +367,8 @@ describe('redis-pubsub', () => {
 
       // Simulate another instance publishing (via the same mock Redis)
       const publisher = MockRedis.instances[1];
-      publisher.publish('awareness:doc-123', Buffer.from('test-awareness'));
-      publisher.publish('updates:doc-123', Buffer.from('test-update'));
+      publisher.publish('awareness:doc-123', redisPubSub.encodeMessage(Buffer.from('test-awareness'), OTHER_SERVER_ID));
+      publisher.publish('updates:doc-123', redisPubSub.encodeMessage(Buffer.from('test-update'), OTHER_SERVER_ID));
 
       await tick(100);
 
@@ -371,6 +376,27 @@ describe('redis-pubsub', () => {
       expect(receivedMessages.length).toBe(2);
       expect(receivedMessages[0].type).toBe('awareness');
       expect(receivedMessages[1].type).toBe('update');
+    });
+
+    test('messages from same instance are ignored', async () => {
+      await redisPubSub.init();
+
+      const receivedMessages = [];
+      redisPubSub.subscribeToDocument('doc-123', {
+        onAwareness: (buffer) => receivedMessages.push({ type: 'awareness', buffer }),
+        onUpdate: (buffer) => receivedMessages.push({ type: 'update', buffer }),
+      });
+      await tick();
+
+      // Simulate receiving our OWN message back (same instance ID)
+      const subscriber = MockRedis.instances[0];
+      subscriber.emit('message', 'awareness:doc-123', redisPubSub.encodeMessage(Buffer.from('self-awareness')));
+      subscriber.emit('message', 'updates:doc-123', redisPubSub.encodeMessage(Buffer.from('self-update')));
+
+      await tick(100);
+
+      // Messages from self should be ignored
+      expect(receivedMessages.length).toBe(0);
     });
   });
 });

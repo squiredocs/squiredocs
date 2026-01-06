@@ -11,7 +11,11 @@
  * - Origin tracking prevents feedback loops
  */
 
+const crypto = require('crypto');
 const { createPubSubClient, isRedisEnabled } = require('./redis');
+
+// Unique identifier for this server instance (prevents processing own messages)
+const INSTANCE_ID = crypto.randomUUID();
 
 // Channel prefixes
 const AWARENESS_PREFIX = 'awareness:';
@@ -30,6 +34,31 @@ let initialized = false;
 // Track warning state to avoid spamming logs
 let disabledWarningLogged = false;
 let disabledWarningInterval = null;
+
+/**
+ * Encode a message with instance ID prefix
+ * Format: [36-byte UUID]:[data]
+ * @param {Buffer|Uint8Array} data - The message data
+ * @param {string} [instanceId] - Optional instance ID (defaults to this server's ID)
+ */
+function encodeMessage(data, instanceId = INSTANCE_ID) {
+  const prefix = Buffer.from(instanceId + ':');
+  return Buffer.concat([prefix, Buffer.from(data)]);
+}
+
+/**
+ * Decode a message, extracting instance ID and data
+ * @returns {{ instanceId: string, data: Buffer } | null}
+ */
+function decodeMessage(buffer) {
+  // UUID is 36 chars + 1 colon = 37 bytes prefix
+  if (buffer.length < 37) {
+    return null;
+  }
+  const instanceId = buffer.slice(0, 36).toString();
+  const data = buffer.slice(37);
+  return { instanceId, data };
+}
 
 /**
  * Initialize Redis pub/sub clients
@@ -90,18 +119,30 @@ async function init() {
     try {
       const buffer = Buffer.from(message, 'binary');
 
+      // Decode message to extract instance ID
+      const decoded = decodeMessage(buffer);
+      if (!decoded) {
+        console.warn('[RedisPubSub] Received malformed message (missing instance ID)');
+        return;
+      }
+
+      // Ignore messages from self
+      if (decoded.instanceId === INSTANCE_ID) {
+        return;
+      }
+
       // Route to appropriate handler based on channel prefix
       if (channel.startsWith(AWARENESS_PREFIX)) {
         const docId = channel.slice(AWARENESS_PREFIX.length);
         const sub = documentSubscriptions.get(docId);
         if (sub?.awarenessHandler) {
-          sub.awarenessHandler(buffer);
+          sub.awarenessHandler(decoded.data);
         }
       } else if (channel.startsWith(UPDATES_PREFIX)) {
         const docId = channel.slice(UPDATES_PREFIX.length);
         const sub = documentSubscriptions.get(docId);
         if (sub?.updateHandler) {
-          sub.updateHandler(buffer);
+          sub.updateHandler(decoded.data);
         }
       }
     } catch (err) {
@@ -140,6 +181,7 @@ async function init() {
   console.log('║  ✅ REDIS PUB/SUB INITIALIZED - CROSS-INSTANCE SYNC ENABLED                  ║');
   console.log('╠══════════════════════════════════════════════════════════════════════════════╣');
   console.log('║  User presence and document edits will sync across all server instances.     ║');
+  console.log(`║  Instance ID: ${INSTANCE_ID}                             ║`);
   console.log('╚══════════════════════════════════════════════════════════════════════════════╝');
   console.log('');
 }
@@ -209,7 +251,7 @@ function publishAwareness(docId, update) {
   }
 
   try {
-    publisherClient.publish(AWARENESS_PREFIX + docId, Buffer.from(update));
+    publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update));
   } catch (err) {
     console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
   }
@@ -226,7 +268,7 @@ function publishUpdate(docId, update) {
   }
 
   try {
-    publisherClient.publish(UPDATES_PREFIX + docId, Buffer.from(update));
+    publisherClient.publish(UPDATES_PREFIX + docId, encodeMessage(update));
   } catch (err) {
     console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
   }
@@ -282,6 +324,14 @@ async function cleanup() {
   console.log('[RedisPubSub] Cleanup complete');
 }
 
+/**
+ * Get the unique instance ID for this server
+ * @returns {string}
+ */
+function getInstanceId() {
+  return INSTANCE_ID;
+}
+
 module.exports = {
   init,
   isEnabled,
@@ -292,6 +342,10 @@ module.exports = {
   getSubscriptionCount,
   isSubscribed,
   cleanup,
+  getInstanceId,
+  // Expose encode/decode for testing and potential external use
+  encodeMessage,
+  decodeMessage,
   // Expose for testing
   _reset: () => {
     documentSubscriptions.clear();

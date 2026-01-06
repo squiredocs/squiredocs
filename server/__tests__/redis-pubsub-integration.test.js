@@ -78,47 +78,42 @@ describe('Redis Pub/Sub Integration', () => {
     });
 
     test('REGRESSION: Redis pub/sub echo should NOT create duplicate blocks', async () => {
-      // This is the actual bug we're trying to catch.
-      // When we publish an update to Redis and it echoes back,
-      // applying it should NOT create duplicates.
+      // This test verifies that the instance ID filtering prevents
+      // a server from processing its own updates echoed back from Redis.
+      //
+      // With the fix in place:
+      // 1. Server publishes update with its instance ID
+      // 2. Redis echoes it back
+      // 3. Server ignores the echo (same instance ID)
+      // 4. No duplicate blocks created
 
       const docId = `test-doc-${Date.now()}`;
       const doc = new Y.Doc();
       const xmlFragment = doc.get('default', Y.XmlFragment);
 
-      // Track updates received from Redis
+      // Track updates received from Redis (should be zero with the fix)
       const receivedUpdates = [];
-      let resolveUpdateReceived;
-      const updateReceivedPromise = new Promise((resolve) => {
-        resolveUpdateReceived = resolve;
-      });
 
       // Subscribe to Redis channel (simulating server setup)
       await redisPubSub.init();
       redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
+          // With the fix, this should NOT be called for our own updates
           receivedUpdates.push(buffer);
-
-          // This is what the server does - apply the update from Redis
-          const updateData = new Uint8Array(buffer);
-          Y.applyUpdate(doc, updateData, ORIGIN_REDIS);
-
-          resolveUpdateReceived();
+          Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
         },
       });
 
       // Set up update handler to publish to Redis (simulating server behavior)
       doc.on('update', (update, origin) => {
-        // Don't re-publish updates that came from Redis
         if (origin === ORIGIN_REDIS) {
           return;
         }
-        // Publish to Redis
         redisPubSub.publishUpdate(docId, update);
       });
 
-      // Create and insert a heading (this triggers the bug flow)
+      // Create and insert a heading
       const heading = new Y.XmlElement('heading');
       heading.setAttribute('level', 1);
       const text = new Y.XmlText();
@@ -129,13 +124,13 @@ describe('Redis Pub/Sub Integration', () => {
       // Verify we have 1 heading initially
       expect(xmlFragment.toArray().length).toBe(1);
 
-      // Wait for Redis to echo the update back
-      await updateReceivedPromise;
+      // Wait for Redis round-trip (the echo will be filtered)
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Allow a small delay for any additional processing
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // With the fix: no updates should have been received (filtered by instance ID)
+      expect(receivedUpdates.length).toBe(0);
 
-      // THE BUG: This would fail with 2 headings if the bug exists
+      // Document should still have exactly 1 heading (no duplicates)
       const blocks = xmlFragment.toArray();
       expect(blocks.length).toBe(1);
       expect(blocks[0].nodeName).toBe('heading');
@@ -146,26 +141,24 @@ describe('Redis Pub/Sub Integration', () => {
     });
 
     test('REGRESSION: multiple sequential edits should not multiply blocks', async () => {
+      // Verifies that multiple edits don't cause duplicates even with
+      // Redis pub/sub enabled. With instance ID filtering, our own
+      // updates are ignored when echoed back.
+
       const docId = `test-doc-multi-${Date.now()}`;
       const doc = new Y.Doc();
       const xmlFragment = doc.get('default', Y.XmlFragment);
 
-      // Track received updates with a timeout fallback
+      // Track received updates (should be zero with the fix)
       let updateCount = 0;
-      let resolveAllUpdates;
-      const allUpdatesPromise = new Promise((resolve) => {
-        resolveAllUpdates = resolve;
-        // Fallback timeout - resolve after 500ms even if not all updates received
-        setTimeout(resolve, 500);
-      });
 
       await redisPubSub.init();
       redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
+          // With the fix, this should NOT be called for our own updates
           Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
           updateCount++;
-          resolveAllUpdates();
         },
       });
 
@@ -185,68 +178,84 @@ describe('Redis Pub/Sub Integration', () => {
 
       expect(xmlFragment.toArray().length).toBe(3);
 
-      // Wait for all Redis echoes
-      await allUpdatesPromise;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait for Redis round-trips (all echoes will be filtered)
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Should still have exactly 3 paragraphs
+      // No updates should have been received (all filtered by instance ID)
+      expect(updateCount).toBe(0);
+
+      // Should still have exactly 3 paragraphs (no duplicates)
       const blocks = xmlFragment.toArray();
       expect(blocks.length).toBe(3);
 
       redisPubSub.unsubscribeFromDocument(docId);
     });
 
-    test('updates from different client IDs should be applied', async () => {
-      // This test verifies that legitimate updates from OTHER servers
-      // (different client IDs) are properly applied
+    test('updates from different server instances are applied', async () => {
+      // This test verifies that updates from OTHER servers (different
+      // instance IDs) are properly applied. We simulate this by manually
+      // publishing a message with a fake instance ID.
 
-      const docId = `test-doc-different-${Date.now()}`;
+      const docId = `test-doc-cross-${Date.now()}`;
+      const doc = new Y.Doc();
+      const xmlFragment = doc.get('default', Y.XmlFragment);
 
-      // Simulate two different server instances with different Y.Docs
-      const doc1 = new Y.Doc();
-      const doc2 = new Y.Doc();
-
-      const xmlFragment1 = doc1.get('default', Y.XmlFragment);
-      const xmlFragment2 = doc2.get('default', Y.XmlFragment);
-
-      let resolveDoc2Update;
-      const doc2UpdatePromise = new Promise((resolve) => {
-        resolveDoc2Update = resolve;
-        // Timeout fallback
-        setTimeout(resolve, 500);
+      let receivedUpdate = false;
+      let resolveUpdate;
+      const updatePromise = new Promise((resolve) => {
+        resolveUpdate = resolve;
+        setTimeout(() => resolve(), 500); // Timeout fallback
       });
 
       await redisPubSub.init();
 
-      // Doc2 subscribes to receive updates
+      // Subscribe to receive updates
       redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
-          Y.applyUpdate(doc2, new Uint8Array(buffer), ORIGIN_REDIS);
-          resolveDoc2Update();
+          // This should be called because the update has a different instance ID
+          Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
+          receivedUpdate = true;
+          resolveUpdate();
         },
       });
 
-      // Doc1 publishes updates
-      doc1.on('update', (update, origin) => {
-        if (origin === ORIGIN_REDIS) return;
-        redisPubSub.publishUpdate(docId, update);
-      });
-
-      // Make change on doc1
+      // Create an update from a "different server"
+      const otherDoc = new Y.Doc();
+      const otherFragment = otherDoc.get('default', Y.XmlFragment);
       const heading = new Y.XmlElement('heading');
       const text = new Y.XmlText();
-      text.insert(0, 'From Doc1');
+      text.insert(0, 'From Other Server');
       heading.insert(0, [text]);
-      xmlFragment1.insert(0, [heading]);
+      otherFragment.insert(0, [heading]);
 
-      // Wait for doc2 to receive the update
-      await doc2UpdatePromise;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Get the Yjs update
+      const update = Y.encodeStateAsUpdate(otherDoc);
 
-      // Doc2 should now have the heading
-      expect(xmlFragment2.toArray().length).toBe(1);
-      expect(xmlFragment2.get(0).nodeName).toBe('heading');
+      // Manually publish with a DIFFERENT instance ID (simulating another server)
+      // We need to access Redis directly to bypass our own instance ID encoding
+      const { createPubSubClient } = require('../redis');
+      const tempPublisher = createPubSubClient();
+
+      await new Promise((resolve) => {
+        if (tempPublisher.status === 'ready') resolve();
+        else tempPublisher.once('ready', resolve);
+      });
+
+      // Publish with a fake instance ID using the exported encodeMessage function
+      const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
+      tempPublisher.publish(`updates:${docId}`, redisPubSub.encodeMessage(update, OTHER_SERVER_ID));
+
+      // Wait for the update to be received
+      await updatePromise;
+
+      // Cleanup temp publisher
+      await tempPublisher.quit().catch(() => {});
+
+      // The update from "another server" should have been applied
+      expect(receivedUpdate).toBe(true);
+      expect(xmlFragment.toArray().length).toBe(1);
+      expect(xmlFragment.get(0).nodeName).toBe('heading');
 
       redisPubSub.unsubscribeFromDocument(docId);
     });
