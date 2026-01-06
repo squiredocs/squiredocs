@@ -176,12 +176,23 @@ function findByText(container, searchText, caseSensitive = false) {
 /**
  * Create a Y.XmlText from text segments with optional formatting
  *
- * IMPORTANT: This helper avoids the text reversal bug that can occur when using
- * sequential insert() calls with different attributes on unattached XmlText nodes.
- * See PITFALL 5 in the modify tool documentation.
+ * ⭐ PREFERRED METHOD for mixed formatting - eliminates two classes of errors:
+ *   1. No position counting needed — just list segments in order
+ *   2. Avoids text reversal bug on unattached XmlText nodes
  *
- * Uses a segment-based API that eliminates error-prone position counting.
- * Just specify your text segments in order - no need to calculate offsets!
+ * Compare:
+ *   ❌ Insert-then-format (error-prone):
+ *      text.insert(0, 'Visit Example Site for info');
+ *      text.format(6, 12, { link: { href: '...' } });  // Manual position counting!
+ *
+ *   ✅ createFormattedText (self-documenting):
+ *      createFormattedText([
+ *        'Visit ',
+ *        { text: 'Example Site', attrs: { link: { href: '...' } } },
+ *        ' for info'
+ *      ]);
+ *
+ * See PITFALL 5 in the modify tool documentation for more details.
  *
  * @param {Array<string|{text: string, attrs?: object}>} segments - Array of text segments
  *   Each segment is either:

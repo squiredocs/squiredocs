@@ -163,9 +163,11 @@ findByText(container, searchText, caseSensitive=false)
   - Returns Y.XmlElement[]
   - Example: const todos = findByText(doc, 'TODO');
 
-createFormattedText(segments)
-  - Create Y.XmlText from segments (avoids text reversal bug!)
-  - No position counting needed - just list segments in order
+createFormattedText(segments)  ⭐ PREFERRED FOR MIXED FORMATTING
+  - Create Y.XmlText from segments with formatting
+  - ✓ No position counting needed — just list segments in order
+  - ✓ Avoids text reversal bug on unattached XmlText
+  - ✓ Self-documenting: format is visible in segment structure
   - Each segment: string OR { text: string, attrs: object }
   - Returns Y.XmlText
   - Example:
@@ -415,43 +417,67 @@ await modify({
 });
 
 // Example 5: Create mixed formatting (bold + normal text)
-// ⚠️ IMPORTANT: Use insert-then-format to avoid text ordering issues!
-// See PITFALL 5 below for details on why sequential inserts can fail.
+// ⭐ PREFERRED: Use createFormattedText() — no position counting needed!
 await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
-      // RECOMMENDED: Insert all text first, then apply formatting
+      // PREFERRED: Use createFormattedText() for mixed formatting
+      // Just list segments in order - no manual position counting!
+
+      // Example 1: Bold intro
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        { text: 'Important:', attrs: { bold: true } },
+        ' This is a normal message'
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+
+      // Example 2: Multiple formats
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = createFormattedText([
+        'Some ',
+        { text: 'bold', attrs: { bold: true } },
+        ' text and some ',
+        { text: 'italic', attrs: { italic: true } },
+        ' text'
+      ]);
+      para2.insert(0, [text2]);
+      doc.insert(doc.length, [para2]);
+
+      // Example 3: Link in text
+      const para3 = new Y.XmlElement('paragraph');
+      const text3 = createFormattedText([
+        'Visit ',
+        { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+        ' for more info'
+      ]);
+      para3.insert(0, [text3]);
+      doc.insert(doc.length, [para3]);
+    }
+  \`
+});
+
+// Example 5b: Alternative using insert-then-format pattern
+// Use this when you need to format existing text or when segments aren't known upfront
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // ALTERNATIVE: Insert all text first, then apply formatting
+      // Requires manual position counting - more error-prone than createFormattedText()
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
 
       // Step 1: Insert all text as plain text
       text.insert(0, 'Important: This is a normal message');
 
-      // Step 2: Format specific ranges
+      // Step 2: Format specific ranges (manual position counting!)
       text.format(0, 10, { bold: true });  // Format 'Important:' as bold
 
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
-
-      // Another example with multiple formats
-      const para2 = new Y.XmlElement('paragraph');
-      const text2 = new Y.XmlText();
-      text2.insert(0, 'Some bold text and some italic text');
-      text2.format(5, 4, { bold: true });    // Format 'bold' as bold
-      text2.format(23, 6, { italic: true }); // Format 'italic' as italic
-
-      para2.insert(0, [text2]);
-      doc.insert(doc.length, [para2]);
-
-      // Example with link formatting
-      const para3 = new Y.XmlElement('paragraph');
-      const text3 = new Y.XmlText();
-      text3.insert(0, 'Visit Example Site for more info');
-      text3.format(6, 12, { link: { href: 'https://example.com' } });
-
-      para3.insert(0, [text3]);
-      doc.insert(doc.length, [para3]);
     }
   \`
 });
@@ -486,24 +512,27 @@ TIPS
      text.format(0, 5, { italic: null });   // Removes italic
      text.format(0, 5, { bold: null, italic: null });  // Removes both
 
-8. IMPORTANT: For mixed formatting, use insert-then-format pattern
+8. IMPORTANT: For mixed formatting, use createFormattedText() helper
 
-   ⚠️ Sequential inserts with different attributes can cause REVERSED text
-   order when the XmlText is not yet attached to the document (see PITFALL 5).
+   ⭐ PREFERRED - createFormattedText() (no position counting needed!):
+     const text = createFormattedText([
+       'Visit ',
+       { text: 'Example Site', attrs: { link: { href: '...' } } },
+       ' for more info'
+     ]);
+     // Result: "Visit Example Site for more info" - self-documenting, no counting!
+
+   ✅ ALSO CORRECT - insert-then-format (when you need manual control):
+     const text = new Y.XmlText();
+     text.insert(0, 'Visit Example Site for more info');
+     text.format(6, 12, { link: { href: '...' } });  // Manual position counting
+     // Result: Same as above, but requires calculating offsets
 
    ❌ WRONG - sequential inserts on unattached XmlText can reverse order:
      const text = new Y.XmlText();  // Not attached!
-     text.insert(0, 'Intro ', {});
+     text.insert(0, 'Visit ', {});
      text.insert(text.length, 'Link', { link: {...} });
-     // May result in: "LinkIntro " - REVERSED!
-
-   ✅ CORRECT - insert all text first, then format (RECOMMENDED):
-     const text = new Y.XmlText();
-     text.insert(0, 'Intro Link');
-     text.format(6, 4, { link: {...} });
-     // Result: "Intro Link" with 'Link' formatted - CORRECT!
-
-   This pattern is reliable regardless of whether XmlText is attached.
+     // May result in: "LinkVisit " - REVERSED! See PITFALL 5.
 
 ═══════════════════════════════════════════════════════════════════════════
 COMMON PITFALLS
@@ -721,19 +750,35 @@ THE TEXT WILL BE REVERSED!
     // Result: "Example SiteVisit our website at " - REVERSED!
   }
 
-✅ CORRECT - Insert all text first, then format (RECOMMENDED):
+⭐ PREFERRED - Use createFormattedText() helper (no position counting needed!):
+  export default function edit(doc) {
+    const para = new Y.XmlElement('paragraph');
+    // Just list segments in order - impossible to get wrong!
+    const text = createFormattedText([
+      'Visit our website at ',
+      { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } }
+    ]);
+
+    para.insert(0, [text]);
+    doc.insert(doc.length, [para]);
+    // Result: "Visit our website at Example Site" - CORRECT!
+    // Self-documenting, no offset calculations, no reversal bug
+  }
+
+✅ ALSO CORRECT - Insert all text first, then format:
   export default function edit(doc) {
     const para = new Y.XmlElement('paragraph');
     const text = new Y.XmlText();
 
     // Insert all text as plain text first
     text.insert(0, 'Visit our website at Example Site');
-    // Then apply formatting to specific ranges
+    // Then apply formatting to specific ranges (requires position counting)
     text.format(21, 12, { link: { href: 'https://example.com' } });
 
     para.insert(0, [text]);
     doc.insert(doc.length, [para]);
     // Result: "Visit our website at Example Site" - CORRECT!
+    // But requires manual offset calculation (error-prone)
   }
 
 ✅ ALSO CORRECT - Attach to document first, then insert:
@@ -754,12 +799,10 @@ THE TEXT WILL BE REVERSED!
 WHY THIS HAPPENS:
 Yjs uses a CRDT (Conflict-free Replicated Data Type) algorithm that assigns unique
 IDs to each operation. When an XmlText is not attached to a document, it doesn't
-have proper context for ordering operations with different attributes. The
-insert-then-format pattern avoids this because all text shares the same (empty)
-attributes during insertion, and format() operates on already-positioned content.
+have proper context for ordering operations with different attributes.
 
-RECOMMENDATION: Always use the insert-then-format pattern for mixed formatting.
-It's the most reliable approach and works regardless of attachment state.
+RECOMMENDATION: Use createFormattedText() for mixed formatting — it's the simplest
+and most reliable approach. No position counting, no reversal bugs, self-documenting.
 
 ⚠️ PITFALL 6: Modifying Without Understanding Document Structure
 
