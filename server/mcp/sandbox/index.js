@@ -15,6 +15,7 @@ const { wrapForTracking } = require('./yjs-interceptor');
 const { OperationTracker } = require('./operation-tracker');
 const { createCursorPositionFromPath } = require('../yjs/cursor-operations');
 const agentPresence = require('../agent-presence');
+const { MutationAggregator } = require('../mutation-aggregator');
 
 /**
  * Executes a TypeScript script in a sandboxed environment with operation tracking
@@ -31,10 +32,33 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
 
   let jsCode;
   let tracker;
+  let mutationAggregator;
   let executionError = null;
 
   // Flag to prevent recursive onOperation calls during cursor position creation
   let inOnOperation = false;
+
+  // Create mutation aggregator for time-based mutation buffering
+  mutationAggregator = new MutationAggregator({
+    sessionId: session.sessionId,
+    xmlFragment,
+    windowMs: 200, // Aggregate mutations within 200ms windows
+    onFlush: (spans) => {
+      // Clear any pending XPath highlights so mutations appear immediately
+      const highlightSession = agentPresence.getSession(session.sessionId);
+      if (highlightSession && highlightSession.highlightQueue) {
+        console.log(`[MutationAggregator] Clearing ${highlightSession.highlightQueue.positions.length - highlightSession.highlightQueue.currentIndex} pending XPath highlights`);
+        // Cancel the pending timeout to stop the old queue
+        if (highlightSession.highlightQueue.timeoutId) {
+          clearTimeout(highlightSession.highlightQueue.timeoutId);
+        }
+        highlightSession.highlightQueue = null;
+      }
+
+      // Queue aggregated expanding spans with random delays (80-240ms) to show progression
+      agentPresence.queueHighlightSequence(session.sessionId, spans, 80, 240);
+    },
+  });
 
   // Create onOperation callback for real-time selection highlighting
   const onOperation = (operation, target) => {
@@ -96,9 +120,14 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
         head = anchor;
       }
 
-      // Queue the highlight (adds to queue with random delay)
+      // Add mutation to aggregator (will be batched with other mutations in the same time window)
       if (anchor && head) {
-        agentPresence.queueHighlight(session.sessionId, anchor, head);
+        mutationAggregator.addMutation({
+          anchor,
+          head,
+          timestamp: operation.timestamp,
+          path,
+        });
       }
     } catch (err) {
       // Non-fatal: log but don't interrupt execution
@@ -138,7 +167,11 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       }
     }, session.undoManager);
 
-    // 6. If execution failed, undo the changes and return error
+    // 6. Force flush aggregated mutations after transaction completes
+    // This ensures immediate visual feedback without waiting for the time window
+    await mutationAggregator.flush();
+
+    // 7. If execution failed, undo the changes and return error
     if (executionError) {
       // Undo the changes that were made before the error
       if (session.undoManager.canUndo()) {
@@ -151,7 +184,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       };
     }
 
-    // 7. Get operation summary
+    // 8. Get operation summary
     const operationCount = tracker.getOperationCount();
     const summary = tracker.getOperationSummary();
 
@@ -167,6 +200,11 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       error: error.message,
       operationCount: tracker ? tracker.getOperationCount() : 0,
     };
+  } finally {
+    // Always destroy aggregator to prevent memory leaks
+    if (mutationAggregator) {
+      mutationAggregator.destroy();
+    }
   }
 }
 

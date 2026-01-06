@@ -25,6 +25,9 @@ const DEFAULT_PRESENCE_DURATION = 60; // 1 minute
 // Default temporary selection duration (in milliseconds)
 const DEFAULT_SELECTION_DURATION_MS = 10000; // 10 seconds
 
+// Maximum number of highlights to queue (keeps last N to prevent unbounded growth)
+const MAX_HIGHLIGHT_QUEUE_SIZE = 20;
+
 /**
  * Initialize the agent presence manager with a persistence provider
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
@@ -719,6 +722,7 @@ function updateSessionCursor(sessionId, anchor, head) {
 /**
  * Queue a single highlight to be shown with a random delay
  * Used for both mutations and XPath results - unified API
+ * Queue is limited to MAX_HIGHLIGHT_QUEUE_SIZE items; oldest unprocessed items are dropped
  * @param {string} sessionId - Session ID
  * @param {object} anchor - Anchor RelativePosition (JSON)
  * @param {object} head - Head RelativePosition (JSON)
@@ -747,6 +751,15 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
   // Add position to queue
   session.highlightQueue.positions.push({ anchor, head });
 
+  // Enforce queue size limit - keep only last MAX_HIGHLIGHT_QUEUE_SIZE items
+  // Remove from positions that haven't been processed yet
+  const unprocessedCount = session.highlightQueue.positions.length - session.highlightQueue.currentIndex;
+  if (unprocessedCount > MAX_HIGHLIGHT_QUEUE_SIZE) {
+    const toRemove = unprocessedCount - MAX_HIGHLIGHT_QUEUE_SIZE;
+    // Remove oldest unprocessed items
+    session.highlightQueue.positions.splice(session.highlightQueue.currentIndex, toRemove);
+  }
+
   // Start processing if not already running
   if (!session.highlightQueue.isProcessing) {
     processHighlightQueue(sessionId);
@@ -758,6 +771,7 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
 /**
  * Queue a sequence of highlights to show XPath query results
  * Each highlight is shown with a random delay before moving to the next.
+ * Queue is limited to MAX_HIGHLIGHT_QUEUE_SIZE items; oldest unprocessed items are dropped
  * @param {string} sessionId - Session ID
  * @param {Array<{anchor: object, head: object}>} positions - Array of cursor positions to highlight
  * @param {number} [minIntervalMs=80] - Minimum interval between highlights (ms)
@@ -765,13 +779,17 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
  * @returns {boolean} True if queue was started
  */
 function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxIntervalMs = 240) {
+  console.log(`[queueHighlightSequence] Called with ${positions?.length || 0} positions, delays: ${minIntervalMs}-${maxIntervalMs}ms`);
+
   const session = activeSessions.get(sessionId);
   if (!session || !positions || positions.length === 0) {
+    console.log(`[queueHighlightSequence] Early return - session exists: ${!!session}, positions length: ${positions?.length || 0}`);
     return false;
   }
 
   // Initialize queue if it doesn't exist
   if (!session.highlightQueue) {
+    console.log(`[queueHighlightSequence] Initializing new queue`);
     session.highlightQueue = {
       positions: [],
       currentIndex: 0,
@@ -780,13 +798,31 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
       timeoutId: null,
       isProcessing: false,
     };
+  } else {
+    // Update delay settings for existing queue (allows mutation highlights to override XPath delays)
+    console.log(`[queueHighlightSequence] Updating existing queue delays from ${session.highlightQueue.minIntervalMs}-${session.highlightQueue.maxIntervalMs}ms to ${minIntervalMs}-${maxIntervalMs}ms`);
+    session.highlightQueue.minIntervalMs = minIntervalMs;
+    session.highlightQueue.maxIntervalMs = maxIntervalMs;
   }
 
   // Add all positions to queue
   session.highlightQueue.positions.push(...positions);
+  console.log(`[queueHighlightSequence] Queue now has ${session.highlightQueue.positions.length} positions, currentIndex: ${session.highlightQueue.currentIndex}`);
+
+  // Enforce queue size limit - keep only last MAX_HIGHLIGHT_QUEUE_SIZE items
+  // Remove from positions that haven't been processed yet
+  const unprocessedCount = session.highlightQueue.positions.length - session.highlightQueue.currentIndex;
+  if (unprocessedCount > MAX_HIGHLIGHT_QUEUE_SIZE) {
+    const toRemove = unprocessedCount - MAX_HIGHLIGHT_QUEUE_SIZE;
+    // Remove oldest unprocessed items
+    session.highlightQueue.positions.splice(session.highlightQueue.currentIndex, toRemove);
+    console.log(`[queueHighlightSequence] Trimmed ${toRemove} oldest items from queue`);
+  }
 
   // Start processing if not already running
+  console.log(`[queueHighlightSequence] isProcessing: ${session.highlightQueue.isProcessing}`);
   if (!session.highlightQueue.isProcessing) {
+    console.log(`[queueHighlightSequence] Starting queue processing`);
     processHighlightQueue(sessionId);
   }
 
@@ -806,6 +842,9 @@ function processHighlightQueue(sessionId) {
 
   const queue = session.highlightQueue;
   queue.isProcessing = true;
+  const startTime = Date.now();
+
+  console.log(`[processHighlightQueue] Starting queue with ${queue.positions.length} positions, delays: ${queue.minIntervalMs}-${queue.maxIntervalMs}ms`);
 
   const showNextHighlight = () => {
     if (!session.highlightQueue || queue.currentIndex >= queue.positions.length) {
@@ -813,12 +852,16 @@ function processHighlightQueue(sessionId) {
       if (session.highlightQueue) {
         session.highlightQueue = null;
       }
+      console.log(`[processHighlightQueue] Queue completed in ${Date.now() - startTime}ms`);
       return;
     }
 
     const pos = queue.positions[queue.currentIndex];
     const isLastHighlight = queue.currentIndex === queue.positions.length - 1;
+    const highlightNum = queue.currentIndex + 1;
     queue.currentIndex++;
+
+    console.log(`[processHighlightQueue] Showing highlight ${highlightNum}/${queue.positions.length} at t+${Date.now() - startTime}ms (isLast: ${isLastHighlight})`);
 
     if (isLastHighlight) {
       // Final highlight - use setTemporarySelection for consistent timeout behavior
@@ -837,6 +880,7 @@ function processHighlightQueue(sessionId) {
 
       // Schedule next highlight with random delay
       const randomDelay = queue.minIntervalMs + Math.random() * (queue.maxIntervalMs - queue.minIntervalMs);
+      console.log(`[processHighlightQueue] Scheduling next highlight in ${randomDelay}ms`);
       queue.timeoutId = setTimeout(showNextHighlight, randomDelay);
     }
   };
