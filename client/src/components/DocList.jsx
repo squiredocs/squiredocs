@@ -4,6 +4,7 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './DocList.css';
+import './MenuCommon.css';
 
 /**
  * Generate UUID v4

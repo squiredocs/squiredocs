@@ -17,6 +17,7 @@ import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
 import './EditorView.css';
+import './MenuCommon.css';
 
 /**
  * Format timestamp for version history header
@@ -233,6 +234,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const menuRef = useRef(null);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
@@ -351,6 +353,31 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     e.stopPropagation();
     setOpenMenuId(null);
     callback();
+  };
+
+  const handleDelete = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (userRole !== 'owner') return;
+
+    const title = docTitle || 'Untitled document';
+    if (!window.confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      setOpenMenuId(null);
+      await api.delete(`/api/docs/${docGuid}`);
+      // Navigate back to document list after successful deletion
+      onNavigateHome();
+    } catch (err) {
+      console.error('Error deleting document:', err);
+      alert(err.response?.data?.error || 'Failed to delete document');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Fetch document info to determine user's role
@@ -778,6 +805,23 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
                       </svg>
                       <span>Source</span>
+                    </button>
+                    <button
+                      className={`tools-menu-item ${userRole !== 'owner' ? 'disabled' : 'danger'}`}
+                      onClick={handleDelete}
+                      disabled={userRole !== 'owner' || deleting}
+                      title={userRole !== 'owner' ? 'Only the owner can delete this document' : 'Delete document'}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"/>
+                      </svg>
+                      <span>{deleting ? 'Deleting...' : 'Delete'}</span>
+                      {userRole !== 'owner' && (
+                        <span className="menu-hint-wrapper">
+                          <span className="menu-hint-icon" tabIndex="0">?</span>
+                          <span className="menu-hint-tooltip">Owner only</span>
+                        </span>
+                      )}
                     </button>
                   </div>
                 )}
