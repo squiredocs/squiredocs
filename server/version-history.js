@@ -424,6 +424,12 @@ async function getVersionContent(persistence, docGuid, versionId) {
     if (isNaN(clockEnd)) {
       throw new Error('Invalid version ID');
     }
+  } else if (versionId.startsWith('clock-')) {
+    // Single clock update format: clock-{clock}
+    clockEnd = parseInt(versionId.replace('clock-', ''), 10);
+    if (isNaN(clockEnd)) {
+      throw new Error('Invalid version ID');
+    }
   } else {
     throw new Error('Invalid version ID format');
   }

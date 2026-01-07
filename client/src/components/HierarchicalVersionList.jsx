@@ -81,9 +81,12 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) 
 }
 
 /**
- * Version menu dropdown component
+ * Item menu dropdown component - shared between versions and clock updates
  */
-function VersionMenu({ version, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
+function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
+  const isVersion = !item.isClock;
+  const canRestore = !item.isCurrent && userRole !== 'viewer';
+
   return (
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
       <button
@@ -92,7 +95,7 @@ function VersionMenu({ version, menuOpen, menuRef, onMenuOpen, onNameVersion, on
           e.stopPropagation();
           onMenuOpen();
         }}
-        title="Version options"
+        title="Options"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
           <circle cx="12" cy="5" r="2"/>
@@ -102,15 +105,17 @@ function VersionMenu({ version, menuOpen, menuRef, onMenuOpen, onNameVersion, on
       </button>
       {menuOpen && (
         <div className="hierarchy-menu-dropdown">
-          <button onClick={onNameVersion}>
-            {version.isNamed ? 'Rename' : 'Name this version'}
-          </button>
-          {!version.isCurrent && userRole !== 'viewer' && (
+          {isVersion && (
+            <button onClick={onNameVersion}>
+              {item.isNamed ? 'Rename' : 'Name this version'}
+            </button>
+          )}
+          {canRestore && (
             <button onClick={onRestoreVersion}>
               Restore this version
             </button>
           )}
-          {version.isNamed && (
+          {isVersion && item.isNamed && (
             <button onClick={onDeleteVersion}>
               Remove name
             </button>
@@ -122,28 +127,18 @@ function VersionMenu({ version, menuOpen, menuRef, onMenuOpen, onNameVersion, on
 }
 
 /**
- * Update item component (Level 2 - individual clock ticks)
+ * Convert a clock update to a unified item format
  */
-function UpdateItem({ update, isSelected, onClick }) {
-  const authors = update.author ? [update.author] : [];
-
-  return (
-    <div
-      className={`hierarchy-item hierarchy-update ${isSelected ? 'selected' : ''}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-    >
-      <div className="hierarchy-item-content">
-        <ItemContent
-          timestamp={update.timestamp}
-          subtitle={`Clock ${update.clock}`}
-          authors={authors}
-        />
-      </div>
-    </div>
-  );
+function clockToItem(update) {
+  return {
+    id: `clock-${update.clock}`,
+    clock: update.clock,
+    timestamp: update.timestamp,
+    authors: update.author ? [update.author] : [],
+    isClock: true,
+    isCurrent: false,
+    subtitle: `Clock ${update.clock}`,
+  };
 }
 
 /**
@@ -187,50 +182,56 @@ function CombinedUpdatesItem({ updates, isSelected, onClick }) {
 }
 
 /**
- * Version item component (Level 1 - 5-minute groupings)
+ * Unified history item component - renders both versions and clock updates
  */
-function VersionItem({
-  version,
+function HistoryItem({
+  item,
   isSelected,
-  isExpanded,
-  updates,
-  isLoadingUpdates,
-  onToggle,
   onClick,
-  onUpdateClick,
-  selection,
-  onMenuOpen,
+  // Expandable props (versions only)
+  isExpandable = false,
+  isExpanded = false,
+  onToggle,
+  children,
+  // Menu props
   menuOpen,
+  menuRef,
+  onMenuOpen,
   onNameVersion,
   onRestoreVersion,
   onDeleteVersion,
   userRole,
-  menuRef,
 }) {
+  const isVersion = !item.isClock;
+  const itemClass = isVersion ? 'hierarchy-version' : 'hierarchy-update';
+
   return (
-    <div className={`hierarchy-item hierarchy-version ${isSelected ? 'selected' : ''}`}>
-      <div className="hierarchy-version-header" onClick={onClick}>
-        <button
-          className="hierarchy-expand-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-        >
-          <ChevronIcon expanded={isExpanded} />
-        </button>
+    <div className={`hierarchy-item ${itemClass} ${isSelected ? 'selected' : ''}`}>
+      <div className={isVersion ? 'hierarchy-version-header' : 'hierarchy-update-header'} onClick={onClick}>
+        {isExpandable && (
+          <button
+            className="hierarchy-expand-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle?.();
+            }}
+            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          >
+            <ChevronIcon expanded={isExpanded} />
+          </button>
+        )}
         <div className="hierarchy-item-content">
           <ItemContent
-            name={version.name}
-            timestamp={version.timestamp}
-            badge={version.isCurrent ? 'Current' : null}
-            authors={version.authors}
+            name={item.name}
+            timestamp={item.timestamp}
+            subtitle={item.subtitle}
+            badge={item.isCurrent ? 'Current' : null}
+            authors={item.authors}
             maxAuthors={3}
           />
         </div>
-        <VersionMenu
-          version={version}
+        <ItemMenu
+          item={item}
           menuOpen={menuOpen}
           menuRef={menuRef}
           onMenuOpen={onMenuOpen}
@@ -240,36 +241,7 @@ function VersionItem({
           userRole={userRole}
         />
       </div>
-
-      {isExpanded && (
-        <div className="hierarchy-updates-list">
-          {isLoadingUpdates ? (
-            <div className="hierarchy-loading">Loading updates...</div>
-          ) : updates && updates.length > 0 ? (
-            <>
-              {/* Show most recent updates individually */}
-              {updates.slice(0, MAX_VISIBLE_UPDATES).map((update) => (
-                <UpdateItem
-                  key={update.clock}
-                  update={update}
-                  isSelected={selection?.isClock && selection?.clock === update.clock}
-                  onClick={() => onUpdateClick(update)}
-                />
-              ))}
-              {/* Combine older updates into a single item */}
-              {updates.length > MAX_VISIBLE_UPDATES && (
-                <CombinedUpdatesItem
-                  updates={updates.slice(MAX_VISIBLE_UPDATES)}
-                  isSelected={selection?.isClock && updates.slice(MAX_VISIBLE_UPDATES).some(u => u.clock === selection?.clock)}
-                  onClick={() => onUpdateClick(updates[MAX_VISIBLE_UPDATES])}
-                />
-              )}
-            </>
-          ) : (
-            <div className="hierarchy-empty">No individual updates</div>
-          )}
-        </div>
-      )}
+      {children}
     </div>
   );
 }
@@ -360,9 +332,9 @@ function HierarchicalVersionList({
     setMenuOpen(null);
   };
 
-  const handleRestoreVersion = async (version) => {
+  const handleRestoreItem = async (item) => {
     if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
-      const success = await onRestoreVersion(version.id);
+      const success = await onRestoreVersion(item.id);
       if (success) {
         window.location.reload();
       }
@@ -399,27 +371,66 @@ function HierarchicalVersionList({
 
           {expandedMonths[month.label] && (
             <div className="hierarchy-versions-list">
-              {month.versions.map((version) => (
-                <VersionItem
-                  key={version.id}
-                  version={version}
-                  isSelected={selection?.id === version.id && !selection?.isClock}
-                  isExpanded={expandedVersions[version.id]}
-                  updates={versionUpdates[version.id]}
-                  isLoadingUpdates={loadingVersionUpdates[version.id]}
-                  onToggle={() => toggleVersion(version)}
-                  onClick={() => onSelectVersion(version)}
-                  onUpdateClick={onSelectUpdate}
-                  selection={selection}
-                  menuOpen={menuOpen === version.id}
-                  onMenuOpen={() => setMenuOpen(version.id)}
-                  onNameVersion={() => handleNameVersion(version)}
-                  onRestoreVersion={() => handleRestoreVersion(version)}
-                  onDeleteVersion={() => handleDeleteVersion(version)}
-                  userRole={userRole}
-                  menuRef={menuRef}
-                />
-              ))}
+              {month.versions.map((version) => {
+                const updates = versionUpdates[version.id];
+                const isExpanded = expandedVersions[version.id];
+
+                return (
+                  <HistoryItem
+                    key={version.id}
+                    item={version}
+                    isSelected={selection?.id === version.id && !selection?.isClock}
+                    onClick={() => onSelectVersion(version)}
+                    isExpandable={true}
+                    isExpanded={isExpanded}
+                    onToggle={() => toggleVersion(version)}
+                    menuOpen={menuOpen === version.id}
+                    menuRef={menuRef}
+                    onMenuOpen={() => setMenuOpen(version.id)}
+                    onNameVersion={() => handleNameVersion(version)}
+                    onRestoreVersion={() => handleRestoreItem(version)}
+                    onDeleteVersion={() => handleDeleteVersion(version)}
+                    userRole={userRole}
+                  >
+                    {isExpanded && (
+                      <div className="hierarchy-updates-list">
+                        {loadingVersionUpdates[version.id] ? (
+                          <div className="hierarchy-loading">Loading updates...</div>
+                        ) : updates && updates.length > 0 ? (
+                          <>
+                            {updates.slice(0, MAX_VISIBLE_UPDATES).map((update) => {
+                              const clockItem = clockToItem(update);
+                              const menuKey = `clock-${update.clock}`;
+                              return (
+                                <HistoryItem
+                                  key={update.clock}
+                                  item={clockItem}
+                                  isSelected={selection?.isClock && selection?.clock === update.clock}
+                                  onClick={() => onSelectUpdate(update)}
+                                  menuOpen={menuOpen === menuKey}
+                                  menuRef={menuRef}
+                                  onMenuOpen={() => setMenuOpen(menuKey)}
+                                  onRestoreVersion={() => handleRestoreItem(clockItem)}
+                                  userRole={userRole}
+                                />
+                              );
+                            })}
+                            {updates.length > MAX_VISIBLE_UPDATES && (
+                              <CombinedUpdatesItem
+                                updates={updates.slice(MAX_VISIBLE_UPDATES)}
+                                isSelected={selection?.isClock && updates.slice(MAX_VISIBLE_UPDATES).some(u => u.clock === selection?.clock)}
+                                onClick={() => onSelectUpdate(updates[MAX_VISIBLE_UPDATES])}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <div className="hierarchy-empty">No individual updates</div>
+                        )}
+                      </div>
+                    )}
+                  </HistoryItem>
+                );
+              })}
             </div>
           )}
         </div>

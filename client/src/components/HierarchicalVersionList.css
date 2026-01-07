@@ -228,8 +228,13 @@
 }
 
 .hierarchy-update {
-  padding: 8px 12px;
   cursor: pointer;
+}
+
+.hierarchy-update-header {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 12px;
 }
 
 /* Combined updates item */

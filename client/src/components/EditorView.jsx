@@ -485,7 +485,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </div>
             </div>
             <div className="app-header-right">
-              {selection && !selection.isCurrent && !selection.isClock && userRole !== 'viewer' && (
+              {selection && !selection.isCurrent && userRole !== 'viewer' && (
                 <button
                   className="restore-version-btn"
                   onClick={async () => {
