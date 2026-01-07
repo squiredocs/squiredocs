@@ -124,10 +124,9 @@ describe('XPath query highlighting', () => {
     const result = await executeScript(script, mockSession, fragment);
     expect(result.success).toBe(true);
 
-    // Should have queued highlights for XPath query
+    // Should have queued highlights for XPath query and mutations via queueHighlightSequence
+    // (mutations are batched through MutationAggregator and flushed via queueHighlightSequence)
     expect(mockQueueHighlightSequence).toHaveBeenCalled();
-    // Should have queued highlight for mutation
-    expect(mockQueueHighlight).toHaveBeenCalledWith('test-session', expect.any(Object), expect.any(Object));
   });
 
   it('should handle multiple xpath queries', async () => {

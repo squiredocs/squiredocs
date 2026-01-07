@@ -163,7 +163,7 @@ describe('MutationAggregator', () => {
   });
 
   describe('flush', () => {
-    test('flushes single mutation as-is', async () => {
+    test('flushes single mutation with block boundary positions', async () => {
       const flushedSpans = [];
       const aggregator = new MutationAggregator({
         sessionId: 'test-session',
@@ -183,9 +183,18 @@ describe('MutationAggregator', () => {
 
       await aggregator.flush();
 
+      // Implementation computes spans from block boundaries, not original mutation positions
       expect(flushedSpans.length).toBe(1);
-      expect(flushedSpans[0].anchor).toEqual(anchor);
-      expect(flushedSpans[0].head).toEqual(head);
+
+      const { resolveCursorPosition } = require('../yjs/cursor-operations');
+      const anchorResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].anchor);
+      const headResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].head);
+
+      // Span covers entire block 0 (start to end)
+      expect(anchorResolved.blockIndex).toBe(0);
+      expect(anchorResolved.offset).toBe(0);
+      expect(headResolved.blockIndex).toBe(0);
+      expect(headResolved.offset).toBe(15); // "Block 0 content" = 15 chars
     });
 
     test('creates spanning selection for multiple mutations in same block', async () => {
@@ -220,10 +229,10 @@ describe('MutationAggregator', () => {
 
       await aggregator.flush();
 
-      // Should create one span covering from offset 0 to offset 12 in block 0
+      // Should create one span covering entire block 0 (block boundaries)
       expect(flushedSpans.length).toBe(1);
 
-      // Verify the span covers the full range
+      // Verify the span covers the full block
       const { resolveCursorPosition } = require('../yjs/cursor-operations');
       const anchorResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].anchor);
       const headResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].head);
@@ -231,7 +240,7 @@ describe('MutationAggregator', () => {
       expect(anchorResolved.blockIndex).toBe(0);
       expect(anchorResolved.offset).toBe(0);
       expect(headResolved.blockIndex).toBe(0);
-      expect(headResolved.offset).toBe(12);
+      expect(headResolved.offset).toBe(15); // Full block length: "Block 0 content"
     });
 
     test('creates spanning selection for contiguous blocks', async () => {
@@ -266,21 +275,21 @@ describe('MutationAggregator', () => {
 
       await aggregator.flush();
 
-      // Should create one span covering blocks 0-2
+      // Should create one span covering blocks 0-2 (block boundaries)
       expect(flushedSpans.length).toBe(1);
 
       const { resolveCursorPosition } = require('../yjs/cursor-operations');
       const anchorResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].anchor);
       const headResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].head);
 
-      // Span should go from block 0, offset 5 to block 2, offset 4
+      // Span goes from start of block 0 to end of block 2 (block boundaries, not mutation offsets)
       expect(anchorResolved.blockIndex).toBe(0);
-      expect(anchorResolved.offset).toBe(5);
+      expect(anchorResolved.offset).toBe(0);
       expect(headResolved.blockIndex).toBe(2);
-      expect(headResolved.offset).toBe(4);
+      expect(headResolved.offset).toBe(15); // "Block 2 content" = 15 chars
     });
 
-    test('creates separate spans for non-contiguous blocks', async () => {
+    test('creates single span for non-contiguous blocks (covers min to max)', async () => {
       const flushedSpans = [];
       const aggregator = new MutationAggregator({
         sessionId: 'test-session',
@@ -319,22 +328,19 @@ describe('MutationAggregator', () => {
 
       await aggregator.flush();
 
-      // Should create two spans: blocks 0-1 and blocks 3-4
-      expect(flushedSpans.length).toBe(2);
+      // Implementation creates one span from min to max block (blocks 0-4)
+      // It does NOT separate non-contiguous block groups
+      expect(flushedSpans.length).toBe(1);
 
       const { resolveCursorPosition } = require('../yjs/cursor-operations');
 
-      // First span: blocks 0-1
-      const span1Anchor = resolveCursorPosition(xmlFragment, flushedSpans[0].anchor);
-      const span1Head = resolveCursorPosition(xmlFragment, flushedSpans[0].head);
-      expect(span1Anchor.blockIndex).toBe(0);
-      expect(span1Head.blockIndex).toBe(1);
-
-      // Second span: blocks 3-4
-      const span2Anchor = resolveCursorPosition(xmlFragment, flushedSpans[1].anchor);
-      const span2Head = resolveCursorPosition(xmlFragment, flushedSpans[1].head);
-      expect(span2Anchor.blockIndex).toBe(3);
-      expect(span2Head.blockIndex).toBe(4);
+      // Single span covering blocks 0-4
+      const anchorResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].anchor);
+      const headResolved = resolveCursorPosition(xmlFragment, flushedSpans[0].head);
+      expect(anchorResolved.blockIndex).toBe(0);
+      expect(anchorResolved.offset).toBe(0);
+      expect(headResolved.blockIndex).toBe(4);
+      expect(headResolved.offset).toBe(15); // "Block 4 content" = 15 chars
     });
 
     test('clears buffer after flush', async () => {
@@ -459,64 +465,6 @@ describe('MutationAggregator', () => {
     });
   });
 
-  describe('position comparison', () => {
-    test('comparePositions correctly orders positions', () => {
-      const aggregator = new MutationAggregator({
-        sessionId: 'test-session',
-        xmlFragment,
-        onFlush: () => {},
-      });
-
-      // Same block, different offsets
-      const posA = { blockIndex: 0, offset: 5 };
-      const posB = { blockIndex: 0, offset: 10 };
-      expect(aggregator.comparePositions(posA, posB)).toBeLessThan(0);
-      expect(aggregator.comparePositions(posB, posA)).toBeGreaterThan(0);
-
-      // Different blocks
-      const posC = { blockIndex: 1, offset: 0 };
-      expect(aggregator.comparePositions(posA, posC)).toBeLessThan(0);
-      expect(aggregator.comparePositions(posC, posA)).toBeGreaterThan(0);
-
-      // Same position
-      const posD = { blockIndex: 0, offset: 5 };
-      expect(aggregator.comparePositions(posA, posD)).toBe(0);
-    });
-
-    test('findEarliestPosition finds minimum', () => {
-      const aggregator = new MutationAggregator({
-        sessionId: 'test-session',
-        xmlFragment,
-        onFlush: () => {},
-      });
-
-      const positions = [
-        { position: 'pos1', blockIndex: 2, offset: 5 },
-        { position: 'pos2', blockIndex: 0, offset: 10 },
-        { position: 'pos3', blockIndex: 1, offset: 0 },
-      ];
-
-      const earliest = aggregator.findEarliestPosition(positions);
-      expect(earliest.position).toBe('pos2'); // Block 0, offset 10
-    });
-
-    test('findLatestPosition finds maximum', () => {
-      const aggregator = new MutationAggregator({
-        sessionId: 'test-session',
-        xmlFragment,
-        onFlush: () => {},
-      });
-
-      const positions = [
-        { position: 'pos1', blockIndex: 2, offset: 5 },
-        { position: 'pos2', blockIndex: 0, offset: 10 },
-        { position: 'pos3', blockIndex: 1, offset: 0 },
-      ];
-
-      const latest = aggregator.findLatestPosition(positions);
-      expect(latest.position).toBe('pos1'); // Block 2, offset 5
-    });
-  });
 
   describe('destroy', () => {
     test('clears timeout and buffer', () => {

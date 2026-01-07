@@ -581,6 +581,9 @@ export default function edit(doc) {
       sessionId = result.sessionId;
       console.log('✓ Step 1: open_document succeeded');
 
+      // Wait for WebSocket sync to complete (document content is loaded asynchronously)
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       // Step 2: Execute script to add text and create ordered list
       console.log('\n=== Step 2: Execute script to add text and ordered list ===');
       const executeScript = toolRegistry.getTool('modify');
@@ -589,8 +592,10 @@ export default function edit(doc) {
       const script = `
 export default function edit(doc) {
   // Get the first paragraph (containing "Come join me in the playground!")
-  const firstParagraph = doc.get(0);
-  const firstText = firstParagraph.get(0);
+  // Use toArray() to access children - this is the standard Yjs API for XmlFragment
+  const blocks = doc.toArray();
+  const firstParagraph = blocks[0];
+  const firstText = firstParagraph.toArray()[0];
 
   // Add text to the end: "\\n\\nHere are some fun activities:"
   const currentLength = firstText.length;
