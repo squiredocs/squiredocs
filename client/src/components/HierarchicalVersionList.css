@@ -42,20 +42,36 @@
   color: #202124;
 }
 
+/* Shared item styles (versions and updates) */
+.hierarchy-item {
+  margin-bottom: 2px;
+  border-left: 2px solid transparent;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.hierarchy-item.selected {
+  border-left-color: #1a73e8;
+  background: #e8f0fe;
+}
+
+.hierarchy-item:not(.selected):hover {
+  background: #f8f9fa;
+}
+
+.hierarchy-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hierarchy-item-subtitle {
+  font-size: 11px;
+  color: #80868b;
+  margin-top: 2px;
+}
+
 /* Version level (5-minute groupings) */
 .hierarchy-versions-list {
   padding-left: 16px;
-}
-
-.hierarchy-version {
-  margin-bottom: 2px;
-  border-left: 2px solid transparent;
-  transition: border-color 0.15s;
-}
-
-.hierarchy-version.selected {
-  border-left-color: #1a73e8;
-  background: #e8f0fe;
 }
 
 .hierarchy-version-header {
@@ -63,11 +79,6 @@
   align-items: flex-start;
   padding: 8px 12px;
   cursor: pointer;
-  transition: background-color 0.15s;
-}
-
-.hierarchy-version:not(.selected) .hierarchy-version-header:hover {
-  background: #f8f9fa;
 }
 
 .hierarchy-expand-btn {
@@ -85,11 +96,6 @@
 
 .hierarchy-expand-btn:hover {
   background: #e8eaed;
-}
-
-.hierarchy-version-content {
-  flex: 1;
-  min-width: 0;
 }
 
 .hierarchy-version-name {
@@ -216,7 +222,7 @@
 
 /* Update level (individual clock ticks) */
 .hierarchy-updates-list {
-  padding: 4px 0 8px 32px;
+  padding: 4px 0 8px 24px;
   border-left: 1px solid #e0e0e0;
   margin-left: 20px;
 }
@@ -224,37 +230,6 @@
 .hierarchy-update {
   padding: 8px 12px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.15s;
-  margin-bottom: 2px;
-}
-
-.hierarchy-update:hover {
-  background: #f8f9fa;
-}
-
-.hierarchy-update.selected {
-  background: #e8f0fe;
-}
-
-.hierarchy-update-clock {
-  font-size: 12px;
-  font-weight: 500;
-  color: #202124;
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-}
-
-.hierarchy-update-time {
-  font-size: 11px;
-  color: #80868b;
-  margin-top: 2px;
-}
-
-.hierarchy-update-author {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
 }
 
 /* Loading and empty states */

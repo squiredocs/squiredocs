@@ -29,6 +29,39 @@ function generateColorFromId(id) {
 }
 
 /**
+ * Create a consistent author key for color generation
+ * Agents get a distinct key from their user to have different colors
+ * @param {string} userId - User ID
+ * @param {string|null} agentName - Agent name if this is an agent edit
+ * @returns {string} Author key for color generation
+ */
+function getAuthorKey(userId, agentName) {
+  return agentName ? `${userId}-agent-${agentName}` : userId;
+}
+
+/**
+ * Create an author object from update data
+ * Shared helper to ensure consistent author representation
+ * @param {Object} update - Update object with userId, userName, agentName, etc.
+ * @returns {Object|null} Author object or null if no userId
+ */
+function createAuthor(update) {
+  if (!update.userId) return null;
+
+  const authorKey = getAuthorKey(update.userId, update.agentName);
+  const displayName = update.agentName || update.userName || 'Unknown';
+
+  return {
+    id: update.userId,
+    name: displayName,
+    email: update.userEmail,
+    picture: update.userPicture,
+    color: generateColorFromId(authorKey),
+    isAgent: !!update.agentName,
+  };
+}
+
+/**
  * Group updates into logical versions based on time gaps
  * @param {Array} updates - Array of updates with clock, createdAt, and user info
  * @param {number} inactivityThreshold - Time gap to create new version (ms)
@@ -63,19 +96,11 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
       currentVersion.lastUpdateTime = updateTime;
     }
 
-    // Track unique authors
-    if (update.userId && !currentVersion.authors.has(update.userId)) {
-      // Use agent name if available, otherwise use user name
-      const displayName = update.agentName || update.userName || 'Unknown';
+    // Track unique authors using composite key to distinguish agent edits
+    const authorKey = getAuthorKey(update.userId, update.agentName);
 
-      currentVersion.authors.set(update.userId, {
-        id: update.userId,
-        name: displayName,
-        email: update.userEmail,
-        picture: update.userPicture,
-        color: generateColorFromId(update.userId),
-        isAgent: !!update.agentName,
-      });
+    if (update.userId && !currentVersion.authors.has(authorKey)) {
+      currentVersion.authors.set(authorKey, createAuthor(update));
     }
   }
 
@@ -584,13 +609,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     clock: update.clock,
     timestamp: update.createdAt,
     formattedTimestamp: formatTimestamp(update.createdAt),
-    author: update.userId ? {
-      id: update.userId,
-      name: update.userName || 'Unknown',
-      email: update.userEmail,
-      picture: update.userPicture,
-      color: generateColorFromId(update.userId),
-    } : null,
+    author: createAuthor(update),
   })).reverse();
 }
 
@@ -614,13 +633,7 @@ async function getContentAtClock(persistence, docGuid, clock) {
     clock,
     timestamp: update?.createdAt || null,
     formattedTimestamp: update ? formatTimestamp(update.createdAt) : null,
-    author: update?.userId ? {
-      id: update.userId,
-      name: update.userName || 'Unknown',
-      email: update.userEmail,
-      picture: update.userPicture,
-      color: generateColorFromId(update.userId),
-    } : null,
+    author: update ? createAuthor(update) : null,
   };
 }
 

@@ -3,37 +3,7 @@ import { generateColorFromId } from '../utils/colorUtils';
 import './HierarchicalVersionList.css';
 
 /**
- * Format timestamp in browser's local timezone
- * @param {string|Date} timestamp - ISO timestamp string or Date
- * @returns {string} Formatted timestamp (e.g., "4:44 PM")
- */
-function formatTime(timestamp) {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-}
-
-/**
- * Format timestamp with date and time
- * @param {string|Date} timestamp - ISO timestamp string or Date
- * @returns {string} Formatted timestamp (e.g., "December 10, 4:44 PM")
- */
-function formatTimestamp(timestamp) {
-  const date = new Date(timestamp);
-  return date.toLocaleString(undefined, {
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-}
-
-/**
- * Format date and time for version display
+ * Format date and time for version/update display
  * @param {string|Date} timestamp - ISO timestamp string or Date
  * @returns {string} Formatted date/time (e.g., "Jan 5, 4:30 PM")
  */
@@ -66,28 +36,109 @@ function ChevronIcon({ expanded }) {
 }
 
 /**
+ * Author list component - shared between versions and updates
+ */
+function AuthorList({ authors, maxDisplay = null }) {
+  if (!authors || authors.length === 0) return null;
+
+  const displayAuthors = maxDisplay ? authors.slice(0, maxDisplay) : authors;
+  const remaining = maxDisplay ? authors.length - maxDisplay : 0;
+
+  return (
+    <div className="hierarchy-version-authors">
+      {displayAuthors.map((author, i) => (
+        <div key={author.id || i} className="hierarchy-author" title={author.name}>
+          <span
+            className="hierarchy-author-dot"
+            style={{ backgroundColor: author.color || generateColorFromId(author.id) }}
+          />
+          <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
+        </div>
+      ))}
+      {remaining > 0 && (
+        <span className="hierarchy-author-more">+{remaining} more</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Shared content display for both versions and updates
+ */
+function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) {
+  return (
+    <>
+      {name && <div className="hierarchy-version-name">{name}</div>}
+      <div className="hierarchy-version-time">{formatDateTime(timestamp)}</div>
+      {subtitle && <div className="hierarchy-item-subtitle">{subtitle}</div>}
+      {badge && <div className="hierarchy-version-badge">{badge}</div>}
+      <AuthorList authors={authors} maxDisplay={maxAuthors} />
+    </>
+  );
+}
+
+/**
+ * Version menu dropdown component
+ */
+function VersionMenu({ version, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
+  return (
+    <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
+      <button
+        className="hierarchy-menu-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          onMenuOpen();
+        }}
+        title="Version options"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+          <circle cx="12" cy="5" r="2"/>
+          <circle cx="12" cy="12" r="2"/>
+          <circle cx="12" cy="19" r="2"/>
+        </svg>
+      </button>
+      {menuOpen && (
+        <div className="hierarchy-menu-dropdown">
+          <button onClick={onNameVersion}>
+            {version.isNamed ? 'Rename' : 'Name this version'}
+          </button>
+          {!version.isCurrent && userRole !== 'viewer' && (
+            <button onClick={onRestoreVersion}>
+              Restore this version
+            </button>
+          )}
+          {version.isNamed && (
+            <button onClick={onDeleteVersion}>
+              Remove name
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Update item component (Level 2 - individual clock ticks)
  */
 function UpdateItem({ update, isSelected, onClick }) {
+  const authors = update.author ? [update.author] : [];
+
   return (
     <div
-      className={`hierarchy-update ${isSelected ? 'selected' : ''}`}
+      className={`hierarchy-item hierarchy-update ${isSelected ? 'selected' : ''}`}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
     >
-      <div className="hierarchy-update-clock">Clock {update.clock}</div>
-      <div className="hierarchy-update-time">{formatTime(update.timestamp)}</div>
-      {update.author && (
-        <div className="hierarchy-update-author">
-          <span
-            className="hierarchy-author-dot"
-            style={{ backgroundColor: update.author.color || generateColorFromId(update.author.id) }}
-          />
-          <span className="hierarchy-author-name">{update.author.name}</span>
-        </div>
-      )}
+      <div className="hierarchy-item-content">
+        <ItemContent
+          timestamp={update.timestamp}
+          subtitle={`Clock ${update.clock}`}
+          authors={authors}
+        />
+      </div>
     </div>
   );
 }
@@ -104,7 +155,7 @@ function VersionItem({
   onToggle,
   onClick,
   onUpdateClick,
-  selection, // Unified: version or clock update (with isClock: true)
+  selection,
   onMenuOpen,
   menuOpen,
   onNameVersion,
@@ -113,10 +164,8 @@ function VersionItem({
   userRole,
   menuRef,
 }) {
-  const editCount = version.clockEnd - version.clockStart + 1;
-
   return (
-    <div className={`hierarchy-version ${isSelected ? 'selected' : ''}`}>
+    <div className={`hierarchy-item hierarchy-version ${isSelected ? 'selected' : ''}`}>
       <div className="hierarchy-version-header">
         <button
           className="hierarchy-expand-btn"
@@ -128,61 +177,25 @@ function VersionItem({
         >
           <ChevronIcon expanded={isExpanded} />
         </button>
-        <div className="hierarchy-version-content" onClick={onClick}>
-          {version.name && (
-            <div className="hierarchy-version-name">{version.name}</div>
-          )}
-          <div className="hierarchy-version-time">
-            {formatDateTime(version.timestamp)}
-          </div>
-          {version.isCurrent && (
-            <div className="hierarchy-version-badge">Current</div>
-          )}
-          <div className="hierarchy-version-authors">
-            {version.authors?.map((author, i) => (
-              <div key={author.id || i} className="hierarchy-author" title={author.name}>
-                <span
-                  className="hierarchy-author-dot"
-                  style={{ backgroundColor: author.color || generateColorFromId(author.id) }}
-                />
-                <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
-              </div>
-            ))}
-          </div>
+        <div className="hierarchy-item-content" onClick={onClick}>
+          <ItemContent
+            name={version.name}
+            timestamp={version.timestamp}
+            badge={version.isCurrent ? 'Current' : null}
+            authors={version.authors}
+            maxAuthors={3}
+          />
         </div>
-        <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
-          <button
-            className="hierarchy-menu-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMenuOpen();
-            }}
-            title="Version options"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-              <circle cx="12" cy="5" r="2"/>
-              <circle cx="12" cy="12" r="2"/>
-              <circle cx="12" cy="19" r="2"/>
-            </svg>
-          </button>
-          {menuOpen && (
-            <div className="hierarchy-menu-dropdown">
-              <button onClick={onNameVersion}>
-                {version.isNamed ? 'Rename' : 'Name this version'}
-              </button>
-              {!version.isCurrent && userRole !== 'viewer' && (
-                <button onClick={onRestoreVersion}>
-                  Restore this version
-                </button>
-              )}
-              {version.isNamed && (
-                <button onClick={onDeleteVersion}>
-                  Remove name
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <VersionMenu
+          version={version}
+          menuOpen={menuOpen}
+          menuRef={menuRef}
+          onMenuOpen={onMenuOpen}
+          onNameVersion={onNameVersion}
+          onRestoreVersion={onRestoreVersion}
+          onDeleteVersion={onDeleteVersion}
+          userRole={userRole}
+        />
       </div>
 
       {isExpanded && (
@@ -226,9 +239,18 @@ function HierarchicalVersionList({
   onRestoreVersion,
   userRole,
   isLoading,
+  filter = 'all', // 'all' or 'named'
 }) {
+  // Filter versions based on filter prop
+  const filteredVersions = filter === 'named'
+    ? hierarchicalVersions.map(month => ({
+        ...month,
+        versions: month.versions.filter(v => v.isNamed)
+      })).filter(month => month.versions.length > 0)
+    : hierarchicalVersions;
+
   // Auto-expand first month
-  const firstMonthLabel = hierarchicalVersions[0]?.label;
+  const firstMonthLabel = filteredVersions[0]?.label;
   const [expandedMonths, setExpandedMonths] = useState(() => {
     return firstMonthLabel ? { [firstMonthLabel]: true } : {};
   });
@@ -298,18 +320,20 @@ function HierarchicalVersionList({
     return <div className="hierarchy-loading">Loading versions...</div>;
   }
 
-  if (!hierarchicalVersions || hierarchicalVersions.length === 0) {
+  if (!filteredVersions || filteredVersions.length === 0) {
     return (
       <div className="hierarchy-empty-state">
-        <p>No version history yet.</p>
-        <p className="hierarchy-empty-hint">Edit the document to start tracking versions.</p>
+        <p>{filter === 'named' ? 'No named versions yet.' : 'No version history yet.'}</p>
+        <p className="hierarchy-empty-hint">
+          {filter === 'named' ? 'Name a version using the menu on any version.' : 'Edit the document to start tracking versions.'}
+        </p>
       </div>
     );
   }
 
   return (
     <div className="hierarchy-list">
-      {hierarchicalVersions.map((month) => (
+      {filteredVersions.map((month) => (
         <div key={month.label} className="hierarchy-month">
           <div
             className="hierarchy-month-header"

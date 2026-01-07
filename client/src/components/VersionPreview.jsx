@@ -98,17 +98,17 @@ function VersionPreview({
         )}
       </div>
 
-      {selectedVersion.authors && selectedVersion.authors.length > 0 && (
+      {selection?.authors && selection.authors.length > 0 && (
         <div className="version-preview-authors">
           <span className="version-preview-authors-label">Contributors:</span>
-          {selectedVersion.authors.map((author, i) => (
+          {selection.authors.map((author, i) => (
             <span
               key={author.id || i}
               className="version-preview-author"
               style={{ color: author.color }}
             >
               {author.name || 'Unknown'}
-              {i < selectedVersion.authors.length - 1 && ', '}
+              {i < selection.authors.length - 1 && ', '}
             </span>
           ))}
         </div>

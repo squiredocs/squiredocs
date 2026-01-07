@@ -314,7 +314,7 @@ class PostgresPersistence {
     const client = await this.pool.connect();
     try {
       const result = await client.query(
-        `SELECT u.clock, u.update_data, u.created_at, u.user_id,
+        `SELECT u.clock, u.update_data, u.created_at, u.user_id, u.agent_name,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id
@@ -330,6 +330,7 @@ class PostgresPersistence {
         userName: row.user_name,
         userEmail: row.user_email,
         userPicture: row.user_picture,
+        agentName: row.agent_name,
       }));
     } finally {
       client.release();
