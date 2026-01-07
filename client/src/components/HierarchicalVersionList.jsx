@@ -84,8 +84,10 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) 
  * Item menu dropdown component - shared between versions and clock updates
  */
 function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
-  const isVersion = !item.isClock;
   const canRestore = !item.isCurrent && userRole !== 'viewer';
+  const canName = userRole !== 'viewer';
+  const canRename = item.isNamed;
+  const canRemoveName = item.isNamed && !item.isClock;
 
   return (
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
@@ -105,9 +107,9 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
       </button>
       {menuOpen && (
         <div className="hierarchy-menu-dropdown">
-          {isVersion && (
+          {canName && (
             <button onClick={onNameVersion}>
-              {item.isNamed ? 'Rename' : 'Name this version'}
+              {canRename ? 'Rename' : 'Name this version'}
             </button>
           )}
           {canRestore && (
@@ -115,7 +117,7 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
               Restore this version
             </button>
           )}
-          {isVersion && item.isNamed && (
+          {canRemoveName && (
             <button onClick={onDeleteVersion}>
               Remove name
             </button>
@@ -313,13 +315,15 @@ function HierarchicalVersionList({
     }
   };
 
-  const handleNameVersion = async (version) => {
-    const name = prompt(version.name ? 'Rename version:' : 'Name this version:', version.name || '');
+  const handleNameItem = async (item) => {
+    const name = prompt(item.name ? 'Rename version:' : 'Name this version:', item.name || '');
     if (name && name.trim()) {
-      if (version.isNamed) {
-        await onRenameVersion(version.id, name.trim());
+      if (item.isNamed) {
+        await onRenameVersion(item.id, name.trim());
       } else {
-        await onCreateNamedVersion(name.trim(), version.clockEnd);
+        // For clocks, use clock value; for versions, use clockEnd
+        const clockEnd = item.isClock ? item.clock : item.clockEnd;
+        await onCreateNamedVersion(name.trim(), clockEnd);
       }
     }
     setMenuOpen(null);
@@ -387,7 +391,7 @@ function HierarchicalVersionList({
                     menuOpen={menuOpen === version.id}
                     menuRef={menuRef}
                     onMenuOpen={() => setMenuOpen(version.id)}
-                    onNameVersion={() => handleNameVersion(version)}
+                    onNameVersion={() => handleNameItem(version)}
                     onRestoreVersion={() => handleRestoreItem(version)}
                     onDeleteVersion={() => handleDeleteVersion(version)}
                     userRole={userRole}
@@ -410,6 +414,7 @@ function HierarchicalVersionList({
                                   menuOpen={menuOpen === menuKey}
                                   menuRef={menuRef}
                                   onMenuOpen={() => setMenuOpen(menuKey)}
+                                  onNameVersion={() => handleNameItem(clockItem)}
                                   onRestoreVersion={() => handleRestoreItem(clockItem)}
                                   userRole={userRole}
                                 />
