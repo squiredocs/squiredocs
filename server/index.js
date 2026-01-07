@@ -841,25 +841,23 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
 
     // Find the version boundaries using time-based grouping
     const versions = versionHistory.groupUpdatesIntoVersions(updates);
-    const targetVersion = versions.find(v => v.clockEnd === targetClock);
 
+    // First try exact match, then find the version that contains this clock
+    let targetVersion = versions.find(v => v.clockEnd === targetClock);
     if (!targetVersion) {
-      // If no exact match, use the provided clockEnd or latest
-      const clockStart = updates[0].clock;
-      const version = await persistenceProvider.createNamedVersion(
-        docId,
-        clockStart,
-        targetClock,
-        name,
-        userId
+      targetVersion = versions.find(v =>
+        v.clockStart <= targetClock && v.clockEnd >= targetClock
       );
-      return res.status(201).json({ version });
     }
+
+    // Use the containing version's boundaries, or just the single clock if not found
+    const versionClockStart = targetVersion?.clockStart ?? targetClock;
+    const versionClockEnd = targetVersion?.clockEnd ?? targetClock;
 
     const version = await persistenceProvider.createNamedVersion(
       docId,
-      targetVersion.clockStart,
-      targetVersion.clockEnd,
+      versionClockStart,
+      versionClockEnd,
       name,
       userId
     );
