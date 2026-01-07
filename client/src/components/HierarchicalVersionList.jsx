@@ -72,7 +72,10 @@ function UpdateItem({ update, isSelected, onClick }) {
   return (
     <div
       className={`hierarchy-update ${isSelected ? 'selected' : ''}`}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
     >
       <div className="hierarchy-update-clock">Clock {update.clock}</div>
       <div className="hierarchy-update-time">{formatTime(update.timestamp)}</div>
@@ -101,7 +104,7 @@ function VersionItem({
   onToggle,
   onClick,
   onUpdateClick,
-  selectedUpdateClock,
+  selection, // Unified: version or clock update (with isClock: true)
   onMenuOpen,
   menuOpen,
   onNameVersion,
@@ -191,7 +194,7 @@ function VersionItem({
               <UpdateItem
                 key={update.clock}
                 update={update}
-                isSelected={selectedUpdateClock === update.clock}
+                isSelected={selection?.isClock && selection?.clock === update.clock}
                 onClick={() => onUpdateClick(update)}
               />
             ))
@@ -211,8 +214,7 @@ function VersionItem({
  */
 function HierarchicalVersionList({
   hierarchicalVersions = [],
-  selectedVersion,
-  selectedUpdateClock,
+  selection, // Unified: version or clock update (with isClock: true)
   onSelectVersion,
   onSelectUpdate,
   onLoadUpdates,
@@ -255,12 +257,10 @@ function HierarchicalVersionList({
   const toggleVersion = (version) => {
     const versionId = version.id;
     const willExpand = !expandedVersions[versionId];
-    console.log(`[toggleVersion] version=`, version, `willExpand=${willExpand}`);
     setExpandedVersions(prev => ({ ...prev, [versionId]: willExpand }));
 
     // Load updates when expanding if not already loaded
     if (willExpand && !versionUpdates[versionId] && onLoadUpdates) {
-      console.log(`[toggleVersion] Loading updates for clockStart=${version.clockStart}, clockEnd=${version.clockEnd}`);
       onLoadUpdates(version.clockStart, version.clockEnd, versionId);
     }
   };
@@ -325,14 +325,14 @@ function HierarchicalVersionList({
                 <VersionItem
                   key={version.id}
                   version={version}
-                  isSelected={selectedVersion?.id === version.id}
+                  isSelected={selection?.id === version.id && !selection?.isClock}
                   isExpanded={expandedVersions[version.id]}
                   updates={versionUpdates[version.id]}
                   isLoadingUpdates={loadingVersionUpdates[version.id]}
                   onToggle={() => toggleVersion(version)}
                   onClick={() => onSelectVersion(version)}
                   onUpdateClick={onSelectUpdate}
-                  selectedUpdateClock={selectedUpdateClock}
+                  selection={selection}
                   menuOpen={menuOpen === version.id}
                   onMenuOpen={() => setMenuOpen(version.id)}
                   onNameVersion={() => handleNameVersion(version)}

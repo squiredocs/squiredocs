@@ -26,7 +26,7 @@ function VersionHistoryPanel({
   isOpen,
   onClose,
   onSelectVersion,
-  selectedVersion,
+  selection, // Unified: version or clock update (with isClock: true)
   groupedVersions = [],
   hierarchicalVersions = [],
   totalEdits = 0,
@@ -37,7 +37,6 @@ function VersionHistoryPanel({
   onRestoreVersion,
   userRole,
   // Hierarchical drill-down props
-  selectedUpdateClock,
   onSelectUpdate,
   onLoadUpdates,
   versionUpdates = {},
@@ -203,8 +202,7 @@ function VersionHistoryPanel({
       {viewMode === 'hierarchical' && !isLoading && hierarchicalVersions.length > 0 && (
         <HierarchicalVersionList
           hierarchicalVersions={hierarchicalVersions}
-          selectedVersion={selectedVersion}
-          selectedUpdateClock={selectedUpdateClock}
+          selection={selection}
           onSelectVersion={onSelectVersion}
           onSelectUpdate={onSelectUpdate}
           onLoadUpdates={onLoadUpdates}
@@ -234,7 +232,7 @@ function VersionHistoryPanel({
                 const INITIAL_SHOW_COUNT = 10;
                 if (index >= INITIAL_SHOW_COUNT && !expandedGroups[group.label]) return null;
 
-                const isSelected = selectedVersion?.id === version.id;
+                const isSelected = selection?.id === version.id && !selection?.isClock;
 
                 return (
                   <div

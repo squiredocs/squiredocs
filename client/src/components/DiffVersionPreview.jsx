@@ -82,7 +82,7 @@ function createDiffPlugin(diffData) {
 function DiffVersionPreview({
   versionContent,
   previousVersionContent,
-  selectedVersion,
+  selection, // Unified: version or clock update (with isClock: true)
   showDiff = true,
   isLoading = false,
 }) {
@@ -180,7 +180,7 @@ function DiffVersionPreview({
     );
   }
 
-  if (!versionContent || !selectedVersion) {
+  if (!versionContent || !selection) {
     return (
       <div className="version-preview diff-version-preview">
         <div className="version-preview-empty">
@@ -257,17 +257,17 @@ function DiffVersionPreview({
       )}
 
       {/* Authors */}
-      {selectedVersion.authors && selectedVersion.authors.length > 0 && (
+      {selection?.authors && selection.authors.length > 0 && (
         <div className="version-preview-authors">
           <span className="version-preview-authors-label">Contributors:</span>
-          {selectedVersion.authors.map((author, i) => (
+          {selection.authors.map((author, i) => (
             <span
               key={author.id || i}
               className="version-preview-author"
               style={{ color: author.color }}
             >
               {author.name || 'Unknown'}
-              {i < selectedVersion.authors.length - 1 && ', '}
+              {i < selection.authors.length - 1 && ', '}
             </span>
           ))}
         </div>

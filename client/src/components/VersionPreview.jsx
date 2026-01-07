@@ -13,7 +13,7 @@ import './VersionPreview.css';
  */
 function VersionPreview({
   versionContent,
-  selectedVersion,
+  selection, // Unified: version or clock update (with isClock: true)
   isLoading = false,
 }) {
 
@@ -78,7 +78,7 @@ function VersionPreview({
     );
   }
 
-  if (!versionContent || !selectedVersion) {
+  if (!versionContent || !selection) {
     return (
       <div className="version-preview">
         <div className="version-preview-empty">

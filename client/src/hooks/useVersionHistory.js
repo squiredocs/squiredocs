@@ -50,12 +50,13 @@ export function useVersionHistory(docGuid) {
   const [totalEdits, setTotalEdits] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [selectedVersion, setSelectedVersion] = useState(null);
+
+  // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
+  const [selection, setSelection] = useState(null);
   const [versionContent, setVersionContent] = useState(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // Hierarchical drill-down state
-  const [selectedUpdateClock, setSelectedUpdateClock] = useState(null);
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
 
@@ -130,8 +131,7 @@ export function useVersionHistory(docGuid) {
    * Select a version and load its content (and previous version for diff)
    */
   const selectVersion = useCallback(async (version) => {
-    setSelectedVersion(version);
-    setSelectedUpdateClock(null); // Clear any selected update
+    setSelection(version);
     if (version) {
       await loadVersionContent(version.id);
 
@@ -163,14 +163,12 @@ export function useVersionHistory(docGuid) {
   const loadUpdatesForVersion = useCallback(async (clockStart, clockEnd, versionId) => {
     if (!docGuid) return null;
 
-    console.log(`[loadUpdatesForVersion] docGuid=${docGuid}, clockStart=${clockStart}, clockEnd=${clockEnd}, versionId=${versionId}`);
     setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: true }));
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history/updates`, {
         params: { from: clockStart, to: clockEnd }
       });
-      console.log(`[loadUpdatesForVersion] Response:`, response.data);
       const updates = response.data.updates || [];
       setVersionUpdates(prev => ({ ...prev, [versionId]: updates }));
       return updates;
@@ -214,9 +212,19 @@ export function useVersionHistory(docGuid) {
 
   /**
    * Select a specific update (clock tick) and load its content
+   * Treats the clock as a single-update "version" for unified selection
    */
   const selectUpdate = useCallback(async (update) => {
-    setSelectedUpdateClock(update.clock);
+    // Create a version-like object for the single clock update
+    setSelection({
+      id: `clock-${update.clock}`,
+      clock: update.clock,
+      clockStart: update.clock,
+      clockEnd: update.clock,
+      timestamp: update.timestamp,
+      authors: update.author ? [update.author] : [],
+      isClock: true, // Flag to distinguish from grouped versions
+    });
     await loadContentAtClock(update.clock);
 
     // Load previous clock for diff comparison
@@ -316,11 +324,10 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api, fetchHistory]);
 
   /**
-   * Clear selected version and content
+   * Clear selection and content
    */
   const clearSelection = useCallback(() => {
-    setSelectedVersion(null);
-    setSelectedUpdateClock(null);
+    setSelection(null);
     setVersionContent(null);
     setPreviousVersionContent(null);
   }, []);
@@ -347,12 +354,11 @@ export function useVersionHistory(docGuid) {
     totalEdits,
     isLoading,
     error,
-    selectedVersion,
+    selection, // Unified selection: version or single clock update (with isClock: true)
     versionContent,
     isLoadingContent,
 
     // Hierarchical drill-down state
-    selectedUpdateClock,
     versionUpdates,
     loadingVersionUpdates,
 
@@ -370,7 +376,6 @@ export function useVersionHistory(docGuid) {
     deleteNamedVersion,
     clearSelection,
     refresh,
-    setSelectedVersion,
 
     // Hierarchical drill-down actions
     loadUpdatesForVersion,

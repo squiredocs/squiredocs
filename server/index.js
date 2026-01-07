@@ -723,7 +723,6 @@ app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
     }
 
     const updates = await versionHistory.getUpdatesForVersion(persistenceProvider, docId, clockStart, clockEnd);
-    console.log(`[Updates API] docId=${docId}, clockStart=${clockStart}, clockEnd=${clockEnd}, found ${updates.length} updates`);
     res.json({ updates });
   } catch (error) {
     console.error('Error getting version updates:', error);

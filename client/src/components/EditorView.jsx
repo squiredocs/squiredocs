@@ -313,7 +313,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     versions,
     groupedVersions,
     hierarchicalVersions,
-    selectedVersion,
+    selection, // Unified: version or clock update (with isClock: true)
     versionContent,
     totalEdits,
     isLoading: versionHistoryLoading,
@@ -324,7 +324,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     deleteNamedVersion,
     clearSelection,
     // Hierarchical drill-down
-    selectedUpdateClock,
     versionUpdates,
     loadingVersionUpdates,
     loadUpdatesForVersion,
@@ -337,14 +336,15 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
 
   // Auto-select current version when opening version history
   useEffect(() => {
-    if (showVersionHistory && versions.length > 0 && !selectedVersion) {
+    // Only auto-select if nothing is selected
+    if (showVersionHistory && versions.length > 0 && !selection) {
       // Select the current (most recent) version
       const currentVersion = versions.find(v => v.isCurrent) || versions[0];
       if (currentVersion) {
         selectVersion(currentVersion);
       }
     }
-  }, [showVersionHistory, versions, selectedVersion, selectVersion]);
+  }, [showVersionHistory, versions, selection, selectVersion]);
 
   const handleOpenVersionHistory = () => {
     onNavigateToVersions(docGuid);
@@ -486,16 +486,16 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 </svg>
               </a>
               <div className="version-history-title">
-                {selectedVersion?.name || (selectedVersion && formatVersionTimestamp(selectedVersion.timestamp)) || 'Version history'}
+                {selection?.name || (selection && formatVersionTimestamp(selection.timestamp)) || 'Version history'}
               </div>
             </div>
             <div className="app-header-right">
-              {selectedVersion && !selectedVersion.isCurrent && userRole !== 'viewer' && (
+              {selection && !selection.isCurrent && !selection.isClock && userRole !== 'viewer' && (
                 <button
                   className="restore-version-btn"
                   onClick={async () => {
                     if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
-                      const success = await restoreVersion(selectedVersion.id);
+                      const success = await restoreVersion(selection.id);
                       if (success) {
                         // Reload the page to see the restored content
                         window.location.reload();
@@ -516,14 +516,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               <DiffVersionPreview
                 versionContent={versionContent}
                 previousVersionContent={previousVersionContent}
-                selectedVersion={selectedVersion}
+                selection={selection}
                 showDiff={showDiff}
                 isLoading={versionHistoryLoading}
               />
             ) : (
               <VersionPreview
                 versionContent={versionContent}
-                selectedVersion={selectedVersion}
+                selection={selection}
                 isLoading={versionHistoryLoading}
               />
             )}
@@ -534,7 +534,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             isOpen={true}
             onClose={handleCloseVersionHistory}
             onSelectVersion={selectVersion}
-            selectedVersion={selectedVersion}
+            selection={selection}
             groupedVersions={groupedVersions}
             hierarchicalVersions={hierarchicalVersions}
             totalEdits={totalEdits}
@@ -545,7 +545,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onRestoreVersion={restoreVersion}
             userRole={userRole}
             // Hierarchical drill-down props
-            selectedUpdateClock={selectedUpdateClock}
             onSelectUpdate={selectUpdate}
             onLoadUpdates={loadUpdatesForVersion}
             versionUpdates={versionUpdates}
