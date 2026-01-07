@@ -166,7 +166,7 @@ function VersionItem({
 }) {
   return (
     <div className={`hierarchy-item hierarchy-version ${isSelected ? 'selected' : ''}`}>
-      <div className="hierarchy-version-header">
+      <div className="hierarchy-version-header" onClick={onClick}>
         <button
           className="hierarchy-expand-btn"
           onClick={(e) => {
@@ -177,7 +177,7 @@ function VersionItem({
         >
           <ChevronIcon expanded={isExpanded} />
         </button>
-        <div className="hierarchy-item-content" onClick={onClick}>
+        <div className="hierarchy-item-content">
           <ItemContent
             name={version.name}
             timestamp={version.timestamp}
