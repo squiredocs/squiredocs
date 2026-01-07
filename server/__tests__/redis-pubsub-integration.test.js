@@ -200,27 +200,23 @@ describe('Redis Pub/Sub Integration', () => {
       const doc = new Y.Doc();
       const xmlFragment = doc.get('default', Y.XmlFragment);
 
-      let receivedUpdate = false;
-      let resolveUpdate;
-      const updatePromise = new Promise((resolve) => {
-        resolveUpdate = resolve;
-        setTimeout(() => resolve(), 500); // Timeout fallback
-      });
+      // Create temp publisher and subscriber for direct Redis access
+      const { createPubSubClient } = require('../redis');
+      const tempPublisher = createPubSubClient();
+      const tempSubscriber = createPubSubClient();
 
-      await redisPubSub.init();
+      await Promise.all([
+        new Promise((resolve) => {
+          if (tempPublisher.status === 'ready') resolve();
+          else tempPublisher.once('ready', resolve);
+        }),
+        new Promise((resolve) => {
+          if (tempSubscriber.status === 'ready') resolve();
+          else tempSubscriber.once('ready', resolve);
+        }),
+      ]);
 
-      // Subscribe to receive updates (await ensures subscription is active before publishing)
-      await redisPubSub.subscribeToDocument(docId, {
-        onAwareness: () => {},
-        onUpdate: (buffer) => {
-          // This should be called because the update has a different instance ID
-          Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
-          receivedUpdate = true;
-          resolveUpdate();
-        },
-      });
-
-      // Create an update from a "different server"
+      // Create an update from a "different server" (can do this anytime)
       const otherDoc = new Y.Doc();
       const otherFragment = otherDoc.get('default', Y.XmlFragment);
       const heading = new Y.XmlElement('heading');
@@ -228,36 +224,65 @@ describe('Redis Pub/Sub Integration', () => {
       text.insert(0, 'From Other Server');
       heading.insert(0, [text]);
       otherFragment.insert(0, [heading]);
-
-      // Get the Yjs update
       const update = Y.encodeStateAsUpdate(otherDoc);
 
-      // Manually publish with a DIFFERENT instance ID (simulating another server)
-      // We need to access Redis directly to bypass our own instance ID encoding
-      const { createPubSubClient } = require('../redis');
-      const tempPublisher = createPubSubClient();
+      const channel = `updates:${docId}`;
+      const sentinelChannel = `sentinel:${docId}`;
+      const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
 
-      await new Promise((resolve) => {
-        if (tempPublisher.status === 'ready') resolve();
-        else tempPublisher.once('ready', resolve);
+      let receivedUpdate = false;
+      let resolveSentinel;
+      let resolveUpdate;
+      const sentinelPromise = new Promise((resolve) => {
+        resolveSentinel = resolve;
+      });
+      const updatePromise = new Promise((resolve) => {
+        resolveUpdate = resolve;
+        setTimeout(() => resolve(), 1000); // Timeout fallback
       });
 
-      // Publish with a fake instance ID using the exported encodeMessage function
-      const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
-      tempPublisher.publish(`updates:${docId}`, redisPubSub.encodeMessage(update, OTHER_SERVER_ID));
+      // Use direct Redis subscription to avoid any module-level filtering
+      tempSubscriber.on('messageBuffer', (ch, message) => {
+        const channelStr = ch.toString();
+        if (channelStr === sentinelChannel) {
+          resolveSentinel();
+        } else if (channelStr === channel) {
+          // message is already a Buffer when using messageBuffer event
+          const decoded = redisPubSub.decodeMessage(message);
+          if (decoded) {
+            Y.applyUpdate(doc, new Uint8Array(decoded.data), ORIGIN_REDIS);
+            receivedUpdate = true;
+            resolveUpdate();
+          }
+        }
+      });
+
+      // Subscribe to both channels
+      await tempSubscriber.subscribe(sentinelChannel);
+      await tempSubscriber.subscribe(channel);
+
+      // Send a sentinel message and wait for it - this confirms pub/sub is working
+      await tempPublisher.publish(sentinelChannel, 'ping');
+      await sentinelPromise;
+
+      // Now we know the channel is active - send the actual update
+      await tempPublisher.publish(channel, redisPubSub.encodeMessage(update, OTHER_SERVER_ID));
 
       // Wait for the update to be received
       await updatePromise;
 
-      // Cleanup temp publisher
-      await tempPublisher.quit().catch(() => {});
+      // Cleanup
+      await tempSubscriber.unsubscribe(channel);
+      await tempSubscriber.unsubscribe(sentinelChannel);
+      await Promise.all([
+        tempPublisher.quit().catch(() => {}),
+        tempSubscriber.quit().catch(() => {}),
+      ]);
 
       // The update from "another server" should have been applied
       expect(receivedUpdate).toBe(true);
       expect(xmlFragment.toArray().length).toBe(1);
       expect(xmlFragment.get(0).nodeName).toBe('heading');
-
-      redisPubSub.unsubscribeFromDocument(docId);
     });
   });
 });

@@ -34,9 +34,12 @@ class MockRedis extends EventEmitter {
   publish(channel, message) {
     this.published.push({ channel, message });
     // Deliver to all subscribers (simulates Redis pub/sub)
+    // Use messageBuffer event like real ioredis for binary data
     MockRedis.instances.forEach((instance) => {
       if (instance.subscriptions.has(channel) && instance !== this) {
-        setImmediate(() => instance.emit('message', channel, message));
+        const channelBuffer = Buffer.from(channel);
+        const messageBuffer = Buffer.isBuffer(message) ? message : Buffer.from(message);
+        setImmediate(() => instance.emit('messageBuffer', channelBuffer, messageBuffer));
       }
     });
     return Promise.resolve(1);
@@ -264,7 +267,7 @@ describe('redis-pubsub', () => {
       // Simulate receiving a message from another server
       const subscriber = MockRedis.instances[0];
       const testMessage = redisPubSub.encodeMessage(Buffer.from([1, 2, 3]), OTHER_SERVER_ID);
-      subscriber.emit('message', 'awareness:doc-123', testMessage);
+      subscriber.emit('messageBuffer', Buffer.from('awareness:doc-123'), testMessage);
 
       await tick();
 
@@ -284,7 +287,7 @@ describe('redis-pubsub', () => {
       // Simulate receiving a message from another server
       const subscriber = MockRedis.instances[0];
       const testMessage = redisPubSub.encodeMessage(Buffer.from([4, 5, 6]), OTHER_SERVER_ID);
-      subscriber.emit('message', 'updates:doc-123', testMessage);
+      subscriber.emit('messageBuffer', Buffer.from('updates:doc-123'), testMessage);
 
       await tick();
 
@@ -303,7 +306,7 @@ describe('redis-pubsub', () => {
 
       // Simulate receiving a message for different document
       const subscriber = MockRedis.instances[0];
-      subscriber.emit('message', 'awareness:doc-456', Buffer.from([1, 2, 3]));
+      subscriber.emit('messageBuffer', Buffer.from('awareness:doc-456'), Buffer.from([1, 2, 3]));
 
       await tick();
 
@@ -390,8 +393,8 @@ describe('redis-pubsub', () => {
 
       // Simulate receiving our OWN message back (same instance ID)
       const subscriber = MockRedis.instances[0];
-      subscriber.emit('message', 'awareness:doc-123', redisPubSub.encodeMessage(Buffer.from('self-awareness')));
-      subscriber.emit('message', 'updates:doc-123', redisPubSub.encodeMessage(Buffer.from('self-update')));
+      subscriber.emit('messageBuffer', Buffer.from('awareness:doc-123'), redisPubSub.encodeMessage(Buffer.from('self-awareness')));
+      subscriber.emit('messageBuffer', Buffer.from('updates:doc-123'), redisPubSub.encodeMessage(Buffer.from('self-update')));
 
       await tick(100);
 

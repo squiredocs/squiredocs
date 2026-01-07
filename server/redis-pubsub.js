@@ -115,12 +115,13 @@ async function init() {
   }
 
   // Handle incoming messages from Redis
-  subscriberClient.on('message', (channel, message) => {
+  // Use messageBuffer to receive raw binary data without string conversion corruption
+  subscriberClient.on('messageBuffer', (channelBuffer, message) => {
     try {
-      const buffer = Buffer.from(message, 'binary');
+      const channel = channelBuffer.toString();
 
       // Decode message to extract instance ID
-      const decoded = decodeMessage(buffer);
+      const decoded = decodeMessage(message);
       if (!decoded) {
         console.warn('[RedisPubSub] Received malformed message (missing instance ID)');
         return;

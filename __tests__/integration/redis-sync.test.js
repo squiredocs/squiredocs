@@ -174,10 +174,10 @@ function createSyncedDoc(docId, instanceName) {
 }
 
 describe('Redis Cross-Instance Synchronization', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     MockRedis.reset();
     redisMock.__reset();
-    redisPubSub._reset();
+    await redisPubSub._reset();
   });
 
   afterEach(async () => {
