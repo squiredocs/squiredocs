@@ -191,6 +191,301 @@ describe('version-history module', () => {
       const result = mergeNamedVersions([], []);
       expect(result).toEqual([]);
     });
+
+    test('splits auto version when named version covers beginning portion', () => {
+      // Bug case: naming clock 59 should create named version 57-59,
+      // leaving only clock 60 in the auto version
+      const autoVersions = [
+        { clockStart: 57, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'biz5-uuid',
+          name: 'biz5',
+          clock_start: 57,
+          clock_end: 59,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // Should have 2 versions: the remaining auto fragment (60-60) and the named version (57-59)
+      expect(result).toHaveLength(2);
+
+      // Find the auto fragment - should only contain clock 60
+      const autoFragment = result.find(v => v.id === 'auto-60');
+      expect(autoFragment).toBeDefined();
+      expect(autoFragment.clockStart).toBe(60);
+      expect(autoFragment.clockEnd).toBe(60);
+      expect(autoFragment.isNamed).toBe(false);
+
+      // Find the named version - should contain clocks 57-59
+      const namedVersion = result.find(v => v.id === 'biz5-uuid');
+      expect(namedVersion).toBeDefined();
+      expect(namedVersion.clockStart).toBe(57);
+      expect(namedVersion.clockEnd).toBe(59);
+      expect(namedVersion.isNamed).toBe(true);
+      expect(namedVersion.name).toBe('biz5');
+    });
+
+    test('splits auto version when named version covers end portion', () => {
+      // Named version covers the end of the auto version
+      const autoVersions = [
+        { clockStart: 50, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'final-uuid',
+          name: 'Final',
+          clock_start: 58,
+          clock_end: 60,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      expect(result).toHaveLength(2);
+
+      // Fragment before the named version (50-57)
+      const autoFragment = result.find(v => v.id === 'auto-57');
+      expect(autoFragment).toBeDefined();
+      expect(autoFragment.clockStart).toBe(50);
+      expect(autoFragment.clockEnd).toBe(57);
+      expect(autoFragment.isNamed).toBe(false);
+
+      // Named version (58-60)
+      const namedVersion = result.find(v => v.id === 'final-uuid');
+      expect(namedVersion).toBeDefined();
+      expect(namedVersion.clockStart).toBe(58);
+      expect(namedVersion.clockEnd).toBe(60);
+    });
+
+    test('splits auto version when named version is in the middle', () => {
+      // Named version is in the middle of the auto version
+      const autoVersions = [
+        { clockStart: 50, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'middle-uuid',
+          name: 'Middle',
+          clock_start: 54,
+          clock_end: 56,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      expect(result).toHaveLength(3);
+
+      // Fragment after the named version (57-60)
+      const afterFragment = result.find(v => v.id === 'auto-60');
+      expect(afterFragment).toBeDefined();
+      expect(afterFragment.clockStart).toBe(57);
+      expect(afterFragment.clockEnd).toBe(60);
+
+      // Named version (54-56)
+      const namedVersion = result.find(v => v.id === 'middle-uuid');
+      expect(namedVersion).toBeDefined();
+      expect(namedVersion.clockStart).toBe(54);
+      expect(namedVersion.clockEnd).toBe(56);
+
+      // Fragment before the named version (50-53)
+      const beforeFragment = result.find(v => v.id === 'auto-53');
+      expect(beforeFragment).toBeDefined();
+      expect(beforeFragment.clockStart).toBe(50);
+      expect(beforeFragment.clockEnd).toBe(53);
+    });
+
+    test('handles multiple named versions splitting single auto version', () => {
+      // Two named versions split one auto version into three fragments
+      const autoVersions = [
+        { clockStart: 1, clockEnd: 20, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'first-uuid',
+          name: 'First',
+          clock_start: 5,
+          clock_end: 8,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+        {
+          id: 'second-uuid',
+          name: 'Second',
+          clock_start: 12,
+          clock_end: 15,
+          created_at: '2024-01-01T10:01:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // Should have 5 items: 3 auto fragments + 2 named versions
+      expect(result).toHaveLength(5);
+
+      // Fragment after second named (16-20)
+      expect(result.find(v => v.clockStart === 16 && v.clockEnd === 20)).toBeDefined();
+      // Fragment between named versions (9-11)
+      expect(result.find(v => v.clockStart === 9 && v.clockEnd === 11)).toBeDefined();
+      // Fragment before first named (1-4)
+      expect(result.find(v => v.clockStart === 1 && v.clockEnd === 4)).toBeDefined();
+      // Named versions
+      expect(result.find(v => v.id === 'first-uuid')).toBeDefined();
+      expect(result.find(v => v.id === 'second-uuid')).toBeDefined();
+    });
+
+    test('does not create overlapping versions when named version covers exact range', () => {
+      // When named version exactly matches auto version, no fragments should be created
+      const autoVersions = [
+        { clockStart: 57, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'exact-uuid',
+          name: 'Exact Match',
+          clock_start: 57,
+          clock_end: 60,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // Should only have the named version, no auto fragments
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('exact-uuid');
+      expect(result[0].isNamed).toBe(true);
+    });
+
+    test('ensures no overlapping clock ranges in result', () => {
+      // Verify that the result has no overlapping clock ranges
+      const autoVersions = [
+        { clockStart: 1, clockEnd: 10, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+        { clockStart: 11, clockEnd: 20, timestamp: '2024-01-01T11:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'overlap-uuid',
+          name: 'Named',
+          clock_start: 5,
+          clock_end: 15,
+          created_at: '2024-01-01T10:30:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // Check that no two versions have overlapping ranges
+      for (let i = 0; i < result.length; i++) {
+        for (let j = i + 1; j < result.length; j++) {
+          const v1 = result[i];
+          const v2 = result[j];
+          const overlaps = v1.clockStart <= v2.clockEnd && v1.clockEnd >= v2.clockStart;
+          expect(overlaps).toBe(false);
+        }
+      }
+
+      // Verify expected structure: auto-4 (1-4), named (5-15), auto-20 (16-20)
+      expect(result).toHaveLength(3);
+      expect(result.find(v => v.clockStart === 1 && v.clockEnd === 4)).toBeDefined();
+      expect(result.find(v => v.id === 'overlap-uuid')).toBeDefined();
+      expect(result.find(v => v.clockStart === 16 && v.clockEnd === 20)).toBeDefined();
+    });
+
+    test('original auto version should NOT appear when named version overlaps', () => {
+      // This is the exact bug scenario: auto version 57-60, named version 57-59
+      // The original auto version (57-60) should NOT be in the result
+      const autoVersions = [
+        { clockStart: 57, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'biz5-uuid',
+          name: 'biz5',
+          clock_start: 57,
+          clock_end: 59,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // Should NOT have the original auto version (57-60)
+      const originalAuto = result.find(v => v.clockStart === 57 && v.clockEnd === 60);
+      expect(originalAuto).toBeUndefined();
+
+      // SHOULD have the fragment (60-60)
+      const fragment = result.find(v => v.clockStart === 60 && v.clockEnd === 60);
+      expect(fragment).toBeDefined();
+      expect(fragment.isNamed).toBe(false);
+
+      // SHOULD have the named version (57-59)
+      const named = result.find(v => v.clockStart === 57 && v.clockEnd === 59);
+      expect(named).toBeDefined();
+      expect(named.isNamed).toBe(true);
+      expect(named.name).toBe('biz5');
+    });
+
+    test('handles null clock_start gracefully', () => {
+      // Test that a named version with null clock_start still works
+      // (should use the clockEnd for overlap check)
+      const autoVersions = [
+        { clockStart: 57, clockEnd: 60, timestamp: '2024-01-01T10:00:00Z', authors: [] },
+      ];
+
+      const namedVersions = [
+        {
+          id: 'old-uuid',
+          name: 'OldVersion',
+          clock_start: null, // NULL from database
+          clock_end: 59,
+          created_at: '2024-01-01T10:00:00Z',
+          created_by: 'user-1',
+          creator_name: 'Alice',
+        },
+      ];
+
+      const result = mergeNamedVersions(autoVersions, namedVersions);
+
+      // With null clockStart, overlap check would use: null <= 60 (true in JS due to null -> 0)
+      // AND 59 >= 57 (true), so overlap IS detected
+      // But the split logic would fail because nv.clockStart is null
+      // currentEnd = null - 1 = -1
+      // Then autoVersion.clockStart (57) <= currentEnd (-1) is FALSE
+      // So no "before" fragment is created
+
+      // This test documents the current behavior with null clock_start
+      // The named version should still be included
+      const named = result.find(v => v.id === 'old-uuid');
+      expect(named).toBeDefined();
+    });
   });
 
   describe('formatTimestamp', () => {
@@ -590,6 +885,120 @@ describe('version-history module', () => {
       expect(restoredMarks[2]).toEqual({ text: 'bold', attrs: { bold: true } });
       expect(restoredMarks[3]).toEqual({ text: ' and ', attrs: {} });
       expect(restoredMarks[4]).toEqual({ text: 'italic', attrs: { italic: true } });
+    });
+
+    test('preserves inline marks in single XmlText (real TipTap structure)', async () => {
+      // Real TipTap documents have ONE XmlText per paragraph with inline marks
+      // This tests the actual document structure, not multiple XmlText elements
+      const updates = [];
+      let clock = 0;
+
+      const mockPersistence = {
+        storeUpdate: jest.fn(async (docGuid, update, userId) => {
+          clock++;
+          updates.push({ clock, update: new Uint8Array(update), userId });
+          return clock;
+        }),
+        getYDoc: jest.fn(async (docGuid) => {
+          const doc = new Y.Doc();
+          for (const { update } of updates) {
+            Y.applyUpdate(doc, update);
+          }
+          return doc;
+        }),
+        getUpdatesWithUsers: jest.fn(async (docGuid) => {
+          return updates.map(u => ({
+            clock: u.clock,
+            createdAt: new Date().toISOString(),
+            userId: u.userId,
+            userName: 'Test User',
+          }));
+        }),
+        getVersionById: jest.fn(),
+        getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+          const doc = new Y.Doc();
+          for (const { update, clock: updateClock } of updates) {
+            if (updateClock <= targetClock) {
+              Y.applyUpdate(doc, update);
+            }
+          }
+          return doc;
+        }),
+      };
+
+      // Helper to create a paragraph with inline marks in a SINGLE XmlText
+      // This is how TipTap actually structures documents
+      const setInlineMarkedText = (doc, segments) => {
+        const fragment = doc.getXmlFragment('default');
+        doc.transact(() => {
+          while (fragment.length > 0) {
+            fragment.delete(0, fragment.length);
+          }
+          const paragraph = new Y.XmlElement('paragraph');
+          // Create ONE XmlText with multiple inline marks via delta operations
+          const textContent = new Y.XmlText();
+          const delta = segments.map(seg => ({
+            insert: seg.text,
+            attributes: Object.keys(seg.attrs).length > 0 ? seg.attrs : undefined,
+          }));
+          textContent.applyDelta(delta);
+          paragraph.insert(0, [textContent]);
+          fragment.insert(0, [paragraph]);
+        });
+      };
+
+      // Helper to get marks from text
+      const getMarks = (doc) => {
+        const fragment = doc.getXmlFragment('default');
+        const marks = [];
+        for (let i = 0; i < fragment.length; i++) {
+          const element = fragment.get(i);
+          if (element instanceof Y.XmlElement) {
+            for (let j = 0; j < element.length; j++) {
+              const child = element.get(j);
+              if (child instanceof Y.XmlText) {
+                const delta = child.toDelta();
+                for (const op of delta) {
+                  marks.push({ text: op.insert, attrs: op.attributes || {} });
+                }
+              }
+            }
+          }
+        }
+        return marks;
+      };
+
+      // Version 1: "Normal text " + "link" (with link attr) + " more text"
+      const doc1 = new Y.Doc();
+      setInlineMarkedText(doc1, [
+        { text: 'Check out ', attrs: {} },
+        { text: 'this link', attrs: { link: 'https://example.com' } },
+        { text: ' for more info.', attrs: {} },
+      ]);
+      const update1 = Y.encodeStateAsUpdate(doc1);
+      await mockPersistence.storeUpdate('test-doc', update1, 'user-1');
+
+      // Version 2: Replace with plain text
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, update1);
+      setInlineMarkedText(doc2, [
+        { text: 'All plain text now', attrs: {} },
+      ]);
+      const stateVector1 = Y.encodeStateVector(doc1);
+      const update2 = Y.encodeStateAsUpdate(doc2, stateVector1);
+      await mockPersistence.storeUpdate('test-doc', update2, 'user-1');
+
+      // Restore to version 1
+      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+
+      // Verify marks are preserved with correct boundaries
+      const restoredDoc = await mockPersistence.getYDoc('test-doc');
+      const restoredMarks = getMarks(restoredDoc);
+
+      expect(restoredMarks).toHaveLength(3);
+      expect(restoredMarks[0]).toEqual({ text: 'Check out ', attrs: {} });
+      expect(restoredMarks[1]).toEqual({ text: 'this link', attrs: { link: 'https://example.com' } });
+      expect(restoredMarks[2]).toEqual({ text: ' for more info.', attrs: {} });
     });
   });
 });
