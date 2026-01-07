@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { generateColorFromId } from '../utils/colorUtils';
 import './HierarchicalVersionList.css';
 
+// Maximum number of individual clock updates to show before combining
+const MAX_VISIBLE_UPDATES = 20;
+
 /**
  * Format date and time for version/update display
  * @param {string|Date} timestamp - ISO timestamp string or Date
@@ -144,6 +147,46 @@ function UpdateItem({ update, isSelected, onClick }) {
 }
 
 /**
+ * Combined updates item - represents multiple older updates collapsed into one
+ */
+function CombinedUpdatesItem({ updates, isSelected, onClick }) {
+  // Collect unique authors from all combined updates
+  const authorsMap = new Map();
+  for (const update of updates) {
+    if (update.author) {
+      const key = `${update.author.id}-${update.author.isAgent ? 'agent' : 'user'}`;
+      if (!authorsMap.has(key)) {
+        authorsMap.set(key, update.author);
+      }
+    }
+  }
+  const authors = Array.from(authorsMap.values());
+
+  const oldestUpdate = updates[updates.length - 1];
+  const newestUpdate = updates[0];
+
+  return (
+    <div
+      className={`hierarchy-item hierarchy-update hierarchy-combined ${isSelected ? 'selected' : ''}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <div className="hierarchy-item-content">
+        <div className="hierarchy-version-time">
+          {updates.length} earlier updates
+        </div>
+        <div className="hierarchy-item-subtitle">
+          Clock {oldestUpdate.clock}–{newestUpdate.clock}
+        </div>
+        <AuthorList authors={authors} maxDisplay={3} />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Version item component (Level 1 - 5-minute groupings)
  */
 function VersionItem({
@@ -203,14 +246,25 @@ function VersionItem({
           {isLoadingUpdates ? (
             <div className="hierarchy-loading">Loading updates...</div>
           ) : updates && updates.length > 0 ? (
-            updates.map((update) => (
-              <UpdateItem
-                key={update.clock}
-                update={update}
-                isSelected={selection?.isClock && selection?.clock === update.clock}
-                onClick={() => onUpdateClick(update)}
-              />
-            ))
+            <>
+              {/* Show most recent updates individually */}
+              {updates.slice(0, MAX_VISIBLE_UPDATES).map((update) => (
+                <UpdateItem
+                  key={update.clock}
+                  update={update}
+                  isSelected={selection?.isClock && selection?.clock === update.clock}
+                  onClick={() => onUpdateClick(update)}
+                />
+              ))}
+              {/* Combine older updates into a single item */}
+              {updates.length > MAX_VISIBLE_UPDATES && (
+                <CombinedUpdatesItem
+                  updates={updates.slice(MAX_VISIBLE_UPDATES)}
+                  isSelected={selection?.isClock && updates.slice(MAX_VISIBLE_UPDATES).some(u => u.clock === selection?.clock)}
+                  onClick={() => onUpdateClick(updates[MAX_VISIBLE_UPDATES])}
+                />
+              )}
+            </>
           ) : (
             <div className="hierarchy-empty">No individual updates</div>
           )}
