@@ -294,9 +294,10 @@ await modify({
         const text = findTextNode(block);
         if (text) {
           const content = extractText(text);
-          const todoIndex = content.indexOf('TODO');
+          const searchTerm = 'TODO';
+          const todoIndex = content.indexOf(searchTerm);
           if (todoIndex >= 0) {
-            text.format(todoIndex, 4, { bold: true });
+            text.format(todoIndex, searchTerm.length, { bold: true });
           }
         }
       });
@@ -467,12 +468,17 @@ await modify({
   script: \`
     export default function edit(doc) {
       // FALLBACK: Insert-then-format for when you can't use createFormattedText()
-      // Example: formatting existing text, or dynamic format ranges
+      // Use indexOf() to find positions — never count characters manually!
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
 
-      text.insert(0, 'Important: This is a normal message');
-      text.format(0, 10, { bold: true });  // Requires manual position counting
+      const fullText = 'Important: This is a normal message';
+      text.insert(0, fullText);
+
+      // Use indexOf + length to find format range — no manual counting!
+      const boldPart = 'Important:';
+      const boldIndex = fullText.indexOf(boldPart);
+      text.format(boldIndex, boldPart.length, { bold: true });
 
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
@@ -503,12 +509,12 @@ TIPS
 7. REMOVING FORMATTING: Use { attribute: null }, NOT empty object {}
 
    ❌ WRONG - empty object does nothing:
-     text.format(0, 5, {});  // No effect! Text stays bold
+     text.format(0, content.length, {});  // No effect! Text stays bold
 
    ✅ CORRECT - explicitly set attribute to null:
-     text.format(0, 5, { bold: null });     // Removes bold
-     text.format(0, 5, { italic: null });   // Removes italic
-     text.format(0, 5, { bold: null, italic: null });  // Removes both
+     text.format(0, content.length, { bold: null });     // Removes bold
+     text.format(0, content.length, { italic: null });   // Removes italic
+     text.format(0, content.length, { bold: null, italic: null });  // Removes both
 
 8. IMPORTANT: For mixed formatting, use createFormattedText() helper
 
@@ -524,6 +530,28 @@ TIPS
      text.insert(0, 'Visit ', {});
      text.insert(text.length, 'Link', { link: {...} });
      // May result in: "LinkVisit " - REVERSED!
+
+9. FINDING FORMAT POSITIONS: Use indexOf/regex — never count characters manually!
+
+   When formatting existing text, use string methods to find positions:
+
+   ✅ Using indexOf + length:
+     const content = extractText(textNode);
+     const searchTerm = 'TODO';
+     const index = content.indexOf(searchTerm);
+     if (index >= 0) {
+       textNode.format(index, searchTerm.length, { bold: true });
+     }
+
+   ✅ Using regex for complex patterns:
+     const content = extractText(textNode);
+     const match = content.match(/https?:\/\/\S+/);
+     if (match) {
+       textNode.format(match.index, match[0].length, { link: { href: match[0] } });
+     }
+
+   ❌ NEVER use literal numbers — they're error-prone and unreadable:
+     text.format(6, 12, { link: {...} });  // What is 6? What is 12?
 
 ═══════════════════════════════════════════════════════════════════════════
 COMMON PITFALLS
@@ -762,9 +790,13 @@ THE TEXT WILL BE REVERSED!
     const text = new Y.XmlText();
 
     // Insert all text as plain text first
-    text.insert(0, 'Visit our website at Example Site');
-    // Then apply formatting (requires manual position counting)
-    text.format(21, 12, { link: { href: 'https://example.com' } });
+    const fullText = 'Visit our website at Example Site';
+    text.insert(0, fullText);
+
+    // Use indexOf + length to find format range — no manual counting!
+    const linkText = 'Example Site';
+    const linkIndex = fullText.indexOf(linkText);
+    text.format(linkIndex, linkText.length, { link: { href: 'https://example.com' } });
 
     para.insert(0, [text]);
     doc.insert(doc.length, [para]);
