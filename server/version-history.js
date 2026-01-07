@@ -40,6 +40,20 @@ function getAuthorKey(userId, agentName) {
 }
 
 /**
+ * Compare two Uint8Arrays for equality
+ * @param {Uint8Array} a - First array
+ * @param {Uint8Array} b - Second array
+ * @returns {boolean} True if arrays are equal
+ */
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
  * Create an author object from update data
  * Shared helper to ensure consistent author representation
  * @param {Object} update - Update object with userId, userName, agentName, etc.
@@ -330,6 +344,57 @@ function formatTimestamp(timestamp) {
 }
 
 /**
+ * Filter out redundant updates that don't change the document state
+ * @param {Object} persistence - PostgresPersistence instance
+ * @param {string} docGuid - Document GUID
+ * @param {Array} updates - Array of updates with clock values
+ * @returns {Promise<Array>} Filtered updates that actually change state
+ */
+async function filterMeaningfulUpdates(persistence, docGuid, updates) {
+  if (updates.length === 0) return [];
+
+  // Get all update data for this document
+  const minClock = updates[0].clock;
+  const maxClock = updates[updates.length - 1].clock;
+  const updatesWithData = await persistence.getUpdatesInRange(docGuid, minClock, maxClock);
+
+  // Create a map of clock -> update data for quick lookup
+  const updateDataMap = new Map();
+  for (const u of updatesWithData) {
+    updateDataMap.set(u.clock, u.updateData);
+  }
+
+  // Build document state just before the first update
+  const baseDoc = minClock > 0
+    ? await persistence.getYDocAtClock(docGuid, minClock - 1)
+    : new Y.Doc();
+
+  // Filter to only include updates that actually change state
+  const meaningfulUpdates = [];
+
+  for (const update of updates) {
+    const updateData = updateDataMap.get(update.clock);
+    if (!updateData) continue;
+
+    // Get state vector before applying this update
+    const svBefore = Y.encodeStateVector(baseDoc);
+
+    // Apply the update
+    Y.applyUpdate(baseDoc, updateData);
+
+    // Get state vector after
+    const svAfter = Y.encodeStateVector(baseDoc);
+
+    // Compare state vectors - if they differ, this update changed something
+    if (!arraysEqual(svBefore, svAfter)) {
+      meaningfulUpdates.push(update);
+    }
+  }
+
+  return meaningfulUpdates;
+}
+
+/**
  * Get version history timeline for a document
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -337,7 +402,18 @@ function formatTimestamp(timestamp) {
  */
 async function getVersionTimeline(persistence, docGuid) {
   // Get all updates with user info
-  const updates = await persistence.getUpdatesWithUsers(docGuid);
+  const allUpdates = await persistence.getUpdatesWithUsers(docGuid);
+
+  if (allUpdates.length === 0) {
+    return {
+      versions: [],
+      groupedVersions: [],
+      totalEdits: 0,
+    };
+  }
+
+  // Filter out redundant updates that don't change document state
+  const updates = await filterMeaningfulUpdates(persistence, docGuid, allUpdates);
 
   if (updates.length === 0) {
     return {
@@ -601,6 +677,7 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
 
 /**
  * Get individual updates within a clock range (for drill-down)
+ * Filters out redundant/duplicate updates that don't change the document state
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {number} clockStart - Starting clock value (inclusive)
@@ -610,8 +687,34 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
 
+  // Build document state just before the range to detect which updates actually change state
+  const baseDoc = clockStart > 0
+    ? await persistence.getYDocAtClock(docGuid, clockStart - 1)
+    : new Y.Doc();
+
+  // Filter to only include updates that actually change the document state
+  const meaningfulUpdates = [];
+
+  for (const update of updates) {
+    // Get state vector before applying this update
+    const svBefore = Y.encodeStateVector(baseDoc);
+
+    // Apply the update
+    Y.applyUpdate(baseDoc, update.updateData);
+
+    // Get state vector after
+    const svAfter = Y.encodeStateVector(baseDoc);
+
+    // Compare state vectors - if they differ, this update changed something
+    const stateChanged = !arraysEqual(svBefore, svAfter);
+
+    if (stateChanged) {
+      meaningfulUpdates.push(update);
+    }
+  }
+
   // Map to response format and reverse to show most recent first
-  return updates.map(update => ({
+  return meaningfulUpdates.map(update => ({
     clock: update.clock,
     timestamp: update.createdAt,
     formattedTimestamp: formatTimestamp(update.createdAt),
