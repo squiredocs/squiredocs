@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
@@ -95,12 +95,22 @@ function groupVersionsByPeriod(versions) {
 export function useVersionHistory(docGuid) {
   const { api } = useAuth();
   const [versions, setVersions] = useState([]);
+  const [hierarchicalVersions, setHierarchicalVersions] = useState([]);
   const [totalEdits, setTotalEdits] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [versionContent, setVersionContent] = useState(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
+
+  // Hierarchical drill-down state
+  const [selectedUpdateClock, setSelectedUpdateClock] = useState(null);
+  const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
+  const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
+
+  // Previous version content for diff comparison
+  const [previousVersionContent, setPreviousVersionContent] = useState(null);
+  const [showDiff, setShowDiff] = useState(true);
 
   // Group versions client-side using browser's local timezone
   const groupedVersions = useMemo(() => groupVersionsByPeriod(versions), [versions]);
@@ -117,6 +127,7 @@ export function useVersionHistory(docGuid) {
     try {
       const response = await api.get(`/api/docs/${docGuid}/history`);
       setVersions(response.data.versions || []);
+      setHierarchicalVersions(response.data.hierarchicalVersions || []);
       // groupedVersions is computed client-side via useMemo for proper local timezone handling
       setTotalEdits(response.data.totalEdits || 0);
     } catch (err) {
@@ -154,16 +165,123 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api]);
 
   /**
-   * Select a version and load its content
+   * Find the previous version in the versions list
+   */
+  const findPreviousVersion = useCallback((version) => {
+    if (!version || !versions.length) return null;
+    const sortedVersions = [...versions].sort((a, b) => b.clockEnd - a.clockEnd);
+    const currentIndex = sortedVersions.findIndex(v => v.id === version.id);
+    if (currentIndex === -1 || currentIndex >= sortedVersions.length - 1) return null;
+    return sortedVersions[currentIndex + 1];
+  }, [versions]);
+
+  /**
+   * Select a version and load its content (and previous version for diff)
    */
   const selectVersion = useCallback(async (version) => {
     setSelectedVersion(version);
+    setSelectedUpdateClock(null); // Clear any selected update
     if (version) {
       await loadVersionContent(version.id);
+
+      // Load previous version for diff comparison
+      const prevVersion = findPreviousVersion(version);
+      if (prevVersion) {
+        try {
+          const response = await api.get(`/api/docs/${docGuid}/versions/${prevVersion.id}`);
+          setPreviousVersionContent({
+            content: new Uint8Array(response.data.content),
+            version: response.data.version,
+          });
+        } catch (err) {
+          console.error('Error loading previous version for diff:', err);
+          setPreviousVersionContent(null);
+        }
+      } else {
+        setPreviousVersionContent(null);
+      }
     } else {
       setVersionContent(null);
+      setPreviousVersionContent(null);
     }
-  }, [loadVersionContent]);
+  }, [loadVersionContent, findPreviousVersion, api, docGuid]);
+
+  /**
+   * Load individual updates for a version (for drill-down)
+   */
+  const loadUpdatesForVersion = useCallback(async (clockStart, clockEnd, versionId) => {
+    if (!docGuid) return null;
+
+    setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: true }));
+
+    try {
+      const response = await api.get(`/api/docs/${docGuid}/history/updates`, {
+        params: { from: clockStart, to: clockEnd }
+      });
+      const updates = response.data.updates || [];
+      setVersionUpdates(prev => ({ ...prev, [versionId]: updates }));
+      return updates;
+    } catch (err) {
+      console.error('Error loading version updates:', err);
+      setError(err.response?.data?.error || 'Failed to load version updates');
+      return null;
+    } finally {
+      setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: false }));
+    }
+  }, [docGuid, api]);
+
+  /**
+   * Load content at a specific clock value
+   */
+  const loadContentAtClock = useCallback(async (clock) => {
+    if (!docGuid) return null;
+
+    setIsLoadingContent(true);
+    setError(null);
+
+    try {
+      const response = await api.get(`/api/docs/${docGuid}/history/clock/${clock}`);
+      const content = {
+        content: new Uint8Array(response.data.content),
+        clock: response.data.clock,
+        timestamp: response.data.timestamp,
+        formattedTimestamp: response.data.formattedTimestamp,
+        author: response.data.author,
+      };
+      setVersionContent(content);
+      return content;
+    } catch (err) {
+      console.error('Error loading content at clock:', err);
+      setError(err.response?.data?.error || 'Failed to load content at clock');
+      return null;
+    } finally {
+      setIsLoadingContent(false);
+    }
+  }, [docGuid, api]);
+
+  /**
+   * Select a specific update (clock tick) and load its content
+   */
+  const selectUpdate = useCallback(async (update) => {
+    setSelectedUpdateClock(update.clock);
+    await loadContentAtClock(update.clock);
+
+    // Load previous clock for diff comparison
+    if (update.clock > 1) {
+      try {
+        const response = await api.get(`/api/docs/${docGuid}/history/clock/${update.clock - 1}`);
+        setPreviousVersionContent({
+          content: new Uint8Array(response.data.content),
+          clock: response.data.clock,
+        });
+      } catch (err) {
+        console.error('Error loading previous clock for diff:', err);
+        setPreviousVersionContent(null);
+      }
+    } else {
+      setPreviousVersionContent(null);
+    }
+  }, [loadContentAtClock, api, docGuid]);
 
   /**
    * Restore document to a previous version
@@ -249,7 +367,9 @@ export function useVersionHistory(docGuid) {
    */
   const clearSelection = useCallback(() => {
     setSelectedVersion(null);
+    setSelectedUpdateClock(null);
     setVersionContent(null);
+    setPreviousVersionContent(null);
   }, []);
 
   /**
@@ -270,12 +390,22 @@ export function useVersionHistory(docGuid) {
     // State
     versions,
     groupedVersions,
+    hierarchicalVersions,
     totalEdits,
     isLoading,
     error,
     selectedVersion,
     versionContent,
     isLoadingContent,
+
+    // Hierarchical drill-down state
+    selectedUpdateClock,
+    versionUpdates,
+    loadingVersionUpdates,
+
+    // Diff state
+    previousVersionContent,
+    showDiff,
 
     // Actions
     fetchHistory,
@@ -288,6 +418,14 @@ export function useVersionHistory(docGuid) {
     clearSelection,
     refresh,
     setSelectedVersion,
+
+    // Hierarchical drill-down actions
+    loadUpdatesForVersion,
+    loadContentAtClock,
+    selectUpdate,
+
+    // Diff actions
+    setShowDiff,
   };
 }
 

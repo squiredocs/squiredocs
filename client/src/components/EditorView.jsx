@@ -8,6 +8,7 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import VersionPreview from './VersionPreview';
+import DiffVersionPreview from './DiffVersionPreview';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
@@ -311,6 +312,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const {
     versions,
     groupedVersions,
+    hierarchicalVersions,
     selectedVersion,
     versionContent,
     totalEdits,
@@ -321,6 +323,16 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     renameVersion,
     deleteNamedVersion,
     clearSelection,
+    // Hierarchical drill-down
+    selectedUpdateClock,
+    versionUpdates,
+    loadingVersionUpdates,
+    loadUpdatesForVersion,
+    selectUpdate,
+    // Diff
+    previousVersionContent,
+    showDiff,
+    setShowDiff,
   } = useVersionHistory(showVersionHistory ? docGuid : null);
 
   // Auto-select current version when opening version history
@@ -500,11 +512,21 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
 
         <div className="version-history-container">
           <div className="version-history-main">
-            <VersionPreview
-              versionContent={versionContent}
-              selectedVersion={selectedVersion}
-              isLoading={versionHistoryLoading}
-            />
+            {showDiff ? (
+              <DiffVersionPreview
+                versionContent={versionContent}
+                previousVersionContent={previousVersionContent}
+                selectedVersion={selectedVersion}
+                showDiff={showDiff}
+                isLoading={versionHistoryLoading}
+              />
+            ) : (
+              <VersionPreview
+                versionContent={versionContent}
+                selectedVersion={selectedVersion}
+                isLoading={versionHistoryLoading}
+              />
+            )}
           </div>
 
           <VersionHistoryPanel
@@ -514,6 +536,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onSelectVersion={selectVersion}
             selectedVersion={selectedVersion}
             groupedVersions={groupedVersions}
+            hierarchicalVersions={hierarchicalVersions}
             totalEdits={totalEdits}
             isLoading={versionHistoryLoading}
             onCreateNamedVersion={createNamedVersion}
@@ -521,6 +544,15 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onDeleteVersion={deleteNamedVersion}
             onRestoreVersion={restoreVersion}
             userRole={userRole}
+            // Hierarchical drill-down props
+            selectedUpdateClock={selectedUpdateClock}
+            onSelectUpdate={selectUpdate}
+            onLoadUpdates={loadUpdatesForVersion}
+            versionUpdates={versionUpdates}
+            loadingVersionUpdates={loadingVersionUpdates}
+            // Diff props
+            showDiff={showDiff}
+            onToggleDiff={() => setShowDiff(!showDiff)}
           />
         </div>
       </div>

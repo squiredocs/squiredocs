@@ -702,6 +702,59 @@ app.get('/api/docs/:docId/history', requireAuth, async (req, res) => {
   }
 });
 
+// API: Get individual updates within a clock range (for drill-down)
+app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { from, to } = req.query;
+    const userId = req.user.userId;
+
+    const clockStart = parseInt(from, 10);
+    const clockEnd = parseInt(to, 10);
+
+    if (isNaN(clockStart) || isNaN(clockEnd)) {
+      return res.status(400).json({ error: 'from and to query parameters are required and must be numbers' });
+    }
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    const updates = await versionHistory.getUpdatesForVersion(persistenceProvider, docId, clockStart, clockEnd);
+    res.json({ updates });
+  } catch (error) {
+    console.error('Error getting version updates:', error);
+    res.status(500).json({ error: 'Failed to get version updates' });
+  }
+});
+
+// API: Get document content at a specific clock value
+app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) => {
+  try {
+    const { docId, clock } = req.params;
+    const userId = req.user.userId;
+
+    const clockValue = parseInt(clock, 10);
+    if (isNaN(clockValue)) {
+      return res.status(400).json({ error: 'clock parameter must be a number' });
+    }
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    const content = await versionHistory.getContentAtClock(persistenceProvider, docId, clockValue);
+    res.json(content);
+  } catch (error) {
+    console.error('Error getting content at clock:', error);
+    res.status(500).json({ error: 'Failed to get content at clock' });
+  }
+});
+
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
   try {

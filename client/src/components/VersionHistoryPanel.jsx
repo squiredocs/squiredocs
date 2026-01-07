@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
+import HierarchicalVersionList from './HierarchicalVersionList';
 import './VersionHistoryPanel.css';
 
 /**
@@ -27,6 +28,7 @@ function VersionHistoryPanel({
   onSelectVersion,
   selectedVersion,
   groupedVersions = [],
+  hierarchicalVersions = [],
   totalEdits = 0,
   isLoading = false,
   onCreateNamedVersion,
@@ -34,10 +36,20 @@ function VersionHistoryPanel({
   onDeleteVersion,
   onRestoreVersion,
   userRole,
+  // Hierarchical drill-down props
+  selectedUpdateClock,
+  onSelectUpdate,
+  onLoadUpdates,
+  versionUpdates = {},
+  loadingVersionUpdates = {},
+  // Diff props
+  showDiff,
+  onToggleDiff,
 }) {
 
   const [expandedGroups, setExpandedGroups] = useState({});
   const [filter, setFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('hierarchical'); // 'flat' or 'hierarchical'
   const [menuOpen, setMenuOpen] = useState(null);
   const menuRef = useRef(null);
 
@@ -132,11 +144,45 @@ function VersionHistoryPanel({
         </a>
       </div>
 
-      <div className="version-history-filter">
-        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="all">All versions</option>
-          <option value="named">Named versions only</option>
-        </select>
+      <div className="version-history-controls">
+        <div className="version-history-filter">
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All versions</option>
+            <option value="named">Named versions only</option>
+          </select>
+        </div>
+        <div className="version-history-view-toggle">
+          <button
+            className={`view-toggle-btn ${viewMode === 'hierarchical' ? 'active' : ''}`}
+            onClick={() => setViewMode('hierarchical')}
+            title="Hierarchical view"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+            </svg>
+          </button>
+          <button
+            className={`view-toggle-btn ${viewMode === 'flat' ? 'active' : ''}`}
+            onClick={() => setViewMode('flat')}
+            title="Flat list view"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/>
+            </svg>
+          </button>
+        </div>
+        {onToggleDiff && (
+          <button
+            className={`diff-toggle-btn ${showDiff ? 'active' : ''}`}
+            onClick={onToggleDiff}
+            title={showDiff ? 'Hide diff highlighting' : 'Show diff highlighting'}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
+            </svg>
+            <span>Diff</span>
+          </button>
+        )}
       </div>
 
       {isLoading && (
@@ -153,6 +199,28 @@ function VersionHistoryPanel({
         </div>
       )}
 
+      {/* Hierarchical view */}
+      {viewMode === 'hierarchical' && !isLoading && hierarchicalVersions.length > 0 && (
+        <HierarchicalVersionList
+          hierarchicalVersions={hierarchicalVersions}
+          selectedVersion={selectedVersion}
+          selectedUpdateClock={selectedUpdateClock}
+          onSelectVersion={onSelectVersion}
+          onSelectUpdate={onSelectUpdate}
+          onLoadUpdates={onLoadUpdates}
+          versionUpdates={versionUpdates}
+          loadingVersionUpdates={loadingVersionUpdates}
+          onCreateNamedVersion={onCreateNamedVersion}
+          onRenameVersion={onRenameVersion}
+          onDeleteVersion={onDeleteVersion}
+          onRestoreVersion={onRestoreVersion}
+          userRole={userRole}
+          isLoading={isLoading}
+        />
+      )}
+
+      {/* Flat list view */}
+      {viewMode === 'flat' && (
       <div className="version-history-list">
         {filteredGroupedVersions.map((group) => (
           <div key={group.label} className="version-group">
@@ -257,6 +325,7 @@ function VersionHistoryPanel({
           </div>
         ))}
       </div>
+      )}
 
       {totalEdits > 0 && (
         <div className="version-history-footer">

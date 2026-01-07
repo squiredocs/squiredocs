@@ -50,9 +50,16 @@
   height: 20px;
 }
 
-.version-history-filter {
+.version-history-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 20px;
   border-bottom: 1px solid #e0e0e0;
+}
+
+.version-history-filter {
+  flex: 1;
 }
 
 .version-history-filter select {
@@ -68,6 +75,69 @@
 
 .version-history-filter select:hover {
   border-color: #bdc1c6;
+}
+
+/* View toggle buttons */
+.version-history-view-toggle {
+  display: flex;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+  color: #5f6368;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.view-toggle-btn:first-child {
+  border-right: 1px solid #dadce0;
+}
+
+.view-toggle-btn:hover {
+  background: #f1f3f4;
+}
+
+.view-toggle-btn.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+/* Diff toggle button */
+.diff-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #5f6368;
+  font-size: 13px;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.diff-toggle-btn:hover {
+  background: #f1f3f4;
+  border-color: #bdc1c6;
+}
+
+.diff-toggle-btn.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.diff-toggle-btn svg {
+  flex-shrink: 0;
 }
 
 .version-history-loading,

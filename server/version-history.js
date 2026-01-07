@@ -5,8 +5,11 @@
 
 const Y = require('yjs');
 
-// Default inactivity threshold for grouping updates into versions (5 minutes)
+// Default inactivity threshold for grouping updates into versions (10 seconds)
 const DEFAULT_INACTIVITY_THRESHOLD = 10 * 1000;
+
+// Session inactivity threshold (30 minutes gap or day boundary)
+const SESSION_INACTIVITY_THRESHOLD = 30 * 60 * 1000;
 
 /**
  * Generate a deterministic color from a user ID
@@ -162,6 +165,77 @@ function groupVersionsByPeriod(versions) {
 }
 
 /**
+ * Group versions into sessions based on 30+ min gaps or day boundaries
+ * Sessions represent editing sessions (e.g., "Morning session", "Afternoon")
+ * @param {Array} versions - Array of version objects with timestamp
+ * @returns {Array} Array of session objects with nested versions
+ */
+function groupVersionsIntoSessions(versions) {
+  if (!versions || versions.length === 0) return [];
+
+  // Sort by timestamp descending (most recent first)
+  const sortedVersions = [...versions].sort(
+    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+  );
+
+  const sessions = [];
+  let currentSession = null;
+
+  for (const version of sortedVersions) {
+    const versionTime = new Date(version.timestamp);
+    const versionDay = new Date(versionTime.getFullYear(), versionTime.getMonth(), versionTime.getDate());
+
+    // Check if we need to start a new session
+    const shouldStartNewSession = !currentSession ||
+      // Day boundary - different day
+      currentSession.day.getTime() !== versionDay.getTime() ||
+      // Time gap - more than 30 minutes since last version in session
+      (currentSession.lastTime - versionTime.getTime() > SESSION_INACTIVITY_THRESHOLD);
+
+    if (shouldStartNewSession) {
+      // Generate session label based on time of day
+      const hour = versionTime.getHours();
+      let sessionLabel;
+      if (hour < 12) {
+        sessionLabel = 'Morning';
+      } else if (hour < 17) {
+        sessionLabel = 'Afternoon';
+      } else {
+        sessionLabel = 'Evening';
+      }
+
+      // Format the session time
+      const timeStr = versionTime.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+
+      currentSession = {
+        id: `session-${version.clockEnd}`,
+        label: `${sessionLabel} session`,
+        startTime: versionTime.toISOString(),
+        endTime: versionTime.toISOString(),
+        formattedTime: timeStr,
+        day: versionDay,
+        lastTime: versionTime.getTime(),
+        versions: [],
+        editCount: 0,
+      };
+      sessions.push(currentSession);
+    }
+
+    currentSession.versions.push(version);
+    currentSession.editCount += (version.clockEnd - version.clockStart + 1);
+    currentSession.lastTime = versionTime.getTime();
+    // Update endTime to be the earliest version in session (since we're iterating most recent first)
+    currentSession.endTime = version.timestamp;
+  }
+
+  return sessions;
+}
+
+/**
  * Merge named versions with auto-generated versions
  * Named versions take precedence and replace overlapping auto versions
  * @param {Array} autoVersions - Auto-generated versions from time grouping
@@ -314,12 +388,24 @@ async function getVersionTimeline(persistence, docGuid) {
     isCurrent: v.isCurrent || false,
   }));
 
-  // Group by time period
+  // Group by time period (day-level grouping for flat list)
   const groupedVersions = groupVersionsByPeriod(formattedVersions);
+
+  // Group by sessions (for hierarchical drill-down)
+  const sessionGroups = groupVersionsIntoSessions(formattedVersions);
+
+  // Organize sessions by period (Today, Yesterday, etc.)
+  const hierarchicalVersions = groupVersionsByPeriod(
+    sessionGroups.map(session => ({
+      ...session,
+      timestamp: session.startTime,
+    }))
+  );
 
   return {
     versions: formattedVersions,
     groupedVersions,
+    hierarchicalVersions, // Sessions grouped by period for drill-down UI
     totalEdits: updates.length,
   };
 }
@@ -534,14 +620,73 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
   };
 }
 
+/**
+ * Get individual updates within a clock range (for drill-down)
+ * @param {Object} persistence - PostgresPersistence instance
+ * @param {string} docGuid - Document GUID
+ * @param {number} clockStart - Starting clock value (inclusive)
+ * @param {number} clockEnd - Ending clock value (inclusive)
+ * @returns {Promise<Array>} Array of individual updates with metadata
+ */
+async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
+  const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
+
+  return updates.map(update => ({
+    clock: update.clock,
+    timestamp: update.createdAt,
+    formattedTimestamp: formatTimestamp(update.createdAt),
+    author: update.userId ? {
+      id: update.userId,
+      name: update.userName || 'Unknown',
+      email: update.userEmail,
+      picture: update.userPicture,
+      color: generateColorFromId(update.userId),
+    } : null,
+  }));
+}
+
+/**
+ * Get document content at a specific clock value
+ * @param {Object} persistence - PostgresPersistence instance
+ * @param {string} docGuid - Document GUID
+ * @param {number} clock - Clock value
+ * @returns {Promise<Object>} Document content and metadata
+ */
+async function getContentAtClock(persistence, docGuid, clock) {
+  const ydoc = await persistence.getYDocAtClock(docGuid, clock);
+  const content = Y.encodeStateAsUpdate(ydoc);
+
+  // Get metadata for this clock
+  const updates = await persistence.getUpdatesInRange(docGuid, clock, clock);
+  const update = updates[0];
+
+  return {
+    content: Array.from(content),
+    clock,
+    timestamp: update?.createdAt || null,
+    formattedTimestamp: update ? formatTimestamp(update.createdAt) : null,
+    author: update?.userId ? {
+      id: update.userId,
+      name: update.userName || 'Unknown',
+      email: update.userEmail,
+      picture: update.userPicture,
+      color: generateColorFromId(update.userId),
+    } : null,
+  };
+}
+
 module.exports = {
   generateColorFromId,
   groupUpdatesIntoVersions,
   groupVersionsByPeriod,
+  groupVersionsIntoSessions,
   mergeNamedVersions,
   formatTimestamp,
   getVersionTimeline,
   getVersionContent,
+  getUpdatesForVersion,
+  getContentAtClock,
   restoreVersion,
   DEFAULT_INACTIVITY_THRESHOLD,
+  SESSION_INACTIVITY_THRESHOLD,
 };

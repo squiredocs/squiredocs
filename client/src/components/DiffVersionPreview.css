@@ -1,0 +1,258 @@
+/* Diff Version Preview Styles */
+
+.diff-version-preview {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Diff summary header */
+.diff-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+}
+
+.diff-summary-stats {
+  display: flex;
+  gap: 12px;
+}
+
+.diff-stat {
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.diff-stat-added {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+.diff-stat-removed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.diff-stat-unchanged {
+  color: #5f6368;
+}
+
+.diff-note {
+  color: #80868b;
+  font-style: italic;
+}
+
+/* Diff legend */
+.diff-legend {
+  display: flex;
+  gap: 16px;
+  padding: 6px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.diff-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.diff-legend-added {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.diff-legend-removed {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+/* Inline diff highlighting classes */
+.diff-added {
+  background: rgba(34, 197, 94, 0.3);
+  border-radius: 2px;
+}
+
+.diff-removed {
+  background: rgba(239, 68, 68, 0.3);
+  text-decoration: line-through;
+  color: #dc2626;
+  border-radius: 2px;
+}
+
+.diff-modified {
+  background: rgba(234, 179, 8, 0.3);
+  border-radius: 2px;
+}
+
+/* Inline diff view panel */
+.diff-inline-view {
+  margin: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.diff-inline-header {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.diff-inline-content {
+  padding: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.diff-inline-segment {
+  /* Base segment styling */
+}
+
+.diff-inline-added {
+  background: rgba(34, 197, 94, 0.3);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.diff-inline-removed {
+  background: rgba(239, 68, 68, 0.3);
+  text-decoration: line-through;
+  color: #666;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.diff-inline-unchanged {
+  color: #202124;
+}
+
+/* Editor diff mode */
+.diff-mode-active .ProseMirror {
+  /* Add subtle background to indicate diff mode */
+}
+
+.diff-mode-active .ProseMirror p,
+.diff-mode-active .ProseMirror h1,
+.diff-mode-active .ProseMirror h2,
+.diff-mode-active .ProseMirror h3,
+.diff-mode-active .ProseMirror li {
+  /* Blocks in diff mode */
+}
+
+/* Side-by-side diff view (optional enhancement) */
+.diff-side-by-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+}
+
+.diff-side-panel {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diff-side-panel-header {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.diff-side-panel-header.previous {
+  color: #dc2626;
+}
+
+.diff-side-panel-header.current {
+  color: #15803d;
+}
+
+.diff-side-panel-content {
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Collapsed diff summary */
+.diff-collapsed {
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 16px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.diff-collapsed:hover {
+  background: #e8eaed;
+}
+
+.diff-collapsed-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.diff-collapsed-icon {
+  color: #1a73e8;
+}
+
+/* Animations */
+@keyframes highlight-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.diff-highlight-animated {
+  animation: highlight-pulse 1.5s ease-in-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .diff-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .diff-side-by-side {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-inline-content {
+    max-height: 150px;
+  }
+}
