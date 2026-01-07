@@ -75,6 +75,36 @@ ANTI-PATTERNS TO AVOID:
 ❌ Deleting everything and recreating from scratch
 ❌ Scripts longer than ~50 lines (break them up!)
 
+⚠️ WHY "DELETE ALL + RECREATE" IS BAD:
+  - Breaks real-time collaboration (other users see flickering)
+  - Loses document history and undo/redo state
+  - User sees blank doc then sudden content (jarring)
+  - Instead: insert new content, or iterate and modify in place
+
+═══════════════════════════════════════════════════════════════════════════
+📋 QUICK DECISION: What kind of edit am I doing?
+═══════════════════════════════════════════════════════════════════════════
+
+Before writing your script, ask yourself:
+
+□ Creating NEW content from scratch?
+  → Build incrementally across multiple modify calls (section by section)
+  → See "INCREMENTAL AUTHORING" strategies above
+
+□ Transforming EXISTING content? (e.g., formatting, converting block types)
+  → Iterate through blocks and modify in place
+  → DON'T delete everything and recreate — breaks collaboration & undo history
+  → See Example 5 (block type transformation) below
+
+□ Complex nested structure you're unsure about?
+  → Use read_document with format:"structured" FIRST to understand the tree
+  → See PITFALL 6 below
+
+□ Finding/formatting patterns in text?
+  → Use built-in helpers: findByText(), xpath(), findTextNode()
+  → Use indexOf() + length for positions — never count manually
+  → See TIP #9 below
+
 ═══════════════════════════════════════════════════════════════════════════
 SANDBOXED TYPESCRIPT EXECUTION
 ═══════════════════════════════════════════════════════════════════════════
@@ -102,28 +132,6 @@ Scripts must export a default function that receives the document fragment:
   export default function edit(doc: Y.XmlFragment) {
     // Your editing logic here
   }
-
-═══════════════════════════════════════════════════════════════════════════
-BEST PRACTICES FOR EACH SCRIPT
-═══════════════════════════════════════════════════════════════════════════
-
-Each modify call should do ONE logical thing:
-✅ Good: Add a single section (heading + 2-3 paragraphs)
-✅ Good: Add a bullet list with 3-5 items
-✅ Good: Format all instances of a pattern (TODOs, links, etc.)
-✅ Good: Update all headings of a certain level
-
-❌ DON'T: Rewrite entire documents from scratch
-  - Deleting all blocks and recreating is inefficient
-  - Breaks real-time collaboration (other users see flickering)
-  - Loses document history and undo/redo state
-  - User sees blank doc then sudden content (jarring)
-
-✅ DO: Make targeted modifications
-  - Insert new content at specific positions
-  - Find and modify existing blocks in place
-  - Use format() to change styling without rewriting
-  - Keep scripts focused and under ~50 lines
 
 ═══════════════════════════════════════════════════════════════════════════
 BUILT-IN HELPER FUNCTIONS
@@ -417,7 +425,65 @@ await modify({
   \`
 });
 
-// Example 5: Create mixed formatting (bold + normal text)
+// Example 5: Transform block types in place (e.g., markdown → proper blocks)
+// ⭐ KEY PATTERN: Convert existing blocks without deleting the whole document
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const blocks = doc.toArray();
+
+      // Iterate BACKWARD when replacing blocks (avoids index shifting)
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const block = blocks[i];
+        if (!(block instanceof Y.XmlElement) || block.nodeName !== 'paragraph') continue;
+
+        const textNode = findTextNode(block);
+        if (!textNode) continue;
+        const content = extractText(textNode);
+
+        // Detect markdown heading pattern: # Title, ## Subtitle, ### Section
+        const headingMatch = content.match(/^(#{1,3})\\s+(.+)$/);
+        if (headingMatch) {
+          const level = headingMatch[1].length;
+          const text = headingMatch[2];
+
+          // Create new heading block with same content
+          const heading = new Y.XmlElement('heading');
+          heading.setAttribute('level', level);
+          const newText = new Y.XmlText();
+          newText.insert(0, text);
+          heading.insert(0, [newText]);
+
+          // Replace in place: delete old, insert new at same position
+          doc.delete(i, 1);
+          doc.insert(i, [heading]);
+        }
+
+        // Detect markdown bullet: - Item or * Item
+        const bulletMatch = content.match(/^[-*]\\s+(.+)$/);
+        if (bulletMatch) {
+          const text = bulletMatch[1];
+
+          // Create bullet list with single item
+          const list = new Y.XmlElement('bulletList');
+          const item = new Y.XmlElement('listItem');
+          const para = new Y.XmlElement('paragraph');
+          const newText = new Y.XmlText();
+          newText.insert(0, text);
+          para.insert(0, [newText]);
+          item.insert(0, [para]);
+          list.insert(0, [item]);
+
+          doc.delete(i, 1);
+          doc.insert(i, [list]);
+        }
+      }
+    }
+  \`
+});
+
+// Example 6: Create mixed formatting (bold + normal text)
 // ⭐ PREFERRED: Use createFormattedText() — no position counting needed!
 await modify({
   docGuid: "abc-123",
@@ -460,7 +526,7 @@ await modify({
   \`
 });
 
-// Example 5b: FALLBACK — insert-then-format pattern
+// Example 6b: FALLBACK — insert-then-format pattern
 // Only use this when formatting EXISTING text or when segments aren't known upfront.
 // For new text with mixed formatting, always prefer createFormattedText() above.
 await modify({
@@ -487,53 +553,19 @@ await modify({
 });
 
 ═══════════════════════════════════════════════════════════════════════════
-TIPS
+QUICK REFERENCE: Key behaviors & techniques
 ═══════════════════════════════════════════════════════════════════════════
 
-1. Always use toDelta() to extract text from Y.XmlText, not toString()
-   toString() returns XML markup when text has formatting
+SCRIPT EXECUTION BEHAVIOR:
+• All changes batched in single transaction → entire script = one undo step
+• If script fails mid-execution → all changes automatically rolled back
+• Scripts run on live document → changes sync to all users in real-time
 
-2. Check instance types before operations:
-   if (child instanceof Y.XmlElement) { ... }
-   if (child instanceof Y.XmlText) { ... }
-
-3. For hierarchical operations, use recursive functions to traverse the tree
-
-4. All changes are batched in a single transaction - the entire script
-   can be undone with one "undo" operation
-
-5. If script fails mid-execution, all changes are automatically rolled back
-
-6. Scripts run on the live document - changes sync to all users in real-time
-
-7. REMOVING FORMATTING: Use { attribute: null }, NOT empty object {}
-
-   ❌ WRONG - empty object does nothing:
-     text.format(0, content.length, {});  // No effect! Text stays bold
-
-   ✅ CORRECT - explicitly set attribute to null:
-     text.format(0, content.length, { bold: null });     // Removes bold
-     text.format(0, content.length, { italic: null });   // Removes italic
-     text.format(0, content.length, { bold: null, italic: null });  // Removes both
-
-8. IMPORTANT: For mixed formatting, use createFormattedText() helper
-
-   ✅ USE THIS - no position counting, no reversal bugs:
-     const text = createFormattedText([
-       'Visit ',
-       { text: 'Example Site', attrs: { link: { href: '...' } } },
-       ' for more info'
-     ]);
-
-   ❌ AVOID - sequential inserts can reverse text order (see PITFALL 5):
-     const text = new Y.XmlText();
-     text.insert(0, 'Visit ', {});
-     text.insert(text.length, 'Link', { link: {...} });
-     // May result in: "LinkVisit " - REVERSED!
-
-9. FINDING FORMAT POSITIONS: Use indexOf/regex — never count characters manually!
-
-   When formatting existing text, use string methods to find positions:
+KEY TECHNIQUES:
+• Use toDelta() to extract text, NOT toString() → see PITFALL 3
+• Use createFormattedText() for mixed formatting → see PITFALL 5
+• Use { attribute: null } to remove formatting → see PITFALL 2
+• Use indexOf/regex for positions — never count manually:
 
    ✅ Using indexOf + length:
      const content = extractText(textNode);
@@ -544,14 +576,16 @@ TIPS
      }
 
    ✅ Using regex for complex patterns:
-     const content = extractText(textNode);
      const match = content.match(/https?:\/\/\S+/);
      if (match) {
        textNode.format(match.index, match[0].length, { link: { href: match[0] } });
      }
 
-   ❌ NEVER use literal numbers — they're error-prone and unreadable:
-     text.format(6, 12, { link: {...} });  // What is 6? What is 12?
+• Check instance types before operations:
+     if (child instanceof Y.XmlElement) { ... }
+     if (child instanceof Y.XmlText) { ... }
+
+• For nested structures, use recursive functions to traverse the tree
 
 ═══════════════════════════════════════════════════════════════════════════
 COMMON PITFALLS
