@@ -842,17 +842,29 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
     // Find the version boundaries using time-based grouping
     const versions = versionHistory.groupUpdatesIntoVersions(updates);
 
-    // First try exact match, then find the version that contains this clock
-    let targetVersion = versions.find(v => v.clockEnd === targetClock);
-    if (!targetVersion) {
-      targetVersion = versions.find(v =>
-        v.clockStart <= targetClock && v.clockEnd >= targetClock
-      );
-    }
+    // Find the auto version that contains the target clock
+    const containingVersion = versions.find(v =>
+      v.clockStart <= targetClock && v.clockEnd >= targetClock
+    );
 
-    // Use the containing version's boundaries, or just the single clock if not found
-    const versionClockStart = targetVersion?.clockStart ?? targetClock;
-    const versionClockEnd = targetVersion?.clockEnd ?? targetClock;
+    // Determine the clock range for the named version
+    let versionClockStart, versionClockEnd;
+
+    if (clockEnd !== undefined && clockEnd !== null && containingVersion) {
+      // Naming a specific clock - the named version includes everything
+      // from the start of the containing auto version up to the named clock
+      // This "breaks" the auto version, with the named clock as the end point
+      versionClockStart = containingVersion.clockStart;
+      versionClockEnd = targetClock;
+    } else if (containingVersion) {
+      // Naming the current version - use the full auto version boundaries
+      versionClockStart = containingVersion.clockStart;
+      versionClockEnd = containingVersion.clockEnd;
+    } else {
+      // Fallback - just use the target clock
+      versionClockStart = targetClock;
+      versionClockEnd = targetClock;
+    }
 
     const version = await persistenceProvider.createNamedVersion(
       docId,
