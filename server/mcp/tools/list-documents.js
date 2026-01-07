@@ -96,17 +96,32 @@ async function handler(args, agentToken) {
 
   // Fetch metadata (title) directly from the database for each accessible document
   // This ensures we're reading from the DB and not relying on any in-memory cache
+  // Use try/catch per document to prevent one failure from crashing the entire list
   const documents = await Promise.all(
     result.rows.map(async (row) => {
-      const meta = await persistenceProvider.getDocumentMeta(row.id);
-      return {
-        id: row.id,
-        title: meta.title || null,
-        role: row.role,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        shareCount: parseInt(row.share_count, 10),
-      };
+      try {
+        const meta = await persistenceProvider.getDocumentMeta(row.id);
+        return {
+          id: row.id,
+          title: meta.title || null,
+          role: row.role,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          shareCount: parseInt(row.share_count, 10),
+        };
+      } catch (err) {
+        // Log error but don't fail the entire list operation
+        console.warn(`Failed to fetch metadata for document ${row.id}:`, err.message);
+        return {
+          id: row.id,
+          title: null,
+          role: row.role,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          shareCount: parseInt(row.share_count, 10),
+          error: true,
+        };
+      }
     })
   );
 

@@ -100,6 +100,16 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
     // Now extend the newly created session
     const session = activeSessions.get(pendingResult.sessionId);
     if (session) {
+      // Verify session is fully initialized before extending
+      if (!session.provider || !session.cleanup) {
+        console.warn(`[agent-presence] Session ${pendingResult.sessionId} not fully initialized, skipping extend`);
+        return {
+          success: false,
+          error: 'Session initialization incomplete',
+          sessionId: pendingResult.sessionId,
+        };
+      }
+
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
       }

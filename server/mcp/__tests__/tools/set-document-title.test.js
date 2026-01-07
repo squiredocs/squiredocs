@@ -16,6 +16,9 @@ const setDocumentTitle = require('../../tools/set-document-title');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
 
+// Track pending persistence operations for test reliability
+const pendingOperations = [];
+
 describe('set_document_title tool', () => {
   let testUserId;
   let testDocId;
@@ -35,9 +38,11 @@ describe('set_document_title tool', () => {
           // Extract userId from origin if it's a string (passed from MCP tools)
           const userId = typeof origin === 'string' ? origin : null;
 
-          persistenceProvider.storeUpdate(docGuid, update, userId).catch((err) => {
+          // Track the promise to ensure persistence completes before test cleanup
+          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId).catch((err) => {
             console.error(`Error persisting update for ${docGuid}:`, err);
           });
+          pendingOperations.push(storePromise);
         });
 
         try {
@@ -75,11 +80,20 @@ describe('set_document_title tool', () => {
   });
 
   afterAll(async () => {
+    // Wait for any pending persistence operations to complete
+    await Promise.all(pendingOperations);
+
     // Clean up test data
     await pool.query('DELETE FROM document_shares WHERE user_id = $1', [testUserId]);
     await pool.query('DELETE FROM documents WHERE creator_id = $1', [testUserId]);
     await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     await pool.end();
+  });
+
+  afterEach(async () => {
+    // Wait for any pending persistence operations to complete before next test
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
   });
 
   beforeEach(async () => {
@@ -212,6 +226,9 @@ describe('set_document_title tool', () => {
         },
         agentToken
       );
+
+      // Wait for pending persistence operations to complete before checking DB
+      await Promise.all(pendingOperations);
 
       // Verify a new update was added
       const afterResult = await pool.query(

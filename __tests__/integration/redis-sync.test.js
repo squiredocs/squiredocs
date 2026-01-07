@@ -35,7 +35,10 @@ class MockRedis extends EventEmitter {
     this._busHandler = (channel, message, sender) => {
       // Don't receive messages from self
       if (sender !== this && this.subscriptions.has(channel)) {
-        setImmediate(() => this.emit('message', channel, message));
+        // Use messageBuffer event with Buffer arguments for binary data (ioredis behavior)
+        const channelBuffer = Buffer.isBuffer(channel) ? channel : Buffer.from(channel);
+        const messageBuffer = Buffer.isBuffer(message) ? message : Buffer.from(message);
+        setImmediate(() => this.emit('messageBuffer', channelBuffer, messageBuffer));
       }
     };
     sharedMessageBus.on('publish', this._busHandler);
@@ -119,9 +122,10 @@ function createSyncedDoc(docId, instanceName) {
   subClient.subscribe(`awareness:${docId}`);
   subClient.subscribe(`updates:${docId}`);
 
-  // Handle incoming messages
-  subClient.on('message', (channel, message) => {
-    const buffer = Buffer.isBuffer(message) ? message : Buffer.from(message);
+  // Handle incoming messages (use messageBuffer for binary data like real ioredis)
+  subClient.on('messageBuffer', (channelBuffer, messageBuffer) => {
+    const channel = channelBuffer.toString();
+    const buffer = Buffer.isBuffer(messageBuffer) ? messageBuffer : Buffer.from(messageBuffer);
 
     if (channel === `awareness:${docId}`) {
       receivedAwareness.push(buffer);

@@ -16,6 +16,9 @@ const createDocument = require('../../tools/create-document');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
 
+// Track pending persistence operations for test reliability
+const pendingOperations = [];
+
 describe('create_document tool', () => {
   let testUserId;
 
@@ -34,9 +37,11 @@ describe('create_document tool', () => {
           // Extract userId from origin if it's a string (passed from MCP tools)
           const userId = typeof origin === 'string' ? origin : null;
 
-          persistenceProvider.storeUpdate(docGuid, update, userId).catch((err) => {
+          // Track the promise to ensure persistence completes before test cleanup
+          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId).catch((err) => {
             console.error(`Error persisting update for ${docGuid}:`, err);
           });
+          pendingOperations.push(storePromise);
         });
 
         try {
@@ -74,6 +79,9 @@ describe('create_document tool', () => {
   });
 
   afterAll(async () => {
+    // Wait for any pending persistence operations to complete
+    await Promise.all(pendingOperations);
+
     // Clean up test data
     await pool.query('DELETE FROM document_shares WHERE user_id = $1', [testUserId]);
     await pool.query('DELETE FROM documents WHERE creator_id = $1', [testUserId]);
@@ -85,6 +93,9 @@ describe('create_document tool', () => {
   let createdDocIds = [];
 
   afterEach(async () => {
+    // Wait for any pending persistence operations to complete before cleanup
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
     for (const docId of createdDocIds) {
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docId]);
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);

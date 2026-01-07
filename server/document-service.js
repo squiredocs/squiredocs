@@ -40,26 +40,27 @@ function getSharedDoc(docGuid) {
  * @param {string} docGuid - Document UUID
  * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
  * @param {string|null} userId - User ID for attribution
- * @returns {Promise<void>} Promise that resolves when persistence completes
+ * @returns {Promise<void>} Promise that resolves when update is applied and persistence is initiated
  */
 async function updateDocument(docGuid, updateFn, userId = null) {
   const ydoc = getSharedDoc(docGuid);
 
-  // Capture the update event and wait for persistence
-  const persistencePromise = new Promise((resolve) => {
-    const updateHandler = (update, origin) => {
+  // Track whether update fired
+  let updateFired = false;
+  let updateHandler;
+
+  // Create a promise that resolves when the update event fires
+  // The update event fires synchronously at the end of the transaction
+  const updatePromise = new Promise((resolve) => {
+    updateHandler = () => {
+      updateFired = true;
       ydoc.off('update', updateHandler);
-      // Wait for async persistence to complete
-      setTimeout(resolve, 100);
+      // Allow event loop to process (persistence starts asynchronously)
+      // Use setImmediate to ensure async persistence has been initiated
+      setImmediate(resolve);
     };
 
     ydoc.once('update', updateHandler);
-
-    // Fallback timeout in case update doesn't fire
-    setTimeout(() => {
-      ydoc.off('update', updateHandler);
-      resolve();
-    }, 500);
   });
 
   // Apply changes in a transaction
@@ -70,8 +71,18 @@ async function updateDocument(docGuid, updateFn, userId = null) {
     updateFn(ydoc);
   }, userId); // Pass userId as origin for attribution
 
-  // Wait for the update event and persistence to complete
-  await persistencePromise;
+  // Wait for the update event to fire and async operations to be initiated
+  // If no changes were made, the update event won't fire and we timeout
+  const timeoutPromise = new Promise((resolve) => {
+    setTimeout(() => {
+      if (!updateFired) {
+        ydoc.off('update', updateHandler);
+      }
+      resolve();
+    }, 50);
+  });
+
+  await Promise.race([updatePromise, timeoutPromise]);
 }
 
 module.exports = {

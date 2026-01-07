@@ -38,74 +38,90 @@ async function streamingInsert(
   const numChunks = 5;
   const chunkSize = Math.ceil(text.length / numChunks);
 
+  // Timeout to prevent indefinite hanging (generous limit: 30 seconds)
+  const TIMEOUT_MS = 30000;
+
   // Wrap all operations in a single transaction for atomic undo
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let chunkIndex = 0;
     let currentPos = position;
+    let timeoutId;
+
+    // Set up timeout to prevent indefinite hanging
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Streaming insert timed out after ${TIMEOUT_MS}ms`));
+    }, TIMEOUT_MS);
 
     // Insert chunks one at a time
     const insertChunk = () => {
-      if (chunkIndex >= numChunks) {
-        // All chunks inserted
-        // Create final cursor position
-        const finalTextNode = targetNode instanceof Y.XmlText ? targetNode : findTextNodeAtPosition(targetNode, currentPos);
-        if (finalTextNode) {
-          const relPos = Y.createRelativePositionFromTypeIndex(finalTextNode, currentPos);
-          const finalPosition = Y.relativePositionToJSON(relPos);
+      try {
+        if (chunkIndex >= numChunks) {
+          // All chunks inserted - clear timeout
+          clearTimeout(timeoutId);
 
-          // Update awareness with final cursor position
-          if (awareness && finalPosition) {
+          // Create final cursor position
+          const finalTextNode = targetNode instanceof Y.XmlText ? targetNode : findTextNodeAtPosition(targetNode, currentPos);
+          if (finalTextNode) {
+            const relPos = Y.createRelativePositionFromTypeIndex(finalTextNode, currentPos);
+            const finalPosition = Y.relativePositionToJSON(relPos);
+
+            // Update awareness with final cursor position
+            if (awareness && finalPosition) {
+              awareness.setLocalStateField('cursor', {
+                anchor: finalPosition,
+                head: finalPosition,
+              });
+            }
+
+            resolve({ finalPosition, insertedLength: text.length });
+          } else {
+            resolve({ finalPosition: cursorStartPos, insertedLength: text.length });
+          }
+          return;
+        }
+
+        // Calculate chunk boundaries
+        const startIdx = chunkIndex * chunkSize;
+        const endIdx = Math.min(startIdx + chunkSize, text.length);
+        const chunk = text.substring(startIdx, endIdx);
+
+        // Perform insert in a transaction
+        ydoc.transact(() => {
+          if (targetNode instanceof Y.XmlText) {
+            // Direct text node insertion
+            targetNode.insert(currentPos, chunk, marks.length > 0 ? { marks } : undefined);
+          } else if (targetNode instanceof Y.XmlElement) {
+            // Find or create text node within element
+            const textNode = findOrCreateTextNode(targetNode, currentPos);
+            if (textNode) {
+              const offsetInNode = currentPos - getOffsetBeforeNode(targetNode, textNode);
+              textNode.insert(offsetInNode, chunk, marks.length > 0 ? { marks } : undefined);
+            }
+          }
+        });
+
+        currentPos += chunk.length;
+        chunkIndex++;
+
+        // Update awareness cursor to show typing progress
+        if (awareness) {
+          const currentTextNode = targetNode instanceof Y.XmlText ? targetNode : findTextNodeAtPosition(targetNode, currentPos);
+          if (currentTextNode) {
+            const relPos = Y.createRelativePositionFromTypeIndex(currentTextNode, currentPos);
+            const cursorPos = Y.relativePositionToJSON(relPos);
             awareness.setLocalStateField('cursor', {
-              anchor: finalPosition,
-              head: finalPosition,
+              anchor: cursorPos,
+              head: cursorPos,
             });
           }
-
-          resolve({ finalPosition, insertedLength: text.length });
-        } else {
-          resolve({ finalPosition: cursorStartPos, insertedLength: text.length });
         }
-        return;
+
+        // Schedule next chunk
+        setTimeout(insertChunk, delayMs);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        reject(err);
       }
-
-      // Calculate chunk boundaries
-      const startIdx = chunkIndex * chunkSize;
-      const endIdx = Math.min(startIdx + chunkSize, text.length);
-      const chunk = text.substring(startIdx, endIdx);
-
-      // Perform insert in a transaction
-      ydoc.transact(() => {
-        if (targetNode instanceof Y.XmlText) {
-          // Direct text node insertion
-          targetNode.insert(currentPos, chunk, marks.length > 0 ? { marks } : undefined);
-        } else if (targetNode instanceof Y.XmlElement) {
-          // Find or create text node within element
-          const textNode = findOrCreateTextNode(targetNode, currentPos);
-          if (textNode) {
-            const offsetInNode = currentPos - getOffsetBeforeNode(targetNode, textNode);
-            textNode.insert(offsetInNode, chunk, marks.length > 0 ? { marks } : undefined);
-          }
-        }
-      });
-
-      currentPos += chunk.length;
-      chunkIndex++;
-
-      // Update awareness cursor to show typing progress
-      if (awareness) {
-        const currentTextNode = targetNode instanceof Y.XmlText ? targetNode : findTextNodeAtPosition(targetNode, currentPos);
-        if (currentTextNode) {
-          const relPos = Y.createRelativePositionFromTypeIndex(currentTextNode, currentPos);
-          const cursorPos = Y.relativePositionToJSON(relPos);
-          awareness.setLocalStateField('cursor', {
-            anchor: cursorPos,
-            head: cursorPos,
-          });
-        }
-      }
-
-      // Schedule next chunk
-      setTimeout(insertChunk, delayMs);
     };
 
     // Start insertion

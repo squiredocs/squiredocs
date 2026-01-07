@@ -203,8 +203,22 @@ setPersistence({
 
       const persistStart = Date.now();
 
-      // Persist to PostgreSQL (source of truth)
-      persistenceProvider.storeUpdate(docGuid, update, userId, agentName)
+      // Helper for retry logic on transient failures
+      const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 100) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            return await fn();
+          } catch (err) {
+            if (attempt === maxRetries) throw err;
+            // Exponential backoff with jitter
+            const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+      };
+
+      // Persist to PostgreSQL (source of truth) with retry for transient failures
+      retryWithBackoff(() => persistenceProvider.storeUpdate(docGuid, update, userId, agentName))
         .then(async () => {
           logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
 
@@ -214,13 +228,15 @@ setPersistence({
           const title = meta.get('title') || null;
 
           // Update documents table with current title (denormalized for performance)
-          await persistenceProvider.updateDocumentTitle(docGuid, title).catch(err => {
-            // Log but don't fail if title update fails
-            console.warn(`Failed to sync title for ${docGuid}:`, err.message);
+          // Use retry for transient failures
+          await retryWithBackoff(() => persistenceProvider.updateDocumentTitle(docGuid, title)).catch((err) => {
+            // Log but don't fail if title update fails after retries
+            console.warn(`Failed to sync title for ${docGuid} after retries:`, err.message);
           });
         })
-        .catch(err => {
-          console.error(`Error persisting update for ${docGuid}:`, err);
+        .catch((err) => {
+          // Log failed persistence with high severity - this is data loss risk
+          console.error(`CRITICAL: Failed to persist update for ${docGuid} after retries:`, err);
         });
     });
 
@@ -962,7 +978,7 @@ if (fs.existsSync(clientBuildPath)) {
 }
 
 // Create HTTP server
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);
 
@@ -973,9 +989,12 @@ const server = app.listen(PORT, () => {
   documentService.init(getYDoc, extractDocGuid);
 
   // Initialize Redis pub/sub for cross-instance synchronization
-  redisPubSub.init().catch((err) => {
+  // Await to ensure Redis is ready before accepting WebSocket connections
+  try {
+    await redisPubSub.init();
+  } catch (err) {
     console.error('[RedisPubSub] Failed to initialize:', err.message);
-  });
+  }
 });
 
 // Create WebSocket server attached to HTTP server
@@ -1339,7 +1358,7 @@ wss.on('connection', (ws, req) => {
         // Register our fix handler - runs SYNCHRONOUSLY after y-websocket's handler
         doc.awareness.on('update', fixControlledIdsHandler);
 
-        // Agent detection
+        // Agent detection - rely solely on awareness update event, no arbitrary setTimeout
         const checkAwareness = () => {
           const awarenessStates = doc.awareness.getStates();
           for (const [clientId, state] of awarenessStates.entries()) {
@@ -1349,7 +1368,9 @@ wss.on('connection', (ws, req) => {
             }
           }
         };
-        setTimeout(checkAwareness, 100);
+        // Check immediately for any existing awareness states
+        checkAwareness();
+        // And listen for updates
         doc.awareness.on('update', checkAwareness);
 
         // Clean up on close
@@ -1374,9 +1395,11 @@ wss.on('connection', (ws, req) => {
           doc.awareness.off('update', checkAwareness);
 
           // ========== REDIS PUB/SUB CLEANUP ==========
-          // If no more local connections, unsubscribe from Redis after a delay
-          // (delay handles rapid reconnect scenarios)
-          setTimeout(() => {
+          // If no more local connections, unsubscribe from Redis
+          // Use setImmediate to allow pending connection handling to complete first
+          // This prevents race conditions with rapid disconnect/reconnect cycles
+          setImmediate(() => {
+            // Double-check connection count at cleanup time to handle reconnections
             if (doc.conns.size === 0 && redisPubSub.isEnabled()) {
               console.log(`[RedisPubSub] No more connections for doc ${docId}, cleaning up`);
 
@@ -1392,8 +1415,10 @@ wss.on('connection', (ws, req) => {
                 doc.off('update', doc._redisUpdateHandler);
                 doc._redisUpdateHandler = null;
               }
+            } else if (doc.conns.size > 0) {
+              console.log(`[RedisPubSub] Skipping cleanup for doc ${docId}, ${doc.conns.size} connections remaining`);
             }
-          }, 1000); // 1 second delay
+          });
           // ========== END REDIS PUB/SUB CLEANUP ==========
         });
       }
