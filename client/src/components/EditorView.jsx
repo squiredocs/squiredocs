@@ -310,7 +310,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Version history hook
   const {
     versions,
-    groupedVersions,
     hierarchicalVersions,
     selection, // Unified: version or clock update (with isClock: true)
     versionContent,
@@ -520,7 +519,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onClose={handleCloseVersionHistory}
             onSelectVersion={selectVersion}
             selection={selection}
-            groupedVersions={groupedVersions}
             hierarchicalVersions={hierarchicalVersions}
             totalEdits={totalEdits}
             isLoading={versionHistoryLoading}

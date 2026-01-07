@@ -46,7 +46,6 @@ function groupVersionsByPeriod(versions) {
 export function useVersionHistory(docGuid) {
   const { api } = useAuth();
   const [versions, setVersions] = useState([]);
-  const [hierarchicalVersions, setHierarchicalVersions] = useState([]);
   const [totalEdits, setTotalEdits] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -60,8 +59,10 @@ export function useVersionHistory(docGuid) {
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
 
-  // Group versions client-side using browser's local timezone
+  // Group versions client-side using browser's local timezone for proper display
   const groupedVersions = useMemo(() => groupVersionsByPeriod(versions), [versions]);
+  // hierarchicalVersions is the same as groupedVersions - kept for API compatibility
+  const hierarchicalVersions = groupedVersions;
 
   /**
    * Fetch version history timeline
@@ -75,8 +76,6 @@ export function useVersionHistory(docGuid) {
     try {
       const response = await api.get(`/api/docs/${docGuid}/history`);
       setVersions(response.data.versions || []);
-      setHierarchicalVersions(response.data.hierarchicalVersions || []);
-      // groupedVersions is computed client-side via useMemo for proper local timezone handling
       setTotalEdits(response.data.totalEdits || 0);
       // Clear cached version updates since version structure may have changed
       // (e.g., after naming a clock, auto versions get split and clock ranges change)

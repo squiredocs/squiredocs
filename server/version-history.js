@@ -8,9 +8,6 @@ const Y = require('yjs');
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 
-// Session inactivity threshold (30 minutes gap or day boundary)
-const SESSION_INACTIVITY_THRESHOLD = 30 * 60 * 1000;
-
 /**
  * Generate a deterministic color from a user ID
  * @param {string} id - User ID
@@ -126,113 +123,8 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 }
 
 /**
- * Group versions by month for display (January 2025, December 2024, etc.)
- * @param {Array} versions - Array of version objects
- * @returns {Object} Grouped versions by month
- */
-function groupVersionsByPeriod(versions) {
-  const monthGroups = new Map();
-
-  for (const version of versions) {
-    const versionDate = new Date(version.timestamp);
-    const monthKey = `${versionDate.getFullYear()}-${String(versionDate.getMonth() + 1).padStart(2, '0')}`;
-    const monthLabel = versionDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-    if (!monthGroups.has(monthKey)) {
-      monthGroups.set(monthKey, { key: monthKey, label: monthLabel, versions: [] });
-    }
-    monthGroups.get(monthKey).versions.push(version);
-  }
-
-  // Sort versions within each month by timestamp descending (most recent first)
-  const sortByRecent = (versions) =>
-    versions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-  // Convert to array and sort months descending (most recent first)
-  const result = Array.from(monthGroups.values())
-    .sort((a, b) => b.key.localeCompare(a.key))
-    .map(group => ({
-      label: group.label,
-      versions: sortByRecent(group.versions),
-    }));
-
-  return result;
-}
-
-/**
- * Group versions into sessions based on 30+ min gaps or day boundaries
- * Sessions represent editing sessions (e.g., "Morning session", "Afternoon")
- * @param {Array} versions - Array of version objects with timestamp
- * @returns {Array} Array of session objects with nested versions
- */
-function groupVersionsIntoSessions(versions) {
-  if (!versions || versions.length === 0) return [];
-
-  // Sort by timestamp descending (most recent first)
-  const sortedVersions = [...versions].sort(
-    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-  );
-
-  const sessions = [];
-  let currentSession = null;
-
-  for (const version of sortedVersions) {
-    const versionTime = new Date(version.timestamp);
-    const versionDay = new Date(versionTime.getFullYear(), versionTime.getMonth(), versionTime.getDate());
-
-    // Check if we need to start a new session
-    const shouldStartNewSession = !currentSession ||
-      // Day boundary - different day
-      currentSession.day.getTime() !== versionDay.getTime() ||
-      // Time gap - more than 30 minutes since last version in session
-      (currentSession.lastTime - versionTime.getTime() > SESSION_INACTIVITY_THRESHOLD);
-
-    if (shouldStartNewSession) {
-      // Generate session label based on time of day
-      const hour = versionTime.getHours();
-      let sessionLabel;
-      if (hour < 12) {
-        sessionLabel = 'Morning';
-      } else if (hour < 17) {
-        sessionLabel = 'Afternoon';
-      } else {
-        sessionLabel = 'Evening';
-      }
-
-      // Format the session time
-      const timeStr = versionTime.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-
-      currentSession = {
-        id: `session-${version.clockEnd}`,
-        label: `${sessionLabel} session`,
-        startTime: versionTime.toISOString(),
-        endTime: versionTime.toISOString(),
-        formattedTime: timeStr,
-        day: versionDay,
-        lastTime: versionTime.getTime(),
-        versions: [],
-        editCount: 0,
-      };
-      sessions.push(currentSession);
-    }
-
-    currentSession.versions.push(version);
-    currentSession.editCount += (version.clockEnd - version.clockStart + 1);
-    currentSession.lastTime = versionTime.getTime();
-    // Update endTime to be the earliest version in session (since we're iterating most recent first)
-    currentSession.endTime = version.timestamp;
-  }
-
-  return sessions;
-}
-
-/**
  * Merge named versions with auto-generated versions
- * Named versions take precedence and replace overlapping auto versions
+ * Named versions take precedence and can split auto versions
  * @param {Array} autoVersions - Auto-generated versions from time grouping
  * @param {Array} namedVersions - User-created named versions
  * @returns {Array} Merged version list
@@ -247,10 +139,9 @@ function mergeNamedVersions(autoVersions, namedVersions) {
     }));
   }
 
-  // Create a map of clock ranges covered by named versions
-  const namedRanges = namedVersions.map(nv => {
-    // Find the auto version that contains this named version's clock range
-    // (named version's clockEnd might be inside an auto version's range, not at its end)
+  // Create named version objects with metadata
+  const namedVersionObjects = namedVersions.map(nv => {
+    // Find the auto version that contains this named version for timestamp/authors
     const matchingAutoVersion = autoVersions.find(av =>
       av.clockStart <= nv.clock_end && av.clockEnd >= nv.clock_end
     );
@@ -259,54 +150,91 @@ function mergeNamedVersions(autoVersions, namedVersions) {
     const timestamp = nv.original_timestamp || matchingAutoVersion?.timestamp || nv.created_at;
 
     return {
-      start: nv.clock_start,
-      end: nv.clock_end,
-      version: {
-        id: nv.id,
-        name: nv.name,
-        clockStart: nv.clock_start,
-        clockEnd: nv.clock_end,
-        timestamp,
-        isNamed: true,
-        createdBy: nv.creator_name ? {
-          id: nv.created_by,
-          name: nv.creator_name,
-          email: nv.creator_email,
-          picture: nv.creator_picture,
-          color: generateColorFromId(nv.created_by),
-        } : null,
-        // Use the original version's authors
-        authors: matchingAutoVersion?.authors || [],
-      },
+      id: nv.id,
+      name: nv.name,
+      clockStart: nv.clock_start,
+      clockEnd: nv.clock_end,
+      timestamp,
+      isNamed: true,
+      createdBy: nv.creator_name ? {
+        id: nv.created_by,
+        name: nv.creator_name,
+        email: nv.creator_email,
+        picture: nv.creator_picture,
+        color: generateColorFromId(nv.created_by),
+      } : null,
+      authors: matchingAutoVersion?.authors || [],
     };
   });
 
-  // Filter out auto versions that are fully covered by named versions
+  // Process auto versions, splitting them around named versions
   const result = [];
   let maxClock = 0;
 
   for (const autoVersion of autoVersions) {
-    // Check if this auto version overlaps with any named version
-    const overlapping = namedRanges.find(
-      nr => autoVersion.clockStart <= nr.end && autoVersion.clockEnd >= nr.start
+    // Find all named versions that overlap with this auto version
+    const overlappingNamed = namedVersionObjects.filter(
+      nv => nv.clockStart <= autoVersion.clockEnd && nv.clockEnd >= autoVersion.clockStart
     );
 
-    if (!overlapping) {
+    console.log(`[MergeVersions] Auto version ${autoVersion.clockStart}-${autoVersion.clockEnd}, overlapping named:`,
+      overlappingNamed.map(nv => `${nv.name}(${nv.clockStart}-${nv.clockEnd})`));
+
+    if (overlappingNamed.length === 0) {
+      // No overlap - keep the auto version as-is
       result.push({
         ...autoVersion,
         id: `auto-${autoVersion.clockEnd}`,
         isNamed: false,
       });
+    } else {
+      // Split the auto version around named versions
+      // Named versions end at their clockEnd, so we need to create fragments
+      // for clocks that come AFTER named versions
+      // Sort overlapping named versions by clockEnd descending to process from end
+      overlappingNamed.sort((a, b) => b.clockEnd - a.clockEnd);
+
+      let currentEnd = autoVersion.clockEnd;
+
+      for (const nv of overlappingNamed) {
+        // Add auto version fragment after this named version (if any)
+        if (nv.clockEnd < currentEnd) {
+          console.log(`[MergeVersions] Creating fragment ${nv.clockEnd + 1}-${currentEnd} after ${nv.name}`);
+          result.push({
+            ...autoVersion,
+            clockStart: nv.clockEnd + 1,
+            clockEnd: currentEnd,
+            id: `auto-${currentEnd}`,
+            isNamed: false,
+          });
+        }
+
+        // Move back past the named version's range
+        currentEnd = nv.clockStart - 1;
+      }
+
+      // Add any remaining fragment before the first named version
+      if (autoVersion.clockStart <= currentEnd) {
+        console.log(`[MergeVersions] Creating fragment ${autoVersion.clockStart}-${currentEnd} before named versions`);
+        result.push({
+          ...autoVersion,
+          clockStart: autoVersion.clockStart,
+          clockEnd: currentEnd,
+          id: `auto-${currentEnd}`,
+          isNamed: false,
+        });
+      }
     }
+
     maxClock = Math.max(maxClock, autoVersion.clockEnd);
   }
 
   // Add named versions
-  for (const nr of namedRanges) {
-    result.push(nr.version);
+  for (const nv of namedVersionObjects) {
+    result.push(nv);
   }
 
-  // Sort by clock_end descending (most recent first)
+  // Sort by clockEnd descending (most recent first)
   result.sort((a, b) => b.clockEnd - a.clockEnd);
 
   // Mark current version
@@ -398,7 +326,6 @@ async function getVersionTimeline(persistence, docGuid) {
   if (allUpdates.length === 0) {
     return {
       versions: [],
-      groupedVersions: [],
       totalEdits: 0,
     };
   }
@@ -409,7 +336,6 @@ async function getVersionTimeline(persistence, docGuid) {
   if (updates.length === 0) {
     return {
       versions: [],
-      groupedVersions: [],
       totalEdits: 0,
     };
   }
@@ -422,6 +348,10 @@ async function getVersionTimeline(persistence, docGuid) {
 
   // Merge with named versions
   const versions = mergeNamedVersions(autoVersions, namedVersions);
+
+  // DEBUG: Log final merged versions
+  console.log('[GetVersionTimeline] Final merged versions:',
+    versions.map(v => `${v.name || 'auto'}(${v.clockStart}-${v.clockEnd})`));
 
   // Format versions for API response
   const formattedVersions = versions.map(v => ({
@@ -436,16 +366,9 @@ async function getVersionTimeline(persistence, docGuid) {
     isCurrent: v.isCurrent || false,
   }));
 
-  // Group by time period (month-level grouping)
-  const groupedVersions = groupVersionsByPeriod(formattedVersions);
-
-  // For hierarchical view, use the same month grouping (versions grouped by month)
-  const hierarchicalVersions = groupedVersions;
-
+  // Client handles grouping by month for proper local timezone handling
   return {
     versions: formattedVersions,
-    groupedVersions,
-    hierarchicalVersions, // Versions grouped by month for drill-down UI
     totalEdits: updates.length,
   };
 }
@@ -740,8 +663,6 @@ async function getContentAtClock(persistence, docGuid, clock) {
 module.exports = {
   generateColorFromId,
   groupUpdatesIntoVersions,
-  groupVersionsByPeriod,
-  groupVersionsIntoSessions,
   mergeNamedVersions,
   formatTimestamp,
   getVersionTimeline,
@@ -750,5 +671,4 @@ module.exports = {
   getContentAtClock,
   restoreVersion,
   DEFAULT_INACTIVITY_THRESHOLD,
-  SESSION_INACTIVITY_THRESHOLD,
 };
