@@ -33,6 +33,22 @@ function formatTimestamp(timestamp) {
 }
 
 /**
+ * Format date and time for version display
+ * @param {string|Date} timestamp - ISO timestamp string or Date
+ * @returns {string} Formatted date/time (e.g., "Jan 5, 4:30 PM")
+ */
+function formatDateTime(timestamp) {
+  const date = new Date(timestamp);
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+/**
  * Chevron icon component
  */
 function ChevronIcon({ expanded }) {
@@ -74,7 +90,7 @@ function UpdateItem({ update, isSelected, onClick }) {
 }
 
 /**
- * Version item component (Level 1 - 10-second groupings)
+ * Version item component (Level 1 - 5-minute groupings)
  */
 function VersionItem({
   version,
@@ -114,14 +130,13 @@ function VersionItem({
             <div className="hierarchy-version-name">{version.name}</div>
           )}
           <div className="hierarchy-version-time">
-            {formatTime(version.timestamp)}
-            <span className="hierarchy-version-edits">{editCount} edit{editCount !== 1 ? 's' : ''}</span>
+            {formatDateTime(version.timestamp)}
           </div>
           {version.isCurrent && (
             <div className="hierarchy-version-badge">Current</div>
           )}
           <div className="hierarchy-version-authors">
-            {version.authors?.slice(0, 3).map((author, i) => (
+            {version.authors?.map((author, i) => (
               <div key={author.id || i} className="hierarchy-author" title={author.name}>
                 <span
                   className="hierarchy-author-dot"
@@ -130,9 +145,6 @@ function VersionItem({
                 <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
               </div>
             ))}
-            {version.authors?.length > 3 && (
-              <span className="hierarchy-author-more">+{version.authors.length - 3}</span>
-            )}
           </div>
         </div>
         <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
@@ -193,74 +205,9 @@ function VersionItem({
 }
 
 /**
- * Session item component (Level 0 - 30+ min groupings)
- */
-function SessionItem({
-  session,
-  isExpanded,
-  onToggle,
-  selectedVersion,
-  selectedUpdateClock,
-  expandedVersions,
-  versionUpdates,
-  loadingVersionUpdates,
-  onVersionToggle,
-  onVersionClick,
-  onUpdateClick,
-  menuOpen,
-  onMenuOpen,
-  onNameVersion,
-  onRestoreVersion,
-  onDeleteVersion,
-  userRole,
-  menuRef,
-}) {
-  return (
-    <div className="hierarchy-session">
-      <div className="hierarchy-session-header" onClick={onToggle}>
-        <ChevronIcon expanded={isExpanded} />
-        <div className="hierarchy-session-info">
-          <span className="hierarchy-session-time">{session.formattedTime}</span>
-          <span className="hierarchy-session-label">{session.label}</span>
-          <span className="hierarchy-session-count">
-            {session.versions.length} version{session.versions.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <div className="hierarchy-versions-list">
-          {session.versions.map((version) => (
-            <VersionItem
-              key={version.id}
-              version={version}
-              isSelected={selectedVersion?.id === version.id}
-              isExpanded={expandedVersions[version.id]}
-              updates={versionUpdates[version.id]}
-              isLoadingUpdates={loadingVersionUpdates[version.id]}
-              onToggle={() => onVersionToggle(version)}
-              onClick={() => onVersionClick(version)}
-              onUpdateClick={onUpdateClick}
-              selectedUpdateClock={selectedUpdateClock}
-              menuOpen={menuOpen === version.id}
-              onMenuOpen={() => onMenuOpen(version.id)}
-              onNameVersion={() => onNameVersion(version)}
-              onRestoreVersion={() => onRestoreVersion(version)}
-              onDeleteVersion={() => onDeleteVersion(version)}
-              userRole={userRole}
-              menuRef={menuRef}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * HierarchicalVersionList component
  * Displays version history in a hierarchical drill-down format:
- * Period (Today, Yesterday) > Session (Morning, Afternoon) > Version (10s groups) > Updates (clock ticks)
+ * Month (January 2025) > Version (Jan 5, 4:30 PM) > Updates (clock ticks)
  */
 function HierarchicalVersionList({
   hierarchicalVersions = [],
@@ -278,8 +225,11 @@ function HierarchicalVersionList({
   userRole,
   isLoading,
 }) {
-  const [expandedPeriods, setExpandedPeriods] = useState({ 'Today': true });
-  const [expandedSessions, setExpandedSessions] = useState({});
+  // Auto-expand first month
+  const firstMonthLabel = hierarchicalVersions[0]?.label;
+  const [expandedMonths, setExpandedMonths] = useState(() => {
+    return firstMonthLabel ? { [firstMonthLabel]: true } : {};
+  });
   const [expandedVersions, setExpandedVersions] = useState({});
   const [menuOpen, setMenuOpen] = useState(null);
   const menuRef = React.useRef(null);
@@ -298,21 +248,19 @@ function HierarchicalVersionList({
     }
   }, [menuOpen]);
 
-  const togglePeriod = (label) => {
-    setExpandedPeriods(prev => ({ ...prev, [label]: !prev[label] }));
-  };
-
-  const toggleSession = (sessionId) => {
-    setExpandedSessions(prev => ({ ...prev, [sessionId]: !prev[sessionId] }));
+  const toggleMonth = (label) => {
+    setExpandedMonths(prev => ({ ...prev, [label]: !prev[label] }));
   };
 
   const toggleVersion = (version) => {
     const versionId = version.id;
     const willExpand = !expandedVersions[versionId];
+    console.log(`[toggleVersion] version=`, version, `willExpand=${willExpand}`);
     setExpandedVersions(prev => ({ ...prev, [versionId]: willExpand }));
 
     // Load updates when expanding if not already loaded
     if (willExpand && !versionUpdates[versionId] && onLoadUpdates) {
+      console.log(`[toggleVersion] Loading updates for clockStart=${version.clockStart}, clockEnd=${version.clockEnd}`);
       onLoadUpdates(version.clockStart, version.clockEnd, versionId);
     }
   };
@@ -361,37 +309,35 @@ function HierarchicalVersionList({
 
   return (
     <div className="hierarchy-list">
-      {hierarchicalVersions.map((period) => (
-        <div key={period.label} className="hierarchy-period">
+      {hierarchicalVersions.map((month) => (
+        <div key={month.label} className="hierarchy-month">
           <div
-            className="hierarchy-period-header"
-            onClick={() => togglePeriod(period.label)}
+            className="hierarchy-month-header"
+            onClick={() => toggleMonth(month.label)}
           >
-            <ChevronIcon expanded={expandedPeriods[period.label]} />
-            <span className="hierarchy-period-label">{period.label}</span>
+            <ChevronIcon expanded={expandedMonths[month.label]} />
+            <span className="hierarchy-month-label">{month.label}</span>
           </div>
 
-          {expandedPeriods[period.label] && (
-            <div className="hierarchy-sessions-list">
-              {period.versions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isExpanded={expandedSessions[session.id] !== false}
-                  onToggle={() => toggleSession(session.id)}
-                  selectedVersion={selectedVersion}
-                  selectedUpdateClock={selectedUpdateClock}
-                  expandedVersions={expandedVersions}
-                  versionUpdates={versionUpdates}
-                  loadingVersionUpdates={loadingVersionUpdates}
-                  onVersionToggle={toggleVersion}
-                  onVersionClick={onSelectVersion}
+          {expandedMonths[month.label] && (
+            <div className="hierarchy-versions-list">
+              {month.versions.map((version) => (
+                <VersionItem
+                  key={version.id}
+                  version={version}
+                  isSelected={selectedVersion?.id === version.id}
+                  isExpanded={expandedVersions[version.id]}
+                  updates={versionUpdates[version.id]}
+                  isLoadingUpdates={loadingVersionUpdates[version.id]}
+                  onToggle={() => toggleVersion(version)}
+                  onClick={() => onSelectVersion(version)}
                   onUpdateClick={onSelectUpdate}
-                  menuOpen={menuOpen}
-                  onMenuOpen={setMenuOpen}
-                  onNameVersion={handleNameVersion}
-                  onRestoreVersion={handleRestoreVersion}
-                  onDeleteVersion={handleDeleteVersion}
+                  selectedUpdateClock={selectedUpdateClock}
+                  menuOpen={menuOpen === version.id}
+                  onMenuOpen={() => setMenuOpen(version.id)}
+                  onNameVersion={() => handleNameVersion(version)}
+                  onRestoreVersion={() => handleRestoreVersion(version)}
+                  onDeleteVersion={() => handleDeleteVersion(version)}
                   userRole={userRole}
                   menuRef={menuRef}
                 />

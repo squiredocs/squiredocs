@@ -252,7 +252,7 @@ function VersionHistoryPanel({
                         <div className="version-item-badge">Current version</div>
                       )}
                       <div className="version-item-authors">
-                        {version.authors?.slice(0, 3).map((author, i) => (
+                        {version.authors?.map((author, i) => (
                           <div
                             key={author.id || i}
                             className="version-author"
@@ -267,11 +267,6 @@ function VersionHistoryPanel({
                             </span>
                           </div>
                         ))}
-                        {version.authors?.length > 3 && (
-                          <div className="version-author-more">
-                            +{version.authors.length - 3} more
-                          </div>
-                        )}
                       </div>
                     </div>
 

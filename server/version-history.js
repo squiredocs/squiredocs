@@ -5,8 +5,8 @@
 
 const Y = require('yjs');
 
-// Default inactivity threshold for grouping updates into versions (10 seconds)
-const DEFAULT_INACTIVITY_THRESHOLD = 10 * 1000;
+// Default inactivity threshold for grouping updates into versions (5 minutes)
+const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 
 // Session inactivity threshold (30 minutes gap or day boundary)
 const SESSION_INACTIVITY_THRESHOLD = 30 * 60 * 1000;
@@ -59,6 +59,7 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
     } else {
       // Extend current version
       currentVersion.clockEnd = update.clock;
+      currentVersion.timestamp = update.createdAt; // Update to latest timestamp
       currentVersion.lastUpdateTime = updateTime;
     }
 
@@ -86,80 +87,35 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 }
 
 /**
- * Group versions by time period for display (Today, Yesterday, This week, etc.)
+ * Group versions by month for display (January 2025, December 2024, etc.)
  * @param {Array} versions - Array of version objects
- * @returns {Object} Grouped versions by period
+ * @returns {Object} Grouped versions by month
  */
 function groupVersionsByPeriod(versions) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-  const thisWeekStart = new Date(today.getTime() - today.getDay() * 24 * 60 * 60 * 1000);
-  const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const groups = {
-    today: [],
-    yesterday: [],
-    thisWeek: [],
-    lastWeek: [],
-    thisMonth: [],
-    older: [],
-  };
-
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const monthGroups = new Map();
 
   for (const version of versions) {
     const versionDate = new Date(version.timestamp);
-    const versionDay = new Date(versionDate.getFullYear(), versionDate.getMonth(), versionDate.getDate());
+    const monthKey = `${versionDate.getFullYear()}-${String(versionDate.getMonth() + 1).padStart(2, '0')}`;
+    const monthLabel = versionDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-    if (versionDay.getTime() === today.getTime()) {
-      groups.today.push(version);
-    } else if (versionDay.getTime() === yesterday.getTime()) {
-      groups.yesterday.push(version);
-    } else if (versionDay >= thisWeekStart) {
-      // Group by day name for this week
-      const dayName = dayNames[versionDate.getDay()];
-      if (!groups[dayName]) {
-        groups[dayName] = [];
-      }
-      groups[dayName].push(version);
-    } else if (versionDay >= lastWeekStart) {
-      groups.lastWeek.push(version);
-    } else if (versionDay >= thisMonthStart) {
-      groups.thisMonth.push(version);
-    } else {
-      groups.older.push(version);
+    if (!monthGroups.has(monthKey)) {
+      monthGroups.set(monthKey, { key: monthKey, label: monthLabel, versions: [] });
     }
+    monthGroups.get(monthKey).versions.push(version);
   }
 
-  // Build ordered result with display labels
-  const result = [];
+  // Sort versions within each month by timestamp descending (most recent first)
+  const sortByRecent = (versions) =>
+    versions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  if (groups.today.length > 0) {
-    result.push({ label: 'Today', versions: groups.today });
-  }
-  if (groups.yesterday.length > 0) {
-    result.push({ label: 'Yesterday', versions: groups.yesterday });
-  }
-
-  // Add this week's days in reverse order (most recent first)
-  for (let i = 6; i >= 0; i--) {
-    const dayName = dayNames[i];
-    if (groups[dayName] && groups[dayName].length > 0) {
-      result.push({ label: dayName, versions: groups[dayName] });
-    }
-  }
-
-  if (groups.lastWeek.length > 0) {
-    result.push({ label: 'Last week', versions: groups.lastWeek });
-  }
-  if (groups.thisMonth.length > 0) {
-    result.push({ label: 'This month', versions: groups.thisMonth });
-  }
-  if (groups.older.length > 0) {
-    result.push({ label: 'Older', versions: groups.older });
-  }
+  // Convert to array and sort months descending (most recent first)
+  const result = Array.from(monthGroups.values())
+    .sort((a, b) => b.key.localeCompare(a.key))
+    .map(group => ({
+      label: group.label,
+      versions: sortByRecent(group.versions),
+    }));
 
   return result;
 }
@@ -388,24 +344,16 @@ async function getVersionTimeline(persistence, docGuid) {
     isCurrent: v.isCurrent || false,
   }));
 
-  // Group by time period (day-level grouping for flat list)
+  // Group by time period (month-level grouping)
   const groupedVersions = groupVersionsByPeriod(formattedVersions);
 
-  // Group by sessions (for hierarchical drill-down)
-  const sessionGroups = groupVersionsIntoSessions(formattedVersions);
-
-  // Organize sessions by period (Today, Yesterday, etc.)
-  const hierarchicalVersions = groupVersionsByPeriod(
-    sessionGroups.map(session => ({
-      ...session,
-      timestamp: session.startTime,
-    }))
-  );
+  // For hierarchical view, use the same month grouping (versions grouped by month)
+  const hierarchicalVersions = groupedVersions;
 
   return {
     versions: formattedVersions,
     groupedVersions,
-    hierarchicalVersions, // Sessions grouped by period for drill-down UI
+    hierarchicalVersions, // Versions grouped by month for drill-down UI
     totalEdits: updates.length,
   };
 }
@@ -631,6 +579,7 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
 
+  // Map to response format and reverse to show most recent first
   return updates.map(update => ({
     clock: update.clock,
     timestamp: update.createdAt,
@@ -642,7 +591,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
       picture: update.userPicture,
       color: generateColorFromId(update.userId),
     } : null,
-  }));
+  })).reverse();
 }
 
 /**

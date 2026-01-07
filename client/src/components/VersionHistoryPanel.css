@@ -275,10 +275,6 @@
 .version-author-name {
   font-size: 12px;
   color: #5f6368;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100px;
 }
 
 .version-author-more {

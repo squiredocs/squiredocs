@@ -2,87 +2,38 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
- * Group versions by time period for display (Today, Yesterday, This week, etc.)
+ * Group versions by month for display (January 2025, December 2024, etc.)
  * Uses browser's local timezone for proper grouping
  * @param {Array} versions - Array of version objects with timestamp
- * @returns {Array} Grouped versions by period
+ * @returns {Array} Grouped versions by month
  */
 function groupVersionsByPeriod(versions) {
   if (!versions || versions.length === 0) return [];
 
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-  const thisWeekStart = new Date(today.getTime() - today.getDay() * 24 * 60 * 60 * 1000);
-  const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const groups = {
-    today: [],
-    yesterday: [],
-    thisWeek: [],
-    lastWeek: [],
-    thisMonth: [],
-    older: [],
-  };
-
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const monthGroups = new Map();
 
   for (const version of versions) {
     const versionDate = new Date(version.timestamp);
-    const versionDay = new Date(versionDate.getFullYear(), versionDate.getMonth(), versionDate.getDate());
+    const monthKey = `${versionDate.getFullYear()}-${String(versionDate.getMonth() + 1).padStart(2, '0')}`;
+    const monthLabel = versionDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
-    if (versionDay.getTime() === today.getTime()) {
-      groups.today.push(version);
-    } else if (versionDay.getTime() === yesterday.getTime()) {
-      groups.yesterday.push(version);
-    } else if (versionDay >= thisWeekStart) {
-      // Group by day name for this week
-      const dayName = dayNames[versionDate.getDay()];
-      if (!groups[dayName]) {
-        groups[dayName] = [];
-      }
-      groups[dayName].push(version);
-    } else if (versionDay >= lastWeekStart) {
-      groups.lastWeek.push(version);
-    } else if (versionDay >= thisMonthStart) {
-      groups.thisMonth.push(version);
-    } else {
-      groups.older.push(version);
+    if (!monthGroups.has(monthKey)) {
+      monthGroups.set(monthKey, { key: monthKey, label: monthLabel, versions: [] });
     }
+    monthGroups.get(monthKey).versions.push(version);
   }
 
-  // Sort versions within each group by timestamp descending (most recent first)
+  // Sort versions within each month by timestamp descending (most recent first)
   const sortByRecent = (versions) =>
     versions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  // Build ordered result with display labels
-  const result = [];
-
-  if (groups.today.length > 0) {
-    result.push({ label: 'Today', versions: sortByRecent(groups.today) });
-  }
-  if (groups.yesterday.length > 0) {
-    result.push({ label: 'Yesterday', versions: sortByRecent(groups.yesterday) });
-  }
-
-  // Add this week's days in reverse order (most recent day first)
-  for (let i = 6; i >= 0; i--) {
-    const dayName = dayNames[i];
-    if (groups[dayName] && groups[dayName].length > 0) {
-      result.push({ label: dayName, versions: sortByRecent(groups[dayName]) });
-    }
-  }
-
-  if (groups.lastWeek.length > 0) {
-    result.push({ label: 'Last week', versions: sortByRecent(groups.lastWeek) });
-  }
-  if (groups.thisMonth.length > 0) {
-    result.push({ label: 'This month', versions: sortByRecent(groups.thisMonth) });
-  }
-  if (groups.older.length > 0) {
-    result.push({ label: 'Older', versions: sortByRecent(groups.older) });
-  }
+  // Convert to array and sort months descending (most recent first)
+  const result = Array.from(monthGroups.values())
+    .sort((a, b) => b.key.localeCompare(a.key))
+    .map(group => ({
+      label: group.label,
+      versions: sortByRecent(group.versions),
+    }));
 
   return result;
 }
@@ -212,12 +163,14 @@ export function useVersionHistory(docGuid) {
   const loadUpdatesForVersion = useCallback(async (clockStart, clockEnd, versionId) => {
     if (!docGuid) return null;
 
+    console.log(`[loadUpdatesForVersion] docGuid=${docGuid}, clockStart=${clockStart}, clockEnd=${clockEnd}, versionId=${versionId}`);
     setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: true }));
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history/updates`, {
         params: { from: clockStart, to: clockEnd }
       });
+      console.log(`[loadUpdatesForVersion] Response:`, response.data);
       const updates = response.data.updates || [];
       setVersionUpdates(prev => ({ ...prev, [versionId]: updates }));
       return updates;

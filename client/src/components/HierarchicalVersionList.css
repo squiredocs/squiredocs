@@ -17,83 +17,32 @@
   transform: rotate(90deg);
 }
 
-/* Period level (Today, Yesterday, etc.) */
-.hierarchy-period {
+/* Month level (January 2025, December 2024, etc.) */
+.hierarchy-month {
   margin-bottom: 4px;
 }
 
-.hierarchy-period-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  user-select: none;
-  transition: background-color 0.15s;
-}
-
-.hierarchy-period-header:hover {
-  background: #f8f9fa;
-}
-
-.hierarchy-period-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #5f6368;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Session level (Morning, Afternoon, Evening) */
-.hierarchy-sessions-list {
-  padding-left: 8px;
-}
-
-.hierarchy-session {
-  margin-bottom: 2px;
-}
-
-.hierarchy-session-header {
+.hierarchy-month-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
   cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background-color 0.15s, border-color 0.15s;
+  user-select: none;
+  transition: background-color 0.15s;
 }
 
-.hierarchy-session-header:hover {
+.hierarchy-month-header:hover {
   background: #f8f9fa;
-  border-left-color: #dadce0;
 }
 
-.hierarchy-session-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.hierarchy-session-time {
-  font-size: 14px;
-  font-weight: 500;
+.hierarchy-month-label {
+  font-size: 13px;
+  font-weight: 600;
   color: #202124;
 }
 
-.hierarchy-session-label {
-  font-size: 13px;
-  color: #5f6368;
-}
-
-.hierarchy-session-count {
-  font-size: 12px;
-  color: #80868b;
-  margin-left: auto;
-}
-
-/* Version level (10-second groupings) */
+/* Version level (5-minute groupings) */
 .hierarchy-versions-list {
   padding-left: 16px;
 }
@@ -158,6 +107,11 @@
   gap: 8px;
 }
 
+.hierarchy-version-date {
+  font-weight: 500;
+  color: #202124;
+}
+
 .hierarchy-version-edits {
   font-size: 12px;
   color: #80868b;
@@ -193,10 +147,6 @@
 .hierarchy-author-name {
   font-size: 12px;
   color: #5f6368;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80px;
 }
 
 .hierarchy-author-more {
