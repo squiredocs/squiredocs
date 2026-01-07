@@ -40,9 +40,9 @@ describe('Redis Pub/Sub Integration', () => {
     await redisPubSub.cleanup();
   });
 
-  afterEach(() => {
-    // Reset subscriptions between tests
-    redisPubSub._reset();
+  afterEach(async () => {
+    // Reset subscriptions and close clients between tests
+    await redisPubSub._reset();
   });
 
   describe('duplicate update prevention', () => {
@@ -96,7 +96,7 @@ describe('Redis Pub/Sub Integration', () => {
 
       // Subscribe to Redis channel (simulating server setup)
       await redisPubSub.init();
-      redisPubSub.subscribeToDocument(docId, {
+      await redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
           // With the fix, this should NOT be called for our own updates
@@ -153,7 +153,7 @@ describe('Redis Pub/Sub Integration', () => {
       let updateCount = 0;
 
       await redisPubSub.init();
-      redisPubSub.subscribeToDocument(docId, {
+      await redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
           // With the fix, this should NOT be called for our own updates
@@ -209,8 +209,8 @@ describe('Redis Pub/Sub Integration', () => {
 
       await redisPubSub.init();
 
-      // Subscribe to receive updates
-      redisPubSub.subscribeToDocument(docId, {
+      // Subscribe to receive updates (await ensures subscription is active before publishing)
+      await redisPubSub.subscribeToDocument(docId, {
         onAwareness: () => {},
         onUpdate: (buffer) => {
           // This should be called because the update has a different instance ID

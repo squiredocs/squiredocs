@@ -200,8 +200,9 @@ function isEnabled() {
  * @param {Object} handlers - Message handlers
  * @param {Function} handlers.onAwareness - Handler for awareness updates
  * @param {Function} handlers.onUpdate - Handler for document updates
+ * @returns {Promise<void>} Resolves when subscriptions are active
  */
-function subscribeToDocument(docId, { onAwareness, onUpdate }) {
+async function subscribeToDocument(docId, { onAwareness, onUpdate }) {
   if (!isEnabled()) {
     return;
   }
@@ -219,9 +220,11 @@ function subscribeToDocument(docId, { onAwareness, onUpdate }) {
     updateHandler: onUpdate,
   });
 
-  // Subscribe to both channels
-  subscriberClient.subscribe(AWARENESS_PREFIX + docId);
-  subscriberClient.subscribe(UPDATES_PREFIX + docId);
+  // Subscribe to both channels and wait for confirmation
+  await Promise.all([
+    subscriberClient.subscribe(AWARENESS_PREFIX + docId),
+    subscriberClient.subscribe(UPDATES_PREFIX + docId),
+  ]);
 }
 
 /**
@@ -347,11 +350,24 @@ module.exports = {
   encodeMessage,
   decodeMessage,
   // Expose for testing
-  _reset: () => {
+  _reset: async () => {
+    // Unsubscribe from all documents
+    for (const docId of documentSubscriptions.keys()) {
+      unsubscribeFromDocument(docId);
+    }
     documentSubscriptions.clear();
+
+    // Close existing clients to avoid zombie connections
+    if (subscriberClient) {
+      await subscriberClient.quit().catch(() => {});
+      subscriberClient = null;
+    }
+    if (publisherClient) {
+      await publisherClient.quit().catch(() => {});
+      publisherClient = null;
+    }
+
     initialized = false;
-    subscriberClient = null;
-    publisherClient = null;
     disabledWarningLogged = false;
     if (disabledWarningInterval) {
       clearInterval(disabledWarningInterval);

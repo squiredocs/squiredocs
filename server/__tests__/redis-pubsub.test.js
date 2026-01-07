@@ -76,11 +76,11 @@ const redisMock = require('../redis');
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
 
 describe('redis-pubsub', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     MockRedis.reset();
     redisMock.__reset();
-    redisPubSub._reset();
+    await redisPubSub._reset();
   });
 
   afterEach(async () => {
