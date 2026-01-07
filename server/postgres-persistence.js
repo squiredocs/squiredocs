@@ -425,10 +425,13 @@ class PostgresPersistence {
     await this._init();
     const client = await this.pool.connect();
     try {
+      // Join with yjs_updates to get the original timestamp of the clock_end update
       const result = await client.query(
-        `SELECT v.*, u.name as creator_name, u.email as creator_email, u.picture as creator_picture
+        `SELECT v.*, u.name as creator_name, u.email as creator_email, u.picture as creator_picture,
+                upd.created_at as original_timestamp
          FROM document_versions v
          LEFT JOIN users u ON v.created_by = u.id
+         LEFT JOIN yjs_updates upd ON upd.doc_guid = v.doc_id AND upd.clock = v.clock_end
          WHERE v.doc_id = $1
          ORDER BY v.clock_end DESC`,
         [docGuid]

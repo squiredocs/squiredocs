@@ -247,24 +247,16 @@ function mergeNamedVersions(autoVersions, namedVersions) {
     }));
   }
 
-  // Create a map of auto versions by clockEnd for lookup
-  const autoVersionMap = new Map();
-  for (const autoVersion of autoVersions) {
-    autoVersionMap.set(autoVersion.clockEnd, autoVersion);
-  }
-
   // Create a map of clock ranges covered by named versions
   const namedRanges = namedVersions.map(nv => {
-    // Find the matching auto version to get the original timestamp and authors
-    const matchingAutoVersion = autoVersionMap.get(nv.clock_end);
+    // Find the auto version that contains this named version's clock range
+    // (named version's clockEnd might be inside an auto version's range, not at its end)
+    const matchingAutoVersion = autoVersions.find(av =>
+      av.clockStart <= nv.clock_end && av.clockEnd >= nv.clock_end
+    );
 
-    console.log(`[NamedVersion] Named version "${nv.name}" clock_end=${nv.clock_end}, found matching auto version:`, !!matchingAutoVersion);
-    if (matchingAutoVersion) {
-      console.log(`  Auto version timestamp: ${matchingAutoVersion.timestamp}`);
-    } else {
-      console.log(`  Using created_at: ${nv.created_at}`);
-      console.log(`  Available auto version clockEnds:`, Array.from(autoVersionMap.keys()));
-    }
+    // Prefer original_timestamp (from yjs_updates), then matching auto version, then created_at
+    const timestamp = nv.original_timestamp || matchingAutoVersion?.timestamp || nv.created_at;
 
     return {
       start: nv.clock_start,
@@ -274,8 +266,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
         name: nv.name,
         clockStart: nv.clock_start,
         clockEnd: nv.clock_end,
-        // Use the original version's timestamp, not the named version creation time
-        timestamp: matchingAutoVersion?.timestamp || nv.created_at,
+        timestamp,
         isNamed: true,
         createdBy: nv.creator_name ? {
           id: nv.created_by,
