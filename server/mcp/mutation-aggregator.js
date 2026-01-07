@@ -13,7 +13,7 @@
  */
 
 const Y = require('yjs');
-const { resolveCursorPosition, createCursorPositionFromPath } = require('./yjs/cursor-operations');
+const { createCursorPositionFromPath } = require('./yjs/cursor-operations');
 
 // Default aggregation window (configurable via environment variable)
 const DEFAULT_WINDOW_MS = process.env.MUTATION_WINDOW_MS ? parseInt(process.env.MUTATION_WINDOW_MS, 10) : 200;
@@ -136,7 +136,6 @@ class MutationAggregator {
       if (mutations.length <= 5) {
         const spanningSelection = this.computeSpanningSelection(mutations);
         if (spanningSelection) {
-          console.log(`[MutationAggregator] Created 1 span from ${mutations.length} mutations (too few to chunk)`);
           this.onFlush([spanningSelection]);
         }
         return;
@@ -157,29 +156,19 @@ class MutationAggregator {
         const endBlockIndex = Math.min(i * blocksPerChunk, totalBlocks);
         const blocksInChunk = uniqueBlocks.slice(0, endBlockIndex);
 
-        // Get all mutations for blocks up to this point
-        const cumulativeMutations = mutations.filter(m => blocksInChunk.includes(m.path[0]));
-
         const minBlock = Math.min(...blocksInChunk);
         const maxBlock = Math.max(...blocksInChunk);
-        console.log(`[MutationAggregator] Chunk ${i}/${targetChunks}: ${cumulativeMutations.length} mutations, blocks ${minBlock}-${maxBlock}`);
 
         // Create span using current document state (block boundaries) rather than mutation positions
         // This avoids issues with deleted positions that can't be resolved
         const spanningSelection = this.computeBlockRangeSelection(minBlock, maxBlock);
         if (spanningSelection) {
-          const anchorResolved = resolveCursorPosition(this.xmlFragment, spanningSelection.anchor);
-          const headResolved = resolveCursorPosition(this.xmlFragment, spanningSelection.head);
-          console.log(`[MutationAggregator]   ✓ Chunk ${i} span: block ${anchorResolved?.blockIndex}:${anchorResolved?.offset} -> block ${headResolved?.blockIndex}:${headResolved?.offset}`);
           spans.push(spanningSelection);
-        } else {
-          console.log(`[MutationAggregator]   ✗ Chunk ${i} FAILED to create span`);
         }
       }
 
       // Flush spans to the queue
       if (spans.length > 0) {
-        console.log(`[MutationAggregator] Created ${spans.length} expanding spans from ${mutations.length} mutations across ${totalBlocks} blocks (~${blocksPerChunk} blocks per chunk)`);
         this.onFlush(spans);
       }
     } finally {
@@ -190,6 +179,10 @@ class MutationAggregator {
   /**
    * Compute spanning selection from first mutation to last mutation
    *
+   * Uses block indices from mutation paths to create fresh cursor positions,
+   * avoiding the need to resolve original RelativePositions (which can fail
+   * due to object identity issues with Yjs types).
+   *
    * @param {Array<object>} mutations - Mutations to span
    * @returns {object|null} { anchor, head } or null if positions can't be resolved
    */
@@ -198,107 +191,20 @@ class MutationAggregator {
       return null;
     }
 
-    // Single mutation - just return it as-is
-    if (mutations.length === 1) {
-      return {
-        anchor: mutations[0].anchor,
-        head: mutations[0].head,
-      };
-    }
+    // Extract block indices from mutation paths
+    const blockIndices = mutations
+      .map(m => m.path[0])
+      .filter(idx => typeof idx === 'number');
 
-    // Resolve all positions to { blockIndex, offset }
-    const resolvedPositions = [];
-
-    for (const mutation of mutations) {
-      const anchorResolved = resolveCursorPosition(this.xmlFragment, mutation.anchor);
-      const headResolved = resolveCursorPosition(this.xmlFragment, mutation.head);
-
-      if (anchorResolved && headResolved) {
-        resolvedPositions.push(
-          { position: mutation.anchor, blockIndex: anchorResolved.blockIndex, offset: anchorResolved.offset },
-          { position: mutation.head, blockIndex: headResolved.blockIndex, offset: headResolved.offset }
-        );
-      }
-    }
-
-    if (resolvedPositions.length === 0) {
+    if (blockIndices.length === 0) {
       return null;
     }
 
-    // Find earliest and latest positions
-    const earliest = this.findEarliestPosition(resolvedPositions);
-    const latest = this.findLatestPosition(resolvedPositions);
+    const minBlock = Math.min(...blockIndices);
+    const maxBlock = Math.max(...blockIndices);
 
-    if (!earliest || !latest) {
-      return null;
-    }
-
-    return {
-      anchor: earliest.position,
-      head: latest.position,
-    };
-  }
-
-  /**
-   * Find the earliest position in a list
-   *
-   * @param {Array<object>} positions - Array of { position, blockIndex, offset }
-   * @returns {object|null} Earliest position
-   */
-  findEarliestPosition(positions) {
-    if (positions.length === 0) {
-      return null;
-    }
-
-    return positions.reduce((earliest, current) => {
-      if (this.comparePositions(current, earliest) < 0) {
-        return current;
-      }
-      return earliest;
-    });
-  }
-
-  /**
-   * Find the latest position in a list
-   *
-   * @param {Array<object>} positions - Array of { position, blockIndex, offset }
-   * @returns {object|null} Latest position
-   */
-  findLatestPosition(positions) {
-    if (positions.length === 0) {
-      return null;
-    }
-
-    return positions.reduce((latest, current) => {
-      if (this.comparePositions(current, latest) > 0) {
-        return current;
-      }
-      return latest;
-    });
-  }
-
-  /**
-   * Compare two positions
-   *
-   * @param {object} posA - { blockIndex, offset }
-   * @param {object} posB - { blockIndex, offset }
-   * @returns {number} -1 if A < B, 0 if A === B, 1 if A > B
-   */
-  comparePositions(posA, posB) {
-    if (posA.blockIndex < posB.blockIndex) {
-      return -1;
-    } else if (posA.blockIndex > posB.blockIndex) {
-      return 1;
-    } else {
-      // Same block - compare offsets
-      if (posA.offset < posB.offset) {
-        return -1;
-      } else if (posA.offset > posB.offset) {
-        return 1;
-      } else {
-        return 0;
-      }
-    }
+    // Use computeBlockRangeSelection which creates fresh cursor positions
+    return this.computeBlockRangeSelection(minBlock, maxBlock);
   }
 
   /**

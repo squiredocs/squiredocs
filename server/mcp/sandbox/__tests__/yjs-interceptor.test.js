@@ -253,6 +253,68 @@ describe('Yjs operation interceptor', () => {
       expect(callbackOps[1].op.type).toBe('toArray');
     });
 
+    test('correctly distinguishes XmlElement target from XmlFragment', () => {
+      // This test verifies the fix for the bug where XmlElement.insert() was
+      // incorrectly reported as target='XmlFragment' because XmlElement extends
+      // XmlFragment (so `element instanceof Y.XmlFragment` was true).
+      // The fix requires checking XmlElement BEFORE XmlFragment in getTargetType().
+
+      const callbackOps = [];
+      const onOperation = (op) => {
+        callbackOps.push(op);
+      };
+
+      const wrapped = wrapForTracking(xmlFragment, tracker, [], onOperation);
+
+      // Insert a paragraph into the fragment (should be XmlFragment)
+      const paragraph = new Y.XmlElement('paragraph');
+      wrapped.insert(0, [paragraph]);
+
+      // Get the wrapped paragraph and insert text into it
+      const wrappedParagraph = wrapped.get(0);
+      const text = new Y.XmlText();
+      wrappedParagraph.insert(0, [text]);
+
+      // Filter to just mutation operations
+      const mutations = callbackOps.filter(op => op.category === 'mutation');
+
+      // First mutation: doc.insert() should have target='XmlFragment'
+      expect(mutations[0].type).toBe('insert');
+      expect(mutations[0].target).toBe('XmlFragment');
+
+      // Second mutation: paragraph.insert() should have target='paragraph' (the nodeName)
+      // NOT 'XmlFragment' - this was the bug!
+      expect(mutations[1].type).toBe('insert');
+      expect(mutations[1].target).toBe('paragraph');
+    });
+
+    test('reports XmlText target correctly for text operations', () => {
+      const callbackOps = [];
+      const onOperation = (op) => {
+        callbackOps.push(op);
+      };
+
+      // Setup: create paragraph with text node
+      const paragraph = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      paragraph.insert(0, [text]);
+      xmlFragment.insert(0, [paragraph]);
+
+      tracker.reset();
+
+      const wrapped = wrapForTracking(xmlFragment, tracker, [], onOperation);
+      const wrappedParagraph = wrapped.get(0);
+      const wrappedText = wrappedParagraph.get(0);
+
+      // Insert text - should have target='XmlText'
+      wrappedText.insert(0, 'Hello');
+
+      const mutations = callbackOps.filter(op => op.category === 'mutation');
+      expect(mutations.length).toBe(1);
+      expect(mutations[0].type).toBe('insert');
+      expect(mutations[0].target).toBe('XmlText');
+    });
+
     test('passes onOperation to nested wrapped objects', () => {
       const callbackOps = [];
       const onOperation = (op) => {

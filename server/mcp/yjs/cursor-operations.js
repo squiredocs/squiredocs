@@ -109,7 +109,7 @@ function resolveCursorPosition(xmlFragment, relativePos) {
       const block = blocks[i];
       let foundInBlock = false;
 
-      function traverse(node, depth = 0) {
+      function traverse(node) {
         if (foundInBlock) return;
 
         if (node === absPos.type) {
@@ -128,7 +128,7 @@ function resolveCursorPosition(xmlFragment, relativePos) {
         } else if (node instanceof Y.XmlElement) {
           const children = node.toArray();
           for (const child of children) {
-            traverse(child, depth + 1);
+            traverse(child);
             if (foundInBlock) break;
           }
         }

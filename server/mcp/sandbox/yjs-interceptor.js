@@ -206,14 +206,16 @@ function isYjsObject(value) {
  * @returns {string}
  */
 function getTargetType(target) {
-  if (target instanceof Y.XmlFragment) {
-    return 'XmlFragment';
+  // IMPORTANT: Check XmlElement BEFORE XmlFragment because XmlElement extends XmlFragment
+  // (so XmlElement instanceof XmlFragment is true)
+  if (target instanceof Y.XmlText) {
+    return 'XmlText';
   }
   if (target instanceof Y.XmlElement) {
     return target.nodeName || 'XmlElement';
   }
-  if (target instanceof Y.XmlText) {
-    return 'XmlText';
+  if (target instanceof Y.XmlFragment) {
+    return 'XmlFragment';
   }
   return 'Unknown';
 }

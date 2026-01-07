@@ -78,6 +78,48 @@ MCP_PORT=3001 ./script/local-test-scripts/xpath-only.sh
 }
 ```
 
+### append-paragraphs.sh
+
+Appends several paragraphs to the end of a document.
+
+**What it demonstrates:**
+- Selection animation for inserted content
+- Multiple block insertions (heading + 4 paragraphs)
+- Mixed formatting (bold, italic, links)
+- Mutation aggregation across multiple inserts
+
+**Usage:**
+```bash
+# Run with defaults
+./script/local-test-scripts/append-paragraphs.sh
+
+# Specify document GUID
+DOC_GUID=your-doc-guid ./script/local-test-scripts/append-paragraphs.sh
+
+# Use different port
+MCP_PORT=3001 ./script/local-test-scripts/append-paragraphs.sh
+```
+
+**Expected output:**
+```json
+{
+  "success": true,
+  "operationCount": 15,
+  "summary": {
+    "insert": 10,
+    "setAttribute": 1,
+    ...
+  }
+}
+```
+
+**Content added:**
+1. H2 heading: "Additional Notes"
+2. Plain text paragraph
+3. Paragraph with **bold** and *italic* text
+4. Paragraph with a [link](https://example.com)
+5. Longer paragraph for testing line wrapping
+
 ## Environment Variables
 
 All scripts support these environment variables:

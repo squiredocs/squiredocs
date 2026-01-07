@@ -80,8 +80,16 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
 
       // Determine the path to use
       let path = operation.path;
-      if (path.length === 0 && operation.args && typeof operation.args[0] === 'number') {
-        // Root-level operation - use the index as the block path
+
+      // Only interpret args[0] as a block index for ROOT-LEVEL fragment inserts.
+      // For XmlText.insert(offset, text) or XmlElement.insert(index, children),
+      // args[0] is NOT a block index - it's a text offset or child index.
+      // Operations on unattached elements have path=[] but should be skipped,
+      // not misinterpreted as root-level operations.
+      if (path.length === 0 &&
+          operation.target === 'XmlFragment' &&
+          operation.type === 'insert' &&
+          operation.args && typeof operation.args[0] === 'number') {
         const blockIndex = operation.args[0];
         const blocks = xmlFragment.toArray();
         if (blockIndex >= 0 && blockIndex < blocks.length) {
@@ -90,7 +98,8 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       }
 
       if (path.length === 0) {
-        return; // Can't create a selection without a valid path
+        // Can't highlight - either unattached element or invalid path
+        return;
       }
 
       // Calculate selection range based on operation type
