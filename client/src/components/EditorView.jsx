@@ -8,7 +8,6 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import VersionPreview from './VersionPreview';
-import DiffVersionPreview from './DiffVersionPreview';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
@@ -328,10 +327,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     loadingVersionUpdates,
     loadUpdatesForVersion,
     selectUpdate,
-    // Diff
-    previousVersionContent,
-    showDiff,
-    setShowDiff,
   } = useVersionHistory(showVersionHistory ? docGuid : null);
 
   // Auto-select current version when opening version history
@@ -512,21 +507,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
 
         <div className="version-history-container">
           <div className="version-history-main">
-            {showDiff ? (
-              <DiffVersionPreview
-                versionContent={versionContent}
-                previousVersionContent={previousVersionContent}
-                selection={selection}
-                showDiff={showDiff}
-                isLoading={versionHistoryLoading}
-              />
-            ) : (
-              <VersionPreview
-                versionContent={versionContent}
-                selection={selection}
-                isLoading={versionHistoryLoading}
-              />
-            )}
+            <VersionPreview
+              versionContent={versionContent}
+              selection={selection}
+              isLoading={versionHistoryLoading}
+            />
           </div>
 
           <VersionHistoryPanel
@@ -549,9 +534,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onLoadUpdates={loadUpdatesForVersion}
             versionUpdates={versionUpdates}
             loadingVersionUpdates={loadingVersionUpdates}
-            // Diff props
-            showDiff={showDiff}
-            onToggleDiff={() => setShowDiff(!showDiff)}
           />
         </div>
       </div>

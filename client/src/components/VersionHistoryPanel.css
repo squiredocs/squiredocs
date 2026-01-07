@@ -110,36 +110,6 @@
   color: #1a73e8;
 }
 
-/* Diff toggle button */
-.diff-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  background: #fff;
-  border: 1px solid #dadce0;
-  border-radius: 4px;
-  cursor: pointer;
-  color: #5f6368;
-  font-size: 13px;
-  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.diff-toggle-btn:hover {
-  background: #f1f3f4;
-  border-color: #bdc1c6;
-}
-
-.diff-toggle-btn.active {
-  background: #e8f0fe;
-  color: #1a73e8;
-  border-color: #1a73e8;
-}
-
-.diff-toggle-btn svg {
-  flex-shrink: 0;
-}
-
 .version-history-loading,
 .version-history-error,
 .version-history-empty {
