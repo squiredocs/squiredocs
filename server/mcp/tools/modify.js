@@ -459,22 +459,20 @@ await modify({
   \`
 });
 
-// Example 5b: Alternative using insert-then-format pattern
-// Use this when you need to format existing text or when segments aren't known upfront
+// Example 5b: FALLBACK — insert-then-format pattern
+// Only use this when formatting EXISTING text or when segments aren't known upfront.
+// For new text with mixed formatting, always prefer createFormattedText() above.
 await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
-      // ALTERNATIVE: Insert all text first, then apply formatting
-      // Requires manual position counting - more error-prone than createFormattedText()
+      // FALLBACK: Insert-then-format for when you can't use createFormattedText()
+      // Example: formatting existing text, or dynamic format ranges
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
 
-      // Step 1: Insert all text as plain text
       text.insert(0, 'Important: This is a normal message');
-
-      // Step 2: Format specific ranges (manual position counting!)
-      text.format(0, 10, { bold: true });  // Format 'Important:' as bold
+      text.format(0, 10, { bold: true });  // Requires manual position counting
 
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
@@ -514,25 +512,18 @@ TIPS
 
 8. IMPORTANT: For mixed formatting, use createFormattedText() helper
 
-   ⭐ PREFERRED - createFormattedText() (no position counting needed!):
+   ✅ USE THIS - no position counting, no reversal bugs:
      const text = createFormattedText([
        'Visit ',
        { text: 'Example Site', attrs: { link: { href: '...' } } },
        ' for more info'
      ]);
-     // Result: "Visit Example Site for more info" - self-documenting, no counting!
 
-   ✅ ALSO CORRECT - insert-then-format (when you need manual control):
+   ❌ AVOID - sequential inserts can reverse text order (see PITFALL 5):
      const text = new Y.XmlText();
-     text.insert(0, 'Visit Example Site for more info');
-     text.format(6, 12, { link: { href: '...' } });  // Manual position counting
-     // Result: Same as above, but requires calculating offsets
-
-   ❌ WRONG - sequential inserts on unattached XmlText can reverse order:
-     const text = new Y.XmlText();  // Not attached!
      text.insert(0, 'Visit ', {});
      text.insert(text.length, 'Link', { link: {...} });
-     // May result in: "LinkVisit " - REVERSED! See PITFALL 5.
+     // May result in: "LinkVisit " - REVERSED!
 
 ═══════════════════════════════════════════════════════════════════════════
 COMMON PITFALLS
@@ -765,35 +756,30 @@ THE TEXT WILL BE REVERSED!
     // Self-documenting, no offset calculations, no reversal bug
   }
 
-✅ ALSO CORRECT - Insert all text first, then format:
+✅ FALLBACK - Insert all text first, then format (when you can't use createFormattedText):
   export default function edit(doc) {
     const para = new Y.XmlElement('paragraph');
     const text = new Y.XmlText();
 
     // Insert all text as plain text first
     text.insert(0, 'Visit our website at Example Site');
-    // Then apply formatting to specific ranges (requires position counting)
+    // Then apply formatting (requires manual position counting)
     text.format(21, 12, { link: { href: 'https://example.com' } });
 
     para.insert(0, [text]);
     doc.insert(doc.length, [para]);
-    // Result: "Visit our website at Example Site" - CORRECT!
-    // But requires manual offset calculation (error-prone)
   }
 
-✅ ALSO CORRECT - Attach to document first, then insert:
+✅ WORKAROUND - Attach to document first (obscure, prefer createFormattedText):
   export default function edit(doc) {
     const para = new Y.XmlElement('paragraph');
     const text = new Y.XmlText();
 
-    // Attach to document FIRST
+    // Attach to document FIRST, then sequential inserts work
     para.insert(0, [text]);
     doc.insert(doc.length, [para]);
-
-    // NOW sequential inserts work correctly
     text.insert(0, 'Visit our website at ', {});
     text.insert(text.length, 'Example Site', { link: { href: 'https://example.com' } });
-    // Result: "Visit our website at Example Site" - CORRECT!
   }
 
 WHY THIS HAPPENS:
