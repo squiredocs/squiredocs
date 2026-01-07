@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
@@ -78,6 +78,9 @@ export function useVersionHistory(docGuid) {
       setHierarchicalVersions(response.data.hierarchicalVersions || []);
       // groupedVersions is computed client-side via useMemo for proper local timezone handling
       setTotalEdits(response.data.totalEdits || 0);
+      // Clear cached version updates since version structure may have changed
+      // (e.g., after naming a clock, auto versions get split and clock ranges change)
+      setVersionUpdates({});
     } catch (err) {
       console.error('Error fetching version history:', err);
       setError(err.response?.data?.error || 'Failed to load version history');

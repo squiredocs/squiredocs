@@ -36,7 +36,7 @@ describe('useVersionHistory', () => {
       expect(result.current.totalEdits).toBe(0);
       expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBeNull();
-      expect(result.current.selectedVersion).toBeNull();
+      expect(result.current.selection).toBeNull();
       expect(result.current.versionContent).toBeNull();
     });
 
@@ -127,7 +127,7 @@ describe('useVersionHistory', () => {
         await result.current.selectVersion({ id: 'v1', name: 'Test Version' });
       });
 
-      expect(result.current.selectedVersion).toEqual({ id: 'v1', name: 'Test Version' });
+      expect(result.current.selection).toEqual({ id: 'v1', name: 'Test Version' });
       expect(mockApi.get).toHaveBeenCalledWith('/api/docs/doc-123/versions/v1');
     });
 
@@ -144,7 +144,7 @@ describe('useVersionHistory', () => {
         await result.current.selectVersion(null);
       });
 
-      expect(result.current.selectedVersion).toBeNull();
+      expect(result.current.selection).toBeNull();
       expect(result.current.versionContent).toBeNull();
     });
   });
@@ -195,7 +195,13 @@ describe('useVersionHistory', () => {
 
   describe('clearSelection', () => {
     it('clears selected version and content', async () => {
-      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+      const mockContent = {
+        content: [1, 2, 3],
+        version: { id: 'v1', name: 'Test Version' },
+      };
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })
+        .mockResolvedValueOnce({ data: mockContent });
 
       const { result } = renderHook(() => useVersionHistory('doc-123'));
 
@@ -203,31 +209,32 @@ describe('useVersionHistory', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      // First set a selection
+      // First set a selection by selecting a version
       await act(async () => {
-        result.current.setSelectedVersion({ id: 'v1' });
+        await result.current.selectVersion({ id: 'v1' });
       });
 
-      expect(result.current.selectedVersion).toEqual({ id: 'v1' });
+      expect(result.current.selection).toEqual({ id: 'v1' });
 
       // Clear it
       act(() => {
         result.current.clearSelection();
       });
 
-      expect(result.current.selectedVersion).toBeNull();
+      expect(result.current.selection).toBeNull();
       expect(result.current.versionContent).toBeNull();
     });
   });
 
   describe('groupedVersions', () => {
-    it('groups versions by time period', async () => {
-      const today = new Date();
-      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    it('groups versions by month', async () => {
+      // Use dates from two different months
+      const jan2025 = new Date('2025-01-15T10:00:00Z');
+      const dec2024 = new Date('2024-12-15T10:00:00Z');
 
       const mockVersions = [
-        { id: 'v1', timestamp: today.toISOString(), authors: [] },
-        { id: 'v2', timestamp: yesterday.toISOString(), authors: [] },
+        { id: 'v1', timestamp: jan2025.toISOString(), authors: [] },
+        { id: 'v2', timestamp: dec2024.toISOString(), authors: [] },
       ];
 
       mockApi.get.mockResolvedValue({
@@ -240,10 +247,10 @@ describe('useVersionHistory', () => {
         expect(result.current.groupedVersions.length).toBeGreaterThan(0);
       });
 
-      // Should have Today and Yesterday groups
+      // Should have month-based groups
       const labels = result.current.groupedVersions.map((g) => g.label);
-      expect(labels).toContain('Today');
-      expect(labels).toContain('Yesterday');
+      expect(labels).toContain('January 2025');
+      expect(labels).toContain('December 2024');
     });
 
     it('returns empty array when no versions', () => {
@@ -341,6 +348,81 @@ describe('useVersionHistory', () => {
 
       expect(success).toBe(true);
       expect(mockApi.delete).toHaveBeenCalledWith('/api/docs/doc-123/versions/v1');
+    });
+  });
+
+  describe('versionUpdates cache', () => {
+    it('clears versionUpdates cache when createNamedVersion refreshes history', async () => {
+      // This tests the fix for the bug where naming a clock would leave stale
+      // cached updates, causing the UI to show wrong clock ranges
+      const mockUpdates = [
+        { clock: 57, timestamp: '2025-01-01T10:00:00Z', author: { id: 'u1', name: 'Alice' } },
+        { clock: 58, timestamp: '2025-01-01T10:01:00Z', author: { id: 'u1', name: 'Alice' } },
+        { clock: 59, timestamp: '2025-01-01T10:02:00Z', author: { id: 'u1', name: 'Alice' } },
+        { clock: 60, timestamp: '2025-01-01T10:03:00Z', author: { id: 'u1', name: 'Alice' } },
+      ];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // Initial fetch
+        .mockResolvedValueOnce({ data: { updates: mockUpdates } }) // Load updates for version
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }); // Refresh after naming
+
+      mockApi.post.mockResolvedValue({
+        data: { version: { id: 'new-v1', name: 'Named Version' } },
+      });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Load updates for a version (this caches them in versionUpdates)
+      await act(async () => {
+        await result.current.loadUpdatesForVersion(57, 60, 'auto-60');
+      });
+
+      // Verify updates are cached
+      expect(result.current.versionUpdates['auto-60']).toEqual(mockUpdates);
+
+      // Now create a named version - this should clear the cache
+      await act(async () => {
+        await result.current.createNamedVersion('Named Version', 59);
+      });
+
+      // The cache should be cleared
+      expect(result.current.versionUpdates).toEqual({});
+    });
+
+    it('clears versionUpdates cache when refresh is called', async () => {
+      const mockUpdates = [
+        { clock: 1, timestamp: '2025-01-01T10:00:00Z', author: null },
+      ];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // Initial fetch
+        .mockResolvedValueOnce({ data: { updates: mockUpdates } }) // Load updates
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }); // Manual refresh
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Load updates for a version
+      await act(async () => {
+        await result.current.loadUpdatesForVersion(1, 1, 'auto-1');
+      });
+
+      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+
+      // Refresh history - cache should be cleared
+      await act(async () => {
+        await result.current.refresh();
+      });
+
+      expect(result.current.versionUpdates).toEqual({});
     });
   });
 });
