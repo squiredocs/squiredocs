@@ -85,6 +85,7 @@
   color: #d73a49;
   background-color: rgba(215, 58, 73, 0.15);
   border-radius: 2px;
+  white-space: pre-wrap;
 }
 
 .version-preview .diff-delete-marker {
