@@ -241,7 +241,8 @@ export function useVersionHistory(docGuid) {
 
   /**
    * Select a sub-version (grouped updates) and load its content
-   * Sub-versions have clockStart, clockEnd, timestamp, and authors
+   * Sub-versions have clockStart, clockEnd, previousClock, timestamp, and authors
+   * The server provides previousClock to ensure consistent sequential diffing
    */
   const selectUpdate = useCallback(async (subVersion) => {
     // Create a version-like object for the sub-version
@@ -257,9 +258,11 @@ export function useVersionHistory(docGuid) {
 
     setIsLoadingContent(true);
     try {
-      // Load diff data with the subversion's clock range
-      // Server returns pre-computed document and changes
-      const previousClock = subVersion.clockStart > 0 ? subVersion.clockStart - 1 : -1;
+      // Use previousClock from server (provides correct sequential baseline)
+      // Falls back to clockStart - 1 for backwards compatibility
+      const previousClock = subVersion.previousClock !== undefined
+        ? subVersion.previousClock
+        : subVersion.clockStart - 1;
       const diffResult = await loadDiffData(subVersion.clockEnd, previousClock);
       if (diffResult) {
         setDiffData(diffResult);

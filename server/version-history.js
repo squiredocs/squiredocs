@@ -661,19 +661,30 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     textAtClock.set(update.clock, extractTextFromDoc(stateDoc));
   }
 
-  // Filter to only include subversions with net changes
-  const filteredSubVersions = subVersions.filter(sv => {
-    const prevClock = sv.clockStart > 0 ? sv.clockStart - 1 : -1;
+  // Filter to only include subversions with net changes and compute previousClock for each
+  // Use sequential baseline: oldest subversion diffs from parent start, others from previous subversion
+  // Note: subVersions are in chronological order (oldest first) at this point
+  const filteredSubVersions = [];
+  for (let i = 0; i < subVersions.length; i++) {
+    const sv = subVersions[i];
+    // For the oldest subversion, use parent's clockStart - 1
+    // For others, use the previous KEPT subversion's clockEnd (not the input subversion)
+    const prevClock = filteredSubVersions.length === 0
+      ? (clockStart > 0 ? clockStart - 1 : -1)
+      : filteredSubVersions[filteredSubVersions.length - 1].clockEnd;
     const textBefore = textAtClock.get(prevClock) || '';
     const textAfter = textAtClock.get(sv.clockEnd) || '';
-    return textBefore !== textAfter;
-  });
+    if (textBefore !== textAfter) {
+      filteredSubVersions.push({ ...sv, previousClock: prevClock });
+    }
+  }
 
   // Map to response format and reverse to show most recent first
   return filteredSubVersions.map(sv => ({
     id: `subversion-${sv.clockEnd}`,
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
+    previousClock: sv.previousClock, // The baseline clock for diffing
     timestamp: sv.timestamp,
     formattedTimestamp: formatTimestamp(sv.timestamp),
     authors: sv.authors || [],

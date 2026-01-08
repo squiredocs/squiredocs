@@ -382,11 +382,18 @@ function HierarchicalVersionList({
               {month.versions.map((version) => {
                 const updates = versionUpdates[version.id];
                 const isExpanded = expandedVersions[version.id];
+                // Add clock range subtitle to versions
+                const versionWithSubtitle = {
+                  ...version,
+                  subtitle: version.clockStart === version.clockEnd
+                    ? `Clock ${version.clockStart}`
+                    : `Clocks ${version.clockStart}–${version.clockEnd}`,
+                };
 
                 return (
                   <HistoryItem
                     key={version.id}
-                    item={version}
+                    item={versionWithSubtitle}
                     isSelected={selection?.id === version.id && !selection?.isClock}
                     onClick={() => onSelectVersion(version)}
                     isExpandable={true}

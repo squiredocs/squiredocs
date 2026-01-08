@@ -3,7 +3,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
-import { DiffDecorationExtension, applyDiffDecorations } from '../extensions/DiffDecorationExtension';
+import { DiffDecorationExtension, applyDiffDecorations, clearDiffDecorations } from '../extensions/DiffDecorationExtension';
 import './EditorCommon.css';
 import './VersionPreview.css';
 
@@ -29,11 +29,6 @@ function VersionPreview({
   // Ref for race condition prevention
   const versionCounterRef = useRef(0);
 
-  // Reset diffApplied when diffData changes
-  useEffect(() => {
-    setDiffApplied(false);
-  }, [diffData?.meta?.currentClock, diffData?.meta?.previousClock]);
-
   // Editor extensions (read-only, no collaboration needed)
   const extensions = useMemo(() => [
     StarterKit.configure({
@@ -55,6 +50,15 @@ function VersionPreview({
 
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
+
+  // Clear decorations and reset state when selection changes
+  // This ensures decorations are properly reapplied when switching between items
+  useEffect(() => {
+    if (editor) {
+      clearDiffDecorations(editor);
+    }
+    setDiffApplied(false);
+  }, [selection?.id, editor]);
 
   // Apply diff decorations when editor is ready and we have changes
   useEffect(() => {
