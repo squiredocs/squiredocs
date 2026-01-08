@@ -235,6 +235,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [showDiffHighlights, setShowDiffHighlights] = useState(true);
   const menuRef = useRef(null);
   const isMobile = useMobile();
   const visualViewport = useVisualViewport();
@@ -513,6 +514,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               versionContent={versionContent}
               selection={selection}
               isLoading={versionHistoryLoading}
+              showDiff={showDiffHighlights}
             />
           </div>
 
@@ -535,6 +537,9 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onLoadUpdates={loadUpdatesForVersion}
             versionUpdates={versionUpdates}
             loadingVersionUpdates={loadingVersionUpdates}
+            // Diff highlighting toggle
+            showDiffHighlights={showDiffHighlights}
+            onToggleDiffHighlights={setShowDiffHighlights}
           />
         </div>
       </div>

@@ -22,6 +22,9 @@ function VersionHistoryPanel({
   onLoadUpdates,
   versionUpdates = {},
   loadingVersionUpdates = {},
+  // Diff highlighting toggle
+  showDiffHighlights = true,
+  onToggleDiffHighlights,
 }) {
   const [filter, setFilter] = useState('all');
 
@@ -59,6 +62,14 @@ function VersionHistoryPanel({
             <option value="named">Named versions only</option>
           </select>
         </div>
+        <label className="version-history-highlight-toggle">
+          <input
+            type="checkbox"
+            checked={showDiffHighlights}
+            onChange={(e) => onToggleDiffHighlights?.(e.target.checked)}
+          />
+          Highlight changes
+        </label>
       </div>
 
       {isLoading && (

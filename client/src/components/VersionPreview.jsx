@@ -51,14 +51,14 @@ function VersionPreview({
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
 
-  // Clear decorations and reset state when selection changes
+  // Clear decorations and reset state when selection changes or showDiff is toggled off
   // This ensures decorations are properly reapplied when switching between items
   useEffect(() => {
     if (editor) {
       clearDiffDecorations(editor);
     }
     setDiffApplied(false);
-  }, [selection?.id, editor]);
+  }, [selection?.id, editor, showDiff]);
 
   // Apply diff decorations when editor is ready and we have changes
   useEffect(() => {
