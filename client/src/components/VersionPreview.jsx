@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -75,39 +75,21 @@ function VersionPreview({
   const [useContentDiff, setUseContentDiff] = useState(false);
   const [contentDiffChanges, setContentDiffChanges] = useState([]);
 
+  // Ref for race condition prevention
+  const versionCounterRef = useRef(0);
+
   // Create the history document and decode snapshots
   // IMPORTANT: We must apply individual updates one-by-one to preserve deleted items.
   // Y.encodeStateAsUpdate() loses deletion history, so we receive individual updates from the server.
-  const { historyDoc, currentYDoc, previousYDoc, snapshot, prevSnapshot } = useMemo(() => {
+  const { historyDoc, snapshot, prevSnapshot } = useMemo(() => {
     // Prefer diffData if available (new API with individual updates)
     if (diffData?.updates && diffData.updates.length > 0) {
       const doc = new Y.Doc({ gc: false });
-      // Also build separate docs for content-based diff
-      const prevDoc = new Y.Doc({ gc: false });
-      const currDoc = new Y.Doc({ gc: false });
 
       try {
         // Apply updates one-by-one to preserve full history including deleted items
         for (const update of diffData.updates) {
           Y.applyUpdate(doc, update);
-          Y.applyUpdate(currDoc, update);
-        }
-
-        // Build previous doc if we have a previousSnapshot
-        if (diffData.previousSnapshot) {
-          // Decode previous snapshot to find how many updates to apply
-          const prevSnap = Y.decodeSnapshot(diffData.previousSnapshot);
-          // Apply updates up to the previous state
-          // The snapshot contains the state vector, so we need to build up to that state
-          for (const update of diffData.updates) {
-            const tempDoc = new Y.Doc();
-            Y.applyUpdate(tempDoc, update);
-            const updateSv = Y.encodeStateVector(tempDoc);
-            tempDoc.destroy();
-
-            // Apply all updates (we'll use the snapshot to render the correct view)
-            Y.applyUpdate(prevDoc, update);
-          }
         }
       } catch (e) {
         console.error('Error applying updates:', e);
@@ -123,8 +105,6 @@ function VersionPreview({
 
       return {
         historyDoc: doc,
-        currentYDoc: currDoc,
-        previousYDoc: prevDoc,
         snapshot: currentSnap,
         prevSnapshot: prevSnap,
       };
@@ -139,17 +119,27 @@ function VersionPreview({
         console.error('Error applying version content:', e);
       }
       const currentSnap = Y.snapshot(doc);
+
       return {
         historyDoc: doc,
-        currentYDoc: null,
-        previousYDoc: null,
         snapshot: currentSnap,
         prevSnapshot: Y.emptySnapshot,
       };
     }
 
-    return { historyDoc: null, currentYDoc: null, previousYDoc: null, snapshot: null, prevSnapshot: null };
+    return { historyDoc: null, snapshot: null, prevSnapshot: null };
   }, [diffData, versionContent?.content]);
+
+  // Cleanup historyDoc when it changes or on unmount
+  // This runs AFTER render, so the new doc is already bound to the editor
+  useEffect(() => {
+    const currentDoc = historyDoc;
+    return () => {
+      if (currentDoc) {
+        currentDoc.destroy();
+      }
+    };
+  }, [historyDoc]);
 
   // Reset diffApplied when content changes
   useEffect(() => {
@@ -243,7 +233,15 @@ function VersionPreview({
       return;
     }
 
+    // Increment version counter to detect stale callbacks (fixes race condition)
+    const currentVersion = ++versionCounterRef.current;
+
     const timer = setTimeout(() => {
+      // Skip if version changed while waiting (user switched versions quickly)
+      if (currentVersion !== versionCounterRef.current) {
+        return;
+      }
+
       // Try content-based diff first if applicable
       if (useContentDiff) {
         const changes = computeContentBasedDiff();
@@ -275,21 +273,6 @@ function VersionPreview({
 
     return () => clearTimeout(timer);
   }, [editor, snapshot, prevSnapshot, showDiff, diffApplied, textIdentical, useContentDiff, computeContentBasedDiff]);
-
-  // Cleanup historyDoc on unmount
-  useEffect(() => {
-    return () => {
-      if (historyDoc) {
-        historyDoc.destroy();
-      }
-      if (currentYDoc) {
-        currentYDoc.destroy();
-      }
-      if (previousYDoc) {
-        previousYDoc.destroy();
-      }
-    };
-  }, [historyDoc, currentYDoc, previousYDoc]);
 
   if (isLoading) {
     return (
