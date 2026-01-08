@@ -265,17 +265,26 @@ export function useVersionHistory(docGuid) {
       isSubVersion: true, // Flag to distinguish from top-level versions
       updateCount: subVersion.updateCount,
     });
-    // Load content at the end of the sub-version (latest state)
-    await loadContentAtClock(subVersion.clockEnd);
 
-    // Load previous version for diff comparison
-    if (subVersion.clockStart > 0) {
-      const prevContent = await loadPreviousContentAtClock(subVersion.clockStart - 1);
-      setPreviousVersionContent(prevContent);
-    } else {
-      setPreviousVersionContent(null);
+    setIsLoadingContent(true);
+    try {
+      // Load diff data with the subversion's clock range
+      // This ensures the diff shows changes within this specific subversion
+      const previousClock = subVersion.clockStart > 0 ? subVersion.clockStart - 1 : -1;
+      const diffResult = await loadDiffData(subVersion.clockEnd, previousClock);
+      if (diffResult) {
+        setDiffData(diffResult);
+        setVersionContent({ content: diffResult.fullDoc, clock: subVersion.clockEnd });
+        setPreviousVersionContent(
+          diffResult.previousSnapshot
+            ? { content: diffResult.previousSnapshot, clock: previousClock }
+            : null
+        );
+      }
+    } finally {
+      setIsLoadingContent(false);
     }
-  }, [loadContentAtClock, loadPreviousContentAtClock]);
+  }, [loadDiffData]);
 
   /**
    * Restore document to a previous version

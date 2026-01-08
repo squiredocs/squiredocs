@@ -68,3 +68,24 @@
   border-radius: 2px;
 }
 
+/* Content-based diff styles (prosemirror-changeset) */
+.version-preview .diff-insert {
+  background-color: rgba(46, 160, 67, 0.3);
+  border-radius: 2px;
+}
+
+.version-preview .diff-delete {
+  text-decoration: line-through;
+  color: #d73a49;
+  background-color: rgba(215, 58, 73, 0.15);
+  border-radius: 2px;
+}
+
+.version-preview .diff-delete-marker {
+  display: inline;
+  color: #d73a49;
+  font-size: 10px;
+  vertical-align: super;
+  margin: 0 1px;
+}
+
