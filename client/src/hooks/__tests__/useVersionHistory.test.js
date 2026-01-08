@@ -108,14 +108,16 @@ describe('useVersionHistory', () => {
   });
 
   describe('selectVersion', () => {
-    it('selects a version and loads its content', async () => {
-      const mockContent = {
-        content: [1, 2, 3],
-        version: { id: 'v1', name: 'Test Version' },
+    it('selects a version and loads its diff data', async () => {
+      const mockDiffData = {
+        // Uses individual updates array to preserve deletion history
+        updates: [[1, 2, 3], [4, 5, 6]],
+        currentSnapshot: [7, 8, 9],
+        previousSnapshot: [10, 11, 12],
       };
       mockApi.get
         .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })
-        .mockResolvedValueOnce({ data: mockContent });
+        .mockResolvedValueOnce({ data: mockDiffData });
 
       const { result } = renderHook(() => useVersionHistory('doc-123'));
 
@@ -124,11 +126,12 @@ describe('useVersionHistory', () => {
       });
 
       await act(async () => {
-        await result.current.selectVersion({ id: 'v1', name: 'Test Version' });
+        await result.current.selectVersion({ id: 'v1', name: 'Test Version', clockStart: 5, clockEnd: 10 });
       });
 
-      expect(result.current.selection).toEqual({ id: 'v1', name: 'Test Version' });
-      expect(mockApi.get).toHaveBeenCalledWith('/api/docs/doc-123/versions/v1');
+      expect(result.current.selection).toEqual({ id: 'v1', name: 'Test Version', clockStart: 5, clockEnd: 10 });
+      // Now uses the diff API that returns individual updates with snapshots
+      expect(mockApi.get).toHaveBeenCalledWith('/api/docs/doc-123/history/diff?currentClock=10&previousClock=4');
     });
 
     it('clears content when selecting null', async () => {
@@ -237,6 +240,8 @@ describe('useVersionHistory', () => {
         { id: 'v2', timestamp: dec2024.toISOString(), authors: [] },
       ];
 
+      // Clear any previous mocks and set up fresh
+      mockApi.get.mockReset();
       mockApi.get.mockResolvedValue({
         data: { versions: mockVersions, totalEdits: 2 },
       });
@@ -244,7 +249,7 @@ describe('useVersionHistory', () => {
       const { result } = renderHook(() => useVersionHistory('doc-123'));
 
       await waitFor(() => {
-        expect(result.current.groupedVersions.length).toBeGreaterThan(0);
+        expect(result.current.versions.length).toBe(2);
       });
 
       // Should have month-based groups

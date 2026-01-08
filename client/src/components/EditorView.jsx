@@ -313,6 +313,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     hierarchicalVersions,
     selection, // Unified: version or clock update (with isClock: true)
     versionContent,
+    previousVersionContent, // For diff visualization (legacy)
+    diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff
     totalEdits,
     isLoading: versionHistoryLoading,
     selectVersion,
@@ -507,6 +509,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         <div className="version-history-container">
           <div className="version-history-main">
             <VersionPreview
+              diffData={diffData}
               versionContent={versionContent}
               selection={selection}
               isLoading={versionHistoryLoading}

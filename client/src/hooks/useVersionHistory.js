@@ -53,6 +53,8 @@ export function useVersionHistory(docGuid) {
   // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
   const [selection, setSelection] = useState(null);
   const [versionContent, setVersionContent] = useState(null);
+  const [previousVersionContent, setPreviousVersionContent] = useState(null);
+  const [diffData, setDiffData] = useState(null); // { fullDoc, currentSnapshot, previousSnapshot }
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // Hierarchical drill-down state
@@ -115,16 +117,83 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api]);
 
   /**
-   * Select a version and load its content
+   * Load content at a specific clock value (for diff comparison)
+   * This is a lightweight version that doesn't set the main versionContent state
+   */
+  const loadPreviousContentAtClock = useCallback(async (clock) => {
+    if (!docGuid || clock < 0) return null;
+
+    try {
+      const response = await api.get(`/api/docs/${docGuid}/history/clock/${clock}`);
+      return {
+        content: new Uint8Array(response.data.content),
+        clock: response.data.clock,
+      };
+    } catch (err) {
+      console.error('Error loading previous content at clock:', err);
+      return null;
+    }
+  }, [docGuid, api]);
+
+  /**
+   * Load diff data for version comparison.
+   * Returns individual updates (to preserve deletion history) and snapshots at specific clocks.
+   * IMPORTANT: We receive individual updates, not a merged doc, because
+   * Y.encodeStateAsUpdate() loses deleted items even with gc:false.
+   */
+  const loadDiffData = useCallback(async (currentClock, previousClock) => {
+    if (!docGuid) return null;
+
+    try {
+      const params = new URLSearchParams({ currentClock: currentClock.toString() });
+      if (previousClock >= 0) {
+        params.append('previousClock', previousClock.toString());
+      }
+      const response = await api.get(`/api/docs/${docGuid}/history/diff?${params}`);
+      return {
+        // Individual updates array - must be applied one-by-one to preserve history
+        updates: response.data.updates.map(u => new Uint8Array(u)),
+        currentSnapshot: new Uint8Array(response.data.currentSnapshot),
+        previousSnapshot: response.data.previousSnapshot
+          ? new Uint8Array(response.data.previousSnapshot)
+          : null,
+      };
+    } catch (err) {
+      console.error('Error loading diff data:', err);
+      return null;
+    }
+  }, [docGuid, api]);
+
+  /**
+   * Select a version and load its content (including diff data for comparison)
    */
   const selectVersion = useCallback(async (version) => {
     setSelection(version);
     if (version) {
-      await loadVersionContent(version.id);
+      setIsLoadingContent(true);
+      try {
+        // Load diff data - full document with history and snapshots at specific clocks
+        const previousClock = version.clockStart > 0 ? version.clockStart - 1 : -1;
+        const diffResult = await loadDiffData(version.clockEnd, previousClock);
+        if (diffResult) {
+          setDiffData(diffResult);
+          // Also set versionContent for backwards compatibility
+          setVersionContent({ content: diffResult.fullDoc, clock: version.clockEnd });
+          setPreviousVersionContent(
+            diffResult.previousSnapshot
+              ? { content: diffResult.previousSnapshot, clock: previousClock }
+              : null
+          );
+        }
+      } finally {
+        setIsLoadingContent(false);
+      }
     } else {
       setVersionContent(null);
+      setPreviousVersionContent(null);
+      setDiffData(null);
     }
-  }, [loadVersionContent]);
+  }, [loadDiffData]);
 
   /**
    * Load individual updates for a version (for drill-down)
@@ -196,7 +265,15 @@ export function useVersionHistory(docGuid) {
     });
     // Load content at the end of the sub-version (latest state)
     await loadContentAtClock(subVersion.clockEnd);
-  }, [loadContentAtClock]);
+
+    // Load previous version for diff comparison
+    if (subVersion.clockStart > 0) {
+      const prevContent = await loadPreviousContentAtClock(subVersion.clockStart - 1);
+      setPreviousVersionContent(prevContent);
+    } else {
+      setPreviousVersionContent(null);
+    }
+  }, [loadContentAtClock, loadPreviousContentAtClock]);
 
   /**
    * Restore document to a previous version
@@ -283,6 +360,8 @@ export function useVersionHistory(docGuid) {
   const clearSelection = useCallback(() => {
     setSelection(null);
     setVersionContent(null);
+    setPreviousVersionContent(null);
+    setDiffData(null);
   }, []);
 
   /**
@@ -309,6 +388,8 @@ export function useVersionHistory(docGuid) {
     error,
     selection, // Unified selection: version or single clock update (with isClock: true)
     versionContent,
+    previousVersionContent, // For diff visualization (legacy)
+    diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff visualization
     isLoadingContent,
 
     // Hierarchical drill-down state

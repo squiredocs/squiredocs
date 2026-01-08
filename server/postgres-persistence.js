@@ -398,6 +398,80 @@ class PostgresPersistence {
   }
 
   /**
+   * Get the full Y.Doc with all history (gc disabled) for version diff comparison.
+   * This returns a document with ALL updates applied and gc:false so deleted items
+   * are preserved for snapshot comparison.
+   * @param {string} docGuid - Document GUID
+   * @returns {Promise<Y.Doc>} The full Yjs document with history
+   */
+  async getYDocWithHistory(docGuid) {
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docGuid]
+      );
+
+      // Create document with gc:false to preserve deleted items for snapshot comparison
+      const ydoc = new Y.Doc({ gc: false });
+      ydoc.transact(() => {
+        for (const row of result.rows) {
+          Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
+        }
+      });
+
+      return ydoc;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Get state vectors at specific clock positions for snapshot creation.
+   * This builds the document incrementally and captures state vectors at each target clock.
+   * @param {string} docGuid - Document GUID
+   * @param {number[]} clocks - Array of clock values to get state vectors for
+   * @returns {Promise<Map<number, Uint8Array>>} Map of clock -> encoded state vector
+   */
+  async getStateVectorsAtClocks(docGuid, clocks) {
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docGuid]
+      );
+
+      const sortedClocks = [...clocks].sort((a, b) => a - b);
+      const stateVectors = new Map();
+      const ydoc = new Y.Doc({ gc: false });
+      let clockIndex = 0;
+
+      for (const row of result.rows) {
+        Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
+
+        // Check if we've reached any target clocks
+        while (clockIndex < sortedClocks.length && row.clock >= sortedClocks[clockIndex]) {
+          stateVectors.set(sortedClocks[clockIndex], Y.encodeStateVector(ydoc));
+          clockIndex++;
+        }
+      }
+
+      // If any clocks are beyond the last update, use the final state
+      while (clockIndex < sortedClocks.length) {
+        stateVectors.set(sortedClocks[clockIndex], Y.encodeStateVector(ydoc));
+        clockIndex++;
+      }
+
+      ydoc.destroy();
+      return stateVectors;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Get the total number of updates for a document
    * @param {string} docGuid - Document GUID
    * @returns {Promise<number>} Total update count

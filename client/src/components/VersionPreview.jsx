@@ -1,37 +1,100 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Collaboration from '@tiptap/extension-collaboration';
 import * as Y from 'yjs';
+import { ySyncPluginKey } from 'y-prosemirror';
+import { YChangeMark } from '../extensions/YChangeExtension';
 import './EditorCommon.css';
 import './VersionPreview.css';
 
 /**
- * Read-only preview of a historical version
+ * Minimal PermanentUserData implementation for y-prosemirror snapshot diff.
+ * y-prosemirror's _renderSnapshot requires permanentUserData to avoid null errors.
+ */
+class MinimalPermanentUserData {
+  constructor() {
+    this.dss = new Map();
+  }
+
+  getUserByClientId(clientId) {
+    return 'Unknown';
+  }
+
+  getUserByDeletedId(id) {
+    return 'Unknown';
+  }
+}
+
+const minimalPermanentUserData = new MinimalPermanentUserData();
+
+/**
+ * Read-only preview of a historical version with inline diff visualization.
+ *
+ * Uses diffData from the server which contains:
+ * - fullDoc: The complete document with all history (gc:false)
+ * - currentSnapshot: Encoded Y.Snapshot at the current version's clock
+ * - previousSnapshot: Encoded Y.Snapshot at the previous clock (for diff)
  */
 function VersionPreview({
-  versionContent,
-  selection, // Unified: version or clock update (with isClock: true)
+  diffData,
+  versionContent, // Legacy fallback
+  selection,
   isLoading = false,
+  showDiff = true,
 }) {
+  const [diffApplied, setDiffApplied] = useState(false);
 
-  // Create a temporary Y.Doc for the version content
-  const ydoc = useMemo(() => {
-    if (!versionContent?.content) return null;
+  // Create the history document and decode snapshots
+  // IMPORTANT: We must apply individual updates one-by-one to preserve deleted items.
+  // Y.encodeStateAsUpdate() loses deletion history, so we receive individual updates from the server.
+  const { historyDoc, snapshot, prevSnapshot } = useMemo(() => {
+    // Prefer diffData if available (new API with individual updates)
+    if (diffData?.updates && diffData.updates.length > 0) {
+      const doc = new Y.Doc({ gc: false });
+      try {
+        // Apply updates one-by-one to preserve full history including deleted items
+        for (const update of diffData.updates) {
+          Y.applyUpdate(doc, update);
+        }
+      } catch (e) {
+        console.error('Error applying updates:', e);
+      }
 
-    const doc = new Y.Doc();
-    try {
-      Y.applyUpdate(doc, versionContent.content);
-    } catch (e) {
-      console.error('Error applying version content:', e);
+      const currentSnap = diffData.currentSnapshot
+        ? Y.decodeSnapshot(diffData.currentSnapshot)
+        : Y.snapshot(doc);
+
+      const prevSnap = diffData.previousSnapshot
+        ? Y.decodeSnapshot(diffData.previousSnapshot)
+        : Y.emptySnapshot;
+
+      return { historyDoc: doc, snapshot: currentSnap, prevSnapshot: prevSnap };
     }
-    return doc;
-  }, [versionContent?.content]);
+
+    // Legacy fallback using versionContent
+    if (versionContent?.content) {
+      const doc = new Y.Doc({ gc: false });
+      try {
+        Y.applyUpdate(doc, versionContent.content);
+      } catch (e) {
+        console.error('Error applying version content:', e);
+      }
+      const currentSnap = Y.snapshot(doc);
+      return { historyDoc: doc, snapshot: currentSnap, prevSnapshot: Y.emptySnapshot };
+    }
+
+    return { historyDoc: null, snapshot: null, prevSnapshot: null };
+  }, [diffData, versionContent?.content]);
+
+  // Reset diffApplied when content changes
+  useEffect(() => {
+    setDiffApplied(false);
+  }, [diffData?.updates, diffData?.currentSnapshot, versionContent?.content]);
 
   // Editor extensions (read-only, no collaboration cursors)
-  // Always include base extensions to ensure valid schema
   const extensions = useMemo(() => {
     const baseExtensions = [
       StarterKit.configure({
@@ -41,34 +104,56 @@ function VersionPreview({
       Link.configure({
         openOnClick: true,
       }),
+      // YChangeMark renders the ychange attribute to DOM for CSS styling
+      YChangeMark,
     ];
 
-    // Add collaboration extension when we have a ydoc
-    if (ydoc) {
+    if (historyDoc) {
       baseExtensions.push(
         Collaboration.configure({
-          document: ydoc,
+          document: historyDoc,
           field: 'default',
         })
       );
     }
 
     return baseExtensions;
-  }, [ydoc]);
+  }, [historyDoc]);
 
   const editor = useEditor({
     extensions,
     editable: false,
   }, [extensions]);
 
-  // Cleanup ydoc on unmount
+  // Apply snapshot diff when editor and snapshots are ready
+  useEffect(() => {
+    if (editor && snapshot && showDiff && !diffApplied) {
+      const timer = setTimeout(() => {
+        try {
+          editor.view.dispatch(
+            editor.view.state.tr.setMeta(ySyncPluginKey, {
+              snapshot,
+              prevSnapshot: prevSnapshot || Y.emptySnapshot,
+              permanentUserData: minimalPermanentUserData,
+            })
+          );
+          setDiffApplied(true);
+        } catch (e) {
+          console.error('Error applying diff snapshots:', e);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [editor, snapshot, prevSnapshot, showDiff, diffApplied]);
+
+  // Cleanup historyDoc on unmount
   useEffect(() => {
     return () => {
-      if (ydoc) {
-        ydoc.destroy();
+      if (historyDoc) {
+        historyDoc.destroy();
       }
     };
-  }, [ydoc]);
+  }, [historyDoc]);
 
   if (isLoading) {
     return (
@@ -78,7 +163,7 @@ function VersionPreview({
     );
   }
 
-  if (!versionContent || !selection) {
+  if (!diffData && !versionContent) {
     return (
       <div className="version-preview">
         <div className="version-preview-empty">

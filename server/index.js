@@ -771,6 +771,96 @@ app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) =
   }
 });
 
+// API: Get full document with history for version diff comparison
+// Returns the full document (gc:false) and snapshots at specified clock positions
+app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { currentClock, previousClock } = req.query;
+    const userId = req.user.userId;
+
+    // Validate parameters
+    const current = parseInt(currentClock, 10);
+    const previous = previousClock ? parseInt(previousClock, 10) : -1;
+
+    if (isNaN(current)) {
+      return res.status(400).json({ error: 'currentClock parameter must be a number' });
+    }
+
+    // Check if user has at least view access
+    const role = await documents.getRole(docId, userId);
+    if (!role) {
+      return res.status(403).json({ error: 'You do not have access to this document' });
+    }
+
+    // Get all individual updates from the database
+    // IMPORTANT: We must send individual updates, not a merged update.
+    // Y.encodeStateAsUpdate() loses deleted items even with gc:false.
+    // For snapshot diffs to work, the client must apply updates one-by-one
+    // to preserve the full history including deleted items.
+    const client = await persistenceProvider.pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docId]
+      );
+
+      // Build document incrementally to capture snapshots at correct clocks
+      const tempDoc = new Y.Doc({ gc: false });
+      let prevSnapshot = null;
+      let currentSnapshot = null;
+
+      // Collect all updates as arrays (for JSON serialization)
+      const updates = [];
+
+      for (const row of result.rows) {
+        const updateData = new Uint8Array(row.update_data);
+        updates.push(Array.from(updateData));
+        Y.applyUpdate(tempDoc, updateData);
+
+        if (previous >= 0 && row.clock === previous) {
+          prevSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+        }
+        if (row.clock === current) {
+          currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+        }
+      }
+
+      // If we didn't hit the exact clocks, take snapshots at the appropriate points
+      if (previous >= 0 && !prevSnapshot) {
+        // Rebuild to get snapshot at previous clock
+        const prevDoc = new Y.Doc({ gc: false });
+        let idx = 0;
+        for (const row of result.rows) {
+          if (row.clock > previous) break;
+          Y.applyUpdate(prevDoc, new Uint8Array(row.update_data));
+          idx++;
+        }
+        prevSnapshot = Y.encodeSnapshot(Y.snapshot(prevDoc));
+        prevDoc.destroy();
+      }
+
+      if (!currentSnapshot) {
+        currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+      }
+
+      tempDoc.destroy();
+
+      res.json({
+        // Send individual updates array instead of merged fullDoc
+        updates: updates,
+        currentSnapshot: Array.from(currentSnapshot),
+        previousSnapshot: prevSnapshot ? Array.from(prevSnapshot) : null,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error getting diff data:', error);
+    res.status(500).json({ error: 'Failed to get diff data' });
+  }
+});
+
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
   try {
