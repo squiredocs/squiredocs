@@ -178,7 +178,7 @@ describe('DiffService', () => {
       newDoc.destroy();
     });
 
-    test('detects deletions', () => {
+    test('detects deletions with formatted content', () => {
       const oldDoc = createDocWithText('Hello World');
       const newDoc = createDocWithText('Hello');
 
@@ -188,7 +188,11 @@ describe('DiffService', () => {
       const changes = diffService.computeChanges(oldPmDoc, newPmDoc);
 
       expect(changes.length).toBeGreaterThan(0);
-      expect(changes.some(c => c.type === 'delete')).toBe(true);
+      const deleteChange = changes.find(c => c.type === 'delete');
+      expect(deleteChange).toBeDefined();
+      // Deletions now include deletedContent as array of node JSONs
+      expect(deleteChange.deletedContent).toBeDefined();
+      expect(Array.isArray(deleteChange.deletedContent)).toBe(true);
 
       oldDoc.destroy();
       newDoc.destroy();
@@ -297,21 +301,6 @@ describe('DiffService', () => {
       expect(result.document.content[0].type).toBe('paragraph');
 
       doc.destroy();
-    });
-  });
-
-  describe('extractTextBetween', () => {
-    test('extracts text between positions in ProseMirror doc', () => {
-      const yDoc = createDocWithText('Hello World');
-      const pmDoc = diffService.yDocToProseMirror(yDoc);
-
-      // Positions in ProseMirror: 0 is before doc, 1 is after opening paragraph tag
-      // "Hello World" starts at position 1, ends at position 12
-      const text = diffService.extractTextBetween(pmDoc, 1, 12);
-
-      expect(text).toBe('Hello World');
-
-      yDoc.destroy();
     });
   });
 

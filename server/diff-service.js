@@ -251,14 +251,16 @@ class DiffService {
 
     // Handle deletions (nodes in old but not in new)
     if (oldEndDiff > startDiff) {
-      const deleteStart = oldNodes[startDiff].offset;
-      const deleteEnd = oldNodes[oldEndDiff - 1].offset + oldNodes[oldEndDiff - 1].size;
-      const deletedText = this.extractTextBetween(oldDoc, deleteStart, deleteEnd);
+      // Extract deleted nodes as JSON for formatted rendering on client
+      const deletedNodes = [];
+      for (let i = startDiff; i < oldEndDiff; i++) {
+        deletedNodes.push(oldNodes[i].node.toJSON());
+      }
 
       changes.push({
         type: 'delete',
         fromB: changeStartPos,
-        deleted: deletedText,
+        deletedContent: deletedNodes,
       });
     }
 
@@ -275,26 +277,6 @@ class DiffService {
     }
 
     return changes;
-  }
-
-  /**
-   * Extract text content between positions in a ProseMirror document.
-   *
-   * @param {import('prosemirror-model').Node} doc - ProseMirror document
-   * @param {number} from - Start position
-   * @param {number} to - End position
-   * @returns {string} Text content
-   */
-  extractTextBetween(doc, from, to) {
-    let text = '';
-    doc.nodesBetween(from, to, (node) => {
-      if (node.isText) {
-        text += node.text;
-      } else if (node.isBlock && text.length > 0) {
-        text += ' ';
-      }
-    });
-    return text;
   }
 
   /**

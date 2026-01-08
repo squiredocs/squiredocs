@@ -13,9 +13,146 @@ import { Decoration, DecorationSet } from 'prosemirror-view';
 export const diffDecorationPluginKey = new PluginKey('diffDecoration');
 
 /**
+ * Get the HTML element tag for a ProseMirror node type.
+ */
+function getElementForNode(nodeType, attrs) {
+  switch (nodeType) {
+    case 'paragraph': return 'p';
+    case 'heading':
+      const level = attrs?.level || 1;
+      return `h${level}`;
+    case 'bulletList': return 'ul';
+    case 'orderedList': return 'ol';
+    case 'listItem': return 'li';
+    case 'blockquote': return 'blockquote';
+    case 'codeBlock': return 'pre';
+    case 'horizontalRule': return 'hr';
+    case 'hardBreak': return 'br';
+    case 'image': return 'img';
+    default: return null; // Unknown type - will be handled specially
+  }
+}
+
+/**
+ * Get the HTML element for a mark type.
+ */
+function getMarkElement(markType) {
+  switch (markType) {
+    case 'bold': return 'strong';
+    case 'italic': return 'em';
+    case 'underline': return 'u';
+    case 'code': return 'code';
+    case 'link': return 'a';
+    case 'strike': return 's';
+    default: return 'span';
+  }
+}
+
+/**
+ * Recursively render a ProseMirror node JSON to DOM.
+ * Handles any nesting of blocks and inline content.
+ *
+ * @param {object} nodeJson - ProseMirror node JSON
+ * @param {HTMLElement} container - Parent container to append to
+ */
+function renderNode(nodeJson, container) {
+  if (!nodeJson) return;
+
+  // Handle text nodes
+  if (nodeJson.type === 'text') {
+    let element = document.createTextNode(nodeJson.text);
+
+    // Wrap in mark elements (innermost first)
+    if (nodeJson.marks && nodeJson.marks.length > 0) {
+      for (const mark of nodeJson.marks) {
+        const wrapper = document.createElement(getMarkElement(mark.type));
+        if (mark.type === 'link' && mark.attrs?.href) {
+          wrapper.href = mark.attrs.href;
+        }
+        wrapper.appendChild(element);
+        element = wrapper;
+      }
+    }
+
+    // Wrap in diff-delete span for consistent styling with inserts
+    const deleteSpan = document.createElement('span');
+    deleteSpan.className = 'diff-delete';
+    deleteSpan.appendChild(element);
+    container.appendChild(deleteSpan);
+    return;
+  }
+
+  // Handle hard breaks
+  if (nodeJson.type === 'hardBreak') {
+    container.appendChild(document.createElement('br'));
+    return;
+  }
+
+  // Handle horizontal rules
+  if (nodeJson.type === 'horizontalRule') {
+    container.appendChild(document.createElement('hr'));
+    return;
+  }
+
+  // Handle block and container nodes
+  const tagName = getElementForNode(nodeJson.type, nodeJson.attrs);
+
+  if (tagName) {
+    const element = document.createElement(tagName);
+
+    // Apply attributes for specific node types
+    if (nodeJson.type === 'heading' && nodeJson.attrs?.level) {
+      // Heading level is already in the tag name
+    }
+    if (nodeJson.type === 'orderedList' && nodeJson.attrs?.start && nodeJson.attrs.start !== 1) {
+      element.start = nodeJson.attrs.start;
+    }
+    if (nodeJson.type === 'image' && nodeJson.attrs) {
+      if (nodeJson.attrs.src) element.src = nodeJson.attrs.src;
+      if (nodeJson.attrs.alt) element.alt = nodeJson.attrs.alt;
+      if (nodeJson.attrs.title) element.title = nodeJson.attrs.title;
+    }
+
+    // Recursively render children
+    if (nodeJson.content) {
+      for (const child of nodeJson.content) {
+        renderNode(child, element);
+      }
+    }
+
+    container.appendChild(element);
+  } else if (nodeJson.content) {
+    // Unknown node type with content - just render children directly
+    for (const child of nodeJson.content) {
+      renderNode(child, container);
+    }
+  }
+}
+
+/**
+ * Render deleted content preserving full document structure.
+ * Handles any block types including nested lists.
+ *
+ * @param {Array<object>} deletedContent - Array of ProseMirror node JSON objects
+ * @param {import('prosemirror-model').Schema} schema - ProseMirror schema
+ * @returns {HTMLElement} Container with deleted block elements
+ */
+function renderDeletedContent(deletedContent, schema) {
+  // Container uses display:contents so it doesn't affect layout
+  const container = document.createElement('div');
+  container.className = 'diff-delete-container';
+
+  for (const nodeJson of deletedContent) {
+    renderNode(nodeJson, container);
+  }
+
+  return container;
+}
+
+/**
  * Create decorations for diff changes.
  *
- * @param {Array<{type: string, fromB: number, toB: number, deleted?: string}>} changes - Diff changes
+ * @param {Array<{type: string, fromB: number, toB: number, deletedContent?: Array}>} changes - Diff changes
  * @param {import('prosemirror-model').Node} doc - Current document
  * @returns {DecorationSet} Decoration set
  */
@@ -25,6 +162,7 @@ function createDecorations(changes, doc) {
   }
 
   const decorations = [];
+  const schema = doc.type.schema;
 
   for (const change of changes) {
     if (change.type === 'insert' && change.fromB < change.toB) {
@@ -38,15 +176,12 @@ function createDecorations(changes, doc) {
       } catch (e) {
         console.warn('[DiffDecoration] Invalid insert range:', change, e);
       }
-    } else if (change.type === 'delete' && change.deleted) {
-      // Deletion: widget showing deleted text with strikethrough
+    } else if (change.type === 'delete' && change.deletedContent) {
+      // Deletion: widget showing formatted deleted content
       try {
         decorations.push(
           Decoration.widget(change.fromB, () => {
-            const span = document.createElement('span');
-            span.className = 'diff-delete';
-            span.textContent = change.deleted;
-            return span;
+            return renderDeletedContent(change.deletedContent, schema);
           }, { side: -1 })
         );
       } catch (e) {

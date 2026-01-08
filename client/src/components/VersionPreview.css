@@ -74,6 +74,12 @@
   border-radius: 2px;
 }
 
+/* Deleted content container - transparent wrapper */
+.version-preview .diff-delete-container {
+  display: contents;
+}
+
+/* Deleted content - inline span with strikethrough (matches insert styling) */
 .version-preview .diff-delete {
   text-decoration: line-through;
   color: #d73a49;
