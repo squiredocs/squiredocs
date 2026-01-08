@@ -192,6 +192,40 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 
 See [docs/permissions.md](docs/permissions.md) for detailed permission documentation.
 
+## Version History
+
+The editor maintains a complete version history of all document changes, enabling review and restoration of previous states.
+
+### How It Works
+
+**Auto-Versioning**: Consecutive edits within a 5-minute window are automatically grouped into a single version. When editing pauses for more than 5 minutes, a new version begins. This prevents every keystroke from creating a separate version while preserving meaningful checkpoints.
+
+**Named Versions**: Users can explicitly name any version (e.g., "Final Draft", "Before Refactor"). Named versions store a cached snapshot for instant loading and appear prominently in the timeline.
+
+**Author Tracking**: Each edit records the user (or AI agent) who made it. Versions display all contributors with deterministic avatar colors. Agent edits are tagged with the agent name for transparency.
+
+### UI Navigation
+
+The version history panel uses a three-level hierarchy:
+1. **Month** - Versions grouped by calendar month
+2. **Version** - Auto or named versions (5-minute grouping threshold)
+3. **Sub-versions** - Drill into a version to see grouped edits (10-second grouping threshold)
+
+### Restoring Versions
+
+Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time.
+
+### API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/docs/:docId/history` | Get version timeline |
+| `GET /api/docs/:docId/history/updates?from=X&to=Y` | Get individual updates in clock range |
+| `GET /api/docs/:docId/history/clock/:clock` | Get document state at specific clock |
+| `GET /api/docs/:docId/versions/:versionId` | Get content at named version |
+| `POST /api/docs/:docId/versions` | Create named version |
+| `POST /api/docs/:docId/restore` | Restore to previous version |
+
 ## AI Agent Integration (Model Context Protocol)
 
 This editor supports AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude.

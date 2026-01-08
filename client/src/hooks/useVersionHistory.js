@@ -180,21 +180,22 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api]);
 
   /**
-   * Select a specific update (clock tick) and load its content
-   * Treats the clock as a single-update "version" for unified selection
+   * Select a sub-version (grouped updates) and load its content
+   * Sub-versions have clockStart, clockEnd, timestamp, and authors
    */
-  const selectUpdate = useCallback(async (update) => {
-    // Create a version-like object for the single clock update
+  const selectUpdate = useCallback(async (subVersion) => {
+    // Create a version-like object for the sub-version
     setSelection({
-      id: `clock-${update.clock}`,
-      clock: update.clock,
-      clockStart: update.clock,
-      clockEnd: update.clock,
-      timestamp: update.timestamp,
-      authors: update.author ? [update.author] : [],
-      isClock: true, // Flag to distinguish from grouped versions
+      id: subVersion.id,
+      clockStart: subVersion.clockStart,
+      clockEnd: subVersion.clockEnd,
+      timestamp: subVersion.timestamp,
+      authors: subVersion.authors || [],
+      isSubVersion: true, // Flag to distinguish from top-level versions
+      updateCount: subVersion.updateCount,
     });
-    await loadContentAtClock(update.clock);
+    // Load content at the end of the sub-version (latest state)
+    await loadContentAtClock(subVersion.clockEnd);
   }, [loadContentAtClock]);
 
   /**

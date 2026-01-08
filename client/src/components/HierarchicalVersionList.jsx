@@ -81,13 +81,13 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) 
 }
 
 /**
- * Item menu dropdown component - shared between versions and clock updates
+ * Item menu dropdown component - shared between versions and sub-versions
  */
 function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
   const canRestore = !item.isCurrent && userRole !== 'viewer';
   const canName = userRole !== 'viewer';
   const canRename = item.isNamed;
-  const canRemoveName = item.isNamed && !item.isClock;
+  const canRemoveName = item.isNamed && !item.isSubVersion;
 
   return (
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
@@ -129,38 +129,43 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
 }
 
 /**
- * Convert a clock update to a unified item format
+ * Convert a sub-version to a unified item format
  */
-function clockToItem(update) {
+function subVersionToItem(subVersion) {
+  const isSingleUpdate = subVersion.clockStart === subVersion.clockEnd;
   return {
-    id: `clock-${update.clock}`,
-    clock: update.clock,
-    timestamp: update.timestamp,
-    authors: update.author ? [update.author] : [],
-    isClock: true,
+    id: subVersion.id,
+    clockStart: subVersion.clockStart,
+    clockEnd: subVersion.clockEnd,
+    timestamp: subVersion.timestamp,
+    authors: subVersion.authors || [],
+    isSubVersion: true,
     isCurrent: false,
-    subtitle: `Clock ${update.clock}`,
+    subtitle: isSingleUpdate
+      ? `Clock ${subVersion.clockStart}`
+      : `Clocks ${subVersion.clockStart}–${subVersion.clockEnd}`,
+    updateCount: subVersion.updateCount,
   };
 }
 
 /**
- * Combined updates item - represents multiple older updates collapsed into one
+ * Combined sub-versions item - represents multiple older sub-versions collapsed into one
  */
-function CombinedUpdatesItem({ updates, isSelected, onClick }) {
-  // Collect unique authors from all combined updates
+function CombinedSubVersionsItem({ subVersions, isSelected, onClick }) {
+  // Collect unique authors from all combined sub-versions
   const authorsMap = new Map();
-  for (const update of updates) {
-    if (update.author) {
-      const key = `${update.author.id}-${update.author.isAgent ? 'agent' : 'user'}`;
+  for (const sv of subVersions) {
+    for (const author of (sv.authors || [])) {
+      const key = `${author.id}-${author.isAgent ? 'agent' : 'user'}`;
       if (!authorsMap.has(key)) {
-        authorsMap.set(key, update.author);
+        authorsMap.set(key, author);
       }
     }
   }
   const authors = Array.from(authorsMap.values());
 
-  const oldestUpdate = updates[updates.length - 1];
-  const newestUpdate = updates[0];
+  const oldestSv = subVersions[subVersions.length - 1];
+  const newestSv = subVersions[0];
 
   return (
     <div
@@ -172,10 +177,10 @@ function CombinedUpdatesItem({ updates, isSelected, onClick }) {
     >
       <div className="hierarchy-item-content">
         <div className="hierarchy-version-time">
-          {updates.length} earlier updates
+          {subVersions.length} earlier edits
         </div>
         <div className="hierarchy-item-subtitle">
-          Clock {oldestUpdate.clock}–{newestUpdate.clock}
+          Clocks {oldestSv.clockStart}–{newestSv.clockEnd}
         </div>
         <AuthorList authors={authors} maxDisplay={3} />
       </div>
@@ -204,7 +209,7 @@ function HistoryItem({
   onDeleteVersion,
   userRole,
 }) {
-  const isVersion = !item.isClock;
+  const isVersion = !item.isSubVersion;
   const itemClass = isVersion ? 'hierarchy-version' : 'hierarchy-update';
 
   return (
@@ -321,9 +326,8 @@ function HierarchicalVersionList({
       if (item.isNamed) {
         await onRenameVersion(item.id, name.trim());
       } else {
-        // For clocks, use clock value; for versions, use clockEnd
-        const clockEnd = item.isClock ? item.clock : item.clockEnd;
-        await onCreateNamedVersion(name.trim(), clockEnd);
+        // Use clockEnd for both versions and sub-versions
+        await onCreateNamedVersion(name.trim(), item.clockEnd);
       }
     }
     setMenuOpen(null);
@@ -402,28 +406,28 @@ function HierarchicalVersionList({
                           <div className="hierarchy-loading">Loading updates...</div>
                         ) : updates && updates.length > 0 ? (
                           <>
-                            {updates.slice(0, MAX_VISIBLE_UPDATES).map((update) => {
-                              const clockItem = clockToItem(update);
-                              const menuKey = `clock-${update.clock}`;
+                            {updates.slice(0, MAX_VISIBLE_UPDATES).map((subVersion) => {
+                              const subVersionItem = subVersionToItem(subVersion);
+                              const menuKey = subVersion.id;
                               return (
                                 <HistoryItem
-                                  key={update.clock}
-                                  item={clockItem}
-                                  isSelected={selection?.isClock && selection?.clock === update.clock}
-                                  onClick={() => onSelectUpdate(update)}
+                                  key={subVersion.id}
+                                  item={subVersionItem}
+                                  isSelected={selection?.isSubVersion && selection?.id === subVersion.id}
+                                  onClick={() => onSelectUpdate(subVersion)}
                                   menuOpen={menuOpen === menuKey}
                                   menuRef={menuRef}
                                   onMenuOpen={() => setMenuOpen(menuKey)}
-                                  onNameVersion={() => handleNameItem(clockItem)}
-                                  onRestoreVersion={() => handleRestoreItem(clockItem)}
+                                  onNameVersion={() => handleNameItem(subVersionItem)}
+                                  onRestoreVersion={() => handleRestoreItem(subVersionItem)}
                                   userRole={userRole}
                                 />
                               );
                             })}
                             {updates.length > MAX_VISIBLE_UPDATES && (
-                              <CombinedUpdatesItem
-                                updates={updates.slice(MAX_VISIBLE_UPDATES)}
-                                isSelected={selection?.isClock && updates.slice(MAX_VISIBLE_UPDATES).some(u => u.clock === selection?.clock)}
+                              <CombinedSubVersionsItem
+                                subVersions={updates.slice(MAX_VISIBLE_UPDATES)}
+                                isSelected={selection?.isSubVersion && updates.slice(MAX_VISIBLE_UPDATES).some(sv => sv.id === selection?.id)}
                                 onClick={() => onSelectUpdate(updates[MAX_VISIBLE_UPDATES])}
                               />
                             )}

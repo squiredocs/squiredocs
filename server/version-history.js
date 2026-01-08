@@ -8,6 +8,9 @@ const Y = require('yjs');
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 
+// Inactivity threshold for grouping individual updates within a version (10 seconds)
+const UPDATE_GROUPING_THRESHOLD = 10 * 1000;
+
 /**
  * Generate a deterministic color from a user ID
  * @param {string} id - User ID
@@ -584,13 +587,14 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
 }
 
 /**
- * Get individual updates within a clock range (for drill-down)
+ * Get updates within a clock range, grouped into sub-versions (for drill-down)
+ * Groups updates with less than 10 seconds between them into sub-versions
  * Filters out redundant/duplicate updates that don't change the document state
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {number} clockStart - Starting clock value (inclusive)
  * @param {number} clockEnd - Ending clock value (inclusive)
- * @returns {Promise<Array>} Array of individual updates with metadata
+ * @returns {Promise<Array>} Array of grouped sub-versions with metadata
  */
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
@@ -621,12 +625,29 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     }
   }
 
+  // Group updates into sub-versions using 10-second threshold
+  const subVersions = groupUpdatesIntoVersions(
+    meaningfulUpdates.map(u => ({
+      clock: u.clock,
+      createdAt: u.createdAt,
+      userId: u.userId,
+      userName: u.userName,
+      userEmail: u.userEmail,
+      userPicture: u.userPicture,
+      agentName: u.agentName,
+    })),
+    UPDATE_GROUPING_THRESHOLD
+  );
+
   // Map to response format and reverse to show most recent first
-  return meaningfulUpdates.map(update => ({
-    clock: update.clock,
-    timestamp: update.createdAt,
-    formattedTimestamp: formatTimestamp(update.createdAt),
-    author: createAuthor(update),
+  return subVersions.map(sv => ({
+    id: `subversion-${sv.clockEnd}`,
+    clockStart: sv.clockStart,
+    clockEnd: sv.clockEnd,
+    timestamp: sv.timestamp,
+    formattedTimestamp: formatTimestamp(sv.timestamp),
+    authors: sv.authors || [],
+    updateCount: sv.clockEnd - sv.clockStart + 1,
   })).reverse();
 }
 
@@ -665,4 +686,5 @@ module.exports = {
   getContentAtClock,
   restoreVersion,
   DEFAULT_INACTIVITY_THRESHOLD,
+  UPDATE_GROUPING_THRESHOLD,
 };
