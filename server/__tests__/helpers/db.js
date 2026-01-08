@@ -8,37 +8,38 @@
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../../postgres-persistence');
 
-// Database configuration - shared across all tests
-// Prioritize DATABASE_URL (used in test environment) over individual vars
-const dbConfig = process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL }
-  : {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || '',
-    };
+/**
+ * Get database config at call time (not module load time)
+ * This ensures DATABASE_URL is checked when the function is called,
+ * not when the module is first imported.
+ */
+function getDbConfig() {
+  if (process.env.DATABASE_URL) {
+    return { connectionString: process.env.DATABASE_URL };
+  }
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'collab_db',
+    user: process.env.DB_USER || process.env.USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+  };
+}
 
 /**
  * Create a new database pool
  * Tests can share a single pool or create their own if needed
  */
 function createPool() {
-  return new Pool(dbConfig);
+  return new Pool(getDbConfig());
 }
 
 /**
  * Create a new PostgresPersistence instance
  */
 function createPersistence() {
-  // PostgresPersistence expects individual config params, not connectionString
-  // So we pass the expanded config or the individual params
-  if (process.env.DATABASE_URL) {
-    return new PostgresPersistence({ connectionString: process.env.DATABASE_URL });
-  } else {
-    return new PostgresPersistence(dbConfig);
-  }
+  const config = getDbConfig();
+  return new PostgresPersistence(config);
 }
 
 /**
@@ -73,7 +74,7 @@ async function cleanupTestUser(pool, userId) {
 }
 
 module.exports = {
-  dbConfig,
+  getDbConfig,
   createPool,
   createPersistence,
   createTestUser,
