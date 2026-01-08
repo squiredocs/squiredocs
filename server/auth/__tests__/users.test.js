@@ -2,25 +2,16 @@
  * Users module tests
  * Requires PostgreSQL database with users table
  */
-const { Pool } = require('pg');
 const crypto = require('crypto');
+const { createPool } = require('../../__tests__/helpers/db');
 
 const users = require('../users');
 
 describe('Users module', () => {
   let pool;
-  
-  // Test database config
-  const testDbConfig = process.env.TEST_DATABASE_URL || {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.TEST_DB_NAME || 'collab_db',
-    user: process.env.DB_USER || process.env.USER || 'postgres',
-    password: process.env.DB_PASSWORD || ''
-  };
 
   beforeAll(async () => {
-    pool = new Pool(testDbConfig);
+    pool = createPool();
     users.init(pool);
     
     // Ensure users table exists (migration should have run)

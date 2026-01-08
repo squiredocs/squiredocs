@@ -9,13 +9,12 @@
  * This exercises the V3 sandboxed TypeScript execution API.
  */
 
-const { Pool } = require('pg');
 const Y = require('yjs');
 const WebSocket = require('ws');
 const http = require('http');
+const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 const toolRegistry = require('../../tools/index');
 const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
-const { PostgresPersistence } = require('../../../postgres-persistence');
 const agentPresence = require('../../agent-presence');
 const documents = require('../../../documents');
 const documentService = require('../../../document-service');
@@ -36,12 +35,9 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
   let wss;
 
   beforeAll(async () => {
-    // Set up database connection
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL || 'postgresql://localhost/collab_test_db',
-    });
-
-    persistence = new PostgresPersistence(process.env.DATABASE_URL || 'postgresql://localhost/collab_test_db');
+    // Set up database connection using shared helper
+    pool = createPool();
+    persistence = createPersistence();
 
     // Set up y-websocket persistence
     const extractDocGuid = (docName) => {

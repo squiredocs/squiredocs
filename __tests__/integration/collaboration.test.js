@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 const express = require('express');
 const crypto = require('crypto');
 const { setupWSConnection, setPersistence } = require('y-websocket/bin/utils');
-const { PostgresPersistence } = require('../../server/postgres-persistence');
+const { createPersistence } = require('../../server/__tests__/helpers/db');
 
 // Make WebSocket available globally for y-websocket in Node.js
 global.WebSocket = WebSocket;
@@ -129,25 +129,16 @@ describe('Collaboration Integration Tests', () => {
   let wss;
   let basePersistence;
   let trackedPersistence;
-  let testDbConfig;
   let port;
 
   beforeAll(async () => {
-    testDbConfig = process.env.TEST_DATABASE_URL || {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.TEST_DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || ''
-    };
-    
     const app = express();
     await new Promise((resolve) => {
       server = app.listen(0, async () => {
         port = server.address().port;
         wss = new WebSocket.Server({ server });
-        
-        basePersistence = new PostgresPersistence(testDbConfig);
+
+        basePersistence = createPersistence();
         await basePersistence._init();
         await basePersistence.clearAll();
         

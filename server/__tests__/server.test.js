@@ -4,44 +4,12 @@ const WebSocket = require('ws');
 const Y = require('yjs');
 const crypto = require('crypto');
 const { setupWSConnection } = require('y-websocket/bin/utils');
-const { PostgresPersistence } = require('../postgres-persistence');
+const { createPersistence } = require('./helpers/db');
 
 // Generate a valid UUID v4 for testing
 const generateTestUUID = () => crypto.randomUUID();
 
 describe('Server', () => {
-  let testDbConfig;
-  let originalEnv;
-
-  beforeAll(() => {
-    testDbConfig = process.env.TEST_DATABASE_URL || {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.TEST_DB_NAME || 'collab_db',
-      user: process.env.DB_USER || process.env.USER || 'postgres',
-      password: process.env.DB_PASSWORD || ''
-    };
-    
-    originalEnv = {
-      DATABASE_URL: process.env.DATABASE_URL,
-      DB_HOST: process.env.DB_HOST,
-      DB_PORT: process.env.DB_PORT,
-      DB_NAME: process.env.DB_NAME,
-      DB_USER: process.env.DB_USER,
-      DB_PASSWORD: process.env.DB_PASSWORD
-    };
-  });
-
-  afterAll(async () => {
-    // Restore original environment
-    if (originalEnv.DATABASE_URL) {
-      process.env.DATABASE_URL = originalEnv.DATABASE_URL;
-    } else {
-      delete process.env.DATABASE_URL;
-    }
-    // Restore other env vars similarly if needed
-  });
-
   beforeEach(() => {
     // Reset modules to get fresh server instance
     jest.resetModules();
@@ -79,7 +47,7 @@ describe('Server', () => {
       const app = express();
       httpServer = app.listen(0);
       wss = new WebSocket.Server({ server: httpServer });
-      persistence = new PostgresPersistence(testDbConfig);
+      persistence = createPersistence();
       // Ensure database is initialized
       await persistence._init();
       // Clean up any existing test data
@@ -146,7 +114,7 @@ describe('Server', () => {
     let persistence;
 
     beforeEach(async () => {
-      persistence = new PostgresPersistence(testDbConfig);
+      persistence = createPersistence();
       await persistence._init();
       await persistence.clearAll();
     });
