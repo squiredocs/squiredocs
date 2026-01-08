@@ -137,9 +137,10 @@ export function useVersionHistory(docGuid) {
 
   /**
    * Load diff data for version comparison.
-   * Returns individual updates (to preserve deletion history) and snapshots at specific clocks.
-   * IMPORTANT: We receive individual updates, not a merged doc, because
-   * Y.encodeStateAsUpdate() loses deleted items even with gc:false.
+   * Server computes the diff and returns:
+   * - document: ProseMirror JSON of the document at currentClock
+   * - changes: Array of {type, fromB, toB, deleted} for decorations
+   * - meta: {previousClock, currentClock, textIdentical}
    */
   const loadDiffData = useCallback(async (currentClock, previousClock) => {
     if (!docGuid) return null;
@@ -150,16 +151,8 @@ export function useVersionHistory(docGuid) {
         params.append('previousClock', previousClock.toString());
       }
       const response = await api.get(`/api/docs/${docGuid}/history/diff?${params}`);
-      return {
-        // Individual updates array - must be applied one-by-one to preserve history
-        updates: response.data.updates.map(u => new Uint8Array(u)),
-        currentSnapshot: new Uint8Array(response.data.currentSnapshot),
-        previousSnapshot: response.data.previousSnapshot
-          ? new Uint8Array(response.data.previousSnapshot)
-          : null,
-        // Flag indicating text is identical despite CRDT item differences (skip diff)
-        textIdentical: response.data.textIdentical || false,
-      };
+      // Return the server-computed diff data directly
+      return response.data;
     } catch (err) {
       console.error('Error loading diff data:', err);
       return null;
@@ -174,18 +167,14 @@ export function useVersionHistory(docGuid) {
     if (version) {
       setIsLoadingContent(true);
       try {
-        // Load diff data - full document with history and snapshots at specific clocks
+        // Load diff data - server returns pre-computed document and changes
         const previousClock = version.clockStart > 0 ? version.clockStart - 1 : -1;
         const diffResult = await loadDiffData(version.clockEnd, previousClock);
         if (diffResult) {
           setDiffData(diffResult);
-          // Also set versionContent for backwards compatibility
-          setVersionContent({ content: diffResult.fullDoc, clock: version.clockEnd });
-          setPreviousVersionContent(
-            diffResult.previousSnapshot
-              ? { content: diffResult.previousSnapshot, clock: previousClock }
-              : null
-          );
+          // Legacy compatibility - no longer needed but kept for any remaining consumers
+          setVersionContent(null);
+          setPreviousVersionContent(null);
         }
       } finally {
         setIsLoadingContent(false);
@@ -269,17 +258,14 @@ export function useVersionHistory(docGuid) {
     setIsLoadingContent(true);
     try {
       // Load diff data with the subversion's clock range
-      // This ensures the diff shows changes within this specific subversion
+      // Server returns pre-computed document and changes
       const previousClock = subVersion.clockStart > 0 ? subVersion.clockStart - 1 : -1;
       const diffResult = await loadDiffData(subVersion.clockEnd, previousClock);
       if (diffResult) {
         setDiffData(diffResult);
-        setVersionContent({ content: diffResult.fullDoc, clock: subVersion.clockEnd });
-        setPreviousVersionContent(
-          diffResult.previousSnapshot
-            ? { content: diffResult.previousSnapshot, clock: previousClock }
-            : null
-        );
+        // Legacy compatibility - no longer needed
+        setVersionContent(null);
+        setPreviousVersionContent(null);
       }
     } finally {
       setIsLoadingContent(false);
@@ -399,8 +385,8 @@ export function useVersionHistory(docGuid) {
     error,
     selection, // Unified selection: version or single clock update (with isClock: true)
     versionContent,
-    previousVersionContent, // For diff visualization (legacy)
-    diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff visualization
+    previousVersionContent, // Legacy - no longer used
+    diffData, // { document, changes, meta } from server-side diff computation
     isLoadingContent,
 
     // Hierarchical drill-down state

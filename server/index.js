@@ -19,6 +19,7 @@ const versionHistory = require('./version-history');
 const mcp = require('./mcp');
 const documentService = require('./document-service');
 const wsSimulator = require('./websocket-simulator');
+const DiffService = require('./diff-service');
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -281,6 +282,9 @@ waitlist.init(persistenceProvider.getPool());
 
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
+
+// Initialize diff service for version history
+const diffService = new DiffService(persistenceProvider.getPool());
 
 // Mount auth routes
 app.use('/auth', authRouter);
@@ -793,95 +797,9 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this document' });
     }
 
-    // Get all individual updates from the database
-    // IMPORTANT: We must send individual updates, not a merged update.
-    // Y.encodeStateAsUpdate() loses deleted items even with gc:false.
-    // For snapshot diffs to work, the client must apply updates one-by-one
-    // to preserve the full history including deleted items.
-    const client = await persistenceProvider.pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
-        [docId]
-      );
-
-      // Build document incrementally to capture snapshots at correct clocks
-      const tempDoc = new Y.Doc({ gc: false });
-      let prevSnapshot = null;
-      let currentSnapshot = null;
-      let prevTextContent = null;
-      let currentTextContent = null;
-
-      // Helper to extract text from XmlFragment
-      function extractText(doc) {
-        const fragment = doc.get('default', Y.XmlFragment);
-        let text = '';
-        fragment.forEach(node => {
-          if (node.toString) {
-            // For XmlElement nodes, get text content
-            const nodeStr = node.toString();
-            // Strip XML tags to get plain text
-            text += nodeStr.replace(/<[^>]*>/g, '') + '\n';
-          }
-        });
-        return text.trim();
-      }
-
-      // Collect all updates as arrays (for JSON serialization)
-      const updates = [];
-
-      for (const row of result.rows) {
-        const updateData = new Uint8Array(row.update_data);
-        updates.push(Array.from(updateData));
-        Y.applyUpdate(tempDoc, updateData);
-
-        if (previous >= 0 && row.clock === previous) {
-          prevSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
-          prevTextContent = extractText(tempDoc);
-        }
-        if (row.clock === current) {
-          currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
-          currentTextContent = extractText(tempDoc);
-        }
-      }
-
-      // If we didn't hit the exact clocks, take snapshots at the appropriate points
-      if (previous >= 0 && !prevSnapshot) {
-        // Rebuild to get snapshot at previous clock
-        const prevDoc = new Y.Doc({ gc: false });
-        for (const row of result.rows) {
-          if (row.clock > previous) break;
-          Y.applyUpdate(prevDoc, new Uint8Array(row.update_data));
-        }
-        prevSnapshot = Y.encodeSnapshot(Y.snapshot(prevDoc));
-        prevTextContent = extractText(prevDoc);
-        prevDoc.destroy();
-      }
-
-      if (!currentSnapshot) {
-        currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
-        currentTextContent = extractText(tempDoc);
-      }
-
-      // Check if text content is identical despite CRDT item differences
-      // This happens when clients sync and merge in duplicate items
-      const textIdentical = prevTextContent !== null &&
-                           currentTextContent !== null &&
-                           prevTextContent === currentTextContent;
-
-      tempDoc.destroy();
-
-      res.json({
-        // Send individual updates array instead of merged fullDoc
-        updates: updates,
-        currentSnapshot: Array.from(currentSnapshot),
-        previousSnapshot: prevSnapshot ? Array.from(prevSnapshot) : null,
-        // Flag to indicate text is identical (skip diff visualization)
-        textIdentical: textIdentical,
-      });
-    } finally {
-      client.release();
-    }
+    // Compute diff server-side (with Redis caching)
+    const result = await diffService.computeDiff(docId, previous, current);
+    res.json(result);
   } catch (error) {
     console.error('Error getting diff data:', error);
     res.status(500).json({ error: 'Failed to get diff data' });

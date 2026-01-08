@@ -1,278 +1,85 @@
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
-import Collaboration from '@tiptap/extension-collaboration';
-import * as Y from 'yjs';
-import { ySyncPluginKey } from 'y-prosemirror';
-import { YChangeMark } from '../extensions/YChangeExtension';
 import { DiffDecorationExtension, applyDiffDecorations } from '../extensions/DiffDecorationExtension';
-import { yDocToProseMirrorDoc, computeDocumentDiff } from '../utils/contentDiff';
 import './EditorCommon.css';
 import './VersionPreview.css';
 
 /**
- * Minimal PermanentUserData implementation for y-prosemirror snapshot diff.
- * y-prosemirror's _renderSnapshot requires permanentUserData to avoid null errors.
- */
-class MinimalPermanentUserData {
-  constructor() {
-    this.dss = new Map();
-  }
-
-  getUserByClientId(clientId) {
-    return 'Unknown';
-  }
-
-  getUserByDeletedId(id) {
-    return 'Unknown';
-  }
-}
-
-const minimalPermanentUserData = new MinimalPermanentUserData();
-
-/**
- * Determine if we should use content-based diffing.
- * We use content-based diff when:
- * 1. Text content is NOT identical (there are actual changes to show)
- * 2. There's a previousSnapshot available for comparison
- *
- * Content-based diff avoids the CRDT client ID issue where y-prosemirror
- * shows "everything changed" when different client IDs merge.
- */
-function shouldUseContentDiff(diffData) {
-  // If text is identical, no diff needed
-  if (diffData?.textIdentical) {
-    return false;
-  }
-  // Use content diff when we have updates and snapshots
-  return !!(diffData?.updates?.length > 0 && diffData?.previousSnapshot);
-}
-
-/**
  * Read-only preview of a historical version with inline diff visualization.
  *
- * Uses diffData from the server which contains:
- * - updates: Array of individual Yjs updates (preserves deletion history)
- * - currentSnapshot: Encoded Y.Snapshot at the current version's clock
- * - previousSnapshot: Encoded Y.Snapshot at the previous clock (for diff)
- * - textIdentical: Flag indicating no visible text change (sync-only)
+ * Receives pre-computed diff data from the server:
+ * - document: ProseMirror JSON of the document at currentClock
+ * - changes: Array of {type, fromB, toB, deleted} for decorations
+ * - meta: {previousClock, currentClock, textIdentical}
  *
- * Diff strategies:
- * 1. Content-based diff (preferred): Uses prosemirror-changeset to compare actual content.
- *    Avoids the CRDT client ID issue where y-prosemirror shows "everything changed".
- * 2. y-prosemirror snapshot diff (fallback): Uses CRDT-level comparison.
+ * The server handles all Yjs document reconstruction and diff computation,
+ * so this component just renders the document and applies decorations.
  */
 function VersionPreview({
   diffData,
-  versionContent, // Legacy fallback
   selection,
   isLoading = false,
   showDiff = true,
 }) {
   const [diffApplied, setDiffApplied] = useState(false);
-  const [useContentDiff, setUseContentDiff] = useState(false);
-  const [contentDiffChanges, setContentDiffChanges] = useState([]);
 
   // Ref for race condition prevention
   const versionCounterRef = useRef(0);
 
-  // Create the history document and decode snapshots
-  // IMPORTANT: We must apply individual updates one-by-one to preserve deleted items.
-  // Y.encodeStateAsUpdate() loses deletion history, so we receive individual updates from the server.
-  const { historyDoc, snapshot, prevSnapshot } = useMemo(() => {
-    // Prefer diffData if available (new API with individual updates)
-    if (diffData?.updates && diffData.updates.length > 0) {
-      const doc = new Y.Doc({ gc: false });
-
-      try {
-        // Apply updates one-by-one to preserve full history including deleted items
-        for (const update of diffData.updates) {
-          Y.applyUpdate(doc, update);
-        }
-      } catch (e) {
-        console.error('Error applying updates:', e);
-      }
-
-      const currentSnap = diffData.currentSnapshot
-        ? Y.decodeSnapshot(diffData.currentSnapshot)
-        : Y.snapshot(doc);
-
-      const prevSnap = diffData.previousSnapshot
-        ? Y.decodeSnapshot(diffData.previousSnapshot)
-        : Y.emptySnapshot;
-
-      return {
-        historyDoc: doc,
-        snapshot: currentSnap,
-        prevSnapshot: prevSnap,
-      };
-    }
-
-    // Legacy fallback using versionContent
-    if (versionContent?.content) {
-      const doc = new Y.Doc({ gc: false });
-      try {
-        Y.applyUpdate(doc, versionContent.content);
-      } catch (e) {
-        console.error('Error applying version content:', e);
-      }
-      const currentSnap = Y.snapshot(doc);
-
-      return {
-        historyDoc: doc,
-        snapshot: currentSnap,
-        prevSnapshot: Y.emptySnapshot,
-      };
-    }
-
-    return { historyDoc: null, snapshot: null, prevSnapshot: null };
-  }, [diffData, versionContent?.content]);
-
-  // Cleanup historyDoc when it changes or on unmount
-  // This runs AFTER render, so the new doc is already bound to the editor
-  useEffect(() => {
-    const currentDoc = historyDoc;
-    return () => {
-      if (currentDoc) {
-        currentDoc.destroy();
-      }
-    };
-  }, [historyDoc]);
-
-  // Reset diffApplied when content changes
+  // Reset diffApplied when diffData changes
   useEffect(() => {
     setDiffApplied(false);
-    setContentDiffChanges([]);
-    setUseContentDiff(shouldUseContentDiff(diffData));
-  }, [diffData?.updates, diffData?.currentSnapshot, versionContent?.content, diffData]);
+  }, [diffData?.meta?.currentClock, diffData?.meta?.previousClock]);
 
-  // Editor extensions (read-only, no collaboration cursors)
-  const extensions = useMemo(() => {
-    const baseExtensions = [
-      StarterKit.configure({
-        history: false,
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: true,
-      }),
-      // YChangeMark renders the ychange attribute to DOM for CSS styling
-      YChangeMark,
-      // DiffDecorationExtension for content-based diff decorations
-      DiffDecorationExtension,
-    ];
+  // Editor extensions (read-only, no collaboration needed)
+  const extensions = useMemo(() => [
+    StarterKit.configure({
+      history: false,
+    }),
+    Underline,
+    Link.configure({
+      openOnClick: true,
+    }),
+    DiffDecorationExtension,
+  ], []);
 
-    if (historyDoc) {
-      baseExtensions.push(
-        Collaboration.configure({
-          document: historyDoc,
-          field: 'default',
-        })
-      );
-    }
-
-    return baseExtensions;
-  }, [historyDoc]);
-
+  // Initialize editor with document content from server
   const editor = useEditor({
     extensions,
     editable: false,
-  }, [extensions]);
+    content: diffData?.document || null,
+  }, [extensions, diffData?.document]);
 
-  // Check if text is identical (skip diff visualization for CRDT sync artifacts)
-  const textIdentical = diffData?.textIdentical || false;
+  // Check if text is identical (skip diff visualization)
+  const textIdentical = diffData?.meta?.textIdentical || false;
 
-  // Compute content-based diff when editor is ready
-  // Compares the document at previousSnapshot to the document at currentSnapshot
-  const computeContentBasedDiff = useCallback(() => {
-    if (!editor || !editor.schema || !historyDoc) {
-      return null;
-    }
-
-    try {
-      // We need both snapshots to create docs at specific points in time
-      if (!diffData?.currentSnapshot || !diffData?.previousSnapshot) {
-        return null;
-      }
-
-      // Decode snapshots
-      const currentSnap = Y.decodeSnapshot(diffData.currentSnapshot);
-      const previousSnap = Y.decodeSnapshot(diffData.previousSnapshot);
-
-      // Create docs at both snapshot points using the history doc
-      // Y.createDocFromSnapshot returns a doc representing state at that snapshot
-      const currFromSnapshot = Y.createDocFromSnapshot(historyDoc, currentSnap);
-      const prevFromSnapshot = Y.createDocFromSnapshot(historyDoc, previousSnap);
-
-      // Convert to ProseMirror docs
-      const oldPmDoc = yDocToProseMirrorDoc(prevFromSnapshot, editor.schema);
-      const newPmDoc = yDocToProseMirrorDoc(currFromSnapshot, editor.schema);
-
-      // Cleanup Yjs docs
-      currFromSnapshot.destroy();
-      prevFromSnapshot.destroy();
-
-      if (!oldPmDoc || !newPmDoc) {
-        return null;
-      }
-
-      // Compute the diff between the two ProseMirror documents
-      const changes = computeDocumentDiff(oldPmDoc, newPmDoc);
-      return changes;
-    } catch (error) {
-      console.error('[VersionPreview] Error computing content diff:', error);
-      return null;
-    }
-  }, [editor, diffData, historyDoc]);
-
-  // Apply diff when editor and data are ready
+  // Apply diff decorations when editor is ready and we have changes
   useEffect(() => {
     if (!editor || !showDiff || diffApplied || textIdentical) {
       return;
     }
 
-    // Increment version counter to detect stale callbacks (fixes race condition)
+    // Increment version counter to detect stale callbacks
     const currentVersion = ++versionCounterRef.current;
 
+    // Small delay to ensure editor is fully initialized
     const timer = setTimeout(() => {
-      // Skip if version changed while waiting (user switched versions quickly)
+      // Skip if version changed while waiting
       if (currentVersion !== versionCounterRef.current) {
         return;
       }
 
-      // Try content-based diff first if applicable
-      if (useContentDiff) {
-        const changes = computeContentBasedDiff();
-        if (changes && changes.length > 0) {
-          setContentDiffChanges(changes);
-          applyDiffDecorations(editor, changes);
-          setDiffApplied(true);
-          return;
-        }
-        // Fall through to y-prosemirror if content diff fails
+      if (diffData?.changes && diffData.changes.length > 0) {
+        applyDiffDecorations(editor, diffData.changes);
       }
-
-      // Fall back to y-prosemirror snapshot diff
-      if (snapshot) {
-        try {
-          editor.view.dispatch(
-            editor.view.state.tr.setMeta(ySyncPluginKey, {
-              snapshot,
-              prevSnapshot: prevSnapshot || Y.emptySnapshot,
-              permanentUserData: minimalPermanentUserData,
-            })
-          );
-          setDiffApplied(true);
-        } catch (e) {
-          console.error('Error applying y-prosemirror diff snapshots:', e);
-        }
-      }
-    }, 100);
+      setDiffApplied(true);
+    }, 50);
 
     return () => clearTimeout(timer);
-  }, [editor, snapshot, prevSnapshot, showDiff, diffApplied, textIdentical, useContentDiff, computeContentBasedDiff]);
+  }, [editor, diffData?.changes, showDiff, diffApplied, textIdentical]);
 
   if (isLoading) {
     return (
@@ -282,7 +89,7 @@ function VersionPreview({
     );
   }
 
-  if (!diffData && !versionContent) {
+  if (!diffData) {
     return (
       <div className="version-preview">
         <div className="version-preview-empty">
