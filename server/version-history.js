@@ -643,8 +643,34 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     UPDATE_GROUPING_THRESHOLD
   );
 
+  // Filter out subversions where the net change is zero
+  // (e.g., changes that cancel out like case swap then swap back)
+  // Build a map of clock -> text state for efficient lookup
+  const textAtClock = new Map();
+
+  // Reset baseDoc and rebuild text states
+  const stateDoc = clockStart > 0
+    ? await persistence.getYDocAtClock(docGuid, clockStart - 1)
+    : new Y.Doc();
+  textAtClock.set(clockStart - 1, extractTextFromDoc(stateDoc));
+
+  // Rebuild updates to get text at each clock
+  const allUpdatesInRange = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
+  for (const update of allUpdatesInRange) {
+    Y.applyUpdate(stateDoc, update.updateData);
+    textAtClock.set(update.clock, extractTextFromDoc(stateDoc));
+  }
+
+  // Filter to only include subversions with net changes
+  const filteredSubVersions = subVersions.filter(sv => {
+    const prevClock = sv.clockStart > 0 ? sv.clockStart - 1 : -1;
+    const textBefore = textAtClock.get(prevClock) || '';
+    const textAfter = textAtClock.get(sv.clockEnd) || '';
+    return textBefore !== textAfter;
+  });
+
   // Map to response format and reverse to show most recent first
-  return subVersions.map(sv => ({
+  return filteredSubVersions.map(sv => ({
     id: `subversion-${sv.clockEnd}`,
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
