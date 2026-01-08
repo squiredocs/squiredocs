@@ -157,6 +157,8 @@ export function useVersionHistory(docGuid) {
         previousSnapshot: response.data.previousSnapshot
           ? new Uint8Array(response.data.previousSnapshot)
           : null,
+        // Flag indicating text is identical despite CRDT item differences (skip diff)
+        textIdentical: response.data.textIdentical || false,
       };
     } catch (err) {
       console.error('Error loading diff data:', err);

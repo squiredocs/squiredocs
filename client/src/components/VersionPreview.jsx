@@ -125,9 +125,13 @@ function VersionPreview({
     editable: false,
   }, [extensions]);
 
+  // Check if text is identical (skip diff visualization for CRDT sync artifacts)
+  const textIdentical = diffData?.textIdentical || false;
+
   // Apply snapshot diff when editor and snapshots are ready
+  // Skip diff visualization if text content is identical (CRDT sync case)
   useEffect(() => {
-    if (editor && snapshot && showDiff && !diffApplied) {
+    if (editor && snapshot && showDiff && !diffApplied && !textIdentical) {
       const timer = setTimeout(() => {
         try {
           editor.view.dispatch(
@@ -144,7 +148,7 @@ function VersionPreview({
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [editor, snapshot, prevSnapshot, showDiff, diffApplied]);
+  }, [editor, snapshot, prevSnapshot, showDiff, diffApplied, textIdentical]);
 
   // Cleanup historyDoc on unmount
   useEffect(() => {
@@ -175,6 +179,11 @@ function VersionPreview({
 
   return (
     <div className="version-preview">
+      {textIdentical && (
+        <div className="version-preview-notice">
+          No visible text changes (sync update only)
+        </div>
+      )}
       <div className="editor-common-container version-preview-content">
         {editor ? (
           <EditorContent editor={editor} className="editor-common-content" />

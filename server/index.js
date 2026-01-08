@@ -809,6 +809,23 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
       const tempDoc = new Y.Doc({ gc: false });
       let prevSnapshot = null;
       let currentSnapshot = null;
+      let prevTextContent = null;
+      let currentTextContent = null;
+
+      // Helper to extract text from XmlFragment
+      function extractText(doc) {
+        const fragment = doc.get('default', Y.XmlFragment);
+        let text = '';
+        fragment.forEach(node => {
+          if (node.toString) {
+            // For XmlElement nodes, get text content
+            const nodeStr = node.toString();
+            // Strip XML tags to get plain text
+            text += nodeStr.replace(/<[^>]*>/g, '') + '\n';
+          }
+        });
+        return text.trim();
+      }
 
       // Collect all updates as arrays (for JSON serialization)
       const updates = [];
@@ -820,9 +837,11 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
 
         if (previous >= 0 && row.clock === previous) {
           prevSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+          prevTextContent = extractText(tempDoc);
         }
         if (row.clock === current) {
           currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+          currentTextContent = extractText(tempDoc);
         }
       }
 
@@ -830,19 +849,25 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
       if (previous >= 0 && !prevSnapshot) {
         // Rebuild to get snapshot at previous clock
         const prevDoc = new Y.Doc({ gc: false });
-        let idx = 0;
         for (const row of result.rows) {
           if (row.clock > previous) break;
           Y.applyUpdate(prevDoc, new Uint8Array(row.update_data));
-          idx++;
         }
         prevSnapshot = Y.encodeSnapshot(Y.snapshot(prevDoc));
+        prevTextContent = extractText(prevDoc);
         prevDoc.destroy();
       }
 
       if (!currentSnapshot) {
         currentSnapshot = Y.encodeSnapshot(Y.snapshot(tempDoc));
+        currentTextContent = extractText(tempDoc);
       }
+
+      // Check if text content is identical despite CRDT item differences
+      // This happens when clients sync and merge in duplicate items
+      const textIdentical = prevTextContent !== null &&
+                           currentTextContent !== null &&
+                           prevTextContent === currentTextContent;
 
       tempDoc.destroy();
 
@@ -851,6 +876,8 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
         updates: updates,
         currentSnapshot: Array.from(currentSnapshot),
         previousSnapshot: prevSnapshot ? Array.from(prevSnapshot) : null,
+        // Flag to indicate text is identical (skip diff visualization)
+        textIdentical: textIdentical,
       });
     } finally {
       client.release();

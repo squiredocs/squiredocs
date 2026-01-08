@@ -114,6 +114,7 @@ describe('useVersionHistory', () => {
         updates: [[1, 2, 3], [4, 5, 6]],
         currentSnapshot: [7, 8, 9],
         previousSnapshot: [10, 11, 12],
+        textIdentical: false,
       };
       mockApi.get
         .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })

@@ -42,6 +42,16 @@
   font-weight: 500;
 }
 
+/* Notice for when text is identical (sync-only updates) */
+.version-preview-notice {
+  padding: 8px 16px;
+  background: #f0f4f8;
+  border-bottom: 1px solid #e0e0e0;
+  color: #5f6368;
+  font-size: 13px;
+  text-align: center;
+}
+
 /* y-prosemirror marks content with ychange attribute for diff visualization */
 /* Support both attribute formats: ychange="added" and ychange-type="added" */
 .version-preview [ychange="added"],

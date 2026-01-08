@@ -40,20 +40,6 @@ function getAuthorKey(userId, agentName) {
 }
 
 /**
- * Compare two Uint8Arrays for equality
- * @param {Uint8Array} a - First array
- * @param {Uint8Array} b - Second array
- * @returns {boolean} True if arrays are equal
- */
-function arraysEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-/**
  * Create an author object from update data
  * Shared helper to ensure consistent author representation
  * @param {Object} update - Update object with userId, userName, agentName, etc.
@@ -266,11 +252,31 @@ function formatTimestamp(timestamp) {
 }
 
 /**
- * Filter out redundant updates that don't change the document state
+ * Extract plain text from a Y.Doc's default XmlFragment
+ * @param {Y.Doc} doc - Yjs document
+ * @returns {string} Plain text content
+ */
+function extractTextFromDoc(doc) {
+  const fragment = doc.get('default', Y.XmlFragment);
+  let text = '';
+  fragment.forEach(node => {
+    if (node.toString) {
+      // For XmlElement nodes, get text content
+      const nodeStr = node.toString();
+      // Strip XML tags to get plain text
+      text += nodeStr.replace(/<[^>]*>/g, '') + '\n';
+    }
+  });
+  return text.trim();
+}
+
+/**
+ * Filter out redundant updates that don't change the document text content
+ * This filters out CRDT sync updates that add new client IDs but don't change visible text
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {Array} updates - Array of updates with clock values
- * @returns {Promise<Array>} Filtered updates that actually change state
+ * @returns {Promise<Array>} Filtered updates that actually change text content
  */
 async function filterMeaningfulUpdates(persistence, docGuid, updates) {
   if (updates.length === 0) return [];
@@ -291,25 +297,25 @@ async function filterMeaningfulUpdates(persistence, docGuid, updates) {
     ? await persistence.getYDocAtClock(docGuid, minClock - 1)
     : new Y.Doc();
 
-  // Filter to only include updates that actually change state
+  // Filter to only include updates that actually change text content
+  // (not just CRDT state like new client IDs from sync)
   const meaningfulUpdates = [];
+  let previousText = extractTextFromDoc(baseDoc);
 
   for (const update of updates) {
     const updateData = updateDataMap.get(update.clock);
     if (!updateData) continue;
 
-    // Get state vector before applying this update
-    const svBefore = Y.encodeStateVector(baseDoc);
-
     // Apply the update
     Y.applyUpdate(baseDoc, updateData);
 
-    // Get state vector after
-    const svAfter = Y.encodeStateVector(baseDoc);
+    // Get text after applying update
+    const currentText = extractTextFromDoc(baseDoc);
 
-    // Compare state vectors - if they differ, this update changed something
-    if (!arraysEqual(svBefore, svAfter)) {
+    // Only include if text content actually changed
+    if (currentText !== previousText) {
       meaningfulUpdates.push(update);
+      previousText = currentText;
     }
   }
 
@@ -599,29 +605,27 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
 
-  // Build document state just before the range to detect which updates actually change state
+  // Build document state just before the range to detect which updates actually change text
   const baseDoc = clockStart > 0
     ? await persistence.getYDocAtClock(docGuid, clockStart - 1)
     : new Y.Doc();
 
-  // Filter to only include updates that actually change the document state
+  // Filter to only include updates that actually change text content
+  // (not just CRDT state like new client IDs from sync)
   const meaningfulUpdates = [];
+  let previousText = extractTextFromDoc(baseDoc);
 
   for (const update of updates) {
-    // Get state vector before applying this update
-    const svBefore = Y.encodeStateVector(baseDoc);
-
     // Apply the update
     Y.applyUpdate(baseDoc, update.updateData);
 
-    // Get state vector after
-    const svAfter = Y.encodeStateVector(baseDoc);
+    // Get text after applying update
+    const currentText = extractTextFromDoc(baseDoc);
 
-    // Compare state vectors - if they differ, this update changed something
-    const stateChanged = !arraysEqual(svBefore, svAfter);
-
-    if (stateChanged) {
+    // Only include if text content actually changed
+    if (currentText !== previousText) {
       meaningfulUpdates.push(update);
+      previousText = currentText;
     }
   }
 
