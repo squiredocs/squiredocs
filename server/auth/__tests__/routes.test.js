@@ -5,8 +5,8 @@
 const request = require('supertest');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const { Pool } = require('pg');
 const crypto = require('crypto');
+const { createPool } = require('../../__tests__/helpers/db');
 
 // Set test secrets before requiring auth modules
 process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
@@ -23,17 +23,8 @@ describe('Auth routes', () => {
   let pool;
   let testUser;
 
-  // Test database config
-  const testDbConfig = process.env.TEST_DATABASE_URL || {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.TEST_DB_NAME || 'collab_db',
-    user: process.env.DB_USER || process.env.USER || 'postgres',
-    password: process.env.DB_PASSWORD || ''
-  };
-
   beforeAll(async () => {
-    pool = new Pool(testDbConfig);
+    pool = createPool();
     users.init(pool);
 
     // Set up Express app for testing
