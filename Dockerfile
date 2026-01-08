@@ -17,6 +17,7 @@ RUN npm ci --only=production && \
 
 # Copy server code
 COPY server/ ./server/
+COPY shared/ ./shared/
 COPY migrations/ ./migrations/
 COPY script/ ./script/
 
