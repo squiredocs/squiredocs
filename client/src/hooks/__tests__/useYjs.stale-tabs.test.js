@@ -193,14 +193,14 @@ describe('Stale Tab Scenarios', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Generate some connection errors
+      // Generate some disconnections (reconnectCount increments on status 'disconnected')
       act(() => {
-        mockProvider._emitConnectionError('Network error');
-        mockProvider._emitConnectionError('Network error');
-        mockProvider._emitConnectionError('Network error');
+        mockProvider._emitStatus('disconnected');
+        mockProvider._emitStatus('disconnected');
+        mockProvider._emitStatus('disconnected');
       });
 
-      expect(result.current.reconnectCount).toBe(3);
+      await waitFor(() => expect(result.current.reconnectCount).toBe(3));
 
       // Trigger auth failure and clear token
       act(() => {
@@ -210,12 +210,12 @@ describe('Stale Tab Scenarios', () => {
 
       await waitFor(() => expect(result.current.authError).toBe(true));
 
-      // Restore token
+      // Restore token - counters reset on new token (effect re-runs with setReconnectCount(0))
       rerender({ token: 'new-token' });
 
       await waitFor(() => expect(result.current.authError).toBe(false));
 
-      // Counters should be reset
+      // Counters should be reset when new token is provided
       expect(result.current.reconnectCount).toBe(0);
     });
   });
@@ -351,46 +351,52 @@ describe('Stale Tab Scenarios', () => {
     });
   });
 
-  describe('Multiple Connection Errors', () => {
-    it('sets authError after 2 automatic connection failures and waits for NEW token', async () => {
+  describe('Generic Connection Errors (Simplified Architecture)', () => {
+    // Note: The MAX_FAILURES threshold was removed in the simplified architecture.
+    // Only explicit auth close codes (4401, 4403) set authError.
+    // Generic connection failures let y-websocket retry naturally.
+
+    it('does NOT set authError for generic connection errors', async () => {
       vi.useRealTimers();
 
-      const { result, rerender } = renderHook(
-        ({ token }) => useYjs(TEST_DOC_GUID, token),
-        { initialProps: { token: TEST_ACCESS_TOKEN } }
-      );
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 2 connection errors (reaches MAX_RETRIES_BEFORE_AUTH_ERROR)
-      for (let i = 0; i < 2; i++) {
+      // Multiple generic connection close events should NOT set authError
+      for (let i = 0; i < 5; i++) {
         act(() => {
-          mockProvider._emitConnectionError('Network error');
+          mockProvider._emitConnectionClose(1006); // Abnormal closure
         });
       }
 
-      // authError should be set and STAY set because the token hasn't changed
-      // This prevents infinite retry loops with the same expired token
+      await new Promise(r => setTimeout(r, 100));
+
+      // authError should NOT be set for generic errors
+      expect(result.current.authError).toBe(false);
+    });
+
+    it('sets authError ONLY for explicit auth close codes', async () => {
+      vi.useRealTimers();
+
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Explicit auth code should set authError
+      act(() => {
+        mockProvider._emitConnectionClose(4401);
+      });
+
       await waitFor(() => {
         expect(result.current.authError).toBe(true);
       });
 
-      // reconnectCount should reflect total failures
-      expect(result.current.reconnectCount).toBe(2);
-
-      // Now provide a NEW token - this should trigger recovery
-      mockProvider.connect.mockClear();
-      rerender({ token: 'brand-new-refreshed-token' });
-
-      await waitFor(() => {
-        expect(result.current.authError).toBe(false);
-      });
-
-      // Provider.connect should have been called with the new token
-      expect(mockProvider.connect).toHaveBeenCalled();
+      // shouldConnect should be set to false to stop retries
+      expect(mockProvider.shouldConnect).toBe(false);
     });
 
-    it('persists authError when token is cleared before recovery', async () => {
+    it('persists authError when token is cleared', async () => {
       vi.useRealTimers();
 
       const { result, rerender } = renderHook(
@@ -400,15 +406,12 @@ describe('Stale Tab Scenarios', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 2 connection errors and immediately clear token
-      // to prevent auto-recovery
+      // Trigger auth error via explicit close code
       act(() => {
-        for (let i = 0; i < 2; i++) {
-          mockProvider._emitConnectionError('Network error');
-        }
+        mockProvider._emitConnectionClose(4401);
       });
 
-      // Immediately clear token before useEffect runs
+      // Clear token
       rerender({ token: null });
 
       await waitFor(() => {
@@ -416,31 +419,26 @@ describe('Stale Tab Scenarios', () => {
       });
     });
 
-    it('does not count manual reconnects toward auth error threshold', async () => {
+    it('reconnectCount tracks disconnections (not errors)', async () => {
       vi.useRealTimers();
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Do 3 manual reconnects
-      for (let i = 0; i < 3; i++) {
-        act(() => {
-          result.current.forceReconnect();
-        });
-        await new Promise(r => setTimeout(r, 350)); // Wait for debounce
-      }
+      expect(result.current.reconnectCount).toBe(0);
 
-      // Then 1 automatic failure (below threshold of 2)
+      // Each status 'disconnected' increments reconnectCount
       act(() => {
-        mockProvider._emitConnectionError('Network error');
+        mockProvider._emitStatus('disconnected');
+        mockProvider._emitStatus('disconnected');
+        mockProvider._emitStatus('disconnected');
       });
 
-      // Should NOT trigger authError (only 1 automatic failure)
-      expect(result.current.authError).toBe(false);
+      await waitFor(() => expect(result.current.reconnectCount).toBe(3));
 
-      // But reconnectCount shows total attempts (manual + automatic)
-      expect(result.current.reconnectCount).toBe(4);
+      // authError should still be false (no explicit auth code)
+      expect(result.current.authError).toBe(false);
     });
   });
 });

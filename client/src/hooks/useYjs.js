@@ -14,13 +14,6 @@ const WS_URL = (() => {
   return `${protocol}//${window.location.host}/s/`;
 })();
 
-// Check for auth-related error
-function isAuthError(error) {
-  const msg = error?.message?.toLowerCase() || '';
-  return msg.includes('401') || msg.includes('unauthorized') ||
-         msg.includes('403') || msg.includes('forbidden') || msg.includes('auth');
-}
-
 // ============================================================================
 // DOCUMENT CACHE - ydoc + IndexedDB persistence (stable, long-lived)
 // ============================================================================
@@ -68,9 +61,11 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
   const lastForceReconnectRef = useRef(0);
-  // Store user in ref so callbacks always have current value
+  // Store user and token in refs so callbacks always have current values
   const userRef = useRef(user);
   userRef.current = user;
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
 
   const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
@@ -95,57 +90,34 @@ export function useYjs(docGuid, accessToken, user = null) {
     });
     setProvider(newProvider);
 
-    let failureCount = 0;
-    const MAX_FAILURES = 2;
-
-    // Helper: handle connection failure
-    const handleFailure = (isAuthFailure) => {
-      if (isAuthFailure) {
-        setAuthError(true);
-        newProvider.shouldConnect = false;
-        return;
-      }
-      failureCount++;
-      setReconnectCount(c => c + 1);
-      if (failureCount >= MAX_FAILURES) {
-        setAuthError(true);
-        newProvider.shouldConnect = false;
-      }
-    };
-
-    // Single point of awareness broadcasting - ONLY on connected
-    // This ensures awareness is set AFTER connection is established
     const handleStatus = ({ status }) => {
       setConnectionState(status);
       if (status === 'connected') {
         setAuthError(false);
-        failureCount = 0;
+        setReconnectCount(0);
         // Set awareness fresh on every connect/reconnect
         const currentUser = userRef.current;
         if (currentUser) {
           newProvider.awareness.setLocalStateField('user', currentUser);
         }
+      } else if (status === 'disconnected') {
+        setReconnectCount(c => c + 1);
       }
     };
 
     const handleSync = (isSynced) => {
       setSynced(isSynced);
       if (isSynced) {
-        failureCount = 0;
-        setReconnectCount(0);
         const meta = ydoc.getMap('meta');
         if (meta.get('title') === undefined) meta.set('title', 'Untitled Document');
       }
     };
 
-    const handleError = (error) => handleFailure(isAuthError(error));
+    // Only set authError for explicit auth failures - let y-websocket retry otherwise
     const handleClose = ({ code }) => {
-      // Explicit auth codes are immediate auth failures
       if (code === 4401 || code === 4403) {
-        handleFailure(true);
-      } else {
-        // Other close codes count toward failure threshold
-        handleFailure(false);
+        setAuthError(true);
+        newProvider.shouldConnect = false;
       }
     };
 
@@ -166,12 +138,10 @@ export function useYjs(docGuid, accessToken, user = null) {
     // Attach listeners
     newProvider.on('status', handleStatus);
     newProvider.on('sync', handleSync);
-    newProvider.on('connection-error', handleError);
     newProvider.on('connection-close', handleClose);
     newProvider.awareness.on('change', handleAwarenessChange);
 
     // Delay connection slightly to avoid StrictMode double-connect errors
-    // Awareness is set in handleStatus after connection is established
     const connectTimeout = setTimeout(() => {
       if (!isMounted) return;
       newProvider.connect();
@@ -182,11 +152,8 @@ export function useYjs(docGuid, accessToken, user = null) {
       clearTimeout(connectTimeout);
       newProvider.off('status', handleStatus);
       newProvider.off('sync', handleSync);
-      newProvider.off('connection-error', handleError);
       newProvider.off('connection-close', handleClose);
       newProvider.awareness.off('change', handleAwarenessChange);
-      // Don't set user/cursor to null - this broadcasts zombie states
-      // Instead, just destroy the provider which will remove awareness properly
       newProvider.destroy();
       setProvider(null);
     };
@@ -222,6 +189,14 @@ export function useYjs(docGuid, accessToken, user = null) {
 
       // If connection is stale, reconnect (awareness will be set on reconnect)
       if (provider.wsconnected && Date.now() - lastSyncTime > 30000) {
+        // Don't try to reconnect with an expired token - it will fail with 401
+        if (isTokenExpired(accessTokenRef.current)) {
+          console.log('[useYjs] Stale connection but token expired, setting authError');
+          setAuthError(true);
+          provider.shouldConnect = false;
+          provider.disconnect();
+          return;
+        }
         console.log('[useYjs] Stale connection, reconnecting');
         provider.disconnect();
         setTimeout(() => provider.connect(), 100);
@@ -263,7 +238,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const setDocTitle = useCallback((title) => ydoc?.getMap('meta').set('title', title), [ydoc]);
 
   const forceReconnect = useCallback(() => {
-    if (!provider || !accessToken) return;
+    if (!provider || !accessToken || isTokenExpired(accessToken)) return;
     // Debounce: ignore calls within 300ms
     const now = Date.now();
     if (now - lastForceReconnectRef.current < 300) return;
