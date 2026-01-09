@@ -21,6 +21,39 @@ const getWSUrl = () => {
 
 const WS_URL = getWSUrl();
 
+/**
+ * Decode JWT payload and check if it's expired
+ * @param {string} token - JWT token string
+ * @returns {{ expired: boolean, expiresAt: number | null }} - expired status and expiry timestamp
+ */
+function checkTokenExpiry(token) {
+  if (!token) return { expired: true, expiresAt: null };
+
+  try {
+    // JWT format: header.payload.signature
+    const parts = token.split('.');
+    if (parts.length !== 3) return { expired: true, expiresAt: null };
+
+    // Decode the payload (middle part) - it's base64url encoded
+    const payload = parts[1];
+    // Replace URL-safe chars and pad if needed
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+    const decoded = JSON.parse(atob(padded));
+
+    if (!decoded.exp) return { expired: false, expiresAt: null };
+
+    const expiresAt = decoded.exp * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const expired = now >= expiresAt;
+
+    return { expired, expiresAt };
+  } catch (e) {
+    console.warn('[useYjs] Failed to decode JWT:', e.message);
+    return { expired: false, expiresAt: null }; // Assume not expired if we can't parse
+  }
+}
+
 // Profiling utilities
 const PROFILING_ENABLED = true;
 const updateTimestamps = new Map(); // Track when updates were sent
@@ -503,6 +536,22 @@ export function useYjs(docGuid, accessToken, user = null) {
         }
         // Clear auth error on successful connection
         setAuthError(false);
+      }
+
+      // PROACTIVE AUTH CHECK: When disconnected or reconnecting, check if token is expired
+      // This catches the case where y-websocket is rapidly retrying with an expired token
+      // before our connection-error handlers have a chance to detect it
+      if (event.status === 'disconnected' || event.status === 'connecting') {
+        const { expired, expiresAt } = checkTokenExpiry(accessToken);
+        if (expired) {
+          console.error('❌ TOKEN EXPIRED - stopping reconnection attempts');
+          logPerf('TOKEN_EXPIRED_DETECTED', { expiresAt, now: Date.now() });
+          setAuthError(true);
+          if (provider) {
+            provider.shouldConnect = false;
+            provider.disconnect();
+          }
+        }
       }
     };
 
