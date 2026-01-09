@@ -342,6 +342,8 @@ export function useYjs(docGuid, accessToken, user = null) {
   const instancesRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
   const lastForceReconnectRef = useRef(0); // For debouncing forceReconnect
+  const mountTimeRef = useRef(Date.now()); // Track when component mounted for connection timeout
+  const connectionTimeoutRef = useRef(null); // Track initial connection timeout
   const [providerVersion, setProviderVersion] = useState(0); // Force re-render when provider changes
 
   // Get or create instances for this docGuid
@@ -465,6 +467,12 @@ export function useYjs(docGuid, accessToken, user = null) {
       // When connected, ensure our awareness state is broadcast
       // This handles the case where awareness was set before connection was established
       if (event.status === 'connected') {
+        // Clear the initial connection timeout since we connected successfully
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
+
         const localState = awareness.getLocalState();
         if (localState?.user) {
           console.log('[useYjs] Connection established, ensuring awareness is broadcast');
@@ -613,6 +621,23 @@ export function useYjs(docGuid, accessToken, user = null) {
     setConnectionState(initialState);
     setSynced(initialSynced);
 
+    // Reset mount time when provider changes (for stuck connection detection)
+    mountTimeRef.current = Date.now();
+
+    // Initial connection timeout - if we're not connected after 10 seconds, show offline state
+    // This provides faster feedback than waiting for the 30-second health check
+    const INITIAL_CONNECTION_TIMEOUT_MS = 10000;
+    if (!provider.wsconnected) {
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (!provider.wsconnected && !provider.synced) {
+          console.warn('[useYjs] Initial connection timeout (10s), showing disconnected state');
+          logPerf('INITIAL_CONNECTION_TIMEOUT', { timeSinceMount: Date.now() - mountTimeRef.current });
+          setConnectionState('disconnected');
+          // Don't set authError - provider will continue trying in background
+        }
+      }, INITIAL_CONNECTION_TIMEOUT_MS);
+    }
+
     // Manually trigger awareness change handler to get initial state
     // This ensures we show all connected users immediately
     if (provider.wsconnected && provider.synced) {
@@ -621,6 +646,11 @@ export function useYjs(docGuid, accessToken, user = null) {
     }
 
     return () => {
+      // Clear the connection timeout on cleanup
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
       provider.off('status', handleStatus);
       provider.off('sync', handleSync);
       provider.off('connection-error', handleConnectionError);
@@ -629,19 +659,34 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
   }, [provider, awareness]);
 
-  // Connection health monitoring - detect stale connections
+  // Connection health monitoring - detect stale connections and stuck "connecting" state
   useEffect(() => {
     if (!provider) return;
 
+    const CONNECTING_TIMEOUT_MS = 15000; // 15 seconds max to be stuck in "connecting"
+    const STALE_CONNECTION_MS = 15000; // 15 seconds without sync = stale
+
     const healthCheckInterval = setInterval(() => {
+      const timeSinceMount = Date.now() - mountTimeRef.current;
       const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
+      const isConnecting = connectionState === 'connecting';
       const isConnected = connectionState === 'connected';
 
+      // Detect stuck in "connecting" state for too long
+      // This can happen when token is invalid or network is down
+      if (isConnecting && timeSinceMount > CONNECTING_TIMEOUT_MS && accessToken && !authError) {
+        console.warn(`[useYjs] Stuck in connecting state for ${Math.round(timeSinceMount / 1000)}s, forcing reconnect`);
+        logPerf('STUCK_CONNECTING_DETECTED', { timeSinceMount, timeSinceLastSync });
+        forceReconnect();
+        return;
+      }
+
       // If we think we're connected but haven't synced in 15 seconds, connection might be stale
-      if (isConnected && !synced && timeSinceLastSync > 15000) {
+      if (isConnected && !synced && timeSinceLastSync > STALE_CONNECTION_MS) {
         console.warn('[useYjs] Connection appears stale (no sync for 15s), forcing reconnect');
         logPerf('STALE_CONNECTION_DETECTED', { timeSinceLastSync });
         forceReconnect();
+        return;
       }
 
       // Only log health check if there's an issue (connection problems)
@@ -649,6 +694,7 @@ export function useYjs(docGuid, accessToken, user = null) {
         logPerf('HEALTH_CHECK', {
           connectionState,
           synced,
+          timeSinceMount,
           timeSinceLastSync,
           reconnectCount: reconnectCountRef.current
         });
@@ -656,7 +702,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     }, 30000); // Check every 30 seconds (reduced from 5s for less noise)
 
     return () => clearInterval(healthCheckInterval);
-  }, [provider, connectionState, synced, forceReconnect]);
+  }, [provider, connectionState, synced, forceReconnect, accessToken, authError]);
 
   // Subscribe to document title changes from the shared metadata map
   useEffect(() => {
@@ -730,21 +776,32 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
   }, [awareness, provider]);
 
-  // FIX: Rebroadcast awareness when tab becomes visible again
+  // FIX: Check connection staleness and rebroadcast awareness when tab becomes visible
   // This handles the case where a laptop was closed and reopened, or tab was backgrounded
-  // The connection might still be alive but awareness wasn't rebroadcast to other clients
+  // The connection might appear alive but server has timed it out
   useEffect(() => {
     if (!awareness || !provider) return;
+
+    const STALE_CONNECTION_THRESHOLD_MS = 30000; // 30 seconds
 
     const handleVisibilityChange = () => {
       // Only act when page becomes visible (not when it becomes hidden)
       if (!document.hidden) {
-        console.log('[useYjs] Page became visible, checking awareness state');
+        console.log('[useYjs] Page became visible, validating connection');
 
-        // If we're connected and have awareness state, rebroadcast it
         const isConnected = provider.wsconnected;
         const localState = awareness.getLocalState();
+        const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
 
+        // Check for stale connection: appears connected but no sync for > 30 seconds
+        // This happens when laptop sleeps and TCP connection is frozen
+        if (isConnected && timeSinceLastSync > STALE_CONNECTION_THRESHOLD_MS) {
+          console.warn(`[useYjs] Connection appears stale after wake (no sync for ${Math.round(timeSinceLastSync / 1000)}s), forcing reconnect`);
+          forceReconnect();
+          return;
+        }
+
+        // Normal case: connection is healthy, just rebroadcast awareness
         if (isConnected && localState) {
           console.log('[useYjs] Rebroadcasting awareness after visibility change');
           // Rebroadcast user presence
@@ -767,7 +824,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [awareness, provider]);
+  }, [awareness, provider, forceReconnect]);
 
   return {
     ydoc,

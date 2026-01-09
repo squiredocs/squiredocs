@@ -7,9 +7,17 @@ const jwt = require('jsonwebtoken');
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'dev-access-secret-change-in-production';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'dev-refresh-secret-change-in-production';
 
+// Test mode for rapid token expiry (useful for testing stale tab scenarios)
+// Usage: AUTH_TEST_MODE=true npm run server
+const AUTH_TEST_MODE = process.env.AUTH_TEST_MODE === 'true';
+
 // Token expiration times
-const ACCESS_TOKEN_EXPIRY = '15m';  // 15 minutes
-const REFRESH_TOKEN_EXPIRY = '7d';  // 7 days
+const ACCESS_TOKEN_EXPIRY = AUTH_TEST_MODE ? '30s' : '15m';   // 30 seconds in test mode, 15 minutes normally
+const REFRESH_TOKEN_EXPIRY = AUTH_TEST_MODE ? '2m' : '7d';   // 2 minutes in test mode, 7 days normally
+
+if (AUTH_TEST_MODE) {
+  console.log('[JWT] AUTH_TEST_MODE enabled - using short token expiry (access: 30s, refresh: 2m)');
+}
 
 // Cookie configuration
 const isProduction = process.env.NODE_ENV === 'production';

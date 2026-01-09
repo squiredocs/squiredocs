@@ -32,6 +32,10 @@ export function AuthProvider({ children }) {
   const refreshSubscribers = useRef([]);
   // Use ref to store token so interceptor always has latest value
   const accessTokenRef = useRef(null);
+  // Track when tab was last hidden for debounced refresh
+  const lastHiddenTimeRef = useRef(null);
+  // BroadcastChannel for cross-tab token coordination
+  const tokenChannelRef = useRef(null);
 
   /**
    * Subscribe to token refresh
@@ -58,6 +62,16 @@ export function AuthProvider({ children }) {
       });
       const { accessToken: newToken } = response.data;
       setAccessToken(newToken);
+
+      // Broadcast new token to other tabs via BroadcastChannel
+      if (tokenChannelRef.current) {
+        tokenChannelRef.current.postMessage({
+          type: 'TOKEN_REFRESHED',
+          token: newToken
+        });
+        console.log('[AuthContext] Broadcasted refreshed token to other tabs');
+      }
+
       return newToken;
     } catch (error) {
       // Refresh failed - user needs to login again
@@ -122,6 +136,12 @@ export function AuthProvider({ children }) {
       });
     } catch (error) {
       console.error('Logout error:', error);
+    }
+
+    // Broadcast logout to other tabs via BroadcastChannel
+    if (tokenChannelRef.current) {
+      tokenChannelRef.current.postMessage({ type: 'LOGOUT' });
+      console.log('[AuthContext] Broadcasted logout to other tabs');
     }
 
     // FIX 3: Clear WebSocket instance cache on logout
@@ -287,30 +307,85 @@ export function AuthProvider({ children }) {
   }, [devLogin, refreshAccessToken, fetchUser]); // Run once on mount
 
   /**
-   * FIX 5: Refresh token on tab focus (P2 - Proactive prevention)
-   * When user returns to the tab after being away, proactively refresh the token
-   * This prevents auth failures before they happen
+   * BroadcastChannel for cross-tab token coordination
+   * Prevents duplicate token refresh requests when multiple tabs become visible
    */
   useEffect(() => {
+    // BroadcastChannel may not be available in all environments (e.g., older browsers, SSR)
+    if (typeof BroadcastChannel === 'undefined') {
+      console.log('[AuthContext] BroadcastChannel not available, skipping cross-tab coordination');
+      return;
+    }
+
+    const channel = new BroadcastChannel('collab-auth-token');
+    tokenChannelRef.current = channel;
+
+    channel.onmessage = (event) => {
+      if (event.data.type === 'TOKEN_REFRESHED' && event.data.token) {
+        console.log('[AuthContext] Received token from another tab via BroadcastChannel');
+        setAccessToken(event.data.token);
+        // Fetch user profile with the new token
+        fetchUser(event.data.token).catch((e) => {
+          console.warn('[AuthContext] Failed to fetch user after receiving broadcast token:', e.message);
+        });
+      }
+
+      if (event.data.type === 'LOGOUT') {
+        console.log('[AuthContext] Received logout from another tab via BroadcastChannel');
+        clearYjsInstanceCache();
+        setAccessToken(null);
+        setUser(null);
+        window.history.replaceState({}, '', '/login');
+      }
+    };
+
+    return () => {
+      channel.close();
+      tokenChannelRef.current = null;
+    };
+  }, [fetchUser]);
+
+  /**
+   * Debounced visibility-based token refresh
+   * Only refresh if tab was hidden for more than 5 minutes (REFRESH_THRESHOLD_MS)
+   * This prevents unnecessary refresh requests for quick tab switches
+   */
+  useEffect(() => {
+    const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
     const handleVisibilityChange = async () => {
-      // Only refresh when tab becomes visible and we're not loading
-      if (document.visibilityState === 'visible' && !loading && accessToken) {
-        console.log('[AuthContext] Tab became visible, proactively refreshing token');
-        try {
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            console.log('[AuthContext] Token refreshed successfully on tab focus');
-            await fetchUser(newToken);
+      if (document.visibilityState === 'hidden') {
+        // Record when tab became hidden
+        lastHiddenTimeRef.current = Date.now();
+        return;
+      }
+
+      // Tab became visible
+      if (!loading && accessToken && lastHiddenTimeRef.current) {
+        const hiddenDuration = Date.now() - lastHiddenTimeRef.current;
+
+        if (hiddenDuration > REFRESH_THRESHOLD_MS) {
+          console.log(`[AuthContext] Tab was hidden for ${Math.round(hiddenDuration / 1000)}s (>${REFRESH_THRESHOLD_MS / 1000}s), refreshing token`);
+          try {
+            const newToken = await refreshAccessToken();
+            if (newToken) {
+              console.log('[AuthContext] Token refreshed successfully on tab focus');
+              await fetchUser(newToken);
+            }
+          } catch (e) {
+            // Refresh failed - token likely expired
+            console.warn('[AuthContext] Token refresh failed on tab focus:', e.message);
+            // Clear auth state - user will be redirected to login
+            clearYjsInstanceCache();
+            setAccessToken(null);
+            setUser(null);
           }
-        } catch (e) {
-          // Refresh failed - token likely expired
-          console.warn('[AuthContext] Token refresh failed on tab focus:', e.message);
-          // Clear auth state - user will be redirected to login
-          clearYjsInstanceCache();
-          setAccessToken(null);
-          setUser(null);
+        } else {
+          console.log(`[AuthContext] Tab was hidden for ${Math.round(hiddenDuration / 1000)}s (<${REFRESH_THRESHOLD_MS / 1000}s), skipping refresh`);
         }
       }
+
+      lastHiddenTimeRef.current = null;
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
