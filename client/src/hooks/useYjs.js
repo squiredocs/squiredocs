@@ -1,926 +1,433 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 
-// Construct WebSocket URL - use /s/ path for server
-// IMPORTANT: Must end with trailing slash so y-websocket appends room name correctly
-// y-websocket uses: new URL(roomname, serverUrl) which replaces the path without trailing slash
-// In production, use same host/port as the page (relative)
-// In development, use VITE_WS_URL if set, otherwise use same host/port as page
+// WebSocket URL construction
 const getWSUrl = () => {
   if (import.meta.env.VITE_WS_URL) {
-    // Ensure trailing slash
     const url = import.meta.env.VITE_WS_URL;
     return url.endsWith('/') ? url : url + '/';
   }
-  // Use same host/port as the current page (works for both dev and prod)
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/s/`;
 };
 
 const WS_URL = getWSUrl();
 
-/**
- * Decode JWT payload and check if it's expired
- * @param {string} token - JWT token string
- * @returns {{ expired: boolean, expiresAt: number | null }} - expired status and expiry timestamp
- */
-function checkTokenExpiry(token) {
-  if (!token) return { expired: true, expiresAt: null };
-
+// Simple JWT expiry check
+function isTokenExpired(token) {
+  if (!token) return true;
   try {
-    // JWT format: header.payload.signature
-    const parts = token.split('.');
-    if (parts.length !== 3) return { expired: true, expiresAt: null };
-
-    // Decode the payload (middle part) - it's base64url encoded
-    const payload = parts[1];
-    // Replace URL-safe chars and pad if needed
+    const payload = token.split('.')[1];
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
     const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
     const decoded = JSON.parse(atob(padded));
-
-    if (!decoded.exp) return { expired: false, expiresAt: null };
-
-    const expiresAt = decoded.exp * 1000; // Convert to milliseconds
-    const now = Date.now();
-    const expired = now >= expiresAt;
-
-    return { expired, expiresAt };
-  } catch (e) {
-    console.warn('[useYjs] Failed to decode JWT:', e.message);
-    return { expired: false, expiresAt: null }; // Assume not expired if we can't parse
-  }
-}
-
-// Profiling utilities
-const PROFILING_ENABLED = true;
-const updateTimestamps = new Map(); // Track when updates were sent
-let updateCounter = 0;
-
-const logPerf = (label, data = {}) => {
-  if (!PROFILING_ENABLED) return;
-  const timestamp = performance.now().toFixed(2);
-  console.log(`[PERF ${timestamp}ms] ${label}`, data);
-};
-
-// Instance cache - stores Yjs instances per document GUID
-const instanceCache = new Map();
-let indexedDbAvailable = null; // null = not checked, true/false = result
-
-// FIX 3: Export function to clear instance cache on auth failure
-export function clearYjsInstanceCache() {
-  console.log('[useYjs] Clearing instance cache due to auth failure');
-  instanceCache.forEach((cached) => {
-    if (cached.provider) {
-      cached.provider.destroy();
-    }
-    if (cached.indexeddbProvider) {
-      cached.indexeddbProvider.destroy();
-    }
-  });
-  instanceCache.clear();
-}
-
-// Helper function to setup provider event listeners
-// This is extracted so it can be reused when recreating providers
-function setupProviderListeners(provider, ydoc, docGuid) {
-  provider.on('status', (event) => {
-    logPerf('WS_STATUS', { status: event.status });
-    console.log('[useYjs] Provider status:', event.status);
-  });
-
-  provider.on('connection-error', (error) => {
-    logPerf('WS_ERROR', { error: error.message });
-    console.error('[useYjs] Connection error:', error);
-
-    // Detect authentication/authorization failures
-    // WebSocket upgrade failures typically manifest as connection errors
-    // Common auth error: connection closes immediately without successful handshake
-    if (error && error.message) {
-      const errorMsg = error.message.toLowerCase();
-      if (errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
-          errorMsg.includes('403') || errorMsg.includes('forbidden') ||
-          errorMsg.includes('auth')) {
-        console.error('❌ AUTHENTICATION FAILED - Your session may have expired. Please refresh the page to log in again.');
-        logPerf('AUTH_ERROR_DETECTED', { error: error.message });
-      }
-    }
-  });
-
-  // Enhanced close event monitoring
-  provider.on('connection-close', (event) => {
-    logPerf('WS_CLOSE_EVENT', { code: event.code, reason: event.reason });
-
-    // Only explicit auth codes (4401, 4403) indicate definitive auth failure
-    // Generic codes like 1006 (abnormal closure) can be server restart, network issues, etc.
-    if (event.code === 4401 || event.code === 4403) {
-      console.error(`❌ CONNECTION CLOSED (code ${event.code}) - Auth failure. Reason: ${event.reason || 'none'}`);
-      logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
-    } else if (event.code === 1006 || event.code === 1008) {
-      console.warn(`[useYjs] Connection closed abnormally (code ${event.code}) - may retry`);
-    }
-  });
-
-  // Initialize default title only AFTER sync completes
-  // This ensures we don't overwrite an existing title from the server
-  let titleInitialized = false;
-  provider.on('sync', (isSynced) => {
-    logPerf('WS_SYNC', { synced: isSynced });
-
-    if (isSynced && !titleInitialized) {
-      titleInitialized = true;
-      const meta = ydoc.getMap('meta');
-      // Only set default title if server didn't provide one
-      if (meta.get('title') === undefined) {
-        meta.set('title', 'Untitled Document');
-      }
-    }
-  });
-}
-
-// Check if IndexedDB is available (fails in private browsing, some browsers)
-// Reduced timeout to 100ms for faster detection
-const checkIndexedDbAvailability = async (timeoutMs = 100) => {
-  if (indexedDbAvailable !== null) return indexedDbAvailable;
-
-  try {
-    if (typeof indexedDB === 'undefined') {
-      console.warn('[useYjs] IndexedDB not available in this environment');
-      indexedDbAvailable = false;
-      return false;
-    }
-
-    // Try to actually open a test database with a timeout
-    const testDbName = '__idb_test__';
-    const result = await Promise.race([
-      new Promise((resolve, reject) => {
-        const req = indexedDB.open(testDbName);
-        req.onerror = () => reject(req.error);
-        req.onsuccess = () => {
-          req.result.close();
-          // Clean up test database
-          indexedDB.deleteDatabase(testDbName);
-          resolve(true);
-        };
-      }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('IndexedDB timeout')), timeoutMs)
-      )
-    ]);
-
-    indexedDbAvailable = result;
-    console.log('[useYjs] IndexedDB available:', result);
-    return result;
-  } catch (e) {
-    console.warn('[useYjs] IndexedDB not available:', e.message);
-    indexedDbAvailable = false;
+    return decoded.exp ? Date.now() >= decoded.exp * 1000 : false;
+  } catch {
     return false;
   }
-};
+}
+
+// ============================================================================
+// DOCUMENT CACHE - Only caches ydoc + IndexedDB (stable, long-lived)
+// Provider is NOT cached - it's created fresh when token changes
+// ============================================================================
+const docCache = new Map();
+let indexedDbAvailable = null;
 
 // For testing: allow resetting singletons
 if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
-  instanceCache.clear();
+  docCache.clear();
   indexedDbAvailable = null;
   delete global.__TEST_RESET_YJS_SINGLETONS__;
 }
 
-// Get or create Yjs instances for a document
-function getOrCreateInstances(docGuid, accessToken) {
-  // FIX 1: Proactive Token Validation - Don't create WebSocket without valid token
-  // This prevents auth failures at the source by not attempting connection without credentials
-  if (!accessToken) {
-    console.warn('[useYjs] No access token available, skipping WebSocket connection');
-    // Return minimal structure with no provider - prevents connection attempts
-    // The ydoc can still be used for offline work if needed
-    return {
-      ydoc: new Y.Doc(),
-      provider: null,
-      indexeddbProvider: null,
-      accessToken: null
-    };
+async function checkIndexedDbAvailability() {
+  if (indexedDbAvailable !== null) return indexedDbAvailable;
+  try {
+    if (typeof indexedDB === 'undefined') {
+      indexedDbAvailable = false;
+      return false;
+    }
+    const testDbName = '__idb_test__';
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open(testDbName);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        req.result.close();
+        indexedDB.deleteDatabase(testDbName);
+        resolve(true);
+      };
+      setTimeout(() => reject(new Error('timeout')), 100);
+    });
+    indexedDbAvailable = true;
+    return true;
+  } catch {
+    indexedDbAvailable = false;
+    return false;
   }
-
-  // Include token in cache key to reconnect if token changes
-  const cacheKey = docGuid;
-
-  if (instanceCache.has(cacheKey)) {
-    const cached = instanceCache.get(cacheKey);
-    // If token changed, handle based on the type of change
-    if (cached.accessToken !== accessToken) {
-      const hadToken = !!cached.accessToken;
-      const hasToken = !!accessToken;
-
-      // Update cached token reference
-      cached.accessToken = accessToken;
-
-      // Case 1: Token went from something to null (logout/expiry)
-      if (hadToken && !hasToken && cached.provider) {
-        console.warn('[useYjs] Token cleared, disconnecting WebSocket');
-        cached.provider.destroy();
-        cached.provider = null;
-        return cached;
-      }
-
-      // Case 2: Token went from null to something (login)
-      // This shouldn't happen with current cache key logic, but handle it
-      if (!hadToken && hasToken && !cached.provider) {
-        console.log(`[useYjs] Token set, creating provider for ${docGuid}`);
-        // Create new provider (fall through to creation logic below)
-        const wsParams = { token: accessToken };
-        cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
-          connect: true,
-          params: wsParams
-        });
-        setupProviderListeners(cached.provider, cached.ydoc, docGuid);
-        return cached;
-      }
-
-      // Case 3: Token refreshed (both old and new are non-null)
-      if (hadToken && hasToken) {
-        // If provider is connected, keep it (token only used for initial handshake)
-        // If provider is disconnected, recreate it with new token for reconnection
-        if (cached.provider && cached.provider.wsconnected) {
-          console.log('[useYjs] Token refreshed, keeping existing WebSocket connection');
-          return cached;
-        } else {
-          console.log('[useYjs] Token refreshed while disconnected, recreating provider with new token');
-          // Destroy old provider
-          if (cached.provider) {
-            cached.provider.destroy();
-          }
-          // Create new provider with new token
-          const wsParams = { token: accessToken };
-          cached.provider = new WebsocketProvider(WS_URL, docGuid, cached.ydoc, {
-            connect: true,
-            params: wsParams
-          });
-          setupProviderListeners(cached.provider, cached.ydoc, docGuid);
-          return cached;
-        }
-      }
-    }
-    return cached;
-  }
-
-  console.log(`[useYjs] Creating Yjs document and providers for ${docGuid}`);
-
-  // Create Yjs document
-  const ydoc = new Y.Doc();
-
-  // Profile local updates
-  ydoc.on('update', (update, origin) => {
-    const updateId = ++updateCounter;
-    const updateSize = update.byteLength;
-    const isLocal = origin === null || origin === ydoc.clientID;
-
-    if (isLocal) {
-      updateTimestamps.set(updateId, performance.now());
-      logPerf('LOCAL_UPDATE', { updateId, size: updateSize, origin: 'local' });
-    } else {
-      logPerf('REMOTE_UPDATE', { updateId, size: updateSize, origin: origin?.toString() || 'remote' });
-    }
-  });
-
-  // Create WebSocket provider with auth token in params
-  // NOTE: y-websocket ignores query params in the URL, must use params option
-  // IMPORTANT: Start with connect=false, we'll connect after IndexedDB loads
-  const wsParams = accessToken ? { token: accessToken } : {};
-  const provider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
-    connect: false,
-    params: wsParams
-  });
-
-  // Setup provider event listeners
-  setupProviderListeners(provider, ydoc, docGuid);
-
-  // Create IndexedDB provider for offline persistence
-  // CRITICAL: Initialize IndexedDB FIRST, then connect WebSocket
-  // This ensures local data is fully loaded before network sync begins
-  let indexeddbProvider = null;
-  (async () => {
-    try {
-      const isAvailable = await checkIndexedDbAvailability();
-      if (!isAvailable) {
-        console.log('[useYjs] Skipping IndexedDB persistence (not available)');
-        logPerf('INDEXEDDB_SKIP', { reason: 'not available' });
-        // Connect WebSocket immediately if IndexedDB not available
-        provider.connect();
-        return;
-      }
-
-      indexeddbProvider = new IndexeddbPersistence(docGuid, ydoc);
-      logPerf('INDEXEDDB_INIT', { docGuid });
-
-      // Update cache with indexeddb provider
-      const cached = instanceCache.get(docGuid);
-      if (cached) {
-        cached.indexeddbProvider = indexeddbProvider;
-      }
-
-      // Wait for IndexedDB to load local data, then connect WebSocket
-      // This prevents race conditions and ensures faster perceived connection time
-      indexeddbProvider.once('synced', () => {
-        logPerf('INDEXEDDB_SYNCED', {});
-        console.log('[useYjs] ✓ IndexedDB synced, connecting WebSocket');
-        // Now that local data is loaded, connect to server
-        provider.connect();
-      });
-
-      // Fallback: If IndexedDB takes too long, connect anyway
-      setTimeout(() => {
-        if (!provider.wsconnected && !provider.shouldConnect) {
-          console.log('[useYjs] IndexedDB sync timeout, connecting WebSocket anyway');
-          provider.connect();
-        }
-      }, 500);
-
-      // Handle IndexedDB errors gracefully
-      indexeddbProvider.on('error', (error) => {
-        console.warn('[useYjs] IndexedDB error (continuing without local persistence):', error.message);
-        logPerf('INDEXEDDB_ERROR', { error: error.message });
-        // Connect WebSocket even if IndexedDB fails
-        if (!provider.shouldConnect) {
-          provider.connect();
-        }
-      });
-    } catch (e) {
-      console.warn('[useYjs] Failed to initialize IndexedDB persistence:', e.message);
-      logPerf('INDEXEDDB_INIT_FAILED', { error: e.message });
-      // Connect WebSocket even if IndexedDB init fails
-      provider.connect();
-    }
-  })();
-
-  const instances = { ydoc, provider, indexeddbProvider, accessToken };
-  instanceCache.set(cacheKey, instances);
-  return instances;
 }
 
+function getOrCreateDoc(docGuid) {
+  if (docCache.has(docGuid)) {
+    return docCache.get(docGuid);
+  }
+
+  console.log(`[useYjs] Creating new Y.Doc for ${docGuid}`);
+  const ydoc = new Y.Doc();
+  const cached = { ydoc, indexeddbProvider: null, indexeddbReady: false };
+  docCache.set(docGuid, cached);
+
+  // Initialize IndexedDB asynchronously
+  checkIndexedDbAvailability().then(available => {
+    if (available && docCache.get(docGuid) === cached) {
+      cached.indexeddbProvider = new IndexeddbPersistence(docGuid, ydoc);
+      cached.indexeddbProvider.once('synced', () => {
+        console.log(`[useYjs] IndexedDB synced for ${docGuid}`);
+        cached.indexeddbReady = true;
+      });
+    }
+  });
+
+  return cached;
+}
+
+// Export for auth failure cleanup
+export function clearYjsInstanceCache() {
+  console.log('[useYjs] Clearing document cache');
+  docCache.forEach(({ ydoc, indexeddbProvider }) => {
+    if (indexeddbProvider) indexeddbProvider.destroy();
+  });
+  docCache.clear();
+}
+
+// ============================================================================
+// MAIN HOOK - Simplified provider lifecycle
+// ============================================================================
 export function useYjs(docGuid, accessToken, user = null) {
-  // Connection state: 'connecting' | 'connected' | 'disconnected'
+  // UI State
   const [connectionState, setConnectionState] = useState('connecting');
-  const [users, setUsers] = useState([]);
   const [synced, setSynced] = useState(false);
+  const [users, setUsers] = useState([]);
   const [docTitle, setDocTitleState] = useState('Untitled Document');
-  const [authError, setAuthError] = useState(false); // Track authentication errors
-  const [reconnectCount, setReconnectCount] = useState(0); // Track reconnection attempts (useState for UI updates)
-  const reconnectCountRef = useRef(0); // Internal ref for total reconnect count (manual + automatic)
-  const autoFailureCountRef = useRef(0); // Separate counter for automatic connection failures only
-  const instancesRef = useRef(null);
+  const [authError, setAuthError] = useState(false);
+  const [reconnectCount, setReconnectCount] = useState(0);
+  const [provider, setProvider] = useState(null);
+
+  // Refs
+  const providerRef = useRef(null);
   const lastSyncTimeRef = useRef(Date.now());
-  const lastForceReconnectRef = useRef(0); // For debouncing forceReconnect
-  const mountTimeRef = useRef(Date.now()); // Track when component mounted for connection timeout
-  const connectionTimeoutRef = useRef(null); // Track initial connection timeout
-  const lastTokenRef = useRef(accessToken); // Track previous token to detect changes
-  const [providerVersion, setProviderVersion] = useState(0); // Force re-render when provider changes
+  const lastForceReconnectRef = useRef(0);
 
-  // Get or create instances for this docGuid
-  if (!instancesRef.current || instancesRef.current.docGuid !== docGuid) {
-    const instances = getOrCreateInstances(docGuid, accessToken);
-    instancesRef.current = { ...instances, docGuid };
-  }
+  // Get cached ydoc (stable across re-renders and token changes)
+  const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
-  // NOTE: Don't update instancesRef in render phase!
-  // Token changes are handled in the useEffect below to ensure proper auth detection
-  // and provider cleanup/recreation timing
-
-  const { ydoc, provider, indexeddbProvider } = instancesRef.current;
-  const awareness = provider?.awareness;
-
-  // Set awareness user state SYNCHRONOUSLY during render (not in useEffect)
-  // This ensures awareness is set before connection handlers run
-  // Critical for production where connection latency can cause race conditions
-  if (awareness && user) {
-    const currentState = awareness.getLocalState();
-    const currentUser = currentState?.user;
-    // Only update if user actually changed
-    if (!currentUser || currentUser.name !== user.name || currentUser.color !== user.color) {
-      console.log('[useYjs] Setting awareness user state (sync):', user.name);
-      awareness.setLocalStateField('user', user);
-    }
-  }
-
-  // Manual reconnection function with debouncing
-  const forceReconnect = useCallback(() => {
-    if (!provider) return;
-
-    // Don't attempt reconnection if we don't have a valid token
-    // This prevents futile reconnection attempts when auth has failed
+  // ============================================================================
+  // PROVIDER LIFECYCLE - Single useEffect manages everything
+  // Creates provider when token is available, destroys on cleanup or token change
+  // ============================================================================
+  useEffect(() => {
+    // Don't create provider without valid token
     if (!accessToken) {
-      console.log('[useYjs] forceReconnect skipped (no access token available)');
-      return;
-    }
-
-    // Debounce: ignore calls within 300ms of last call
-    const now = Date.now();
-    if (now - lastForceReconnectRef.current < 300) {
-      console.log('[useYjs] forceReconnect debounced (called too quickly)');
-      return;
-    }
-    lastForceReconnectRef.current = now;
-
-    console.log('[useYjs] Forcing reconnection...');
-    reconnectCountRef.current += 1;
-    setReconnectCount(reconnectCountRef.current);
-    logPerf('FORCE_RECONNECT', { attempt: reconnectCountRef.current });
-    provider.disconnect();
-    setTimeout(() => {
-      provider.connect();
-    }, 100);
-  }, [provider, accessToken]);
-
-  // FIX 1 & FIX 4: Handle token becoming null (auth expired/failed)
-  useEffect(() => {
-    console.log('[useYjs] Token state changed:', {
-      hasToken: !!accessToken,
-      hasProvider: !!instancesRef.current?.provider,
-      currentAuthError: authError,
-      docGuid
-    });
-
-    if (accessToken === null && instancesRef.current?.provider) {
-      console.warn('[useYjs] ⚠️ Token cleared while provider exists - AUTH FAILURE DETECTED');
-      setAuthError(true);
+      console.log('[useYjs] No token, skipping provider creation');
       setConnectionState('disconnected');
-    } else if (accessToken === null) {
-      console.log('[useYjs] Token is null but no provider - likely initial load or already cleaned up');
-    } else if (accessToken && authError) {
-      // SIMPLIFIED: Only recover when we get a NEW token (different from the one that failed)
-      // This prevents infinite retry loops - we wait for AuthContext to provide a fresh token
-      const tokenChanged = accessToken !== lastTokenRef.current;
-
-      if (!tokenChanged) {
-        console.log('[useYjs] Auth error with same token - waiting for token refresh');
-        // Don't auto-recover with the same token that already failed
-        // EditorView will trigger an HTTP request to force token refresh via axios interceptor
-        return;
-      }
-
-      console.log('[useYjs] New token received, clearing auth error and reconnecting');
-      setAuthError(false);
-      // Reset both counters on successful token restoration
-      reconnectCountRef.current = 0;
-      setReconnectCount(0);
-      autoFailureCountRef.current = 0;
-
-      // Update instances when token is restored (might create new provider)
-      const instances = getOrCreateInstances(docGuid, accessToken);
-      instancesRef.current = { ...instances, docGuid };
-      // Force re-render so useEffect picks up the new provider and attaches event handlers
-      setProviderVersion(v => v + 1);
-
-      // Re-enable reconnection and attempt to connect
-      if (instances.provider) {
-        instances.provider.shouldConnect = true;
-        if (!instances.provider.wsconnected) {
-          console.log('[useYjs] Reconnecting WebSocket after auth restoration');
-          // Reset mount time for health check tracking
-          mountTimeRef.current = Date.now();
-          // Set up a connection timeout for this reconnection attempt
-          if (connectionTimeoutRef.current) {
-            clearTimeout(connectionTimeoutRef.current);
-          }
-          connectionTimeoutRef.current = setTimeout(() => {
-            if (instances.provider && !instances.provider.wsconnected) {
-              console.warn('[useYjs] Reconnection timeout (10s), connection may have failed');
-              setConnectionState('disconnected');
-            }
-          }, 10000);
-          instances.provider.connect();
-        }
-      }
-    } else if (accessToken && instancesRef.current && instancesRef.current.accessToken !== accessToken) {
-      // Token changed (refresh) while connected - update the provider reference
-      console.log('[useYjs] Token refreshed, updating provider reference');
-      const instances = getOrCreateInstances(docGuid, accessToken);
-      instancesRef.current = { ...instances, docGuid };
-      // Force re-render so useEffect picks up the new provider and attaches event handlers
-      setProviderVersion(v => v + 1);
+      setAuthError(true);
+      return;
     }
 
-    // Always update lastTokenRef when token changes (for change detection)
-    lastTokenRef.current = accessToken;
-  }, [accessToken, authError, docGuid]);
+    if (isTokenExpired(accessToken)) {
+      console.log('[useYjs] Token expired, skipping provider creation');
+      setConnectionState('disconnected');
+      setAuthError(true);
+      return;
+    }
 
-  useEffect(() => {
-    if (!provider) return;
+    console.log(`[useYjs] Creating provider for ${docGuid}`);
+    setAuthError(false);
+    setConnectionState('connecting');
+    setReconnectCount(0); // Reset on new provider/token
 
-    console.log('[useYjs] Setting up provider listeners', {
-      wsconnected: provider.wsconnected,
-      synced: provider.synced,
-      wsUnsuccessful: provider.wsUnsuccessful,
-      shouldConnect: provider.shouldConnect
+    // Create fresh provider with current token
+    const newProvider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
+      connect: false, // We'll connect after setup
+      params: { token: accessToken },
     });
+    providerRef.current = newProvider;
+    setProvider(newProvider);
 
+    // Track connection failures for auth detection
+    let failureCount = 0;
+    const MAX_FAILURES = 2;
+
+    // --- Event Handlers ---
     const handleStatus = (event) => {
-      console.log('[useYjs] Status event:', event.status);
+      console.log('[useYjs] Status:', event.status);
       setConnectionState(event.status);
 
-      // When connected, ensure our awareness state is broadcast
-      // This handles the case where awareness was set before connection was established
       if (event.status === 'connected') {
-        // Clear the initial connection timeout since we connected successfully
-        if (connectionTimeoutRef.current) {
-          clearTimeout(connectionTimeoutRef.current);
-          connectionTimeoutRef.current = null;
-        }
-
-        const localState = awareness.getLocalState();
-        if (localState?.user) {
-          console.log('[useYjs] Connection established, ensuring awareness is broadcast');
-          // Re-setting the same value triggers a broadcast
-          awareness.setLocalStateField('user', localState.user);
-        }
-        // Clear auth error on successful connection
         setAuthError(false);
+        failureCount = 0;
+        // Rebroadcast awareness on connect
+        const localState = newProvider.awareness.getLocalState();
+        if (localState?.user) {
+          newProvider.awareness.setLocalStateField('user', localState.user);
+        }
       }
+    };
 
-      // PROACTIVE AUTH CHECK: When disconnected or reconnecting, check if token is expired
-      // This catches the case where y-websocket is rapidly retrying with an expired token
-      // before our connection-error handlers have a chance to detect it
-      if (event.status === 'disconnected' || event.status === 'connecting') {
-        const { expired, expiresAt } = checkTokenExpiry(accessToken);
-        if (expired) {
-          console.error('❌ TOKEN EXPIRED - stopping reconnection attempts');
-          logPerf('TOKEN_EXPIRED_DETECTED', { expiresAt, now: Date.now() });
-          setAuthError(true);
-          if (provider) {
-            provider.shouldConnect = false;
-            provider.disconnect();
-          }
+    const handleSync = (isSynced) => {
+      console.log('[useYjs] Sync:', isSynced);
+      setSynced(isSynced);
+      if (isSynced) {
+        lastSyncTimeRef.current = Date.now();
+        failureCount = 0;
+        setReconnectCount(0); // Reset on successful sync
+        // Initialize title if not set
+        const meta = ydoc.getMap('meta');
+        if (meta.get('title') === undefined) {
+          meta.set('title', 'Untitled Document');
+        }
+        // Rebroadcast awareness
+        const localState = newProvider.awareness.getLocalState();
+        if (localState?.user) {
+          newProvider.awareness.setLocalStateField('user', localState.user);
+        }
+        if (localState?.cursor) {
+          newProvider.awareness.setLocalStateField('cursor', localState.cursor);
         }
       }
     };
 
     const handleConnectionError = (error) => {
-      // FIX 2: Enhanced auth error detection
-      // Detect authentication/authorization failures from error messages
-      if (error && error.message) {
-        const errorMsg = error.message.toLowerCase();
-        const hasAuthKeyword = errorMsg.includes('401') || errorMsg.includes('unauthorized') ||
-                                errorMsg.includes('403') || errorMsg.includes('forbidden') ||
-                                errorMsg.includes('auth');
+      console.log('[useYjs] Connection error:', error?.message);
 
-        if (hasAuthKeyword) {
-          console.error('❌ AUTHENTICATION FAILED - Your session may have expired.');
-          logPerf('AUTH_ERROR_DETECTED', { error: error.message });
-          setAuthError(true);
-          // Prevent further reconnection attempts until we get a new token
-          if (provider) {
-            provider.shouldConnect = false;
-          }
-        }
+      // Check for auth-related error messages
+      const msg = error?.message?.toLowerCase() || '';
+      if (msg.includes('401') || msg.includes('unauthorized') ||
+          msg.includes('403') || msg.includes('forbidden') || msg.includes('auth')) {
+        console.error('[useYjs] Auth error in message:', error?.message);
+        setAuthError(true);
+        newProvider.shouldConnect = false;
+        return;
       }
 
-      // Track failed connection attempts
-      // Increment both counters: total reconnects (for display) and automatic failures (for MAX_RETRIES)
-      reconnectCountRef.current += 1;
-      setReconnectCount(reconnectCountRef.current);
-      autoFailureCountRef.current += 1;
+      // Track failures for implicit auth detection
+      failureCount++;
+      setReconnectCount(c => c + 1);
 
-      // If we've failed to connect automatically multiple times in a row, likely an auth issue
-      // Note: Manual reconnects (forceReconnect) don't count toward this threshold
-      // Reduced from 5 to 2 for faster detection (401 errors come as 1006 close codes)
-      const MAX_RETRIES_BEFORE_AUTH_ERROR = 2;
-      if (autoFailureCountRef.current >= MAX_RETRIES_BEFORE_AUTH_ERROR) {
-        console.error(`❌ CONNECTION FAILED after ${autoFailureCountRef.current} automatic failures - Likely auth issue`);
-        logPerf('MAX_RETRIES_REACHED', { attempts: autoFailureCountRef.current });
+      if (failureCount >= MAX_FAILURES) {
+        console.error(`[useYjs] ${MAX_FAILURES} connection errors - likely auth issue`);
         setAuthError(true);
-        // Prevent further reconnection attempts until we get a new token
-        if (provider) {
-          provider.shouldConnect = false;
-        }
+        newProvider.shouldConnect = false;
       }
     };
 
     const handleConnectionClose = (event) => {
-      // Detect auth failures from close codes
-      // Only treat EXPLICIT auth codes as immediate auth failures:
-      // - 4401: Custom "Unauthorized" code (if server implements it)
-      // - 4403: Custom "Forbidden" code (if server implements it)
-      //
-      // NOTE: We intentionally DON'T include generic codes like:
-      // - 1006: Abnormal closure (too generic - includes server restart, network issues)
-      // - 1008: Policy violation (could be many things, not just auth)
-      // These are handled by the normal retry logic instead.
-      const authRelatedCodes = [4401, 4403];
+      console.log('[useYjs] Connection closed:', event.code, event.reason);
 
-      if (authRelatedCodes.includes(event.code)) {
-        console.error(`❌ CONNECTION REJECTED (code ${event.code}) - Authentication or authorization failed.`);
-        logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
+      // Explicit auth failure codes
+      if (event.code === 4401 || event.code === 4403) {
+        console.error('[useYjs] Auth failure detected');
         setAuthError(true);
-        // Prevent further reconnection attempts until we get a new token
-        if (provider) {
-          provider.shouldConnect = false;
-        }
-      } else if (event.code === 1006 || event.code === 1008) {
-        // Log these but don't immediately set authError - let retry logic handle it
-        console.warn(`[useYjs] Connection closed abnormally (code ${event.code}) - will retry`);
-        logPerf('WS_ABNORMAL_CLOSE', { code: event.code, reason: event.reason });
+        newProvider.shouldConnect = false;
+        return;
       }
-    };
 
-    const handleSync = (isSynced) => {
-      console.log('[useYjs] Sync event:', isSynced);
-      setSynced(isSynced);
-      if (isSynced) {
-        lastSyncTimeRef.current = Date.now();
-        // Reset both counters on successful sync
-        reconnectCountRef.current = 0;
-        setReconnectCount(0);
-        autoFailureCountRef.current = 0;
+      // Track failures for implicit auth detection and UI feedback
+      failureCount++;
+      setReconnectCount(c => c + 1);
 
-        // FIX: Rebroadcast awareness after sync completes
-        // This ensures stale tabs (e.g., after laptop sleep) rebroadcast their presence
-        // y-websocket syncs awareness from other clients, but we need to ensure
-        // our LOCAL awareness state is sent out after reconnection
-        const localState = awareness.getLocalState();
-        if (localState) {
-          console.log('[useYjs] Sync complete, rebroadcasting local awareness');
-          // Rebroadcast user presence if it exists
-          if (localState.user) {
-            console.log('  - User:', localState.user.name);
-            awareness.setLocalStateField('user', localState.user);
-          }
-          // CRITICAL: Also rebroadcast cursor position if it exists
-          // y-prosemirror stores cursor/selection in a separate field
-          if (localState.cursor) {
-            console.log('  - Cursor position');
-            awareness.setLocalStateField('cursor', localState.cursor);
-          }
-        }
+      if (failureCount >= MAX_FAILURES) {
+        console.error(`[useYjs] ${MAX_FAILURES} connection failures - likely auth issue`);
+        setAuthError(true);
+        newProvider.shouldConnect = false;
       }
     };
 
     const handleAwarenessChange = () => {
-      const states = Array.from(awareness.getStates().entries());
-
-      // Debug: Log all awareness states
-      console.log('[useYjs] Awareness changed. Total clients:', states.length);
-      states.forEach(([clientId, state]) => {
-        console.log(`  Client ${clientId}:`, {
-          hasUser: !!state.user,
-          userName: state.user?.name,
-          isAgent: state.user?.isAgent,
-          hasCursor: !!state.cursor,
-        });
-      });
-
+      const states = Array.from(newProvider.awareness.getStates().entries());
       const userList = states
-        .map(([clientId, state]) => {
-          if (state.user) {
-            return {
-              id: clientId,
-              name: state.user.name,
-              color: state.user.color,
-              picture: state.user.picture,
-              isAgent: state.user.isAgent
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
-
-      console.log('[useYjs] User list after filtering:', userList.length, userList.map(u => u.name));
+        .filter(([, state]) => state.user)
+        .map(([clientId, state]) => ({
+          id: clientId,
+          name: state.user.name,
+          color: state.user.color,
+          picture: state.user.picture,
+          isAgent: state.user.isAgent,
+        }));
       setUsers(userList);
     };
 
-    provider.on('status', handleStatus);
-    provider.on('sync', handleSync);
-    provider.on('connection-error', handleConnectionError);
-    provider.on('connection-close', handleConnectionClose);
-    awareness.on('change', handleAwarenessChange);
+    // --- Attach Listeners ---
+    newProvider.on('status', handleStatus);
+    newProvider.on('sync', handleSync);
+    newProvider.on('connection-error', handleConnectionError);
+    newProvider.on('connection-close', handleConnectionClose);
+    newProvider.awareness.on('change', handleAwarenessChange);
 
-    // Initial status check - determine actual state
-    const initialState = provider.wsconnected ? 'connected' : 'connecting';
-    const initialSynced = provider.synced || false;
-    console.log('[useYjs] Initial state:', { connectionState: initialState, synced: initialSynced });
-    setConnectionState(initialState);
-    setSynced(initialSynced);
+    // Set user awareness before connecting
+    if (user) {
+      newProvider.awareness.setLocalStateField('user', user);
+    }
 
-    // Reset mount time when provider changes (for stuck connection detection)
-    mountTimeRef.current = Date.now();
-
-    // Initial connection timeout - only show offline state if connection is truly failing
-    // Use a longer timeout (30s) to avoid showing misleading "Offline" while still connecting
-    // WebSocket connections can legitimately take time due to network conditions
-    const INITIAL_CONNECTION_TIMEOUT_MS = 30000;
-    if (!provider.wsconnected) {
-      connectionTimeoutRef.current = setTimeout(() => {
-        if (!provider.wsconnected && !provider.synced) {
-          console.warn('[useYjs] Initial connection timeout (30s), showing disconnected state');
-          logPerf('INITIAL_CONNECTION_TIMEOUT', { timeSinceMount: Date.now() - mountTimeRef.current });
-          setConnectionState('disconnected');
-          // Don't set authError - provider will continue trying in background
+    // Connect (optionally wait for IndexedDB)
+    const cached = docCache.get(docGuid);
+    if (cached?.indexeddbReady) {
+      console.log('[useYjs] IndexedDB ready, connecting immediately');
+      newProvider.connect();
+    } else {
+      // Wait briefly for IndexedDB, then connect anyway
+      const timeout = setTimeout(() => {
+        if (providerRef.current === newProvider && !newProvider.wsconnected) {
+          console.log('[useYjs] IndexedDB wait timeout, connecting');
+          newProvider.connect();
         }
-      }, INITIAL_CONNECTION_TIMEOUT_MS);
-    }
+      }, 300);
 
-    // Manually trigger awareness change handler to get initial state
-    // This ensures we show all connected users immediately
-    if (provider.wsconnected && provider.synced) {
-      console.log('[useYjs] Provider already connected and synced, getting initial awareness state');
-      handleAwarenessChange();
-    }
-
-    return () => {
-      // Clear the connection timeout on cleanup
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-        connectionTimeoutRef.current = null;
-      }
-      provider.off('status', handleStatus);
-      provider.off('sync', handleSync);
-      provider.off('connection-error', handleConnectionError);
-      provider.off('connection-close', handleConnectionClose);
-      awareness.off('change', handleAwarenessChange);
-    };
-  }, [provider, awareness]);
-
-  // Connection health monitoring - detect stale connections and stuck "connecting" state
-  useEffect(() => {
-    if (!provider) return;
-
-    const CONNECTING_TIMEOUT_MS = 15000; // 15 seconds max to be stuck in "connecting"
-    const STALE_CONNECTION_MS = 15000; // 15 seconds without sync = stale
-
-    const healthCheckInterval = setInterval(() => {
-      const timeSinceMount = Date.now() - mountTimeRef.current;
-      const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
-      const isConnecting = connectionState === 'connecting';
-      const isConnected = connectionState === 'connected';
-
-      // Detect stuck in "connecting" state for too long
-      // This can happen when token is invalid or network is down
-      if (isConnecting && timeSinceMount > CONNECTING_TIMEOUT_MS && accessToken && !authError) {
-        console.warn(`[useYjs] Stuck in connecting state for ${Math.round(timeSinceMount / 1000)}s, forcing reconnect`);
-        logPerf('STUCK_CONNECTING_DETECTED', { timeSinceMount, timeSinceLastSync });
-        forceReconnect();
-        return;
-      }
-
-      // If we think we're connected but haven't synced in 15 seconds, connection might be stale
-      if (isConnected && !synced && timeSinceLastSync > STALE_CONNECTION_MS) {
-        console.warn('[useYjs] Connection appears stale (no sync for 15s), forcing reconnect');
-        logPerf('STALE_CONNECTION_DETECTED', { timeSinceLastSync });
-        forceReconnect();
-        return;
-      }
-
-      // Only log health check if there's an issue (connection problems)
-      if (connectionState !== 'connected' || !synced) {
-        logPerf('HEALTH_CHECK', {
-          connectionState,
-          synced,
-          timeSinceMount,
-          timeSinceLastSync,
-          reconnectCount: reconnectCountRef.current
+      // Also connect when IndexedDB is ready
+      if (cached?.indexeddbProvider) {
+        cached.indexeddbProvider.once('synced', () => {
+          clearTimeout(timeout);
+          if (providerRef.current === newProvider && !newProvider.wsconnected) {
+            console.log('[useYjs] IndexedDB synced, connecting');
+            newProvider.connect();
+          }
         });
+      } else {
+        // No IndexedDB, connect immediately
+        clearTimeout(timeout);
+        newProvider.connect();
       }
-    }, 30000); // Check every 30 seconds (reduced from 5s for less noise)
+    }
 
-    return () => clearInterval(healthCheckInterval);
-  }, [provider, connectionState, synced, forceReconnect, accessToken, authError]);
+    // --- Cleanup ---
+    return () => {
+      console.log(`[useYjs] Destroying provider for ${docGuid}`);
+      newProvider.off('status', handleStatus);
+      newProvider.off('sync', handleSync);
+      newProvider.off('connection-error', handleConnectionError);
+      newProvider.off('connection-close', handleConnectionClose);
+      newProvider.awareness.off('change', handleAwarenessChange);
 
-  // Subscribe to document title changes from the shared metadata map
+      // Clear awareness before destroying
+      newProvider.awareness.setLocalStateField('user', null);
+      newProvider.awareness.setLocalStateField('cursor', null);
+
+      newProvider.destroy();
+      providerRef.current = null;
+      setProvider(null);
+    };
+  }, [docGuid, accessToken, ydoc, user?.name, user?.color]); // Recreate provider when token changes
+
+  // ============================================================================
+  // TITLE SYNC
+  // ============================================================================
   useEffect(() => {
     if (!ydoc) return;
-    
     const meta = ydoc.getMap('meta');
-    
-    // Set initial title from shared state
+
     const currentTitle = meta.get('title');
     if (currentTitle !== undefined) {
       setDocTitleState(currentTitle);
     }
-    
-    // Listen for changes to the metadata map
+
     const handleMetaChange = () => {
       const newTitle = meta.get('title');
       if (newTitle !== undefined) {
         setDocTitleState(newTitle);
       }
     };
-    
+
     meta.observe(handleMetaChange);
-    
-    return () => {
-      meta.unobserve(handleMetaChange);
-    };
+    return () => meta.unobserve(handleMetaChange);
   }, [ydoc, synced]);
 
-  // Function to update the document title (syncs to all clients)
-  const setDocTitle = useCallback((newTitle) => {
-    if (!ydoc) return;
-    const meta = ydoc.getMap('meta');
-    meta.set('title', newTitle);
-  }, [ydoc]);
-
-  // Cleanup: Clear awareness state when component unmounts (navigating away from document)
-  // This ensures your avatar disappears when you leave, while keeping the provider cached
+  // ============================================================================
+  // VISIBILITY CHANGE - Reconnect on wake from sleep
+  // ============================================================================
   useEffect(() => {
-    return () => {
-      if (awareness && typeof awareness.setLocalStateField === 'function') {
-        const clientId = awareness.clientID;
-        console.log('[useYjs] Component unmounting, clearing awareness for client', clientId);
-        // Clear user and cursor fields specifically (don't clear entire state)
-        awareness.setLocalStateField('user', null);
-        awareness.setLocalStateField('cursor', null);
-      }
-    };
-  }, [awareness]);
-
-  // CRITICAL: Clear awareness on page unload (refresh/close)
-  // This prevents ghost users when page refreshes don't complete cleanup
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (awareness && typeof awareness.setLocalStateField === 'function') {
-        const clientId = awareness.clientID;
-        console.log('[useYjs] Page unloading, clearing awareness for client', clientId);
-        // Synchronously clear awareness before page unloads
-        awareness.setLocalStateField('user', null);
-        awareness.setLocalStateField('cursor', null);
-      }
-      // Also disconnect provider to ensure WebSocket closes cleanly
-      if (provider && typeof provider.disconnect === 'function') {
-        console.log('[useYjs] Page unloading, disconnecting provider');
-        provider.disconnect();
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [awareness, provider]);
-
-  // FIX: Check connection staleness and rebroadcast awareness when tab becomes visible
-  // This handles the case where a laptop was closed and reopened, or tab was backgrounded
-  // The connection might appear alive but server has timed it out
-  useEffect(() => {
-    if (!awareness || !provider) return;
-
-    const STALE_CONNECTION_THRESHOLD_MS = 30000; // 30 seconds
+    if (!provider) return;
 
     const handleVisibilityChange = () => {
-      // Only act when page becomes visible (not when it becomes hidden)
-      if (!document.hidden) {
-        console.log('[useYjs] Page became visible, validating connection');
+      if (document.hidden) return;
 
-        const isConnected = provider.wsconnected;
-        const localState = awareness.getLocalState();
-        const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
-
-        // Check for stale connection: appears connected but no sync for > 30 seconds
-        // This happens when laptop sleeps and TCP connection is frozen
-        if (isConnected && timeSinceLastSync > STALE_CONNECTION_THRESHOLD_MS) {
-          console.warn(`[useYjs] Connection appears stale after wake (no sync for ${Math.round(timeSinceLastSync / 1000)}s), forcing reconnect`);
-          forceReconnect();
-          return;
-        }
-
-        // Normal case: connection is healthy, just rebroadcast awareness
-        if (isConnected && localState) {
-          console.log('[useYjs] Rebroadcasting awareness after visibility change');
-          // Rebroadcast user presence
-          if (localState.user) {
-            console.log('  - User:', localState.user.name);
-            awareness.setLocalStateField('user', localState.user);
-          }
-          // CRITICAL: Also rebroadcast cursor position if it exists
-          if (localState.cursor) {
-            console.log('  - Cursor position');
-            awareness.setLocalStateField('cursor', localState.cursor);
-          }
-        } else if (!isConnected) {
-          console.log('[useYjs] Page visible but not connected, will rebroadcast on reconnect');
+      const timeSinceSync = Date.now() - lastSyncTimeRef.current;
+      if (provider.wsconnected && timeSinceSync > 30000) {
+        console.log('[useYjs] Stale connection detected after wake, reconnecting');
+        provider.disconnect();
+        setTimeout(() => provider.connect(), 100);
+      } else if (provider.wsconnected) {
+        // Just rebroadcast awareness
+        const localState = provider.awareness.getLocalState();
+        if (localState?.user) {
+          provider.awareness.setLocalStateField('user', localState.user);
         }
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [awareness, provider, forceReconnect]);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [provider]);
 
+  // ============================================================================
+  // PAGE UNLOAD - Clean disconnect
+  // ============================================================================
+  useEffect(() => {
+    if (!provider) return;
+
+    const handleBeforeUnload = () => {
+      provider.awareness.setLocalStateField('user', null);
+      provider.awareness.setLocalStateField('cursor', null);
+      provider.disconnect();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [provider]);
+
+  // ============================================================================
+  // ACTIONS
+  // ============================================================================
+  const setDocTitle = useCallback((newTitle) => {
+    if (!ydoc) return;
+    ydoc.getMap('meta').set('title', newTitle);
+  }, [ydoc]);
+
+  const forceReconnect = useCallback(() => {
+    if (!provider || !accessToken) return;
+
+    // Debounce: ignore calls within 300ms of last call
+    const now = Date.now();
+    if (now - lastForceReconnectRef.current < 300) {
+      console.log('[useYjs] forceReconnect debounced');
+      return;
+    }
+    lastForceReconnectRef.current = now;
+
+    console.log('[useYjs] Force reconnecting');
+    setReconnectCount(c => c + 1);
+    provider.disconnect();
+    setTimeout(() => provider.connect(), 100);
+  }, [provider, accessToken]);
+
+  // ============================================================================
+  // RETURN
+  // ============================================================================
   return {
     ydoc,
     provider,
     indexeddbProvider,
-    awareness,
-    connected: connectionState === 'connected', // Backward compatibility
-    connectionState, // New: 'connecting' | 'connected' | 'disconnected'
+    awareness: provider?.awareness,
+    connected: connectionState === 'connected',
+    connectionState,
     synced,
     users,
     docGuid,
     docTitle,
     setDocTitle,
-    forceReconnect, // New: manual reconnection function
-    reconnectCount, // Track reconnection attempts (triggers re-render on change)
-    authError // New: track authentication errors
+    forceReconnect,
+    reconnectCount,
+    authError,
   };
 }

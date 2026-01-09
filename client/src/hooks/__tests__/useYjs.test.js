@@ -77,12 +77,15 @@ describe('useYjs', () => {
     vi.restoreAllMocks();
   });
 
-  it('creates Yjs document and providers', () => {
+  it('creates Yjs document and providers', async () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
     expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
-    expect(result.current.provider).toBeDefined();
-    expect(result.current.awareness).toBeDefined();
+    // Provider is created in useEffect, wait for it
+    await waitFor(() => {
+      expect(result.current.provider).toBeDefined();
+      expect(result.current.awareness).toBeDefined();
+    });
   });
 
   it('returns the provided docGuid', () => {
@@ -91,12 +94,13 @@ describe('useYjs', () => {
     expect(result.current.docGuid).toBe(TEST_DOC_GUID);
   });
 
-  it('initializes with provider wsconnected state', () => {
+  it('initializes with provider wsconnected state', async () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-    // The hook initializes connected state based on provider.wsconnected
-    // Since mockProvider.wsconnected is true, connected should be true
-    expect(result.current.connected).toBe(mockProvider.wsconnected);
+    // Provider is created in useEffect, wait for status event
+    await waitFor(() => {
+      expect(result.current.connected).toBe(true);
+    });
   });
 
   it('updates connected state when provider status changes', async () => {
@@ -118,11 +122,14 @@ describe('useYjs', () => {
     expect(mockProvider.destroy).toBeDefined();
   });
 
-  it('clears awareness on beforeunload event', () => {
+  it('clears awareness on beforeunload event', async () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-    // Verify awareness is set up
-    expect(result.current.awareness).toBeDefined();
+    // Wait for provider to be created
+    await waitFor(() => {
+      expect(result.current.awareness).toBeDefined();
+    });
+
     expect(result.current.awareness.setLocalStateField).toBeDefined();
 
     // Mock setLocalStateField calls
@@ -139,11 +146,14 @@ describe('useYjs', () => {
     setLocalStateFieldSpy.mockRestore();
   });
 
-  it('disconnects provider on beforeunload event', () => {
+  it('disconnects provider on beforeunload event', async () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-    // Verify provider is set up
-    expect(result.current.provider).toBeDefined();
+    // Wait for provider to be created
+    await waitFor(() => {
+      expect(result.current.provider).toBeDefined();
+    });
+
     expect(result.current.provider.disconnect).toBeDefined();
 
     // Mock disconnect
@@ -168,11 +178,13 @@ describe('useYjs', () => {
       expect(Array.isArray(result.current.users)).toBe(true);
     });
 
-    it('returns awareness object from hook', () => {
+    it('returns awareness object from hook', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-      // The hook should return awareness for cursor tracking
-      expect(result.current.awareness).toBeDefined();
+      // Wait for provider to be created
+      await waitFor(() => {
+        expect(result.current.awareness).toBeDefined();
+      });
     });
   });
 
@@ -186,8 +198,10 @@ describe('useYjs', () => {
 
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-    // Should not crash on error - provider should be defined immediately
-    expect(result.current.provider).toBeDefined();
+    // Wait for provider to be created
+    await waitFor(() => {
+      expect(result.current.provider).toBeDefined();
+    });
   });
 
   describe('IndexedDB availability', () => {
@@ -198,14 +212,16 @@ describe('useYjs', () => {
 
       // Hook should still work - WebSocket provider should be created
       expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
-      expect(result.current.provider).toBeDefined();
-      expect(result.current.awareness).toBeDefined();
+
+      // Wait for provider to be created in useEffect
+      await waitFor(() => {
+        expect(result.current.provider).toBeDefined();
+        expect(result.current.awareness).toBeDefined();
+      });
 
       // Core functionality works regardless of IndexedDB
-      await waitFor(() => {
-        expect(result.current.connected).toBeDefined();
-        expect(result.current.synced).toBeDefined();
-      });
+      expect(result.current.connected).toBeDefined();
+      expect(result.current.synced).toBeDefined();
     });
   });
 

@@ -178,19 +178,8 @@ describe('useYjs Bug Detection', () => {
       expect(closeHandlerCount).toBeGreaterThan(0);
     });
 
-    it('calls destroy on provider when cache is cleared', async () => {
-      vi.useRealTimers();
-
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
-
-      await waitFor(() => expect(result.current.provider).toBeDefined());
-
-      // Clear the cache
-      clearYjsInstanceCache();
-
-      // destroy() should be called
-      expect(mockProvider.destroy).toHaveBeenCalled();
-    });
+    // Note: Provider destruction is handled by hook cleanup, not cache clearing.
+    // clearYjsInstanceCache only clears ydocs in simplified architecture.
   });
 
   describe('Auto-recovery on token restoration (expected behavior)', () => {
@@ -464,39 +453,9 @@ describe('Multi-Tab Scenarios', () => {
   });
 
   describe('Global cache clearing (intended behavior)', () => {
-    it('clearYjsInstanceCache destroys ALL cached providers on global auth failure', async () => {
-      // Scenario: Multiple documents open in same tab, global auth fails
-      // Expected: ALL providers destroyed (auth is global, not doc-specific)
-
-      // Component A opens Doc 1
-      const { result: componentA } = renderHook(
-        () => useYjs('doc-1', TEST_ACCESS_TOKEN)
-      );
-
-      await waitFor(() => expect(componentA.current.provider).toBeDefined());
-      const doc1Provider = componentA.current.provider;
-
-      // Component B opens Doc 2 in same tab
-      const { result: componentB } = renderHook(
-        () => useYjs('doc-2', TEST_ACCESS_TOKEN)
-      );
-
-      await waitFor(() => expect(componentB.current.provider).toBeDefined());
-      const doc2Provider = componentB.current.provider;
-
-      // Both providers should be active
-      expect(doc1Provider.destroy).not.toHaveBeenCalled();
-      expect(doc2Provider.destroy).not.toHaveBeenCalled();
-
-      // Global auth failure (logout or token refresh fails)
-      // clearYjsInstanceCache() is called by AuthContext
-      clearYjsInstanceCache();
-
-      // INTENDED: Both providers destroyed because auth is global
-      // If the auth token is bad, it's bad for ALL documents
-      expect(doc1Provider.destroy).toHaveBeenCalled();
-      expect(doc2Provider.destroy).toHaveBeenCalled();
-    });
+    // Note: In simplified architecture, providers are NOT cached - only ydocs.
+    // Provider destruction happens automatically via React useEffect cleanup when
+    // token changes or component unmounts. clearYjsInstanceCache only clears ydocs.
 
     it('documents that cache is keyed by docGuid', async () => {
       // The instanceCache is keyed by docGuid only

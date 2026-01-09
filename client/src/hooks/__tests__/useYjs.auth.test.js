@@ -676,19 +676,8 @@ describe('useYjs auth error detection', () => {
   });
 
   describe('clearYjsInstanceCache', () => {
-    it('destroys all cached providers', async () => {
-      // Create an instance
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
-
-      await waitFor(() => expect(result.current.provider).toBeDefined());
-
-      const provider = result.current.provider;
-
-      // Clear the cache
-      clearYjsInstanceCache();
-
-      expect(provider.destroy).toHaveBeenCalled();
-    });
+    // Note: In simplified architecture, providers are not cached - only ydocs.
+    // Provider destruction is handled by individual hook cleanup, not cache clearing.
 
     it('allows fresh instances to be created after clearing', async () => {
       // Create first instance

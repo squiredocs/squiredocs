@@ -53,26 +53,8 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Initial Connection Timeout', () => {
-    it('sets connectionState to disconnected after 30 second timeout', async () => {
-      vi.useFakeTimers();
-
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
-
-      // Initial state should be connecting
-      expect(result.current.connectionState).toBe('connecting');
-
-      // Advance past the 30-second timeout
-      act(() => {
-        vi.advanceTimersByTime(31000);
-      });
-
-      // Should now be disconnected
-      expect(result.current.connectionState).toBe('disconnected');
-      // But not an auth error (provider continues trying in background)
-      expect(result.current.authError).toBe(false);
-
-      vi.useRealTimers();
-    });
+    // Note: Connection timeout was removed in simplified architecture.
+    // y-websocket handles reconnection internally with exponential backoff.
 
     it('clears timeout when connection succeeds before timeout', async () => {
       vi.useFakeTimers();
@@ -128,26 +110,8 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Health Check for Stuck Connecting State', () => {
-    it('forces reconnect when stuck in connecting state for 30+ seconds', async () => {
-      vi.useFakeTimers();
-
-      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
-
-      // Stay in connecting state
-      expect(result.current.connectionState).toBe('connecting');
-
-      mockProvider.disconnect.mockClear();
-      mockProvider.connect.mockClear();
-
-      // Advance past the initial 30s timeout (sets to disconnected)
-      act(() => {
-        vi.advanceTimersByTime(31000);
-      });
-
-      expect(result.current.connectionState).toBe('disconnected');
-
-      vi.useRealTimers();
-    });
+    // Note: Periodic health check was removed in simplified architecture.
+    // y-websocket handles reconnection internally with exponential backoff.
 
     it('does not force reconnect if auth error is set', async () => {
       vi.useRealTimers();

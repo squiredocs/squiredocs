@@ -10,10 +10,15 @@ import { WebsocketProvider } from 'y-websocket';
 
 // Reset Yjs singletons for testing
 export function resetYjsSingletons() {
-  if (typeof global !== 'undefined') {
-    global.__TEST_RESET_YJS_SINGLETONS__ = true;
-    // Don't require the module here to avoid race conditions
-    // The module will check for this flag when imported
+  // Import and call the cleanup function directly
+  try {
+    const { clearYjsInstanceCache } = require('../hooks/useYjs');
+    clearYjsInstanceCache();
+  } catch {
+    // Module not loaded yet, set flag for initial load
+    if (typeof global !== 'undefined') {
+      global.__TEST_RESET_YJS_SINGLETONS__ = true;
+    }
   }
 }
 
