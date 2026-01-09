@@ -70,19 +70,9 @@ export function useYjs(docGuid, accessToken, user = null) {
   const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
   // ============================================================================
-  // PROVIDER LIFECYCLE
+  // PROVIDER LIFECYCLE - stable per docGuid, doesn't recreate on token refresh
   // ============================================================================
   useEffect(() => {
-    if (!accessToken || isTokenExpired(accessToken)) {
-      setConnectionState('disconnected');
-      setAuthError(true);
-      return;
-    }
-
-    setAuthError(false);
-    setConnectionState('connecting');
-    setReconnectCount(0);
-
     let isMounted = true;
     const newProvider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
       connect: false,
@@ -144,7 +134,13 @@ export function useYjs(docGuid, accessToken, user = null) {
     // Delay connection slightly to avoid StrictMode double-connect errors
     const connectTimeout = setTimeout(() => {
       if (!isMounted) return;
-      newProvider.connect();
+      // Only connect if we have a valid token
+      if (accessTokenRef.current && !isTokenExpired(accessTokenRef.current)) {
+        newProvider.connect();
+      } else {
+        setConnectionState('disconnected');
+        setAuthError(true);
+      }
     }, 0);
 
     return () => {
@@ -157,7 +153,32 @@ export function useYjs(docGuid, accessToken, user = null) {
       newProvider.destroy();
       setProvider(null);
     };
-  }, [docGuid, accessToken, ydoc, user?.name, user?.color]);
+  }, [docGuid, ydoc]);
+
+  // Handle token changes - disconnect on invalid, reconnect on valid + disconnected
+  useEffect(() => {
+    if (!provider) return;
+
+    if (!accessToken || isTokenExpired(accessToken)) {
+      // Token invalid - disconnect and set auth error
+      setAuthError(true);
+      setConnectionState('disconnected');
+      provider.shouldConnect = false;
+      provider.disconnect();
+    } else if (!provider.wsconnected && !provider.shouldConnect) {
+      // Have valid token but disconnected - reconnect
+      setAuthError(false);
+      setReconnectCount(0);
+      provider.shouldConnect = true;
+      provider.connect();
+    }
+  }, [accessToken, provider]);
+
+  // Update awareness when user changes (without recreating provider)
+  useEffect(() => {
+    if (!provider?.wsconnected || !user) return;
+    provider.awareness.setLocalStateField('user', user);
+  }, [provider, user?.name, user?.color]);
 
   // ============================================================================
   // TITLE SYNC

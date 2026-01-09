@@ -252,11 +252,15 @@ describe('useYjs auth error detection', () => {
       });
     });
 
-    it('does not create WebSocket provider without token', async () => {
+    it('creates provider but does not connect without token', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, null));
 
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
       expect(result.current.ydoc).toBeInstanceOf(Y.Doc);
-      expect(result.current.provider).toBeNull();
+      expect(result.current.provider).toBeDefined();
+      expect(result.current.authError).toBe(true);
+      expect(result.current.connectionState).toBe('disconnected');
     });
   });
 
@@ -305,14 +309,21 @@ describe('useYjs auth error detection', () => {
       expect(result.current.authError).toBe(false);
     });
 
-    it('does nothing if provider is null', async () => {
+    it('does nothing without valid token', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, null));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Clear any disconnect calls from the token effect
+      mockProvider.disconnect.mockClear();
+      mockProvider.connect.mockClear();
 
       act(() => {
         result.current.forceReconnect();
       });
 
-      expect(mockProvider.disconnect).not.toHaveBeenCalled();
+      // forceReconnect should do nothing without valid token
+      expect(mockProvider.connect).not.toHaveBeenCalled();
     });
   });
 
