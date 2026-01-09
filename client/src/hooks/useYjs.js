@@ -108,12 +108,31 @@ export function useYjs(docGuid, accessToken, user = null) {
       }
     };
 
-    // Only set authError for explicit auth failures - let y-websocket retry otherwise
+    // Handle auth failures - both WebSocket close codes AND HTTP upgrade failures
+    // When connection fails and token is expired, stop retrying - token effect will reconnect
+    const handleAuthFailure = () => {
+      if (isTokenExpired(accessTokenRef.current)) {
+        console.log('[useYjs] Connection failed with expired token, stopping retries');
+        setAuthError(true);
+        newProvider.shouldConnect = false;
+        newProvider.disconnect(); // Cancel any pending reconnect timers
+      }
+    };
+
     const handleClose = ({ code }) => {
+      // Explicit auth close codes always trigger auth error
       if (code === 4401 || code === 4403) {
         setAuthError(true);
         newProvider.shouldConnect = false;
+      } else {
+        // Other close codes - check if token expired
+        handleAuthFailure();
       }
+    };
+
+    // HTTP 401 on upgrade doesn't produce a WebSocket close code - it triggers connection-error
+    const handleConnectionError = () => {
+      handleAuthFailure();
     };
 
     const handleAwarenessChange = () => {
@@ -134,6 +153,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     newProvider.on('status', handleStatus);
     newProvider.on('sync', handleSync);
     newProvider.on('connection-close', handleClose);
+    newProvider.on('connection-error', handleConnectionError);
     newProvider.awareness.on('change', handleAwarenessChange);
 
     // Delay connection slightly to avoid StrictMode double-connect errors
@@ -154,6 +174,7 @@ export function useYjs(docGuid, accessToken, user = null) {
       newProvider.off('status', handleStatus);
       newProvider.off('sync', handleSync);
       newProvider.off('connection-close', handleClose);
+      newProvider.off('connection-error', handleConnectionError);
       newProvider.awareness.off('change', handleAwarenessChange);
       newProvider.destroy();
       setProvider(null);
