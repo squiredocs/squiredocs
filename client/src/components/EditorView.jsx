@@ -427,62 +427,17 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     };
   }, [docTitle]);
 
-  // Proactive token validation when connection keeps failing
-  // Don't wait for authError - trigger HTTP check after first reconnect attempt
-  // This speeds up recovery when WebSocket 401s come as generic 1006 close codes
+  // Auth error handling: redirect to login if not authenticated
+  // Token refresh is handled by AuthContext's axios interceptor, not here
   useEffect(() => {
-    if (reconnectCount >= 1 && isAuthenticated && accessToken && api && !authError) {
-      console.log(`[EditorView] Connection failing (${reconnectCount} retries), proactively validating token...`);
-      api.get('/auth/me')
-        .then(() => {
-          console.log('[EditorView] Token is valid, WebSocket issue may be temporary');
-        })
-        .catch((err) => {
-          console.log('[EditorView] Proactive token check failed:', err.response?.status || err.message);
-          // Axios interceptor will have refreshed the token if it was expired
-        });
-    }
-  }, [reconnectCount, isAuthenticated, accessToken, api, authError]);
-
-  // FIX 6: Session expired - trigger token refresh or redirect to login
-  // When WebSocket auth fails, FORCE a token refresh to get a NEW token
-  // The WebSocket may be failing with an expired token even if we have a token in state
-  // (because the WebSocket URL is cached with the old token)
-  useEffect(() => {
-    console.log('[EditorView] Auth state check:', { authError, isAuthenticated, accessToken: !!accessToken });
-
-    if (authError && isAuthenticated && accessToken && refreshAccessToken) {
-      // WebSocket auth failed but we still have a token - FORCE refresh to get a new one
-      // This is needed because the WebSocket provider may have cached the old token in its URL
-      console.log('[EditorView] WebSocket auth failed, forcing token refresh...');
-      refreshAccessToken()
-        .then((newToken) => {
-          console.log('[EditorView] Token refresh succeeded, new token will flow to useYjs');
-          // The new token is different from the old one, so useYjs will detect the change
-          // and recreate the WebSocket provider with the new token in the URL
-        })
-        .catch((err) => {
-          console.log('[EditorView] Token refresh failed:', err.message);
-          // Refresh failed - user needs to re-authenticate
-          // The AuthContext will have cleared the token, triggering the redirect below
-        });
-    } else if (authError && !isAuthenticated) {
-      console.log('[EditorView] Auth error detected and not authenticated, will redirect to login in 3 seconds...');
-      // Longer delay to allow time for:
-      // 1. Other tabs to broadcast refreshed tokens
-      // 2. BroadcastChannel messages to be received
-      // 3. State to settle
+    if (authError && !isAuthenticated) {
+      // Not authenticated and auth error - redirect to login
       const timer = setTimeout(() => {
-        // Double-check we still need to redirect (state may have changed)
-        console.log('[EditorView] Redirect timer fired, redirecting to /login');
         window.location.href = '/login';
-      }, 3000);
-      return () => {
-        console.log('[EditorView] Redirect timer cancelled (auth state changed)');
-        clearTimeout(timer);
-      };
+      }, 2000);
+      return () => clearTimeout(timer);
     }
-  }, [authError, isAuthenticated, accessToken, refreshAccessToken]);
+  }, [authError, isAuthenticated]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -593,7 +548,19 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     <div className="app">
       {authError && (
         <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
-          ❌ Session expired - Redirecting to login...
+          {isAuthenticated ? (
+            <>
+              Connection failed
+              <button
+                onClick={forceReconnect}
+                style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            'Session expired - Redirecting to login...'
+          )}
         </div>
       )}
       {!authError && connectionState === 'disconnected' && (

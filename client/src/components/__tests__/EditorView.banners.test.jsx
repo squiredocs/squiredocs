@@ -140,8 +140,18 @@ describe('EditorView banner states', () => {
   };
 
   describe('Auth error banner', () => {
-    it('shows auth error banner when authError is true', () => {
+    it('shows "Connection failed" with Retry when authError is true and authenticated', () => {
       renderEditorView({ authError: true, connectionState: 'disconnected' });
+
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    });
+
+    it('shows "Session expired" when authError is true and NOT authenticated', () => {
+      renderEditorView(
+        { authError: true, connectionState: 'disconnected' },
+        { isAuthenticated: false, accessToken: null }
+      );
 
       expect(screen.getByText(/Session expired/)).toBeInTheDocument();
     });
@@ -149,7 +159,7 @@ describe('EditorView banner states', () => {
     it('auth error banner has correct styling', () => {
       renderEditorView({ authError: true, connectionState: 'disconnected' });
 
-      const banner = screen.getByText(/Session expired/).closest('.sync-banner');
+      const banner = screen.getByText(/Connection failed/).closest('.sync-banner');
       expect(banner).toHaveClass('sync-banner--error');
     });
 
@@ -160,7 +170,7 @@ describe('EditorView banner states', () => {
         synced: false
       });
 
-      expect(screen.getByText(/Session expired/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
       expect(screen.queryByText('Offline')).not.toBeInTheDocument();
       expect(screen.queryByText(/Connecting/)).not.toBeInTheDocument();
       expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
@@ -308,6 +318,7 @@ describe('EditorView banner states', () => {
       expect(screen.queryByText(/Reconnecting/)).not.toBeInTheDocument();
       expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
       expect(screen.queryByText(/Session expired/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
     });
   });
 
@@ -409,15 +420,15 @@ describe('EditorView banner states', () => {
       });
     });
 
-    it('transitions from authError to connected after token refresh', async () => {
+    it('transitions from authError to connected after retry', async () => {
       const { rerender } = renderEditorView({
         authError: true,
         connectionState: 'disconnected'
       });
 
-      expect(screen.getByText(/Session expired/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
 
-      // Simulate token refresh success
+      // Simulate reconnect success
       vi.mocked(useYjs).mockReturnValue({
         ...defaultYjsReturn,
         authError: false,
@@ -437,7 +448,7 @@ describe('EditorView banner states', () => {
       );
 
       await waitFor(() => {
-        expect(screen.queryByText(/Session expired/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
       });
     });
   });
@@ -463,9 +474,9 @@ describe('EditorView banner states', () => {
         { isAuthenticated: false, accessToken: null, user: null }
       );
 
-      // Advance past the 3 second delay (increased to allow broadcast messages to arrive)
+      // Advance past the 2 second delay
       await act(async () => {
-        vi.advanceTimersByTime(3500);
+        vi.advanceTimersByTime(2500);
       });
 
       expect(window.location.href).toContain('/login');
@@ -508,7 +519,7 @@ describe('EditorView banner states', () => {
         connected: false
       });
 
-      expect(screen.getByText(/Session expired/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
       expect(screen.queryByText('Offline')).not.toBeInTheDocument();
     });
 
@@ -519,7 +530,7 @@ describe('EditorView banner states', () => {
         connected: false
       });
 
-      expect(screen.getByText(/Session expired/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
       expect(screen.queryByText(/Connecting/)).not.toBeInTheDocument();
     });
 
@@ -531,7 +542,7 @@ describe('EditorView banner states', () => {
         synced: false
       });
 
-      expect(screen.getByText(/Session expired/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
       expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
     });
   });

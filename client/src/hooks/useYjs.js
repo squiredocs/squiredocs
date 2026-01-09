@@ -280,6 +280,9 @@ export function useYjs(docGuid, accessToken, user = null) {
     const now = Date.now();
     if (now - lastForceReconnectRef.current < 300) return;
     lastForceReconnectRef.current = now;
+    // Reset error state and allow reconnection
+    setAuthError(false);
+    provider.shouldConnect = true;
     setReconnectCount(c => c + 1);
     provider.disconnect();
     setTimeout(() => provider.connect(), 100);
