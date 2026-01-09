@@ -40,7 +40,6 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
-  const initialScrollDoneRef = useRef(false); // Track if we've done the initial scroll-to-top
   const labelsVisibleRef = useRef(false); // Track if labels should currently be visible
   const mutationObserverRef = useRef(null); // Track MutationObserver
   const [linkPreview, setLinkPreview] = useState(null);
@@ -137,18 +136,6 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       onShowLabelsReady(showCursorLabels);
     }
   }, [onShowLabelsReady, showCursorLabels]);
-
-  // Scroll to top on INITIAL sync only to prevent browser scroll restoration
-  // Don't scroll on reconnections - preserve user's scroll position
-  useEffect(() => {
-    if (synced && containerRef.current && !initialScrollDoneRef.current) {
-      console.log('[Editor] Initial sync - scrolling to top');
-      containerRef.current.scrollTop = 0;
-      initialScrollDoneRef.current = true;
-    } else if (synced && initialScrollDoneRef.current) {
-      console.log('[Editor] ✅ Reconnected - preserving scroll position at:', containerRef.current?.scrollTop);
-    }
-  }, [synced]);
 
   // Scroll cursor into view when virtual keyboard appears (mobile)
   // We manually scroll the editor container rather than using scrollIntoView()
