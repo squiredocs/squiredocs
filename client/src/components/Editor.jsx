@@ -115,7 +115,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       scrollMargin: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
       scrollThreshold: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
     },
-  }, [isMobile]);
+  }, [isMobile, provider]); // Include provider so editor reinitializes with new CollaborationCursor after token refresh
 
   // Update editable state when prop changes
   useEffect(() => {
