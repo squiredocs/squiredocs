@@ -11,6 +11,7 @@ const { PostgresPersistence } = require('./postgres-persistence');
 const redisPubSub = require('./redis-pubsub');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
+const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const { parseCookies, verifyAccessToken } = require('./auth/jwt');
 const documents = require('./documents');
@@ -1096,17 +1097,27 @@ const SYNC_STEP2 = 1;  // Send full state (response)
 const SYNC_UPDATE = 2; // Send an update (edit)
 
 /**
- * FIX FOR AWARENESS BUG: y-websocket has a bug where:
- * 1. Server sends User A's awareness to new User B connection
- * 2. User B's client re-broadcasts it back to server (y-websocket client does this)
- * 3. Server adds User A's clientID to User B's "controlled IDs"
- * 4. When User B disconnects, User A's awareness is incorrectly removed
- *
- * Solution: Track the TRUE owner of each clientID and don't let other connections
- * steal ownership via re-broadcast.
+ * Parse clientIds from an awareness message.
+ * Awareness message format: [MESSAGE_AWARENESS, ...encoded awareness update]
+ * Awareness update: varint(numClients), then for each: varint(clientId), varint(clock), varint(stateLen), state bytes
  */
-// Maps docGuid -> Map<clientId, WebSocket (owner connection)>
-const clientIdOwnerMap = new Map();
+function parseAwarenessClientIds(buffer) {
+  if (!buffer || buffer.length < 2 || buffer[0] !== MESSAGE_AWARENESS) return [];
+  try {
+    const decoder = decoding.createDecoder(buffer.subarray(1));
+    const numClients = decoding.readVarUint(decoder);
+    const clientIds = [];
+    for (let i = 0; i < numClients; i++) {
+      clientIds.push(decoding.readVarUint(decoder));
+      decoding.readVarUint(decoder); // clock
+      const stateLen = decoding.readVarUint(decoder);
+      decoder.pos += stateLen; // skip state
+    }
+    return clientIds;
+  } catch (e) {
+    return [];
+  }
+}
 
 /**
  * Check if a WebSocket message is an edit operation
@@ -1167,14 +1178,18 @@ wss.on('connection', (ws, req) => {
   // Token expiry time from upgrade request (null for agent tokens which don't expire)
   const tokenExp = req.tokenExp;
 
+  // Track this connection's own clientId (captured from first awareness message it sends)
+  // Used to explicitly clean up awareness when connection closes
+  let connectionClientId = null;
+
   // Intercept messages before y-websocket processes them
-  // This handles both token expiry validation and viewer edit blocking
   const originalEmit = ws.emit.bind(ws);
   ws.emit = (event, ...args) => {
     if (event === 'message') {
+      const data = args[0];
+      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
       // Check token expiry on every message (efficient timestamp comparison, no crypto)
-      // This ensures clients are disconnected when their session expires,
-      // preventing the "ghost session" state where WebSocket works but REST fails
       if (tokenExp && Date.now() / 1000 > tokenExp) {
         logPerf('WS_TOKEN_EXPIRED', { connId, userId, docId, expiredAt: tokenExp });
         console.log(`✗ Token expired for connection ${connId}, closing with 4401`);
@@ -1182,15 +1197,21 @@ wss.on('connection', (ws, req) => {
         return false;
       }
 
-      // Block edit messages from viewers
-      if (!canEdit) {
-        const data = args[0];
-        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        if (isEditMessage(buffer)) {
-          logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
-          console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
-          return false;
+      // Capture this connection's clientId from the first awareness message it sends
+      // Each client has a unique Y.Doc clientId - we need this for cleanup on disconnect
+      if (!connectionClientId && buffer[0] === MESSAGE_AWARENESS) {
+        const clientIds = parseAwarenessClientIds(buffer);
+        if (clientIds.length > 0) {
+          connectionClientId = clientIds[0];
+          console.log(`[WS:${connId}] Captured connection clientId: ${connectionClientId}`);
         }
+      }
+
+      // Block edit messages from viewers
+      if (!canEdit && isEditMessage(buffer)) {
+        logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
+        console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
+        return false;
       }
     }
     return originalEmit(event, ...args);
@@ -1223,22 +1244,6 @@ wss.on('connection', (ws, req) => {
     const wsDocName = `s/${docId}`;
     const doc = getYDoc(wsDocName, true);
 
-    // Initialize owner map for this document if needed
-    if (!clientIdOwnerMap.has(docId)) {
-      clientIdOwnerMap.set(docId, new Map());
-    }
-    const ownerMap = clientIdOwnerMap.get(docId);
-
-    // CRITICAL FIX: We need to intervene in how controlled IDs are tracked.
-    // The issue is that y-websocket's awarenessChangeHandler adds ALL clientIDs
-    // from awareness updates to the connection's controlled IDs. When the client
-    // re-broadcasts awareness states it received from the server, this causes
-    // cross-contamination of controlled IDs.
-    //
-    // Our fix: Monitor controlled IDs and remove any clientIDs that are already
-    // owned by other connections.
-
-    // After setupWSConnection, we can access the awareness state
     if (docId && doc) {
       // Debug: Log connection state
       const connsCount = doc.conns ? doc.conns.size : 0;
@@ -1344,100 +1349,30 @@ wss.on('connection', (ws, req) => {
 
       if (doc.awareness) {
         // Log current awareness states
-        doc.awareness.getStates().forEach((state, clientId) => {
-          console.log(`  [awareness] Client ${clientId}: ${state?.user?.name || 'no user'}, owner: ${ownerMap.get(clientId) === ws ? 'this' : 'other'}`);
-        });
+        const awarenessCount = doc.awareness.getStates().size;
+        console.log(`[WS:${connId}] Current awareness states: ${awarenessCount}`);
 
-        // Log controlled IDs for this connection
-        const controlledIds = doc.conns.get(ws);
-        console.log(`[WS:${connId}] Initial controlled IDs:`, controlledIds ? Array.from(controlledIds) : []);
-
-        /**
-         * FIX: Monitor controlled IDs and immediately remove any that this connection
-         * shouldn't own. This runs SYNCHRONOUSLY in the same tick as y-websocket's handler.
-         */
-        const fixControlledIdsHandler = ({ added, updated, removed }, origin) => {
-          const connControlledIds = doc.conns.get(ws);
-          if (!connControlledIds) return;
-
-          // For each "added" clientId, check if this connection should own it
-          for (const clientId of added) {
-            const existingOwner = ownerMap.get(clientId);
-
-            if (existingOwner && existingOwner !== ws) {
-              // Another connection already owns this clientId!
-              // This means the client re-broadcast someone else's awareness.
-              // Remove it from this connection's controlled IDs.
-              if (connControlledIds.has(clientId)) {
-                console.log(`[WS:${connId}] FIX: Removing stolen clientId ${clientId} from controlled IDs (owned by another connection)`);
-                connControlledIds.delete(clientId);
-              }
-            } else if (!existingOwner) {
-              // No owner yet - this connection becomes the owner
-              ownerMap.set(clientId, ws);
-              console.log(`[WS:${connId}] Claiming ownership of clientId ${clientId}`);
-            }
-            // else: this connection already owns it, that's fine
-          }
-
-          // For removed clientIds, if this connection is the owner, clear ownership
-          for (const clientId of removed) {
-            if (ownerMap.get(clientId) === ws) {
-              ownerMap.delete(clientId);
-              console.log(`[WS:${connId}] Releasing ownership of clientId ${clientId}`);
-            }
-          }
-
-          // Debug log
-          if (added.length || removed.length) {
-            const states = doc.awareness.getStates();
-            const users = [];
-            states.forEach((s, cid) => {
-              const owner = ownerMap.get(cid) === ws ? 'this' : (ownerMap.has(cid) ? 'other' : 'none');
-              users.push(`${cid}:${s?.user?.name || 'anon'}(${owner})`);
-            });
-            console.log(`[WS:${connId}] Awareness after fix: [${users.join(', ')}]`);
-            console.log(`[WS:${connId}] Controlled IDs after fix:`, Array.from(connControlledIds));
-          }
-        };
-
-        // Register our fix handler - runs SYNCHRONOUSLY after y-websocket's handler
-        doc.awareness.on('update', fixControlledIdsHandler);
-
-        // Agent detection - rely solely on awareness update event, no arbitrary setTimeout
+        // Agent detection
         const checkAwareness = () => {
-          const awarenessStates = doc.awareness.getStates();
-          for (const [clientId, state] of awarenessStates.entries()) {
-            if (state.user && state.user.isAgent && state.user.name) {
+          for (const [clientId, state] of doc.awareness.getStates().entries()) {
+            if (state.user?.isAgent && state.user?.name) {
               registerDocumentUser(docId, connId, userId, state.user.name);
               console.log(`[Agent] Detected: ${state.user.name} for doc ${docId}`);
             }
           }
         };
-        // Check immediately for any existing awareness states
         checkAwareness();
-        // And listen for updates
         doc.awareness.on('update', checkAwareness);
 
-        // Clean up on close
+        // Clean up on close - explicitly remove this connection's awareness
         ws.on('close', () => {
-          // Clean up ownership for all clientIds this connection owned
-          for (const [clientId, owner] of ownerMap.entries()) {
-            if (owner === ws) {
-              console.log(`[WS:${connId}] CLOSING - releasing owned clientId ${clientId}`);
-              ownerMap.delete(clientId);
-            }
+          // SIMPLIFIED FIX: Explicitly remove this connection's clientId from awareness
+          // This bypasses y-websocket's buggy controlled IDs tracking
+          if (connectionClientId) {
+            console.log(`[WS:${connId}] CLOSING - removing awareness for clientId ${connectionClientId}`);
+            awarenessProtocol.removeAwarenessStates(doc.awareness, [connectionClientId], 'connection closed');
           }
 
-          // Clean up owner map if document has no more connections
-          if (ownerMap.size === 0) {
-            clientIdOwnerMap.delete(docId);
-          }
-
-          const idsToRemove = doc.conns?.get(ws);
-          console.log(`[WS:${connId}] CLOSING - controlled IDs being removed:`, idsToRemove ? Array.from(idsToRemove) : []);
-
-          doc.awareness.off('update', fixControlledIdsHandler);
           doc.awareness.off('update', checkAwareness);
 
           // ========== REDIS PUB/SUB CLEANUP ==========
