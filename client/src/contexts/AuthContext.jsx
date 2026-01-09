@@ -232,47 +232,28 @@ export function AuthProvider({ children }) {
 
   /**
    * Initialize auth state on mount
-   * Check URL for access token (from OAuth redirect) or try to refresh
+   * Token is now in HttpOnly cookie, so we just refresh to get it into state
    */
   useEffect(() => {
     let mounted = true;
-    
+
     const initAuth = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
-        // Check URL for access token (from OAuth callback redirect)
+        // Check URL for OAuth error
         const urlParams = new URLSearchParams(window.location.search);
-        const tokenFromUrl = urlParams.get('accessToken');
         const errorFromUrl = urlParams.get('error');
-        
+
         if (errorFromUrl) {
           setError(errorFromUrl);
-          // Clean URL
           window.history.replaceState({}, '', window.location.pathname);
           if (mounted) setLoading(false);
           return;
         }
-        
-        if (tokenFromUrl) {
-          // Got token from OAuth redirect
-          setAccessToken(tokenFromUrl);
-          
-          // Clean URL (remove token from address bar and history)
-          window.history.replaceState({}, '', window.location.pathname);
-          
-          // Fetch user profile
-          try {
-            await fetchUser(tokenFromUrl);
-          } catch (e) {
-            console.error('Failed to fetch user after OAuth:', e);
-          }
-          if (mounted) setLoading(false);
-          return;
-        }
-        
-        // No token in URL - try to refresh from cookie
+
+        // Refresh to get access token into state (server reads HttpOnly cookie)
         try {
           const newToken = await refreshAccessToken();
           await fetchUser(newToken);
@@ -288,19 +269,18 @@ export function AuthProvider({ children }) {
             }
           }
           // No valid session - user needs to login
-          // This is expected for new users, not an error
           console.log('No existing session, user needs to login');
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
         if (mounted) setError('Authentication failed');
       }
-      
+
       if (mounted) setLoading(false);
     };
-    
+
     initAuth();
-    
+
     return () => {
       mounted = false;
     };

@@ -100,7 +100,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     let isMounted = true;
     const newProvider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
       connect: false,
-      params: { token: accessToken },
+      // Token is sent via HttpOnly cookie, not URL params
     });
     setProvider(newProvider);
 

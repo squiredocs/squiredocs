@@ -1053,9 +1053,22 @@ server.on('upgrade', async (request, socket, head) => {
 
   // Extract document ID from path: /s/{docId}
   const docId = pathname.slice(3); // Remove '/s/'
-  
-  // Extract JWT from query string (client sends ?token=xxx)
-  const token = url.searchParams.get('token');
+
+  // Parse cookies from request headers (cookie-parser middleware doesn't run on upgrade)
+  const parseCookies = (cookieHeader) => {
+    const cookies = {};
+    if (cookieHeader) {
+      cookieHeader.split(';').forEach(cookie => {
+        const [name, ...rest] = cookie.trim().split('=');
+        cookies[name] = rest.join('=');
+      });
+    }
+    return cookies;
+  };
+  const cookies = parseCookies(request.headers.cookie);
+
+  // Try cookie first, then query param (for backwards compatibility & MCP agents)
+  const token = cookies.accessToken || url.searchParams.get('token');
   const user = permissions.extractUser({ queryToken: token });
 
   if (!user) {

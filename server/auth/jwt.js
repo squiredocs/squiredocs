@@ -22,11 +22,21 @@ if (AUTH_TEST_MODE) {
 // Cookie configuration
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Refresh token cookie options (long-lived)
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProduction,  // Only send over HTTPS in production
   sameSite: isProduction ? 'strict' : 'lax',  // Strict in production for CSRF protection
   maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days in milliseconds
+  path: '/',
+};
+
+// Access token cookie options (short-lived, matches token expiry)
+const ACCESS_TOKEN_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? 'strict' : 'lax',
+  maxAge: AUTH_TEST_MODE ? 30 * 1000 : 15 * 60 * 1000,  // 30s test mode, 15min normal
   path: '/',
 };
 
@@ -99,6 +109,14 @@ function getCookieOptions() {
 }
 
 /**
+ * Get cookie options for setting access token
+ * @returns {object} Cookie configuration options
+ */
+function getAccessTokenCookieOptions() {
+  return { ...ACCESS_TOKEN_COOKIE_OPTIONS };
+}
+
+/**
  * Get options for clearing refresh token cookie
  * @returns {object} Cookie configuration for clearing
  */
@@ -117,6 +135,7 @@ module.exports = {
   verifyAccessToken,
   verifyRefreshToken,
   getCookieOptions,
+  getAccessTokenCookieOptions,
   getClearCookieOptions,
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY,
