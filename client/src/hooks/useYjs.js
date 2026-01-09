@@ -97,6 +97,7 @@ export function useYjs(docGuid, accessToken, user = null) {
     setConnectionState('connecting');
     setReconnectCount(0);
 
+    let isMounted = true;
     const newProvider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
       connect: false,
       params: { token: accessToken },
@@ -183,13 +184,19 @@ export function useYjs(docGuid, accessToken, user = null) {
     newProvider.on('connection-close', handleClose);
     newProvider.awareness.on('change', handleAwarenessChange);
 
-    if (user) {
-      console.log('[useYjs] Setting initial user awareness:', user.name);
-      newProvider.awareness.setLocalStateField('user', user);
-    }
-    newProvider.connect();
+    // Delay connection slightly to avoid StrictMode double-connect errors
+    const connectTimeout = setTimeout(() => {
+      if (!isMounted) return;
+      if (user) {
+        console.log('[useYjs] Setting initial user awareness:', user.name);
+        newProvider.awareness.setLocalStateField('user', user);
+      }
+      newProvider.connect();
+    }, 0);
 
     return () => {
+      isMounted = false;
+      clearTimeout(connectTimeout);
       newProvider.off('status', handleStatus);
       newProvider.off('sync', handleSync);
       newProvider.off('connection-error', handleError);
