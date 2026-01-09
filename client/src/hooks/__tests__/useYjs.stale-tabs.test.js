@@ -326,36 +326,7 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Awareness Rebroadcasting', () => {
-    it('rebroadcasts awareness on successful sync', async () => {
-      vi.useRealTimers();
-
-      const mockUser = { name: 'Test User', color: '#ff0000' };
-      const mockCursor = { anchor: 0, head: 5 };
-
-      mockProvider.awareness.getLocalState.mockReturnValue({
-        user: mockUser,
-        cursor: mockCursor
-      });
-
-      const { result } = renderHook(() =>
-        useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN, mockUser)
-      );
-
-      await waitFor(() => expect(result.current.provider).toBeDefined());
-
-      mockProvider.awareness.setLocalStateField.mockClear();
-
-      // Emit sync event
-      act(() => {
-        mockProvider._emitSync(true);
-      });
-
-      // Should have rebroadcast both user and cursor
-      expect(mockProvider.awareness.setLocalStateField).toHaveBeenCalledWith('user', mockUser);
-      expect(mockProvider.awareness.setLocalStateField).toHaveBeenCalledWith('cursor', mockCursor);
-    });
-
-    it('rebroadcasts awareness on connection established', async () => {
+    it('sets awareness on connection established (single broadcast point)', async () => {
       vi.useRealTimers();
 
       const mockUser = { name: 'Test User', color: '#ff0000' };

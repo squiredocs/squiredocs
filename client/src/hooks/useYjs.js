@@ -80,6 +80,9 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
   const lastForceReconnectRef = useRef(0);
+  // Store user in ref so callbacks always have current value
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
@@ -122,22 +125,18 @@ export function useYjs(docGuid, accessToken, user = null) {
       }
     };
 
-    // Helper: rebroadcast awareness
-    const rebroadcastAwareness = () => {
-      const state = newProvider.awareness.getLocalState();
-      if (state?.user) {
-        console.log('[useYjs] Rebroadcasting awareness for:', state.user.name);
-        newProvider.awareness.setLocalStateField('user', state.user);
-      }
-      if (state?.cursor) newProvider.awareness.setLocalStateField('cursor', state.cursor);
-    };
-
+    // Single point of awareness broadcasting - ONLY on connected
+    // This ensures awareness is set AFTER connection is established
     const handleStatus = ({ status }) => {
       setConnectionState(status);
       if (status === 'connected') {
         setAuthError(false);
         failureCount = 0;
-        rebroadcastAwareness();
+        // Set awareness fresh on every connect/reconnect
+        const currentUser = userRef.current;
+        if (currentUser) {
+          newProvider.awareness.setLocalStateField('user', currentUser);
+        }
       }
     };
 
@@ -148,7 +147,6 @@ export function useYjs(docGuid, accessToken, user = null) {
         setReconnectCount(0);
         const meta = ydoc.getMap('meta');
         if (meta.get('title') === undefined) meta.set('title', 'Untitled Document');
-        rebroadcastAwareness();
       }
     };
 
@@ -185,12 +183,9 @@ export function useYjs(docGuid, accessToken, user = null) {
     newProvider.awareness.on('change', handleAwarenessChange);
 
     // Delay connection slightly to avoid StrictMode double-connect errors
+    // Awareness is set in handleStatus after connection is established
     const connectTimeout = setTimeout(() => {
       if (!isMounted) return;
-      if (user) {
-        console.log('[useYjs] Setting initial user awareness:', user.name);
-        newProvider.awareness.setLocalStateField('user', user);
-      }
       newProvider.connect();
     }, 0);
 
@@ -237,16 +232,25 @@ export function useYjs(docGuid, accessToken, user = null) {
     const handleVisibility = () => {
       if (document.hidden) return;
 
-      // Always rebroadcast awareness when tab becomes visible
-      const state = provider.awareness.getLocalState();
-      if (state?.user) provider.awareness.setLocalStateField('user', state.user);
-      if (state?.cursor) provider.awareness.setLocalStateField('cursor', state.cursor);
-
-      // If connection is stale, reconnect
+      // If connection is stale, reconnect (awareness will be set on reconnect)
       if (provider.wsconnected && Date.now() - lastSyncTime > 30000) {
         console.log('[useYjs] Stale connection, reconnecting');
         provider.disconnect();
         setTimeout(() => provider.connect(), 100);
+        return;
+      }
+
+      // Rebroadcast awareness when tab becomes visible (only if connected)
+      if (provider.wsconnected) {
+        const currentUser = userRef.current;
+        if (currentUser) {
+          provider.awareness.setLocalStateField('user', currentUser);
+        }
+        // Also rebroadcast cursor if present
+        const state = provider.awareness.getLocalState();
+        if (state?.cursor) {
+          provider.awareness.setLocalStateField('cursor', state.cursor);
+        }
       }
     };
 
