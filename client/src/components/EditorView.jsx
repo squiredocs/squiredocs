@@ -427,17 +427,23 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     };
   }, [docTitle]);
 
-  // Auth error handling: redirect to login if not authenticated
-  // Token refresh is handled by AuthContext's axios interceptor, not here
+  // Auth error handling: auto-refresh token or redirect to login
   useEffect(() => {
-    if (authError && !isAuthenticated) {
-      // Not authenticated and auth error - redirect to login
+    if (!authError) return;
+
+    if (isAuthenticated) {
+      // Token expired but user is authenticated - try to refresh
+      refreshAccessToken().catch(() => {
+        window.location.href = '/login';
+      });
+    } else {
+      // Not authenticated - redirect to login
       const timer = setTimeout(() => {
         window.location.href = '/login';
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [authError, isAuthenticated]);
+  }, [authError, isAuthenticated, refreshAccessToken]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -552,7 +558,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             <>
               Connection failed
               <button
-                onClick={forceReconnect}
+                onClick={() => refreshAccessToken().catch(() => window.location.href = '/login')}
                 style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px' }}
               >
                 Retry
