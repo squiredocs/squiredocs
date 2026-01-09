@@ -61,7 +61,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
   const lastForceReconnectRef = useRef(0);
-  // Store user and token in refs so callbacks always have current values
+  // Store current values in refs so callbacks always have them
   const userRef = useRef(user);
   userRef.current = user;
   const accessTokenRef = useRef(accessToken);
@@ -160,33 +160,25 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
   }, [docGuid, ydoc]);
 
-  // Handle token changes - disconnect on invalid, reconnect on new valid token
-  const prevTokenValidRef = useRef(!isTokenExpired(accessToken));
+  // Handle token changes - server validates token on each message and closes with 4401 if expired
+  // Client just needs to: disconnect if token invalid, reconnect if token valid and disconnected
   useEffect(() => {
     if (!provider) return;
 
     const tokenValid = accessToken && !isTokenExpired(accessToken);
-    const wasValid = prevTokenValidRef.current;
-    prevTokenValidRef.current = tokenValid;
 
     if (!tokenValid) {
-      // Token invalid - disconnect and set auth error
+      // Token invalid/expired - disconnect proactively (server would reject anyway)
       setAuthError(true);
       setConnectionState('disconnected');
       provider.shouldConnect = false;
       provider.disconnect();
-    } else if (!wasValid || (!provider.wsconnected && !provider.shouldConnect)) {
-      // Token just became valid OR we're disconnected - reconnect
+    } else if (!provider.wsconnected && !provider.shouldConnect) {
+      // Have valid token but disconnected - reconnect
       setAuthError(false);
       setReconnectCount(0);
       provider.shouldConnect = true;
-      if (provider.wsconnected) {
-        // Force reconnect to refresh the stale connection
-        provider.disconnect();
-        setTimeout(() => provider.connect(), 100);
-      } else {
-        provider.connect();
-      }
+      provider.connect();
     }
   }, [accessToken, provider]);
 
@@ -217,40 +209,19 @@ export function useYjs(docGuid, accessToken, user = null) {
   useEffect(() => {
     if (!provider) return;
 
-    let lastSyncTime = Date.now();
-    const syncHandler = (isSynced) => { if (isSynced) lastSyncTime = Date.now(); };
-    provider.on('sync', syncHandler);
-
+    // Rebroadcast awareness when tab becomes visible
+    // Server handles token expiry validation, so we don't need to check staleness here
     const handleVisibility = () => {
-      if (document.hidden) return;
+      if (document.hidden || !provider.wsconnected) return;
 
-      // If connection is stale, handle it
-      if (provider.wsconnected && Date.now() - lastSyncTime > 30000) {
-        // Token expired - just set authError, let token effect handle disconnect
-        // This preserves awareness state better than manually disconnecting here
-        if (isTokenExpired(accessTokenRef.current)) {
-          console.log('[useYjs] Stale connection but token expired, setting authError');
-          setAuthError(true);
-          return;
-        }
-        // Token valid - reconnect to refresh connection
-        console.log('[useYjs] Stale connection, reconnecting');
-        provider.disconnect();
-        setTimeout(() => provider.connect(), 100);
-        return;
+      const currentUser = userRef.current;
+      if (currentUser) {
+        provider.awareness.setLocalStateField('user', currentUser);
       }
-
-      // Rebroadcast awareness when tab becomes visible (only if connected)
-      if (provider.wsconnected) {
-        const currentUser = userRef.current;
-        if (currentUser) {
-          provider.awareness.setLocalStateField('user', currentUser);
-        }
-        // Also rebroadcast cursor if present
-        const state = provider.awareness.getLocalState();
-        if (state?.cursor) {
-          provider.awareness.setLocalStateField('cursor', state.cursor);
-        }
+      // Also rebroadcast cursor if present
+      const state = provider.awareness.getLocalState();
+      if (state?.cursor) {
+        provider.awareness.setLocalStateField('cursor', state.cursor);
       }
     };
 
@@ -263,7 +234,6 @@ export function useYjs(docGuid, accessToken, user = null) {
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', handleUnload);
     return () => {
-      provider.off('sync', syncHandler);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', handleUnload);
     };

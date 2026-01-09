@@ -515,7 +515,11 @@ describe('Visibility-Based Stale Connection Detection', () => {
     visibilityListeners.forEach(listener => listener());
   };
 
-  it('forces reconnect when tab becomes visible with stale connection (no sync for 30+ seconds)', async () => {
+  it('does NOT force reconnect on visibility change - server handles token expiry', async () => {
+    // Architecture note: The server now validates token expiry on every WebSocket message
+    // and closes the connection with 4401 if expired. The client no longer needs to detect
+    // stale connections on visibility change - this simplifies the client and makes the
+    // server authoritative for auth state.
     vi.useFakeTimers();
 
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -540,18 +544,19 @@ describe('Visibility-Based Stale Connection Detection', () => {
     mockProvider.connect.mockClear();
 
     // Simulate time passing without sync (like laptop sleep)
-    // Advance 35 seconds to exceed the 30-second staleness threshold
+    // Even with 35+ seconds of staleness, client should NOT force reconnect
     await act(async () => {
       await vi.advanceTimersByTimeAsync(35000);
     });
 
-    // Tab becomes visible - should detect stale connection and force reconnect
+    // Tab becomes visible
     act(() => {
       simulateVisibilityChange(false); // visible
     });
 
-    // Should have triggered a reconnect due to stale connection
-    expect(mockProvider.disconnect).toHaveBeenCalled();
+    // Client should NOT force disconnect - server is authoritative
+    // If token is expired, server will close connection on next message
+    expect(mockProvider.disconnect).not.toHaveBeenCalled();
 
     vi.useRealTimers();
   });

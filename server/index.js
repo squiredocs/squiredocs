@@ -12,7 +12,7 @@ const redisPubSub = require('./redis-pubsub');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
-const { parseCookies } = require('./auth/jwt');
+const { parseCookies, verifyAccessToken } = require('./auth/jwt');
 const documents = require('./documents');
 const permissions = require('./permissions');
 const waitlist = require('./waitlist');
@@ -1068,6 +1068,18 @@ server.on('upgrade', async (request, socket, head) => {
   request.userRole = viewPermission.role;
   request.docId = docId;
 
+  // Store token expiry time for per-message validation
+  // This allows us to disconnect clients when their token expires,
+  // even though WebSocket connections don't resend cookies on each message
+  try {
+    const decoded = verifyAccessToken(token);
+    request.tokenExp = decoded.exp; // Unix timestamp in seconds
+  } catch (e) {
+    // Token was valid at extractUser but failed here - race condition or agent token
+    // For agent tokens, we don't have exp, so we'll skip per-message validation
+    request.tokenExp = null;
+  }
+
   wss.handleUpgrade(request, socket, head, (ws) => {
     // Apply connection simulation if enabled
     const wrappedWs = wsSimulator.simulateFlakyConnection(ws);
@@ -1152,24 +1164,37 @@ wss.on('connection', (ws, req) => {
     ws.ping();
   }, PING_INTERVAL);
 
-  // Create a message filter for viewers
-  // We intercept messages before y-websocket processes them
-  if (!canEdit) {
-    const originalEmit = ws.emit.bind(ws);
-    ws.emit = (event, ...args) => {
-      if (event === 'message') {
+  // Token expiry time from upgrade request (null for agent tokens which don't expire)
+  const tokenExp = req.tokenExp;
+
+  // Intercept messages before y-websocket processes them
+  // This handles both token expiry validation and viewer edit blocking
+  const originalEmit = ws.emit.bind(ws);
+  ws.emit = (event, ...args) => {
+    if (event === 'message') {
+      // Check token expiry on every message (efficient timestamp comparison, no crypto)
+      // This ensures clients are disconnected when their session expires,
+      // preventing the "ghost session" state where WebSocket works but REST fails
+      if (tokenExp && Date.now() / 1000 > tokenExp) {
+        logPerf('WS_TOKEN_EXPIRED', { connId, userId, docId, expiredAt: tokenExp });
+        console.log(`✗ Token expired for connection ${connId}, closing with 4401`);
+        ws.close(4401, 'Token expired');
+        return false;
+      }
+
+      // Block edit messages from viewers
+      if (!canEdit) {
         const data = args[0];
-        // Convert to Buffer if needed
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
         if (isEditMessage(buffer)) {
           logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
           console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
-          return false; // Don't process this message
+          return false;
         }
       }
-      return originalEmit(event, ...args);
-    };
-  }
+    }
+    return originalEmit(event, ...args);
+  };
 
   ws.on('error', (error) => {
     logPerf('WS_ERROR', { connId, error: error.message });
