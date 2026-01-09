@@ -401,6 +401,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     api, // Export configured axios instance for other components
+    refreshAccessToken, // Expose for forced refresh when WebSocket auth fails
   };
 
   return (

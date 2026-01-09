@@ -210,7 +210,7 @@ function getDepth(node, doc) {
 }
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
-  const { logout, api, accessToken, isAuthenticated } = useAuth();
+  const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
   const userColor = useMemo(() => {
@@ -445,26 +445,26 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   }, [reconnectCount, isAuthenticated, accessToken, api, authError]);
 
   // FIX 6: Session expired - trigger token refresh or redirect to login
-  // When WebSocket auth fails, try to refresh the token via HTTP (triggers axios interceptor)
-  // If refresh succeeds, the new token will flow to useYjs and reconnect
-  // If refresh fails, the user will be redirected to login
+  // When WebSocket auth fails, FORCE a token refresh to get a NEW token
+  // The WebSocket may be failing with an expired token even if we have a token in state
+  // (because the WebSocket URL is cached with the old token)
   useEffect(() => {
     console.log('[EditorView] Auth state check:', { authError, isAuthenticated, accessToken: !!accessToken });
 
-    if (authError && isAuthenticated && accessToken && api) {
-      // WebSocket auth failed but we still have a token - try to refresh it
-      // Making an HTTP request will trigger the axios interceptor if token is expired
-      console.log('[EditorView] WebSocket auth failed, attempting HTTP-based token validation...');
-      api.get('/auth/me')
-        .then(() => {
-          console.log('[EditorView] Token is still valid via HTTP, WebSocket issue may be temporary');
-          // Token is valid - useYjs will reconnect when it gets the (same) token
+    if (authError && isAuthenticated && accessToken && refreshAccessToken) {
+      // WebSocket auth failed but we still have a token - FORCE refresh to get a new one
+      // This is needed because the WebSocket provider may have cached the old token in its URL
+      console.log('[EditorView] WebSocket auth failed, forcing token refresh...');
+      refreshAccessToken()
+        .then((newToken) => {
+          console.log('[EditorView] Token refresh succeeded, new token will flow to useYjs');
+          // The new token is different from the old one, so useYjs will detect the change
+          // and recreate the WebSocket provider with the new token in the URL
         })
         .catch((err) => {
-          console.log('[EditorView] HTTP token validation failed:', err.response?.status || err.message);
-          // The axios interceptor will have tried to refresh the token
-          // If refresh succeeded, AuthContext will update accessToken, triggering useYjs reconnect
-          // If refresh failed, user will be redirected to login
+          console.log('[EditorView] Token refresh failed:', err.message);
+          // Refresh failed - user needs to re-authenticate
+          // The AuthContext will have cleared the token, triggering the redirect below
         });
     } else if (authError && !isAuthenticated) {
       console.log('[EditorView] Auth error detected and not authenticated, will redirect to login in 3 seconds...');
@@ -482,7 +482,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         clearTimeout(timer);
       };
     }
-  }, [authError, isAuthenticated, accessToken, api]);
+  }, [authError, isAuthenticated, accessToken, refreshAccessToken]);
 
   // Close menu when clicking outside
   useEffect(() => {

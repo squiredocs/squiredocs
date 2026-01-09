@@ -243,6 +243,7 @@ export function createMockAuthContext(overrides = {}) {
         response: { use: vi.fn(), eject: vi.fn() }
       }
     },
+    refreshAccessToken: vi.fn(() => Promise.resolve('new-mock-token-12345')),
     expireTokenForTesting: vi.fn()
   };
 
