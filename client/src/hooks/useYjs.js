@@ -76,20 +76,17 @@ function setupProviderListeners(provider, ydoc, docGuid) {
     }
   });
 
-  // FIX 2: Enhanced close event monitoring for auth issues
+  // Enhanced close event monitoring
   provider.on('connection-close', (event) => {
     logPerf('WS_CLOSE_EVENT', { code: event.code, reason: event.reason });
 
-    // WebSocket close codes:
-    // - 4401, 4403: Custom auth/permission errors (if server implements them)
-    // - 1008: Policy Violation (standard code often used for auth failures)
-    // - 1006: Abnormal closure (can indicate upgrade failure)
-    const authRelatedCodes = [1008, 1006, 4401, 4403];
-
-    if (authRelatedCodes.includes(event.code)) {
-      console.error(`❌ CONNECTION CLOSED (code ${event.code}) - Likely auth failure. Reason: ${event.reason || 'none'}`);
+    // Only explicit auth codes (4401, 4403) indicate definitive auth failure
+    // Generic codes like 1006 (abnormal closure) can be server restart, network issues, etc.
+    if (event.code === 4401 || event.code === 4403) {
+      console.error(`❌ CONNECTION CLOSED (code ${event.code}) - Auth failure. Reason: ${event.reason || 'none'}`);
       logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
-      // Note: authError state is set in the useEffect handler below
+    } else if (event.code === 1006 || event.code === 1008) {
+      console.warn(`[useYjs] Connection closed abnormally (code ${event.code}) - may retry`);
     }
   });
 
@@ -344,6 +341,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const lastForceReconnectRef = useRef(0); // For debouncing forceReconnect
   const mountTimeRef = useRef(Date.now()); // Track when component mounted for connection timeout
   const connectionTimeoutRef = useRef(null); // Track initial connection timeout
+  const lastTokenRef = useRef(accessToken); // Track previous token to detect changes
   const [providerVersion, setProviderVersion] = useState(0); // Force re-render when provider changes
 
   // Get or create instances for this docGuid
@@ -417,9 +415,18 @@ export function useYjs(docGuid, accessToken, user = null) {
     } else if (accessToken === null) {
       console.log('[useYjs] Token is null but no provider - likely initial load or already cleaned up');
     } else if (accessToken && authError) {
-      // CRITICAL FIX: Clear auth error when token is restored
-      // This prevents the "Session expired" banner from getting stuck when token refresh succeeds
-      console.log('[useYjs] Token restored, clearing auth error and reconnecting');
+      // SIMPLIFIED: Only recover when we get a NEW token (different from the one that failed)
+      // This prevents infinite retry loops - we wait for AuthContext to provide a fresh token
+      const tokenChanged = accessToken !== lastTokenRef.current;
+
+      if (!tokenChanged) {
+        console.log('[useYjs] Auth error with same token - waiting for token refresh');
+        // Don't auto-recover with the same token that already failed
+        // EditorView will trigger an HTTP request to force token refresh via axios interceptor
+        return;
+      }
+
+      console.log('[useYjs] New token received, clearing auth error and reconnecting');
       setAuthError(false);
       // Reset both counters on successful token restoration
       reconnectCountRef.current = 0;
@@ -437,6 +444,18 @@ export function useYjs(docGuid, accessToken, user = null) {
         instances.provider.shouldConnect = true;
         if (!instances.provider.wsconnected) {
           console.log('[useYjs] Reconnecting WebSocket after auth restoration');
+          // Reset mount time for health check tracking
+          mountTimeRef.current = Date.now();
+          // Set up a connection timeout for this reconnection attempt
+          if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+          }
+          connectionTimeoutRef.current = setTimeout(() => {
+            if (instances.provider && !instances.provider.wsconnected) {
+              console.warn('[useYjs] Reconnection timeout (10s), connection may have failed');
+              setConnectionState('disconnected');
+            }
+          }, 10000);
           instances.provider.connect();
         }
       }
@@ -448,6 +467,9 @@ export function useYjs(docGuid, accessToken, user = null) {
       // Force re-render so useEffect picks up the new provider and attaches event handlers
       setProviderVersion(v => v + 1);
     }
+
+    // Always update lastTokenRef when token changes (for change detection)
+    lastTokenRef.current = accessToken;
   }, [accessToken, authError, docGuid]);
 
   useEffect(() => {
@@ -497,7 +519,7 @@ export function useYjs(docGuid, accessToken, user = null) {
           console.error('❌ AUTHENTICATION FAILED - Your session may have expired.');
           logPerf('AUTH_ERROR_DETECTED', { error: error.message });
           setAuthError(true);
-          // Prevent further reconnection attempts
+          // Prevent further reconnection attempts until we get a new token
           if (provider) {
             provider.shouldConnect = false;
           }
@@ -512,12 +534,13 @@ export function useYjs(docGuid, accessToken, user = null) {
 
       // If we've failed to connect automatically multiple times in a row, likely an auth issue
       // Note: Manual reconnects (forceReconnect) don't count toward this threshold
-      const MAX_RETRIES_BEFORE_AUTH_ERROR = 5;
+      // Reduced from 5 to 2 for faster detection (401 errors come as 1006 close codes)
+      const MAX_RETRIES_BEFORE_AUTH_ERROR = 2;
       if (autoFailureCountRef.current >= MAX_RETRIES_BEFORE_AUTH_ERROR) {
         console.error(`❌ CONNECTION FAILED after ${autoFailureCountRef.current} automatic failures - Likely auth issue`);
         logPerf('MAX_RETRIES_REACHED', { attempts: autoFailureCountRef.current });
         setAuthError(true);
-        // Prevent further reconnection attempts
+        // Prevent further reconnection attempts until we get a new token
         if (provider) {
           provider.shouldConnect = false;
         }
@@ -525,21 +548,29 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
 
     const handleConnectionClose = (event) => {
-      // FIX 2: Detect auth failures from close codes
-      // WebSocket close codes:
-      // - 4401, 4403: Custom auth/permission errors
-      // - 1008: Policy Violation (often used for auth failures)
-      // - 1006: Abnormal closure (can indicate HTTP 401/403 during upgrade)
-      const authRelatedCodes = [1008, 1006, 4401, 4403];
+      // Detect auth failures from close codes
+      // Only treat EXPLICIT auth codes as immediate auth failures:
+      // - 4401: Custom "Unauthorized" code (if server implements it)
+      // - 4403: Custom "Forbidden" code (if server implements it)
+      //
+      // NOTE: We intentionally DON'T include generic codes like:
+      // - 1006: Abnormal closure (too generic - includes server restart, network issues)
+      // - 1008: Policy violation (could be many things, not just auth)
+      // These are handled by the normal retry logic instead.
+      const authRelatedCodes = [4401, 4403];
 
       if (authRelatedCodes.includes(event.code)) {
         console.error(`❌ CONNECTION REJECTED (code ${event.code}) - Authentication or authorization failed.`);
         logPerf('AUTH_CLOSE_DETECTED', { code: event.code, reason: event.reason });
         setAuthError(true);
-        // Prevent further reconnection attempts
+        // Prevent further reconnection attempts until we get a new token
         if (provider) {
           provider.shouldConnect = false;
         }
+      } else if (event.code === 1006 || event.code === 1008) {
+        // Log these but don't immediately set authError - let retry logic handle it
+        console.warn(`[useYjs] Connection closed abnormally (code ${event.code}) - will retry`);
+        logPerf('WS_ABNORMAL_CLOSE', { code: event.code, reason: event.reason });
       }
     };
 

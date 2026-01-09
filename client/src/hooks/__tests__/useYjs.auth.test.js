@@ -64,7 +64,7 @@ describe('useYjs auth error detection', () => {
     // When testing that authError persists, we need to clear the token after the error.
     // When testing that reconnection is attempted (auto-recovery), we check for connect() calls.
 
-    it('detects auth error from close code 1008 and attempts auto-recovery with valid token', async () => {
+    it('sets authError on close code 4401 and does NOT retry with same failed token', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
@@ -72,21 +72,64 @@ describe('useYjs auth error detection', () => {
       // Clear previous connect calls from setup
       mockProvider.connect.mockClear();
 
-      // Emit close event with auth-related code
+      // Emit close event with explicit auth error code
+      act(() => {
+        mockProvider._emitConnectionClose(4401, 'Unauthorized');
+      });
+
+      // authError should be set immediately
+      await waitFor(() => {
+        expect(result.current.authError).toBe(true);
+      });
+
+      // connect() should NOT be called with the same token (prevents infinite retry loop)
+      await new Promise(r => setTimeout(r, 100));
+      expect(mockProvider.connect).not.toHaveBeenCalled();
+    });
+
+    it('auto-recovers with NEW token after close code 4401', async () => {
+      const { result, rerender } = renderHook(
+        ({ token }) => useYjs(TEST_DOC_GUID, token),
+        { initialProps: { token: TEST_ACCESS_TOKEN } }
+      );
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+      mockProvider.connect.mockClear();
+
+      // Emit close event with explicit auth error code
+      act(() => {
+        mockProvider._emitConnectionClose(4401, 'Unauthorized');
+      });
+
+      await waitFor(() => expect(result.current.authError).toBe(true));
+
+      // Provide a NEW token (different from the failed one)
+      rerender({ token: 'new-refreshed-token-xyz' });
+
+      // Auto-recovery should happen with the new token
+      await waitFor(() => {
+        expect(mockProvider.connect).toHaveBeenCalled();
+        expect(result.current.authError).toBe(false);
+      });
+    });
+
+    it('does NOT set authError immediately on close code 1008 (handled by retry logic)', async () => {
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Emit close event with generic code (server restart, network issue, etc.)
       act(() => {
         mockProvider._emitConnectionClose(1008, 'Policy Violation');
       });
 
-      // With a valid token, useYjs auto-recovers: clears authError and reconnects
-      await waitFor(() => {
-        expect(mockProvider.connect).toHaveBeenCalled();
-      });
-
-      // authError should be false after auto-recovery
+      // authError should NOT be set immediately for generic codes
+      // These are handled by the normal retry logic instead
+      await new Promise(r => setTimeout(r, 100));
       expect(result.current.authError).toBe(false);
     });
 
-    it('persists auth error when token is null after close code 1008', async () => {
+    it('persists auth error when token is null after close code 4401', async () => {
       // Start with token, then clear it to simulate refresh failure
       const { result, rerender } = renderHook(
         ({ token }) => useYjs(TEST_DOC_GUID, token),
@@ -95,9 +138,9 @@ describe('useYjs auth error detection', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit close event with auth-related code
+      // Emit close event with explicit auth error code
       act(() => {
-        mockProvider._emitConnectionClose(1008, 'Policy Violation');
+        mockProvider._emitConnectionClose(4401, 'Unauthorized');
       });
 
       // Clear the token (simulating failed refresh)
@@ -109,7 +152,22 @@ describe('useYjs auth error detection', () => {
       });
     });
 
-    it('persists auth error when token is null after close code 1006', async () => {
+    it('does NOT set authError immediately on close code 1006 (handled by retry logic)', async () => {
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Emit close event with generic code (abnormal closure - server restart, etc.)
+      act(() => {
+        mockProvider._emitConnectionClose(1006);
+      });
+
+      // authError should NOT be set immediately for generic codes
+      await new Promise(r => setTimeout(r, 100));
+      expect(result.current.authError).toBe(false);
+    });
+
+    it('sets authError when token becomes null (regardless of close code)', async () => {
       const { result, rerender } = renderHook(
         ({ token }) => useYjs(TEST_DOC_GUID, token),
         { initialProps: { token: TEST_ACCESS_TOKEN } }
@@ -117,10 +175,7 @@ describe('useYjs auth error detection', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      act(() => {
-        mockProvider._emitConnectionClose(1006);
-      });
-
+      // Clear the token (simulates logout or failed refresh)
       rerender({ token: null });
 
       await waitFor(() => {
@@ -200,7 +255,7 @@ describe('useYjs auth error detection', () => {
     // Note: Like close codes, error messages trigger auto-recovery when token is valid.
     // We test both the auto-recovery (reconnect) and the persist-error (token null) scenarios.
 
-    it('attempts auto-recovery when error message contains "401" with valid token', async () => {
+    it('sets authError on "401" error and does NOT retry with same failed token', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
@@ -210,9 +265,38 @@ describe('useYjs auth error detection', () => {
         mockProvider._emitConnectionError('HTTP 401 Unauthorized');
       });
 
-      // With valid token, auto-recovery attempts reconnection
+      // authError should be set immediately
+      await waitFor(() => {
+        expect(result.current.authError).toBe(true);
+      });
+
+      // connect() should NOT be called with the same token (prevents infinite retry loop)
+      await new Promise(r => setTimeout(r, 100));
+      expect(mockProvider.connect).not.toHaveBeenCalled();
+    });
+
+    it('auto-recovers with NEW token after "401" error', async () => {
+      const { result, rerender } = renderHook(
+        ({ token }) => useYjs(TEST_DOC_GUID, token),
+        { initialProps: { token: TEST_ACCESS_TOKEN } }
+      );
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+      mockProvider.connect.mockClear();
+
+      act(() => {
+        mockProvider._emitConnectionError('HTTP 401 Unauthorized');
+      });
+
+      await waitFor(() => expect(result.current.authError).toBe(true));
+
+      // Provide a NEW token
+      rerender({ token: 'new-refreshed-token-abc' });
+
+      // Auto-recovery should happen with the new token
       await waitFor(() => {
         expect(mockProvider.connect).toHaveBeenCalled();
+        expect(result.current.authError).toBe(false);
       });
     });
 
@@ -349,26 +433,58 @@ describe('useYjs auth error detection', () => {
   });
 
   describe('Max retry threshold', () => {
-    it('triggers auto-recovery after 5 consecutive failures with valid token', async () => {
+    it('sets authError after 2 consecutive failures but does NOT retry with same failed token', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
       mockProvider.connect.mockClear();
 
-      // Simulate 5 connection errors without auth keywords
-      for (let i = 0; i < 5; i++) {
+      // Simulate 2 connection errors without auth keywords (MAX_RETRIES_BEFORE_AUTH_ERROR = 2)
+      for (let i = 0; i < 2; i++) {
         act(() => {
           mockProvider._emitConnectionError('Connection failed');
         });
       }
 
-      // With valid token, auto-recovery is triggered
+      // authError should be set after 2 failures
+      await waitFor(() => {
+        expect(result.current.authError).toBe(true);
+      });
+
+      // connect() should NOT be called with the same token (prevents infinite retry loop)
+      await new Promise(r => setTimeout(r, 100));
+      expect(mockProvider.connect).not.toHaveBeenCalled();
+    });
+
+    it('auto-recovers with NEW token after 2 consecutive failures', async () => {
+      const { result, rerender } = renderHook(
+        ({ token }) => useYjs(TEST_DOC_GUID, token),
+        { initialProps: { token: TEST_ACCESS_TOKEN } }
+      );
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+      mockProvider.connect.mockClear();
+
+      // Simulate 2 connection errors (MAX_RETRIES_BEFORE_AUTH_ERROR = 2)
+      for (let i = 0; i < 2; i++) {
+        act(() => {
+          mockProvider._emitConnectionError('Connection failed');
+        });
+      }
+
+      await waitFor(() => expect(result.current.authError).toBe(true));
+
+      // Provide a NEW token
+      rerender({ token: 'new-refreshed-token-after-failures' });
+
+      // Auto-recovery should happen with the new token
       await waitFor(() => {
         expect(mockProvider.connect).toHaveBeenCalled();
+        expect(result.current.authError).toBe(false);
       });
     });
 
-    it('persists auth error after 5 failures when token is null', async () => {
+    it('persists auth error after 2 failures when token is null', async () => {
       const { result, rerender } = renderHook(
         ({ token }) => useYjs(TEST_DOC_GUID, token),
         { initialProps: { token: TEST_ACCESS_TOKEN } }
@@ -376,8 +492,8 @@ describe('useYjs auth error detection', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Simulate 5 connection errors
-      for (let i = 0; i < 5; i++) {
+      // Simulate 2 connection errors (MAX_RETRIES_BEFORE_AUTH_ERROR = 2)
+      for (let i = 0; i < 2; i++) {
         act(() => {
           mockProvider._emitConnectionError('Connection failed');
         });
@@ -391,17 +507,15 @@ describe('useYjs auth error detection', () => {
       });
     });
 
-    it('does NOT set auth error after only 4 failures', async () => {
+    it('does NOT set auth error after only 1 failure (threshold is 2)', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Simulate 4 connection errors
-      for (let i = 0; i < 4; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Connection failed');
-        });
-      }
+      // Simulate 1 connection error (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Connection failed');
+      });
 
       await new Promise(r => setTimeout(r, 100));
 
@@ -413,12 +527,10 @@ describe('useYjs auth error detection', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Simulate 3 failures
-      for (let i = 0; i < 3; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Connection failed');
-        });
-      }
+      // Simulate 1 failure (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Connection failed');
+      });
 
       // Then successful sync
       act(() => {
@@ -430,12 +542,10 @@ describe('useYjs auth error detection', () => {
         expect(result.current.synced).toBe(true);
       });
 
-      // Now 3 more failures should NOT trigger auth error (counter was reset)
-      for (let i = 0; i < 3; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Connection failed');
-        });
-      }
+      // Now 1 more failure should NOT trigger auth error (counter was reset)
+      act(() => {
+        mockProvider._emitConnectionError('Connection failed');
+      });
 
       await new Promise(r => setTimeout(r, 100));
 

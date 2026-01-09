@@ -427,20 +427,62 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     };
   }, [docTitle]);
 
-  // FIX 6: Session expired redirect to login
-  // When auth error is detected and user is not authenticated, redirect to login
+  // Proactive token validation when connection keeps failing
+  // Don't wait for authError - trigger HTTP check after first reconnect attempt
+  // This speeds up recovery when WebSocket 401s come as generic 1006 close codes
+  useEffect(() => {
+    if (reconnectCount >= 1 && isAuthenticated && accessToken && api && !authError) {
+      console.log(`[EditorView] Connection failing (${reconnectCount} retries), proactively validating token...`);
+      api.get('/auth/me')
+        .then(() => {
+          console.log('[EditorView] Token is valid, WebSocket issue may be temporary');
+        })
+        .catch((err) => {
+          console.log('[EditorView] Proactive token check failed:', err.response?.status || err.message);
+          // Axios interceptor will have refreshed the token if it was expired
+        });
+    }
+  }, [reconnectCount, isAuthenticated, accessToken, api, authError]);
+
+  // FIX 6: Session expired - trigger token refresh or redirect to login
+  // When WebSocket auth fails, try to refresh the token via HTTP (triggers axios interceptor)
+  // If refresh succeeds, the new token will flow to useYjs and reconnect
+  // If refresh fails, the user will be redirected to login
   useEffect(() => {
     console.log('[EditorView] Auth state check:', { authError, isAuthenticated, accessToken: !!accessToken });
-    if (authError && !isAuthenticated) {
-      console.log('[EditorView] Auth error detected, redirecting to login in 1 second...');
-      // Small delay to ensure state is settled and logs are visible
+
+    if (authError && isAuthenticated && accessToken && api) {
+      // WebSocket auth failed but we still have a token - try to refresh it
+      // Making an HTTP request will trigger the axios interceptor if token is expired
+      console.log('[EditorView] WebSocket auth failed, attempting HTTP-based token validation...');
+      api.get('/auth/me')
+        .then(() => {
+          console.log('[EditorView] Token is still valid via HTTP, WebSocket issue may be temporary');
+          // Token is valid - useYjs will reconnect when it gets the (same) token
+        })
+        .catch((err) => {
+          console.log('[EditorView] HTTP token validation failed:', err.response?.status || err.message);
+          // The axios interceptor will have tried to refresh the token
+          // If refresh succeeded, AuthContext will update accessToken, triggering useYjs reconnect
+          // If refresh failed, user will be redirected to login
+        });
+    } else if (authError && !isAuthenticated) {
+      console.log('[EditorView] Auth error detected and not authenticated, will redirect to login in 3 seconds...');
+      // Longer delay to allow time for:
+      // 1. Other tabs to broadcast refreshed tokens
+      // 2. BroadcastChannel messages to be received
+      // 3. State to settle
       const timer = setTimeout(() => {
-        console.log('[EditorView] Redirecting to /login');
+        // Double-check we still need to redirect (state may have changed)
+        console.log('[EditorView] Redirect timer fired, redirecting to /login');
         window.location.href = '/login';
-      }, 1000);
-      return () => clearTimeout(timer);
+      }, 3000);
+      return () => {
+        console.log('[EditorView] Redirect timer cancelled (auth state changed)');
+        clearTimeout(timer);
+      };
     }
-  }, [authError, isAuthenticated, accessToken]);
+  }, [authError, isAuthenticated, accessToken, api]);
 
   // Close menu when clicking outside
   useEffect(() => {

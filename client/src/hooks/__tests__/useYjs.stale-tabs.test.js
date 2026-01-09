@@ -417,7 +417,7 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Multiple Connection Errors', () => {
-    it('sets authError after 5 automatic connection failures then auto-recovers if token is valid', async () => {
+    it('sets authError after 2 automatic connection failures and waits for NEW token', async () => {
       vi.useRealTimers();
 
       const { result, rerender } = renderHook(
@@ -427,26 +427,31 @@ describe('Stale Tab Scenarios', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 5 connection errors (reaches MAX_RETRIES_BEFORE_AUTH_ERROR)
-      // This triggers authError=true, then auto-recovery sees valid token
-      // and immediately clears authError and resets counters
-      for (let i = 0; i < 5; i++) {
+      // Emit 2 connection errors (reaches MAX_RETRIES_BEFORE_AUTH_ERROR)
+      for (let i = 0; i < 2; i++) {
         act(() => {
           mockProvider._emitConnectionError('Network error');
         });
       }
 
-      // When token is still valid, auto-recovery kicks in immediately:
-      // - authError is set to true by MAX_RETRIES logic
-      // - useEffect sees token + authError → triggers recovery
-      // - authError is cleared, counters are reset
-      // This is the correct behavior - we want automatic recovery when possible
+      // authError should be set and STAY set because the token hasn't changed
+      // This prevents infinite retry loops with the same expired token
       await waitFor(() => {
-        expect(result.current.authError).toBe(false);
-        expect(result.current.reconnectCount).toBe(0);
+        expect(result.current.authError).toBe(true);
       });
 
-      // Provider.connect should have been called for recovery attempt
+      // reconnectCount should reflect total failures
+      expect(result.current.reconnectCount).toBe(2);
+
+      // Now provide a NEW token - this should trigger recovery
+      mockProvider.connect.mockClear();
+      rerender({ token: 'brand-new-refreshed-token' });
+
+      await waitFor(() => {
+        expect(result.current.authError).toBe(false);
+      });
+
+      // Provider.connect should have been called with the new token
       expect(mockProvider.connect).toHaveBeenCalled();
     });
 
@@ -460,10 +465,10 @@ describe('Stale Tab Scenarios', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 5 connection errors and immediately clear token
+      // Emit 2 connection errors and immediately clear token
       // to prevent auto-recovery
       act(() => {
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 2; i++) {
           mockProvider._emitConnectionError('Network error');
         }
       });
@@ -491,18 +496,16 @@ describe('Stale Tab Scenarios', () => {
         await new Promise(r => setTimeout(r, 350)); // Wait for debounce
       }
 
-      // Then 2 automatic failures
-      for (let i = 0; i < 2; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // Then 1 automatic failure (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
-      // Should NOT trigger authError (only 2 automatic failures)
+      // Should NOT trigger authError (only 1 automatic failure)
       expect(result.current.authError).toBe(false);
 
       // But reconnectCount shows total attempts (manual + automatic)
-      expect(result.current.reconnectCount).toBe(5);
+      expect(result.current.reconnectCount).toBe(4);
     });
   });
 });

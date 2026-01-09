@@ -463,9 +463,9 @@ describe('EditorView banner states', () => {
         { isAuthenticated: false, accessToken: null, user: null }
       );
 
-      // Advance past the 1 second delay
+      // Advance past the 3 second delay (increased to allow broadcast messages to arrive)
       await act(async () => {
-        vi.advanceTimersByTime(1500);
+        vi.advanceTimersByTime(3500);
       });
 
       expect(window.location.href).toContain('/login');
@@ -491,8 +491,9 @@ describe('EditorView banner states', () => {
         { isAuthenticated: true } // Still authenticated
       );
 
+      // Even after the redirect delay, should NOT redirect if still authenticated
       await act(async () => {
-        vi.advanceTimersByTime(2000);
+        vi.advanceTimersByTime(5000);
       });
 
       expect(window.location.href).not.toContain('/login');

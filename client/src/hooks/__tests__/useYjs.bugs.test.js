@@ -119,22 +119,20 @@ describe('useYjs Bug Detection', () => {
         await new Promise(r => setTimeout(r, 350)); // Wait for debounce
       }
 
-      // Then 2 automatic connection errors occur
-      for (let i = 0; i < 2; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // Then 1 automatic connection error occurs (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
-      // FIXED: Should NOT trigger authError because only 2 automatic failures
-      // Manual reconnects don't count toward MAX_RETRIES_BEFORE_AUTH_ERROR (5)
+      // FIXED: Should NOT trigger authError because only 1 automatic failure
+      // Manual reconnects don't count toward MAX_RETRIES_BEFORE_AUTH_ERROR (2)
       expect(result.current.authError).toBe(false);
 
       // But reconnectCount should show total attempts (manual + automatic)
-      expect(result.current.reconnectCount).toBe(5);
+      expect(result.current.reconnectCount).toBe(4);
     });
 
-    it('FIXED: 5 automatic connection errors DO trigger authError', async () => {
+    it('FIXED: 2 automatic connection errors DO trigger authError', async () => {
       vi.useRealTimers();
 
       const { result, rerender } = renderHook(
@@ -144,8 +142,8 @@ describe('useYjs Bug Detection', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 5 automatic connection errors (reaches MAX_RETRIES_BEFORE_AUTH_ERROR)
-      for (let i = 0; i < 5; i++) {
+      // Emit 2 automatic connection errors (reaches MAX_RETRIES_BEFORE_AUTH_ERROR)
+      for (let i = 0; i < 2; i++) {
         act(() => {
           mockProvider._emitConnectionError('Network error');
         });
@@ -154,7 +152,7 @@ describe('useYjs Bug Detection', () => {
       // Clear token to prevent auto-recovery
       rerender({ token: null });
 
-      // FIXED: 5 automatic failures should trigger authError
+      // FIXED: 2 automatic failures should trigger authError
       await waitFor(() => {
         expect(result.current.authError).toBe(true);
       });
@@ -1304,17 +1302,15 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // 4 automatic failures (below threshold of 5)
-      for (let i = 0; i < 4; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // 1 automatic failure (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
-      // authError should still be false (only 4 automatic failures)
+      // authError should still be false (only 1 automatic failure)
       expect(result.current.authError).toBe(false);
 
-      // 1 more automatic failure (reaches threshold of 5)
+      // 1 more automatic failure (reaches threshold of 2)
       act(() => {
         mockProvider._emitConnectionError('Network error');
       });
@@ -1322,7 +1318,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       // Clear token to prevent auto-recovery
       rerender({ token: null });
 
-      // EXPECTED: Now authError should be true (5 automatic failures)
+      // EXPECTED: Now authError should be true (2 automatic failures)
       await waitFor(() => {
         expect(result.current.authError).toBe(true);
       });
@@ -1362,7 +1358,7 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
     });
 
     it('should give full MAX_RETRIES attempts after token refresh', async () => {
-      // After fix: After token refresh, user gets fresh 5 retry attempts
+      // After fix: After token refresh, user gets fresh 2 retry attempts
 
       const { result, rerender } = renderHook(
         ({ token }) => useYjs(TEST_DOC_GUID, token),
@@ -1371,30 +1367,27 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 4 connection errors (one below threshold)
-      for (let i = 0; i < 4; i++) {
+      // Emit 2 connection errors (reaches threshold)
+      for (let i = 0; i < 2; i++) {
         act(() => {
           mockProvider._emitConnectionError('Network error');
         });
       }
 
-      // Token refresh cycle
-      rerender({ token: null });
+      // authError should be set now
       await waitFor(() => expect(result.current.authError).toBe(true));
 
+      // Token refresh cycle
       rerender({ token: 'new-token' });
       await waitFor(() => expect(result.current.authError).toBe(false));
 
-      // Now emit 4 more connection errors
-      // Without fix: Would trigger authError (4 old + 4 new = 8 > 5)
-      // With fix: Counter was reset, so 4 errors is still below threshold
-      for (let i = 0; i < 4; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // Now emit 1 connection error (below threshold of 2)
+      // Counter was reset, so 1 error is still below threshold
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
-      // EXPECTED after fix: authError should still be false (only 4 failures since reset)
+      // EXPECTED after fix: authError should still be false (only 1 failure since reset)
       expect(result.current.authError).toBe(false);
     });
 
@@ -1405,12 +1398,10 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
 
-      // Emit 4 connection errors
-      for (let i = 0; i < 4; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // Emit 1 connection error (below threshold of 2)
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
       // Emit successful sync
       act(() => {
@@ -1420,14 +1411,12 @@ describe('Proposed Fixes (Tests for Future Implementation)', () => {
       // EXPECTED: Counter should be reset to 0 after successful sync
       expect(result.current.reconnectCount).toBe(0);
 
-      // Now 5 more errors should be needed to trigger authError
-      for (let i = 0; i < 4; i++) {
-        act(() => {
-          mockProvider._emitConnectionError('Network error');
-        });
-      }
+      // Now 1 more error should NOT trigger authError (counter was reset)
+      act(() => {
+        mockProvider._emitConnectionError('Network error');
+      });
 
-      // Should still be false (only 4 failures since reset)
+      // Should still be false (only 1 failure since reset)
       expect(result.current.authError).toBe(false);
     });
   });
