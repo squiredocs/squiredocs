@@ -124,7 +124,10 @@ export function useYjs(docGuid, accessToken, user = null) {
     // Helper: rebroadcast awareness
     const rebroadcastAwareness = () => {
       const state = newProvider.awareness.getLocalState();
-      if (state?.user) newProvider.awareness.setLocalStateField('user', state.user);
+      if (state?.user) {
+        console.log('[useYjs] Rebroadcasting awareness for:', state.user.name);
+        newProvider.awareness.setLocalStateField('user', state.user);
+      }
       if (state?.cursor) newProvider.awareness.setLocalStateField('cursor', state.cursor);
     };
 
@@ -160,9 +163,16 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
 
     const handleAwarenessChange = () => {
-      const userList = Array.from(newProvider.awareness.getStates().values())
-        .filter(s => s.user)
-        .map(s => ({ ...s.user, id: s.user.id }));
+      const states = newProvider.awareness.getStates();
+      const userList = Array.from(states.entries())
+        .filter(([, state]) => state.user)
+        .map(([clientId, state]) => ({
+          id: clientId,
+          name: state.user.name,
+          color: state.user.color,
+          picture: state.user.picture,
+          isAgent: state.user.isAgent,
+        }));
       setUsers(userList);
     };
 
@@ -173,7 +183,10 @@ export function useYjs(docGuid, accessToken, user = null) {
     newProvider.on('connection-close', handleClose);
     newProvider.awareness.on('change', handleAwarenessChange);
 
-    if (user) newProvider.awareness.setLocalStateField('user', user);
+    if (user) {
+      console.log('[useYjs] Setting initial user awareness:', user.name);
+      newProvider.awareness.setLocalStateField('user', user);
+    }
     newProvider.connect();
 
     return () => {
@@ -182,8 +195,8 @@ export function useYjs(docGuid, accessToken, user = null) {
       newProvider.off('connection-error', handleError);
       newProvider.off('connection-close', handleClose);
       newProvider.awareness.off('change', handleAwarenessChange);
-      newProvider.awareness.setLocalStateField('user', null);
-      newProvider.awareness.setLocalStateField('cursor', null);
+      // Don't set user/cursor to null - this broadcasts zombie states
+      // Instead, just destroy the provider which will remove awareness properly
       newProvider.destroy();
       setProvider(null);
     };
@@ -215,19 +228,24 @@ export function useYjs(docGuid, accessToken, user = null) {
     provider.on('sync', syncHandler);
 
     const handleVisibility = () => {
-      if (document.hidden || !provider.wsconnected) return;
-      if (Date.now() - lastSyncTime > 30000) {
+      if (document.hidden) return;
+
+      // Always rebroadcast awareness when tab becomes visible
+      const state = provider.awareness.getLocalState();
+      if (state?.user) provider.awareness.setLocalStateField('user', state.user);
+      if (state?.cursor) provider.awareness.setLocalStateField('cursor', state.cursor);
+
+      // If connection is stale, reconnect
+      if (provider.wsconnected && Date.now() - lastSyncTime > 30000) {
+        console.log('[useYjs] Stale connection, reconnecting');
         provider.disconnect();
         setTimeout(() => provider.connect(), 100);
-      } else {
-        const state = provider.awareness.getLocalState();
-        if (state?.user) provider.awareness.setLocalStateField('user', state.user);
       }
     };
 
     const handleUnload = () => {
-      provider.awareness.setLocalStateField('user', null);
-      provider.awareness.setLocalStateField('cursor', null);
+      // Just disconnect - don't set null states that create zombies
+      // y-websocket will handle awareness cleanup on disconnect
       provider.disconnect();
     };
 

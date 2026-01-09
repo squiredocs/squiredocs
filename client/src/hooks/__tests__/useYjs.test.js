@@ -122,27 +122,30 @@ describe('useYjs', () => {
     expect(mockProvider.destroy).toBeDefined();
   });
 
-  it('clears awareness on beforeunload event', async () => {
+  it('disconnects on beforeunload without setting null awareness (prevents zombie states)', async () => {
     const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
     // Wait for provider to be created
     await waitFor(() => {
-      expect(result.current.awareness).toBeDefined();
+      expect(result.current.provider).toBeDefined();
     });
 
-    expect(result.current.awareness.setLocalStateField).toBeDefined();
-
-    // Mock setLocalStateField calls
+    // Mock disconnect
+    const disconnectSpy = vi.spyOn(result.current.provider, 'disconnect');
     const setLocalStateFieldSpy = vi.spyOn(result.current.awareness, 'setLocalStateField');
 
     // Trigger beforeunload event
     const beforeUnloadEvent = new Event('beforeunload');
     window.dispatchEvent(beforeUnloadEvent);
 
-    // Verify awareness was cleared
-    expect(setLocalStateFieldSpy).toHaveBeenCalledWith('user', null);
-    expect(setLocalStateFieldSpy).toHaveBeenCalledWith('cursor', null);
+    // Verify disconnect was called
+    expect(disconnectSpy).toHaveBeenCalled();
 
+    // Verify we did NOT set null values (which causes zombie awareness states)
+    expect(setLocalStateFieldSpy).not.toHaveBeenCalledWith('user', null);
+    expect(setLocalStateFieldSpy).not.toHaveBeenCalledWith('cursor', null);
+
+    disconnectSpy.mockRestore();
     setLocalStateFieldSpy.mockRestore();
   });
 
@@ -184,6 +187,30 @@ describe('useYjs', () => {
       // Wait for provider to be created
       await waitFor(() => {
         expect(result.current.awareness).toBeDefined();
+      });
+    });
+
+    it('maps awareness clientId to user.id for React keys', async () => {
+      // Setup mock awareness with users
+      const mockUsers = new Map([
+        [12345, { user: { name: 'Alice', color: '#ff0000', picture: null, isAgent: false } }],
+        [67890, { user: { name: 'Bob', color: '#00ff00', picture: null, isAgent: true } }],
+      ]);
+      mockAwareness.getStates = vi.fn(() => mockUsers);
+
+      const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+
+      // Trigger awareness change
+      const awarenessHandler = mockAwareness.on.mock.calls.find(c => c[0] === 'change')?.[1];
+      if (awarenessHandler) awarenessHandler();
+
+      await waitFor(() => {
+        expect(result.current.users.length).toBe(2);
+        // Verify id comes from clientId (Map key), not user object
+        expect(result.current.users.find(u => u.name === 'Alice')?.id).toBe(12345);
+        expect(result.current.users.find(u => u.name === 'Bob')?.id).toBe(67890);
       });
     });
   });
