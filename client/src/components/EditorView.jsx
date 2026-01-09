@@ -226,6 +226,33 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   }) : null, [user, userColor]);
 
   const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount, authError } = useYjs(docGuid, accessToken, collaborationUser);
+
+  // Debounce banner visibility to prevent flashing during quick state transitions
+  const [debouncedBanner, setDebouncedBanner] = useState(null);
+  useEffect(() => {
+    // Determine what banner should show
+    let targetBanner = null;
+    if (authError) {
+      targetBanner = 'authError';
+    } else if (connectionState === 'disconnected') {
+      targetBanner = 'disconnected';
+    } else if (connectionState === 'connecting') {
+      targetBanner = 'connecting';
+    } else if (connectionState === 'connected' && !synced) {
+      targetBanner = 'syncing';
+    }
+
+    // If transitioning to "no banner" or "connected", clear immediately
+    if (!targetBanner) {
+      setDebouncedBanner(null);
+      return;
+    }
+
+    // If banner should show, debounce by 500ms to prevent flashing
+    const timer = setTimeout(() => setDebouncedBanner(targetBanner), 500);
+    return () => clearTimeout(timer);
+  }, [authError, connectionState, synced]);
+
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
@@ -552,7 +579,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Normal editor mode
   return (
     <div className="app">
-      {authError && (
+      {debouncedBanner === 'authError' && (
         <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
           {isAuthenticated ? (
             <>
@@ -569,7 +596,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           )}
         </div>
       )}
-      {!authError && connectionState === 'disconnected' && (
+      {debouncedBanner === 'disconnected' && (
         <div className="sync-banner sync-banner--disconnected">
           Offline
           <button
@@ -580,12 +607,12 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </button>
         </div>
       )}
-      {!authError && connectionState === 'connecting' && (
+      {debouncedBanner === 'connecting' && (
         <div className="sync-banner sync-banner--connecting">
           {reconnectCount > 0 ? `Reconnecting... (${reconnectCount})` : 'Connecting...'}
         </div>
       )}
-      {!authError && connectionState === 'connected' && !synced && (
+      {debouncedBanner === 'syncing' && (
         <div className="sync-banner">Syncing...</div>
       )}
       <header className="app-header">

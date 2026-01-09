@@ -62,6 +62,9 @@ vi.mock('../VersionPreview', () => ({
 // Test constants
 const TEST_DOC_GUID = 'test-doc-guid-12345';
 
+// Banner debounce delay in EditorView
+const BANNER_DEBOUNCE_MS = 500;
+
 describe('EditorView banner states', () => {
   let mockProvider;
   let mockYdoc;
@@ -70,6 +73,7 @@ describe('EditorView banner states', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
 
     // Create mocks
     mockProvider = createControllableMockProvider();
@@ -121,14 +125,15 @@ describe('EditorView banner states', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
-  // Helper to render EditorView with default props
-  const renderEditorView = (yjsOverrides = {}, authOverrides = {}) => {
+  // Helper to render EditorView with default props and advance past debounce
+  const renderEditorView = async (yjsOverrides = {}, authOverrides = {}) => {
     vi.mocked(useYjs).mockReturnValue({ ...defaultYjsReturn, ...yjsOverrides });
     vi.mocked(useAuth).mockReturnValue({ ...defaultAuthReturn, ...authOverrides });
 
-    return render(
+    const result = render(
       <EditorView
         docGuid={TEST_DOC_GUID}
         onNavigateHome={vi.fn()}
@@ -137,18 +142,25 @@ describe('EditorView banner states', () => {
         user={{ id: 'user-1', name: 'Test User', email: 'test@example.com' }}
       />
     );
+
+    // Advance past banner debounce
+    await act(async () => {
+      vi.advanceTimersByTime(BANNER_DEBOUNCE_MS);
+    });
+
+    return result;
   };
 
   describe('Auth error banner', () => {
-    it('shows "Connection failed" with Retry when authError is true and authenticated', () => {
-      renderEditorView({ authError: true, connectionState: 'disconnected' });
+    it('shows "Connection failed" with Retry when authError is true and authenticated', async () => {
+      await renderEditorView({ authError: true, connectionState: 'disconnected' });
 
       expect(screen.getByText(/Connection failed/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     });
 
-    it('shows "Session expired" when authError is true and NOT authenticated', () => {
-      renderEditorView(
+    it('shows "Session expired" when authError is true and NOT authenticated', async () => {
+      await renderEditorView(
         { authError: true, connectionState: 'disconnected' },
         { isAuthenticated: false, accessToken: null }
       );
@@ -156,15 +168,15 @@ describe('EditorView banner states', () => {
       expect(screen.getByText(/Session expired/)).toBeInTheDocument();
     });
 
-    it('auth error banner has correct styling', () => {
-      renderEditorView({ authError: true, connectionState: 'disconnected' });
+    it('auth error banner has correct styling', async () => {
+      await renderEditorView({ authError: true, connectionState: 'disconnected' });
 
       const banner = screen.getByText(/Connection failed/).closest('.sync-banner');
       expect(banner).toHaveClass('sync-banner--error');
     });
 
-    it('does NOT show other banners when authError is true', () => {
-      renderEditorView({
+    it('does NOT show other banners when authError is true', async () => {
+      await renderEditorView({
         authError: true,
         connectionState: 'disconnected',
         synced: false
@@ -178,8 +190,8 @@ describe('EditorView banner states', () => {
   });
 
   describe('Disconnected banner', () => {
-    it('shows "Offline" when disconnected and no auth error', () => {
-      renderEditorView({
+    it('shows "Offline" when disconnected and no auth error', async () => {
+      await renderEditorView({
         connectionState: 'disconnected',
         connected: false,
         authError: false
@@ -188,8 +200,8 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Offline')).toBeInTheDocument();
     });
 
-    it('shows Retry button when disconnected', () => {
-      renderEditorView({
+    it('shows Retry button when disconnected', async () => {
+      await renderEditorView({
         connectionState: 'disconnected',
         connected: false,
         authError: false
@@ -198,9 +210,9 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Retry')).toBeInTheDocument();
     });
 
-    it('Retry button calls forceReconnect', () => {
+    it('Retry button calls forceReconnect', async () => {
       const forceReconnect = vi.fn();
-      renderEditorView({
+      await renderEditorView({
         connectionState: 'disconnected',
         connected: false,
         authError: false,
@@ -213,8 +225,8 @@ describe('EditorView banner states', () => {
       expect(forceReconnect).toHaveBeenCalled();
     });
 
-    it('does NOT show disconnected banner when authError is true', () => {
-      renderEditorView({
+    it('does NOT show disconnected banner when authError is true', async () => {
+      await renderEditorView({
         connectionState: 'disconnected',
         connected: false,
         authError: true
@@ -225,8 +237,8 @@ describe('EditorView banner states', () => {
   });
 
   describe('Connecting banner', () => {
-    it('shows "Connecting..." on initial connection', () => {
-      renderEditorView({
+    it('shows "Connecting..." on initial connection', async () => {
+      await renderEditorView({
         connectionState: 'connecting',
         connected: false,
         reconnectCount: 0,
@@ -236,8 +248,8 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Connecting...')).toBeInTheDocument();
     });
 
-    it('shows "Reconnecting... (N)" on subsequent attempts', () => {
-      renderEditorView({
+    it('shows "Reconnecting... (N)" on subsequent attempts', async () => {
+      await renderEditorView({
         connectionState: 'connecting',
         connected: false,
         reconnectCount: 3,
@@ -247,8 +259,8 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Reconnecting... (3)')).toBeInTheDocument();
     });
 
-    it('shows "Reconnecting... (5)" for high reconnect counts', () => {
-      renderEditorView({
+    it('shows "Reconnecting... (5)" for high reconnect counts', async () => {
+      await renderEditorView({
         connectionState: 'connecting',
         connected: false,
         reconnectCount: 5,
@@ -258,8 +270,8 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Reconnecting... (5)')).toBeInTheDocument();
     });
 
-    it('does NOT show connecting banner when authError is true', () => {
-      renderEditorView({
+    it('does NOT show connecting banner when authError is true', async () => {
+      await renderEditorView({
         connectionState: 'connecting',
         authError: true
       });
@@ -270,8 +282,8 @@ describe('EditorView banner states', () => {
   });
 
   describe('Syncing banner', () => {
-    it('shows "Syncing..." when connected but not synced', () => {
-      renderEditorView({
+    it('shows "Syncing..." when connected but not synced', async () => {
+      await renderEditorView({
         connectionState: 'connected',
         connected: true,
         synced: false,
@@ -281,8 +293,8 @@ describe('EditorView banner states', () => {
       expect(screen.getByText('Syncing...')).toBeInTheDocument();
     });
 
-    it('does NOT show syncing banner when synced', () => {
-      renderEditorView({
+    it('does NOT show syncing banner when synced', async () => {
+      await renderEditorView({
         connectionState: 'connected',
         connected: true,
         synced: true,
@@ -292,8 +304,8 @@ describe('EditorView banner states', () => {
       expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
     });
 
-    it('does NOT show syncing banner when authError is true', () => {
-      renderEditorView({
+    it('does NOT show syncing banner when authError is true', async () => {
+      await renderEditorView({
         connectionState: 'connected',
         connected: true,
         synced: false,
@@ -305,8 +317,8 @@ describe('EditorView banner states', () => {
   });
 
   describe('No banner (happy path)', () => {
-    it('shows no banner when connected and synced', () => {
-      renderEditorView({
+    it('shows no banner when connected and synced', async () => {
+      await renderEditorView({
         connectionState: 'connected',
         connected: true,
         synced: true,
@@ -324,7 +336,7 @@ describe('EditorView banner states', () => {
 
   describe('Banner state transitions (anti-stuck tests)', () => {
     it('transitions from connecting to connected correctly', async () => {
-      const { rerender } = renderEditorView({
+      const { rerender } = await renderEditorView({
         connectionState: 'connecting',
         connected: false,
         authError: false
@@ -350,13 +362,12 @@ describe('EditorView banner states', () => {
         />
       );
 
-      await waitFor(() => {
-        expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
-      });
+      // Banner should clear immediately when state becomes "no banner"
+      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
     });
 
     it('transitions from disconnected to connected after retry', async () => {
-      const { rerender } = renderEditorView({
+      const { rerender } = await renderEditorView({
         connectionState: 'disconnected',
         connected: false,
         authError: false
@@ -382,13 +393,12 @@ describe('EditorView banner states', () => {
         />
       );
 
-      await waitFor(() => {
-        expect(screen.queryByText('Offline')).not.toBeInTheDocument();
-      });
+      // Banner should clear immediately when state becomes "no banner"
+      expect(screen.queryByText('Offline')).not.toBeInTheDocument();
     });
 
     it('transitions from syncing to synced correctly', async () => {
-      const { rerender } = renderEditorView({
+      const { rerender } = await renderEditorView({
         connectionState: 'connected',
         connected: true,
         synced: false,
@@ -415,13 +425,12 @@ describe('EditorView banner states', () => {
         />
       );
 
-      await waitFor(() => {
-        expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
-      });
+      // Banner should clear immediately when state becomes "no banner"
+      expect(screen.queryByText('Syncing...')).not.toBeInTheDocument();
     });
 
     it('transitions from authError to connected after retry', async () => {
-      const { rerender } = renderEditorView({
+      const { rerender } = await renderEditorView({
         authError: true,
         connectionState: 'disconnected'
       });
@@ -447,9 +456,8 @@ describe('EditorView banner states', () => {
         />
       );
 
-      await waitFor(() => {
-        expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
-      });
+      // Banner should clear immediately when state becomes "no banner"
+      expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
     });
   });
 
@@ -460,44 +468,39 @@ describe('EditorView banner states', () => {
       originalLocation = window.location;
       delete window.location;
       window.location = { href: '', pathname: '/docs/test' };
-      vi.useFakeTimers();
+      // Fake timers are already enabled in parent beforeEach
     });
 
     afterEach(() => {
-      vi.useRealTimers();
       window.location = originalLocation;
     });
 
     it('redirects to /login when authError and not authenticated', async () => {
-      renderEditorView(
+      await renderEditorView(
         { authError: true, connectionState: 'disconnected' },
         { isAuthenticated: false, accessToken: null, user: null }
       );
 
-      // Advance past the 2 second delay
+      // Advance past the 2 second delay (banner debounce already done by renderEditorView)
       await act(async () => {
-        vi.advanceTimersByTime(2500);
+        vi.advanceTimersByTime(2000);
       });
 
       expect(window.location.href).toContain('/login');
     });
 
     it('does NOT redirect immediately (has delay)', async () => {
-      renderEditorView(
+      await renderEditorView(
         { authError: true, connectionState: 'disconnected' },
         { isAuthenticated: false, accessToken: null, user: null }
       );
 
-      // Before delay
-      await act(async () => {
-        vi.advanceTimersByTime(500);
-      });
-
+      // Before the 2s redirect delay (banner debounce already done by renderEditorView)
       expect(window.location.href).not.toContain('/login');
     });
 
     it('does NOT redirect if still authenticated', async () => {
-      renderEditorView(
+      await renderEditorView(
         { authError: true, connectionState: 'disconnected' },
         { isAuthenticated: true } // Still authenticated
       );
@@ -512,8 +515,8 @@ describe('EditorView banner states', () => {
   });
 
   describe('Banner priority', () => {
-    it('authError takes priority over disconnected', () => {
-      renderEditorView({
+    it('authError takes priority over disconnected', async () => {
+      await renderEditorView({
         authError: true,
         connectionState: 'disconnected',
         connected: false
@@ -523,8 +526,8 @@ describe('EditorView banner states', () => {
       expect(screen.queryByText('Offline')).not.toBeInTheDocument();
     });
 
-    it('authError takes priority over connecting', () => {
-      renderEditorView({
+    it('authError takes priority over connecting', async () => {
+      await renderEditorView({
         authError: true,
         connectionState: 'connecting',
         connected: false
@@ -534,8 +537,8 @@ describe('EditorView banner states', () => {
       expect(screen.queryByText(/Connecting/)).not.toBeInTheDocument();
     });
 
-    it('authError takes priority over syncing', () => {
-      renderEditorView({
+    it('authError takes priority over syncing', async () => {
+      await renderEditorView({
         authError: true,
         connectionState: 'connected',
         connected: true,
