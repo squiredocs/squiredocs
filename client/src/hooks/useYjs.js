@@ -85,10 +85,15 @@ export function useYjs(docGuid, accessToken, user = null) {
       if (status === 'connected') {
         setAuthError(false);
         setReconnectCount(0);
-        // Set awareness fresh on every connect/reconnect
+        // Rebroadcast all awareness on every connect/reconnect
         const currentUser = userRef.current;
         if (currentUser) {
           newProvider.awareness.setLocalStateField('user', currentUser);
+        }
+        // Also rebroadcast cursor if present (preserved across reconnects)
+        const localState = newProvider.awareness.getLocalState();
+        if (localState?.cursor) {
+          newProvider.awareness.setLocalStateField('cursor', localState.cursor);
         }
       } else if (status === 'disconnected') {
         setReconnectCount(c => c + 1);
@@ -155,22 +160,33 @@ export function useYjs(docGuid, accessToken, user = null) {
     };
   }, [docGuid, ydoc]);
 
-  // Handle token changes - disconnect on invalid, reconnect on valid + disconnected
+  // Handle token changes - disconnect on invalid, reconnect on new valid token
+  const prevTokenValidRef = useRef(!isTokenExpired(accessToken));
   useEffect(() => {
     if (!provider) return;
 
-    if (!accessToken || isTokenExpired(accessToken)) {
+    const tokenValid = accessToken && !isTokenExpired(accessToken);
+    const wasValid = prevTokenValidRef.current;
+    prevTokenValidRef.current = tokenValid;
+
+    if (!tokenValid) {
       // Token invalid - disconnect and set auth error
       setAuthError(true);
       setConnectionState('disconnected');
       provider.shouldConnect = false;
       provider.disconnect();
-    } else if (!provider.wsconnected && !provider.shouldConnect) {
-      // Have valid token but disconnected - reconnect
+    } else if (!wasValid || (!provider.wsconnected && !provider.shouldConnect)) {
+      // Token just became valid OR we're disconnected - reconnect
       setAuthError(false);
       setReconnectCount(0);
       provider.shouldConnect = true;
-      provider.connect();
+      if (provider.wsconnected) {
+        // Force reconnect to refresh the stale connection
+        provider.disconnect();
+        setTimeout(() => provider.connect(), 100);
+      } else {
+        provider.connect();
+      }
     }
   }, [accessToken, provider]);
 
@@ -208,16 +224,16 @@ export function useYjs(docGuid, accessToken, user = null) {
     const handleVisibility = () => {
       if (document.hidden) return;
 
-      // If connection is stale, reconnect (awareness will be set on reconnect)
+      // If connection is stale, handle it
       if (provider.wsconnected && Date.now() - lastSyncTime > 30000) {
-        // Don't try to reconnect with an expired token - it will fail with 401
+        // Token expired - just set authError, let token effect handle disconnect
+        // This preserves awareness state better than manually disconnecting here
         if (isTokenExpired(accessTokenRef.current)) {
           console.log('[useYjs] Stale connection but token expired, setting authError');
           setAuthError(true);
-          provider.shouldConnect = false;
-          provider.disconnect();
           return;
         }
+        // Token valid - reconnect to refresh connection
         console.log('[useYjs] Stale connection, reconnecting');
         provider.disconnect();
         setTimeout(() => provider.connect(), 100);
