@@ -681,11 +681,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             </div>
           </div>
           <div className="app-header-right">
-            {/* Active collaborators (excluding current user) */}
+            {/* Active collaborators (excluding current user) - show fewer on mobile */}
             {displayUsers.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', marginRight: 8 }}>
                 {displayUsers
-                  .slice(0, 5)
+                  .slice(0, isMobile ? 2 : 5)
                   .map((u, i) => (
                     <div
                       key={u.id}
@@ -789,7 +789,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       )}
                     </div>
                   ))}
-                {displayUsers.length > 5 && (
+                {displayUsers.length > (isMobile ? 2 : 5) && (
                   <div style={{
                     width: 32,
                     height: 32,
@@ -804,7 +804,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                     marginLeft: -8,
                     boxShadow: '0 0 0 2px #fff'
                   }}>
-                    +{users.filter(u => u.id !== awareness?.clientID).length - 5}
+                    +{displayUsers.length - (isMobile ? 2 : 5)}
                   </div>
                 )}
               </div>
