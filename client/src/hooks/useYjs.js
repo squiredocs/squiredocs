@@ -1,112 +1,77 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 
-// WebSocket URL construction
-const getWSUrl = () => {
+// WebSocket URL
+const WS_URL = (() => {
   if (import.meta.env.VITE_WS_URL) {
     const url = import.meta.env.VITE_WS_URL;
     return url.endsWith('/') ? url : url + '/';
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/s/`;
-};
+})();
 
-const WS_URL = getWSUrl();
-
-// Simple JWT expiry check
+// JWT expiry check
 function isTokenExpired(token) {
   if (!token) return true;
   try {
     const payload = token.split('.')[1];
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
-    const decoded = JSON.parse(atob(padded));
+    const decoded = JSON.parse(atob(base64 + '='.repeat((4 - base64.length % 4) % 4)));
     return decoded.exp ? Date.now() >= decoded.exp * 1000 : false;
   } catch {
     return false;
   }
 }
 
+// Check for auth-related error
+function isAuthError(error) {
+  const msg = error?.message?.toLowerCase() || '';
+  return msg.includes('401') || msg.includes('unauthorized') ||
+         msg.includes('403') || msg.includes('forbidden') || msg.includes('auth');
+}
+
 // ============================================================================
-// DOCUMENT CACHE - Only caches ydoc + IndexedDB (stable, long-lived)
-// Provider is NOT cached - it's created fresh when token changes
+// DOCUMENT CACHE - ydoc + IndexedDB persistence (stable, long-lived)
 // ============================================================================
 const docCache = new Map();
-let indexedDbAvailable = null;
 
-// For testing: allow resetting singletons
+// For testing
 if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
   docCache.clear();
-  indexedDbAvailable = null;
   delete global.__TEST_RESET_YJS_SINGLETONS__;
 }
 
-async function checkIndexedDbAvailability() {
-  if (indexedDbAvailable !== null) return indexedDbAvailable;
-  try {
-    if (typeof indexedDB === 'undefined') {
-      indexedDbAvailable = false;
-      return false;
-    }
-    const testDbName = '__idb_test__';
-    await new Promise((resolve, reject) => {
-      const req = indexedDB.open(testDbName);
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => {
-        req.result.close();
-        indexedDB.deleteDatabase(testDbName);
-        resolve(true);
-      };
-      setTimeout(() => reject(new Error('timeout')), 100);
-    });
-    indexedDbAvailable = true;
-    return true;
-  } catch {
-    indexedDbAvailable = false;
-    return false;
-  }
-}
-
 function getOrCreateDoc(docGuid) {
-  if (docCache.has(docGuid)) {
-    return docCache.get(docGuid);
-  }
+  if (docCache.has(docGuid)) return docCache.get(docGuid);
 
-  console.log(`[useYjs] Creating new Y.Doc for ${docGuid}`);
   const ydoc = new Y.Doc();
-  const cached = { ydoc, indexeddbProvider: null, indexeddbReady: false };
+  const cached = { ydoc, indexeddbProvider: null };
   docCache.set(docGuid, cached);
 
-  // Initialize IndexedDB asynchronously
-  checkIndexedDbAvailability().then(available => {
-    if (available && docCache.get(docGuid) === cached) {
+  // Initialize IndexedDB asynchronously (best-effort)
+  if (typeof indexedDB !== 'undefined') {
+    try {
       cached.indexeddbProvider = new IndexeddbPersistence(docGuid, ydoc);
-      cached.indexeddbProvider.once('synced', () => {
-        console.log(`[useYjs] IndexedDB synced for ${docGuid}`);
-        cached.indexeddbReady = true;
-      });
+    } catch (e) {
+      console.warn('[useYjs] IndexedDB init failed:', e.message);
     }
-  });
+  }
 
   return cached;
 }
 
-// Export for auth failure cleanup
 export function clearYjsInstanceCache() {
-  console.log('[useYjs] Clearing document cache');
-  docCache.forEach(({ ydoc, indexeddbProvider }) => {
-    if (indexeddbProvider) indexeddbProvider.destroy();
-  });
+  docCache.forEach(({ indexeddbProvider }) => indexeddbProvider?.destroy());
   docCache.clear();
 }
 
 // ============================================================================
-// MAIN HOOK - Simplified provider lifecycle
+// MAIN HOOK
 // ============================================================================
 export function useYjs(docGuid, accessToken, user = null) {
-  // UI State
   const [connectionState, setConnectionState] = useState('connecting');
   const [synced, setSynced] = useState(false);
   const [users, setUsers] = useState([]);
@@ -114,211 +79,115 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [authError, setAuthError] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
-
-  // Refs
-  const providerRef = useRef(null);
-  const lastSyncTimeRef = useRef(Date.now());
   const lastForceReconnectRef = useRef(0);
 
-  // Get cached ydoc (stable across re-renders and token changes)
   const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
   // ============================================================================
-  // PROVIDER LIFECYCLE - Single useEffect manages everything
-  // Creates provider when token is available, destroys on cleanup or token change
+  // PROVIDER LIFECYCLE
   // ============================================================================
   useEffect(() => {
-    // Don't create provider without valid token
-    if (!accessToken) {
-      console.log('[useYjs] No token, skipping provider creation');
+    if (!accessToken || isTokenExpired(accessToken)) {
       setConnectionState('disconnected');
       setAuthError(true);
       return;
     }
 
-    if (isTokenExpired(accessToken)) {
-      console.log('[useYjs] Token expired, skipping provider creation');
-      setConnectionState('disconnected');
-      setAuthError(true);
-      return;
-    }
-
-    console.log(`[useYjs] Creating provider for ${docGuid}`);
     setAuthError(false);
     setConnectionState('connecting');
-    setReconnectCount(0); // Reset on new provider/token
+    setReconnectCount(0);
 
-    // Create fresh provider with current token
     const newProvider = new WebsocketProvider(WS_URL, docGuid, ydoc, {
-      connect: false, // We'll connect after setup
+      connect: false,
       params: { token: accessToken },
     });
-    providerRef.current = newProvider;
     setProvider(newProvider);
 
-    // Track connection failures for auth detection
     let failureCount = 0;
     const MAX_FAILURES = 2;
 
-    // --- Event Handlers ---
-    const handleStatus = (event) => {
-      console.log('[useYjs] Status:', event.status);
-      setConnectionState(event.status);
+    // Helper: handle connection failure
+    const handleFailure = (isAuthFailure) => {
+      if (isAuthFailure) {
+        setAuthError(true);
+        newProvider.shouldConnect = false;
+        return;
+      }
+      failureCount++;
+      setReconnectCount(c => c + 1);
+      if (failureCount >= MAX_FAILURES) {
+        setAuthError(true);
+        newProvider.shouldConnect = false;
+      }
+    };
 
-      if (event.status === 'connected') {
+    // Helper: rebroadcast awareness
+    const rebroadcastAwareness = () => {
+      const state = newProvider.awareness.getLocalState();
+      if (state?.user) newProvider.awareness.setLocalStateField('user', state.user);
+      if (state?.cursor) newProvider.awareness.setLocalStateField('cursor', state.cursor);
+    };
+
+    const handleStatus = ({ status }) => {
+      setConnectionState(status);
+      if (status === 'connected') {
         setAuthError(false);
         failureCount = 0;
-        // Rebroadcast awareness on connect
-        const localState = newProvider.awareness.getLocalState();
-        if (localState?.user) {
-          newProvider.awareness.setLocalStateField('user', localState.user);
-        }
+        rebroadcastAwareness();
       }
     };
 
     const handleSync = (isSynced) => {
-      console.log('[useYjs] Sync:', isSynced);
       setSynced(isSynced);
       if (isSynced) {
-        lastSyncTimeRef.current = Date.now();
         failureCount = 0;
-        setReconnectCount(0); // Reset on successful sync
-        // Initialize title if not set
+        setReconnectCount(0);
         const meta = ydoc.getMap('meta');
-        if (meta.get('title') === undefined) {
-          meta.set('title', 'Untitled Document');
-        }
-        // Rebroadcast awareness
-        const localState = newProvider.awareness.getLocalState();
-        if (localState?.user) {
-          newProvider.awareness.setLocalStateField('user', localState.user);
-        }
-        if (localState?.cursor) {
-          newProvider.awareness.setLocalStateField('cursor', localState.cursor);
-        }
+        if (meta.get('title') === undefined) meta.set('title', 'Untitled Document');
+        rebroadcastAwareness();
       }
     };
 
-    const handleConnectionError = (error) => {
-      console.log('[useYjs] Connection error:', error?.message);
-
-      // Check for auth-related error messages
-      const msg = error?.message?.toLowerCase() || '';
-      if (msg.includes('401') || msg.includes('unauthorized') ||
-          msg.includes('403') || msg.includes('forbidden') || msg.includes('auth')) {
-        console.error('[useYjs] Auth error in message:', error?.message);
-        setAuthError(true);
-        newProvider.shouldConnect = false;
-        return;
-      }
-
-      // Track failures for implicit auth detection
-      failureCount++;
-      setReconnectCount(c => c + 1);
-
-      if (failureCount >= MAX_FAILURES) {
-        console.error(`[useYjs] ${MAX_FAILURES} connection errors - likely auth issue`);
-        setAuthError(true);
-        newProvider.shouldConnect = false;
-      }
-    };
-
-    const handleConnectionClose = (event) => {
-      console.log('[useYjs] Connection closed:', event.code, event.reason);
-
-      // Explicit auth failure codes
-      if (event.code === 4401 || event.code === 4403) {
-        console.error('[useYjs] Auth failure detected');
-        setAuthError(true);
-        newProvider.shouldConnect = false;
-        return;
-      }
-
-      // Track failures for implicit auth detection and UI feedback
-      failureCount++;
-      setReconnectCount(c => c + 1);
-
-      if (failureCount >= MAX_FAILURES) {
-        console.error(`[useYjs] ${MAX_FAILURES} connection failures - likely auth issue`);
-        setAuthError(true);
-        newProvider.shouldConnect = false;
+    const handleError = (error) => handleFailure(isAuthError(error));
+    const handleClose = ({ code }) => {
+      // Explicit auth codes are immediate auth failures
+      if (code === 4401 || code === 4403) {
+        handleFailure(true);
+      } else {
+        // Other close codes count toward failure threshold
+        handleFailure(false);
       }
     };
 
     const handleAwarenessChange = () => {
-      const states = Array.from(newProvider.awareness.getStates().entries());
-      const userList = states
-        .filter(([, state]) => state.user)
-        .map(([clientId, state]) => ({
-          id: clientId,
-          name: state.user.name,
-          color: state.user.color,
-          picture: state.user.picture,
-          isAgent: state.user.isAgent,
-        }));
+      const userList = Array.from(newProvider.awareness.getStates().values())
+        .filter(s => s.user)
+        .map(s => ({ ...s.user, id: s.user.id }));
       setUsers(userList);
     };
 
-    // --- Attach Listeners ---
+    // Attach listeners
     newProvider.on('status', handleStatus);
     newProvider.on('sync', handleSync);
-    newProvider.on('connection-error', handleConnectionError);
-    newProvider.on('connection-close', handleConnectionClose);
+    newProvider.on('connection-error', handleError);
+    newProvider.on('connection-close', handleClose);
     newProvider.awareness.on('change', handleAwarenessChange);
 
-    // Set user awareness before connecting
-    if (user) {
-      newProvider.awareness.setLocalStateField('user', user);
-    }
+    if (user) newProvider.awareness.setLocalStateField('user', user);
+    newProvider.connect();
 
-    // Connect (optionally wait for IndexedDB)
-    const cached = docCache.get(docGuid);
-    if (cached?.indexeddbReady) {
-      console.log('[useYjs] IndexedDB ready, connecting immediately');
-      newProvider.connect();
-    } else {
-      // Wait briefly for IndexedDB, then connect anyway
-      const timeout = setTimeout(() => {
-        if (providerRef.current === newProvider && !newProvider.wsconnected) {
-          console.log('[useYjs] IndexedDB wait timeout, connecting');
-          newProvider.connect();
-        }
-      }, 300);
-
-      // Also connect when IndexedDB is ready
-      if (cached?.indexeddbProvider) {
-        cached.indexeddbProvider.once('synced', () => {
-          clearTimeout(timeout);
-          if (providerRef.current === newProvider && !newProvider.wsconnected) {
-            console.log('[useYjs] IndexedDB synced, connecting');
-            newProvider.connect();
-          }
-        });
-      } else {
-        // No IndexedDB, connect immediately
-        clearTimeout(timeout);
-        newProvider.connect();
-      }
-    }
-
-    // --- Cleanup ---
     return () => {
-      console.log(`[useYjs] Destroying provider for ${docGuid}`);
       newProvider.off('status', handleStatus);
       newProvider.off('sync', handleSync);
-      newProvider.off('connection-error', handleConnectionError);
-      newProvider.off('connection-close', handleConnectionClose);
+      newProvider.off('connection-error', handleError);
+      newProvider.off('connection-close', handleClose);
       newProvider.awareness.off('change', handleAwarenessChange);
-
-      // Clear awareness before destroying
       newProvider.awareness.setLocalStateField('user', null);
       newProvider.awareness.setLocalStateField('cursor', null);
-
       newProvider.destroy();
-      providerRef.current = null;
       setProvider(null);
     };
-  }, [docGuid, accessToken, ydoc, user?.name, user?.color]); // Recreate provider when token changes
+  }, [docGuid, accessToken, ydoc, user?.name, user?.color]);
 
   // ============================================================================
   // TITLE SYNC
@@ -326,94 +195,67 @@ export function useYjs(docGuid, accessToken, user = null) {
   useEffect(() => {
     if (!ydoc) return;
     const meta = ydoc.getMap('meta');
-
-    const currentTitle = meta.get('title');
-    if (currentTitle !== undefined) {
-      setDocTitleState(currentTitle);
-    }
-
-    const handleMetaChange = () => {
-      const newTitle = meta.get('title');
-      if (newTitle !== undefined) {
-        setDocTitleState(newTitle);
-      }
+    const update = () => {
+      const title = meta.get('title');
+      if (title !== undefined) setDocTitleState(title);
     };
-
-    meta.observe(handleMetaChange);
-    return () => meta.unobserve(handleMetaChange);
+    update();
+    meta.observe(update);
+    return () => meta.unobserve(update);
   }, [ydoc, synced]);
 
   // ============================================================================
-  // VISIBILITY CHANGE - Reconnect on wake from sleep
+  // BROWSER EVENTS - visibility change + beforeunload
   // ============================================================================
   useEffect(() => {
     if (!provider) return;
 
-    const handleVisibilityChange = () => {
-      if (document.hidden) return;
+    let lastSyncTime = Date.now();
+    const syncHandler = (isSynced) => { if (isSynced) lastSyncTime = Date.now(); };
+    provider.on('sync', syncHandler);
 
-      const timeSinceSync = Date.now() - lastSyncTimeRef.current;
-      if (provider.wsconnected && timeSinceSync > 30000) {
-        console.log('[useYjs] Stale connection detected after wake, reconnecting');
+    const handleVisibility = () => {
+      if (document.hidden || !provider.wsconnected) return;
+      if (Date.now() - lastSyncTime > 30000) {
         provider.disconnect();
         setTimeout(() => provider.connect(), 100);
-      } else if (provider.wsconnected) {
-        // Just rebroadcast awareness
-        const localState = provider.awareness.getLocalState();
-        if (localState?.user) {
-          provider.awareness.setLocalStateField('user', localState.user);
-        }
+      } else {
+        const state = provider.awareness.getLocalState();
+        if (state?.user) provider.awareness.setLocalStateField('user', state.user);
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [provider]);
-
-  // ============================================================================
-  // PAGE UNLOAD - Clean disconnect
-  // ============================================================================
-  useEffect(() => {
-    if (!provider) return;
-
-    const handleBeforeUnload = () => {
+    const handleUnload = () => {
       provider.awareness.setLocalStateField('user', null);
       provider.awareness.setLocalStateField('cursor', null);
       provider.disconnect();
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      provider.off('sync', syncHandler);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', handleUnload);
+    };
   }, [provider]);
 
   // ============================================================================
   // ACTIONS
   // ============================================================================
-  const setDocTitle = useCallback((newTitle) => {
-    if (!ydoc) return;
-    ydoc.getMap('meta').set('title', newTitle);
-  }, [ydoc]);
+  const setDocTitle = useCallback((title) => ydoc?.getMap('meta').set('title', title), [ydoc]);
 
   const forceReconnect = useCallback(() => {
     if (!provider || !accessToken) return;
-
-    // Debounce: ignore calls within 300ms of last call
+    // Debounce: ignore calls within 300ms
     const now = Date.now();
-    if (now - lastForceReconnectRef.current < 300) {
-      console.log('[useYjs] forceReconnect debounced');
-      return;
-    }
+    if (now - lastForceReconnectRef.current < 300) return;
     lastForceReconnectRef.current = now;
-
-    console.log('[useYjs] Force reconnecting');
     setReconnectCount(c => c + 1);
     provider.disconnect();
     setTimeout(() => provider.connect(), 100);
   }, [provider, accessToken]);
 
-  // ============================================================================
-  // RETURN
-  // ============================================================================
   return {
     ydoc,
     provider,
