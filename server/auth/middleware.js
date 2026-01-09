@@ -1,7 +1,7 @@
 /**
  * Authentication middleware
  */
-const { verifyAccessToken } = require('./jwt');
+const { verifyAccessToken, extractBearerToken, getJwtErrorResponse } = require('./jwt');
 
 /**
  * Middleware to require authentication
@@ -9,33 +9,22 @@ const { verifyAccessToken } = require('./jwt');
  * Adds decoded user to req.user on success
  */
 function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header' });
+  const token = extractBearerToken(req.headers.authorization);
+
+  if (!token) {
+    return res.status(401).json({ error: 'No authorization header or invalid format' });
   }
-  
-  const parts = authHeader.split(' ');
-  
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return res.status(401).json({ error: 'Invalid authorization header format' });
-  }
-  
-  const token = parts[1];
-  
+
   try {
     const decoded = verifyAccessToken(token);
     req.user = decoded;
     next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+    const { status, body } = getJwtErrorResponse(error);
+    if (error.name !== 'TokenExpiredError' && error.name !== 'JsonWebTokenError') {
+      console.error('Auth middleware error:', error);
     }
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-    console.error('Auth middleware error:', error);
-    return res.status(401).json({ error: 'Authentication failed' });
+    return res.status(status).json(body);
   }
 }
 
@@ -45,27 +34,19 @@ function requireAuth(req, res, next) {
  * Does not return error if no token or invalid token
  */
 function optionalAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader) {
+  const token = extractBearerToken(req.headers.authorization);
+
+  if (!token) {
     return next();
   }
-  
-  const parts = authHeader.split(' ');
-  
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return next();
-  }
-  
-  const token = parts[1];
-  
+
   try {
     const decoded = verifyAccessToken(token);
     req.user = decoded;
   } catch (error) {
     // Silently ignore auth errors for optional routes
   }
-  
+
   next();
 }
 

@@ -4,7 +4,7 @@
  */
 
 const documents = require('./documents');
-const { verifyAccessToken } = require('./auth/jwt');
+const { verifyAccessToken, extractBearerToken } = require('./auth/jwt');
 const { verifyAgentToken } = require('./mcp/auth/jwt');
 
 /**
@@ -49,9 +49,9 @@ function extractUser({ authHeader, token, queryToken }) {
 
   // Try Authorization header first
   if (authHeader) {
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      const result = tryVerifyToken(parts[1]);
+    const headerToken = extractBearerToken(authHeader);
+    if (headerToken) {
+      const result = tryVerifyToken(headerToken);
       if (result) return result;
     }
   }

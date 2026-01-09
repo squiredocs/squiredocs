@@ -50,7 +50,7 @@ describe('Auth middleware', () => {
       requireAuth(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'No authorization header' });
+      expect(res.json).toHaveBeenCalledWith({ error: 'No authorization header or invalid format' });
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -61,7 +61,7 @@ describe('Auth middleware', () => {
       requireAuth(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid authorization header format' });
+      expect(res.json).toHaveBeenCalledWith({ error: 'No authorization header or invalid format' });
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -72,7 +72,7 @@ describe('Auth middleware', () => {
       requireAuth(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid authorization header format' });
+      expect(res.json).toHaveBeenCalledWith({ error: 'No authorization header or invalid format' });
       expect(next).not.toHaveBeenCalled();
     });
 

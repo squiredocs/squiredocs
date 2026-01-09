@@ -12,6 +12,7 @@ const redisPubSub = require('./redis-pubsub');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const { router: authRouter, initUsers, requireAuth } = require('./auth');
+const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const permissions = require('./permissions');
 const waitlist = require('./waitlist');
@@ -97,13 +98,9 @@ const extractDocGuid = (docName) => {
 const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
 const ORIGIN_REDIS = 'redis'; // Origin marker for updates from Redis pub/sub (cross-instance sync)
 
-// Track active users per document for version history attribution
-// Maps docGuid -> Map<clientId, userId>
-const documentUserMap = new Map();
-
-// Track active agents per document for version history attribution
-// Maps docGuid -> Map<clientId, agentName>
-const documentAgentMap = new Map();
+// Track active connections per document for version history attribution
+// Maps docGuid -> Map<clientId, { userId, agentName? }>
+const documentConnectionMap = new Map();
 
 /**
  * Register a user connection for a document
@@ -113,36 +110,21 @@ const documentAgentMap = new Map();
  * @param {string|null} agentName - Agent name if this is an agent connection
  */
 function registerDocumentUser(docGuid, clientId, userId, agentName = null) {
-  if (!documentUserMap.has(docGuid)) {
-    documentUserMap.set(docGuid, new Map());
+  if (!documentConnectionMap.has(docGuid)) {
+    documentConnectionMap.set(docGuid, new Map());
   }
-  documentUserMap.get(docGuid).set(clientId, userId);
-
-  // Track agent name if this is an agent
-  if (agentName) {
-    if (!documentAgentMap.has(docGuid)) {
-      documentAgentMap.set(docGuid, new Map());
-    }
-    documentAgentMap.get(docGuid).set(clientId, agentName);
-  }
+  documentConnectionMap.get(docGuid).set(clientId, { userId, agentName });
 }
 
 /**
  * Unregister a user connection from a document
  */
 function unregisterDocumentUser(docGuid, clientId) {
-  if (documentUserMap.has(docGuid)) {
-    documentUserMap.get(docGuid).delete(clientId);
-    if (documentUserMap.get(docGuid).size === 0) {
-      documentUserMap.delete(docGuid);
-    }
-  }
-
-  // Also clean up agent tracking
-  if (documentAgentMap.has(docGuid)) {
-    documentAgentMap.get(docGuid).delete(clientId);
-    if (documentAgentMap.get(docGuid).size === 0) {
-      documentAgentMap.delete(docGuid);
+  const connections = documentConnectionMap.get(docGuid);
+  if (connections) {
+    connections.delete(clientId);
+    if (connections.size === 0) {
+      documentConnectionMap.delete(docGuid);
     }
   }
 }
@@ -152,10 +134,9 @@ function unregisterDocumentUser(docGuid, clientId) {
  * In concurrent editing scenarios, we pick one - this is a reasonable approximation
  */
 function getDocumentUserId(docGuid) {
-  const users = documentUserMap.get(docGuid);
-  if (users && users.size > 0) {
-    // Return the first user (most recently registered tends to be last)
-    return Array.from(users.values())[0];
+  const connections = documentConnectionMap.get(docGuid);
+  if (connections && connections.size > 0) {
+    return Array.from(connections.values())[0].userId;
   }
   return null;
 }
@@ -164,10 +145,12 @@ function getDocumentUserId(docGuid) {
  * Get any active agent name for a document (for attribution)
  */
 function getDocumentAgentName(docGuid) {
-  const agents = documentAgentMap.get(docGuid);
-  if (agents && agents.size > 0) {
-    // Return the first agent name
-    return Array.from(agents.values())[0];
+  const connections = documentConnectionMap.get(docGuid);
+  if (connections && connections.size > 0) {
+    // Find first connection with an agent name
+    for (const conn of connections.values()) {
+      if (conn.agentName) return conn.agentName;
+    }
   }
   return null;
 }
@@ -1055,16 +1038,6 @@ server.on('upgrade', async (request, socket, head) => {
   const docId = pathname.slice(3); // Remove '/s/'
 
   // Parse cookies from request headers (cookie-parser middleware doesn't run on upgrade)
-  const parseCookies = (cookieHeader) => {
-    const cookies = {};
-    if (cookieHeader) {
-      cookieHeader.split(';').forEach(cookie => {
-        const [name, ...rest] = cookie.trim().split('=');
-        cookies[name] = rest.join('=');
-      });
-    }
-    return cookies;
-  };
   const cookies = parseCookies(request.headers.cookie);
 
   // Try cookie first, then query param (for backwards compatibility & MCP agents)

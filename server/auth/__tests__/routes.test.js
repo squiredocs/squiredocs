@@ -170,7 +170,7 @@ describe('Auth routes', () => {
         .get('/auth/me')
         .expect(401);
 
-      expect(response.body.error).toBe('No authorization header');
+      expect(response.body.error).toBe('No authorization header or invalid format');
     });
 
     test('returns 401 for invalid token', async () => {
@@ -223,7 +223,7 @@ describe('Auth routes', () => {
         .post('/auth/logout')
         .expect(401);
 
-      expect(response.body.error).toBe('No authorization header');
+      expect(response.body.error).toBe('No authorization header or invalid format');
     });
 
     test('clears cookie even if user deleted', async () => {

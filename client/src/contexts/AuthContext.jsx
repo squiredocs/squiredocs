@@ -30,8 +30,6 @@ export function AuthProvider({ children }) {
   // Track if we're currently refreshing to prevent multiple simultaneous refreshes
   const isRefreshing = useRef(false);
   const refreshSubscribers = useRef([]);
-  // Use ref to store token so interceptor always has latest value
-  const accessTokenRef = useRef(null);
   // Track when tab was last hidden for debounced refresh
   const lastHiddenTimeRef = useRef(null);
   // BroadcastChannel for cross-tab token coordination
@@ -50,6 +48,15 @@ export function AuthProvider({ children }) {
   const notifyRefreshSubscribers = useCallback((token) => {
     refreshSubscribers.current.forEach(callback => callback(token));
     refreshSubscribers.current = [];
+  }, []);
+
+  /**
+   * Clear all auth state (used on logout and auth failures)
+   */
+  const clearAuthState = useCallback(() => {
+    clearYjsInstanceCache();
+    setAccessToken(null);
+    setUser(null);
   }, []);
 
   /**
@@ -144,15 +151,11 @@ export function AuthProvider({ children }) {
       console.log('[AuthContext] Broadcasted logout to other tabs');
     }
 
-    // FIX 3: Clear WebSocket instance cache on logout
-    clearYjsInstanceCache();
-
-    setAccessToken(null);
-    setUser(null);
+    clearAuthState();
 
     // Clear URL and redirect to login
     window.history.replaceState({}, '', '/login');
-  }, [accessToken]);
+  }, [accessToken, clearAuthState]);
 
   /**
    * Set up axios interceptors for automatic token attachment and refresh
@@ -209,13 +212,8 @@ export function AuthProvider({ children }) {
             isRefreshing.current = false;
             notifyRefreshSubscribers(null);
 
-            // FIX 3: Clear WebSocket instance cache on auth failure
             console.warn('[AuthContext] Token refresh failed, clearing cache');
-            clearYjsInstanceCache();
-
-            // Refresh failed - clear auth state
-            setAccessToken(null);
-            setUser(null);
+            clearAuthState();
             return Promise.reject(error);
           }
         }
@@ -312,9 +310,7 @@ export function AuthProvider({ children }) {
 
       if (event.data.type === 'LOGOUT') {
         console.log('[AuthContext] Received logout from another tab via BroadcastChannel');
-        clearYjsInstanceCache();
-        setAccessToken(null);
-        setUser(null);
+        clearAuthState();
         window.history.replaceState({}, '', '/login');
       }
     };
@@ -323,7 +319,7 @@ export function AuthProvider({ children }) {
       channel.close();
       tokenChannelRef.current = null;
     };
-  }, [fetchUser]);
+  }, [fetchUser, clearAuthState]);
 
   /**
    * Debounced visibility-based token refresh
@@ -355,10 +351,7 @@ export function AuthProvider({ children }) {
           } catch (e) {
             // Refresh failed - token likely expired
             console.warn('[AuthContext] Token refresh failed on tab focus:', e.message);
-            // Clear auth state - user will be redirected to login
-            clearYjsInstanceCache();
-            setAccessToken(null);
-            setUser(null);
+            clearAuthState();
           }
         } else {
           console.log(`[AuthContext] Tab was hidden for ${Math.round(hiddenDuration / 1000)}s (<${REFRESH_THRESHOLD_MS / 1000}s), skipping refresh`);
@@ -370,7 +363,7 @@ export function AuthProvider({ children }) {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [loading, accessToken, refreshAccessToken, fetchUser]);
+  }, [loading, accessToken, refreshAccessToken, fetchUser, clearAuthState]);
 
   const value = {
     user,

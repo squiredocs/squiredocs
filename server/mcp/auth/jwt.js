@@ -5,6 +5,7 @@
  * via OAuth delegation.
  */
 const jwt = require('jsonwebtoken');
+const { extractBearerToken } = require('../../auth/jwt');
 
 // Secret for agent tokens (separate from user tokens)
 const MCP_JWT_SECRET =
@@ -66,21 +67,13 @@ function verifyAgentToken(token, options = {}) {
  */
 function extractAgentToken({ authHeader, queryToken }) {
   // Try Authorization header first
-  if (authHeader) {
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      return parts[1];
-    }
-    // Invalid format
-    return null;
+  const headerToken = extractBearerToken(authHeader);
+  if (headerToken) {
+    return headerToken;
   }
 
   // Fall back to query parameter
-  if (queryToken) {
-    return queryToken;
-  }
-
-  return null;
+  return queryToken || null;
 }
 
 module.exports = {

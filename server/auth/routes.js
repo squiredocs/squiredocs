@@ -9,7 +9,8 @@ const {
   verifyRefreshToken,
   getCookieOptions,
   getAccessTokenCookieOptions,
-  getClearCookieOptions,
+  clearAuthCookies,
+  getJwtErrorResponse,
 } = require('./jwt');
 const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion } = require('./users');
 const { requireAuth } = require('./middleware');
@@ -141,7 +142,7 @@ router.post('/refresh', async (req, res) => {
     // Check token version for revocation
     if (user.token_version !== decoded.tokenVersion) {
       // Token has been revoked (user logged out or password changed)
-      res.clearCookie('refreshToken', getClearCookieOptions());
+      clearAuthCookies(res);
       return res.status(401).json({ error: 'Token revoked' });
     }
     
@@ -156,12 +157,11 @@ router.post('/refresh', async (req, res) => {
     // Return new access token (for REST API Authorization header)
     res.json({ accessToken: newAccessToken });
   } catch (error) {
+    clearAuthCookies(res);
     if (error.name === 'TokenExpiredError') {
-      res.clearCookie('refreshToken', getClearCookieOptions());
-      return res.status(401).json({ error: 'Refresh token expired' });
+      return res.status(401).json({ error: 'Refresh token expired', code: 'TOKEN_EXPIRED' });
     }
     if (error.name === 'JsonWebTokenError') {
-      res.clearCookie('refreshToken', getClearCookieOptions());
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
     console.error('Refresh token error:', error);
@@ -205,16 +205,12 @@ router.post('/logout', requireAuth, async (req, res) => {
     // Increment token version to invalidate all existing tokens
     await incrementTokenVersion(req.user.userId);
 
-    // Clear token cookies
-    res.clearCookie('accessToken', getClearCookieOptions());
-    res.clearCookie('refreshToken', getClearCookieOptions());
-
+    clearAuthCookies(res);
     res.json({ success: true });
   } catch (error) {
     console.error('Logout error:', error);
     // Still clear cookies even if DB update fails
-    res.clearCookie('accessToken', getClearCookieOptions());
-    res.clearCookie('refreshToken', getClearCookieOptions());
+    clearAuthCookies(res);
     res.status(500).json({ error: 'Logout failed' });
   }
 });

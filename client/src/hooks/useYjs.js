@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import { isTokenExpired } from '../utils/jwt';
 
 // WebSocket URL
 const WS_URL = (() => {
@@ -12,19 +13,6 @@ const WS_URL = (() => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/s/`;
 })();
-
-// JWT expiry check
-function isTokenExpired(token) {
-  if (!token) return true;
-  try {
-    const payload = token.split('.')[1];
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(atob(base64 + '='.repeat((4 - base64.length % 4) % 4)));
-    return decoded.exp ? Date.now() >= decoded.exp * 1000 : false;
-  } catch {
-    return false;
-  }
-}
 
 // Check for auth-related error
 function isAuthError(error) {

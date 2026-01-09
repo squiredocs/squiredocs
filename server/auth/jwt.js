@@ -129,6 +129,61 @@ function getClearCookieOptions() {
   };
 }
 
+/**
+ * Clear all auth cookies from response
+ * @param {object} res - Express response object
+ */
+function clearAuthCookies(res) {
+  res.clearCookie('accessToken', getClearCookieOptions());
+  res.clearCookie('refreshToken', getClearCookieOptions());
+}
+
+/**
+ * Extract Bearer token from Authorization header
+ * @param {string} authHeader - Authorization header value
+ * @returns {string|null} Token string or null if invalid format
+ */
+function extractBearerToken(authHeader) {
+  if (!authHeader) return null;
+  const parts = authHeader.split(' ');
+  if (parts.length === 2 && parts[0] === 'Bearer') {
+    return parts[1];
+  }
+  return null;
+}
+
+/**
+ * Parse cookies from a cookie header string
+ * Useful for WebSocket upgrade requests where cookie-parser middleware doesn't run
+ * @param {string} cookieHeader - Cookie header value
+ * @returns {object} Parsed cookies as key-value pairs
+ */
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (cookieHeader) {
+    cookieHeader.split(';').forEach(cookie => {
+      const [name, ...rest] = cookie.trim().split('=');
+      cookies[name] = rest.join('=');
+    });
+  }
+  return cookies;
+}
+
+/**
+ * Get JWT error response details
+ * @param {Error} error - JWT verification error
+ * @returns {{status: number, body: object}} Status code and response body
+ */
+function getJwtErrorResponse(error) {
+  if (error.name === 'TokenExpiredError') {
+    return { status: 401, body: { error: 'Token expired', code: 'TOKEN_EXPIRED' } };
+  }
+  if (error.name === 'JsonWebTokenError') {
+    return { status: 401, body: { error: 'Invalid token' } };
+  }
+  return { status: 401, body: { error: 'Authentication failed' } };
+}
+
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
@@ -137,6 +192,10 @@ module.exports = {
   getCookieOptions,
   getAccessTokenCookieOptions,
   getClearCookieOptions,
+  clearAuthCookies,
+  extractBearerToken,
+  parseCookies,
+  getJwtErrorResponse,
   ACCESS_TOKEN_EXPIRY,
   REFRESH_TOKEN_EXPIRY,
 };
