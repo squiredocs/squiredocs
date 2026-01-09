@@ -30,8 +30,6 @@ export function AuthProvider({ children }) {
   // Track if we're currently refreshing to prevent multiple simultaneous refreshes
   const isRefreshing = useRef(false);
   const refreshSubscribers = useRef([]);
-  // Track when tab was last hidden for debounced refresh
-  const lastHiddenTimeRef = useRef(null);
   // BroadcastChannel for cross-tab token coordination
   const tokenChannelRef = useRef(null);
 
@@ -321,49 +319,10 @@ export function AuthProvider({ children }) {
     };
   }, [fetchUser, clearAuthState]);
 
-  /**
-   * Debounced visibility-based token refresh
-   * Only refresh if tab was hidden for more than 5 minutes (REFRESH_THRESHOLD_MS)
-   * This prevents unnecessary refresh requests for quick tab switches
-   */
-  useEffect(() => {
-    const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'hidden') {
-        // Record when tab became hidden
-        lastHiddenTimeRef.current = Date.now();
-        return;
-      }
-
-      // Tab became visible
-      if (!loading && accessToken && lastHiddenTimeRef.current) {
-        const hiddenDuration = Date.now() - lastHiddenTimeRef.current;
-
-        if (hiddenDuration > REFRESH_THRESHOLD_MS) {
-          console.log(`[AuthContext] Tab was hidden for ${Math.round(hiddenDuration / 1000)}s (>${REFRESH_THRESHOLD_MS / 1000}s), refreshing token`);
-          try {
-            const newToken = await refreshAccessToken();
-            if (newToken) {
-              console.log('[AuthContext] Token refreshed successfully on tab focus');
-              await fetchUser(newToken);
-            }
-          } catch (e) {
-            // Refresh failed - token likely expired
-            console.warn('[AuthContext] Token refresh failed on tab focus:', e.message);
-            clearAuthState();
-          }
-        } else {
-          console.log(`[AuthContext] Tab was hidden for ${Math.round(hiddenDuration / 1000)}s (<${REFRESH_THRESHOLD_MS / 1000}s), skipping refresh`);
-        }
-      }
-
-      lastHiddenTimeRef.current = null;
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [loading, accessToken, refreshAccessToken, fetchUser, clearAuthState]);
+  // Note: No visibility-based token refresh needed here.
+  // - REST API: 401 interceptor auto-refreshes token and retries
+  // - WebSocket: Server validates token on every message, closes with 4401 if expired,
+  //   which triggers client reconnect with fresh cookie
 
   const value = {
     user,
