@@ -704,13 +704,14 @@ export function useYjs(docGuid, accessToken, user = null) {
     // Reset mount time when provider changes (for stuck connection detection)
     mountTimeRef.current = Date.now();
 
-    // Initial connection timeout - if we're not connected after 10 seconds, show offline state
-    // This provides faster feedback than waiting for the 30-second health check
-    const INITIAL_CONNECTION_TIMEOUT_MS = 10000;
+    // Initial connection timeout - only show offline state if connection is truly failing
+    // Use a longer timeout (30s) to avoid showing misleading "Offline" while still connecting
+    // WebSocket connections can legitimately take time due to network conditions
+    const INITIAL_CONNECTION_TIMEOUT_MS = 30000;
     if (!provider.wsconnected) {
       connectionTimeoutRef.current = setTimeout(() => {
         if (!provider.wsconnected && !provider.synced) {
-          console.warn('[useYjs] Initial connection timeout (10s), showing disconnected state');
+          console.warn('[useYjs] Initial connection timeout (30s), showing disconnected state');
           logPerf('INITIAL_CONNECTION_TIMEOUT', { timeSinceMount: Date.now() - mountTimeRef.current });
           setConnectionState('disconnected');
           // Don't set authError - provider will continue trying in background

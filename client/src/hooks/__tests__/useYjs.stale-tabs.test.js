@@ -53,7 +53,7 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Initial Connection Timeout', () => {
-    it('sets connectionState to disconnected after 10 second timeout', async () => {
+    it('sets connectionState to disconnected after 30 second timeout', async () => {
       vi.useFakeTimers();
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -61,9 +61,9 @@ describe('Stale Tab Scenarios', () => {
       // Initial state should be connecting
       expect(result.current.connectionState).toBe('connecting');
 
-      // Advance past the 10-second timeout
+      // Advance past the 30-second timeout
       act(() => {
-        vi.advanceTimersByTime(11000);
+        vi.advanceTimersByTime(31000);
       });
 
       // Should now be disconnected
@@ -89,9 +89,9 @@ describe('Stale Tab Scenarios', () => {
 
       expect(result.current.connectionState).toBe('connected');
 
-      // Advance past the timeout - should stay connected
+      // Advance past the 30-second timeout - should stay connected
       act(() => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
       });
 
       expect(result.current.connectionState).toBe('connected');
@@ -128,7 +128,7 @@ describe('Stale Tab Scenarios', () => {
   });
 
   describe('Health Check for Stuck Connecting State', () => {
-    it('forces reconnect when stuck in connecting state for 15+ seconds', async () => {
+    it('forces reconnect when stuck in connecting state for 30+ seconds', async () => {
       vi.useFakeTimers();
 
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
@@ -139,9 +139,9 @@ describe('Stale Tab Scenarios', () => {
       mockProvider.disconnect.mockClear();
       mockProvider.connect.mockClear();
 
-      // Advance past the initial 10s timeout (sets to disconnected)
+      // Advance past the initial 30s timeout (sets to disconnected)
       act(() => {
-        vi.advanceTimersByTime(11000);
+        vi.advanceTimersByTime(31000);
       });
 
       expect(result.current.connectionState).toBe('disconnected');
