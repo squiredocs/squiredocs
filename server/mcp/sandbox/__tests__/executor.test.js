@@ -291,4 +291,99 @@ describe('Sandbox executor', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('detailed error messages', () => {
+    test('undefined property access includes hint about findByText/findElements returning empty array', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          // Simulate the common bug: findByText returns empty array, accessing [0] gives undefined
+          const results = [];
+          const item = results[0];
+          item.insert(0, 'text'); // Cannot read properties of undefined
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /findByText\(\), findElements\(\), or xpath\(\) returned an empty array/
+      );
+    });
+
+    test('undefined property access error includes line number', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const results = [];
+          const item = results[0];
+          item.insert(0, 'text');
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /at line \d+, column \d+/
+      );
+    });
+
+    test('null property access includes hint about findTextNode/xpathFirst returning null', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          // Simulate the common bug: findTextNode returns null on empty element
+          const result = null;
+          result.toDelta(); // Cannot read properties of null
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /findTextNode\(\) returned null|xpathFirst\(\) returned null/
+      );
+    });
+
+    test('undefined variable includes hint about sandbox availability', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const data = someUndefinedVariable;
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /is not available in the sandbox/
+      );
+    });
+
+    test('is not a function error includes hint about Yjs object types', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const text = new Y.XmlText();
+          text.notAMethod(); // This method doesn't exist
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /Check that you're calling methods on the correct Yjs object types/
+      );
+    });
+
+    test('error message includes stack trace', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          throw new Error('Test error');
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /Stack trace:/
+      );
+    });
+
+    test('error from accessing undefined after findByText includes solution example', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const items = findByText(doc, 'nonexistent');
+          items[0].setAttribute('level', 1); // Will fail - items is empty
+        };
+      `;
+
+      expect(() => executeSandboxed(jsCode, xmlFragment, tracker, 5000)).toThrow(
+        /if \(results\.length > 0\)/
+      );
+    });
+  });
 });

@@ -309,11 +309,33 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
         hint = `\nHint: "${match[1]}" is not available in the sandbox. ` +
                `Available: Y.XmlElement, Y.XmlText, doc, xpath(), xpathFirst(), and helper functions.`;
       }
+    } else if (error.message.includes('Cannot read properties of undefined')) {
+      // This commonly happens when findByText/findElements returns empty array and user accesses [0]
+      hint = `\nHint: You're trying to access a property on undefined. Common causes:\n` +
+             `  - findByText(), findElements(), or xpath() returned an empty array and you accessed [0]\n` +
+             `  - findTextNode() returned null because no text node was found\n` +
+             `  - doc.get(index) returned undefined because the index doesn't exist\n` +
+             `  Solution: Always check if the result exists before using it:\n` +
+             `    const results = findByText(doc, 'text');\n` +
+             `    if (results.length > 0) { /* use results[0] */ }`;
+    } else if (error.message.includes('Cannot read properties of null')) {
+      hint = `\nHint: You're trying to access a property on null. Common causes:\n` +
+             `  - findTextNode() returned null (no text node found in the element)\n` +
+             `  - xpathFirst() returned null (no matching element found)\n` +
+             `  Solution: Always check for null before using the result:\n` +
+             `    const textNode = findTextNode(element);\n` +
+             `    if (textNode) { /* use textNode */ }`;
     } else if (error.message.includes('is not a function')) {
-      hint = `\nHint: Check that you're calling methods on the correct Yjs object types.`;
+      hint = `\nHint: Check that you're calling methods on the correct Yjs object types.\n` +
+             `  - XmlElement has: toArray(), insert(), delete(), get(), getAttribute(), setAttribute()\n` +
+             `  - XmlText has: insert(), delete(), format(), toDelta(), toString()`;
     } else if (error.message.includes('default function')) {
       hint = `\nHint: Your script must export a default function like:\n` +
              `  export default function edit(doc) { ... }`;
+    } else if (error.message.includes('Cannot set properties of undefined') ||
+               error.message.includes('Cannot set properties of null')) {
+      hint = `\nHint: You're trying to set a property on undefined/null.\n` +
+             `  Check that the object you're modifying exists before accessing it.`;
     }
 
     throw new Error(

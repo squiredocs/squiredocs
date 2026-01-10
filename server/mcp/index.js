@@ -170,12 +170,23 @@ function handleToolsList() {
 
 /**
  * Handle tools/call method
+ *
+ * Returns MCP tool result format with is_error field for proper error handling.
+ * See: https://platform.claude.com/docs/en/agents-and-tools/mcp-connector
  */
 async function handleToolCall(params, agentToken) {
   const { name, arguments: args } = params;
 
   if (!name) {
-    throw new Error('Tool name is required');
+    return {
+      is_error: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Tool name is required',
+        },
+      ],
+    };
   }
 
   // Log the action
@@ -190,16 +201,33 @@ async function handleToolCall(params, agentToken) {
     }
   }
 
-  const result = await toolRegistry.executeTool(name, args || {}, agentToken);
+  try {
+    const result = await toolRegistry.executeTool(name, args || {}, agentToken);
 
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(result, null, 2),
-      },
-    ],
-  };
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    // Return error in MCP tool result format with is_error: true
+    // This ensures the agent sees detailed error messages instead of generic ones
+    console.error(`Tool "${name}" execution error:`, error);
+
+    return {
+      is_error: true,
+      content: [
+        {
+          type: 'text',
+          // error.message from executor.js already includes stack trace and hints
+          text: error.message,
+        },
+      ],
+    };
+  }
 }
 
 // ============================================================
@@ -217,13 +245,18 @@ router.post('/tools/list', (req, res) => {
 
 /**
  * POST /mcp/tools/call - Execute a tool (convenience endpoint)
+ *
+ * Returns MCP tool result format for consistency with the main endpoint.
  */
 router.post('/tools/call', requireAgentAuth, async (req, res) => {
   try {
     const { name, arguments: args } = req.body;
 
     if (!name) {
-      return res.status(400).json({ error: 'Tool name is required' });
+      return res.status(400).json({
+        is_error: true,
+        content: [{ type: 'text', text: 'Tool name is required' }],
+      });
     }
 
     // Log the action
@@ -238,16 +271,21 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
     }
 
     const result = await toolRegistry.executeTool(name, args || {}, req.agentToken);
-    res.json(result);
+    res.json({
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    });
   } catch (error) {
     console.error('Tool execution error:', error);
-    // Return full error details to help with debugging
+    // Return error in MCP tool result format with is_error: true
     res.status(500).json({
-      error: error.message,
-      details: {
-        name: error.name,
-        stack: error.stack,
-      },
+      is_error: true,
+      content: [
+        {
+          type: 'text',
+          // error.message from executor.js already includes stack trace and hints
+          text: error.message,
+        },
+      ],
     });
   }
 });
