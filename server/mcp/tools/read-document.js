@@ -1,11 +1,12 @@
 /**
  * read_document MCP Tool
  *
- * Read entire document or specific blocks without moving cursor.
+ * Read document content with optional XPath filtering.
  */
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
+const { xpath } = require('../sandbox/xpath');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -23,54 +24,69 @@ function init(persistence) {
  */
 const name = 'read_document';
 
-const description = `Read document content without moving cursor.
+const description = `Read document content with optional XPath filtering.
 
 ═══════════════════════════════════════════════════════════════════════════
-READ-ONLY OPERATION
+OVERVIEW
 ═══════════════════════════════════════════════════════════════════════════
 
-Read document content in plain text or structured format.
-Does NOT move or affect cursor position.
-
-WHEN TO USE THIS:
-- Review entire document or specific blocks
-- Get document structure for planning edits
-- Extract content for analysis
+Query document content using XPath expressions. Returns structured JSON
+or plain text. Use this to understand document structure before modifying.
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
 ═══════════════════════════════════════════════════════════════════════════
 
 - docGuid: Document UUID (required)
-- fromBlock: Start block index (optional, default: 0)
-- toBlock: End block index inclusive (optional, default: last block)
-- format: "text" or "structured" (optional, default: "structured")
-  - "text": Plain text with newlines between blocks
-  - "structured": JSON array of block objects with types and content
+- xpath: XPath expression to filter results (optional)
+  - If omitted, returns entire document
+  - Uses same XPath syntax as modify tool
+- format: "structured" or "text" (optional, default: "structured")
+
+═══════════════════════════════════════════════════════════════════════════
+XPATH EXAMPLES
+═══════════════════════════════════════════════════════════════════════════
+
+// Get all headings
+xpath: "//heading"
+
+// Get level-2 headings only
+xpath: "//heading[@level=2]"
+
+// Find paragraphs containing "TODO"
+xpath: "//paragraph[contains(., 'TODO')]"
+
+// Get all list items
+xpath: "//listItem"
+
+// Get bullet list after a specific heading
+xpath: "//heading[contains(., 'Tasks')]/following-sibling::bulletList[1]"
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
 ═══════════════════════════════════════════════════════════════════════════
 
-- content: Text string or structured array (based on format parameter)
-- blockCount: Total number of blocks in document
-- characterCount: Total characters
+- content: Structured array or text string (based on format)
+- matchCount: Number of elements returned (when using xpath)
+- blockCount: Total blocks in document
 
 ═══════════════════════════════════════════════════════════════════════════
-EXAMPLE
+EXAMPLES
 ═══════════════════════════════════════════════════════════════════════════
 
-// Read entire document as structured data
+// Read entire document
+await read_document({ docGuid: "abc-123" });
+
+// Read only headings
 await read_document({
   docGuid: "abc-123",
-  format: "structured"
+  xpath: "//heading"
 });
 
-// Read blocks 5-10 as plain text
+// Find TODOs as plain text
 await read_document({
   docGuid: "abc-123",
-  fromBlock: 5,
-  toBlock: 10,
+  xpath: "//paragraph[contains(., 'TODO')]",
   format: "text"
 });`;
 
@@ -82,15 +98,9 @@ const inputSchema = {
       format: 'uuid',
       description: 'The document UUID',
     },
-    fromBlock: {
-      type: 'integer',
-      minimum: 0,
-      description: 'Start block index (default: 0)',
-    },
-    toBlock: {
-      type: 'integer',
-      minimum: 0,
-      description: 'End block index inclusive (default: last)',
+    xpath: {
+      type: 'string',
+      description: 'XPath expression to filter results (optional)',
     },
     format: {
       type: 'string',
@@ -102,93 +112,149 @@ const inputSchema = {
 };
 
 /**
- * Find the first text node in a block (depth-first)
- * @param {Y.XmlElement} node - Block to search
- * @returns {Y.XmlText|null} First text node or null
+ * Count characters in a node tree
  */
-function findFirstTextNode(node) {
+function countChars(node) {
   if (node instanceof Y.XmlText) {
-    return node;
+    return node.length;
   }
-  if (node instanceof Y.XmlElement) {
-    const children = node.toArray();
-    for (const child of children) {
-      const textNode = findFirstTextNode(child);
-      if (textNode) return textNode;
+  if (node instanceof Y.XmlElement || node instanceof Y.XmlFragment) {
+    let count = 0;
+    for (const child of node.toArray()) {
+      count += countChars(child);
     }
+    return count;
   }
-  return null;
+  return 0;
 }
 
 /**
- * Find the last text node in a block (depth-first, reversed)
- * @param {Y.XmlElement} node - Block to search
- * @returns {Y.XmlText|null} Last text node or null
+ * Extract text with formatting marks from a Y.XmlText node
  */
-function findLastTextNode(node) {
-  if (node instanceof Y.XmlText) {
-    return node;
-  }
-  if (node instanceof Y.XmlElement) {
-    const children = node.toArray();
-    for (let i = children.length - 1; i >= 0; i--) {
-      const textNode = findLastTextNode(children[i]);
-      if (textNode) return textNode;
+function extractTextWithMarks(textNode) {
+  const delta = textNode.toDelta();
+  const result = [];
+  for (const op of delta) {
+    if (typeof op.insert === 'string') {
+      const text = op.insert;
+      const attrs = op.attributes || {};
+      const marks = [];
+      if (attrs.bold) marks.push('bold');
+      if (attrs.italic) marks.push('italic');
+      if (attrs.underline) marks.push('underline');
+      if (attrs.strike) marks.push('strike');
+      if (attrs.link) marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+      if (marks.length > 0) {
+        result.push({ text, marks });
+      } else {
+        result.push(text);
+      }
     }
   }
-  return null;
+  return result;
 }
 
 /**
- * Create a selection spanning the given blocks
- * @param {Array<Y.XmlElement>} blocks - Blocks to select
- * @returns {object|null} { anchor, head } RelativePositions or null
+ * Convert a Yjs node to structured format
  */
-function createSelectionForBlocks(blocks) {
-  if (!blocks || blocks.length === 0) {
+function toStructured(node) {
+  if (node instanceof Y.XmlText) {
+    return { type: 'text', content: extractTextWithMarks(node) };
+  }
+
+  if (!(node instanceof Y.XmlElement)) {
     return null;
   }
 
-  // Find first text node in first block
-  const firstTextNode = findFirstTextNode(blocks[0]);
-  if (!firstTextNode) {
-    return null;
+  const tagName = node.nodeName;
+  const result = { type: tagName };
+
+  // Extract attributes
+  const level = node.getAttribute('level');
+  if (level !== undefined) result.level = parseInt(level, 10);
+  const language = node.getAttribute('language');
+  if (language !== undefined) result.language = language;
+
+  // Process children
+  const children = [];
+  for (const child of node.toArray()) {
+    const processed = toStructured(child);
+    if (processed) children.push(processed);
   }
 
-  // Find last text node in last block
-  const lastTextNode = findLastTextNode(blocks[blocks.length - 1]);
-  if (!lastTextNode) {
-    return null;
+  // Simplify content for leaf blocks
+  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+    const allText = children.every((c) => c.type === 'text');
+    if (allText && children.length > 0) {
+      const flatContent = [];
+      let hasMarks = false;
+      for (const child of children) {
+        if (Array.isArray(child.content)) {
+          flatContent.push(...child.content);
+          if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+            hasMarks = true;
+          }
+        }
+      }
+      // Collapse to string if no marks
+      if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
+        result.content = flatContent.join('');
+      } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+        result.content = flatContent[0];
+      } else {
+        result.content = flatContent;
+      }
+    } else if (children.length > 0) {
+      result.children = children;
+    }
+  } else if (children.length > 0) {
+    result.children = children;
   }
 
-  // Create RelativePositions
-  const anchorRel = Y.createRelativePositionFromTypeIndex(firstTextNode, 0);
-  const headRel = Y.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
+  return result;
+}
 
-  return {
-    anchor: Y.relativePositionToJSON(anchorRel),
-    head: Y.relativePositionToJSON(headRel),
-  };
+/**
+ * Convert a Yjs node to plain text
+ */
+function toText(node) {
+  if (node instanceof Y.XmlText) {
+    const delta = node.toDelta();
+    return delta.map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
+  }
+
+  if (!(node instanceof Y.XmlElement)) {
+    return '';
+  }
+
+  const tagName = node.nodeName;
+  let text = '';
+
+  for (const child of node.toArray()) {
+    text += toText(child);
+  }
+
+  // Add appropriate newlines
+  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+    text += '\n';
+  } else if (['bulletList', 'orderedList'].includes(tagName)) {
+    text += '\n';
+  }
+
+  return text;
 }
 
 /**
  * Handler function for the tool
- * @param {object} args - Tool arguments
- * @param {string} args.docGuid - Document UUID
- * @param {number} [args.fromBlock=0] - Start block
- * @param {number} [args.toBlock] - End block
- * @param {string} [args.format="structured"] - Output format
- * @param {object} agentToken - Decoded agent JWT token
- * @returns {Promise<object>} Document content
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('read_document tool not initialized');
 
-  const { docGuid, fromBlock = 0, toBlock, format = 'structured' } = args;
+  const { docGuid, xpath: xpathExpr, format = 'structured' } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
-  // Check if user has access to the document
+  // Check document access
   const accessResult = await pool.query(
     `SELECT d.id, ds.role
      FROM documents d
@@ -201,186 +267,48 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  // Get or create session (doesn't affect cursor)
+  // Get document
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  const blocks = xmlFragment.toArray();
-  const blockCount = blocks.length;
+  const allBlocks = xmlFragment.toArray();
+  const blockCount = allBlocks.length;
 
-  // Calculate range
-  const startIdx = Math.max(0, fromBlock);
-  const endIdx = toBlock !== undefined ? Math.min(toBlock, blockCount - 1) : blockCount - 1;
-
-  if (startIdx > endIdx || startIdx >= blockCount) {
-    return {
-      content: format === 'text' ? '' : [],
-      blockCount,
-      characterCount: 0,
-    };
-  }
-
-  // Extract specified range
-  const rangeBlocks = blocks.slice(startIdx, endIdx + 1);
-
-  // Highlight the read range
-  try {
-    const selection = createSelectionForBlocks(rangeBlocks);
-    if (selection) {
-      agentPresence.setTemporarySelection(session.sessionId, selection.anchor, selection.head);
+  // Get nodes to serialize (either xpath results or all blocks)
+  let nodes;
+  if (xpathExpr) {
+    try {
+      nodes = xpath(xpathExpr, xmlFragment);
+    } catch (err) {
+      throw new Error(`Invalid XPath expression: ${err.message}`);
     }
-  } catch (err) {
-    // Non-fatal: log but don't fail the read
-    console.warn('[read-document] Could not highlight selection:', err.message);
+  } else {
+    nodes = allBlocks;
   }
 
-  // Count characters
-  let characterCount = 0;
-  function countChars(node) {
-    if (node instanceof Y.XmlText) {
-      characterCount += node.length;
-    } else if (node instanceof Y.XmlElement) {
-      const children = node.toArray();
-      for (const child of children) {
-        countChars(child);
-      }
-    }
-  }
-
-  for (const block of rangeBlocks) {
-    countChars(block);
-  }
-
-  // Format output
+  // Serialize based on format
   let content;
   if (format === 'text') {
-    // Convert blocks array to plain text
-    const parts = [];
-    function processNode(node) {
-      if (node instanceof Y.XmlText) {
-        const delta = node.toDelta();
-        const text = delta.map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
-        parts.push(text);
-      } else if (node instanceof Y.XmlElement) {
-        const tagName = node.nodeName;
-        if (tagName === 'heading' && parts.length > 0 && !parts[parts.length - 1].endsWith('\n\n')) {
-          parts.push('\n\n');
-        }
-        for (const child of node.toArray()) {
-          processNode(child);
-        }
-        if (['paragraph', 'heading', 'codeBlock'].includes(tagName)) {
-          parts.push('\n');
-        } else if (tagName === 'listItem') {
-          parts.push('\n');
-        } else if (['bulletList', 'orderedList'].includes(tagName)) {
-          parts.push('\n');
-        }
-      }
-    }
-    for (const block of rangeBlocks) {
-      processNode(block);
-    }
-    content = parts.join('').trim();
+    content = nodes.map(toText).join('').trim();
   } else {
-    // Convert blocks array to structured format
-    const structuredBlocks = [];
-
-    function extractTextWithMarks(textNode) {
-      const delta = textNode.toDelta();
-      const result = [];
-      for (const op of delta) {
-        if (typeof op.insert === 'string') {
-          const text = op.insert;
-          const attrs = op.attributes || {};
-          const marks = [];
-          if (attrs.bold) marks.push('bold');
-          if (attrs.italic) marks.push('italic');
-          if (attrs.underline) marks.push('underline');
-          if (attrs.strike) marks.push('strike');
-          if (attrs.link) marks.push({ type: 'link', href: attrs.link.href || attrs.link });
-          if (marks.length > 0) {
-            result.push({ text, marks });
-          } else {
-            result.push(text);
-          }
-        }
-      }
-      return result;
-    }
-
-    function processBlock(node) {
-      if (node instanceof Y.XmlElement) {
-        const tagName = node.nodeName;
-        const attrs = {};
-        const level = node.getAttribute('level');
-        if (level !== undefined) attrs.level = level;
-        const language = node.getAttribute('language');
-        if (language !== undefined) attrs.language = language;
-
-        const children = [];
-        for (const child of node.toArray()) {
-          if (child instanceof Y.XmlText) {
-            const textContent = extractTextWithMarks(child);
-            children.push({ type: 'text', content: textContent });
-          } else if (child instanceof Y.XmlElement) {
-            children.push(processBlock(child));
-          }
-        }
-
-        const result = { type: tagName };
-        if (attrs.level) result.level = parseInt(attrs.level, 10);
-        if (attrs.language) result.language = attrs.language;
-
-        if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
-          const allText = children.every((c) => c.type === 'text');
-          if (allText && children.length > 0) {
-            const flatContent = [];
-            let hasMarks = false;
-            for (const child of children) {
-              if (Array.isArray(child.content)) {
-                flatContent.push(...child.content);
-                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-                  hasMarks = true;
-                }
-              } else if (typeof child.content === 'string') {
-                flatContent.push(child.content);
-              }
-            }
-            if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
-              result.content = flatContent.join('');
-            } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
-              result.content = flatContent[0];
-            } else {
-              result.content = flatContent;
-            }
-          } else if (children.length > 0) {
-            result.children = children;
-          }
-        } else {
-          if (children.length > 0) result.children = children;
-        }
-
-        return result;
-      }
-      return null;
-    }
-
-    for (const block of rangeBlocks) {
-      const processed = processBlock(block);
-      if (processed) {
-        structuredBlocks.push(processed);
-      }
-    }
-    content = structuredBlocks;
+    content = nodes.map(toStructured).filter(Boolean);
   }
 
-  return {
+  // Count characters in results
+  const characterCount = nodes.reduce((sum, node) => sum + countChars(node), 0);
+
+  const result = {
     content,
     blockCount,
     characterCount,
   };
+
+  if (xpathExpr) {
+    result.matchCount = nodes.length;
+  }
+
+  return result;
 }
 
 module.exports = {

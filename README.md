@@ -254,7 +254,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `close_document` - End session and remove presence
 
 **Reading:**
-- `read_document` - Read entire document or specific blocks
+- `read_document` - Read document with optional XPath filtering
 - `get_collaborators` - See who else is editing
 
 **Sandboxed Script Execution:**
