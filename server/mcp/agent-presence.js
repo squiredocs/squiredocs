@@ -227,69 +227,85 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
       });
 
       // Wait for document to sync before initializing cursor
-      // The 'sync' event ensures document data is loaded, not just connected
+      // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
+      // may fire before the server has finished loading from PostgreSQL.
+      // If empty, wait for the first update event (which fires when bindState applies content).
       provider.on('sync', (isSynced) => {
         if (isSynced) {
-          try {
-            // Get awareness
-            const awareness = provider.awareness;
+          const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-            // Initialize cursor and UndoManager
-            const xmlFragment = ydoc.get('default', Y.XmlFragment);
-            const session = activeSessions.get(sessionId);
-            if (session) {
-              // Create UndoManager
-              session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+          if (xmlFragment.toArray().length > 0) {
+            // Document has content - proceed immediately
+            finalizeSession();
+          } else {
+            // Document appears empty - wait for update event from bindState
+            console.log(`[agent-presence] Document ${docGuid} appears empty, waiting for content...`);
 
-              // Initialize cursor at document start (can be null for empty docs - that's OK)
-              session.cursor = initializeCursorAtStart(xmlFragment);
+            const onUpdate = () => {
+              clearTimeout(timeoutId);
+              console.log(`[agent-presence] Content arrived for ${docGuid}`);
+              finalizeSession();
+            };
 
-              // Mark session as fully initialized
-              session.initialized = true;
+            // Listen for first update (fires when bindState applies persisted content)
+            ydoc.once('update', onUpdate);
 
-              // Broadcast cursor to awareness so it's visible to other users
-              if (session.cursor) {
-                awareness.setLocalStateField('cursor', session.cursor);
+            // Timeout fallback for truly empty documents
+            const timeoutId = setTimeout(() => {
+              ydoc.off('update', onUpdate);
+              console.log(`[agent-presence] No content arrived for ${docGuid}, proceeding as empty`);
+              finalizeSession();
+            }, 2000);
+          }
+
+          function finalizeSession() {
+            try {
+              const awareness = provider.awareness;
+              const session = activeSessions.get(sessionId);
+              if (session) {
+                session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+                session.cursor = initializeCursorAtStart(xmlFragment);
+                session.initialized = true;
+
+                if (session.cursor) {
+                  awareness.setLocalStateField('cursor', session.cursor);
+                }
               }
-            }
 
-            // Set user info to make agent visible
-            // Format: "Agent Name (Human Name)", e.g., "Claude Desktop (Sam Goldstein)"
-            const agentName = agentToken.agentName || 'AI Agent';
-            awareness.setLocalStateField('user', {
-              name: `${agentName} (${userName})`,
-              email,
-              picture,
-              color: agentColor,
-              isAgent: true,
-            });
-
-            console.log(
-              `[agent-presence] Set presence for ${agentName} (${userName}) in ${docGuid} for ${duration}s`
-            );
-
-            // Set timeout to close connection after duration
-            if (session) {
-              session.timeoutId = setTimeout(() => {
-                cleanup();
-              }, duration * 1000);
-            }
-
-            // Clean up from pending creations since we're done
-            pendingSessionCreations.delete(sessionKey);
-
-            resolve({
-              success: true,
-              sessionId,
-              expiresIn: duration,
-              agent: {
+              const agentName = agentToken.agentName || 'AI Agent';
+              awareness.setLocalStateField('user', {
                 name: `${agentName} (${userName})`,
+                email,
+                picture,
                 color: agentColor,
-              },
-            });
-          } catch (error) {
-            cleanup();
-            reject(new Error(`Failed to set presence: ${error.message}`));
+                isAgent: true,
+              });
+
+              console.log(
+                `[agent-presence] Set presence for ${agentName} (${userName}) in ${docGuid} for ${duration}s`
+              );
+
+              if (session) {
+                session.timeoutId = setTimeout(() => {
+                  cleanup();
+                }, duration * 1000);
+              }
+
+              pendingSessionCreations.delete(sessionKey);
+
+              resolve({
+                success: true,
+                sessionId,
+                expiresIn: duration,
+                agent: {
+                  name: `${agentName} (${userName})`,
+                  color: agentColor,
+                },
+              });
+            } catch (error) {
+              cleanup();
+              reject(new Error(`Failed to set presence: ${error.message}`));
+            }
           }
         }
       });
@@ -563,53 +579,69 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
       });
 
       // Wait for document to sync before initializing cursor
-      // The 'sync' event ensures document data is loaded, not just connected
+      // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
+      // may fire before the server has finished loading from PostgreSQL.
+      // If empty, wait for the first update event (which fires when bindState applies content).
       provider.on('sync', (isSynced) => {
         if (isSynced) {
-          try {
-            const awareness = provider.awareness;
+          const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-            // Initialize cursor and UndoManager
-            const xmlFragment = ydoc.get('default', Y.XmlFragment);
-            const session = activeSessions.get(sessionId);
-            if (session) {
-              // Create UndoManager
-              session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+          if (xmlFragment.toArray().length > 0) {
+            // Document has content - proceed immediately
+            finalizeSession();
+          } else {
+            // Document appears empty - wait for update event from bindState
+            console.log(`[agent-presence] Document ${docGuid} appears empty, waiting for content...`);
 
-              // Initialize cursor at document start (can be null for empty docs - that's OK)
-              session.cursor = initializeCursorAtStart(xmlFragment);
+            const onUpdate = () => {
+              clearTimeout(timeoutId);
+              console.log(`[agent-presence] Content arrived for ${docGuid}`);
+              finalizeSession();
+            };
 
-              // Mark session as fully initialized - this is used for session reuse check
-              // Note: cursor can be null for empty documents, but session is still valid
-              session.initialized = true;
+            // Listen for first update (fires when bindState applies persisted content)
+            ydoc.once('update', onUpdate);
 
-              // Broadcast cursor to awareness so it's visible to other users
-              if (session.cursor) {
-                awareness.setLocalStateField('cursor', session.cursor);
+            // Timeout fallback for truly empty documents
+            const timeoutId = setTimeout(() => {
+              ydoc.off('update', onUpdate);
+              console.log(`[agent-presence] No content arrived for ${docGuid}, proceeding as empty`);
+              finalizeSession();
+            }, 2000);
+          }
+
+          function finalizeSession() {
+            try {
+              const awareness = provider.awareness;
+              const session = activeSessions.get(sessionId);
+              if (session) {
+                session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+                session.cursor = initializeCursorAtStart(xmlFragment);
+                session.initialized = true;
+
+                if (session.cursor) {
+                  awareness.setLocalStateField('cursor', session.cursor);
+                }
               }
+
+              awareness.setLocalStateField('user', agentInfo);
+
+              console.log(`[agent-presence] Created new session for ${agentInfo.name} in ${docGuid}`);
+
+              if (session) {
+                session.timeoutId = setTimeout(() => {
+                  cleanup();
+                }, duration * 1000);
+              }
+
+              pendingSessionCreations.delete(existingSessionKey);
+
+              resolve(session);
+            } catch (error) {
+              pendingSessionCreations.delete(existingSessionKey);
+              cleanup();
+              reject(new Error(`Failed to set presence: ${error.message}`));
             }
-
-            // Set user info to make agent visible
-            awareness.setLocalStateField('user', agentInfo);
-
-            console.log(`[agent-presence] Created new session for ${agentInfo.name} in ${docGuid}`);
-
-            // Set timeout to close connection after duration
-            if (session) {
-              session.timeoutId = setTimeout(() => {
-                cleanup();
-              }, duration * 1000);
-            }
-
-            // Clean up from pending creations since we're done
-            pendingSessionCreations.delete(existingSessionKey);
-
-            // Return the session object
-            resolve(session);
-          } catch (error) {
-            pendingSessionCreations.delete(existingSessionKey);
-            cleanup();
-            reject(new Error(`Failed to set presence: ${error.message}`));
           }
         }
       });
