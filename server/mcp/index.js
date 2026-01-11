@@ -270,6 +270,11 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
       }
     }
 
+    // Add baseUrl to agentToken for tools that need to construct URLs
+    const host = req.get('host');
+    const protocol = host && host.includes('herodocs.xyz') ? 'https' : req.protocol;
+    req.agentToken.baseUrl = `${protocol}://${host}`;
+
     const result = await toolRegistry.executeTool(name, args || {}, req.agentToken);
     res.json({
       content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
