@@ -275,17 +275,33 @@ async function handler(args, agentToken) {
   if (nodes.length > 0) {
     try {
       const positions = [];
-      for (const node of nodes) {
-        const path = getNodePath(xmlFragment, node);
-        if (path) {
-          const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
-          const textLength = getNodeTextLength(node);
-          const head = createCursorPositionFromPath(xmlFragment, path, textLength);
+
+      if (xpathExpr) {
+        // XPath query: cycle through each matched element
+        for (const node of nodes) {
+          const path = getNodePath(xmlFragment, node);
+          if (path) {
+            const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+            const head = createCursorPositionFromPath(xmlFragment, path, getNodeTextLength(node));
+            if (anchor && head) {
+              positions.push({ anchor, head });
+            }
+          }
+        }
+      } else {
+        // Full document read: expanding selection from start toward end
+        const anchor = createCursorPositionFromPath(xmlFragment, [0], 0);
+        const numChunks = Math.min(5, Math.max(3, Math.ceil(nodes.length / 4)));
+
+        for (let i = 1; i <= numChunks; i++) {
+          const endBlock = Math.min(Math.ceil(i * nodes.length / numChunks), nodes.length) - 1;
+          const head = createCursorPositionFromPath(xmlFragment, [endBlock], getNodeTextLength(nodes[endBlock]));
           if (anchor && head) {
             positions.push({ anchor, head });
           }
         }
       }
+
       if (positions.length > 0) {
         agentPresence.queueHighlightSequence(session.sessionId, positions);
       }
