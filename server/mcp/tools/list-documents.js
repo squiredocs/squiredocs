@@ -2,9 +2,13 @@
  * list_documents MCP Tool
  *
  * Lists all documents accessible to the authenticated agent/user.
+ * Supports search, filtering, pagination, and sorting.
+ * Uses the shared documents.getAccessibleDocuments function.
  */
 
-// Persistence provider - set by init function
+const documents = require('../../documents');
+
+// Persistence provider - set by init function (needed for pool access in documents module)
 let persistenceProvider = null;
 
 /**
@@ -13,6 +17,10 @@ let persistenceProvider = null;
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Ensure documents module is initialized with the pool
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
 }
 
 /**
@@ -20,16 +28,71 @@ function init(persistence) {
  */
 const name = 'list_documents';
 
-const description = 'List all documents accessible to the authenticated user';
+const description = `List documents accessible to you with search, filtering, and pagination.
+
+PARAMETERS:
+- search: Search by title (case-insensitive partial match)
+- filter: "owned" | "shared_with_me" | "all" (default: "all")
+- sortBy: "title" | "updatedAt" | "createdAt" (default: "updatedAt")
+- sortOrder: "asc" | "desc" (default: "desc")
+- limit: 1-100 (default: 50)
+- offset: pagination offset (default: 0)
+
+RETURNS:
+- documents: Array of { id, title, url, role, createdAt, updatedAt, shareCount }
+- pagination: { total, limit, offset, hasMore }
+
+EXAMPLES:
+// List all documents
+list_documents()
+
+// Search by title
+list_documents({ search: "project" })
+
+// List owned documents, sorted by title
+list_documents({ filter: "owned", sortBy: "title", sortOrder: "asc" })
+
+// Paginate through results
+list_documents({ limit: 10, offset: 0 })   // Page 1
+list_documents({ limit: 10, offset: 10 })  // Page 2`;
 
 const inputSchema = {
   type: 'object',
   properties: {
+    search: {
+      type: 'string',
+      description: 'Search documents by title (case-insensitive partial match)',
+    },
     filter: {
       type: 'string',
       enum: ['owned', 'shared_with_me', 'all'],
       default: 'all',
-      description: 'Filter documents by ownership: "owned" for documents you own, "shared_with_me" for documents shared with you, "all" for both',
+      description: 'Filter by ownership: "owned", "shared_with_me", or "all"',
+    },
+    sortBy: {
+      type: 'string',
+      enum: ['title', 'updatedAt', 'createdAt'],
+      default: 'updatedAt',
+      description: 'Field to sort by',
+    },
+    sortOrder: {
+      type: 'string',
+      enum: ['asc', 'desc'],
+      default: 'desc',
+      description: 'Sort direction',
+    },
+    limit: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      default: 50,
+      description: 'Maximum number of documents to return (1-100)',
+    },
+    offset: {
+      type: 'integer',
+      minimum: 0,
+      default: 0,
+      description: 'Number of documents to skip for pagination',
     },
   },
 };
@@ -37,95 +100,58 @@ const inputSchema = {
 /**
  * Handler function for the tool
  * @param {object} args - Tool arguments
- * @param {string} args.filter - Filter type ('owned', 'shared_with_me', 'all')
- * @param {object} agentToken - Decoded agent JWT token
- * @returns {Promise<object>} { documents: Array }
+ * @param {object} agentToken - Decoded agent JWT token (includes baseUrl)
+ * @returns {Promise<object>} { documents: Array, pagination: object }
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('list_documents tool not initialized');
 
-  const { filter = 'all' } = args;
+  const {
+    search = null,
+    filter = 'all',
+    sortBy = 'updatedAt',
+    sortOrder = 'desc',
+    limit = 50,
+    offset = 0,
+  } = args;
+
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
+  const baseUrl = agentToken.baseUrl || '';
 
-  let query;
-  const params = [userId];
+  // Use shared function from documents module
+  const { rows, total } = await documents.getAccessibleDocuments(userId, {
+    search,
+    filter,
+    sortBy,
+    sortOrder,
+    limit,
+    offset,
+  });
 
-  if (filter === 'owned') {
-    query = `
-      SELECT
-        d.id,
-        d.created_at,
-        d.updated_at,
-        ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
-      FROM documents d
-      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
-      WHERE ds.role = 'owner'
-      ORDER BY d.updated_at DESC
-    `;
-  } else if (filter === 'shared_with_me') {
-    query = `
-      SELECT
-        d.id,
-        d.created_at,
-        d.updated_at,
-        ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
-      FROM documents d
-      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
-      WHERE ds.role != 'owner'
-      ORDER BY d.updated_at DESC
-    `;
-  } else {
-    // 'all' - return all accessible documents
-    query = `
-      SELECT
-        d.id,
-        d.created_at,
-        d.updated_at,
-        ds.role,
-        (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count
-      FROM documents d
-      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
-      ORDER BY d.updated_at DESC
-    `;
-  }
+  // Validate limit for pagination response
+  const validLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 50));
+  const validOffset = Math.max(0, parseInt(offset, 10) || 0);
 
-  const result = await pool.query(query, params);
+  // Map results to response format
+  const documentList = rows.map((row) => ({
+    id: row.doc_id,
+    title: row.title || null,
+    url: `${baseUrl}/d/${row.doc_id}`,
+    role: row.role,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    shareCount: parseInt(row.share_count, 10),
+  }));
 
-  // Fetch metadata (title) directly from the database for each accessible document
-  // This ensures we're reading from the DB and not relying on any in-memory cache
-  // Use try/catch per document to prevent one failure from crashing the entire list
-  const documents = await Promise.all(
-    result.rows.map(async (row) => {
-      try {
-        const meta = await persistenceProvider.getDocumentMeta(row.id);
-        return {
-          id: row.id,
-          title: meta.title || null,
-          role: row.role,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          shareCount: parseInt(row.share_count, 10),
-        };
-      } catch (err) {
-        // Log error but don't fail the entire list operation
-        console.warn(`Failed to fetch metadata for document ${row.id}:`, err.message);
-        return {
-          id: row.id,
-          title: null,
-          role: row.role,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          shareCount: parseInt(row.share_count, 10),
-          error: true,
-        };
-      }
-    })
-  );
-
-  return { documents };
+  return {
+    documents: documentList,
+    pagination: {
+      total,
+      limit: validLimit,
+      offset: validOffset,
+      hasMore: validOffset + documentList.length < total,
+    },
+  };
 }
 
 module.exports = {

@@ -160,12 +160,53 @@ async function getDocumentUsers(docId) {
 }
 
 /**
- * Get all documents accessible by a user
+ * Get all documents accessible by a user with optional filtering, search, and pagination
  * @param {string} userId - User UUID
- * @returns {Promise<Array<object>>} Array of document records with role
+ * @param {object} options - Query options
+ * @param {string} options.search - Search by title (case-insensitive partial match)
+ * @param {string} options.filter - Filter by role: 'owned', 'shared_with_me', or 'all'
+ * @param {string} options.sortBy - Sort field: 'title', 'updatedAt', 'createdAt'
+ * @param {string} options.sortOrder - Sort direction: 'asc' or 'desc'
+ * @param {number} options.limit - Max results (1-100)
+ * @param {number} options.offset - Pagination offset
+ * @returns {Promise<object>} { rows: Array, total: number }
  */
-async function getAccessibleDocuments(userId) {
+async function getAccessibleDocuments(userId, options = {}) {
   if (!pool) throw new Error('Documents module not initialized');
+
+  const {
+    search = null,
+    filter = 'all',
+    sortBy = 'updatedAt',
+    sortOrder = 'desc',
+    limit = null,
+    offset = 0,
+  } = options;
+
+  // Validate and sanitize inputs
+  const validSortBy = ['title', 'updatedAt', 'createdAt'].includes(sortBy) ? sortBy : 'updatedAt';
+  const validSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  const validLimit = limit ? Math.max(1, Math.min(100, parseInt(limit, 10) || 100)) : null;
+  const validOffset = Math.max(0, parseInt(offset, 10) || 0);
+
+  // Map sortBy to SQL column names
+  const sortColumnMap = {
+    title: 'd.title',
+    updatedAt: 'd.updated_at',
+    createdAt: 'd.created_at',
+  };
+  const sortColumn = sortColumnMap[validSortBy];
+
+  // Build the WHERE clause for role filter
+  let roleCondition = '';
+  if (filter === 'owned') {
+    roleCondition = "AND ds.role = 'owner'";
+  } else if (filter === 'shared_with_me') {
+    roleCondition = "AND ds.role != 'owner'";
+  }
+
+  // Build pagination clause
+  const paginationClause = validLimit ? `LIMIT ${validLimit} OFFSET ${validOffset}` : '';
 
   const result = await pool.query(
     `SELECT
@@ -177,16 +218,23 @@ async function getAccessibleDocuments(userId) {
        owner_share.user_id as owner_id,
        owner_user.name as owner_name,
        owner_user.email as owner_email,
-       (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count
+       (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id) as share_count,
+       COUNT(*) OVER() as total_count
      FROM documents d
      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ORDER BY d.updated_at DESC`,
-    [userId]
+     WHERE ($2::text IS NULL OR d.title ILIKE '%' || $2 || '%')
+     ${roleCondition}
+     ORDER BY ${sortColumn} ${validSortOrder} NULLS LAST
+     ${paginationClause}`,
+    [userId, search]
   );
 
-  return result.rows;
+  // Extract total count from first row (or 0 if no results)
+  const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;
+
+  return { rows: result.rows, total };
 }
 
 /**

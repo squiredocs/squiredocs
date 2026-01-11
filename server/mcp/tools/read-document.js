@@ -7,6 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { xpath } = require('../sandbox/xpath');
+const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require('../yjs/cursor-operations');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -110,23 +111,6 @@ const inputSchema = {
   },
   required: ['docGuid'],
 };
-
-/**
- * Count characters in a node tree
- */
-function countChars(node) {
-  if (node instanceof Y.XmlText) {
-    return node.length;
-  }
-  if (node instanceof Y.XmlElement || node instanceof Y.XmlFragment) {
-    let count = 0;
-    for (const child of node.toArray()) {
-      count += countChars(child);
-    }
-    return count;
-  }
-  return 0;
-}
 
 /**
  * Extract text with formatting marks from a Y.XmlText node
@@ -287,6 +271,46 @@ async function handler(args, agentToken) {
     nodes = allBlocks;
   }
 
+  // Highlight the nodes being read
+  if (nodes.length > 0) {
+    try {
+      const positions = [];
+
+      if (xpathExpr) {
+        // XPath query: cycle through each matched element
+        for (const node of nodes) {
+          const path = getNodePath(xmlFragment, node);
+          if (path) {
+            const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+            const head = createCursorPositionFromPath(xmlFragment, path, getNodeTextLength(node));
+            if (anchor && head) {
+              positions.push({ anchor, head });
+            }
+          }
+        }
+      } else {
+        // Full document read: expanding selection from start toward end
+        const anchor = createCursorPositionFromPath(xmlFragment, [0], 0);
+        const numChunks = Math.min(5, Math.max(3, Math.ceil(nodes.length / 4)));
+
+        for (let i = 1; i <= numChunks; i++) {
+          const endBlock = Math.min(Math.ceil(i * nodes.length / numChunks), nodes.length) - 1;
+          const head = createCursorPositionFromPath(xmlFragment, [endBlock], getNodeTextLength(nodes[endBlock]));
+          if (anchor && head) {
+            positions.push({ anchor, head });
+          }
+        }
+      }
+
+      if (positions.length > 0) {
+        agentPresence.queueHighlightSequence(session.sessionId, positions);
+      }
+    } catch (err) {
+      // Non-fatal: log but don't fail the read
+      console.warn('[read-document] Could not highlight selection:', err.message);
+    }
+  }
+
   // Serialize based on format
   let content;
   if (format === 'text') {
@@ -296,7 +320,7 @@ async function handler(args, agentToken) {
   }
 
   // Count characters in results
-  const characterCount = nodes.reduce((sum, node) => sum + countChars(node), 0);
+  const characterCount = nodes.reduce((sum, node) => sum + getNodeTextLength(node), 0);
 
   const result = {
     content,

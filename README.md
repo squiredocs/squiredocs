@@ -249,10 +249,6 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 - `share_document` - Share with users and set permissions
 - `set_document_title` - Update document titles
 
-**Session Management:**
-- `open_document` - Initialize session on a document
-- `close_document` - End session and remove presence
-
 **Reading:**
 - `read_document` - Read document with optional XPath filtering
 - `get_collaborators` - See who else is editing
@@ -309,10 +305,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 // 1. Create a new document with a title
 const { docGuid } = await create_document({ title: "My Document" });
 
-// 2. Open document (establishes session)
-await open_document({ docGuid });
-
-// 3. Execute script to add content
+// 2. Execute script to add content (session is created automatically)
 await modify({
   docGuid,
   script: `
@@ -361,9 +354,6 @@ await modify({
     }
   `
 });
-
-// 4. Close when done
-await close_document({ docGuid });
 
 // Natural language examples with modify:
 "Find all TODO items and make them bold"

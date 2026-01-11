@@ -141,6 +141,12 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
   });
 
   afterAll(async () => {
+    // Clear agent sessions for test user to close WebSocket connections
+    agentPresence.clearUserSessions(testUserId);
+
+    // Give sessions time to close
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     // Clean up test data
     await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [testDocGuid]);
     await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [testDocGuid]);
@@ -156,7 +162,7 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
     // Cleanup persistence
     await persistence.destroy();
-  });
+  }, 15000); // Increase timeout for cleanup
 
   describe('Create Document Workflow', () => {
     test('BUG REPRO: Single H1 heading should NOT be duplicated', async () => {
@@ -172,10 +178,8 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
       // Step 1: Create a new document
       const createDoc = toolRegistry.getTool('create_document');
-      const openDoc = toolRegistry.getTool('open_document');
       const modify = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
-      const closeDoc = toolRegistry.getTool('close_document');
 
       const createResult = await createDoc.handler(
         { title: 'H1 Duplication Test' },
@@ -195,14 +199,7 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
         [newDocGuid, testUserId, 'owner']
       );
 
-      // Step 2: Open the document
-      const openResult = await openDoc.handler(
-        { docGuid: newDocGuid, position: 'start' },
-        mockAgentToken
-      );
-      expect(openResult.success).toBe(true);
-      console.log('✓ Opened document');
-      console.log(`  Initial blockCount: ${openResult.documentInfo.blockCount}`);
+      console.log('✓ Document ready for editing');
 
       // Step 3: Add SINGLE H1 heading (minimal reproduce case)
       const script = `
@@ -246,25 +243,20 @@ export default function edit(doc) {
       expect(readResult.content[0].content).toBe('H1 Duplication Test Heading');
 
       // Cleanup
-      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
       await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
       console.log('✓ Cleaned up test document');
     }, 30000);
 
-    test('BUG REPRO: Rapid open+modify should not cause duplicates', async () => {
-      // This test simulates a race condition by calling open_document
-      // and modify in rapid succession, without waiting for the session
-      // to be fully established.
+    test('Rapid modify calls should not cause duplicates', async () => {
+      // This test simulates calling modify multiple times in rapid succession
 
-      console.log('\n=== BUG REPRO: Rapid open+modify race condition ===');
+      console.log('\n=== Rapid modify calls test ===');
 
       const createDoc = toolRegistry.getTool('create_document');
-      const openDoc = toolRegistry.getTool('open_document');
       const modify = toolRegistry.getTool('modify');
       const readDoc = toolRegistry.getTool('read_document');
-      const closeDoc = toolRegistry.getTool('close_document');
 
       const createResult = await createDoc.handler(
         { title: 'Rapid Test' },
@@ -283,8 +275,7 @@ export default function edit(doc) {
         [newDocGuid, testUserId, 'owner']
       );
 
-      // Call open_document and modify in rapid succession
-      // This simulates the MCP client calling tools quickly
+      // Call modify to add a heading
       const script = `
 export default function edit(doc) {
   const heading = new Y.XmlElement('heading');
@@ -296,28 +287,14 @@ export default function edit(doc) {
 }
 `;
 
-      // Start both operations - open_document first but don't await
-      console.log('Starting open_document...');
-      const openPromise = openDoc.handler(
-        { docGuid: newDocGuid, position: 'start' },
-        mockAgentToken
-      );
-
-      // Wait just 10ms then call modify
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      console.log('Starting modify (while open might still be connecting)...');
-      const modifyPromise = modify.handler(
+      console.log('Starting modify...');
+      const modifyResult = await modify.handler(
         { docGuid: newDocGuid, script },
         mockAgentToken
       );
 
-      // Now await both
-      const [openResult, modifyResult] = await Promise.all([openPromise, modifyPromise]);
-
-      expect(openResult.success).toBe(true);
       expect(modifyResult.success).toBe(true);
-      console.log(`✓ Both operations completed`);
+      console.log(`✓ modify completed`);
 
       // Verify document structure
       const readResult = await readDoc.handler(
@@ -334,14 +311,13 @@ export default function edit(doc) {
       expect(readResult.content).toHaveLength(1);
 
       // Cleanup
-      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
       await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
       console.log('✓ Cleaned up test document');
     }, 30000);
 
-    test('Complete workflow: create document with title, open, add content via modify, verify, close', async () => {
+    test('Complete workflow: create document with title, add content via modify, verify', async () => {
       // Step 1: Create a new document with a title
       console.log('\n=== Step 1: Create document with title ===');
       const createDoc = toolRegistry.getTool('create_document');
@@ -373,27 +349,8 @@ export default function edit(doc) {
         [newDocGuid, testUserId, 'owner']
       );
 
-      // Step 2: Open the newly created document
-      console.log('\n=== Step 2: Open the new document ===');
-      const openDoc = toolRegistry.getTool('open_document');
-      expect(openDoc).toBeDefined();
-
-      result = await openDoc.handler(
-        {
-          docGuid: newDocGuid,
-          position: 'start',
-        },
-        mockAgentToken
-      );
-
-      expect(result).toBeDefined();
-      expect(result.success).toBe(true);
-      expect(result.documentInfo).toBeDefined();
-      expect(result.documentInfo.title).toBe('AI-Created Document');
-      console.log('✓ Step 2: open_document succeeded');
-
-      // Step 3: Add content via modify
-      console.log('\n=== Step 3: Add content via modify ===');
+      // Step 2: Add content via modify (session is created automatically)
+      console.log('\n=== Step 2: Add content via modify ===');
       const modify = toolRegistry.getTool('modify');
       expect(modify).toBeDefined();
 
@@ -442,11 +399,11 @@ export default function edit(doc) {
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
       expect(result.operationCount).toBeGreaterThan(0);
-      console.log('✓ Step 3: modify succeeded');
+      console.log('✓ Step 2: modify succeeded');
       console.log(`  Operations: ${result.operationCount}`);
 
-      // Step 4: Verify document content
-      console.log('\n=== Step 4: Verify document content ===');
+      // Step 3: Verify document content
+      console.log('\n=== Step 3: Verify document content ===');
       const readDoc = toolRegistry.getTool('read_document');
       expect(readDoc).toBeDefined();
 
@@ -464,25 +421,9 @@ export default function edit(doc) {
       expect(result.content).toContain('First item');
       expect(result.content).toContain('Second item');
       expect(result.content).toContain('Third item');
-      console.log('✓ Step 4: Document content verified');
+      console.log('✓ Step 3: Document content verified');
       console.log('\nFinal document content:');
       console.log(result.content);
-
-      // Step 5: Close document
-      console.log('\n=== Step 5: Close document ===');
-      const closeDoc = toolRegistry.getTool('close_document');
-      expect(closeDoc).toBeDefined();
-
-      result = await closeDoc.handler(
-        {
-          docGuid: newDocGuid,
-        },
-        mockAgentToken
-      );
-
-      expect(result).toBeDefined();
-      expect(result.success).toBe(true);
-      console.log('✓ Step 5: close_document succeeded');
 
       // Cleanup the created document
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
@@ -511,10 +452,8 @@ export default function edit(doc) {
       await pool.query('DELETE FROM documents WHERE id = $1', [result.docGuid]);
     }, 10000);
 
-    test('create_document sets title in Yjs metadata', async () => {
+    test('create_document sets title in database', async () => {
       const createDoc = toolRegistry.getTool('create_document');
-      const openDoc = toolRegistry.getTool('open_document');
-      const closeDoc = toolRegistry.getTool('close_document');
 
       const result = await createDoc.handler(
         { title: 'Metadata Title Test' },
@@ -523,27 +462,20 @@ export default function edit(doc) {
 
       const newDocGuid = result.docGuid;
 
+      // Verify title is returned correctly
+      expect(result.title).toBe('Metadata Title Test');
+
       // Wait for persistence to complete
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Add share for access
-      await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
-        [newDocGuid, testUserId, 'owner']
+      // Verify title is stored in database
+      const dbResult = await pool.query(
+        'SELECT title FROM documents WHERE id = $1',
+        [newDocGuid]
       );
+      expect(dbResult.rows[0].title).toBe('Metadata Title Test');
 
-      // Open document to verify title is in metadata
-      const openResult = await openDoc.handler(
-        { docGuid: newDocGuid },
-        mockAgentToken
-      );
-
-      expect(openResult.documentInfo.title).toBe('Metadata Title Test');
-
-      // Close and cleanup
-      await closeDoc.handler({ docGuid: newDocGuid }, mockAgentToken);
+      // Cleanup
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
       await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
@@ -551,49 +483,58 @@ export default function edit(doc) {
   });
 
   describe('Bug Report Workflow', () => {
-    test('Complete workflow: open, modify (insert text + block), verify, close', async () => {
-      let sessionId;
-
-      // Step 1: Open document
-      console.log('\n=== Step 1: Open document ===');
-      const openDoc = toolRegistry.getTool('open_document');
-      expect(openDoc).toBeDefined();
-
-      let result = await openDoc.handler(
-        {
-          docGuid: testDocGuid,
-          position: 'end',
-        },
+    test('Complete workflow: modify (insert text + block), verify', async () => {
+      // Create a fresh document for this test
+      const createDoc = toolRegistry.getTool('create_document');
+      const createResult = await createDoc.handler(
+        { title: 'Bug Report Test Doc' },
         mockAgentToken
       );
+      const bugTestDocGuid = createResult.docGuid;
 
-      expect(result).toBeDefined();
-      expect(result.success).toBe(true);
-      expect(result.documentInfo).toBeDefined();
-      expect(result.documentInfo.title).toBe('Playground');
-      expect(result.sessionId).toBeDefined();
-      expect(result.cursor).toBeDefined();
-
-      sessionId = result.sessionId;
-      console.log('✓ Step 1: open_document succeeded');
-
-      // Wait for WebSocket sync to complete (document content is loaded asynchronously)
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Step 2: Execute script to add text and create ordered list
-      console.log('\n=== Step 2: Execute script to add text and ordered list ===');
+      // Add share for test user
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [bugTestDocGuid, testUserId, 'owner']
+      );
+
+      // Step 1: Add initial content
+      console.log('\n=== Step 1: Add initial paragraph ===');
       const executeScript = toolRegistry.getTool('modify');
       expect(executeScript).toBeDefined();
+
+      const initScript = `
+export default function edit(doc) {
+  const paragraph = new Y.XmlElement('paragraph');
+  const text = new Y.XmlText();
+  text.insert(0, 'Come join me in the playground!');
+  paragraph.insert(0, [text]);
+  doc.insert(0, [paragraph]);
+}
+`;
+
+      let result = await executeScript.handler(
+        { docGuid: bugTestDocGuid, script: initScript },
+        mockAgentToken
+      );
+      expect(result.success).toBe(true);
+      console.log('✓ Step 1: Initial content added');
+
+      // Step 2: Execute script to add text and create ordered list
+      console.log('\n=== Step 2: Add text and ordered list ===');
 
       const script = `
 export default function edit(doc) {
   // Get the first paragraph (containing "Come join me in the playground!")
-  // Use toArray() to access children - this is the standard Yjs API for XmlFragment
   const blocks = doc.toArray();
   const firstParagraph = blocks[0];
   const firstText = firstParagraph.toArray()[0];
 
-  // Add text to the end: "\\n\\nHere are some fun activities:"
+  // Add text to the end
   const currentLength = firstText.length;
   firstText.insert(currentLength, '\\n\\nHere are some fun activities:');
 
@@ -609,10 +550,7 @@ export default function edit(doc) {
 `;
 
       result = await executeScript.handler(
-        {
-          docGuid: testDocGuid,
-          script,
-        },
+        { docGuid: bugTestDocGuid, script },
         mockAgentToken
       );
 
@@ -630,10 +568,7 @@ export default function edit(doc) {
       expect(readDoc).toBeDefined();
 
       result = await readDoc.handler(
-        {
-          docGuid: testDocGuid,
-          format: 'text',
-        },
+        { docGuid: bugTestDocGuid, format: 'text' },
         mockAgentToken
       );
 
@@ -647,46 +582,16 @@ export default function edit(doc) {
       console.log('\nFinal document content:');
       console.log(result.content);
 
-      // Step 4: Close document
-      console.log('\n=== Step 4: Close document ===');
-      const closeDoc = toolRegistry.getTool('close_document');
-      expect(closeDoc).toBeDefined();
-
-      result = await closeDoc.handler(
-        {
-          docGuid: testDocGuid,
-        },
-        mockAgentToken
-      );
-
-      expect(result).toBeDefined();
-      expect(result.success).toBe(true);
-
-      console.log('✓ Step 4: close_document succeeded');
+      // Cleanup
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [bugTestDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [bugTestDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [bugTestDocGuid]);
     }, 60000); // Increased timeout for full workflow
   });
 
   describe('Additional Write Operations', () => {
-    let sessionId;
-
-    beforeEach(async () => {
-      // Open document before each test
-      const openDoc = toolRegistry.getTool('open_document');
-      const result = await openDoc.handler(
-        {
-          docGuid: testDocGuid,
-          position: 'start',
-        },
-        mockAgentToken
-      );
-      sessionId = result.sessionId;
-    });
-
-    afterEach(async () => {
-      // Close document after each test
-      const closeDoc = toolRegistry.getTool('close_document');
-      await closeDoc.handler({ docGuid: testDocGuid }, mockAgentToken);
-    });
+    // Sessions are created automatically by modify/read_document - no setup needed
+    // Sessions auto-expire after 5 minutes
 
     test('modify: append text to existing paragraph', async () => {
       const executeScript = toolRegistry.getTool('modify');

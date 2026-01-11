@@ -22,8 +22,6 @@ describe('Tool Module Smoke Tests', () => {
     'set-document-title',
 
     // Session and reading tools
-    'open-document',
-    'close-document',
     'read-document',
     'get-collaborators',
     'undo',
@@ -180,8 +178,6 @@ describe('Tool Registry Integration', () => {
       'share_document',
       'set_document_title',
       // Session and reading tools
-      'open_document',
-      'close_document',
       'read_document',
       'get_collaborators',
       'undo',
@@ -211,10 +207,10 @@ describe('Tool Registry Integration', () => {
     expect(createTool).toBeDefined();
     expect(createTool.name).toBe('create_document');
 
-    // Test session tool
-    const openTool = toolRegistry.getTool('open_document');
-    expect(openTool).toBeDefined();
-    expect(openTool.name).toBe('open_document');
+    // Test reading tool
+    const readTool = toolRegistry.getTool('read_document');
+    expect(readTool).toBeDefined();
+    expect(readTool.name).toBe('read_document');
 
     // Test document modification tool
     const modifyTool = toolRegistry.getTool('modify');

@@ -120,7 +120,7 @@ describe('Document Titles', () => {
         ['My Test Document', testDocId]
       );
 
-      const docs = await documents.getAccessibleDocuments(testUserId);
+      const { rows: docs } = await documents.getAccessibleDocuments(testUserId);
       const doc = docs.find(d => d.doc_id === testDocId);
 
       expect(doc).toBeDefined();
@@ -128,7 +128,7 @@ describe('Document Titles', () => {
     });
 
     test('includes null title for documents without titles', async () => {
-      const docs = await documents.getAccessibleDocuments(testUserId);
+      const { rows: docs } = await documents.getAccessibleDocuments(testUserId);
       const doc = docs.find(d => d.doc_id === testDocId);
 
       expect(doc).toBeDefined();
@@ -146,7 +146,7 @@ describe('Document Titles', () => {
       await pool.query('UPDATE documents SET title = $1 WHERE id = $2', ['Doc 2', doc2Id]);
       await pool.query('UPDATE documents SET title = $1 WHERE id = $2', ['Doc 3', doc3Id]);
 
-      const docs = await documents.getAccessibleDocuments(testUserId);
+      const { rows: docs } = await documents.getAccessibleDocuments(testUserId);
 
       expect(docs.length).toBeGreaterThanOrEqual(3);
 
@@ -271,7 +271,7 @@ describe('Document Titles', () => {
       await pool.query('UPDATE documents SET title = $1 WHERE id = $2', ['Fast Title', testDocId]);
 
       const startTime = Date.now();
-      const docs = await documents.getAccessibleDocuments(testUserId);
+      const { rows: docs } = await documents.getAccessibleDocuments(testUserId);
       const endTime = Date.now();
 
       const doc = docs.find(d => d.doc_id === testDocId);

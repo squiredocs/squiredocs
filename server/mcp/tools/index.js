@@ -11,8 +11,6 @@ const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 
 // Session and reading tools
-const openDocument = require('./open-document');
-const closeDocument = require('./close-document');
 const readDocument = require('./read-document');
 const getCollaborators = require('./get-collaborators');
 const undo = require('./undo');
@@ -32,8 +30,6 @@ const tools = {
   set_document_title: setDocumentTitle,
 
   // Session and reading tools
-  open_document: openDocument,
-  close_document: closeDocument,
   read_document: readDocument,
   get_collaborators: getCollaborators,
   undo: undo,
