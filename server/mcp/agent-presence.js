@@ -439,7 +439,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   // CRITICAL: Check if there's already a session creation in progress
   // This prevents race conditions when multiple tools are called concurrently
-  // (e.g., open_document followed immediately by modify)
+  // (e.g., multiple modify calls in rapid succession)
   if (pendingSessionCreations.has(existingSessionKey)) {
     console.log(`[agent-presence] getOrCreateSession: Session creation already in progress for ${userName} in ${docGuid}, waiting...`);
 

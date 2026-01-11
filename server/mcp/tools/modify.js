@@ -1016,8 +1016,7 @@ async function handler(args, agentToken) {
   const validatedTimeout = Math.max(100, Math.min(30000, timeout));
 
   // Get or create session (establishes WebSocket presence)
-  // Use 5 minute timeout to match open_document
-  // This ensures cursor persists across multiple modify calls
+  // Use 5 minute timeout to ensure cursor persists across multiple modify calls
   const session = await agentPresence.getOrCreateSession(
     docGuid,
     agentToken,

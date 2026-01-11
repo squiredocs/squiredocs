@@ -30,16 +30,15 @@ const name = 'create_document';
 
 const description = `Create a new document with a title.
 
-After creation, use open_document then add content INCREMENTALLY via multiple modify calls.
+After creation, add content INCREMENTALLY via multiple modify calls.
+Sessions are created automatically when you call modify or read_document.
 
 RECOMMENDED WORKFLOW:
 1. create_document({ title: "My Doc" })     → Creates empty document
-2. open_document({ docGuid })               → Establishes editing session
-3. modify({ script: "add heading..." })     → Add title/heading first
-4. modify({ script: "add intro..." })       → Add introduction paragraph
-5. modify({ script: "add section 1..." })   → Add first section
-6. modify({ script: "add section 2..." })   → Add next section
-7. close_document({ docGuid })              → End session
+2. modify({ script: "add heading..." })     → Add title/heading first
+3. modify({ script: "add intro..." })       → Add introduction paragraph
+4. modify({ script: "add section 1..." })   → Add first section
+5. modify({ script: "add section 2..." })   → Add next section
 
 WHY INCREMENTAL:
 - User sees content appear progressively (better UX)
