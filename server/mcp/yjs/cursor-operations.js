@@ -710,6 +710,51 @@ function getSiblingIndex(path) {
   return path[path.length - 1];
 }
 
+/**
+ * Get the path from document root to a Yjs node
+ * @param {Y.XmlFragment} root - Document root
+ * @param {Y.XmlElement|Y.XmlText} target - Target node to find
+ * @returns {number[]|null} - Array of indices representing path, or null if not found
+ */
+function getNodePath(root, target) {
+  const queue = [{ node: root, path: [] }];
+
+  while (queue.length > 0) {
+    const { node, path } = queue.shift();
+
+    if (typeof node.toArray === 'function') {
+      const children = node.toArray();
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const childPath = [...path, i];
+
+        if (child === target) {
+          return childPath;
+        }
+
+        queue.push({ node: child, path: childPath });
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the total text length of a Yjs node (recursive)
+ * @param {Y.XmlElement|Y.XmlText|Y.XmlFragment} node - Node to measure
+ * @returns {number} - Total character count
+ */
+function getNodeTextLength(node) {
+  if (node instanceof Y.XmlText) {
+    return node.length;
+  }
+  if (typeof node.toArray === 'function') {
+    return node.toArray().reduce((sum, child) => sum + getNodeTextLength(child), 0);
+  }
+  return 0;
+}
+
 // Helper functions
 
 function getBlockTextLength(block) {
@@ -832,4 +877,7 @@ module.exports = {
   resolveCursorPositionToPath,
   getParentPath,
   getSiblingIndex,
+  // Node utilities (shared with executor.js)
+  getNodePath,
+  getNodeTextLength,
 };

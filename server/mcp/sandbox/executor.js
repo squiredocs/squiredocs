@@ -16,56 +16,7 @@ const Y = require('yjs');
 const { wrapForTracking } = require('./yjs-interceptor');
 const helpers = require('./helpers');
 const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
-const { createCursorPositionFromPath } = require('../yjs/cursor-operations');
-
-/**
- * Get the path from document root to a Yjs node
- * @param {Y.XmlFragment} root - Document root
- * @param {Y.XmlElement|Y.XmlText} target - Target node to find
- * @returns {number[]|null} - Array of indices representing path, or null if not found
- */
-function getNodePath(root, target) {
-  // Breadth-first search to find the node and build path
-  const queue = [{ node: root, path: [] }];
-
-  while (queue.length > 0) {
-    const { node, path } = queue.shift();
-
-    // Check if this node has children
-    if (typeof node.toArray === 'function') {
-      const children = node.toArray();
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const childPath = [...path, i];
-
-        // Check if this is the target
-        if (child === target) {
-          return childPath;
-        }
-
-        // Add to queue to search children
-        queue.push({ node: child, path: childPath });
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
- * Get the total text length of a Yjs node (recursive)
- * @param {Y.XmlElement|Y.XmlText|Y.XmlFragment} node - Node to measure
- * @returns {number} - Total character count
- */
-function getNodeTextLength(node) {
-  if (node instanceof Y.XmlText) {
-    return node.length;
-  }
-  if (typeof node.toArray === 'function') {
-    return node.toArray().reduce((sum, child) => sum + getNodeTextLength(child), 0);
-  }
-  return 0;
-}
+const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require('../yjs/cursor-operations');
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment

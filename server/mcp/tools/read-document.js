@@ -7,6 +7,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { xpath } = require('../sandbox/xpath');
+const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require('../yjs/cursor-operations');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -110,23 +111,6 @@ const inputSchema = {
   },
   required: ['docGuid'],
 };
-
-/**
- * Count characters in a node tree
- */
-function countChars(node) {
-  if (node instanceof Y.XmlText) {
-    return node.length;
-  }
-  if (node instanceof Y.XmlElement || node instanceof Y.XmlFragment) {
-    let count = 0;
-    for (const child of node.toArray()) {
-      count += countChars(child);
-    }
-    return count;
-  }
-  return 0;
-}
 
 /**
  * Extract text with formatting marks from a Y.XmlText node
@@ -287,6 +271,30 @@ async function handler(args, agentToken) {
     nodes = allBlocks;
   }
 
+  // Highlight the nodes being read
+  if (nodes.length > 0) {
+    try {
+      const positions = [];
+      for (const node of nodes) {
+        const path = getNodePath(xmlFragment, node);
+        if (path) {
+          const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+          const textLength = getNodeTextLength(node);
+          const head = createCursorPositionFromPath(xmlFragment, path, textLength);
+          if (anchor && head) {
+            positions.push({ anchor, head });
+          }
+        }
+      }
+      if (positions.length > 0) {
+        agentPresence.queueHighlightSequence(session.sessionId, positions);
+      }
+    } catch (err) {
+      // Non-fatal: log but don't fail the read
+      console.warn('[read-document] Could not highlight selection:', err.message);
+    }
+  }
+
   // Serialize based on format
   let content;
   if (format === 'text') {
@@ -296,7 +304,7 @@ async function handler(args, agentToken) {
   }
 
   // Count characters in results
-  const characterCount = nodes.reduce((sum, node) => sum + countChars(node), 0);
+  const characterCount = nodes.reduce((sum, node) => sum + getNodeTextLength(node), 0);
 
   const result = {
     content,
