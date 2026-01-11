@@ -26,7 +26,7 @@ const DEFAULT_PRESENCE_DURATION = 60; // 1 minute
 const DEFAULT_SELECTION_DURATION_MS = 10000; // 10 seconds
 
 // Maximum number of highlights to queue (keeps last N to prevent unbounded growth)
-const MAX_HIGHLIGHT_QUEUE_SIZE = 20;
+const MAX_HIGHLIGHT_QUEUE_SIZE = 100;
 
 /**
  * Initialize the agent presence manager with a persistence provider
