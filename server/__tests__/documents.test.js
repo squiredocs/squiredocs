@@ -225,20 +225,20 @@ describe('Documents module', () => {
     test('returns documents user has access to', async () => {
       await documents.createDocument(testDocId, testUserId);
       await documents.setRole(testDocId, testUser2Id, 'editor');
-      
-      const docsForUser1 = await documents.getAccessibleDocuments(testUserId);
-      const docsForUser2 = await documents.getAccessibleDocuments(testUser2Id);
-      
+
+      const { rows: docsForUser1 } = await documents.getAccessibleDocuments(testUserId);
+      const { rows: docsForUser2 } = await documents.getAccessibleDocuments(testUser2Id);
+
       expect(docsForUser1.some(d => d.doc_id === testDocId)).toBe(true);
       expect(docsForUser2.some(d => d.doc_id === testDocId)).toBe(true);
     });
 
     test('includes role information', async () => {
       await documents.createDocument(testDocId, testUserId);
-      
-      const docs = await documents.getAccessibleDocuments(testUserId);
+
+      const { rows: docs } = await documents.getAccessibleDocuments(testUserId);
       const doc = docs.find(d => d.doc_id === testDocId);
-      
+
       expect(doc.role).toBe('owner');
     });
   });

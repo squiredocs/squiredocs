@@ -3,9 +3,12 @@
  *
  * Lists all documents accessible to the authenticated agent/user.
  * Supports search, filtering, pagination, and sorting.
+ * Uses the shared documents.getAccessibleDocuments function.
  */
 
-// Persistence provider - set by init function
+const documents = require('../../documents');
+
+// Persistence provider - set by init function (needed for pool access in documents module)
 let persistenceProvider = null;
 
 /**
@@ -14,6 +17,10 @@ let persistenceProvider = null;
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Ensure documents module is initialized with the pool
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
 }
 
 /**
@@ -110,59 +117,26 @@ async function handler(args, agentToken) {
 
   const userId = agentToken.userId;
   const baseUrl = agentToken.baseUrl || '';
-  const pool = persistenceProvider.getPool();
 
-  // Validate and sanitize inputs
-  const validSortBy = ['title', 'updatedAt', 'createdAt'].includes(sortBy) ? sortBy : 'updatedAt';
-  const validSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  // Use shared function from documents module
+  const { rows, total } = await documents.getAccessibleDocuments(userId, {
+    search,
+    filter,
+    sortBy,
+    sortOrder,
+    limit,
+    offset,
+  });
+
+  // Validate limit for pagination response
   const validLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 50));
   const validOffset = Math.max(0, parseInt(offset, 10) || 0);
 
-  // Map sortBy to SQL column names
-  const sortColumnMap = {
-    title: 'd.title',
-    updatedAt: 'd.updated_at',
-    createdAt: 'd.created_at',
-  };
-  const sortColumn = sortColumnMap[validSortBy];
-
-  // Build the WHERE clause for role filter
-  let roleCondition = '';
-  if (filter === 'owned') {
-    roleCondition = "AND ds.role = 'owner'";
-  } else if (filter === 'shared_with_me') {
-    roleCondition = "AND ds.role != 'owner'";
-  }
-  // 'all' has no additional condition
-
-  // Build the query with search, filter, sort, and pagination
-  const query = `
-    SELECT
-      d.id,
-      d.title,
-      d.created_at,
-      d.updated_at,
-      ds.role,
-      (SELECT COUNT(*) FROM document_shares WHERE doc_id = d.id AND role != 'owner') as share_count,
-      COUNT(*) OVER() as total_count
-    FROM documents d
-    JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
-    WHERE ($2::text IS NULL OR d.title ILIKE '%' || $2 || '%')
-    ${roleCondition}
-    ORDER BY ${sortColumn} ${validSortOrder} NULLS LAST
-    LIMIT $3 OFFSET $4
-  `;
-
-  const result = await pool.query(query, [userId, search, validLimit, validOffset]);
-
-  // Extract total count from first row (or 0 if no results)
-  const totalCount = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;
-
   // Map results to response format
-  const documents = result.rows.map((row) => ({
-    id: row.id,
+  const documentList = rows.map((row) => ({
+    id: row.doc_id,
     title: row.title || null,
-    url: `${baseUrl}/d/${row.id}`,
+    url: `${baseUrl}/d/${row.doc_id}`,
     role: row.role,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -170,12 +144,12 @@ async function handler(args, agentToken) {
   }));
 
   return {
-    documents,
+    documents: documentList,
     pagination: {
-      total: totalCount,
+      total,
       limit: validLimit,
       offset: validOffset,
-      hasMore: validOffset + documents.length < totalCount,
+      hasMore: validOffset + documentList.length < total,
     },
   };
 }

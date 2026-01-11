@@ -75,7 +75,7 @@ describe('API: /api/docs', () => {
         const userId = req.user.userId;
 
         // Get documents the user has access to with their role
-        const accessibleDocs = await documents.getAccessibleDocuments(userId);
+        const { rows: accessibleDocs } = await documents.getAccessibleDocuments(userId);
 
         // Transform to response format
         const docs = accessibleDocs.map((doc) => ({
@@ -87,9 +87,6 @@ describe('API: /api/docs', () => {
           ownerEmail: doc.owner_email,
           shareCount: parseInt(doc.share_count, 10) || 0,
         }));
-
-        // Sort by updatedAt descending
-        docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
         res.json({ docs });
       } catch (error) {

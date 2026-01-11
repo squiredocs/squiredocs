@@ -36,22 +36,54 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareDocId, setShareDocId] = useState(null);
   const [shareDocTitle, setShareDocTitle] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState('all');
   const menuRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
     document.title = 'Documents - HeroDocs';
     fetchDocs();
-    
+
     return () => {
       document.title = 'HeroDocs';
     };
   }, []);
 
+  // Debounced search effect
+  useEffect(() => {
+    // Clear any existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Debounce search requests by 300ms
+    searchTimeoutRef.current = setTimeout(() => {
+      fetchDocs();
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, filter]);
+
   const fetchDocs = async () => {
     try {
-      setLoading(true);
+      // Build query params
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) {
+        params.set('search', searchQuery.trim());
+      }
+      if (filter !== 'all') {
+        params.set('filter', filter);
+      }
+      const queryString = params.toString();
+      const url = queryString ? `/api/docs?${queryString}` : '/api/docs';
+
       // Use the authenticated API client
-      const response = await api.get('/api/docs');
+      const response = await api.get(url);
       setDocs(response.data.docs || []);
     } catch (err) {
       console.error('Error fetching docs:', err);
@@ -248,18 +280,66 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
         </div>
       </header>
 
-      <button className="new-doc-btn" onClick={handleCreateNew} disabled={creating}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        {creating ? 'Creating...' : 'New document'}
-      </button>
+      <div className="doc-list-toolbar">
+        <button className="new-doc-btn" onClick={handleCreateNew} disabled={creating}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          {creating ? 'Creating...' : 'New document'}
+        </button>
+
+        <div className="doc-list-search-filter">
+          <div className="doc-list-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search documents..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className="doc-list-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            )}
+          </div>
+
+          <select
+            className="doc-list-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          >
+            <option value="all">All documents</option>
+            <option value="owned">Owned by me</option>
+            <option value="shared_with_me">Shared with me</option>
+          </select>
+        </div>
+      </div>
 
       {docs.length === 0 ? (
         <div className="doc-list-empty">
-          <p>No documents yet.</p>
-          <p>Click "New document" above to create your first one!</p>
+          {searchQuery || filter !== 'all' ? (
+            <>
+              <p>No documents found.</p>
+              <p>Try adjusting your search or filter.</p>
+            </>
+          ) : (
+            <>
+              <p>No documents yet.</p>
+              <p>Click "New document" above to create your first one!</p>
+            </>
+          )}
         </div>
       ) : (
         <ul className="doc-list">

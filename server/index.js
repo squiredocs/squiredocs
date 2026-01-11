@@ -397,13 +397,21 @@ app.get('/health', (req, res) => {
 });
 
 // API: List documents accessible by the current user
+// Query params: search, filter, sortBy, sortOrder, limit, offset
 app.get('/api/docs', requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const { search, filter, sortBy, sortOrder, limit, offset } = req.query;
 
-    // Get documents the user has access to with their role
-    // The title is now included directly from the documents table (denormalized for performance)
-    const accessibleDocs = await documents.getAccessibleDocuments(userId);
+    // Get documents with optional filtering, search, and pagination
+    const { rows: accessibleDocs, total } = await documents.getAccessibleDocuments(userId, {
+      search: search || null,
+      filter: filter || 'all',
+      sortBy: sortBy || 'updatedAt',
+      sortOrder: sortOrder || 'desc',
+      limit: limit ? parseInt(limit, 10) : null,
+      offset: offset ? parseInt(offset, 10) : 0,
+    });
 
     // Transform to response format
     const docs = accessibleDocs.map((doc) => ({
@@ -416,10 +424,18 @@ app.get('/api/docs', requireAuth, async (req, res) => {
       shareCount: parseInt(doc.share_count, 10) || 0,
     }));
 
-    // Sort by updatedAt descending
-    docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    // Include pagination info if limit was specified
+    const response = { docs };
+    if (limit) {
+      response.pagination = {
+        total,
+        limit: parseInt(limit, 10),
+        offset: parseInt(offset, 10) || 0,
+        hasMore: (parseInt(offset, 10) || 0) + docs.length < total,
+      };
+    }
 
-    res.json({ docs });
+    res.json(response);
   } catch (error) {
     console.error('Error fetching documents:', error);
     const errorMessage = error.message || 'Failed to fetch documents';
