@@ -25,8 +25,63 @@ const DEFAULT_PRESENCE_DURATION = 60; // 1 minute
 // Default temporary selection duration (in milliseconds)
 const DEFAULT_SELECTION_DURATION_MS = 10000; // 10 seconds
 
-// Maximum number of highlights to queue (keeps last N to prevent unbounded growth)
-const MAX_HIGHLIGHT_QUEUE_SIZE = 100;
+// Maximum number of highlights to queue (uses reservoir sampling to prevent unbounded growth)
+const MAX_HIGHLIGHT_QUEUE_SIZE = 50;
+
+/**
+ * Reservoir sampling to select k items from an array while preserving first and last
+ * @param {Array} items - Full array of items
+ * @param {number} k - Number of items to select
+ * @returns {Array} Sampled array of k items (or fewer if items.length < k)
+ */
+function reservoirSample(items, k) {
+  if (items.length <= k) {
+    return items;
+  }
+
+  // Always keep first and last for proper visual feedback
+  const first = items[0];
+  const last = items[items.length - 1];
+  const middle = items.slice(1, -1);
+  const middleK = k - 2; // Reserve 2 slots for first and last
+
+  if (middleK <= 0) {
+    return [first, last];
+  }
+
+  // Reservoir sampling on middle items
+  const reservoir = middle.slice(0, middleK);
+  for (let i = middleK; i < middle.length; i++) {
+    const j = Math.floor(Math.random() * (i + 1));
+    if (j < middleK) {
+      reservoir[j] = middle[i];
+    }
+  }
+
+  // Sort reservoir by original index to maintain document order
+  // We need to track original indices for this
+  const middleWithIndices = middle.map((item, idx) => ({ item, idx }));
+  const reservoirSet = new Set();
+  const sampledReservoir = [];
+
+  // Re-do sampling but track indices
+  const reservoirIndices = [];
+  for (let i = 0; i < Math.min(middleK, middle.length); i++) {
+    reservoirIndices.push(i);
+  }
+  for (let i = middleK; i < middle.length; i++) {
+    const j = Math.floor(Math.random() * (i + 1));
+    if (j < middleK) {
+      reservoirIndices[j] = i;
+    }
+  }
+
+  // Sort by index and extract items
+  reservoirIndices.sort((a, b) => a - b);
+  const sampledMiddle = reservoirIndices.map(idx => middle[idx]);
+
+  return [first, ...sampledMiddle, last];
+}
 
 /**
  * Initialize the agent presence manager with a persistence provider
@@ -813,7 +868,7 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
 /**
  * Queue a sequence of highlights to show XPath query results
  * Each highlight is shown with a random delay before moving to the next.
- * Queue is limited to MAX_HIGHLIGHT_QUEUE_SIZE items; oldest unprocessed items are dropped
+ * Uses reservoir sampling to limit queue size while maintaining document order coverage.
  * @param {string} sessionId - Session ID
  * @param {Array<{anchor: object, head: object}>} positions - Array of cursor positions to highlight
  * @param {number} [minIntervalMs=80] - Minimum interval between highlights (ms)
@@ -821,17 +876,16 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
  * @returns {boolean} True if queue was started
  */
 function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxIntervalMs = 240) {
-  console.log(`[queueHighlightSequence] Called with ${positions?.length || 0} positions, delays: ${minIntervalMs}-${maxIntervalMs}ms`);
-
   const session = activeSessions.get(sessionId);
   if (!session || !positions || positions.length === 0) {
-    console.log(`[queueHighlightSequence] Early return - session exists: ${!!session}, positions length: ${positions?.length || 0}`);
     return false;
   }
 
+  // Apply reservoir sampling if too many positions
+  const sampledPositions = reservoirSample(positions, MAX_HIGHLIGHT_QUEUE_SIZE);
+
   // Initialize queue if it doesn't exist
   if (!session.highlightQueue) {
-    console.log(`[queueHighlightSequence] Initializing new queue`);
     session.highlightQueue = {
       positions: [],
       currentIndex: 0,
@@ -841,30 +895,15 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
       isProcessing: false,
     };
   } else {
-    // Update delay settings for existing queue (allows mutation highlights to override XPath delays)
-    console.log(`[queueHighlightSequence] Updating existing queue delays from ${session.highlightQueue.minIntervalMs}-${session.highlightQueue.maxIntervalMs}ms to ${minIntervalMs}-${maxIntervalMs}ms`);
     session.highlightQueue.minIntervalMs = minIntervalMs;
     session.highlightQueue.maxIntervalMs = maxIntervalMs;
   }
 
-  // Add all positions to queue
-  session.highlightQueue.positions.push(...positions);
-  console.log(`[queueHighlightSequence] Queue now has ${session.highlightQueue.positions.length} positions, currentIndex: ${session.highlightQueue.currentIndex}`);
-
-  // Enforce queue size limit - keep only last MAX_HIGHLIGHT_QUEUE_SIZE items
-  // Remove from positions that haven't been processed yet
-  const unprocessedCount = session.highlightQueue.positions.length - session.highlightQueue.currentIndex;
-  if (unprocessedCount > MAX_HIGHLIGHT_QUEUE_SIZE) {
-    const toRemove = unprocessedCount - MAX_HIGHLIGHT_QUEUE_SIZE;
-    // Remove oldest unprocessed items
-    session.highlightQueue.positions.splice(session.highlightQueue.currentIndex, toRemove);
-    console.log(`[queueHighlightSequence] Trimmed ${toRemove} oldest items from queue`);
-  }
+  // Add sampled positions to queue
+  session.highlightQueue.positions.push(...sampledPositions);
 
   // Start processing if not already running
-  console.log(`[queueHighlightSequence] isProcessing: ${session.highlightQueue.isProcessing}`);
   if (!session.highlightQueue.isProcessing) {
-    console.log(`[queueHighlightSequence] Starting queue processing`);
     processHighlightQueue(sessionId);
   }
 
