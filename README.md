@@ -255,8 +255,6 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 
 **Reading:**
 - `read_document` - Read entire document or specific blocks
-- `read_context` - Get text around current position
-- `get_selection` - Query current cursor position and selection
 - `get_collaborators` - See who else is editing
 
 **Sandboxed Script Execution:**

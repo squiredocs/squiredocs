@@ -10,12 +10,10 @@ const createDocument = require('./create-document');
 const shareDocument = require('./share-document');
 const setDocumentTitle = require('./set-document-title');
 
-// Session and reading tools (kept)
+// Session and reading tools
 const openDocument = require('./open-document');
 const closeDocument = require('./close-document');
 const readDocument = require('./read-document');
-const readContext = require('./read-context');
-const getSelection = require('./get-selection');
 const getCollaborators = require('./get-collaborators');
 const undo = require('./undo');
 const redo = require('./redo');
@@ -37,8 +35,6 @@ const tools = {
   open_document: openDocument,
   close_document: closeDocument,
   read_document: readDocument,
-  read_context: readContext,
-  get_selection: getSelection,
   get_collaborators: getCollaborators,
   undo: undo,
   redo: redo,
