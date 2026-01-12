@@ -1,16 +1,13 @@
 /**
- * read_document MCP Tool
+ * read_document_version MCP Tool
  *
- * Read document content with optional XPath filtering.
+ * Read document content at a specific version with optional XPath filtering.
+ * Aligned with read_document tool but for historical versions.
  */
 
 const Y = require('yjs');
-const agentPresence = require('../agent-presence');
+const versionHistory = require('../../version-history');
 const { xpath } = require('../sandbox/xpath');
-const {
-  createNodeSelection,
-  createExpandingBlockHighlights,
-} = require('../yjs/cursor-operations');
 const {
   toStructuredNode,
   toTextNode,
@@ -32,71 +29,75 @@ function init(persistence) {
 /**
  * Tool definition for MCP discovery
  */
-const name = 'read_document';
+const name = 'read_document_version';
 
-const description = `Read document content with optional XPath filtering.
+const description = `Read document content at a specific version with optional XPath filtering.
 
 ═══════════════════════════════════════════════════════════════════════════
 OVERVIEW
 ═══════════════════════════════════════════════════════════════════════════
 
-Query document content using XPath expressions. Returns structured JSON
-or plain text. Use this to understand document structure before modifying.
+Read the content of a document as it existed at a specific point in its
+version history. Supports the same XPath filtering and output formats as
+read_document. Use this to review historical content or understand what
+changed between versions.
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
 ═══════════════════════════════════════════════════════════════════════════
 
 - docGuid: Document UUID (required)
+- versionId: Version identifier (required)
+  - UUID for named versions
+  - "auto-{clock}" for auto-generated versions (e.g., "auto-42")
 - xpath: XPath expression to filter results (optional)
-  - If omitted, returns entire document
-  - Uses same XPath syntax as modify tool
+  - Same syntax as read_document tool
 - format: "structured" or "text" (optional, default: "structured")
 
 ═══════════════════════════════════════════════════════════════════════════
 XPATH EXAMPLES
 ═══════════════════════════════════════════════════════════════════════════
 
-// Get all headings
+// Get all headings from version
 xpath: "//heading"
 
-// Get level-2 headings only
-xpath: "//heading[@level=2]"
-
-// Find paragraphs containing "TODO"
+// Find paragraphs containing specific text
 xpath: "//paragraph[contains(., 'TODO')]"
 
-// Get all list items
+// Get list items
 xpath: "//listItem"
-
-// Get bullet list after a specific heading
-xpath: "//heading[contains(., 'Tasks')]/following-sibling::bulletList[1]"
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
 ═══════════════════════════════════════════════════════════════════════════
 
-- content: Structured array or text string (based on format)
+- content: Structured array or text string (based on format parameter)
 - matchCount: Number of elements returned (when using xpath)
-- blockCount: Total blocks in document
+- blockCount: Total blocks in this version
+- characterCount: Total characters in results
+- version: Version metadata with id, name, clockStart, clockEnd, timestamp
 
 ═══════════════════════════════════════════════════════════════════════════
 EXAMPLES
 ═══════════════════════════════════════════════════════════════════════════
 
-// Read entire document
-await read_document({ docGuid: "abc-123" });
-
-// Read only headings
-await read_document({
+// Read entire version
+await read_document_version({
   docGuid: "abc-123",
-  xpath: "//heading"
+  versionId: "auto-42"
 });
 
-// Find TODOs as plain text
-await read_document({
+// Read named version
+await read_document_version({
   docGuid: "abc-123",
-  xpath: "//paragraph[contains(., 'TODO')]",
+  versionId: "550e8400-e29b-41d4-a716-446655440000"
+});
+
+// Find headings in historical version
+await read_document_version({
+  docGuid: "abc-123",
+  versionId: "auto-42",
+  xpath: "//heading",
   format: "text"
 });`;
 
@@ -108,6 +109,10 @@ const inputSchema = {
       format: 'uuid',
       description: 'The document UUID',
     },
+    versionId: {
+      type: 'string',
+      description: 'Version ID (UUID or "auto-{clock}")',
+    },
     xpath: {
       type: 'string',
       description: 'XPath expression to filter results (optional)',
@@ -118,17 +123,16 @@ const inputSchema = {
       description: 'Output format (default: "structured")',
     },
   },
-  required: ['docGuid'],
+  required: ['docGuid', 'versionId'],
 };
-
 
 /**
  * Handler function for the tool
  */
 async function handler(args, agentToken) {
-  if (!persistenceProvider) throw new Error('read_document tool not initialized');
+  if (!persistenceProvider) throw new Error('read_document_version tool not initialized');
 
-  const { docGuid, xpath: xpathExpr, format = 'structured' } = args;
+  const { docGuid, versionId, xpath: xpathExpr, format = 'structured' } = args;
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
@@ -145,9 +149,16 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  // Get document
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
-  const ydoc = session.provider.doc;
+  // Get version content
+  const versionData = await versionHistory.getVersionContent(
+    persistenceProvider,
+    docGuid,
+    versionId
+  );
+
+  // Create Y.Doc from version content
+  const ydoc = new Y.Doc();
+  Y.applyUpdate(ydoc, new Uint8Array(versionData.content));
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
   const allBlocks = xmlFragment.toArray();
@@ -165,31 +176,6 @@ async function handler(args, agentToken) {
     nodes = allBlocks;
   }
 
-  // Highlight the nodes being read
-  if (nodes.length > 0) {
-    try {
-      let positions = [];
-
-      if (xpathExpr) {
-        // XPath query: cycle through each matched element
-        for (const node of nodes) {
-          const selection = createNodeSelection(xmlFragment, node);
-          if (selection) positions.push(selection);
-        }
-      } else {
-        // Full document read: expanding selection from start toward end
-        positions = createExpandingBlockHighlights(xmlFragment, 0, nodes.length);
-      }
-
-      if (positions.length > 0) {
-        agentPresence.queueHighlightSequence(session.sessionId, positions);
-      }
-    } catch (err) {
-      // Non-fatal: log but don't fail the read
-      console.warn('[read-document] Could not highlight selection:', err.message);
-    }
-  }
-
   // Serialize based on format
   let content;
   if (format === 'text') {
@@ -205,11 +191,15 @@ async function handler(args, agentToken) {
     content,
     blockCount,
     characterCount,
+    version: versionData.version,
   };
 
   if (xpathExpr) {
     result.matchCount = nodes.length;
   }
+
+  // Cleanup
+  ydoc.destroy();
 
   return result;
 }

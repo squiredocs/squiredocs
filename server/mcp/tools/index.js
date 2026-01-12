@@ -19,6 +19,13 @@ const redo = require('./redo');
 // Document modification
 const modify = require('./modify');
 
+// Version history tools
+const listDocumentVersions = require('./list-document-versions');
+const readDocumentVersion = require('./read-document-version');
+const getVersionDiff = require('./get-version-diff');
+const createDocumentVersion = require('./create-document-version');
+const restoreDocumentVersion = require('./restore-document-version');
+
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
 // All available tools
@@ -37,6 +44,13 @@ const tools = {
 
   // Document modification (replaces 15 deprecated editing tools)
   modify: modify,
+
+  // Version history tools
+  list_document_versions: listDocumentVersions,
+  read_document_version: readDocumentVersion,
+  get_version_diff: getVersionDiff,
+  create_document_version: createDocumentVersion,
+  restore_document_version: restoreDocumentVersion,
 };
 
 /**

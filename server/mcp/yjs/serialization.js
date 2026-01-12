@@ -2,8 +2,10 @@
  * Yjs Document Serialization
  *
  * Converts Yjs documents to readable formats for AI agents.
+ * Provides both fragment-level (whole document) and node-level (individual elements) serialization.
  */
 const Y = require('yjs');
+const { getNodeTextLength } = require('./cursor-operations');
 
 /**
  * Serialize a Yjs XmlFragment to plain text
@@ -239,8 +241,197 @@ async function loadYDoc(pool, docGuid) {
   return ydoc;
 }
 
+/**
+ * ============================================================================
+ * NODE-LEVEL SERIALIZATION (for xpath results and individual elements)
+ * ============================================================================
+ */
+
+/**
+ * Extract text content with marks from a Y.XmlText node
+ * Helper function used by toStructuredNode
+ * @param {Y.XmlText} textNode - Yjs text node
+ * @returns {Array} Array of text content items (strings and formatted objects)
+ */
+function extractTextWithMarks(textNode) {
+  const delta = textNode.toDelta();
+  const result = [];
+
+  for (const op of delta) {
+    if (typeof op.insert === 'string') {
+      const text = op.insert;
+      const attrs = op.attributes || {};
+      const marks = [];
+
+      if (attrs.bold) marks.push('bold');
+      if (attrs.italic) marks.push('italic');
+      if (attrs.underline) marks.push('underline');
+      if (attrs.strike) marks.push('strike');
+      if (attrs.link) {
+        marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+      }
+
+      if (marks.length > 0) {
+        result.push({ text, marks });
+      } else {
+        result.push(text);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Convert a single Yjs node to structured format (ProseMirror-like JSON)
+ * Used for serializing xpath query results
+ * @param {Y.XmlElement|Y.XmlText} node - Single Yjs node to serialize
+ * @returns {Object|null} Structured representation
+ */
+function toStructuredNode(node) {
+  if (node instanceof Y.XmlText) {
+    return { type: 'text', content: extractTextWithMarks(node) };
+  }
+
+  if (!(node instanceof Y.XmlElement)) {
+    return null;
+  }
+
+  const tagName = node.nodeName;
+  const result = { type: tagName };
+
+  // Extract attributes
+  const level = node.getAttribute('level');
+  if (level !== undefined) result.level = parseInt(level, 10);
+  const language = node.getAttribute('language');
+  if (language !== undefined) result.language = language;
+
+  // Process children
+  const children = [];
+  for (const child of node.toArray()) {
+    const processed = toStructuredNode(child);
+    if (processed) children.push(processed);
+  }
+
+  // Simplify content for leaf blocks
+  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+    const allText = children.every((c) => c.type === 'text');
+    if (allText && children.length > 0) {
+      const flatContent = [];
+      let hasMarks = false;
+      for (const child of children) {
+        if (Array.isArray(child.content)) {
+          flatContent.push(...child.content);
+          if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+            hasMarks = true;
+          }
+        }
+      }
+      // Collapse to string if no marks
+      if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
+        result.content = flatContent.join('');
+      } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+        result.content = flatContent[0];
+      } else {
+        result.content = flatContent;
+      }
+    } else if (children.length > 0) {
+      result.children = children;
+    }
+  } else if (children.length > 0) {
+    result.children = children;
+  }
+
+  return result;
+}
+
+/**
+ * Convert a single Yjs node to plain text
+ * Used for serializing xpath query results
+ * @param {Y.XmlElement|Y.XmlText} node - Single Yjs node to serialize
+ * @returns {string} Plain text representation
+ */
+function toTextNode(node) {
+  if (node instanceof Y.XmlText) {
+    const delta = node.toDelta();
+    return delta.map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
+  }
+
+  if (!(node instanceof Y.XmlElement)) {
+    return '';
+  }
+
+  const tagName = node.nodeName;
+  let text = '';
+
+  for (const child of node.toArray()) {
+    text += toTextNode(child);
+  }
+
+  // Add appropriate newlines
+  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+    text += '\n';
+  } else if (['bulletList', 'orderedList'].includes(tagName)) {
+    text += '\n';
+  }
+
+  return text;
+}
+
+/**
+ * ============================================================================
+ * HELPER FUNCTIONS
+ * ============================================================================
+ */
+
+/**
+ * Count total characters in an array of Yjs nodes
+ * @param {Array<Y.XmlElement|Y.XmlText>} nodes - Array of Yjs nodes
+ * @returns {number} Total character count
+ */
+function countCharacters(nodes) {
+  return nodes.reduce((sum, node) => sum + getNodeTextLength(node), 0);
+}
+
+/**
+ * Count total blocks in a Yjs XmlFragment
+ * @param {Y.XmlFragment} xmlFragment - Yjs fragment
+ * @returns {number} Total block count
+ */
+function countBlocks(xmlFragment) {
+  return xmlFragment.toArray().length;
+}
+
+/**
+ * Serialize an array of nodes to structured format
+ * @param {Array<Y.XmlElement>} nodes - Nodes to serialize
+ * @returns {Array} Array of structured objects
+ */
+function serializeNodesToStructured(nodes) {
+  return nodes.map(toStructuredNode).filter(Boolean);
+}
+
+/**
+ * Serialize an array of nodes to plain text
+ * @param {Array<Y.XmlElement>} nodes - Nodes to serialize
+ * @returns {string} Plain text representation
+ */
+function serializeNodesToText(nodes) {
+  return nodes.map(toTextNode).join('').trim();
+}
+
 module.exports = {
+  // Fragment-level serialization (existing)
   toPlainText,
   toStructured,
   loadYDoc,
+  // Node-level serialization (new)
+  toStructuredNode,
+  toTextNode,
+  extractTextWithMarks,
+  // Helper functions (new)
+  countCharacters,
+  countBlocks,
+  serializeNodesToStructured,
+  serializeNodesToText,
 };
