@@ -203,7 +203,7 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
     { type: 'codeBlock', content: string }
 
   ListItem = string | FormattedContent | NestedItem
-  NestedItem = { content: string | FormattedContent, children?: ListItem[], childType?: 'bulletList' | 'orderedList' }
+  NestedItem = { content: string | FormattedContent, items?: ListItem[], type?: 'bulletList' | 'orderedList' }
   FormattedContent = Array<string | { text: string, attrs: object }>
 
   Position options:
@@ -238,8 +238,8 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
       appendBlocks(doc, [
         { type: 'bulletList', items: [
           'Simple item',
-          { content: 'Item with sub-items', children: ['Sub-item 1', 'Sub-item 2'] },
-          { content: 'Mixed nesting', children: ['Numbered child'], childType: 'orderedList' }
+          { content: 'Item with sub-items', items: ['Sub-item 1', 'Sub-item 2'] },
+          { content: 'Mixed nesting', items: ['Numbered child'], type: 'orderedList' }
         ]}
       ]);
 

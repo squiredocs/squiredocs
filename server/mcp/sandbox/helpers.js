@@ -277,16 +277,22 @@ function createFormattedText(segments) {
  * Block types:
  *   { type: 'paragraph', content: Content }
  *   { type: 'heading', level: 1-5, content: Content }
- *   { type: 'bulletList', items: (string | Content)[] }
- *   { type: 'orderedList', items: (string | Content)[] }
+ *   { type: 'bulletList', items: Item[] }
+ *   { type: 'orderedList', items: Item[] }
  *   { type: 'codeBlock', content: string }
  *
  * Content format:
  *   string - plain text
  *   Array<string | { text: string, attrs: object }> - mixed formatting
  *
+ * Item format (for lists):
+ *   string - simple text item
+ *   Content - formatted text item
+ *   { content: Content, items: Item[] } - item with nested list (inherits parent type)
+ *   { content: Content, items: Item[], type: 'bulletList'|'orderedList' } - explicit nested type
+ *
  * @example
- *   // Create heading and paragraphs at end of document
+ *   // Create heading and paragraphs
  *   appendBlocks(doc, [
  *     { type: 'heading', level: 2, content: 'Introduction' },
  *     { type: 'paragraph', content: 'First paragraph.' },
@@ -298,7 +304,7 @@ function createFormattedText(segments) {
  *   ]);
  *
  * @example
- *   // Create lists
+ *   // Create simple lists
  *   appendBlocks(doc, [
  *     { type: 'bulletList', items: ['Item one', 'Item two', 'Item three'] },
  *     { type: 'orderedList', items: [
@@ -308,14 +314,22 @@ function createFormattedText(segments) {
  *   ]);
  *
  * @example
- *   // Insert at specific position using xpath
- *   appendBlocks(doc, blocks, { after: '//heading[contains(., "Introduction")]' });
- *   appendBlocks(doc, blocks, { before: '//heading[contains(., "Conclusion")]' });
+ *   // Create nested lists (items use same 'items' property as top-level)
+ *   appendBlocks(doc, [
+ *     { type: 'bulletList', items: [
+ *       { content: 'Item A', items: [
+ *         { content: 'Item A.1', items: ['A.1.a', 'A.1.b'] },
+ *         'Item A.2'
+ *       ]},
+ *       { content: 'Item B', items: ['B.1', 'B.2'] },
+ *       'Item C'
+ *     ]}
+ *   ]);
  *
  * @example
- *   // Insert at start or end
+ *   // Insert at specific position
  *   appendBlocks(doc, blocks, { at: 'start' });
- *   appendBlocks(doc, blocks, { at: 'end' });  // default
+ *   appendBlocks(doc, blocks, { after: '//heading[contains(., "Introduction")]' });
  */
 function appendBlocks(container, blocks, position = null, options = {}) {
   // Use provided constructors or default to Y
@@ -421,30 +435,34 @@ function appendBlocks(container, blocks, position = null, options = {}) {
 
   /**
    * Create a list item element with content
-   * @param {string|Array|Object} content - Item content or nested item definition
+   * @param {string|Array|Object} itemDef - Item content or nested item definition
    * @param {string} parentListType - Parent list type ('bulletList' or 'orderedList')
    *
-   * Nested item format: { content: string|FormattedContent, children?: items[], childType?: 'bulletList'|'orderedList' }
+   * Item formats:
+   *   "text"                                      - simple text item
+   *   ["text", { text: "bold", attrs: {...} }]   - formatted text item
+   *   { content: "text", items: [...] }          - item with nested list (inherits parent type)
+   *   { content: "text", items: [...], type: 'orderedList' }  - item with explicit nested type
    */
-  function createListItem(content, parentListType) {
+  function createListItem(itemDef, parentListType) {
     const listItem = new XmlElement('listItem');
 
-    // Check if content is a nested item definition (object with 'content' property)
-    if (content && typeof content === 'object' && !Array.isArray(content) && 'content' in content) {
-      const para = createParagraph(content.content);
+    // Check if itemDef is a nested item definition (object with 'content' property)
+    if (itemDef && typeof itemDef === 'object' && !Array.isArray(itemDef) && 'content' in itemDef) {
+      const para = createParagraph(itemDef.content);
       listItem.insert(0, [para]);
 
-      // Add nested list if children are specified
-      if (content.children && Array.isArray(content.children) && content.children.length > 0) {
-        const childType = content.childType || parentListType || 'bulletList';
-        const nestedList = childType === 'orderedList'
-          ? createOrderedList(content.children)
-          : createBulletList(content.children);
+      // Add nested list if items are specified
+      if (itemDef.items && Array.isArray(itemDef.items) && itemDef.items.length > 0) {
+        const nestedType = itemDef.type || parentListType || 'bulletList';
+        const nestedList = nestedType === 'orderedList'
+          ? createOrderedList(itemDef.items)
+          : createBulletList(itemDef.items);
         listItem.insert(1, [nestedList]);
       }
     } else {
       // Simple item: string or FormattedContent array
-      const para = createParagraph(content);
+      const para = createParagraph(itemDef);
       listItem.insert(0, [para]);
     }
 

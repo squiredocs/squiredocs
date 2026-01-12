@@ -517,7 +517,7 @@ describe('Sandbox Helpers', () => {
         helpers.appendBlocks(fragment, [
           { type: 'bulletList', items: [
             'Simple item',
-            { content: 'Parent item', children: ['Nested one', 'Nested two'] },
+            { content: 'Parent item', items: ['Nested one', 'Nested two'] },
             'Another simple item'
           ]}
         ]);
@@ -552,7 +552,7 @@ describe('Sandbox Helpers', () => {
         helpers.appendBlocks(fragment, [
           { type: 'orderedList', items: [
             'First',
-            { content: 'Second with children', children: ['2.1', '2.2'] },
+            { content: 'Second with nested', items: ['2.1', '2.2'] },
             'Third'
           ]}
         ]);
@@ -566,10 +566,10 @@ describe('Sandbox Helpers', () => {
         expect(nestedList.length).toBe(2);
       });
 
-      it('should allow specifying different child list type', () => {
+      it('should allow specifying different nested list type', () => {
         helpers.appendBlocks(fragment, [
           { type: 'orderedList', items: [
-            { content: 'Ordered parent', children: ['Bullet child'], childType: 'bulletList' }
+            { content: 'Ordered parent', items: ['Bullet child'], type: 'bulletList' }
           ]}
         ]);
 
@@ -584,8 +584,8 @@ describe('Sandbox Helpers', () => {
       it('should support deeply nested lists', () => {
         helpers.appendBlocks(fragment, [
           { type: 'bulletList', items: [
-            { content: 'Level 1', children: [
-              { content: 'Level 2', children: [
+            { content: 'Level 1', items: [
+              { content: 'Level 2', items: [
                 'Level 3 item'
               ]}
             ]}
@@ -609,7 +609,7 @@ describe('Sandbox Helpers', () => {
           { type: 'bulletList', items: [
             {
               content: ['Parent with ', { text: 'bold', attrs: { bold: true } }],
-              children: [
+              items: [
                 ['Child with ', { text: 'italic', attrs: { italic: true } }]
               ]
             }
@@ -631,23 +631,23 @@ describe('Sandbox Helpers', () => {
         expect(childDelta[1].attributes).toEqual({ italic: true });
       });
 
-      it('should handle item with content but no children', () => {
+      it('should handle item with content but no items', () => {
         helpers.appendBlocks(fragment, [
           { type: 'bulletList', items: [
-            { content: 'Just content, no children' }
+            { content: 'Just content, no nested items' }
           ]}
         ]);
 
         const list = fragment.get(0);
         const item = list.get(0);
         expect(item.length).toBe(1); // only paragraph, no nested list
-        expect(helpers.getTextContent(item)).toBe('Just content, no children');
+        expect(helpers.getTextContent(item)).toBe('Just content, no nested items');
       });
 
-      it('should handle empty children array', () => {
+      it('should handle empty items array', () => {
         helpers.appendBlocks(fragment, [
           { type: 'bulletList', items: [
-            { content: 'Has empty children', children: [] }
+            { content: 'Has empty items', items: [] }
           ]}
         ]);
 
