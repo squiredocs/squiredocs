@@ -186,6 +186,51 @@ createFormattedText(segments)  ⭐ PREFERRED FOR MIXED FORMATTING
       ]);
       para.insert(0, [text]);
 
+appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
+  - Create multiple block elements from declarative definitions
+  - ✓ Eliminates ~75% of boilerplate for common operations
+  - ✓ Supports headings, paragraphs, lists, code blocks
+  - ✓ Supports formatted content within blocks
+  - ✓ Supports xpath-based positioning
+  - Returns Y.XmlElement[] (the created blocks)
+
+  Block types:
+    { type: 'paragraph', content: string | FormattedContent }
+    { type: 'heading', level: 1-5, content: string | FormattedContent }
+    { type: 'bulletList', items: (string | FormattedContent)[] }
+    { type: 'orderedList', items: (string | FormattedContent)[] }
+    { type: 'codeBlock', content: string }
+
+  FormattedContent = Array<string | { text: string, attrs: object }>
+
+  Position options:
+    { at: 'start' }  - Insert at beginning
+    { at: 'end' }    - Insert at end (default)
+    { before: element | xpath }  - Insert before target
+    { after: element | xpath }   - Insert after target
+
+  Example - Simple content:
+      appendBlocks(doc, [
+        { type: 'heading', level: 2, content: 'Summary' },
+        { type: 'paragraph', content: 'This is the introduction.' },
+        { type: 'bulletList', items: ['Point one', 'Point two', 'Point three'] }
+      ]);
+
+  Example - Formatted content:
+      appendBlocks(doc, [
+        { type: 'paragraph', content: [
+          'Text with ',
+          { text: 'bold', attrs: { bold: true } },
+          ' and ',
+          { text: 'italic', attrs: { italic: true } }
+        ]}
+      ]);
+
+  Example - Position after specific heading:
+      appendBlocks(doc, [
+        { type: 'paragraph', content: 'New content after intro.' }
+      ], { after: '//heading[contains(., "Introduction")]' });
+
 ───────────────────────────────────────────────────────────────────────────
 XPATH QUERY FUNCTIONS (Recommended for element selection!)
 ───────────────────────────────────────────────────────────────────────────
@@ -555,6 +600,24 @@ await modify({
 ═══════════════════════════════════════════════════════════════════════════
 QUICK REFERENCE: Key behaviors & techniques
 ═══════════════════════════════════════════════════════════════════════════
+
+⭐ VERIFY YOUR CHANGES: After editing, use read_document to confirm the
+result matches your intent. This catches errors early and ensures quality.
+
+  // After a modify call, verify the result:
+  await read_document({ docGuid: "abc-123", format: "text" });
+
+  // Or check specific sections with xpath:
+  await read_document({
+    docGuid: "abc-123",
+    xpath: "//heading[contains(., 'Summary')]/following-sibling::*[position()<=3]"
+  });
+
+WHY VERIFY:
+• Confirms content was inserted in the right location
+• Catches formatting issues (wrong level, missing attributes)
+• Validates list structure and nesting
+• Ensures no unintended side effects from complex scripts
 
 SCRIPT EXECUTION BEHAVIOR:
 • All changes batched in single transaction → entire script = one undo step
