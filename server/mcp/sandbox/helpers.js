@@ -421,11 +421,33 @@ function appendBlocks(container, blocks, position = null, options = {}) {
 
   /**
    * Create a list item element with content
+   * @param {string|Array|Object} content - Item content or nested item definition
+   * @param {string} parentListType - Parent list type ('bulletList' or 'orderedList')
+   *
+   * Nested item format: { content: string|FormattedContent, children?: items[], childType?: 'bulletList'|'orderedList' }
    */
-  function createListItem(content) {
+  function createListItem(content, parentListType) {
     const listItem = new XmlElement('listItem');
-    const para = createParagraph(content);
-    listItem.insert(0, [para]);
+
+    // Check if content is a nested item definition (object with 'content' property)
+    if (content && typeof content === 'object' && !Array.isArray(content) && 'content' in content) {
+      const para = createParagraph(content.content);
+      listItem.insert(0, [para]);
+
+      // Add nested list if children are specified
+      if (content.children && Array.isArray(content.children) && content.children.length > 0) {
+        const childType = content.childType || parentListType || 'bulletList';
+        const nestedList = childType === 'orderedList'
+          ? createOrderedList(content.children)
+          : createBulletList(content.children);
+        listItem.insert(1, [nestedList]);
+      }
+    } else {
+      // Simple item: string or FormattedContent array
+      const para = createParagraph(content);
+      listItem.insert(0, [para]);
+    }
+
     return listItem;
   }
 
@@ -437,7 +459,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       throw new Error('appendBlocks: bulletList items must be a non-empty array');
     }
     const list = new XmlElement('bulletList');
-    const listItems = items.map(item => createListItem(item));
+    const listItems = items.map(item => createListItem(item, 'bulletList'));
     list.insert(0, listItems);
     return list;
   }
@@ -450,7 +472,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       throw new Error('appendBlocks: orderedList items must be a non-empty array');
     }
     const list = new XmlElement('orderedList');
-    const listItems = items.map(item => createListItem(item));
+    const listItems = items.map(item => createListItem(item, 'orderedList'));
     list.insert(0, listItems);
     return list;
   }
