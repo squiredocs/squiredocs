@@ -189,6 +189,35 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
       };
     })(createWrappedConstructor(Y.XmlText)),
 
+    // appendBlocks needs special handling - it must use wrapped constructors
+    // so all created elements are tracked. We pass the wrapped constructors
+    // and xpathFirst via options.
+    appendBlocks: (function(WrappedXmlElement, WrappedXmlText) {
+      return function appendBlocks(container, blocks, position) {
+        // Create xpathFirst that wraps results for consistent identity comparison
+        // This ensures elements from xpath match elements from toArray()
+        const sandboxXpathFirst = (expression, contextNode) => {
+          const context = contextNode || wrappedFragment;
+          const result = xpathFirstQuery(expression, context);
+          if (result) {
+            // Wrap so identity comparison works with wrapped elements from toArray()
+            return wrapForTracking(result, tracker, [], onOperation);
+          }
+          return null;
+        };
+
+        // Call the helper with wrapped constructors for operation tracking
+        return helpers.appendBlocks(container, blocks, position, {
+          XmlElement: WrappedXmlElement,
+          XmlText: WrappedXmlText,
+          xpathFirst: sandboxXpathFirst,
+        });
+      };
+    })(
+      createWrappedConstructor(Y.XmlElement),
+      createWrappedConstructor(Y.XmlText)
+    ),
+
     // Exports object for module pattern
     exports: {},
     module: { exports: {} },

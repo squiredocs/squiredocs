@@ -376,4 +376,408 @@ describe('Sandbox Helpers', () => {
       expect(() => helpers.createFormattedText(null)).toThrow('non-empty array');
     });
   });
+
+  describe('appendBlocks', () => {
+    describe('basic block creation', () => {
+      it('should create a simple paragraph', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'Hello world' }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const para = fragment.get(0);
+        expect(para.nodeName).toBe('paragraph');
+        expect(helpers.getTextContent(para)).toBe('Hello world');
+      });
+
+      it('should create a heading with level', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 2, content: 'Section Title' }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const heading = fragment.get(0);
+        expect(heading.nodeName).toBe('heading');
+        expect(heading.getAttribute('level')).toBe(2);
+        expect(helpers.getTextContent(heading)).toBe('Section Title');
+      });
+
+      it('should create a code block', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'codeBlock', content: 'const x = 42;' }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const codeBlock = fragment.get(0);
+        expect(codeBlock.nodeName).toBe('codeBlock');
+        expect(helpers.getTextContent(codeBlock)).toBe('const x = 42;');
+      });
+
+      it('should create a bullet list', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: ['Item one', 'Item two', 'Item three'] }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('bulletList');
+        expect(list.length).toBe(3);
+
+        const items = list.toArray();
+        expect(items[0].nodeName).toBe('listItem');
+        expect(helpers.getTextContent(items[0])).toBe('Item one');
+        expect(helpers.getTextContent(items[1])).toBe('Item two');
+        expect(helpers.getTextContent(items[2])).toBe('Item three');
+      });
+
+      it('should create an ordered list', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'orderedList', items: ['First', 'Second'] }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('orderedList');
+        expect(list.length).toBe(2);
+      });
+
+      it('should create multiple blocks at once', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 1, content: 'Title' },
+          { type: 'paragraph', content: 'First paragraph.' },
+          { type: 'paragraph', content: 'Second paragraph.' }
+        ]);
+
+        expect(fragment.length).toBe(3);
+        expect(fragment.get(0).nodeName).toBe('heading');
+        expect(fragment.get(1).nodeName).toBe('paragraph');
+        expect(fragment.get(2).nodeName).toBe('paragraph');
+      });
+    });
+
+    describe('formatted content', () => {
+      it('should create paragraph with formatted content', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: [
+            'Text with ',
+            { text: 'bold', attrs: { bold: true } },
+            ' formatting.'
+          ]}
+        ]);
+
+        const para = fragment.get(0);
+        const text = helpers.findTextNode(para);
+        const delta = text.toDelta();
+
+        expect(delta.length).toBe(3);
+        expect(delta[0].insert).toBe('Text with ');
+        expect(delta[1].insert).toBe('bold');
+        expect(delta[1].attributes).toEqual({ bold: true });
+        expect(delta[2].insert).toBe(' formatting.');
+      });
+
+      it('should create heading with formatted content', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 2, content: [
+            'Title with ',
+            { text: 'emphasis', attrs: { italic: true } }
+          ]}
+        ]);
+
+        const heading = fragment.get(0);
+        const text = helpers.findTextNode(heading);
+        const delta = text.toDelta();
+
+        expect(delta.length).toBe(2);
+        expect(delta[1].attributes).toEqual({ italic: true });
+      });
+
+      it('should create list items with formatted content', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            'Plain item',
+            ['Item with ', { text: 'emphasis', attrs: { italic: true } }]
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        const items = list.toArray();
+
+        // Second item has formatting
+        const para = items[1].get(0);
+        const text = helpers.findTextNode(para);
+        const delta = text.toDelta();
+        expect(delta.length).toBe(2);
+        expect(delta[1].attributes).toEqual({ italic: true });
+      });
+    });
+
+    describe('positioning', () => {
+      beforeEach(() => {
+        // Create initial content
+        const h1 = new Y.XmlElement('heading');
+        h1.setAttribute('level', 1);
+        const h1Text = new Y.XmlText();
+        h1Text.insert(0, 'Introduction');
+        h1.insert(0, [h1Text]);
+
+        const para = new Y.XmlElement('paragraph');
+        const paraText = new Y.XmlText();
+        paraText.insert(0, 'Content here.');
+        para.insert(0, [paraText]);
+
+        const h2 = new Y.XmlElement('heading');
+        h2.setAttribute('level', 2);
+        const h2Text = new Y.XmlText();
+        h2Text.insert(0, 'Conclusion');
+        h2.insert(0, [h2Text]);
+
+        fragment.insert(0, [h1, para, h2]);
+      });
+
+      it('should append at end by default', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'New content' }
+        ]);
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(3))).toBe('New content');
+      });
+
+      it('should append at end with explicit position', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'New content' }
+        ], { at: 'end' });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(3))).toBe('New content');
+      });
+
+      it('should insert at start', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'New content' }
+        ], { at: 'start' });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(0))).toBe('New content');
+        expect(helpers.getTextContent(fragment.get(1))).toBe('Introduction');
+      });
+
+      it('should insert before an element reference', () => {
+        const conclusion = fragment.get(2); // The "Conclusion" heading
+
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'Before conclusion' }
+        ], { before: conclusion });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(2))).toBe('Before conclusion');
+        expect(helpers.getTextContent(fragment.get(3))).toBe('Conclusion');
+      });
+
+      it('should insert after an element reference', () => {
+        const intro = fragment.get(0); // The "Introduction" heading
+
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'After intro' }
+        ], { after: intro });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(0))).toBe('Introduction');
+        expect(helpers.getTextContent(fragment.get(1))).toBe('After intro');
+        expect(helpers.getTextContent(fragment.get(2))).toBe('Content here.');
+      });
+    });
+
+    describe('return value', () => {
+      it('should return array of created elements', () => {
+        const elements = helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 2, content: 'Title' },
+          { type: 'paragraph', content: 'Content' }
+        ]);
+
+        expect(elements).toHaveLength(2);
+        expect(elements[0].nodeName).toBe('heading');
+        expect(elements[1].nodeName).toBe('paragraph');
+      });
+    });
+
+    describe('error handling', () => {
+      it('should throw for invalid container', () => {
+        expect(() => helpers.appendBlocks(null, []))
+          .toThrow('container must be a Y.XmlFragment or Y.XmlElement');
+        expect(() => helpers.appendBlocks({}, []))
+          .toThrow('container must be a Y.XmlFragment or Y.XmlElement');
+      });
+
+      it('should throw for empty blocks array', () => {
+        expect(() => helpers.appendBlocks(fragment, []))
+          .toThrow('blocks must be a non-empty array');
+      });
+
+      it('should throw for block without type', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ content: 'test' }]))
+          .toThrow('must have a type property');
+      });
+
+      it('should throw for unknown block type', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'unknown' }]))
+          .toThrow('unknown block type "unknown"');
+      });
+
+      it('should throw for paragraph without content', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'paragraph' }]))
+          .toThrow('paragraph requires content');
+      });
+
+      it('should throw for heading without content', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'heading', level: 1 }]))
+          .toThrow('heading requires content');
+      });
+
+      it('should throw for heading with invalid level', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'heading', level: 0, content: 'x' }]))
+          .toThrow('heading level must be 1-5');
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'heading', level: 6, content: 'x' }]))
+          .toThrow('heading level must be 1-5');
+      });
+
+      it('should throw for bulletList without items', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'bulletList' }]))
+          .toThrow('bulletList requires items');
+      });
+
+      it('should throw for bulletList with empty items', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'bulletList', items: [] }]))
+          .toThrow('items must be a non-empty array');
+      });
+
+      it('should throw for codeBlock without content', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'codeBlock' }]))
+          .toThrow('codeBlock requires content');
+      });
+
+      it('should throw for codeBlock with non-string content', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'codeBlock', content: ['array'] }]))
+          .toThrow('codeBlock content must be a string');
+      });
+
+      it('should throw for invalid content segment', () => {
+        expect(() => helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: [123] }
+        ])).toThrow('invalid content segment');
+      });
+
+      it('should throw for invalid position', () => {
+        expect(() => helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'test' }
+        ], { invalid: true })).toThrow('invalid position');
+      });
+
+      it('should throw when target element not found in container', () => {
+        const orphan = new Y.XmlElement('paragraph');
+        expect(() => helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'test' }
+        ], { before: orphan })).toThrow('target element not found');
+      });
+
+      it('should throw for xpath positioning without xpathFirst option', () => {
+        expect(() => helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'test' }
+        ], { after: '//heading' })).toThrow('xpath positioning requires xpathFirst');
+      });
+    });
+
+    describe('xpath positioning with xpathFirst option', () => {
+      const { xpathFirst } = require('../xpath');
+
+      beforeEach(() => {
+        const h1 = new Y.XmlElement('heading');
+        h1.setAttribute('level', 1);
+        const h1Text = new Y.XmlText();
+        h1Text.insert(0, 'Introduction');
+        h1.insert(0, [h1Text]);
+
+        const para = new Y.XmlElement('paragraph');
+        const paraText = new Y.XmlText();
+        paraText.insert(0, 'Content here.');
+        para.insert(0, [paraText]);
+
+        const h2 = new Y.XmlElement('heading');
+        h2.setAttribute('level', 2);
+        const h2Text = new Y.XmlText();
+        h2Text.insert(0, 'Conclusion');
+        h2.insert(0, [h2Text]);
+
+        fragment.insert(0, [h1, para, h2]);
+      });
+
+      it('should insert after xpath match', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'After intro' }
+        ], { after: '//heading[contains(., "Introduction")]' }, { xpathFirst });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(1))).toBe('After intro');
+      });
+
+      it('should insert before xpath match', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'Before conclusion' }
+        ], { before: '//heading[contains(., "Conclusion")]' }, { xpathFirst });
+
+        expect(fragment.length).toBe(4);
+        expect(helpers.getTextContent(fragment.get(2))).toBe('Before conclusion');
+      });
+
+      it('should throw when xpath finds no match', () => {
+        expect(() => helpers.appendBlocks(fragment, [
+          { type: 'paragraph', content: 'test' }
+        ], { after: '//heading[contains(., "NotFound")]' }, { xpathFirst }))
+          .toThrow('no element found matching xpath');
+      });
+    });
+
+    describe('real-world example', () => {
+      it('should create email draft structure', () => {
+        // The example from the feature request
+        helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 2, content: 'Draft Response' },
+          { type: 'paragraph', content: 'Hi Sal,' },
+          { type: 'paragraph', content: 'Thanks for sending over the server details.' },
+          { type: 'paragraph', content: 'I didn\'t receive the secure email with the SSH keys...' },
+          { type: 'paragraph', content: 'Alternatively, I could share a public SSH key...' },
+          { type: 'paragraph', content: 'Let me know what works best.' },
+          { type: 'paragraph', content: 'Best,' },
+          { type: 'paragraph', content: 'Sam' }
+        ]);
+
+        expect(fragment.length).toBe(8);
+        expect(fragment.get(0).nodeName).toBe('heading');
+        expect(fragment.get(0).getAttribute('level')).toBe(2);
+        expect(helpers.getTextContent(fragment.get(1))).toBe('Hi Sal,');
+        expect(helpers.getTextContent(fragment.get(7))).toBe('Sam');
+      });
+
+      it('should create mixed content document', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'heading', level: 2, content: 'Section Title' },
+          { type: 'paragraph', content: 'Plain text paragraph.' },
+          { type: 'paragraph', content: [
+            'Text with ',
+            { text: 'formatting', attrs: { bold: true } }
+          ]},
+          { type: 'bulletList', items: ['Item one', 'Item two', 'Item three'] },
+          { type: 'orderedList', items: ['First', 'Second', 'Third'] },
+          { type: 'codeBlock', content: 'const x = 42;' }
+        ]);
+
+        expect(fragment.length).toBe(6);
+        expect(fragment.get(0).nodeName).toBe('heading');
+        expect(fragment.get(3).nodeName).toBe('bulletList');
+        expect(fragment.get(4).nodeName).toBe('orderedList');
+        expect(fragment.get(5).nodeName).toBe('codeBlock');
+      });
+    });
+  });
 });

@@ -3,6 +3,7 @@
  */
 const { executeSandboxed } = require('../executor');
 const { OperationTracker } = require('../operation-tracker');
+const { wrapForTracking } = require('../yjs-interceptor');
 const Y = require('yjs');
 
 describe('Sandbox executor', () => {
@@ -272,6 +273,7 @@ describe('Sandbox executor', () => {
             findByNodeName: typeof findByNodeName,
             findByText: typeof findByText,
             createFormattedText: typeof createFormattedText,
+            appendBlocks: typeof appendBlocks,
           };
 
           // Verify all are functions
@@ -284,6 +286,186 @@ describe('Sandbox executor', () => {
           // Also verify Y namespace has expected constructors
           if (typeof Y.XmlElement !== 'function') throw new Error('Y.XmlElement not available');
           if (typeof Y.XmlText !== 'function') throw new Error('Y.XmlText not available');
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+      expect(result.success).toBe(true);
+    });
+
+    test('appendBlocks creates blocks and tracks operations', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          appendBlocks(doc, [
+            { type: 'heading', level: 2, content: 'Title' },
+            { type: 'paragraph', content: 'Content here.' }
+          ]);
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Verify blocks were created
+      const blocks = xmlFragment.toArray();
+      expect(blocks.length).toBe(2);
+      expect(blocks[0].nodeName).toBe('heading');
+      expect(blocks[0].getAttribute('level')).toBe(2);
+      expect(blocks[1].nodeName).toBe('paragraph');
+
+      // Verify operations were tracked
+      const operations = tracker.getOperations();
+      const mutations = operations.filter(op => op.category === 'mutation');
+      expect(mutations.length).toBeGreaterThan(0);
+    });
+
+    test('appendBlocks creates formatted content', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          appendBlocks(doc, [
+            { type: 'paragraph', content: [
+              'Text with ',
+              { text: 'bold', attrs: { bold: true } },
+              ' formatting.'
+            ]}
+          ]);
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      const para = xmlFragment.get(0);
+      const text = para.get(0);
+      const delta = text.toDelta();
+
+      expect(delta.length).toBe(3);
+      expect(delta[1].attributes).toEqual({ bold: true });
+    });
+
+    test('appendBlocks creates lists', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          appendBlocks(doc, [
+            { type: 'bulletList', items: ['Item 1', 'Item 2'] },
+            { type: 'orderedList', items: ['First', 'Second'] }
+          ]);
+        };
+      `;
+
+      const result = executeSandboxed(jsCode, xmlFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      const blocks = xmlFragment.toArray();
+      expect(blocks.length).toBe(2);
+      expect(blocks[0].nodeName).toBe('bulletList');
+      expect(blocks[1].nodeName).toBe('orderedList');
+    });
+
+    test('appendBlocks with xpath positioning', () => {
+      // First, create some initial content
+      const h1 = new Y.XmlElement('heading');
+      h1.setAttribute('level', 1);
+      const h1Text = new Y.XmlText();
+      h1Text.insert(0, 'Introduction');
+      h1.insert(0, [h1Text]);
+
+      const h2 = new Y.XmlElement('heading');
+      h2.setAttribute('level', 2);
+      const h2Text = new Y.XmlText();
+      h2Text.insert(0, 'Conclusion');
+      h2.insert(0, [h2Text]);
+
+      xmlFragment.insert(0, [h1, h2]);
+
+      const jsCode = `
+        exports.default = function(doc) {
+          // Insert content after Introduction heading using xpath
+          appendBlocks(doc, [
+            { type: 'paragraph', content: 'This goes after intro.' }
+          ], { after: '//heading[contains(., "Introduction")]' });
+        };
+      `;
+
+      // Wrap the fragment like production code does (index.js wraps before calling executeSandboxed)
+      const wrappedFragment = wrapForTracking(xmlFragment, tracker, []);
+      const result = executeSandboxed(jsCode, wrappedFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Should have: Introduction, new paragraph, Conclusion
+      const blocks = xmlFragment.toArray();
+      expect(blocks.length).toBe(3);
+      expect(blocks[0].nodeName).toBe('heading');
+      expect(blocks[1].nodeName).toBe('paragraph');
+      expect(blocks[2].nodeName).toBe('heading');
+
+      // Verify the new content is in the right place
+      const textNode = blocks[1].get(0);
+      const delta = textNode.toDelta();
+      expect(delta[0].insert).toBe('This goes after intro.');
+    });
+
+    test('appendBlocks with element reference positioning', () => {
+      // First, create some initial content
+      const h1 = new Y.XmlElement('heading');
+      h1.setAttribute('level', 1);
+      const h1Text = new Y.XmlText();
+      h1Text.insert(0, 'Title');
+      h1.insert(0, [h1Text]);
+
+      const para = new Y.XmlElement('paragraph');
+      const paraText = new Y.XmlText();
+      paraText.insert(0, 'Content');
+      para.insert(0, [paraText]);
+
+      xmlFragment.insert(0, [h1, para]);
+
+      const jsCode = `
+        exports.default = function(doc) {
+          // Get a reference to the first element and insert before it
+          const firstElement = doc.get(0);
+          appendBlocks(doc, [
+            { type: 'paragraph', content: 'Before title' }
+          ], { before: firstElement });
+        };
+      `;
+
+      // Wrap the fragment like production code does
+      const wrappedFragment = wrapForTracking(xmlFragment, tracker, []);
+      const result = executeSandboxed(jsCode, wrappedFragment, tracker, 5000);
+
+      expect(result.success).toBe(true);
+
+      // Should have: new paragraph, Title, Content
+      const blocks = xmlFragment.toArray();
+      expect(blocks.length).toBe(3);
+      expect(blocks[0].nodeName).toBe('paragraph');
+      expect(blocks[1].nodeName).toBe('heading');
+
+      const textNode = blocks[0].get(0);
+      const delta = textNode.toDelta();
+      expect(delta[0].insert).toBe('Before title');
+    });
+
+    test('appendBlocks returns created elements', () => {
+      const jsCode = `
+        exports.default = function(doc) {
+          const elements = appendBlocks(doc, [
+            { type: 'heading', level: 2, content: 'Test' },
+            { type: 'paragraph', content: 'Content' }
+          ]);
+
+          // Verify return value
+          if (elements.length !== 2) {
+            throw new Error('Expected 2 elements, got ' + elements.length);
+          }
+          if (elements[0].nodeName !== 'heading') {
+            throw new Error('First element should be heading');
+          }
         };
       `;
 
