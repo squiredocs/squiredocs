@@ -20,6 +20,7 @@ const {
   createCursorPositionFromPath,
   getNodePath,
   getNodeTextLength,
+  createNodeSelection,
   createExpandingBlockHighlights,
 } = require('../yjs/cursor-operations');
 
@@ -96,17 +97,8 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
           const unwrappedResults = xpathQuery(expression, highlightContext.xmlFragment);
           const positions = [];
           for (const node of unwrappedResults) {
-            // Get the path to this node in the document
-            const path = getNodePath(highlightContext.xmlFragment, node);
-            if (path) {
-              const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, path, 0);
-              // Calculate actual text length for proper full-element highlighting
-              const textLength = getNodeTextLength(node);
-              const head = createCursorPositionFromPath(highlightContext.xmlFragment, path, textLength);
-              if (anchor && head) {
-                positions.push({ anchor, head });
-              }
-            }
+            const selection = createNodeSelection(highlightContext.xmlFragment, node);
+            if (selection) positions.push(selection);
           }
           if (positions.length > 0) {
             highlightContext.queueHighlights(positions);
@@ -130,15 +122,9 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
           try {
             const unwrappedResult = xpathFirstQuery(expression, highlightContext.xmlFragment);
             if (unwrappedResult) {
-              const path = getNodePath(highlightContext.xmlFragment, unwrappedResult);
-              if (path) {
-                const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, path, 0);
-                // Calculate actual text length for proper full-element highlighting
-                const textLength = getNodeTextLength(unwrappedResult);
-                const head = createCursorPositionFromPath(highlightContext.xmlFragment, path, textLength);
-                if (anchor && head) {
-                  highlightContext.queueHighlights([{ anchor, head }]);
-                }
+              const selection = createNodeSelection(highlightContext.xmlFragment, unwrappedResult);
+              if (selection) {
+                highlightContext.queueHighlights([selection]);
               }
             }
           } catch (err) {

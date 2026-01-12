@@ -7,7 +7,12 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { xpath } = require('../sandbox/xpath');
-const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require('../yjs/cursor-operations');
+const {
+  createCursorPositionFromPath,
+  getNodeTextLength,
+  createNodeSelection,
+  createExpandingBlockHighlights,
+} = require('../yjs/cursor-operations');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -274,32 +279,17 @@ async function handler(args, agentToken) {
   // Highlight the nodes being read
   if (nodes.length > 0) {
     try {
-      const positions = [];
+      let positions = [];
 
       if (xpathExpr) {
         // XPath query: cycle through each matched element
         for (const node of nodes) {
-          const path = getNodePath(xmlFragment, node);
-          if (path) {
-            const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
-            const head = createCursorPositionFromPath(xmlFragment, path, getNodeTextLength(node));
-            if (anchor && head) {
-              positions.push({ anchor, head });
-            }
-          }
+          const selection = createNodeSelection(xmlFragment, node);
+          if (selection) positions.push(selection);
         }
       } else {
         // Full document read: expanding selection from start toward end
-        const anchor = createCursorPositionFromPath(xmlFragment, [0], 0);
-        const numChunks = Math.min(5, Math.max(3, Math.ceil(nodes.length / 4)));
-
-        for (let i = 1; i <= numChunks; i++) {
-          const endBlock = Math.min(Math.ceil(i * nodes.length / numChunks), nodes.length) - 1;
-          const head = createCursorPositionFromPath(xmlFragment, [endBlock], getNodeTextLength(nodes[endBlock]));
-          if (anchor && head) {
-            positions.push({ anchor, head });
-          }
-        }
+        positions = createExpandingBlockHighlights(xmlFragment, 0, nodes.length);
       }
 
       if (positions.length > 0) {

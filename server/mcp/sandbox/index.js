@@ -13,7 +13,7 @@ const { compileTypeScript } = require('./compiler');
 const { executeSandboxed } = require('./executor');
 const { wrapForTracking } = require('./yjs-interceptor');
 const { OperationTracker } = require('./operation-tracker');
-const { createCursorPositionFromPath } = require('../yjs/cursor-operations');
+const { createOperationSelection } = require('../yjs/cursor-operations');
 const agentPresence = require('../agent-presence');
 const { MutationAggregator } = require('../mutation-aggregator');
 
@@ -62,7 +62,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
 
   // Create onOperation callback for real-time selection highlighting
   const onOperation = (operation, target) => {
-    // Prevent recursion - createCursorPositionFromPath uses toArray which triggers onOperation
+    // Prevent recursion - createOperationSelection uses toArray which triggers onOperation
     if (inOnOperation) {
       return;
     }
@@ -75,67 +75,11 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     try {
       inOnOperation = true;
 
-      let anchor = null;
-      let head = null;
-
-      // Determine the path to use
-      let path = operation.path;
-
-      // Only interpret args[0] as a block index for ROOT-LEVEL fragment inserts.
-      // For XmlText.insert(offset, text) or XmlElement.insert(index, children),
-      // args[0] is NOT a block index - it's a text offset or child index.
-      // Operations on unattached elements have path=[] but should be skipped,
-      // not misinterpreted as root-level operations.
-      if (path.length === 0 &&
-          operation.target === 'XmlFragment' &&
-          operation.type === 'insert' &&
-          operation.args && typeof operation.args[0] === 'number') {
-        const blockIndex = operation.args[0];
-        const blocks = xmlFragment.toArray();
-        if (blockIndex >= 0 && blockIndex < blocks.length) {
-          path = [blockIndex];
-        }
-      }
-
-      if (path.length === 0) {
-        // Can't highlight - either unattached element or invalid path
-        return;
-      }
-
-      // Calculate selection range based on operation type
-      const { type, args } = operation;
-
-      if (type === 'insert' && operation.target === 'XmlText' && typeof args[0] === 'number') {
-        // text.insert(offset, content) - select the inserted text
-        const startOffset = args[0];
-        const content = args[1];
-        const length = typeof content === 'string' ? content.length : 0;
-        anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
-        head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
-      } else if (type === 'format' && typeof args[0] === 'number' && typeof args[1] === 'number') {
-        // text.format(offset, length, attrs) - select the formatted range
-        const startOffset = args[0];
-        const length = args[1];
-        anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
-        head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
-      } else if (type === 'delete' && typeof args[0] === 'number') {
-        // delete(offset, length) - just show cursor at deletion point
-        const offset = args[0];
-        anchor = createCursorPositionFromPath(xmlFragment, path, offset);
-        head = anchor;
-      } else {
-        // Default: show cursor at start of the affected element
-        anchor = createCursorPositionFromPath(xmlFragment, path, 0);
-        head = anchor;
-      }
-
-      // Add mutation to aggregator (will be batched with other mutations in the same time window)
-      if (anchor && head) {
+      const selection = createOperationSelection(xmlFragment, operation);
+      if (selection) {
         mutationAggregator.addMutation({
-          anchor,
-          head,
+          ...selection,
           timestamp: operation.timestamp,
-          path,
         });
       }
     } catch (err) {

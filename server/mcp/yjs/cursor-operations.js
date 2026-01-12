@@ -757,8 +757,104 @@ function getNodeTextLength(node) {
 
 /**
  * SHARED HIGHLIGHT UTILITIES
- * Common functions for creating expanding selection highlights
+ * Common functions for creating selection highlights
  */
+
+/**
+ * Create a selection covering an entire node
+ * Returns cursor positions spanning from start to end of the node's text content.
+ *
+ * @param {Y.XmlFragment} xmlFragment - Document root
+ * @param {Y.XmlElement|Y.XmlText} node - Node to select
+ * @returns {{ anchor: object, head: object } | null} - Selection or null if node not found
+ */
+function createNodeSelection(xmlFragment, node) {
+  const path = getNodePath(xmlFragment, node);
+  if (!path) return null;
+
+  try {
+    const anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+    const textLength = getNodeTextLength(node);
+    const head = createCursorPositionFromPath(xmlFragment, path, textLength);
+
+    if (!anchor || !head) return null;
+    return { anchor, head };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Create a selection for a tracked mutation operation
+ * Handles path determination and position creation based on operation type.
+ *
+ * @param {Y.XmlFragment} xmlFragment - Document root
+ * @param {object} operation - Operation from tracker
+ * @param {string} operation.type - Operation type ('insert', 'format', 'delete', etc.)
+ * @param {string} operation.target - Target type ('XmlText', 'XmlFragment', etc.)
+ * @param {Array} operation.args - Operation arguments
+ * @param {Array<number>} operation.path - Path to affected node
+ * @returns {{ anchor: object, head: object, path: Array<number> } | null}
+ */
+function createOperationSelection(xmlFragment, operation) {
+  let { path, type, target, args } = operation;
+
+  // Handle root-level XmlFragment inserts specially
+  // For XmlFragment.insert(blockIndex, blocks), args[0] is the block index
+  // For XmlText.insert(offset, text), args[0] is a text offset (not a block index)
+  if (path.length === 0 &&
+      target === 'XmlFragment' &&
+      type === 'insert' &&
+      args && typeof args[0] === 'number') {
+    const blockIndex = args[0];
+    const blocks = xmlFragment.toArray();
+    if (blockIndex >= 0 && blockIndex < blocks.length) {
+      path = [blockIndex];
+    }
+  }
+
+  // Can't create selection without a valid path
+  if (path.length === 0) {
+    return null;
+  }
+
+  let anchor = null;
+  let head = null;
+
+  try {
+    if (type === 'insert' && target === 'XmlText' && typeof args[0] === 'number') {
+      // text.insert(offset, content) - select the inserted text
+      const startOffset = args[0];
+      const content = args[1];
+      const length = typeof content === 'string' ? content.length : 0;
+      anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
+      head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
+    } else if (type === 'format' && typeof args[0] === 'number' && typeof args[1] === 'number') {
+      // text.format(offset, length, attrs) - select the formatted range
+      const startOffset = args[0];
+      const length = args[1];
+      anchor = createCursorPositionFromPath(xmlFragment, path, startOffset);
+      head = createCursorPositionFromPath(xmlFragment, path, startOffset + length);
+    } else if (type === 'delete' && typeof args[0] === 'number') {
+      // delete(offset, length) - show cursor at deletion point
+      const offset = args[0];
+      anchor = createCursorPositionFromPath(xmlFragment, path, offset);
+      head = anchor;
+    } else {
+      // Default: show cursor at start of the affected element
+      anchor = createCursorPositionFromPath(xmlFragment, path, 0);
+      head = anchor;
+    }
+  } catch (err) {
+    return null;
+  }
+
+  if (!anchor || !head) {
+    return null;
+  }
+
+  return { anchor, head, path };
+}
 
 /**
  * Compute chunk parameters for expanding highlights
@@ -981,6 +1077,8 @@ module.exports = {
   getNodePath,
   getNodeTextLength,
   // Shared highlight utilities
+  createNodeSelection,
+  createOperationSelection,
   computeExpandingChunks,
   createBlockRangeSelection,
   createExpandingBlockHighlights,
