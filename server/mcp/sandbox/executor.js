@@ -194,6 +194,35 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
     // and xpathFirst via options.
     appendBlocks: (function(WrappedXmlElement, WrappedXmlText) {
       return function appendBlocks(container, blocks, position) {
+        const numBlocks = blocks.length;
+
+        // Calculate insert index before insertion (mirrors logic in helpers.appendBlocks)
+        // We need this to find the inserted elements for highlighting
+        let insertIndex;
+        const unwrappedContainer = highlightContext ? highlightContext.xmlFragment : null;
+
+        if (!position || (position.at && position.at === 'end')) {
+          // Will insert at end - calculate based on current length
+          insertIndex = unwrappedContainer ? unwrappedContainer.length : 0;
+        } else if (position.at === 'start') {
+          insertIndex = 0;
+        } else if (position.before !== undefined || position.after !== undefined) {
+          // For xpath positioning, find the target element's index
+          const targetXpath = position.before || position.after;
+          if (typeof targetXpath === 'string' && unwrappedContainer) {
+            const targetElement = xpathFirstQuery(targetXpath, unwrappedContainer);
+            if (targetElement) {
+              const items = unwrappedContainer.toArray();
+              for (let i = 0; i < items.length; i++) {
+                if (items[i] === targetElement) {
+                  insertIndex = position.before ? i : i + 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
         // Create xpathFirst that wraps results for consistent identity comparison
         // This ensures elements from xpath match elements from toArray()
         const sandboxXpathFirst = (expression, contextNode) => {
@@ -207,11 +236,60 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
         };
 
         // Call the helper with wrapped constructors for operation tracking
-        return helpers.appendBlocks(container, blocks, position, {
+        const elements = helpers.appendBlocks(container, blocks, position, {
           XmlElement: WrappedXmlElement,
           XmlText: WrappedXmlText,
           xpathFirst: sandboxXpathFirst,
         });
+
+        // Queue expanding highlight that covers all created elements
+        // Uses the same UX pattern as MutationAggregator - 4-5 expanding chunks
+        // Note: We delay this to run after the MutationAggregator's 200ms window flushes,
+        // otherwise it clears our queued highlights when it processes the mutations.
+        if (highlightContext && highlightContext.queueHighlights && numBlocks > 0 && insertIndex !== undefined) {
+          const capturedInsertIndex = insertIndex;
+          const capturedNumBlocks = numBlocks;
+
+          setTimeout(() => {
+            try {
+              const firstNode = highlightContext.xmlFragment.get(capturedInsertIndex);
+              if (!firstNode) return;
+
+              // Anchor stays at the start of the first block
+              const anchorPath = [capturedInsertIndex];
+              const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, anchorPath, 0);
+              if (!anchor) return;
+
+              // Create 4-5 expanding chunks like MutationAggregator does
+              const targetChunks = Math.min(5, Math.max(3, Math.ceil(capturedNumBlocks / 4)));
+              const blocksPerChunk = Math.ceil(capturedNumBlocks / targetChunks);
+
+              const expandingPositions = [];
+              for (let chunk = 1; chunk <= targetChunks; chunk++) {
+                const endBlockOffset = Math.min(chunk * blocksPerChunk, capturedNumBlocks) - 1;
+                const nodeIndex = capturedInsertIndex + endBlockOffset;
+                const node = highlightContext.xmlFragment.get(nodeIndex);
+                if (node) {
+                  const headPath = [nodeIndex];
+                  const textLength = getNodeTextLength(node);
+                  const head = createCursorPositionFromPath(highlightContext.xmlFragment, headPath, textLength);
+                  if (head) {
+                    expandingPositions.push({ anchor, head });
+                  }
+                }
+              }
+
+              console.log('[appendBlocks] Queueing', expandingPositions.length, 'expanding chunks for', capturedNumBlocks, 'blocks');
+              if (expandingPositions.length > 0) {
+                highlightContext.queueHighlights(expandingPositions);
+              }
+            } catch (err) {
+              console.warn('[appendBlocks] highlight error:', err.message);
+            }
+          }, 250);
+        }
+
+        return elements;
       };
     })(
       createWrappedConstructor(Y.XmlElement),
