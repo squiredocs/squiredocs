@@ -453,6 +453,8 @@ kubectl exec -it deployment/collab-postgres -n collab -- \
 
 ### Making MCP API Requests
 
+**Note:** When running locally with `npm run dev`, the server port may vary (e.g., `59178` instead of `3001`). Check your terminal output or browser URL for the actual port. The examples below use `3001` but substitute your actual port.
+
 Save a test token to a file for easier testing:
 
 ```bash

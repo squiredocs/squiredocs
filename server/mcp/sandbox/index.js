@@ -163,6 +163,12 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
         // Random delay between 80-240ms for each highlight
         agentPresence.queueHighlightSequence(session.sessionId, positions);
       },
+      // Flush any pending highlights (both xpath/read highlights and buffered mutations)
+      // before queueing new ones. This ensures the caller's highlights don't get cleared
+      // when MutationAggregator flushes its buffered mutations.
+      flushPendingHighlights: () => {
+        mutationAggregator.flush();
+      },
     };
 
     // 5. Execute script in a transaction for atomic undo

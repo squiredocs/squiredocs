@@ -16,7 +16,12 @@ const Y = require('yjs');
 const { wrapForTracking } = require('./yjs-interceptor');
 const helpers = require('./helpers');
 const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
-const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require('../yjs/cursor-operations');
+const {
+  createCursorPositionFromPath,
+  getNodePath,
+  getNodeTextLength,
+  createExpandingBlockHighlights,
+} = require('../yjs/cursor-operations');
 
 /**
  * Executes JavaScript code with access to wrapped Yjs fragment
@@ -28,6 +33,7 @@ const { createCursorPositionFromPath, getNodePath, getNodeTextLength } = require
  * @param {object} [highlightContext] - Optional context for xpath highlighting
  * @param {Y.XmlFragment} [highlightContext.xmlFragment] - Document fragment for cursor position creation
  * @param {Function} [highlightContext.queueHighlights] - Function to queue highlight positions
+ * @param {Function} [highlightContext.flushPendingHighlights] - Function to flush pending highlights before queueing new ones
  * @returns {object} - Execution result
  * @throws {Error} - If execution fails or times out
  */
@@ -243,50 +249,27 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
         });
 
         // Queue expanding highlight that covers all created elements
-        // Uses the same UX pattern as MutationAggregator - 4-5 expanding chunks
-        // Note: We delay this to run after the MutationAggregator's 200ms window flushes,
-        // otherwise it clears our queued highlights when it processes the mutations.
+        // Uses the shared utility for consistent UX pattern across the codebase
         if (highlightContext && highlightContext.queueHighlights && numBlocks > 0 && insertIndex !== undefined) {
-          const capturedInsertIndex = insertIndex;
-          const capturedNumBlocks = numBlocks;
-
-          setTimeout(() => {
-            try {
-              const firstNode = highlightContext.xmlFragment.get(capturedInsertIndex);
-              if (!firstNode) return;
-
-              // Anchor stays at the start of the first block
-              const anchorPath = [capturedInsertIndex];
-              const anchor = createCursorPositionFromPath(highlightContext.xmlFragment, anchorPath, 0);
-              if (!anchor) return;
-
-              // Create 4-5 expanding chunks like MutationAggregator does
-              const targetChunks = Math.min(5, Math.max(3, Math.ceil(capturedNumBlocks / 4)));
-              const blocksPerChunk = Math.ceil(capturedNumBlocks / targetChunks);
-
-              const expandingPositions = [];
-              for (let chunk = 1; chunk <= targetChunks; chunk++) {
-                const endBlockOffset = Math.min(chunk * blocksPerChunk, capturedNumBlocks) - 1;
-                const nodeIndex = capturedInsertIndex + endBlockOffset;
-                const node = highlightContext.xmlFragment.get(nodeIndex);
-                if (node) {
-                  const headPath = [nodeIndex];
-                  const textLength = getNodeTextLength(node);
-                  const head = createCursorPositionFromPath(highlightContext.xmlFragment, headPath, textLength);
-                  if (head) {
-                    expandingPositions.push({ anchor, head });
-                  }
-                }
-              }
-
-              console.log('[appendBlocks] Queueing', expandingPositions.length, 'expanding chunks for', capturedNumBlocks, 'blocks');
-              if (expandingPositions.length > 0) {
-                highlightContext.queueHighlights(expandingPositions);
-              }
-            } catch (err) {
-              console.warn('[appendBlocks] highlight error:', err.message);
+          try {
+            // Flush any pending highlights first to avoid them clearing our highlights
+            if (highlightContext.flushPendingHighlights) {
+              highlightContext.flushPendingHighlights();
             }
-          }, 250);
+
+            const expandingPositions = createExpandingBlockHighlights(
+              highlightContext.xmlFragment,
+              insertIndex,
+              numBlocks
+            );
+
+            if (expandingPositions.length > 0) {
+              console.log('[appendBlocks] Queueing', expandingPositions.length, 'expanding chunks for', numBlocks, 'blocks');
+              highlightContext.queueHighlights(expandingPositions);
+            }
+          } catch (err) {
+            console.warn('[appendBlocks] highlight error:', err.message);
+          }
         }
 
         return elements;

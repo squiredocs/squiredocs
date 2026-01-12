@@ -13,7 +13,12 @@
  */
 
 const Y = require('yjs');
-const { createCursorPositionFromPath } = require('./yjs/cursor-operations');
+const {
+  createCursorPositionFromPath,
+  getNodeTextLength,
+  computeExpandingChunks,
+  createBlockRangeSelection,
+} = require('./yjs/cursor-operations');
 
 // Default aggregation window (configurable via environment variable)
 const DEFAULT_WINDOW_MS = process.env.MUTATION_WINDOW_MS ? parseInt(process.env.MUTATION_WINDOW_MS, 10) : 200;
@@ -146,8 +151,7 @@ class MutationAggregator {
       const totalBlocks = uniqueBlocks.length;
 
       // Create 4-5 expanding chunks based on block ranges
-      const targetChunks = Math.min(5, Math.max(3, Math.ceil(totalBlocks / 4)));
-      const blocksPerChunk = Math.ceil(totalBlocks / targetChunks);
+      const { targetChunks, blocksPerChunk } = computeExpandingChunks(totalBlocks);
 
       const spans = [];
 
@@ -218,50 +222,8 @@ class MutationAggregator {
    * @returns {object|null} { anchor, head } or null if blocks don't exist
    */
   computeBlockRangeSelection(minBlock, maxBlock) {
-    const blocks = this.xmlFragment.toArray();
-
-    if (minBlock < 0 || maxBlock >= blocks.length || minBlock > maxBlock) {
-      return null;
-    }
-
-    try {
-      // Create anchor at start of first block (offset 0)
-      const anchor = createCursorPositionFromPath(this.xmlFragment, [minBlock], 0);
-
-      // Create head at end of last block
-      const lastBlock = blocks[maxBlock];
-      const lastBlockLength = this.getBlockTextLength(lastBlock);
-      const head = createCursorPositionFromPath(this.xmlFragment, [maxBlock], lastBlockLength);
-
-      return { anchor, head };
-    } catch (err) {
-      console.warn(`[MutationAggregator] Failed to create block range selection for blocks ${minBlock}-${maxBlock}:`, err.message);
-      return null;
-    }
-  }
-
-  /**
-   * Get total text length of a block (including all nested text nodes)
-   *
-   * @param {Y.XmlElement} block - Block to measure
-   * @returns {number} Total character count
-   */
-  getBlockTextLength(block) {
-    let length = 0;
-
-    function traverse(node) {
-      if (node instanceof Y.XmlText) {
-        length += node.length;
-      } else if (node instanceof Y.XmlElement) {
-        const children = node.toArray();
-        for (const child of children) {
-          traverse(child);
-        }
-      }
-    }
-
-    traverse(block);
-    return length;
+    // Delegate to shared utility
+    return createBlockRangeSelection(this.xmlFragment, minBlock, maxBlock);
   }
 
   /**

@@ -755,6 +755,106 @@ function getNodeTextLength(node) {
   return 0;
 }
 
+/**
+ * SHARED HIGHLIGHT UTILITIES
+ * Common functions for creating expanding selection highlights
+ */
+
+/**
+ * Compute chunk parameters for expanding highlights
+ * Creates 3-5 expanding chunks based on block count, matching the UX pattern
+ * used throughout the codebase for visual feedback.
+ *
+ * @param {number} blockCount - Number of blocks to highlight
+ * @returns {{ targetChunks: number, blocksPerChunk: number }}
+ */
+function computeExpandingChunks(blockCount) {
+  const targetChunks = Math.min(5, Math.max(3, Math.ceil(blockCount / 4)));
+  const blocksPerChunk = Math.ceil(blockCount / targetChunks);
+  return { targetChunks, blocksPerChunk };
+}
+
+/**
+ * Create anchor/head selection for a block range
+ * Returns cursor positions spanning from start of first block to end of last block.
+ *
+ * @param {Y.XmlFragment} xmlFragment - Document fragment
+ * @param {number} minBlock - First block index in range
+ * @param {number} maxBlock - Last block index in range
+ * @returns {{ anchor: object, head: object } | null} - Selection or null if blocks don't exist
+ */
+function createBlockRangeSelection(xmlFragment, minBlock, maxBlock) {
+  const blocks = xmlFragment.toArray();
+
+  if (minBlock < 0 || maxBlock >= blocks.length || minBlock > maxBlock) {
+    return null;
+  }
+
+  try {
+    // Create anchor at start of first block (offset 0)
+    const anchor = createCursorPositionFromPath(xmlFragment, [minBlock], 0);
+
+    // Create head at end of last block
+    const lastBlock = blocks[maxBlock];
+    const lastBlockLength = getNodeTextLength(lastBlock);
+    const head = createCursorPositionFromPath(xmlFragment, [maxBlock], lastBlockLength);
+
+    return { anchor, head };
+  } catch (err) {
+    console.warn(`[createBlockRangeSelection] Failed for blocks ${minBlock}-${maxBlock}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Create expanding highlight positions for a block range
+ * Returns an array of selections that progressively expand from startIndex
+ * to cover all blocks, creating an animated "expanding" visual effect.
+ *
+ * @param {Y.XmlFragment} xmlFragment - Document fragment
+ * @param {number} startIndex - First block index
+ * @param {number} blockCount - Number of blocks to highlight
+ * @returns {Array<{ anchor: object, head: object }>} - Array of expanding selections
+ */
+function createExpandingBlockHighlights(xmlFragment, startIndex, blockCount) {
+  if (blockCount <= 0) {
+    return [];
+  }
+
+  const { targetChunks, blocksPerChunk } = computeExpandingChunks(blockCount);
+  const positions = [];
+
+  // Create anchor at start of first block (stays fixed)
+  let anchor;
+  try {
+    anchor = createCursorPositionFromPath(xmlFragment, [startIndex], 0);
+    if (!anchor) return [];
+  } catch (err) {
+    return [];
+  }
+
+  // Create expanding chunks - each one covers more blocks
+  for (let chunk = 1; chunk <= targetChunks; chunk++) {
+    const endBlockOffset = Math.min(chunk * blocksPerChunk, blockCount) - 1;
+    const nodeIndex = startIndex + endBlockOffset;
+
+    try {
+      const node = xmlFragment.get(nodeIndex);
+      if (node) {
+        const textLength = getNodeTextLength(node);
+        const head = createCursorPositionFromPath(xmlFragment, [nodeIndex], textLength);
+        if (head) {
+          positions.push({ anchor, head });
+        }
+      }
+    } catch (err) {
+      // Skip this chunk if we can't create a position
+    }
+  }
+
+  return positions;
+}
+
 // Helper functions
 
 function getBlockTextLength(block) {
@@ -880,4 +980,8 @@ module.exports = {
   // Node utilities (shared with executor.js)
   getNodePath,
   getNodeTextLength,
+  // Shared highlight utilities
+  computeExpandingChunks,
+  createBlockRangeSelection,
+  createExpandingBlockHighlights,
 };
