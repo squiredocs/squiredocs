@@ -512,6 +512,151 @@ describe('Sandbox Helpers', () => {
       });
     });
 
+    describe('nested lists', () => {
+      it('should create a bullet list with nested bullet list', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            'Simple item',
+            { content: 'Parent item', children: ['Nested one', 'Nested two'] },
+            'Another simple item'
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('bulletList');
+        expect(list.length).toBe(3);
+
+        // First item is simple
+        const firstItem = list.get(0);
+        expect(firstItem.nodeName).toBe('listItem');
+        expect(firstItem.length).toBe(1);
+        expect(helpers.getTextContent(firstItem)).toBe('Simple item');
+
+        // Second item has nested list
+        const secondItem = list.get(1);
+        expect(secondItem.nodeName).toBe('listItem');
+        expect(secondItem.length).toBe(2); // paragraph + nested list
+        expect(helpers.getTextContent(secondItem.get(0))).toBe('Parent item');
+
+        const nestedList = secondItem.get(1);
+        expect(nestedList.nodeName).toBe('bulletList');
+        expect(nestedList.length).toBe(2);
+        expect(helpers.getTextContent(nestedList.get(0))).toBe('Nested one');
+        expect(helpers.getTextContent(nestedList.get(1))).toBe('Nested two');
+
+        // Third item is simple
+        expect(helpers.getTextContent(list.get(2))).toBe('Another simple item');
+      });
+
+      it('should create an ordered list with nested ordered list', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'orderedList', items: [
+            'First',
+            { content: 'Second with children', children: ['2.1', '2.2'] },
+            'Third'
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('orderedList');
+
+        const secondItem = list.get(1);
+        const nestedList = secondItem.get(1);
+        expect(nestedList.nodeName).toBe('orderedList'); // inherits parent type
+        expect(nestedList.length).toBe(2);
+      });
+
+      it('should allow specifying different child list type', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'orderedList', items: [
+            { content: 'Ordered parent', children: ['Bullet child'], childType: 'bulletList' }
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('orderedList');
+
+        const item = list.get(0);
+        const nestedList = item.get(1);
+        expect(nestedList.nodeName).toBe('bulletList'); // overridden type
+      });
+
+      it('should support deeply nested lists', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            { content: 'Level 1', children: [
+              { content: 'Level 2', children: [
+                'Level 3 item'
+              ]}
+            ]}
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        const level1Item = list.get(0);
+        const level2List = level1Item.get(1);
+        const level2Item = level2List.get(0);
+        const level3List = level2Item.get(1);
+        const level3Item = level3List.get(0);
+
+        expect(helpers.getTextContent(level1Item.get(0))).toBe('Level 1');
+        expect(helpers.getTextContent(level2Item.get(0))).toBe('Level 2');
+        expect(helpers.getTextContent(level3Item)).toBe('Level 3 item');
+      });
+
+      it('should support formatted content in nested items', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            {
+              content: ['Parent with ', { text: 'bold', attrs: { bold: true } }],
+              children: [
+                ['Child with ', { text: 'italic', attrs: { italic: true } }]
+              ]
+            }
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        const parentItem = list.get(0);
+        const parentPara = parentItem.get(0);
+        const parentText = helpers.findTextNode(parentPara);
+        const parentDelta = parentText.toDelta();
+        expect(parentDelta[1].attributes).toEqual({ bold: true });
+
+        const nestedList = parentItem.get(1);
+        const childItem = nestedList.get(0);
+        const childPara = childItem.get(0);
+        const childText = helpers.findTextNode(childPara);
+        const childDelta = childText.toDelta();
+        expect(childDelta[1].attributes).toEqual({ italic: true });
+      });
+
+      it('should handle item with content but no children', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            { content: 'Just content, no children' }
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        const item = list.get(0);
+        expect(item.length).toBe(1); // only paragraph, no nested list
+        expect(helpers.getTextContent(item)).toBe('Just content, no children');
+      });
+
+      it('should handle empty children array', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'bulletList', items: [
+            { content: 'Has empty children', children: [] }
+          ]}
+        ]);
+
+        const list = fragment.get(0);
+        const item = list.get(0);
+        expect(item.length).toBe(1); // only paragraph, no nested list
+      });
+    });
+
     describe('positioning', () => {
       beforeEach(() => {
         // Create initial content

@@ -190,6 +190,7 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
   - Create multiple block elements from declarative definitions
   - ✓ Eliminates ~75% of boilerplate for common operations
   - ✓ Supports headings, paragraphs, lists, code blocks
+  - ✓ Supports nested lists with arbitrary depth
   - ✓ Supports formatted content within blocks
   - ✓ Supports xpath-based positioning
   - Returns Y.XmlElement[] (the created blocks)
@@ -197,10 +198,12 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
   Block types:
     { type: 'paragraph', content: string | FormattedContent }
     { type: 'heading', level: 1-5, content: string | FormattedContent }
-    { type: 'bulletList', items: (string | FormattedContent)[] }
-    { type: 'orderedList', items: (string | FormattedContent)[] }
+    { type: 'bulletList', items: ListItem[] }
+    { type: 'orderedList', items: ListItem[] }
     { type: 'codeBlock', content: string }
 
+  ListItem = string | FormattedContent | NestedItem
+  NestedItem = { content: string | FormattedContent, children?: ListItem[], childType?: 'bulletList' | 'orderedList' }
   FormattedContent = Array<string | { text: string, attrs: object }>
 
   Position options:
@@ -230,6 +233,15 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
       appendBlocks(doc, [
         { type: 'paragraph', content: 'New content after intro.' }
       ], { after: '//heading[contains(., "Introduction")]' });
+
+  Example - Nested lists:
+      appendBlocks(doc, [
+        { type: 'bulletList', items: [
+          'Simple item',
+          { content: 'Item with sub-items', children: ['Sub-item 1', 'Sub-item 2'] },
+          { content: 'Mixed nesting', children: ['Numbered child'], childType: 'orderedList' }
+        ]}
+      ]);
 
 ───────────────────────────────────────────────────────────────────────────
 XPATH QUERY FUNCTIONS (Recommended for element selection!)
