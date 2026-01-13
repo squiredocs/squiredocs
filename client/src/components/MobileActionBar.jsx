@@ -160,12 +160,6 @@ export default function MobileActionBar({ editor }) {
             >
               <s>S</s>
             </button>
-            <button
-              onClick={() => editor.chain().focus().toggleHighlight().run()}
-              className={`mobile-format-button ${editor.isActive('highlight') ? 'active' : ''}`}
-            >
-              <span style={{ backgroundColor: '#fff3cd', padding: '2px' }}>H</span>
-            </button>
           </div>
           <div className="mobile-format-row">
             <button

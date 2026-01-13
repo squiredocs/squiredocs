@@ -15,7 +15,6 @@
     "@manuscripts/prosemirror-recreate-steps": "^0.1.4",
     "@tiptap/extension-collaboration": "^3.15.0",
     "@tiptap/extension-collaboration-caret": "^3.15.0",
-    "@tiptap/extension-highlight": "^3.15.3",
     "@tiptap/extension-link": "^3.15.0",
     "@tiptap/extension-subscript": "^3.15.3",
     "@tiptap/extension-superscript": "^3.15.3",

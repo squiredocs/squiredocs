@@ -1,7 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
-import Highlight from '@tiptap/extension-highlight';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight } from '@tiptap/extension-text-style';
@@ -91,7 +90,6 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
         link: false, // Disable built-in Link, we configure it separately below
         // underline is included in StarterKit by default in v3
       }),
-      Highlight.configure({ multicolor: false }),
       Subscript,
       Superscript,
       TextStyle,

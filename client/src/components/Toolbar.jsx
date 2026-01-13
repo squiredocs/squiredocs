@@ -141,13 +141,6 @@ export default function Toolbar({ editor }) {
           <s>S</s>
         </button>
         <button
-          onClick={() => editor.chain().focus().toggleHighlight().run()}
-          className={`toolbar-button ${editor.isActive('highlight') ? 'is-active' : ''}`}
-          title="Highlight"
-        >
-          <span style={{ backgroundColor: '#fff3cd', padding: '2px 4px' }}>H</span>
-        </button>
-        <button
           onClick={() => editor.chain().focus().toggleSubscript().run()}
           className={`toolbar-button ${editor.isActive('subscript') ? 'is-active' : ''}`}
           title="Subscript"
