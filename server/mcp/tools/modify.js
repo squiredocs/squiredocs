@@ -274,6 +274,27 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
         { type: 'paragraph', content: 'Text after the divider.' }
       ]);
 
+  Example - Table with formatted content (bold, italic, color):
+      appendBlocks(doc, [
+        { type: 'table',
+          headers: ['Date', 'City', 'Event'],
+          rows: [
+            [
+              [{ text: '11', attrs: { bold: true } }, '\\n✈️ Travel Day'],
+              [{ text: 'Dublin', attrs: { italic: true } }],
+              'Conference'
+            ],
+            [
+              '12',
+              [{ text: 'Dublin', attrs: {
+                textStyle: { color: '#dc2626', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+              }}],
+              'Workshop'
+            ]
+          ]
+        }
+      ]);
+
 ───────────────────────────────────────────────────────────────────────────
 XPATH QUERY FUNCTIONS (Recommended for element selection!)
 ───────────────────────────────────────────────────────────────────────────
@@ -310,7 +331,7 @@ xpathFirst(expression, contextNode?)
       }
 
 Supported XPath features:
-  ✓ //element           - Descendant selection
+  ✓ //element           - Descendant selection (searches ALL descendants, including nested structures)
   ✓ [@attr=value]       - Attribute predicates
   ✓ [contains(., text)] - Text content predicates
   ✓ child::*            - Child axis
@@ -318,6 +339,12 @@ Supported XPath features:
   ✓ preceding-sibling:: - Preceding sibling axis
   ✗ parent::            - Not supported (Yjs limitation)
   ✗ ancestor::          - Not supported (Yjs limitation)
+
+XPath and nested structures (tables, lists):
+  - //paragraph finds ALL paragraphs, including those inside table cells
+  - To exclude nested paragraphs: /paragraph or //paragraph[not(ancestor::table)]
+  - //paragraph[last()] returns the last paragraph in document order (may be inside a table!)
+  - For top-level only: (//paragraph[not(ancestor::table)])[last()]
 
 ═══════════════════════════════════════════════════════════════════════════
 YJS API AVAILABLE IN SCRIPTS
@@ -372,12 +399,22 @@ Text Marks (formatting):
   - subscript, superscript
   - link: { href: string }
 
-TextStyle Marks (requires textStyle wrapper):
-  - color: string (e.g., '#ff0000', 'rgb(255,0,0)')
-  - backgroundColor: string
-  - fontFamily: string (e.g., 'Arial', 'Times New Roman')
-  - fontSize: string (e.g., '16px', '1.2em')
-  - lineHeight: string (e.g., '1.5', '2')
+TextStyle Marks - IMPORTANT nested format required:
+  These marks MUST be wrapped in a textStyle object:
+  ✓ Correct: { textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }
+  ✗ Wrong:   { color: '#ff0000' }  // This will not work!
+
+  Available properties inside textStyle:
+  - color: string | null (e.g., '#ff0000', 'rgb(255,0,0)')
+  - backgroundColor: string | null (e.g., '#ffff00')
+  - fontFamily: string | null (e.g., 'Arial', 'Times New Roman')
+  - fontSize: string | null (e.g., '16px', '1.2em')
+  - lineHeight: string | null (e.g., '1.5', '2')
+
+  All properties should be included (use null for unset values).
+
+  Combining with other marks:
+  { bold: true, textStyle: { color: '#ff0000', ... } }  // Works!
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -726,17 +763,42 @@ await modify({
 });
 
 // Example 8: Apply TextStyle marks (color, font, etc.)
+// IMPORTANT: TextStyle marks must be wrapped in a textStyle object
 await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
       const para = new Y.XmlElement('paragraph');
       const text = createFormattedText([
-        { text: 'Red text', attrs: { color: '#ff0000' } },
+        { text: 'Red text', attrs: {
+          textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+        }},
         ' and ',
-        { text: 'blue background', attrs: { backgroundColor: '#0000ff', color: '#ffffff' } },
+        { text: 'blue background with white text', attrs: {
+          textStyle: { color: '#ffffff', backgroundColor: '#0000ff', fontFamily: null, fontSize: null, lineHeight: null }
+        }},
         ' and ',
-        { text: 'custom font', attrs: { fontFamily: 'Georgia', fontSize: '18px' } }
+        { text: 'custom font', attrs: {
+          textStyle: { color: null, backgroundColor: null, fontFamily: 'Georgia', fontSize: '18px', lineHeight: null }
+        }}
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+    }
+  \`
+});
+
+// Example 8b: Combining TextStyle with other marks (bold + color)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        { text: 'Bold red text', attrs: {
+          bold: true,
+          textStyle: { color: '#dc2626', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+        }}
       ]);
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);

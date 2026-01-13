@@ -265,6 +265,9 @@ function createFormattedText(segments) {
       const start = fullText.length;
       fullText += segment.text;
       if (segment.attrs && Object.keys(segment.attrs).length > 0) {
+        // Validate textStyle attributes - catch common mistakes
+        validateTextStyleAttrs(segment.attrs);
+
         formatRanges.push({
           start,
           length: segment.text.length,
@@ -283,6 +286,41 @@ function createFormattedText(segments) {
   }
 
   return xmlText;
+}
+
+/**
+ * Validate text style attributes to catch common mistakes
+ * @param {object} attrs - The attributes object
+ */
+function validateTextStyleAttrs(attrs) {
+  const textStyleProps = ['color', 'backgroundColor', 'fontFamily', 'fontSize', 'lineHeight'];
+
+  // Check if any textStyle properties are used directly (wrong format)
+  for (const prop of textStyleProps) {
+    if (prop in attrs && !('textStyle' in attrs)) {
+      throw new Error(
+        `TextStyle marks must be wrapped in a 'textStyle' object. ` +
+        `Found '${prop}' directly in attrs.\n` +
+        `✗ Wrong:   { ${prop}: '...' }\n` +
+        `✓ Correct: { textStyle: { ${prop}: '...', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }`
+      );
+    }
+  }
+
+  // If textStyle is present, validate it has all required properties
+  if (attrs.textStyle && typeof attrs.textStyle === 'object') {
+    const ts = attrs.textStyle;
+    const requiredProps = ['color', 'backgroundColor', 'fontFamily', 'fontSize', 'lineHeight'];
+    const missingProps = requiredProps.filter(prop => !(prop in ts));
+
+    if (missingProps.length > 0) {
+      throw new Error(
+        `TextStyle object must include all properties (use null for unset values). ` +
+        `Missing: ${missingProps.join(', ')}\n` +
+        `Example: { textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }`
+      );
+    }
+  }
 }
 
 /**
@@ -399,6 +437,9 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         const start = fullText.length;
         fullText += segment.text;
         if (segment.attrs && Object.keys(segment.attrs).length > 0) {
+          // Validate textStyle attributes - catch common mistakes
+          validateTextStyleAttrs(segment.attrs);
+
           formatRanges.push({
             start,
             length: segment.text.length,

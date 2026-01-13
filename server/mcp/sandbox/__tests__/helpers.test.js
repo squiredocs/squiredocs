@@ -376,6 +376,35 @@ describe('Sandbox Helpers', () => {
       expect(() => helpers.createFormattedText('string')).toThrow('non-empty array');
       expect(() => helpers.createFormattedText(null)).toThrow('non-empty array');
     });
+
+    it('should throw for incorrect textStyle format (color directly)', () => {
+      expect(() => helpers.createFormattedText([
+        { text: 'Red text', attrs: { color: '#ff0000' } }
+      ])).toThrow(/TextStyle marks must be wrapped in a 'textStyle' object/);
+    });
+
+    it('should throw for incorrect textStyle format (missing required props)', () => {
+      expect(() => helpers.createFormattedText([
+        { text: 'Red text', attrs: { textStyle: { color: '#ff0000' } } }
+      ])).toThrow(/must include all properties/);
+    });
+
+    it('should accept correct textStyle format', () => {
+      const text = helpers.createFormattedText([
+        { text: 'Red text', attrs: {
+          textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+        }}
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      expect(delta[0].attributes).toEqual({
+        textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+      });
+    });
   });
 
   describe('appendBlocks', () => {
