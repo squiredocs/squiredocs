@@ -29,6 +29,13 @@ describe('Tool Module Smoke Tests', () => {
 
     // Document modification
     'modify',
+
+    // Version history tools
+    'list-document-versions',
+    'read-document-version',
+    'set-document-version-name',
+    'restore-document-version',
+    'compare-document-versions',
   ];
 
   describe('Module Loading', () => {
@@ -189,6 +196,7 @@ describe('Tool Registry Integration', () => {
       'read_document_version',
       'set_document_version_name',
       'restore_document_version',
+      'compare_document_versions',
     ];
 
     // Check each tool is registered
