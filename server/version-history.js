@@ -320,9 +320,14 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
 
     for (const version of sortedVersions) {
       try {
+        const startTime = Date.now();
         // Get document state at this version
         const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
+        const reconstructTime = Date.now() - startTime;
+
+        const metadataStart = Date.now();
         const metadata = extractMetadata(doc, previousText);
+        const metadataTime = Date.now() - metadataStart;
 
         // Calculate editCount - number of meaningful updates in this version's range
         const editCount = updates.filter(
@@ -346,6 +351,11 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
 
         // Update previousText for next iteration's delta calculation
         previousText = extractTextFromDoc(doc);
+
+        const totalTime = Date.now() - startTime;
+        if (totalTime > 100) {
+          console.log(`[enrichVersionsWithMetadata] Version ${version.id || version.clockEnd}: reconstruct=${reconstructTime}ms, metadata=${metadataTime}ms, total=${totalTime}ms`);
+        }
       } catch (error) {
         console.error(`[enrichVersionsWithMetadata] Error processing version ${version.id || version.clockEnd}:`, error);
         throw error;
