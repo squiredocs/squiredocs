@@ -134,7 +134,8 @@ describe('Sandbox Helpers', () => {
       list.insert(0, [item1, item2]);
       fragment.insert(0, [list]);
 
-      expect(helpers.getTextContent(list)).toBe('Item 1Item 2');
+      // List items are block-level elements, so they're separated by newlines
+      expect(helpers.getTextContent(list)).toBe('Item 1\nItem 2');
     });
 
     it('should return empty string for empty element', () => {

@@ -64,6 +64,61 @@ describe('compare_document_versions helper functions', () => {
 
       expect(text).toBe('');
     });
+
+    test('separates blocks with newlines to prevent word merging', () => {
+      // Create a document with multiple blocks
+      const testDoc = new Y.Doc();
+      const fragment = testDoc.get('default', Y.XmlFragment);
+
+      // Add heading
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', '1');
+      const headingText = new Y.XmlText();
+      headingText.insert(0, 'Europe Trip');
+      heading.insert(0, [headingText]);
+      fragment.insert(0, [heading]);
+
+      // Add first paragraph
+      const para1 = new Y.XmlElement('paragraph');
+      const para1Text = new Y.XmlText();
+      para1Text.insert(0, 'Summer 2024');
+      para1.insert(0, [para1Text]);
+      fragment.insert(1, [para1]);
+
+      // Add second paragraph
+      const para2 = new Y.XmlElement('paragraph');
+      const para2Text = new Y.XmlText();
+      para2Text.insert(0, 'TRAVEL TO EUROPE');
+      para2.insert(0, [para2Text]);
+      fragment.insert(2, [para2]);
+
+      const text = helpers.extractPlainText(fragment);
+
+      // Should have newlines between blocks
+      expect(text).toBe('Europe Trip\nSummer 2024\nTRAVEL TO EUROPE');
+
+      // Should NOT merge words at boundaries
+      expect(text).not.toContain('2024TRAVEL');
+      expect(text).toContain('2024\nTRAVEL');
+    });
+
+    test('inline elements do not add separators', () => {
+      // Create a paragraph with inline formatting
+      const testDoc = new Y.Doc();
+      const fragment = testDoc.get('default', Y.XmlFragment);
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'This is ');
+      text.insert(8, 'bold', { bold: true });
+      text.insert(12, ' text');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const extracted = helpers.extractPlainText(fragment);
+
+      // Should NOT have extra separators within the paragraph
+      expect(extracted).toBe('This is bold text');
+    });
   });
 
   describe('getWordCount', () => {
@@ -71,9 +126,9 @@ describe('compare_document_versions helper functions', () => {
       const fragment = doc.get('default', Y.XmlFragment);
       const count = helpers.getWordCount(fragment);
 
-      // "Test Document" (2) + "This is a test paragraph with some words." (8) + "Clickhere" (1, no space due to formatting) = 11
-      // But actual count is 10, likely because formatted text joins differently
-      expect(count).toBe(10);
+      // With newlines between blocks:
+      // "Test Document" (2) + "This is a test paragraph with some words." (8) + "Click here" (2) = 12
+      expect(count).toBe(12);
     });
 
     test('returns 0 for empty document', () => {
@@ -351,10 +406,11 @@ describe('executeComparisonScript', () => {
     );
 
     // doc1: "Original Title" = 2 words
-    // doc2: "Updated Title" + "New paragraph added" = 2 + 3 = 5 words (but actually 4 due to text joining)
+    // doc2: "Updated Title" (2) + "New paragraph added" (3) = 5 words
+    // With newlines between blocks, word count is accurate
     expect(result.words1).toBe(2);
-    expect(result.words2).toBe(4);
-    expect(result.wordsAdded).toBe(2);
+    expect(result.words2).toBe(5);
+    expect(result.wordsAdded).toBe(3);
   });
 
   test('script timeout works', async () => {

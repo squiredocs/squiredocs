@@ -71,8 +71,11 @@ function extractText(xmlText) {
  * Combines findTextNode + extractText for all text nodes in a tree.
  * Useful for getting the full text of complex nested structures.
  *
+ * Block-level elements (paragraphs, headings, list items) are separated
+ * by newlines to prevent words from merging at block boundaries.
+ *
  * @param {Y.XmlFragment|Y.XmlElement|Y.XmlText} node - Node to extract from
- * @returns {string} All text content
+ * @returns {string} All text content with newlines between blocks
  *
  * @example
  *   const listText = getTextContent(bulletList);
@@ -82,13 +85,35 @@ function getTextContent(node) {
   if (node instanceof Y.XmlText) {
     return extractText(node);
   } else if (node instanceof Y.XmlFragment || node instanceof Y.XmlElement) {
-    // Handle both fragments (documents) and elements the same way
-    let text = '';
+    // Handle both fragments (documents) and elements
+    const parts = [];
     for (let i = 0; i < node.length; i++) {
       const child = node.get(i);
-      text += getTextContent(child);
+      const childText = getTextContent(child);
+      if (childText) {
+        parts.push(childText);
+      }
     }
-    return text;
+
+    // For fragments and block-level elements, join with newlines
+    // This prevents word merging at block boundaries
+    if (node instanceof Y.XmlFragment) {
+      return parts.join('\n');
+    }
+
+    // Check if this is a block-level element
+    const blockElements = [
+      'paragraph', 'heading', 'codeBlock', 'blockquote',
+      'listItem', 'orderedList', 'bulletList', 'horizontalRule'
+    ];
+
+    if (node instanceof Y.XmlElement && blockElements.includes(node.nodeName)) {
+      // For lists, join items with newlines
+      return parts.join('\n');
+    }
+
+    // For inline elements (bold, italic, link, etc), just concatenate
+    return parts.join('');
   }
   return '';
 }
