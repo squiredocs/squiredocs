@@ -1001,4 +1001,89 @@ describe('version-history module', () => {
       expect(restoredMarks[2]).toEqual({ text: ' for more info.', attrs: {} });
     });
   });
+
+  describe('getVersionContent validation', () => {
+    let mockPersistence;
+
+    beforeEach(() => {
+      // Create a mock persistence with updates at specific clocks
+      mockPersistence = {
+        updates: [
+          { clock: 1, userId: 'user-1', userName: 'User 1', createdAt: new Date('2024-01-01T10:00:00Z'), data: null },
+          { clock: 5, userId: 'user-1', userName: 'User 1', createdAt: new Date('2024-01-01T10:01:00Z'), data: null },
+          { clock: 10, userId: 'user-1', userName: 'User 1', createdAt: new Date('2024-01-01T10:02:00Z'), data: null },
+          { clock: 15, userId: 'user-1', userName: 'User 1', createdAt: new Date('2024-01-01T10:03:00Z'), data: null },
+        ],
+        getUpdatesWithUsers: async (docGuid) => {
+          return mockPersistence.updates;
+        },
+        getYDocAtClock: async (docGuid, clock) => {
+          // Return a doc with content based on clock
+          const doc = new Y.Doc();
+          const fragment = doc.get('default', Y.XmlFragment);
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, `Content at clock ${clock}`);
+          paragraph.insert(0, [text]);
+          fragment.insert(0, [paragraph]);
+          return doc;
+        },
+      };
+    });
+
+    test('rejects version ID with clock higher than max', async () => {
+      await expect(
+        getVersionContent(mockPersistence, 'test-doc', 'auto-999')
+      ).rejects.toThrow('exceeds latest update at clock 15');
+    });
+
+    test('rejects version ID with clock lower than min', async () => {
+      await expect(
+        getVersionContent(mockPersistence, 'test-doc', 'auto-0')
+      ).rejects.toThrow('is before first update at clock 1');
+    });
+
+    test('accepts valid auto- version within range', async () => {
+      const result = await getVersionContent(mockPersistence, 'test-doc', 'auto-10');
+      expect(result).toHaveProperty('content');
+      expect(result.content).toBeDefined();
+    });
+
+    test('rejects clock- prefix with non-existent clock', async () => {
+      // Clock 7 doesn't exist (we have 1, 5, 10, 15)
+      await expect(
+        getVersionContent(mockPersistence, 'test-doc', 'clock-7')
+      ).rejects.toThrow('no update exists at clock 7');
+    });
+
+    test('accepts clock- prefix with exact existing clock', async () => {
+      const result = await getVersionContent(mockPersistence, 'test-doc', 'clock-10');
+      expect(result).toHaveProperty('content');
+      expect(result.content).toBeDefined();
+    });
+
+    test('auto- accepts any clock in range (not just exact)', async () => {
+      // auto-7 should work even though exact clock 7 doesn't exist
+      const result = await getVersionContent(mockPersistence, 'test-doc', 'auto-7');
+      expect(result).toHaveProperty('content');
+      expect(result.content).toBeDefined();
+    });
+
+    test('rejects document with no history', async () => {
+      mockPersistence.getUpdatesWithUsers = async () => [];
+
+      await expect(
+        getVersionContent(mockPersistence, 'test-doc', 'auto-10')
+      ).rejects.toThrow('Document has no version history');
+    });
+
+    test('error messages include helpful clock range info', async () => {
+      try {
+        await getVersionContent(mockPersistence, 'test-doc', 'clock-7');
+        fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).toContain('Valid clocks range from 1 to 15');
+      }
+    });
+  });
 });

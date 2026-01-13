@@ -540,13 +540,42 @@ async function getVersionContent(persistence, docGuid, versionId) {
     throw new Error('Invalid version ID format');
   }
 
+  // Validate that the requested clock exists
+  // Get all updates to check clock range
+  const updates = await persistence.getUpdatesWithUsers(docGuid);
+
+  if (updates.length === 0) {
+    throw new Error('Document has no version history');
+  }
+
+  // Find min and max clocks
+  const clocks = updates.map(u => u.clock);
+  const minClock = Math.min(...clocks);
+  const maxClock = Math.max(...clocks);
+
+  // Check if requested clock is out of range
+  if (clockEnd < minClock) {
+    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} is before first update at clock ${minClock})`);
+  }
+
+  if (clockEnd > maxClock) {
+    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} exceeds latest update at clock ${maxClock})`);
+  }
+
+  // For clock- prefix, verify the exact clock exists
+  if (versionId.startsWith('clock-')) {
+    const clockExists = clocks.includes(clockEnd);
+    if (!clockExists) {
+      throw new Error(`Version not found: ${versionId} (no update exists at clock ${clockEnd}). Valid clocks range from ${minClock} to ${maxClock}`);
+    }
+  }
+
   // Reconstruct document at the specified clock
   const ydoc = await persistence.getYDocAtClock(docGuid, clockEnd);
   const content = Y.encodeStateAsUpdate(ydoc);
 
   // Get version metadata if not already set
   if (!versionMeta) {
-    const updates = await persistence.getUpdatesWithUsers(docGuid);
     const autoVersions = groupUpdatesIntoVersions(updates);
     const version = autoVersions.find(v => v.clockEnd === clockEnd);
 
