@@ -1,17 +1,9 @@
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Subscript from '@tiptap/extension-subscript';
-import Superscript from '@tiptap/extension-superscript';
-import { TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight } from '@tiptap/extension-text-style';
-import { Table } from '@tiptap/extension-table';
-import { TableRow } from '@tiptap/extension-table-row';
-import { TableCell } from '@tiptap/extension-table-cell';
-import { TableHeader } from '@tiptap/extension-table-header';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
 import TableContextMenu from './TableContextMenu';
+import { getBaseExtensions } from '../extensions/editorExtensions';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
@@ -84,29 +76,8 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   }, []);
 
   const extensions = useMemo(() => {
-    const baseExtensions = [
-      StarterKit.configure({
-        undoRedo: false, // Disable built-in undo/redo, Yjs handles it
-        link: false, // Disable built-in Link, we configure it separately below
-        // underline is included in StarterKit by default in v3
-      }),
-      Subscript,
-      Superscript,
-      TextStyle,
-      Color,
-      BackgroundColor,
-      FontFamily,
-      FontSize,
-      LineHeight,
-      Table.configure({
-        resizable: true,
-      }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Link.configure({
-        openOnClick: false, // Prevent default link navigation in editor
-      }),
+    const allExtensions = [
+      ...getBaseExtensions({ openLinksOnClick: false }), // Prevent default link navigation in editor
       Collaboration.configure({
         document: ydoc,
         field: 'default' // Field name in Yjs document for ProseMirror content
@@ -115,7 +86,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
     ];
 
     if (provider) {
-      baseExtensions.push(
+      allExtensions.push(
         CollaborationCursorWithSelection.configure({
           provider,
           render: renderCursor,
@@ -124,7 +95,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       );
     }
 
-    return baseExtensions;
+    return allExtensions;
   }, [ydoc, provider]);
 
   const editor = useEditor({

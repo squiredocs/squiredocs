@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Underline from '@tiptap/extension-underline';
+import { getBaseExtensions } from '../extensions/editorExtensions';
 import { DiffDecorationExtension, applyDiffDecorations, clearDiffDecorations } from '../extensions/DiffDecorationExtension';
 import './EditorCommon.css';
 import './VersionPreview.css';
@@ -30,16 +28,9 @@ function VersionPreview({
   const versionCounterRef = useRef(0);
 
   // Editor extensions (read-only, no collaboration needed)
+  // Use shared base extensions to ensure schema consistency with main editor
   const extensions = useMemo(() => [
-    StarterKit.configure({
-      undoRedo: false, // Disable built-in undo/redo
-      link: false, // Disable built-in Link, we configure it separately below
-      underline: false // Disable built-in Underline, we configure it separately below
-    }),
-    Link.configure({
-      openOnClick: true, // Allow default link behavior in preview
-    }),
-    Underline,
+    ...getBaseExtensions({ openLinksOnClick: true }), // Allow default link behavior in preview
     DiffDecorationExtension,
   ], []);
 
