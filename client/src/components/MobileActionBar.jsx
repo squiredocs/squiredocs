@@ -206,6 +206,12 @@ export default function MobileActionBar({ editor }) {
             >
               &lt;/&gt;
             </button>
+            <button
+              onClick={() => editor.chain().focus().unsetAllMarks().run()}
+              className="mobile-format-button"
+            >
+              T<sub>x</sub>
+            </button>
           </div>
         </div>
       )}

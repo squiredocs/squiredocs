@@ -4,6 +4,7 @@ import { ySyncPluginKey, relativePositionToAbsolutePosition } from '@tiptap/y-ti
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';
+import MobileFormatBar from './MobileFormatBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
@@ -991,7 +992,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           }}
         >
           <div className="mobile-format-bar" style={{ pointerEvents: 'auto' }}>
-            <Toolbar editor={editor} />
+            <MobileFormatBar editor={editor} />
           </div>
         </div>
       )}
