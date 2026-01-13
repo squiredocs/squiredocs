@@ -167,11 +167,203 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
   }
 }
 
+/**
+ * Executes a TypeScript comparison script in read-only mode
+ *
+ * @param {string} tsScript - TypeScript source code
+ * @param {Y.XmlFragment} doc1 - First document version
+ * @param {Y.XmlFragment} doc2 - Second document version
+ * @param {object} options - Execution options
+ * @param {number} [options.timeout=5000] - Execution timeout in milliseconds
+ * @returns {Promise<any>} - Value returned by the script
+ */
+async function executeComparisonScript(tsScript, doc1, doc2, options = {}) {
+  const { timeout = 5000 } = options;
+
+  try {
+    // 1. Compile TypeScript to JavaScript
+    const jsCode = compileTypeScript(tsScript);
+
+    // 2. Wrap documents in read-only proxies
+    const readOnlyDoc1 = makeReadOnly(doc1);
+    const readOnlyDoc2 = makeReadOnly(doc2);
+
+    // 3. Execute in sandbox with comparison-specific context
+    const result = await executeComparisonSandboxed(
+      jsCode,
+      readOnlyDoc1,
+      readOnlyDoc2,
+      timeout
+    );
+
+    return result;
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Wrap Y.js object in read-only proxy to prevent modifications
+ * @param {object} obj - Y.js object to wrap
+ * @returns {Proxy} - Read-only proxy
+ */
+function makeReadOnly(obj) {
+  return new Proxy(obj, {
+    set() {
+      throw new Error('Cannot modify documents in comparison mode');
+    },
+    get(target, prop) {
+      const value = target[prop];
+
+      // Intercept mutation methods
+      if (typeof value === 'function') {
+        const mutationMethods = ['insert', 'delete', 'push', 'unshift', 'setAttribute', 'format'];
+        if (mutationMethods.includes(prop)) {
+          return () => {
+            throw new Error('Cannot modify documents in comparison mode');
+          };
+        }
+
+        // Wrap read methods that return Y.js objects
+        const readMethods = ['get', 'toArray'];
+        if (readMethods.includes(prop)) {
+          return (...args) => {
+            const result = value.apply(target, args);
+            // Wrap returned objects recursively
+            if (result && typeof result === 'object') {
+              if (Array.isArray(result)) {
+                return result.map(item => makeReadOnly(item));
+              }
+              return makeReadOnly(result);
+            }
+            return result;
+          };
+        }
+      }
+
+      return value;
+    }
+  });
+}
+
+/**
+ * Execute comparison script in sandboxed environment
+ * Similar to executeSandboxed but simplified for read-only comparison
+ * @param {string} jsCode - Compiled JavaScript code
+ * @param {Proxy} doc1 - Read-only wrapped first document
+ * @param {Proxy} doc2 - Read-only wrapped second document
+ * @param {number} timeout - Execution timeout
+ * @returns {any} - Script result
+ */
+function executeComparisonSandboxed(jsCode, doc1, doc2, timeout) {
+  const vm = require('vm');
+  const Y = require('yjs');
+  const helpers = require('./helpers');
+  const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
+
+  // Create a sandbox context for comparison (no tracking, no operations)
+  const sandbox = {
+    // Expose both documents
+    _doc1: doc1,
+    _doc2: doc2,
+
+    // Expose Yjs namespace (read-only, no new instances needed)
+    Y: {
+      XmlFragment: Y.XmlFragment,
+      XmlElement: Y.XmlElement,
+      XmlText: Y.XmlText,
+    },
+
+    // Helper functions (existing helpers from modify tool)
+    findTextNode: helpers.findTextNode,
+    extractText: helpers.extractText,
+    getTextContent: helpers.getTextContent,
+    findElements: helpers.findElements,
+    findByNodeName: helpers.findByNodeName,
+    findByText: helpers.findByText,
+
+    // Comparison-specific helpers (will be added to helpers.js)
+    extractPlainText: helpers.extractPlainText || helpers.getTextContent, // Alias
+    getBlockCount: helpers.getBlockCount,
+    getWordCount: helpers.getWordCount,
+    getCharacterCount: helpers.getCharacterCount,
+    getElementByType: helpers.getElementByType,
+    extractLinks: helpers.extractLinks,
+    getAttributes: helpers.getAttributes,
+    hasAttribute: helpers.hasAttribute,
+    findAllByText: helpers.findAllByText || helpers.findByText, // Alias
+
+    // XPath query functions (no highlighting in comparison mode)
+    xpath: (expression, contextNode) => {
+      return xpathQuery(expression, contextNode);
+    },
+
+    xpathFirst: (expression, contextNode) => {
+      return xpathFirstQuery(expression, contextNode);
+    },
+
+    // Exports for module pattern
+    exports: {},
+    module: { exports: {} },
+
+    // Console for debugging
+    console: {
+      log: (...args) => console.log('[ComparisonSandbox]', ...args),
+      error: (...args) => console.error('[ComparisonSandbox]', ...args),
+    },
+  };
+
+  try {
+    // Compile the script with comparison signature
+    const script = new vm.Script(`
+      ${jsCode}
+
+      // Call the default export function with both documents
+      let compareFunction;
+      if (typeof module.exports === 'object' && typeof module.exports.default === 'function') {
+        compareFunction = module.exports.default;
+      } else if (typeof exports.default === 'function') {
+        compareFunction = exports.default;
+      } else if (typeof module.exports === 'function') {
+        compareFunction = module.exports;
+      } else {
+        throw new Error('Script must export a default function: export default function compare(doc1, doc2) { ... }');
+      }
+
+      // Execute the comparison function with both documents
+      compareFunction(_doc1, _doc2);
+    `, {
+      filename: 'comparison-script.js',
+      timeout,
+    });
+
+    // Run the script and capture the result
+    const result = script.runInNewContext(sandbox, {
+      timeout,
+      displayErrors: true,
+    });
+
+    return result;
+  } catch (error) {
+    // Enhanced error handling
+    if (error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+      throw new Error(
+        `Script execution timed out after ${timeout}ms.\n` +
+        `Hint: Check for infinite loops or long-running operations.`
+      );
+    }
+
+    throw new Error(`Script execution failed: ${error.message}`);
+  }
+}
+
 module.exports = {
   executeScript,
+  executeComparisonScript,
   // Export individual components for testing
   compileTypeScript,
   executeSandboxed,
   wrapForTracking,
   OperationTracker,
+  makeReadOnly,
 };

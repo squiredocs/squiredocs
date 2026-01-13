@@ -606,7 +606,7 @@ paragraphs.forEach((node, index) => {
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
-│       ├── tools/            # 21 MCP tools for document operations
+│       ├── tools/            # 22 MCP tools for document operations
 │       ├── yjs/              # Yjs utilities and serialization
 │       ├── auth/             # MCP OAuth 2.0 and PKCE flow
 │       └── agent-presence.js # Agent session management

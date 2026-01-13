@@ -618,6 +618,169 @@ function findElementIndex(container, element) {
   return -1;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Comparison Helpers (for compare_document_versions tool)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Get total block count in document
+ * @param {Y.XmlFragment|Y.XmlElement} doc - Document or element to count
+ * @returns {number} Block count
+ *
+ * @example
+ *   const count1 = getBlockCount(doc1);
+ *   const count2 = getBlockCount(doc2);
+ *   return { blocksAdded: count2 - count1 };
+ */
+function getBlockCount(doc) {
+  return doc.length;
+}
+
+/**
+ * Get total word count in document
+ * @param {Y.XmlFragment|Y.XmlElement} doc - Document or element to count
+ * @returns {number} Word count
+ *
+ * @example
+ *   return {
+ *     wordsAdded: getWordCount(doc2) - getWordCount(doc1),
+ *     wordsV1: getWordCount(doc1),
+ *     wordsV2: getWordCount(doc2)
+ *   };
+ */
+function getWordCount(doc) {
+  const text = getTextContent(doc);
+  return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+}
+
+/**
+ * Get total character count in document
+ * @param {Y.XmlFragment|Y.XmlElement} doc - Document or element to count
+ * @returns {number} Character count
+ *
+ * @example
+ *   return {
+ *     charactersAdded: getCharacterCount(doc2) - getCharacterCount(doc1)
+ *   };
+ */
+function getCharacterCount(doc) {
+  return getTextContent(doc).length;
+}
+
+/**
+ * Get all elements of specific type
+ * @param {Y.XmlFragment|Y.XmlElement} doc - Document or element to search
+ * @param {string} type - Element type (e.g., 'heading', 'paragraph', 'listItem')
+ * @returns {Y.XmlElement[]} Array of matching elements
+ *
+ * @example
+ *   const headings1 = getElementByType(doc1, 'heading');
+ *   const headings2 = getElementByType(doc2, 'heading');
+ *   return { headingsAdded: headings2.length - headings1.length };
+ */
+function getElementByType(doc, type) {
+  return findByNodeName(doc, type);
+}
+
+/**
+ * Extract all links from document
+ * @param {Y.XmlFragment|Y.XmlElement} doc - Document or element to search
+ * @returns {Array<{text: string, href: string}>} Array of link objects
+ *
+ * @example
+ *   const links1 = extractLinks(doc1);
+ *   const links2 = extractLinks(doc2);
+ *   const newLinks = links2.filter(l2 =>
+ *     !links1.some(l1 => l1.href === l2.href)
+ *   );
+ *   return { linksAdded: newLinks.length, newLinks };
+ */
+function extractLinks(doc) {
+  const links = [];
+
+  function traverse(element) {
+    if (element instanceof Y.XmlText) {
+      const delta = element.toDelta();
+      delta.forEach(op => {
+        if (op.attributes && op.attributes.link) {
+          links.push({
+            text: op.insert,
+            href: op.attributes.link.href || op.attributes.link
+          });
+        }
+      });
+    } else if (element instanceof Y.XmlElement) {
+      for (let i = 0; i < element.length; i++) {
+        traverse(element.get(i));
+      }
+    } else if (element instanceof Y.XmlFragment) {
+      for (let i = 0; i < element.length; i++) {
+        traverse(element.get(i));
+      }
+    }
+  }
+
+  traverse(doc);
+  return links;
+}
+
+/**
+ * Get all attributes as object
+ * @param {Y.XmlElement} element - Element to get attributes from
+ * @returns {Object} Attributes as key-value pairs
+ *
+ * @example
+ *   const heading = xpathFirst('//heading', doc);
+ *   const attrs = getAttributes(heading);
+ *   console.log(attrs.level); // "1"
+ */
+function getAttributes(element) {
+  if (!(element instanceof Y.XmlElement)) {
+    return {};
+  }
+
+  const attrs = {};
+  const attrKeys = element.getAttributes();
+  for (const [key, value] of Object.entries(attrKeys)) {
+    attrs[key] = value;
+  }
+  return attrs;
+}
+
+/**
+ * Check if element has attribute (optionally with specific value)
+ * @param {Y.XmlElement} element - Element to check
+ * @param {string} name - Attribute name
+ * @param {string} [value] - Optional value to match
+ * @returns {boolean} True if attribute exists (and matches value if provided)
+ *
+ * @example
+ *   const heading = xpathFirst('//heading', doc);
+ *   if (hasAttribute(heading, 'level', '1')) {
+ *     console.log('Found H1 heading');
+ *   }
+ */
+function hasAttribute(element, name, value) {
+  if (!(element instanceof Y.XmlElement)) {
+    return false;
+  }
+
+  const attrValue = element.getAttribute(name);
+  if (attrValue === undefined) {
+    return false;
+  }
+
+  if (value !== undefined) {
+    return attrValue === value;
+  }
+
+  return true;
+}
+
+// Aliases for consistency with documentation
+const extractPlainText = getTextContent;
+const findAllByText = findByText;
+
 module.exports = {
   findTextNode,
   extractText,
@@ -627,4 +790,14 @@ module.exports = {
   findByText,
   createFormattedText,
   appendBlocks,
+  // Comparison helpers
+  getBlockCount,
+  getWordCount,
+  getCharacterCount,
+  getElementByType,
+  extractLinks,
+  getAttributes,
+  hasAttribute,
+  extractPlainText,
+  findAllByText,
 };

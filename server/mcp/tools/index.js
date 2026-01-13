@@ -24,6 +24,7 @@ const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
 const setDocumentVersionName = require('./set-document-version-name');
 const restoreDocumentVersion = require('./restore-document-version');
+const compareDocumentVersions = require('./compare-document-versions');
 
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
@@ -49,6 +50,7 @@ const tools = {
   read_document_version: readDocumentVersion,
   set_document_version_name: setDocumentVersionName,
   restore_document_version: restoreDocumentVersion,
+  compare_document_versions: compareDocumentVersions,
 };
 
 /**

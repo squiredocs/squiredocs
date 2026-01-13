@@ -29,17 +29,37 @@ AI Agent ←→ MCP Server ←→ Auth/Delegation ←→ Yjs WebSocket ←→ Po
   - `POST /mcp/tools/call` - Execute a tool
   - `GET /mcp/events/:callId` - Stream tool results via SSE
 
-### 2. MCP Tools
+### 2. MCP Tools (22 total)
 
+**Document Management:**
 | Tool | Purpose |
 |------|---------|
 | `list_documents` | List user's accessible documents |
-| `get_document` | Read document content (plain-text or Yjs JSON) |
-| `update_document` | Edit document via Yjs operations |
-| `watch_document` | Subscribe to real-time updates |
-| `create_document` | Create new document |
-| `share_document` | Share with other users |
-| `get_document_info` | Get metadata, permissions, version history |
+| `create_document` | Create new document with a title |
+| `share_document` | Share with users and set permissions |
+| `set_document_title` | Update document titles |
+
+**Reading:**
+| Tool | Purpose |
+|------|---------|
+| `read_document` | Read document with optional XPath filtering |
+| `get_collaborators` | See who else is editing |
+
+**Document Modification:**
+| Tool | Purpose |
+|------|---------|
+| `modify` | Execute TypeScript scripts with direct Yjs API access for complex edits |
+| `undo` | Undo last operation |
+| `redo` | Redo previously undone operation |
+
+**Version History:**
+| Tool | Purpose |
+|------|---------|
+| `list_document_versions` | List version history with optional nested subversions and time-based filtering |
+| `read_document_version` | Read document at specific version |
+| `set_document_version_name` | Create, rename, or delete named versions |
+| `restore_document_version` | Restore to previous version (non-destructive) |
+| `compare_document_versions` | Compare two versions using programmable TypeScript comparison scripts |
 
 ### 3. OAuth Delegation Model
 
@@ -185,6 +205,50 @@ agent_activity_log (
    }
    ```
 5. Agent can react to changes and make further edits
+
+### Comparing Document Versions
+
+The `compare_document_versions` tool enables agents to analyze differences between versions using custom TypeScript scripts:
+
+**Example - Check if title changed:**
+```typescript
+export default function compare(doc1, doc2) {
+  const title1 = xpath(doc1, '//heading[@level="1"]')[0];
+  const title2 = xpath(doc2, '//heading[@level="1"]')[0];
+
+  return {
+    titleChanged: extractPlainText(title1) !== extractPlainText(title2),
+    oldTitle: extractPlainText(title1),
+    newTitle: extractPlainText(title2)
+  };
+}
+```
+
+**Example - Count new links:**
+```typescript
+export default function compare(doc1, doc2) {
+  const links1 = extractLinks(doc1);
+  const links2 = extractLinks(doc2);
+
+  const newLinks = links2.filter(l2 =>
+    !links1.some(l1 => l1.href === l2.href)
+  );
+
+  return { linksAdded: newLinks.length, newLinks };
+}
+```
+
+**Key Features:**
+- **Read-only environment**: Cannot modify documents, purely for analysis
+- **Custom comparison logic**: Extract exactly the information needed
+- **Built-in helpers**: Text extraction, XPath queries, link extraction, word/character counts
+- **Flexible output**: Return any JSON-serializable data structure
+
+**Use Cases:**
+- Semantic comparisons ("Did the conclusion change?")
+- Structural analysis ("How many sections were added?")
+- Content tracking ("Were any links or TODO items added?")
+- Custom metrics ("Find paragraphs mentioning 'budget'")
 
 ## Open Questions & Decisions Needed
 
