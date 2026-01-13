@@ -22,7 +22,6 @@ const modify = require('./modify');
 // Version history tools
 const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
-const getVersionDiff = require('./get-version-diff');
 const createDocumentVersion = require('./create-document-version');
 const restoreDocumentVersion = require('./restore-document-version');
 
@@ -48,7 +47,6 @@ const tools = {
   // Version history tools
   list_document_versions: listDocumentVersions,
   read_document_version: readDocumentVersion,
-  get_version_diff: getVersionDiff,
   create_document_version: createDocumentVersion,
   restore_document_version: restoreDocumentVersion,
 };
