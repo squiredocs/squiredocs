@@ -22,7 +22,7 @@ const modify = require('./modify');
 // Version history tools
 const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
-const createDocumentVersion = require('./create-document-version');
+const setDocumentVersionName = require('./set-document-version-name');
 const restoreDocumentVersion = require('./restore-document-version');
 
 const agentPresence = require('../agent-presence'); // Still needed for init()
@@ -47,7 +47,7 @@ const tools = {
   // Version history tools
   list_document_versions: listDocumentVersions,
   read_document_version: readDocumentVersion,
-  create_document_version: createDocumentVersion,
+  set_document_version_name: setDocumentVersionName,
   restore_document_version: restoreDocumentVersion,
 };
 

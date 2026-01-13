@@ -290,7 +290,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
 **History:**
 - `list_document_versions` - List version history with optional nested subversions, rich metadata, and time-based filtering
 - `read_document_version` - Read document at specific version
-- `create_document_version` - Create named checkpoint
+- `set_document_version_name` - Create, rename, or delete named versions
 - `restore_document_version` - Restore to previous version
 - `undo` - Undo last operation
 - `redo` - Redo previously undone operation

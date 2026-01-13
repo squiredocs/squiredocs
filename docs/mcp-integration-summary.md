@@ -220,6 +220,43 @@ agent_activity_log (
 
 **Recommendation**: Start with simple rate limiting (60 req/min), add metering later if needed
 
+## Breaking Changes
+
+### BREAKING: create_document_version Removed
+
+The `create_document_version` tool has been **removed** and replaced with the more powerful `set_document_version_name` tool.
+
+**Migration:**
+```javascript
+// OLD (no longer works):
+await create_document_version({ docGuid, name: "Draft 1" });
+
+// NEW (creates a named version):
+await set_document_version_name({ docGuid, name: "Draft 1" });
+```
+
+**New capabilities:**
+```javascript
+// Rename existing version
+await set_document_version_name({
+  docGuid,
+  versionId: "uuid-here",
+  name: "New Name"
+});
+
+// Delete named version (set name to null)
+await set_document_version_name({
+  docGuid,
+  versionId: "uuid-here",
+  name: null
+});
+```
+
+The new tool provides a unified interface for all named version operations:
+- **CREATE**: Name current state (no versionId)
+- **UPDATE**: Rename existing (versionId + name)
+- **DELETE**: Remove name (versionId + name: null)
+
 ## Next Steps
 
 1. **Review this plan**: Discuss design decisions and open questions

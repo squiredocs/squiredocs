@@ -187,7 +187,7 @@ describe('Tool Registry Integration', () => {
       // Version history tools
       'list_document_versions',
       'read_document_version',
-      'create_document_version',
+      'set_document_version_name',
       'restore_document_version',
     ];
 
