@@ -247,11 +247,18 @@ function executeComparisonSandboxed(jsCode, doc1, doc2, timeout) {
     findAllByText: helpers.findAllByText || helpers.findByText, // Alias
 
     // XPath query functions (no highlighting in comparison mode)
+    // Note: These don't have a default context, so you must pass doc1 or doc2
     xpath: (expression, contextNode) => {
+      if (!contextNode) {
+        throw new Error('xpath() requires a context node. Usage: xpath(expression, doc1) or xpath(expression, doc2)');
+      }
       return xpathQuery(expression, contextNode);
     },
 
     xpathFirst: (expression, contextNode) => {
+      if (!contextNode) {
+        throw new Error('xpathFirst() requires a context node. Usage: xpathFirst(expression, doc1) or xpathFirst(expression, doc2)');
+      }
       return xpathFirstQuery(expression, contextNode);
     },
 

@@ -69,7 +69,8 @@ Text extraction:
 - findTextNode(element) - Find first text node in element
 
 Finding elements:
-- xpath(doc, '//heading[@level="1"]') - Query with XPath
+- xpath('//heading[@level="1"]') - Query with XPath
+- xpath('//heading', contextNode) - Query within specific node
 - findByText(doc, 'search text') - Find element containing text
 - findAllByText(doc, 'search text') - Find all matching elements
 - getElementByType(doc, 'heading') - Get all elements of type
@@ -90,8 +91,11 @@ EXAMPLES
 
 // Check if title changed
 export default function compare(doc1, doc2) {
-  const title1 = xpath(doc1, '//heading[@level="1"]')[0];
-  const title2 = xpath(doc2, '//heading[@level="1"]')[0];
+  const headings1 = xpath('//heading[@level="1"]', doc1);
+  const headings2 = xpath('//heading[@level="1"]', doc2);
+
+  const title1 = headings1[0];
+  const title2 = headings2[0];
 
   return {
     titleChanged: extractPlainText(title1) !== extractPlainText(title2),

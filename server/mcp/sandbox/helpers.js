@@ -71,7 +71,7 @@ function extractText(xmlText) {
  * Combines findTextNode + extractText for all text nodes in a tree.
  * Useful for getting the full text of complex nested structures.
  *
- * @param {Y.XmlElement|Y.XmlText} node - Node to extract from
+ * @param {Y.XmlFragment|Y.XmlElement|Y.XmlText} node - Node to extract from
  * @returns {string} All text content
  *
  * @example
@@ -81,7 +81,8 @@ function extractText(xmlText) {
 function getTextContent(node) {
   if (node instanceof Y.XmlText) {
     return extractText(node);
-  } else if (node instanceof Y.XmlElement) {
+  } else if (node instanceof Y.XmlFragment || node instanceof Y.XmlElement) {
+    // Handle both fragments (documents) and elements the same way
     let text = '';
     for (let i = 0; i < node.length; i++) {
       const child = node.get(i);
