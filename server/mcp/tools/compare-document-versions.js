@@ -8,7 +8,7 @@
 const Y = require('yjs');
 const versionHistory = require('../../version-history');
 const { executeComparisonScript } = require('../sandbox');
-const { checkDocumentAccess } = require('../../permissions');
+const documents = require('../../documents');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -172,8 +172,8 @@ async function handler(args, agentToken) {
   }
 
   // Check document access (any role - read-only operation)
-  const access = await checkDocumentAccess(docGuid, userId, persistenceProvider.getPool());
-  if (!access) {
+  const hasAccess = await documents.hasAccess(docGuid, userId);
+  if (!hasAccess) {
     throw new Error('Document not found or you do not have access');
   }
 
