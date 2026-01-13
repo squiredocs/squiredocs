@@ -231,14 +231,21 @@ async function handler(args, agentToken) {
 
   // If includeSubversions, fetch subversions for each paginated version
   if (includeSubversions) {
-    for (const version of paginatedVersions) {
-      const subversions = await versionHistory.getUpdatesForVersion(
-        persistenceProvider,
-        docGuid,
-        version.clockStart,
-        version.clockEnd
-      );
-      version.subversions = subversions; // Already includes metadata
+    try {
+      for (const version of paginatedVersions) {
+        console.log(`[list_document_versions] Fetching subversions for version ${version.id} (clocks ${version.clockStart}-${version.clockEnd})`);
+        const subversions = await versionHistory.getUpdatesForVersion(
+          persistenceProvider,
+          docGuid,
+          version.clockStart,
+          version.clockEnd
+        );
+        version.subversions = subversions; // Already includes metadata
+        console.log(`[list_document_versions] Got ${subversions.length} subversions for version ${version.id}`);
+      }
+    } catch (error) {
+      console.error('[list_document_versions] Error fetching subversions:', error);
+      throw new Error(`Failed to fetch subversions: ${error.message}`);
     }
   }
 

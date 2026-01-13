@@ -305,49 +305,59 @@ function extractMetadata(doc, previousText = '') {
 async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates) {
   if (versions.length === 0) return versions;
 
-  // Build a map of clock -> timestamp for duration calculation
-  const updateMap = new Map(updates.map(u => [u.clock, new Date(u.createdAt).getTime()]));
+  try {
+    // Build a map of clock -> timestamp for duration calculation
+    const updateMap = new Map(updates.map(u => [u.clock, new Date(u.createdAt).getTime()]));
 
-  // Create a map to preserve original order
-  const orderMap = new Map(versions.map((v, i) => [v, i]));
+    // Create a map to preserve original order
+    const orderMap = new Map(versions.map((v, i) => [v, i]));
 
-  // Sort versions by clockEnd ascending for processing (oldest first)
-  const sortedVersions = [...versions].sort((a, b) => a.clockEnd - b.clockEnd);
+    // Sort versions by clockEnd ascending for processing (oldest first)
+    const sortedVersions = [...versions].sort((a, b) => a.clockEnd - b.clockEnd);
 
-  let previousText = '';
-  const enrichedMap = new Map();
+    let previousText = '';
+    const enrichedMap = new Map();
 
-  for (const version of sortedVersions) {
-    // Get document state at this version
-    const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
-    const metadata = extractMetadata(doc, previousText);
+    for (const version of sortedVersions) {
+      try {
+        // Get document state at this version
+        const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
+        const metadata = extractMetadata(doc, previousText);
 
-    // Calculate editCount - number of meaningful updates in this version's range
-    const editCount = updates.filter(
-      u => u.clock >= version.clockStart && u.clock <= version.clockEnd
-    ).length;
+        // Calculate editCount - number of meaningful updates in this version's range
+        const editCount = updates.filter(
+          u => u.clock >= version.clockStart && u.clock <= version.clockEnd
+        ).length;
 
-    // Calculate duration - time span from first to last update in this version
-    const versionUpdates = Array.from(updateMap.entries())
-      .filter(([clock]) => clock >= version.clockStart && clock <= version.clockEnd)
-      .map(([, time]) => time);
-    const duration = versionUpdates.length > 1
-      ? Math.max(...versionUpdates) - Math.min(...versionUpdates)
-      : 0;
+        // Calculate duration - time span from first to last update in this version
+        const versionUpdates = Array.from(updateMap.entries())
+          .filter(([clock]) => clock >= version.clockStart && clock <= version.clockEnd)
+          .map(([, time]) => time);
+        const duration = versionUpdates.length > 1
+          ? Math.max(...versionUpdates) - Math.min(...versionUpdates)
+          : 0;
 
-    enrichedMap.set(version, {
-      ...version,
-      editCount,
-      duration,
-      ...metadata,
-    });
+        enrichedMap.set(version, {
+          ...version,
+          editCount,
+          duration,
+          ...metadata,
+        });
 
-    // Update previousText for next iteration's delta calculation
-    previousText = extractTextFromDoc(doc);
+        // Update previousText for next iteration's delta calculation
+        previousText = extractTextFromDoc(doc);
+      } catch (error) {
+        console.error(`[enrichVersionsWithMetadata] Error processing version ${version.id || version.clockEnd}:`, error);
+        throw error;
+      }
+    }
+
+    // Return enriched versions in original order
+    return versions.map(v => enrichedMap.get(v));
+  } catch (error) {
+    console.error('[enrichVersionsWithMetadata] Error enriching versions:', error);
+    throw new Error(`Failed to enrich versions with metadata: ${error.message}`);
   }
-
-  // Return enriched versions in original order
-  return versions.map(v => enrichedMap.get(v));
 }
 
 /**
