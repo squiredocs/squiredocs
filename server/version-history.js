@@ -271,6 +271,86 @@ function extractTextFromDoc(doc) {
 }
 
 /**
+ * Extract metadata from a Y.Doc
+ * @param {Y.Doc} doc - Current Yjs document
+ * @param {string} previousText - Text content before this update (for delta calculation)
+ * @returns {Object} Metadata object with character/word/block counts and delta
+ */
+function extractMetadata(doc, previousText = '') {
+  const text = extractTextFromDoc(doc);
+  const fragment = doc.get('default', Y.XmlFragment);
+
+  const characterCount = text.length;
+  const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+  const wordCount = words.length;
+  const blockCount = fragment.length;
+  const charactersDelta = characterCount - previousText.length;
+
+  return {
+    characterCount,
+    wordCount,
+    blockCount,
+    charactersDelta,
+  };
+}
+
+/**
+ * Enrich versions with metadata by reconstructing document state at each version
+ * @param {Object} persistence - PostgresPersistence instance
+ * @param {string} docGuid - Document GUID
+ * @param {Array} versions - Array of version objects with clockStart/clockEnd (in any order)
+ * @param {Array} updates - Array of meaningful updates for duration/editCount calculation
+ * @returns {Promise<Array>} Versions enriched with metadata (in same order as input)
+ */
+async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates) {
+  if (versions.length === 0) return versions;
+
+  // Build a map of clock -> timestamp for duration calculation
+  const updateMap = new Map(updates.map(u => [u.clock, new Date(u.createdAt).getTime()]));
+
+  // Create a map to preserve original order
+  const orderMap = new Map(versions.map((v, i) => [v, i]));
+
+  // Sort versions by clockEnd ascending for processing (oldest first)
+  const sortedVersions = [...versions].sort((a, b) => a.clockEnd - b.clockEnd);
+
+  let previousText = '';
+  const enrichedMap = new Map();
+
+  for (const version of sortedVersions) {
+    // Get document state at this version
+    const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
+    const metadata = extractMetadata(doc, previousText);
+
+    // Calculate editCount - number of meaningful updates in this version's range
+    const editCount = updates.filter(
+      u => u.clock >= version.clockStart && u.clock <= version.clockEnd
+    ).length;
+
+    // Calculate duration - time span from first to last update in this version
+    const versionUpdates = Array.from(updateMap.entries())
+      .filter(([clock]) => clock >= version.clockStart && clock <= version.clockEnd)
+      .map(([, time]) => time);
+    const duration = versionUpdates.length > 1
+      ? Math.max(...versionUpdates) - Math.min(...versionUpdates)
+      : 0;
+
+    enrichedMap.set(version, {
+      ...version,
+      editCount,
+      duration,
+      ...metadata,
+    });
+
+    // Update previousText for next iteration's delta calculation
+    previousText = extractTextFromDoc(doc);
+  }
+
+  // Return enriched versions in original order
+  return versions.map(v => enrichedMap.get(v));
+}
+
+/**
  * Filter out redundant updates that don't change the document text content
  * This filters out CRDT sync updates that add new client IDs but don't change visible text
  * @param {Object} persistence - PostgresPersistence instance
@@ -362,8 +442,11 @@ async function getVersionTimeline(persistence, docGuid) {
   console.log('[GetVersionTimeline] Final merged versions:',
     versions.map(v => `${v.name || 'auto'}(${v.clockStart}-${v.clockEnd})`));
 
+  // Enrich with metadata
+  const enrichedVersions = await enrichVersionsWithMetadata(persistence, docGuid, versions, updates);
+
   // Format versions for API response
-  const formattedVersions = versions.map(v => ({
+  const formattedVersions = enrichedVersions.map(v => ({
     id: v.id,
     name: v.name || null,
     clockStart: v.clockStart,
@@ -373,6 +456,12 @@ async function getVersionTimeline(persistence, docGuid) {
     authors: v.authors || [],
     isNamed: v.isNamed || false,
     isCurrent: v.isCurrent || false,
+    editCount: v.editCount,
+    duration: v.duration,
+    characterCount: v.characterCount,
+    wordCount: v.wordCount,
+    blockCount: v.blockCount,
+    charactersDelta: v.charactersDelta,
   }));
 
   // Client handles grouping by month for proper local timezone handling
@@ -679,8 +768,24 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     }
   }
 
+  // Enrich subversions with metadata
+  const enrichedSubVersions = await enrichVersionsWithMetadata(
+    persistence,
+    docGuid,
+    filteredSubVersions,
+    meaningfulUpdates.map(u => ({
+      clock: u.clock,
+      createdAt: u.createdAt,
+      userId: u.userId,
+      userName: u.userName,
+      userEmail: u.userEmail,
+      userPicture: u.userPicture,
+      agentName: u.agentName,
+    }))
+  );
+
   // Map to response format and reverse to show most recent first
-  return filteredSubVersions.map(sv => ({
+  return enrichedSubVersions.map(sv => ({
     id: `subversion-${sv.clockEnd}`,
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
@@ -689,6 +794,12 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     formattedTimestamp: formatTimestamp(sv.timestamp),
     authors: sv.authors || [],
     updateCount: sv.clockEnd - sv.clockStart + 1,
+    editCount: sv.editCount,
+    duration: sv.duration,
+    characterCount: sv.characterCount,
+    wordCount: sv.wordCount,
+    blockCount: sv.blockCount,
+    charactersDelta: sv.charactersDelta,
   })).reverse();
 }
 

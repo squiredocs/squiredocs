@@ -101,6 +101,19 @@ describe('list_document_versions tool', () => {
       expect(listDocumentVersions.inputSchema.properties.limit.default).toBe(50);
       expect(listDocumentVersions.inputSchema.properties.offset.default).toBe(0);
     });
+
+    test('has optional includeSubversions parameter', () => {
+      expect(listDocumentVersions.inputSchema.properties.includeSubversions).toBeDefined();
+      expect(listDocumentVersions.inputSchema.properties.includeSubversions.type).toBe('boolean');
+      expect(listDocumentVersions.inputSchema.properties.includeSubversions.default).toBe(false);
+    });
+
+    test('has optional since and until parameters', () => {
+      expect(listDocumentVersions.inputSchema.properties.since).toBeDefined();
+      expect(listDocumentVersions.inputSchema.properties.until).toBeDefined();
+      expect(listDocumentVersions.inputSchema.properties.since.type).toBe('string');
+      expect(listDocumentVersions.inputSchema.properties.until.type).toBe('string');
+    });
   });
 
   describe('handler', () => {
@@ -215,6 +228,187 @@ describe('list_document_versions tool', () => {
       );
 
       expect(result.pagination.limit).toBe(1);
+    });
+
+    test('includes metadata fields in versions', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      const result = await listDocumentVersions.handler(
+        { docGuid: testDocGuid },
+        agentToken
+      );
+
+      // Check that versions include new metadata fields
+      if (result.versions.length > 0) {
+        const version = result.versions[0];
+        expect(version).toHaveProperty('editCount');
+        expect(version).toHaveProperty('duration');
+        expect(version).toHaveProperty('characterCount');
+        expect(version).toHaveProperty('wordCount');
+        expect(version).toHaveProperty('blockCount');
+        expect(version).toHaveProperty('charactersDelta');
+        expect(typeof version.editCount).toBe('number');
+        expect(typeof version.duration).toBe('number');
+        expect(typeof version.characterCount).toBe('number');
+        expect(typeof version.wordCount).toBe('number');
+        expect(typeof version.blockCount).toBe('number');
+        expect(typeof version.charactersDelta).toBe('number');
+      }
+    });
+
+    test('supports includeSubversions parameter', async () => {
+      // Make some edits to create versions
+      const ydoc = getYDoc(`s/${testDocGuid}`);
+      await new Promise(resolve => setTimeout(resolve, 100)); // Wait for sync
+
+      const fragment = ydoc.getXmlFragment('default');
+      ydoc.transact(() => {
+        const para = new Y.XmlElement('paragraph');
+        const text = new Y.XmlText();
+        text.insert(0, 'First edit');
+        para.insert(0, [text]);
+        fragment.insert(0, [para]);
+      }, testUserId);
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      // Without includeSubversions
+      const resultWithout = await listDocumentVersions.handler(
+        { docGuid: testDocGuid, includeSubversions: false },
+        agentToken
+      );
+
+      if (resultWithout.versions.length > 0) {
+        expect(resultWithout.versions[0]).not.toHaveProperty('subversions');
+      }
+
+      // With includeSubversions
+      const resultWith = await listDocumentVersions.handler(
+        { docGuid: testDocGuid, includeSubversions: true },
+        agentToken
+      );
+
+      if (resultWith.versions.length > 0) {
+        expect(resultWith.versions[0]).toHaveProperty('subversions');
+        expect(Array.isArray(resultWith.versions[0].subversions)).toBe(true);
+
+        // Check subversion metadata if subversions exist
+        if (resultWith.versions[0].subversions.length > 0) {
+          const subversion = resultWith.versions[0].subversions[0];
+          expect(subversion).toHaveProperty('editCount');
+          expect(subversion).toHaveProperty('duration');
+          expect(subversion).toHaveProperty('characterCount');
+          expect(subversion).toHaveProperty('wordCount');
+          expect(subversion).toHaveProperty('blockCount');
+          expect(subversion).toHaveProperty('charactersDelta');
+        }
+      }
+    });
+
+    test('filters versions by since parameter', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      // Get all versions first
+      const allVersions = await listDocumentVersions.handler(
+        { docGuid: testDocGuid },
+        agentToken
+      );
+
+      if (allVersions.versions.length > 0) {
+        // Use a time far in the future to filter out all versions
+        const futureTime = new Date(Date.now() + 86400000).toISOString(); // Tomorrow
+
+        const result = await listDocumentVersions.handler(
+          { docGuid: testDocGuid, since: futureTime },
+          agentToken
+        );
+
+        expect(result.versions.length).toBe(0);
+        expect(result.pagination.total).toBe(0);
+      }
+    });
+
+    test('filters versions by until parameter', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      // Use a time far in the past to filter out all versions
+      const pastTime = new Date(0).toISOString(); // Epoch
+
+      const result = await listDocumentVersions.handler(
+        { docGuid: testDocGuid, until: pastTime },
+        agentToken
+      );
+
+      expect(result.versions.length).toBe(0);
+      expect(result.pagination.total).toBe(0);
+    });
+
+    test('filters versions by both since and until', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      const pastTime = new Date(0).toISOString();
+      const futureTime = new Date(Date.now() + 86400000).toISOString();
+
+      const result = await listDocumentVersions.handler(
+        { docGuid: testDocGuid, since: pastTime, until: futureTime },
+        agentToken
+      );
+
+      // Should include all versions (between past and future)
+      const allVersions = await listDocumentVersions.handler(
+        { docGuid: testDocGuid },
+        agentToken
+      );
+
+      expect(result.versions.length).toBe(allVersions.versions.length);
+    });
+
+    test('validates time filter format', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      await expect(
+        listDocumentVersions.handler(
+          { docGuid: testDocGuid, since: 'invalid-date' },
+          agentToken
+        )
+      ).rejects.toThrow('Invalid');
+    });
+
+    test('validates since must be before until', async () => {
+      const agentToken = {
+        userId: testUserId,
+        scopes: ['documents:read'],
+      };
+
+      const now = new Date().toISOString();
+      const past = new Date(Date.now() - 86400000).toISOString();
+
+      await expect(
+        listDocumentVersions.handler(
+          { docGuid: testDocGuid, since: now, until: past },
+          agentToken
+        )
+      ).rejects.toThrow("'since' time must be before 'until' time");
     });
   });
 });

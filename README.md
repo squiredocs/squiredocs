@@ -215,6 +215,32 @@ The version history panel uses a three-level hierarchy:
 
 Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time.
 
+### Enhanced Features
+
+**Rich Metadata**: Every version includes detailed metrics:
+- Character count, word count, and block count at that version
+- Characters added/removed (delta) since previous version
+- Number of meaningful edits and editing session duration
+- Available for both versions and sub-versions
+
+**Nested Sub-versions**: Optionally drill down into individual edit groups within a version using the `includeSubversions` parameter. Sub-versions use a 10-second grouping threshold for granular change tracking.
+
+**Time-based Filtering**: Filter versions by date/time range using ISO 8601 timestamps:
+```javascript
+// Get versions from a specific date
+await list_document_versions({
+  docGuid: "abc-123",
+  since: "2024-01-15T00:00:00Z"
+});
+
+// Get versions in a date range
+await list_document_versions({
+  docGuid: "abc-123",
+  since: "2024-01-01T00:00:00Z",
+  until: "2024-01-31T23:59:59Z"
+});
+```
+
 ### API Endpoints
 
 | Endpoint | Description |
@@ -262,6 +288,10 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
   - Real-time sync to all users
 
 **History:**
+- `list_document_versions` - List version history with optional nested subversions, rich metadata, and time-based filtering
+- `read_document_version` - Read document at specific version
+- `create_document_version` - Create named checkpoint
+- `restore_document_version` - Restore to previous version
 - `undo` - Undo last operation
 - `redo` - Redo previously undone operation
 
