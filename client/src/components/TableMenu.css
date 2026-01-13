@@ -1,0 +1,49 @@
+.table-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 10000;
+  padding: 12px;
+  margin-top: 4px;
+}
+
+.table-menu-header {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
+  color: #333;
+}
+
+.table-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.table-grid-row {
+  display: flex;
+  gap: 2px;
+}
+
+.table-grid-cell {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #ddd;
+  cursor: pointer;
+  background: white;
+  transition: background-color 0.1s;
+}
+
+.table-grid-cell.highlighted {
+  background-color: #4a90e2;
+  border-color: #357abd;
+}
+
+.table-grid-cell:hover {
+  border-color: #4a90e2;
+}

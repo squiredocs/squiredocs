@@ -1,0 +1,54 @@
+.font-size-control {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.font-size-input {
+  width: 50px;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.font-size-input:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+/* Remove spinner arrows in Chrome, Safari, Edge, Opera */
+.font-size-input::-webkit-outer-spin-button,
+.font-size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Remove spinner arrows in Firefox */
+.font-size-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+.font-size-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.font-size-button:hover {
+  background: #e0e0e0;
+}
+
+.font-size-button:active {
+  background: #d0d0d0;
+}

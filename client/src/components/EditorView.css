@@ -61,7 +61,6 @@
   min-width: 0;
   flex: 1;
   padding-top: 2px;
-  overflow: hidden;
 }
 
 .title-toolbar-stack .app-title-input {
@@ -107,6 +106,14 @@
   justify-content: center;
   cursor: pointer;
   transition: background-color 0.1s ease;
+}
+
+.title-toolbar-stack .toolbar button.toolbar-button-small {
+  width: auto;
+  height: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .title-toolbar-stack .toolbar button:hover {

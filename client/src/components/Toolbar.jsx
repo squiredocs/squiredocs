@@ -1,6 +1,12 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
 import './Toolbar.css';
 import LinkPreview from './LinkPreview';
+import FontFamilyDropdown from './FontFamilyDropdown';
+import FontSizeControl from './FontSizeControl';
+import LineHeightDropdown from './LineHeightDropdown';
+import ColorPickerButton from './ColorPickerButton';
+import DropdownWrapper from './DropdownWrapper';
+import TableMenu from './TableMenu';
 
 export default function Toolbar({ editor }) {
   const [linkPreview, setLinkPreview] = useState(null);
@@ -134,6 +140,45 @@ export default function Toolbar({ editor }) {
         >
           <s>S</s>
         </button>
+        <button
+          onClick={() => editor.chain().focus().toggleHighlight().run()}
+          className={`toolbar-button ${editor.isActive('highlight') ? 'is-active' : ''}`}
+          title="Highlight"
+        >
+          <span style={{ backgroundColor: '#fff3cd', padding: '2px 4px' }}>H</span>
+        </button>
+        <button
+          onClick={() => editor.chain().focus().toggleSubscript().run()}
+          className={`toolbar-button ${editor.isActive('subscript') ? 'is-active' : ''}`}
+          title="Subscript"
+        >
+          X<sub>2</sub>
+        </button>
+        <button
+          onClick={() => editor.chain().focus().toggleSuperscript().run()}
+          className={`toolbar-button ${editor.isActive('superscript') ? 'is-active' : ''}`}
+          title="Superscript"
+        >
+          X<sup>2</sup>
+        </button>
+        <button
+          onClick={() => editor.chain().focus().unsetAllMarks().run()}
+          className="toolbar-button"
+          title="Clear formatting"
+        >
+          T<sub>x</sub>
+        </button>
+      </div>
+
+      <div className="toolbar-group">
+        <FontFamilyDropdown editor={editor} />
+        <FontSizeControl editor={editor} />
+        <LineHeightDropdown editor={editor} />
+      </div>
+
+      <div className="toolbar-group toolbar-color-group">
+        <ColorPickerButton editor={editor} type="text" />
+        <ColorPickerButton editor={editor} type="background" />
       </div>
 
       <div className="toolbar-group">
@@ -161,6 +206,13 @@ export default function Toolbar({ editor }) {
       </div>
 
       <div className="toolbar-group">
+        <button
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          className={`toolbar-button ${editor.isActive('blockquote') ? 'is-active' : ''}`}
+          title="Blockquote"
+        >
+          "
+        </button>
         <button
           onClick={() => editor.chain().focus().toggleBulletList().run()}
           className={`toolbar-button ${editor.isActive('bulletList') ? 'is-active' : ''}`}
@@ -190,6 +242,81 @@ export default function Toolbar({ editor }) {
           🔗
         </button>
       </div>
+
+      <div className="toolbar-group">
+        <DropdownWrapper
+          trigger={() => (
+            <button
+              className="toolbar-button"
+              title="Insert Table"
+            >
+              ⊞
+            </button>
+          )}
+        >
+          {(close) => (
+            <TableMenu
+              editor={editor}
+              onClose={close}
+            />
+          )}
+        </DropdownWrapper>
+      </div>
+
+      {editor.isActive('table') && (
+        <div className="toolbar-group toolbar-table-controls">
+          <button
+            onClick={() => editor.chain().focus().addColumnBefore().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Add column before"
+          >
+            ← Col
+          </button>
+          <button
+            onClick={() => editor.chain().focus().addColumnAfter().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Add column after"
+          >
+            Col →
+          </button>
+          <button
+            onClick={() => editor.chain().focus().deleteColumn().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Delete column"
+          >
+            ✕ Col
+          </button>
+          <button
+            onClick={() => editor.chain().focus().addRowBefore().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Add row before"
+          >
+            ↑ Row
+          </button>
+          <button
+            onClick={() => editor.chain().focus().addRowAfter().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Add row after"
+          >
+            Row ↓
+          </button>
+          <button
+            onClick={() => editor.chain().focus().deleteRow().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Delete row"
+          >
+            ✕ Row
+          </button>
+          <button
+            onClick={() => editor.chain().focus().deleteTable().run()}
+            className="toolbar-button toolbar-button-small"
+            title="Delete table"
+          >
+            ✕ Table
+          </button>
+        </div>
+      )}
+
       {linkPreview && (
         <LinkPreview
           href={linkPreview.href}

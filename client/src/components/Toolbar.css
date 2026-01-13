@@ -65,3 +65,15 @@
   text-decoration: line-through;
 }
 
+.toolbar-button-small {
+  min-width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.toolbar-table-controls {
+  background-color: #fff9e6;
+  border-color: #f0ad4e;
+  padding: 4px;
+  border-radius: 4px;
+}
