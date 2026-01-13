@@ -133,6 +133,70 @@
   cursor: pointer;
 }
 
+/* Blockquote */
+.editor-common-content .ProseMirror blockquote {
+  border-left: 4px solid #ddd;
+  margin: 16px 0;
+  padding-left: 16px;
+  color: #666;
+  font-style: italic;
+}
+
+/* Highlight */
+.editor-common-content .ProseMirror mark {
+  background-color: #fff3cd;
+  padding: 2px 0;
+  border-radius: 2px;
+}
+
+/* Subscript and Superscript */
+.editor-common-content .ProseMirror sub {
+  vertical-align: sub;
+  font-size: 0.75em;
+}
+
+.editor-common-content .ProseMirror sup {
+  vertical-align: super;
+  font-size: 0.75em;
+}
+
+/* Tables */
+.editor-common-content .ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 16px 0;
+  overflow: hidden;
+}
+
+.editor-common-content .ProseMirror td,
+.editor-common-content .ProseMirror th {
+  min-width: 1em;
+  border: 1px solid #ddd;
+  padding: 8px;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.editor-common-content .ProseMirror th {
+  font-weight: bold;
+  text-align: left;
+  background-color: #f5f5f5;
+}
+
+.editor-common-content .ProseMirror .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(74, 144, 226, 0.2);
+  pointer-events: none;
+}
+
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   .editor-common-container {

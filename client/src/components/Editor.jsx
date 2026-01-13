@@ -1,6 +1,14 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
+import Highlight from '@tiptap/extension-highlight';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
+import { TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight } from '@tiptap/extension-text-style';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
@@ -79,8 +87,23 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       StarterKit.configure({
         undoRedo: false, // Disable built-in undo/redo, Yjs handles it
         link: false, // Disable built-in Link, we configure it separately below
-        // underline: included from StarterKit (no custom config needed)
+        // underline is included in StarterKit by default in v3
       }),
+      Highlight.configure({ multicolor: false }),
+      Subscript,
+      Superscript,
+      TextStyle,
+      Color,
+      BackgroundColor,
+      FontFamily,
+      FontSize,
+      LineHeight,
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Link.configure({
         openOnClick: false, // Prevent default link navigation in editor
       }),

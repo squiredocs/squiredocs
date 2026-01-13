@@ -29,6 +29,10 @@ function getElementForNode(nodeType, attrs) {
     case 'horizontalRule': return 'hr';
     case 'hardBreak': return 'br';
     case 'image': return 'img';
+    case 'table': return 'table';
+    case 'tableRow': return 'tr';
+    case 'tableCell': return 'td';
+    case 'tableHeader': return 'th';
     default: return null; // Unknown type - will be handled specially
   }
 }
@@ -44,6 +48,10 @@ function getMarkElement(markType) {
     case 'code': return 'code';
     case 'link': return 'a';
     case 'strike': return 's';
+    case 'highlight': return 'mark';
+    case 'subscript': return 'sub';
+    case 'superscript': return 'sup';
+    case 'textStyle': return 'span';
     default: return 'span';
   }
 }
@@ -68,6 +76,14 @@ function renderNode(nodeJson, container) {
         const wrapper = document.createElement(getMarkElement(mark.type));
         if (mark.type === 'link' && mark.attrs?.href) {
           wrapper.href = mark.attrs.href;
+        }
+        // Apply textStyle attributes
+        if (mark.type === 'textStyle' && mark.attrs) {
+          if (mark.attrs.color) wrapper.style.color = mark.attrs.color;
+          if (mark.attrs.backgroundColor) wrapper.style.backgroundColor = mark.attrs.backgroundColor;
+          if (mark.attrs.fontSize) wrapper.style.fontSize = mark.attrs.fontSize;
+          if (mark.attrs.fontFamily) wrapper.style.fontFamily = mark.attrs.fontFamily;
+          if (mark.attrs.lineHeight) wrapper.style.lineHeight = mark.attrs.lineHeight;
         }
         wrapper.appendChild(element);
         element = wrapper;
@@ -111,6 +127,15 @@ function renderNode(nodeJson, container) {
       if (nodeJson.attrs.src) element.src = nodeJson.attrs.src;
       if (nodeJson.attrs.alt) element.alt = nodeJson.attrs.alt;
       if (nodeJson.attrs.title) element.title = nodeJson.attrs.title;
+    }
+    // Apply table cell attributes
+    if ((nodeJson.type === 'tableCell' || nodeJson.type === 'tableHeader') && nodeJson.attrs) {
+      if (nodeJson.attrs.colspan && nodeJson.attrs.colspan !== 1) {
+        element.colSpan = nodeJson.attrs.colspan;
+      }
+      if (nodeJson.attrs.rowspan && nodeJson.attrs.rowspan !== 1) {
+        element.rowSpan = nodeJson.attrs.rowspan;
+      }
     }
 
     // Recursively render children

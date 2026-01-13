@@ -122,6 +122,98 @@ const nodes = {
       return ['hr'];
     },
   },
+
+  table: {
+    content: 'tableRow+',
+    tableRole: 'table',
+    isolating: true,
+    group: 'block',
+    parseDOM: [{ tag: 'table' }],
+    toDOM() {
+      return ['table', ['tbody', 0]];
+    },
+  },
+
+  tableRow: {
+    content: '(tableCell | tableHeader)*',
+    tableRole: 'row',
+    parseDOM: [{ tag: 'tr' }],
+    toDOM() {
+      return ['tr', 0];
+    },
+  },
+
+  tableCell: {
+    content: 'block+',
+    attrs: {
+      colspan: { default: 1 },
+      rowspan: { default: 1 },
+      colwidth: { default: null },
+    },
+    tableRole: 'cell',
+    isolating: true,
+    parseDOM: [
+      {
+        tag: 'td',
+        getAttrs(dom) {
+          return {
+            colspan: dom.getAttribute('colspan') ? parseInt(dom.getAttribute('colspan'), 10) : 1,
+            rowspan: dom.getAttribute('rowspan') ? parseInt(dom.getAttribute('rowspan'), 10) : 1,
+            colwidth: dom.getAttribute('colwidth')
+              ? dom
+                  .getAttribute('colwidth')
+                  .split(',')
+                  .map((w) => parseInt(w, 10))
+              : null,
+          };
+        },
+      },
+    ],
+    toDOM(node) {
+      const { colspan, rowspan, colwidth } = node.attrs;
+      const attrs = {};
+      if (colspan !== 1) attrs.colspan = colspan;
+      if (rowspan !== 1) attrs.rowspan = rowspan;
+      if (colwidth) attrs.colwidth = colwidth.join(',');
+      return ['td', attrs, 0];
+    },
+  },
+
+  tableHeader: {
+    content: 'block+',
+    attrs: {
+      colspan: { default: 1 },
+      rowspan: { default: 1 },
+      colwidth: { default: null },
+    },
+    tableRole: 'header_cell',
+    isolating: true,
+    parseDOM: [
+      {
+        tag: 'th',
+        getAttrs(dom) {
+          return {
+            colspan: dom.getAttribute('colspan') ? parseInt(dom.getAttribute('colspan'), 10) : 1,
+            rowspan: dom.getAttribute('rowspan') ? parseInt(dom.getAttribute('rowspan'), 10) : 1,
+            colwidth: dom.getAttribute('colwidth')
+              ? dom
+                  .getAttribute('colwidth')
+                  .split(',')
+                  .map((w) => parseInt(w, 10))
+              : null,
+          };
+        },
+      },
+    ],
+    toDOM(node) {
+      const { colspan, rowspan, colwidth } = node.attrs;
+      const attrs = {};
+      if (colspan !== 1) attrs.colspan = colspan;
+      if (rowspan !== 1) attrs.rowspan = rowspan;
+      if (colwidth) attrs.colwidth = colwidth.join(',');
+      return ['th', attrs, 0];
+    },
+  },
 };
 
 const marks = {
@@ -204,6 +296,64 @@ const marks = {
       if (rel) attrs.rel = rel;
       if (className) attrs.class = className;
       return ['a', attrs, 0];
+    },
+  },
+
+  highlight: {
+    parseDOM: [{ tag: 'mark' }],
+    toDOM() {
+      return ['mark', 0];
+    },
+  },
+
+  subscript: {
+    excludes: 'superscript',
+    parseDOM: [{ tag: 'sub' }],
+    toDOM() {
+      return ['sub', 0];
+    },
+  },
+
+  superscript: {
+    excludes: 'subscript',
+    parseDOM: [{ tag: 'sup' }],
+    toDOM() {
+      return ['sup', 0];
+    },
+  },
+
+  textStyle: {
+    attrs: {
+      color: { default: null },
+      backgroundColor: { default: null },
+      fontSize: { default: null },
+      fontFamily: { default: null },
+      lineHeight: { default: null },
+    },
+    parseDOM: [
+      {
+        tag: 'span',
+        getAttrs(dom) {
+          return {
+            color: dom.style.color || null,
+            backgroundColor: dom.style.backgroundColor || null,
+            fontSize: dom.style.fontSize || null,
+            fontFamily: dom.style.fontFamily || null,
+            lineHeight: dom.style.lineHeight || null,
+          };
+        },
+      },
+    ],
+    toDOM(node) {
+      const { color, backgroundColor, fontSize, fontFamily, lineHeight } = node.attrs;
+      const style = {};
+      if (color) style.color = color;
+      if (backgroundColor) style.backgroundColor = backgroundColor;
+      if (fontSize) style.fontSize = fontSize;
+      if (fontFamily) style.fontFamily = fontFamily;
+      if (lineHeight) style.lineHeight = lineHeight;
+
+      return ['span', { style: Object.keys(style).length ? style : null }, 0];
     },
   },
 };

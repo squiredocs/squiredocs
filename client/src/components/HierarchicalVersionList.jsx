@@ -50,7 +50,7 @@ function AuthorList({ authors, maxDisplay = null }) {
   return (
     <div className="hierarchy-version-authors">
       {displayAuthors.map((author, i) => (
-        <div key={author.id || i} className="hierarchy-author" title={author.name}>
+        <div key={`${author.id}-${i}`} className="hierarchy-author" title={author.name}>
           <span
             className="hierarchy-author-dot"
             style={{ backgroundColor: author.color || generateColorFromId(author.id) }}

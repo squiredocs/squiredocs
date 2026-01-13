@@ -7,6 +7,7 @@ export default function MobileActionBar({ editor }) {
   const [canRedo, setCanRedo] = useState(false);
   const [canIndent, setCanIndent] = useState(false);
   const [canOutdent, setCanOutdent] = useState(false);
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
 
   // Update button states when editor selection changes
   useEffect(() => {
@@ -122,6 +123,98 @@ export default function MobileActionBar({ editor }) {
           <path d="M3 21h18v-2H3v2zM3 8v8l4-4-4-4zm8 9h10v-2H11v2zM3 3v2h18V3H3zm8 6h10V7H11v2zm0 4h10v-2H11v2z"/>
         </svg>
       </button>
+      <div className="mobile-action-divider" />
+      <button
+        onClick={() => setFormatMenuOpen(!formatMenuOpen)}
+        className={`mobile-action-button ${formatMenuOpen ? 'active' : ''}`}
+        title="Format"
+        aria-label="Format menu"
+      >
+        <strong>A</strong>
+      </button>
+
+      {formatMenuOpen && (
+        <div className="mobile-format-menu">
+          <div className="mobile-format-row">
+            <button
+              onClick={() => editor.chain().focus().toggleBold().run()}
+              className={`mobile-format-button ${editor.isActive('bold') ? 'active' : ''}`}
+            >
+              <strong>B</strong>
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+              className={`mobile-format-button ${editor.isActive('italic') ? 'active' : ''}`}
+            >
+              <em>I</em>
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleUnderline().run()}
+              className={`mobile-format-button ${editor.isActive('underline') ? 'active' : ''}`}
+            >
+              <u>U</u>
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              className={`mobile-format-button ${editor.isActive('strike') ? 'active' : ''}`}
+            >
+              <s>S</s>
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleHighlight().run()}
+              className={`mobile-format-button ${editor.isActive('highlight') ? 'active' : ''}`}
+            >
+              <span style={{ backgroundColor: '#fff3cd', padding: '2px' }}>H</span>
+            </button>
+          </div>
+          <div className="mobile-format-row">
+            <button
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              className={`mobile-format-button ${editor.isActive('heading', { level: 1 }) ? 'active' : ''}`}
+            >
+              H1
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              className={`mobile-format-button ${editor.isActive('heading', { level: 2 }) ? 'active' : ''}`}
+            >
+              H2
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+              className={`mobile-format-button ${editor.isActive('heading', { level: 3 }) ? 'active' : ''}`}
+            >
+              H3
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+              className={`mobile-format-button ${editor.isActive('blockquote') ? 'active' : ''}`}
+            >
+              "
+            </button>
+          </div>
+          <div className="mobile-format-row">
+            <button
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+              className={`mobile-format-button ${editor.isActive('bulletList') ? 'active' : ''}`}
+            >
+              •
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              className={`mobile-format-button ${editor.isActive('orderedList') ? 'active' : ''}`}
+            >
+              1.
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleCode().run()}
+              className={`mobile-format-button ${editor.isActive('code') ? 'active' : ''}`}
+            >
+              &lt;/&gt;
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
