@@ -312,6 +312,15 @@ describe('list_document_versions tool', () => {
           expect(subversion).toHaveProperty('updateCount');
           expect(subversion).toHaveProperty('previousClock');
         }
+
+        // Check metadata fields
+        expect(resultWith.versions[0]).toHaveProperty('subversionCount');
+        expect(resultWith.versions[0]).toHaveProperty('hasMoreSubversions');
+        expect(typeof resultWith.versions[0].subversionCount).toBe('number');
+        expect(typeof resultWith.versions[0].hasMoreSubversions).toBe('boolean');
+
+        // Subversions should be limited to 10
+        expect(resultWith.versions[0].subversions.length).toBeLessThanOrEqual(10);
       }
     });
 

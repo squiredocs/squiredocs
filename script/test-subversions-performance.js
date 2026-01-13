@@ -76,16 +76,17 @@ async function testPerformance(persistence, docGuid) {
 
   for (const version of timeline.versions) {
     const versionStart = Date.now();
-    const subversions = await versionHistory.getUpdatesForVersion(
+    const result = await versionHistory.getUpdatesForVersion(
       persistence,
       docGuid,
       version.clockStart,
-      version.clockEnd
+      version.clockEnd,
+      10 // Limit to 10
     );
     const versionTime = Date.now() - versionStart;
-    totalSubversions += subversions.length;
+    totalSubversions += result.total;
 
-    console.log(`  Version ${version.id} (clocks ${version.clockStart}-${version.clockEnd}): ${subversions.length} subversions in ${versionTime}ms`);
+    console.log(`  Version ${version.id} (clocks ${version.clockStart}-${version.clockEnd}): ${result.subversions.length}/${result.total} subversions in ${versionTime}ms`);
   }
 
   const time2 = Date.now() - start2;

@@ -70,10 +70,15 @@ RETURNS
   - authors: Array of author objects with id, name, email, picture, color, isAgent
   - isNamed: Boolean indicating if this is a named checkpoint
   - isCurrent: Boolean indicating if this is the current version
-  - subversions: (if includeSubversions: true) Array of edit groups with:
+  - subversions: (if includeSubversions: true) Array of up to 10 most recent edit groups:
     - id, clockStart, clockEnd, timestamp, authors (same as versions)
     - updateCount: Number of Yjs updates in this subversion
     - previousClock: Baseline clock for diffing
+  - subversionCount: (if includeSubversions: true) Total number of subversions for this version
+  - hasMoreSubversions: (if includeSubversions: true) Boolean indicating if there are more than 10
+
+  NOTE: Only the 10 most recent subversions are returned per version. The subversionCount
+  and hasMoreSubversions fields indicate if there are additional subversions not shown.
 
 - totalEdits: Total number of meaningful edits in document history
 - pagination: Pagination metadata with total, limit, offset, hasMore
@@ -224,19 +229,22 @@ async function handler(args, agentToken) {
   const paginatedVersions = filteredVersions.slice(offset, offset + effectiveLimit);
   const hasMore = offset + effectiveLimit < total;
 
-  // If includeSubversions, fetch subversions for each paginated version
+  // If includeSubversions, fetch subversions for each paginated version (limited to 10 most recent)
   if (includeSubversions) {
     try {
       for (const version of paginatedVersions) {
         console.log(`[list_document_versions] Fetching subversions for version ${version.id} (clocks ${version.clockStart}-${version.clockEnd})`);
-        const subversions = await versionHistory.getUpdatesForVersion(
+        const result = await versionHistory.getUpdatesForVersion(
           persistenceProvider,
           docGuid,
           version.clockStart,
-          version.clockEnd
+          version.clockEnd,
+          10 // Limit to 10 most recent subversions
         );
-        version.subversions = subversions; // Already includes metadata
-        console.log(`[list_document_versions] Got ${subversions.length} subversions for version ${version.id}`);
+        version.subversions = result.subversions;
+        version.subversionCount = result.total;
+        version.hasMoreSubversions = result.hasMore;
+        console.log(`[list_document_versions] Got ${result.subversions.length}/${result.total} subversions for version ${version.id}`);
       }
     } catch (error) {
       console.error('[list_document_versions] Error fetching subversions:', error);
