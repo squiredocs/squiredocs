@@ -710,15 +710,20 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
  * @returns {Promise<Array>} Array of grouped sub-versions with metadata
  */
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) {
+  const startTime = Date.now();
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
+  const fetchTime = Date.now() - startTime;
 
   // Build document state just before the range to detect which updates actually change text
+  const buildBaseStart = Date.now();
   const baseDoc = clockStart > 0
     ? await persistence.getYDocAtClock(docGuid, clockStart - 1)
     : new Y.Doc();
+  const buildBaseTime = Date.now() - buildBaseStart;
 
   // Filter to only include updates that actually change text content
   // (not just CRDT state like new client IDs from sync)
+  const filterStart = Date.now();
   const meaningfulUpdates = [];
   let previousText = extractTextFromDoc(baseDoc);
 
@@ -735,6 +740,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
       previousText = currentText;
     }
   }
+  const filterTime = Date.now() - filterStart;
 
   // Group updates into sub-versions using 10-second threshold
   const subVersions = groupUpdatesIntoVersions(
@@ -753,6 +759,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
   // Filter out subversions where the net change is zero
   // (e.g., changes that cancel out like case swap then swap back)
   // Build a map of clock -> text state for efficient lookup
+  const rebuildStart = Date.now();
   const textAtClock = new Map();
 
   // Reset baseDoc and rebuild text states
@@ -767,6 +774,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     Y.applyUpdate(stateDoc, update.updateData);
     textAtClock.set(update.clock, extractTextFromDoc(stateDoc));
   }
+  const rebuildTime = Date.now() - rebuildStart;
 
   // Filter to only include subversions with net changes and compute previousClock for each
   // Use sequential baseline: oldest subversion diffs from parent start, others from previous subversion
@@ -787,7 +795,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
   }
 
   // Map to response format and reverse to show most recent first
-  return filteredSubVersions.map(sv => ({
+  const result = filteredSubVersions.map(sv => ({
     id: `subversion-${sv.clockEnd}`,
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
@@ -797,6 +805,11 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     authors: sv.authors || [],
     updateCount: sv.clockEnd - sv.clockStart + 1,
   })).reverse();
+
+  const totalTime = Date.now() - startTime;
+  console.log(`[getUpdatesForVersion] clocks ${clockStart}-${clockEnd}: fetch=${fetchTime}ms, buildBase=${buildBaseTime}ms, filter=${filterTime}ms, rebuild=${rebuildTime}ms, total=${totalTime}ms, updates=${updates.length}, meaningful=${meaningfulUpdates.length}, subversions=${result.length}`);
+
+  return result;
 }
 
 /**
