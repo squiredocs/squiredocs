@@ -75,14 +75,39 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
     };
   }
 
-  // Handle auto/subversion/clock - need to look up in timeline
-  const timeline = await versionHistory.getVersionTimeline(persistenceProvider, docGuid, {
-    includeSubversions: true, // Need subversions to find subversion-X IDs
-  });
+  // Handle auto/subversion - need to look up in timeline
+  const timeline = await versionHistory.getVersionTimeline(persistenceProvider, docGuid);
 
-  // Search all versions and their subversions
+  // For subversions, we need to find the parent version and populate its subversions
+  if (parsed.type === 'subversion') {
+    // Find the parent version that contains this clock value
+    for (const version of timeline.versions) {
+      if (parsed.clock >= version.clockStart && parsed.clock <= version.clockEnd) {
+        // Populate subversions for this version
+        const subversions = await versionHistory.getUpdatesForVersion(
+          persistenceProvider,
+          docGuid,
+          version.clockStart,
+          version.clockEnd
+        );
+
+        // Search for the matching subversion
+        for (const subversion of subversions) {
+          if (subversion.id === versionId || subversion.clockEnd === parsed.clock) {
+            return {
+              clockStart: subversion.clockStart,
+              clockEnd: subversion.clockEnd,
+              isNamed: false,
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // For auto versions, search by ID or clockEnd
   for (const version of timeline.versions) {
-    // Check if this version matches
     if (version.id === versionId || version.clockEnd === parsed.clock) {
       return {
         clockStart: version.clockStart,
@@ -90,19 +115,6 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
         isNamed: version.isNamed || false,
         id: version.isNamed ? version.id : undefined,
       };
-    }
-
-    // Check subversions if present
-    if (version.subversions) {
-      for (const subversion of version.subversions) {
-        if (subversion.id === versionId || subversion.clockEnd === parsed.clock) {
-          return {
-            clockStart: subversion.clockStart,
-            clockEnd: subversion.clockEnd,
-            isNamed: false,
-          };
-        }
-      }
     }
   }
 
