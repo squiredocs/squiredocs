@@ -383,16 +383,25 @@ describe('Sandbox Helpers', () => {
       ])).toThrow(/TextStyle marks must be wrapped in a 'textStyle' object/);
     });
 
-    it('should throw for incorrect textStyle format (missing required props)', () => {
-      expect(() => helpers.createFormattedText([
-        { text: 'Red text', attrs: { textStyle: { color: '#ff0000' } } }
-      ])).toThrow(/must include all properties/);
+    it('should accept textStyle with only color', () => {
+      const text = helpers.createFormattedText([
+        { text: 'Red text', attrs: { textStyle: { color: '#ff0000' } }}
+      ]);
+
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const delta = text.toDelta();
+      expect(delta[0].attributes).toEqual({
+        textStyle: { color: '#ff0000' }
+      });
     });
 
-    it('should accept correct textStyle format', () => {
+    it('should accept textStyle with multiple properties', () => {
       const text = helpers.createFormattedText([
-        { text: 'Red text', attrs: {
-          textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+        { text: 'Styled text', attrs: {
+          textStyle: { color: '#ff0000', fontSize: '18px', fontFamily: 'Georgia' }
         }}
       ]);
 
@@ -402,7 +411,7 @@ describe('Sandbox Helpers', () => {
 
       const delta = text.toDelta();
       expect(delta[0].attributes).toEqual({
-        textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+        textStyle: { color: '#ff0000', fontSize: '18px', fontFamily: 'Georgia' }
       });
     });
   });

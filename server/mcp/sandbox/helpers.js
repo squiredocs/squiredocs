@@ -302,24 +302,14 @@ function validateTextStyleAttrs(attrs) {
         `TextStyle marks must be wrapped in a 'textStyle' object. ` +
         `Found '${prop}' directly in attrs.\n` +
         `✗ Wrong:   { ${prop}: '...' }\n` +
-        `✓ Correct: { textStyle: { ${prop}: '...', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }`
+        `✓ Correct: { textStyle: { ${prop}: '...' } }`
       );
     }
   }
 
-  // If textStyle is present, validate it has all required properties
-  if (attrs.textStyle && typeof attrs.textStyle === 'object') {
-    const ts = attrs.textStyle;
-    const requiredProps = ['color', 'backgroundColor', 'fontFamily', 'fontSize', 'lineHeight'];
-    const missingProps = requiredProps.filter(prop => !(prop in ts));
-
-    if (missingProps.length > 0) {
-      throw new Error(
-        `TextStyle object must include all properties (use null for unset values). ` +
-        `Missing: ${missingProps.join(', ')}\n` +
-        `Example: { textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }`
-      );
-    }
+  // Validate textStyle is an object (but don't require all properties)
+  if ('textStyle' in attrs && typeof attrs.textStyle !== 'object') {
+    throw new Error('textStyle must be an object');
   }
 }
 

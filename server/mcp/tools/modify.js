@@ -204,6 +204,8 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
     { type: 'blockquote', content: string | FormattedContent }
     { type: 'horizontalRule' }
     { type: 'table', headers?: string[], rows: string[][] }
+      Note: Table rows can contain FormattedContent arrays for rich text (bold, color, etc.)
+      Note: For colspan/rowspan, use low-level API (see Example 7c below)
 
   ListItem = string | FormattedContent | NestedItem
   NestedItem = { content: string | FormattedContent, items?: ListItem[], type?: 'bulletList' | 'orderedList' }
@@ -286,9 +288,7 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
             ],
             [
               '12',
-              [{ text: 'Dublin', attrs: {
-                textStyle: { color: '#dc2626', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
-              }}],
+              [{ text: 'Dublin', attrs: { textStyle: { color: '#dc2626' } } }],
               'Workshop'
             ]
           ]
@@ -401,20 +401,21 @@ Text Marks (formatting):
 
 TextStyle Marks - IMPORTANT nested format required:
   These marks MUST be wrapped in a textStyle object:
-  ✓ Correct: { textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null } }
-  ✗ Wrong:   { color: '#ff0000' }  // This will not work!
+  ✓ Correct: { textStyle: { color: '#ff0000' } }
+  ✓ Correct: { textStyle: { color: '#ff0000', fontSize: '18px' } }
+  ✗ Wrong:   { color: '#ff0000' }  // Must be nested inside textStyle!
 
-  Available properties inside textStyle:
-  - color: string | null (e.g., '#ff0000', 'rgb(255,0,0)')
-  - backgroundColor: string | null (e.g., '#ffff00')
-  - fontFamily: string | null (e.g., 'Arial', 'Times New Roman')
-  - fontSize: string | null (e.g., '16px', '1.2em')
-  - lineHeight: string | null (e.g., '1.5', '2')
-
-  All properties should be included (use null for unset values).
+  Available properties (include only what you need):
+  - color: string
+      Supported formats: hex (#ff0000), rgb (rgb(255,0,0)), rgba (rgba(255,0,0,0.5)),
+                         named colors (red, blue), hsl (hsl(0,100%,50%))
+  - backgroundColor: string (same formats as color)
+  - fontFamily: string (e.g., 'Arial', 'Times New Roman', 'Georgia')
+  - fontSize: string (e.g., '16px', '1.2em', '20pt')
+  - lineHeight: string (e.g., '1.5', '2', '1.8')
 
   Combining with other marks:
-  { bold: true, textStyle: { color: '#ff0000', ... } }  // Works!
+  { bold: true, textStyle: { color: '#ff0000' } }
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -762,6 +763,60 @@ await modify({
   \`
 });
 
+// Example 7c: Table with colspan/rowspan (requires low-level API)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const table = new Y.XmlElement('table');
+
+      // Header row with merged cell (colspan)
+      const headerRow = new Y.XmlElement('tableRow');
+
+      const th1 = new Y.XmlElement('tableHeader');
+      th1.setAttribute('colspan', 2);  // Merge 2 columns
+      th1.setAttribute('rowspan', 1);
+      th1.setAttribute('colwidth', null);
+      const p1 = new Y.XmlElement('paragraph');
+      const t1 = new Y.XmlText();
+      t1.insert(0, 'Merged Header');
+      p1.insert(0, [t1]);
+      th1.insert(0, [p1]);
+
+      const th2 = new Y.XmlElement('tableHeader');
+      th2.setAttribute('colspan', 1);
+      th2.setAttribute('rowspan', 1);
+      th2.setAttribute('colwidth', null);
+      const p2 = new Y.XmlElement('paragraph');
+      const t2 = new Y.XmlText();
+      t2.insert(0, 'Status');
+      p2.insert(0, [t2]);
+      th2.insert(0, [p2]);
+
+      headerRow.insert(0, [th1, th2]);
+      table.insert(0, [headerRow]);
+
+      // Data row
+      const dataRow = new Y.XmlElement('tableRow');
+      ['Alice', 'Engineer', 'Active'].forEach(cellText => {
+        const td = new Y.XmlElement('tableCell');
+        td.setAttribute('colspan', 1);
+        td.setAttribute('rowspan', 1);
+        td.setAttribute('colwidth', null);
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, cellText);
+        p.insert(0, [t]);
+        td.insert(0, [p]);
+        dataRow.insert(dataRow.length, [td]);
+      });
+      table.insert(1, [dataRow]);
+
+      doc.insert(doc.length, [table]);
+    }
+  \`
+});
+
 // Example 8: Apply TextStyle marks (color, font, etc.)
 // IMPORTANT: TextStyle marks must be wrapped in a textStyle object
 await modify({
@@ -770,17 +825,13 @@ await modify({
     export default function edit(doc) {
       const para = new Y.XmlElement('paragraph');
       const text = createFormattedText([
-        { text: 'Red text', attrs: {
-          textStyle: { color: '#ff0000', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
-        }},
+        { text: 'Red text', attrs: { textStyle: { color: '#ff0000' } }},
         ' and ',
         { text: 'blue background with white text', attrs: {
-          textStyle: { color: '#ffffff', backgroundColor: '#0000ff', fontFamily: null, fontSize: null, lineHeight: null }
+          textStyle: { color: '#ffffff', backgroundColor: '#0000ff' }
         }},
         ' and ',
-        { text: 'custom font', attrs: {
-          textStyle: { color: null, backgroundColor: null, fontFamily: 'Georgia', fontSize: '18px', lineHeight: null }
-        }}
+        { text: 'custom font', attrs: { textStyle: { fontFamily: 'Georgia', fontSize: '18px' } }}
       ]);
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
@@ -797,7 +848,7 @@ await modify({
       const text = createFormattedText([
         { text: 'Bold red text', attrs: {
           bold: true,
-          textStyle: { color: '#dc2626', backgroundColor: null, fontFamily: null, fontSize: null, lineHeight: null }
+          textStyle: { color: '#dc2626' }
         }}
       ]);
       para.insert(0, [text]);
