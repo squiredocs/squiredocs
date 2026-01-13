@@ -213,10 +213,10 @@ describe('set_document_version_name', () => {
       ).rejects.toThrow('Version not found');
     });
 
-    test('throws error for auto-version (not UUID)', async () => {
+    test('throws error for invalid versionId format', async () => {
       await expect(
         tool.handler({ docGuid: 'doc-123', versionId: 'not-a-uuid', name: 'Final' }, mockAgentToken)
-      ).rejects.toThrow('Cannot modify auto-generated versions');
+      ).rejects.toThrow('Invalid versionId format');
     });
 
     test('throws error for viewer role', async () => {
@@ -268,10 +268,10 @@ describe('set_document_version_name', () => {
       ).rejects.toThrow('Version not found');
     });
 
-    test('throws error for auto-version (not UUID)', async () => {
+    test('throws error for invalid versionId format', async () => {
       await expect(
         tool.handler({ docGuid: 'doc-123', versionId: 'not-a-uuid', name: null }, mockAgentToken)
-      ).rejects.toThrow('Cannot modify auto-generated versions');
+      ).rejects.toThrow('Invalid versionId format');
     });
 
     test('throws error for viewer role', async () => {
@@ -372,6 +372,168 @@ describe('set_document_version_name', () => {
       );
 
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('NAME HISTORICAL mode (auto-version ID)', () => {
+    beforeEach(() => {
+      mockPool.query.mockResolvedValue({
+        rows: [{ role: 'editor' }],
+      });
+
+      versionHistory.getVersionTimeline.mockResolvedValue({
+        versions: [
+          { id: 'auto-20', clockStart: 15, clockEnd: 20, isNamed: false },
+          { id: 'auto-10', clockStart: 0, clockEnd: 10, isNamed: false },
+        ],
+      });
+
+      mockPersistence.createNamedVersion.mockResolvedValue({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        name: 'Historical Checkpoint',
+        clock_start: 0,
+        clock_end: 10,
+        created_at: '2024-01-01T00:00:00Z',
+      });
+    });
+
+    test('names historical auto-version successfully', async () => {
+      const result = await tool.handler(
+        { docGuid: 'doc-123', versionId: 'auto-10', name: 'Historical Checkpoint' },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.created).toBe(true);
+      expect(result.version.name).toBe('Historical Checkpoint');
+      expect(result.message).toBe('Historical version "Historical Checkpoint" created successfully');
+      expect(mockPersistence.createNamedVersion).toHaveBeenCalledWith(
+        'doc-123',
+        0,
+        10,
+        'Historical Checkpoint',
+        'user-123'
+      );
+    });
+
+    test('throws error for undefined name', async () => {
+      await expect(
+        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10' }, mockAgentToken)
+      ).rejects.toThrow('name parameter is required');
+    });
+
+    test('throws error for null name on auto-version', async () => {
+      await expect(
+        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10', name: null }, mockAgentToken)
+      ).rejects.toThrow('Cannot delete unnamed version');
+    });
+
+    test('throws error for auto-version not found', async () => {
+      versionHistory.getVersionTimeline.mockResolvedValue({
+        versions: [{ id: 'auto-20', clockStart: 15, clockEnd: 20, isNamed: false }],
+      });
+
+      await expect(
+        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10', name: 'Test' }, mockAgentToken)
+      ).rejects.toThrow('Version not found');
+    });
+
+    test('throws error for invalid versionId format', async () => {
+      await expect(
+        tool.handler({ docGuid: 'doc-123', versionId: 'invalid-format', name: 'Test' }, mockAgentToken)
+      ).rejects.toThrow('Invalid versionId format');
+    });
+  });
+
+  describe('NAME HISTORICAL mode (subversion ID)', () => {
+    beforeEach(() => {
+      mockPool.query.mockResolvedValue({
+        rows: [{ role: 'editor' }],
+      });
+
+      versionHistory.getVersionTimeline.mockResolvedValue({
+        versions: [
+          {
+            id: 'auto-20',
+            clockStart: 15,
+            clockEnd: 20,
+            isNamed: false,
+            subversions: [
+              { id: 'subversion-18', clockStart: 15, clockEnd: 18 },
+              { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
+            ],
+          },
+        ],
+      });
+
+      mockPersistence.createNamedVersion.mockResolvedValue({
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        name: 'Subversion Checkpoint',
+        clock_start: 15,
+        clock_end: 18,
+        created_at: '2024-01-01T00:00:00Z',
+      });
+    });
+
+    test('names subversion successfully', async () => {
+      const result = await tool.handler(
+        { docGuid: 'doc-123', versionId: 'subversion-18', name: 'Subversion Checkpoint' },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.created).toBe(true);
+      expect(result.version.name).toBe('Subversion Checkpoint');
+      expect(result.message).toBe('Historical version "Subversion Checkpoint" created successfully');
+      expect(mockPersistence.createNamedVersion).toHaveBeenCalledWith(
+        'doc-123',
+        15,
+        18,
+        'Subversion Checkpoint',
+        'user-123'
+      );
+    });
+
+    test('throws error for subversion not found', async () => {
+      versionHistory.getVersionTimeline.mockResolvedValue({
+        versions: [
+          {
+            id: 'auto-20',
+            clockStart: 15,
+            clockEnd: 20,
+            isNamed: false,
+            subversions: [{ id: 'subversion-20', clockStart: 19, clockEnd: 20 }],
+          },
+        ],
+      });
+
+      await expect(
+        tool.handler({ docGuid: 'doc-123', versionId: 'subversion-18', name: 'Test' }, mockAgentToken)
+      ).rejects.toThrow('Version not found');
+    });
+  });
+
+  describe('Parameter validation', () => {
+    beforeEach(() => {
+      mockPool.query.mockResolvedValue({
+        rows: [{ role: 'editor' }],
+      });
+
+      versionHistory.getVersionTimeline.mockResolvedValue({
+        versions: [{ clockStart: 0, clockEnd: 10 }],
+      });
+    });
+
+    test('throws error for undefined name (CREATE mode)', async () => {
+      await expect(
+        tool.handler({ docGuid: 'doc-123' }, mockAgentToken)
+      ).rejects.toThrow('name parameter is required');
+    });
+
+    test('throws error for non-string name', async () => {
+      await expect(
+        tool.handler({ docGuid: 'doc-123', name: 123 }, mockAgentToken)
+      ).rejects.toThrow('name must be a string or null');
     });
   });
 });

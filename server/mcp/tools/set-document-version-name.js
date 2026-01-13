@@ -16,10 +16,97 @@ function isUUID(str) {
 }
 
 function validateName(name) {
+  if (name === undefined) throw new Error('name parameter is required');
+  if (typeof name !== 'string') throw new Error('name must be a string or null');
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Version name cannot be empty');
   if (trimmed.length > 255) throw new Error('Version name cannot exceed 255 characters');
   return trimmed;
+}
+
+/**
+ * Parse versionId to extract clock value and type
+ * Supports formats returned by list_document_versions: UUID, auto-{clock}, subversion-{clock}
+ * @param {string} versionId
+ * @returns {{ type: 'uuid'|'auto'|'subversion', clock?: number, uuid?: string }}
+ */
+function parseVersionId(versionId) {
+  // Check for UUID format (named versions)
+  if (isUUID(versionId)) {
+    return { type: 'uuid', uuid: versionId };
+  }
+
+  // Check for auto-{clock} format (auto-generated versions)
+  const autoMatch = versionId.match(/^auto-(\d+)$/);
+  if (autoMatch) {
+    return { type: 'auto', clock: parseInt(autoMatch[1], 10) };
+  }
+
+  // Check for subversion-{clock} format (subversions)
+  const subversionMatch = versionId.match(/^subversion-(\d+)$/);
+  if (subversionMatch) {
+    return { type: 'subversion', clock: parseInt(subversionMatch[1], 10) };
+  }
+
+  throw new Error('Invalid versionId format. Must be UUID, auto-{clock}, or subversion-{clock} as returned by list_document_versions');
+}
+
+/**
+ * Look up a version by ID in the version timeline
+ * @param {string} docGuid
+ * @param {string} versionId
+ * @param {Object} persistenceProvider
+ * @returns {Promise<{clockStart: number, clockEnd: number, isNamed: boolean, id?: string}|null>}
+ */
+async function lookupVersionById(docGuid, versionId, persistenceProvider) {
+  const parsed = parseVersionId(versionId);
+
+  // Handle UUID - existing named version
+  if (parsed.type === 'uuid') {
+    const version = await persistenceProvider.getVersionById(parsed.uuid);
+    if (!version || version.doc_id !== docGuid) {
+      return null;
+    }
+    return {
+      clockStart: version.clock_start,
+      clockEnd: version.clock_end,
+      isNamed: true,
+      id: version.id,
+    };
+  }
+
+  // Handle auto/subversion/clock - need to look up in timeline
+  const timeline = await versionHistory.getVersionTimeline(persistenceProvider, docGuid, {
+    includeSubversions: true, // Need subversions to find subversion-X IDs
+  });
+
+  // Search all versions and their subversions
+  for (const version of timeline.versions) {
+    // Check if this version matches
+    if (version.id === versionId || version.clockEnd === parsed.clock) {
+      return {
+        clockStart: version.clockStart,
+        clockEnd: version.clockEnd,
+        isNamed: version.isNamed || false,
+        id: version.isNamed ? version.id : undefined,
+      };
+    }
+
+    // Check subversions if present
+    if (version.subversions) {
+      for (const subversion of version.subversions) {
+        if (subversion.id === versionId || subversion.clockEnd === parsed.clock) {
+          return {
+            clockStart: subversion.clockStart,
+            clockEnd: subversion.clockEnd,
+            isNamed: false,
+          };
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 function formatVersion(v) {
@@ -35,21 +122,28 @@ function formatVersion(v) {
 const name = 'set_document_version_name';
 
 const description = `Manage named document versions with three operations:
-- CREATE: Name current state (no versionId)
-- UPDATE: Rename existing (versionId + name)
-- DELETE: Remove name (versionId + name: null)
+- CREATE: Name current or historical version
+- UPDATE: Rename existing named version
+- DELETE: Remove name from version (versionId + name: null)
 
-⚠️ To delete a named version, pass name: null with versionId.
+Use versionId from list_document_versions (UUID, auto-X, or subversion-X).
+Omit versionId to name the current state.
 
 Examples:
 
-// Create
+// Name current state
 await set_document_version_name({ docGuid: "abc-123", name: "Draft 1" });
 
-// Update
+// Name historical auto-version
+await set_document_version_name({ docGuid: "abc-123", versionId: "auto-12", name: "Before Refactor" });
+
+// Name subversion
+await set_document_version_name({ docGuid: "abc-123", versionId: "subversion-28", name: "Checkpoint" });
+
+// Rename existing named version
 await set_document_version_name({ docGuid: "abc-123", versionId: "uuid", name: "Final" });
 
-// Delete (set name to null)
+// Delete named version
 await set_document_version_name({ docGuid: "abc-123", versionId: "uuid", name: null });
 
 Requires editor or owner role. Document history is always preserved.`;
@@ -70,8 +164,7 @@ const inputSchema = {
     },
     versionId: {
       type: 'string',
-      format: 'uuid',
-      description: 'UUID of version to modify (optional)',
+      description: 'Version ID from list_document_versions (UUID, auto-X, or subversion-X) - optional',
     },
   },
   required: ['docGuid', 'name'],
@@ -100,33 +193,57 @@ async function handler(args, agentToken) {
     throw new Error('Permission denied: viewers cannot manage document versions');
   }
 
-  // MODIFY existing version (update or delete)
+  // MODIFY or NAME existing version (with versionId)
   if (versionId) {
-    if (!isUUID(versionId)) {
-      throw new Error('Cannot modify auto-generated versions. Only named versions can be renamed or deleted');
-    }
-
-    const version = await persistenceProvider.getVersionById(versionId);
-    if (!version || version.doc_id !== docGuid) {
+    // Look up the version (supports UUID, auto-X, subversion-X, clock)
+    const version = await lookupVersionById(docGuid, versionId, persistenceProvider);
+    if (!version) {
       throw new Error('Version not found');
     }
 
-    if (name === null) {
-      await persistenceProvider.deleteNamedVersion(versionId);
-      return { success: true, deleted: true, message: 'Named version removed from timeline' };
-    }
+    // Handle different operations based on version type and name value
+    if (version.isNamed && version.id) {
+      // This is an already-named version - UPDATE or DELETE only
+      if (name === null) {
+        // DELETE: Remove the named version
+        await persistenceProvider.deleteNamedVersion(version.id);
+        return { success: true, deleted: true, message: 'Named version removed from timeline' };
+      }
 
-    const trimmedName = validateName(name);
-    const updated = await persistenceProvider.updateVersionName(versionId, trimmedName);
-    return {
-      success: true,
-      updated: true,
-      version: formatVersion(updated),
-      message: `Version renamed to "${trimmedName}"`,
-    };
+      // UPDATE: Rename the version
+      const trimmedName = validateName(name);
+      const updated = await persistenceProvider.updateVersionName(version.id, trimmedName);
+      return {
+        success: true,
+        updated: true,
+        version: formatVersion(updated),
+        message: `Version renamed to "${trimmedName}"`,
+      };
+    } else {
+      // This is an auto-version or subversion - CREATE a named version from it
+      if (name === null) {
+        throw new Error('Cannot delete unnamed version. This version does not have a name to remove');
+      }
+
+      const trimmedName = validateName(name);
+      const created = await persistenceProvider.createNamedVersion(
+        docGuid,
+        version.clockStart,
+        version.clockEnd,
+        trimmedName,
+        userId
+      );
+
+      return {
+        success: true,
+        created: true,
+        version: formatVersion(created),
+        message: `Historical version "${trimmedName}" created successfully`,
+      };
+    }
   }
 
-  // CREATE new named version from current state
+  // CREATE new named version from current state (no versionId)
   if (name === null) {
     throw new Error('Cannot create unnamed version. Provide versionId to remove a version name, or provide a name to create a new version');
   }
