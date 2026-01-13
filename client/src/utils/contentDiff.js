@@ -12,7 +12,7 @@
  */
 
 import * as Y from 'yjs';
-import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
+import { yXmlFragmentToProseMirrorRootNode } from '@tiptap/y-tiptap';
 import { recreateTransform } from '@manuscripts/prosemirror-recreate-steps';
 import { ChangeSet } from 'prosemirror-changeset';
 import { Decoration, DecorationSet } from 'prosemirror-view';

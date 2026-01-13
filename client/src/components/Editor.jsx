@@ -1,7 +1,6 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
-import Underline from '@tiptap/extension-underline';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
@@ -80,12 +79,11 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       StarterKit.configure({
         undoRedo: false, // Disable built-in undo/redo, Yjs handles it
         link: false, // Disable built-in Link, we configure it separately below
-        underline: false // Disable built-in Underline, we configure it separately below
+        // underline: included from StarterKit (no custom config needed)
       }),
       Link.configure({
         openOnClick: false, // Prevent default link navigation in editor
       }),
-      Underline,
       Collaboration.configure({
         document: ydoc,
         field: 'default' // Field name in Yjs document for ProseMirror content

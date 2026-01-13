@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core';
-import { yCursorPlugin } from 'y-prosemirror';
+import { yCursorPlugin } from '@tiptap/y-tiptap';
 import { colorToRgba } from '../utils/colorUtils';
 
 /**

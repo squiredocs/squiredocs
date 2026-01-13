@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CollaborationCursorWithSelection } from '../CollaborationCursorWithSelection';
 
-// Mock y-prosemirror
-vi.mock('y-prosemirror', () => ({
+// Mock @tiptap/y-tiptap
+vi.mock('@tiptap/y-tiptap', () => ({
   yCursorPlugin: vi.fn((awareness, options) => ({
     key: 'yCursorPlugin',
     awareness,
@@ -114,7 +114,7 @@ describe('CollaborationCursorWithSelection', () => {
     });
 
     it('creates yCursorPlugin with correct options when provider exists', async () => {
-      const { yCursorPlugin } = await import('y-prosemirror');
+      const { yCursorPlugin } = await import('@tiptap/y-tiptap');
       
       const customRender = vi.fn();
       const customSelectionRender = vi.fn();

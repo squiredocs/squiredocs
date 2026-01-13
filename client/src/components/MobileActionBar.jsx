@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
-import { yUndoPluginKey } from 'y-prosemirror';
+import { yUndoPluginKey } from '@tiptap/y-tiptap';
 import './MobileActionBar.css';
 
 export default function MobileActionBar({ editor }) {

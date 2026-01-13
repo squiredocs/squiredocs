@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as Y from 'yjs';
-import { ySyncPluginKey, relativePositionToAbsolutePosition } from 'y-prosemirror';
+import { ySyncPluginKey, relativePositionToAbsolutePosition } from '@tiptap/y-tiptap';
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';

@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import MobileActionBar from '../MobileActionBar';
 
-// Mock y-prosemirror with configurable state
+// Mock @tiptap/y-tiptap with configurable state
 const mockUndoManager = {
   undoStack: [],
   redoStack: [],
 };
 
-vi.mock('y-prosemirror', () => ({
+vi.mock('@tiptap/y-tiptap', () => ({
   yUndoPluginKey: {
     getState: vi.fn(() => ({
       undoManager: mockUndoManager,
