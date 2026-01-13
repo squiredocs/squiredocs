@@ -462,12 +462,16 @@ describe('set_document_version_name', () => {
         ],
       });
 
-      // Mock getUpdatesForVersion to return subversions
-      versionHistory.getUpdatesForVersion.mockResolvedValue([
-        { id: 'subversion-16', clockStart: 15, clockEnd: 16 },
-        { id: 'subversion-18', clockStart: 17, clockEnd: 18 },
-        { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
-      ]);
+      // Mock getUpdatesForVersion to return object with subversions array
+      versionHistory.getUpdatesForVersion.mockResolvedValue({
+        subversions: [
+          { id: 'subversion-16', clockStart: 15, clockEnd: 16 },
+          { id: 'subversion-18', clockStart: 17, clockEnd: 18 },
+          { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
+        ],
+        total: 3,
+        hasMore: false,
+      });
 
       mockPersistence.createNamedVersion.mockResolvedValue({
         id: '550e8400-e29b-41d4-a716-446655440000',
@@ -492,7 +496,8 @@ describe('set_document_version_name', () => {
         mockPersistence,
         'doc-123',
         15,
-        20
+        20,
+        1000
       );
       expect(mockPersistence.createNamedVersion).toHaveBeenCalledWith(
         'doc-123',
@@ -538,9 +543,13 @@ describe('set_document_version_name', () => {
     });
 
     test('throws error for subversion not found', async () => {
-      versionHistory.getUpdatesForVersion.mockResolvedValue([
-        { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
-      ]);
+      versionHistory.getUpdatesForVersion.mockResolvedValue({
+        subversions: [
+          { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
+        ],
+        total: 1,
+        hasMore: false,
+      });
 
       await expect(
         tool.handler({ docGuid: 'doc-123', versionId: 'subversion-18', name: 'Test' }, mockAgentToken)

@@ -84,15 +84,16 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
     for (const version of timeline.versions) {
       if (parsed.clock >= version.clockStart && parsed.clock <= version.clockEnd) {
         // Populate subversions for this version
-        const subversions = await versionHistory.getUpdatesForVersion(
+        const result = await versionHistory.getUpdatesForVersion(
           persistenceProvider,
           docGuid,
           version.clockStart,
-          version.clockEnd
+          version.clockEnd,
+          1000 // High limit to ensure we get all subversions
         );
 
-        // Search for the matching subversion
-        for (const subversion of subversions) {
+        // Search for the matching subversion in the returned array
+        for (const subversion of result.subversions) {
           if (subversion.id === versionId || subversion.clockEnd === parsed.clock) {
             return {
               clockStart: subversion.clockStart,
