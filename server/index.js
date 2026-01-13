@@ -742,8 +742,8 @@ app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this document' });
     }
 
-    const updates = await versionHistory.getUpdatesForVersion(persistenceProvider, docId, clockStart, clockEnd);
-    res.json({ updates });
+    const result = await versionHistory.getUpdatesForVersion(persistenceProvider, docId, clockStart, clockEnd);
+    res.json({ updates: result.subversions });
   } catch (error) {
     console.error('Error getting version updates:', error);
     res.status(500).json({ error: 'Failed to get version updates' });
