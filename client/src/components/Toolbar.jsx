@@ -263,60 +263,6 @@ export default function Toolbar({ editor }) {
         </DropdownWrapper>
       </div>
 
-      {editor.isActive('table') && (
-        <div className="toolbar-group toolbar-table-controls">
-          <button
-            onClick={() => editor.chain().focus().addColumnBefore().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Add column before"
-          >
-            ← Col
-          </button>
-          <button
-            onClick={() => editor.chain().focus().addColumnAfter().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Add column after"
-          >
-            Col →
-          </button>
-          <button
-            onClick={() => editor.chain().focus().deleteColumn().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Delete column"
-          >
-            ✕ Col
-          </button>
-          <button
-            onClick={() => editor.chain().focus().addRowBefore().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Add row before"
-          >
-            ↑ Row
-          </button>
-          <button
-            onClick={() => editor.chain().focus().addRowAfter().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Add row after"
-          >
-            Row ↓
-          </button>
-          <button
-            onClick={() => editor.chain().focus().deleteRow().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Delete row"
-          >
-            ✕ Row
-          </button>
-          <button
-            onClick={() => editor.chain().focus().deleteTable().run()}
-            className="toolbar-button toolbar-button-small"
-            title="Delete table"
-          >
-            ✕ Table
-          </button>
-        </div>
-      )}
-
       {linkPreview && (
         <LinkPreview
           href={linkPreview.href}

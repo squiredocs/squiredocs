@@ -1,0 +1,50 @@
+.table-context-menu {
+  position: fixed;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.1);
+  min-width: 200px;
+  z-index: 1000;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
+.table-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #202124;
+  text-align: left;
+  font-size: 14px;
+  transition: background-color 0.1s ease;
+}
+
+.table-context-menu-item:hover {
+  background-color: #f1f3f4;
+}
+
+.table-context-menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #5f6368;
+}
+
+.table-context-menu-item.danger {
+  color: #d93025;
+}
+
+.table-context-menu-item.danger svg {
+  color: #d93025;
+}
+
+.table-context-menu-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 8px 0;
+}

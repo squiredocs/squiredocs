@@ -12,6 +12,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
+import TableContextMenu from './TableContextMenu';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
@@ -50,6 +51,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   const labelsVisibleRef = useRef(false); // Track if labels should currently be visible
   const mutationObserverRef = useRef(null); // Track MutationObserver
   const [linkPreview, setLinkPreview] = useState(null);
+  const [tableContextMenu, setTableContextMenu] = useState(null);
   const isMobile = useMobile();
 
   // Show all cursor labels, then hide after 2 seconds
@@ -395,12 +397,25 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
     setLinkPreview(null);
   }, [linkPreview]);
 
+  // Handle right-click on tables to show context menu
+  const handleContextMenu = useCallback((event) => {
+    // Check if right-clicked inside a table
+    const tableElement = event.target.closest('table');
+    if (tableElement && editor?.isActive('table')) {
+      event.preventDefault();
+      setTableContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }
+  }, [editor]);
+
   if (!editor) {
     return null;
   }
 
   return (
-    <div className="editor-common-container editor-container" ref={containerRef} onClick={handleClick}>
+    <div className="editor-common-container editor-container" ref={containerRef} onClick={handleClick} onContextMenu={handleContextMenu}>
       <EditorContent editor={editor} className="editor-common-content editor-content" />
       {linkPreview && (
         <LinkPreview
@@ -413,6 +428,13 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
           onRemove={handleRemoveLink}
           onOpen={handleOpenLink}
           onClose={() => setLinkPreview(null)}
+        />
+      )}
+      {tableContextMenu && (
+        <TableContextMenu
+          editor={editor}
+          position={tableContextMenu}
+          onClose={() => setTableContextMenu(null)}
         />
       )}
     </div>
