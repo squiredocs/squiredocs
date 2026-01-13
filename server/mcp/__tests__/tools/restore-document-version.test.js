@@ -24,6 +24,28 @@ describe('restore_document_version tool', () => {
   const pendingOperations = [];
   let originalGetOrCreateSession;
 
+  // Helper to wait for persistence and verify content exists
+  async function waitForPersistence(docGuid, expectedMinUpdates = 1) {
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
+
+    // Wait with multiple retries for persistence to complete
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const updates = await persistenceProvider.getUpdatesWithUsers(docGuid);
+      if (updates.length >= expectedMinUpdates) {
+        return updates;
+      }
+    }
+
+    // Final check
+    const updates = await persistenceProvider.getUpdatesWithUsers(docGuid);
+    if (updates.length < expectedMinUpdates) {
+      throw new Error(`Expected at least ${expectedMinUpdates} updates, got ${updates.length}`);
+    }
+    return updates;
+  }
+
   beforeAll(async () => {
     // Set up y-websocket persistence
     const ORIGIN_DB_LOAD = 'db-load';
@@ -135,6 +157,11 @@ describe('restore_document_version tool', () => {
       );
       testDocGuid = result.docGuid;
 
+      // Wait for createDocument's title update to persist
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await Promise.all(pendingOperations);
+      pendingOperations.length = 0;
+
       // Add initial content using documentService for proper persistence
       await documentService.updateDocument(
         testDocGuid,
@@ -149,18 +176,8 @@ describe('restore_document_version tool', () => {
         testUserId
       );
 
-      // Wait for all updates to be persisted
-      await Promise.all(pendingOperations);
-      pendingOperations.length = 0;
-
-      // Add a delay to ensure database writes complete
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Force a read from persistence to ensure updates are stored
-      await persistenceProvider.getYDoc(testDocGuid);
-
-      // Save the old clock
-      const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
+      // Wait for persistence and verify content exists
+      const updates = await waitForPersistence(testDocGuid, 1);
       oldClock = updates[updates.length - 1].clock;
 
       // Make a second edit to create a new version
@@ -177,18 +194,8 @@ describe('restore_document_version tool', () => {
         testUserId
       );
 
-      // Wait for all updates to be persisted
-      await Promise.all(pendingOperations);
-      pendingOperations.length = 0;
-
-      // Add a delay to ensure database writes complete
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Force a read from persistence to ensure updates are stored
-      await persistenceProvider.getYDoc(testDocGuid);
-
-      // Save the new clock
-      const updatedUpdates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
+      // Wait for persistence and verify we have at least 2 updates
+      const updatedUpdates = await waitForPersistence(testDocGuid, 2);
       newClock = updatedUpdates[updatedUpdates.length - 1].clock;
     });
 

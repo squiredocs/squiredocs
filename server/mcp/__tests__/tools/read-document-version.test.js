@@ -22,6 +22,28 @@ describe('read_document_version tool', () => {
   let testDocGuid;
   const pendingOperations = [];
 
+  // Helper to wait for persistence and verify content exists
+  async function waitForPersistence(docGuid, expectedMinUpdates = 1) {
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
+
+    // Wait with multiple retries for persistence to complete
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const updates = await persistenceProvider.getUpdatesWithUsers(docGuid);
+      if (updates.length >= expectedMinUpdates) {
+        return updates;
+      }
+    }
+
+    // Final check
+    const updates = await persistenceProvider.getUpdatesWithUsers(docGuid);
+    if (updates.length < expectedMinUpdates) {
+      throw new Error(`Expected at least ${expectedMinUpdates} updates, got ${updates.length}`);
+    }
+    return updates;
+  }
+
   beforeAll(async () => {
     // Set up y-websocket persistence
     const ORIGIN_DB_LOAD = 'db-load';
@@ -120,6 +142,11 @@ describe('read_document_version tool', () => {
       );
       testDocGuid = result.docGuid;
 
+      // Wait for createDocument's title update to persist
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await Promise.all(pendingOperations);
+      pendingOperations.length = 0;
+
       // Add some content to the document to create a version using documentService
       await documentService.updateDocument(
         testDocGuid,
@@ -134,15 +161,8 @@ describe('read_document_version tool', () => {
         testUserId
       );
 
-      // Wait for all updates to be persisted
-      await Promise.all(pendingOperations);
-      pendingOperations.length = 0;
-
-      // Add a delay to ensure database writes complete
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Force a read from persistence to ensure updates are stored
-      await persistenceProvider.getYDoc(testDocGuid);
+      // Wait for persistence and verify content exists
+      await waitForPersistence(testDocGuid, 1);
     });
 
     afterEach(async () => {
