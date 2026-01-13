@@ -1,7 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Link from '@tiptap/extension-link';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
@@ -78,11 +76,11 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   const extensions = useMemo(() => {
     const baseExtensions = [
       StarterKit.configure({
-        history: false // Disable built-in history, Yjs handles it
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
+        undoRedo: false, // Disable built-in undo/redo, Yjs handles it
+        link: {
+          openOnClick: false, // Prevent default link navigation in editor
+        },
+        // underline uses defaults
       }),
       Collaboration.configure({
         document: ydoc,
@@ -107,6 +105,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   const editor = useEditor({
     extensions,
     editable,
+    shouldRerenderOnTransaction: true, // Enable rerendering for toolbar active states
     // Don't set initial content - let Yjs Collaboration extension handle it
     // The Collaboration extension will sync content from Yjs
     editorProps: {
