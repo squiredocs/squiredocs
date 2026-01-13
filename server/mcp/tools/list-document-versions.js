@@ -22,21 +22,19 @@ function init(persistence) {
  */
 const name = 'list_document_versions';
 
-const description = `List version history timeline for a document with optional nested subversions,
-rich metadata, and time-based filtering.
+const description = `List version history timeline for a document with optional nested subversions
+and time-based filtering.
 
 ═══════════════════════════════════════════════════════════════════════════
 OVERVIEW
 ═══════════════════════════════════════════════════════════════════════════
 
-Get a timeline of document versions showing when edits were made, by whom, and
-with detailed metadata about size and changes. Versions are automatically grouped
-by time gaps between edits (5-minute threshold), and users can create named
-checkpoints.
+Get a timeline of document versions showing when edits were made and by whom.
+Versions are automatically grouped by time gaps between edits (5-minute threshold),
+and users can create named checkpoints.
 
-NEW FEATURES:
+FEATURES:
 - Nested subversions: Drill down to see individual edit groups (10-second threshold)
-- Rich metadata: Document size, edit counts, character deltas, and duration
 - Time filtering: Filter versions by date/time range
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -72,13 +70,10 @@ RETURNS
   - authors: Array of author objects with id, name, email, picture, color, isAgent
   - isNamed: Boolean indicating if this is a named checkpoint
   - isCurrent: Boolean indicating if this is the current version
-  - editCount: Number of meaningful edits (text changes)
-  - duration: Time span of editing session in milliseconds
-  - characterCount: Total characters at this version
-  - wordCount: Total words at this version
-  - blockCount: Total blocks (paragraphs, headings, lists)
-  - charactersDelta: Characters added/removed since previous version
-  - subversions: (if includeSubversions: true) Array of edit groups with same metadata
+  - subversions: (if includeSubversions: true) Array of edit groups with:
+    - id, clockStart, clockEnd, timestamp, authors (same as versions)
+    - updateCount: Number of Yjs updates in this subversion
+    - previousClock: Baseline clock for diffing
 
 - totalEdits: Total number of meaningful edits in document history
 - pagination: Pagination metadata with total, limit, offset, hasMore

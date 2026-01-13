@@ -300,9 +300,10 @@ function extractMetadata(doc, previousText = '') {
  * @param {string} docGuid - Document GUID
  * @param {Array} versions - Array of version objects with clockStart/clockEnd (in any order)
  * @param {Array} updates - Array of meaningful updates for duration/editCount calculation
+ * @param {boolean} includeDocumentMetadata - Whether to include character/word/block counts (expensive)
  * @returns {Promise<Array>} Versions enriched with metadata (in same order as input)
  */
-async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates) {
+async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates, includeDocumentMetadata = true) {
   if (versions.length === 0) return versions;
 
   try {
@@ -321,13 +322,22 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
     for (const version of sortedVersions) {
       try {
         const startTime = Date.now();
-        // Get document state at this version
-        const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
-        const reconstructTime = Date.now() - startTime;
+        let metadata = {};
+        let reconstructTime = 0;
+        let metadataTime = 0;
 
-        const metadataStart = Date.now();
-        const metadata = extractMetadata(doc, previousText);
-        const metadataTime = Date.now() - metadataStart;
+        // Only reconstruct document if we need document metadata (expensive)
+        if (includeDocumentMetadata) {
+          const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
+          reconstructTime = Date.now() - startTime;
+
+          const metadataStart = Date.now();
+          metadata = extractMetadata(doc, previousText);
+          metadataTime = Date.now() - metadataStart;
+
+          // Update previousText for next iteration's delta calculation
+          previousText = extractTextFromDoc(doc);
+        }
 
         // Calculate editCount - number of meaningful updates in this version's range
         const editCount = updates.filter(
@@ -348,9 +358,6 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
           duration,
           ...metadata,
         });
-
-        // Update previousText for next iteration's delta calculation
-        previousText = extractTextFromDoc(doc);
 
         const totalTime = Date.now() - startTime;
         if (totalTime > 100) {
@@ -462,11 +469,8 @@ async function getVersionTimeline(persistence, docGuid) {
   console.log('[GetVersionTimeline] Final merged versions:',
     versions.map(v => `${v.name || 'auto'}(${v.clockStart}-${v.clockEnd})`));
 
-  // Enrich with metadata
-  const enrichedVersions = await enrichVersionsWithMetadata(persistence, docGuid, versions, updates);
-
   // Format versions for API response
-  const formattedVersions = enrichedVersions.map(v => ({
+  const formattedVersions = versions.map(v => ({
     id: v.id,
     name: v.name || null,
     clockStart: v.clockStart,
@@ -476,12 +480,6 @@ async function getVersionTimeline(persistence, docGuid) {
     authors: v.authors || [],
     isNamed: v.isNamed || false,
     isCurrent: v.isCurrent || false,
-    editCount: v.editCount,
-    duration: v.duration,
-    characterCount: v.characterCount,
-    wordCount: v.wordCount,
-    blockCount: v.blockCount,
-    charactersDelta: v.charactersDelta,
   }));
 
   // Client handles grouping by month for proper local timezone handling
@@ -788,24 +786,8 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     }
   }
 
-  // Enrich subversions with metadata
-  const enrichedSubVersions = await enrichVersionsWithMetadata(
-    persistence,
-    docGuid,
-    filteredSubVersions,
-    meaningfulUpdates.map(u => ({
-      clock: u.clock,
-      createdAt: u.createdAt,
-      userId: u.userId,
-      userName: u.userName,
-      userEmail: u.userEmail,
-      userPicture: u.userPicture,
-      agentName: u.agentName,
-    }))
-  );
-
   // Map to response format and reverse to show most recent first
-  return enrichedSubVersions.map(sv => ({
+  return filteredSubVersions.map(sv => ({
     id: `subversion-${sv.clockEnd}`,
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
@@ -814,12 +796,6 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd) 
     formattedTimestamp: formatTimestamp(sv.timestamp),
     authors: sv.authors || [],
     updateCount: sv.clockEnd - sv.clockStart + 1,
-    editCount: sv.editCount,
-    duration: sv.duration,
-    characterCount: sv.characterCount,
-    wordCount: sv.wordCount,
-    blockCount: sv.blockCount,
-    charactersDelta: sv.charactersDelta,
   })).reverse();
 }
 

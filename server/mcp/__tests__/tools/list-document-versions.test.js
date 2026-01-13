@@ -230,7 +230,7 @@ describe('list_document_versions tool', () => {
       expect(result.pagination.limit).toBe(1);
     });
 
-    test('includes metadata fields in versions', async () => {
+    test('returns basic version fields without expensive metadata', async () => {
       const agentToken = {
         userId: testUserId,
         scopes: ['documents:read'],
@@ -241,21 +241,21 @@ describe('list_document_versions tool', () => {
         agentToken
       );
 
-      // Check that versions include new metadata fields
+      // Check that versions have basic fields
       if (result.versions.length > 0) {
         const version = result.versions[0];
-        expect(version).toHaveProperty('editCount');
-        expect(version).toHaveProperty('duration');
-        expect(version).toHaveProperty('characterCount');
-        expect(version).toHaveProperty('wordCount');
-        expect(version).toHaveProperty('blockCount');
-        expect(version).toHaveProperty('charactersDelta');
-        expect(typeof version.editCount).toBe('number');
-        expect(typeof version.duration).toBe('number');
-        expect(typeof version.characterCount).toBe('number');
-        expect(typeof version.wordCount).toBe('number');
-        expect(typeof version.blockCount).toBe('number');
-        expect(typeof version.charactersDelta).toBe('number');
+        expect(version).toHaveProperty('id');
+        expect(version).toHaveProperty('clockStart');
+        expect(version).toHaveProperty('clockEnd');
+        expect(version).toHaveProperty('timestamp');
+        expect(version).toHaveProperty('authors');
+        // Should NOT have expensive metadata fields
+        expect(version).not.toHaveProperty('editCount');
+        expect(version).not.toHaveProperty('duration');
+        expect(version).not.toHaveProperty('characterCount');
+        expect(version).not.toHaveProperty('wordCount');
+        expect(version).not.toHaveProperty('blockCount');
+        expect(version).not.toHaveProperty('charactersDelta');
       }
     });
 
@@ -300,15 +300,17 @@ describe('list_document_versions tool', () => {
         expect(resultWith.versions[0]).toHaveProperty('subversions');
         expect(Array.isArray(resultWith.versions[0].subversions)).toBe(true);
 
-        // Check subversion metadata if subversions exist
+        // Check subversion fields if subversions exist
         if (resultWith.versions[0].subversions.length > 0) {
           const subversion = resultWith.versions[0].subversions[0];
-          expect(subversion).toHaveProperty('editCount');
-          expect(subversion).toHaveProperty('duration');
-          expect(subversion).toHaveProperty('characterCount');
-          expect(subversion).toHaveProperty('wordCount');
-          expect(subversion).toHaveProperty('blockCount');
-          expect(subversion).toHaveProperty('charactersDelta');
+          // Subversions should have basic fields
+          expect(subversion).toHaveProperty('id');
+          expect(subversion).toHaveProperty('clockStart');
+          expect(subversion).toHaveProperty('clockEnd');
+          expect(subversion).toHaveProperty('timestamp');
+          expect(subversion).toHaveProperty('authors');
+          expect(subversion).toHaveProperty('updateCount');
+          expect(subversion).toHaveProperty('previousClock');
         }
       }
     });

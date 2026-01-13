@@ -217,12 +217,6 @@ Restore is **non-destructive**: restoring a previous version creates a new versi
 
 ### Enhanced Features
 
-**Rich Metadata**: Every version includes detailed metrics:
-- Character count, word count, and block count at that version
-- Characters added/removed (delta) since previous version
-- Number of meaningful edits and editing session duration
-- Available for both versions and sub-versions
-
 **Nested Sub-versions**: Optionally drill down into individual edit groups within a version using the `includeSubversions` parameter. Sub-versions use a 10-second grouping threshold for granular change tracking.
 
 **Time-based Filtering**: Filter versions by date/time range using ISO 8601 timestamps:
@@ -288,7 +282,7 @@ This editor supports AI agents via the [Model Context Protocol (MCP)](https://mo
   - Real-time sync to all users
 
 **History:**
-- `list_document_versions` - List version history with optional nested subversions, rich metadata, and time-based filtering
+- `list_document_versions` - List version history with optional nested subversions and time-based filtering
 - `read_document_version` - Read document at specific version
 - `set_document_version_name` - Create, rename, or delete named versions
 - `restore_document_version` - Restore to previous version
