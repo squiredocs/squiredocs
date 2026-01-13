@@ -393,6 +393,8 @@ Table Cell Attributes:
   - colspan: number (merge cells horizontally)
   - rowspan: number (merge cells vertically)
   - colwidth: number[] (column widths in pixels)
+    Note: colwidth must be an array: [200] for single column, [100, 150, 200] for multi-column cells
+    Example: cell.setAttribute('colwidth', [150]);
 
 Text Marks (formatting):
   - bold, italic, underline, strike, code
@@ -812,6 +814,54 @@ await modify({
       });
       table.insert(1, [dataRow]);
 
+      doc.insert(doc.length, [table]);
+    }
+  \`
+});
+
+// Example 7d: Table with custom column widths using colwidth attribute
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+
+      // First cell: 150px width
+      const td1 = new Y.XmlElement('tableCell');
+      td1.setAttribute('colspan', 1);
+      td1.setAttribute('rowspan', 1);
+      td1.setAttribute('colwidth', [150]);  // Array with single width
+      const p1 = new Y.XmlElement('paragraph');
+      const t1 = new Y.XmlText();
+      t1.insert(0, 'Narrow');
+      p1.insert(0, [t1]);
+      td1.insert(0, [p1]);
+
+      // Second cell: 300px width
+      const td2 = new Y.XmlElement('tableCell');
+      td2.setAttribute('colspan', 1);
+      td2.setAttribute('rowspan', 1);
+      td2.setAttribute('colwidth', [300]);  // Array with single width
+      const p2 = new Y.XmlElement('paragraph');
+      const t2 = new Y.XmlText();
+      t2.insert(0, 'Wide');
+      p2.insert(0, [t2]);
+      td2.insert(0, [p2]);
+
+      // Third cell: spans 2 columns with different widths
+      const td3 = new Y.XmlElement('tableCell');
+      td3.setAttribute('colspan', 2);
+      td3.setAttribute('rowspan', 1);
+      td3.setAttribute('colwidth', [200, 250]);  // Array for each spanned column
+      const p3 = new Y.XmlElement('paragraph');
+      const t3 = new Y.XmlText();
+      t3.insert(0, 'Multi-column');
+      p3.insert(0, [t3]);
+      td3.insert(0, [p3]);
+
+      row.insert(0, [td1, td2, td3]);
+      table.insert(0, [row]);
       doc.insert(doc.length, [table]);
     }
   \`

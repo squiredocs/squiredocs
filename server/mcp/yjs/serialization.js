@@ -156,6 +156,11 @@ function toStructured(xmlFragment) {
         ...attrs, // Include all attributes generically
       };
 
+      // Void elements (self-closing, no content) - return without children
+      if (tagName === 'horizontalRule') {
+        return result;
+      }
+
       // For table cells - extract content from nested paragraphs
       if (['tableCell', 'tableHeader'].includes(tagName)) {
         if (children.length > 0) {
@@ -366,6 +371,12 @@ function toStructuredNode(node) {
   for (const child of node.toArray()) {
     const processed = toStructuredNode(child);
     if (processed) children.push(processed);
+  }
+
+  // Void elements (self-closing, no content) - filter out any children
+  if (tagName === 'horizontalRule') {
+    // horizontalRule should have no children, even if TipTap adds empty text nodes
+    return result;
   }
 
   // Simplify content for table cells - extract from nested paragraphs

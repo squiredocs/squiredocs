@@ -298,5 +298,74 @@ describe('Serialization', () => {
         content: 'Wide cell'
       });
     });
+
+    it('should serialize table cells with multiple column widths', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.get('default', Y.XmlFragment);
+
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+
+      // Cell spanning multiple columns with different widths
+      const cell = new Y.XmlElement('tableCell');
+      cell.setAttribute('colspan', 3);
+      cell.setAttribute('rowspan', 1);
+      cell.setAttribute('colwidth', [100, 150, 200]); // Different width for each spanned column
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'Multi-column cell');
+      p.insert(0, [t]);
+      cell.insert(0, [p]);
+
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+
+      const result = toStructuredNode(table);
+
+      expect(result.children[0].children[0]).toMatchObject({
+        type: 'tableCell',
+        colspan: 3,
+        rowspan: 1,
+        colwidth: [100, 150, 200],
+        content: 'Multi-column cell'
+      });
+    });
+  });
+
+  describe('horizontalRule serialization', () => {
+    it('should serialize horizontalRule without children', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.get('default', Y.XmlFragment);
+
+      const hr = new Y.XmlElement('horizontalRule');
+      fragment.insert(0, [hr]);
+
+      const result = toStructuredNode(hr);
+
+      expect(result).toEqual({
+        type: 'horizontalRule'
+      });
+      expect(result.children).toBeUndefined();
+    });
+
+    it('should serialize horizontalRule ignoring empty text children', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.get('default', Y.XmlFragment);
+
+      const hr = new Y.XmlElement('horizontalRule');
+      // Simulate what TipTap might do - add an empty text node
+      const emptyText = new Y.XmlText();
+      hr.insert(0, [emptyText]);
+      fragment.insert(0, [hr]);
+
+      const result = toStructuredNode(hr);
+
+      // Should filter out empty text children for void elements
+      expect(result).toEqual({
+        type: 'horizontalRule'
+      });
+      expect(result.children).toBeUndefined();
+    });
   });
 });
