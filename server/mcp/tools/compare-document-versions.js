@@ -44,7 +44,7 @@ Use cases:
 SCRIPT ENVIRONMENT
 ═══════════════════════════════════════════════════════════════════════════
 
-Your script receives two Y.XmlFragment objects (read-only):
+Your script receives two Y.XmlFragment objects (ephemeral snapshots):
 - doc1: Document at versionId1
 - doc2: Document at versionId2
 
@@ -56,7 +56,8 @@ Script structure:
     return { ... };
   }
 
-READ-ONLY: You cannot modify the documents. This is purely for analysis.
+Note: Documents are temporary snapshots loaded from version history.
+Any modifications won't persist (but there's no need to modify for comparison).
 
 ═══════════════════════════════════════════════════════════════════════════
 HELPER FUNCTIONS

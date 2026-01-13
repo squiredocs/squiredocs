@@ -239,7 +239,7 @@ export default function compare(doc1, doc2) {
 ```
 
 **Key Features:**
-- **Read-only environment**: Cannot modify documents, purely for analysis
+- **Ephemeral snapshots**: Documents are temporary snapshots from version history
 - **Custom comparison logic**: Extract exactly the information needed
 - **Built-in helpers**: Text extraction, XPath queries, link extraction, word/character counts
 - **Flexible output**: Return any JSON-serializable data structure

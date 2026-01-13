@@ -168,11 +168,11 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
 }
 
 /**
- * Executes a TypeScript comparison script in read-only mode
+ * Executes a TypeScript comparison script
  *
  * @param {string} tsScript - TypeScript source code
- * @param {Y.XmlFragment} doc1 - First document version
- * @param {Y.XmlFragment} doc2 - Second document version
+ * @param {Y.XmlFragment} doc1 - First document version (ephemeral snapshot)
+ * @param {Y.XmlFragment} doc2 - Second document version (ephemeral snapshot)
  * @param {object} options - Execution options
  * @param {number} [options.timeout=5000] - Execution timeout in milliseconds
  * @returns {Promise<any>} - Value returned by the script
@@ -184,15 +184,12 @@ async function executeComparisonScript(tsScript, doc1, doc2, options = {}) {
     // 1. Compile TypeScript to JavaScript
     const jsCode = compileTypeScript(tsScript);
 
-    // 2. Wrap documents in read-only proxies
-    const readOnlyDoc1 = makeReadOnly(doc1);
-    const readOnlyDoc2 = makeReadOnly(doc2);
-
-    // 3. Execute in sandbox with comparison-specific context
+    // 2. Execute in sandbox
+    // Note: documents are ephemeral snapshots - modifications won't persist
     const result = await executeComparisonSandboxed(
       jsCode,
-      readOnlyDoc1,
-      readOnlyDoc2,
+      doc1,
+      doc2,
       timeout
     );
 
@@ -203,55 +200,11 @@ async function executeComparisonScript(tsScript, doc1, doc2, options = {}) {
 }
 
 /**
- * Wrap Y.js object in read-only proxy to prevent modifications
- * @param {object} obj - Y.js object to wrap
- * @returns {Proxy} - Read-only proxy
- */
-function makeReadOnly(obj) {
-  return new Proxy(obj, {
-    set() {
-      throw new Error('Cannot modify documents in comparison mode');
-    },
-    get(target, prop) {
-      const value = target[prop];
-
-      // Intercept mutation methods
-      if (typeof value === 'function') {
-        const mutationMethods = ['insert', 'delete', 'push', 'unshift', 'setAttribute', 'format'];
-        if (mutationMethods.includes(prop)) {
-          return () => {
-            throw new Error('Cannot modify documents in comparison mode');
-          };
-        }
-
-        // Wrap read methods that return Y.js objects
-        const readMethods = ['get', 'toArray'];
-        if (readMethods.includes(prop)) {
-          return (...args) => {
-            const result = value.apply(target, args);
-            // Wrap returned objects recursively
-            if (result && typeof result === 'object') {
-              if (Array.isArray(result)) {
-                return result.map(item => makeReadOnly(item));
-              }
-              return makeReadOnly(result);
-            }
-            return result;
-          };
-        }
-      }
-
-      return value;
-    }
-  });
-}
-
-/**
  * Execute comparison script in sandboxed environment
- * Similar to executeSandboxed but simplified for read-only comparison
+ * Simplified version of executeSandboxed for comparing ephemeral document snapshots
  * @param {string} jsCode - Compiled JavaScript code
- * @param {Proxy} doc1 - Read-only wrapped first document
- * @param {Proxy} doc2 - Read-only wrapped second document
+ * @param {Y.XmlFragment} doc1 - First document snapshot
+ * @param {Y.XmlFragment} doc2 - Second document snapshot
  * @param {number} timeout - Execution timeout
  * @returns {any} - Script result
  */
@@ -365,5 +318,4 @@ module.exports = {
   executeSandboxed,
   wrapForTracking,
   OperationTracker,
-  makeReadOnly,
 };
