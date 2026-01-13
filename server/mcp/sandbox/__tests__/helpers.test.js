@@ -454,6 +454,120 @@ describe('Sandbox Helpers', () => {
         expect(fragment.get(1).nodeName).toBe('paragraph');
         expect(fragment.get(2).nodeName).toBe('paragraph');
       });
+
+      it('should create a blockquote', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'blockquote', content: 'To be or not to be...' }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const blockquote = fragment.get(0);
+        expect(blockquote.nodeName).toBe('blockquote');
+        // Blockquote contains a paragraph
+        expect(blockquote.get(0).nodeName).toBe('paragraph');
+        expect(helpers.getTextContent(blockquote)).toBe('To be or not to be...');
+      });
+
+      it('should create a blockquote with formatted content', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'blockquote', content: [
+            'Quote with ',
+            { text: 'emphasis', attrs: { italic: true } }
+          ]}
+        ]);
+
+        const blockquote = fragment.get(0);
+        const para = blockquote.get(0);
+        const text = helpers.findTextNode(para);
+        const delta = text.toDelta();
+
+        expect(delta.length).toBe(2);
+        expect(delta[1].attributes).toEqual({ italic: true });
+      });
+
+      it('should create a horizontal rule', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'horizontalRule' }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const hr = fragment.get(0);
+        expect(hr.nodeName).toBe('horizontalRule');
+      });
+
+      it('should create a table with headers and rows', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'table',
+            headers: ['Name', 'Age', 'City'],
+            rows: [
+              ['Alice', '30', 'NYC'],
+              ['Bob', '25', 'LA']
+            ]
+          }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const table = fragment.get(0);
+        expect(table.nodeName).toBe('table');
+        expect(table.length).toBe(3); // 1 header row + 2 data rows
+
+        // Check header row
+        const headerRow = table.get(0);
+        expect(headerRow.nodeName).toBe('tableRow');
+        expect(headerRow.length).toBe(3);
+        expect(headerRow.get(0).nodeName).toBe('tableHeader');
+        expect(helpers.getTextContent(headerRow.get(0))).toBe('Name');
+        expect(helpers.getTextContent(headerRow.get(1))).toBe('Age');
+        expect(helpers.getTextContent(headerRow.get(2))).toBe('City');
+
+        // Check data rows
+        const dataRow1 = table.get(1);
+        expect(dataRow1.nodeName).toBe('tableRow');
+        expect(dataRow1.get(0).nodeName).toBe('tableCell');
+        expect(helpers.getTextContent(dataRow1.get(0))).toBe('Alice');
+
+        const dataRow2 = table.get(2);
+        expect(helpers.getTextContent(dataRow2.get(0))).toBe('Bob');
+      });
+
+      it('should create a table without headers', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'table',
+            rows: [
+              ['Cell 1', 'Cell 2'],
+              ['Cell 3', 'Cell 4']
+            ]
+          }
+        ]);
+
+        const table = fragment.get(0);
+        expect(table.length).toBe(2); // 2 data rows only
+
+        // All cells should be tableCell, not tableHeader
+        const row1 = table.get(0);
+        expect(row1.get(0).nodeName).toBe('tableCell');
+        expect(row1.get(1).nodeName).toBe('tableCell');
+      });
+
+      it('should create a table with formatted cell content', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'table',
+            rows: [
+              [['Cell with ', { text: 'bold', attrs: { bold: true } }], 'Plain cell']
+            ]
+          }
+        ]);
+
+        const table = fragment.get(0);
+        const row = table.get(0);
+        const cell = row.get(0);
+        const para = cell.get(0);
+        const text = helpers.findTextNode(para);
+        const delta = text.toDelta();
+
+        expect(delta.length).toBe(2);
+        expect(delta[1].attributes).toEqual({ bold: true });
+      });
     });
 
     describe('formatted content', () => {
@@ -806,6 +920,26 @@ describe('Sandbox Helpers', () => {
       it('should throw for codeBlock with non-string content', () => {
         expect(() => helpers.appendBlocks(fragment, [{ type: 'codeBlock', content: ['array'] }]))
           .toThrow('codeBlock content must be a string');
+      });
+
+      it('should throw for blockquote without content', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'blockquote' }]))
+          .toThrow('blockquote requires content');
+      });
+
+      it('should throw for table without rows', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'table' }]))
+          .toThrow('table requires rows');
+      });
+
+      it('should throw for table with empty rows', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'table', rows: [] }]))
+          .toThrow('table requires rows array');
+      });
+
+      it('should throw for table with non-array row', () => {
+        expect(() => helpers.appendBlocks(fragment, [{ type: 'table', rows: ['not an array'] }]))
+          .toThrow('each table row must be an array');
       });
 
       it('should throw for invalid content segment', () => {

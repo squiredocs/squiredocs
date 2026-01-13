@@ -522,6 +522,69 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
+   * Create a blockquote element with content
+   */
+  function createBlockquote(content) {
+    const blockquote = new XmlElement('blockquote');
+    // Blockquote contains a paragraph with the content
+    const para = createParagraph(content);
+    blockquote.insert(0, [para]);
+    return blockquote;
+  }
+
+  /**
+   * Create a horizontal rule element
+   */
+  function createHorizontalRule() {
+    return new XmlElement('horizontalRule');
+  }
+
+  /**
+   * Create a table element with optional headers and rows
+   * @param {string[]} [headers] - Optional header cell contents
+   * @param {string[][]} rows - Array of row arrays, each containing cell contents
+   */
+  function createTable(headers, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('appendBlocks: table requires rows array');
+    }
+
+    const table = new XmlElement('table');
+    let tableRowCount = 0;
+
+    // Create header row if headers provided
+    if (headers && Array.isArray(headers) && headers.length > 0) {
+      const headerRow = new XmlElement('tableRow');
+      const headerCells = headers.map(headerContent => {
+        const th = new XmlElement('tableHeader');
+        const para = createParagraph(headerContent);
+        th.insert(0, [para]);
+        return th;
+      });
+      headerRow.insert(0, headerCells);
+      table.insert(tableRowCount++, [headerRow]);
+    }
+
+    // Create data rows
+    rows.forEach(rowData => {
+      if (!Array.isArray(rowData)) {
+        throw new Error('appendBlocks: each table row must be an array');
+      }
+      const row = new XmlElement('tableRow');
+      const cells = rowData.map(cellContent => {
+        const td = new XmlElement('tableCell');
+        const para = createParagraph(cellContent);
+        td.insert(0, [para]);
+        return td;
+      });
+      row.insert(0, cells);
+      table.insert(tableRowCount++, [row]);
+    });
+
+    return table;
+  }
+
+  /**
    * Create a block element from a block definition
    */
   function createBlock(blockDef) {
@@ -560,8 +623,23 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         }
         return createOrderedList(blockDef.items);
 
+      case 'blockquote':
+        if (blockDef.content === undefined) {
+          throw new Error('appendBlocks: blockquote requires content');
+        }
+        return createBlockquote(blockDef.content);
+
+      case 'horizontalRule':
+        return createHorizontalRule();
+
+      case 'table':
+        if (!blockDef.rows) {
+          throw new Error('appendBlocks: table requires rows');
+        }
+        return createTable(blockDef.headers, blockDef.rows);
+
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, blockquote, horizontalRule, table`);
     }
   }
 

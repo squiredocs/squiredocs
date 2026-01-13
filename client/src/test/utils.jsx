@@ -53,17 +53,30 @@ export function createMockEditor() {
       toggleItalic: vi.fn(() => ({ run: runFn })),
       toggleUnderline: vi.fn(() => ({ run: runFn })),
       toggleStrike: vi.fn(() => ({ run: runFn })),
+      toggleSubscript: vi.fn(() => ({ run: runFn })),
+      toggleSuperscript: vi.fn(() => ({ run: runFn })),
       toggleHeading: vi.fn(() => ({ run: runFn })),
       toggleBulletList: vi.fn(() => ({ run: runFn })),
       toggleOrderedList: vi.fn(() => ({ run: runFn })),
+      toggleBlockquote: vi.fn(() => ({ run: runFn })),
       toggleCode: vi.fn(() => ({ run: runFn })),
+      unsetAllMarks: vi.fn(() => ({ run: runFn })),
+      insertTable: vi.fn(() => ({ run: runFn })),
       run: runFn
     }))
   }));
-  
+
   return {
     chain: chainFn,
     isActive: vi.fn(() => false),
+    getAttributes: vi.fn(() => ({})),
+    state: {
+      selection: {
+        from: 0,
+        to: 0,
+        empty: true
+      }
+    },
     extensionManager: {
       extensions: []
     }

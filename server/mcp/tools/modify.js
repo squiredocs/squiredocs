@@ -197,10 +197,13 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
 
   Block types:
     { type: 'paragraph', content: string | FormattedContent }
-    { type: 'heading', level: 1-5, content: string | FormattedContent }
+    { type: 'heading', level: 1-6, content: string | FormattedContent }
     { type: 'bulletList', items: ListItem[] }
     { type: 'orderedList', items: ListItem[] }
     { type: 'codeBlock', content: string }
+    { type: 'blockquote', content: string | FormattedContent }
+    { type: 'horizontalRule' }
+    { type: 'table', headers?: string[], rows: string[][] }
 
   ListItem = string | FormattedContent | NestedItem
   NestedItem = { content: string | FormattedContent, items?: ListItem[], type?: 'bulletList' | 'orderedList' }
@@ -241,6 +244,34 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
           { content: 'Item with sub-items', items: ['Sub-item 1', 'Sub-item 2'] },
           { content: 'Mixed nesting', items: ['Numbered child'], type: 'orderedList' }
         ]}
+      ]);
+
+  Example - Table (simple):
+      appendBlocks(doc, [
+        { type: 'table',
+          headers: ['Name', 'Role', 'Status'],
+          rows: [
+            ['Alice', 'Engineer', 'Active'],
+            ['Bob', 'Designer', 'On Leave']
+          ]
+        }
+      ]);
+
+  Example - Table (no headers):
+      appendBlocks(doc, [
+        { type: 'table',
+          rows: [
+            ['Cell 1', 'Cell 2'],
+            ['Cell 3', 'Cell 4']
+          ]
+        }
+      ]);
+
+  Example - Blockquote and horizontal rule:
+      appendBlocks(doc, [
+        { type: 'blockquote', content: 'To be or not to be...' },
+        { type: 'horizontalRule' },
+        { type: 'paragraph', content: 'Text after the divider.' }
       ]);
 
 ───────────────────────────────────────────────────────────────────────────
@@ -318,13 +349,35 @@ Y.XmlText (text content with formatting):
   - length: number
 
 TipTap Block Types:
-  - 'paragraph', 'heading' (with level: 1-3)
+  - 'paragraph', 'heading' (with level: 1-6)
   - 'bulletList', 'orderedList', 'listItem'
-  - 'codeBlock'
+  - 'codeBlock', 'blockquote', 'horizontalRule'
+  - 'table', 'tableRow', 'tableCell', 'tableHeader'
+
+Table Structure:
+  table
+  └── tableRow
+      ├── tableHeader (for header cells, typically first row)
+      │   └── paragraph → text
+      └── tableCell (for data cells)
+          └── paragraph → text
+
+Table Cell Attributes:
+  - colspan: number (merge cells horizontally)
+  - rowspan: number (merge cells vertically)
+  - colwidth: number[] (column widths in pixels)
 
 Text Marks (formatting):
   - bold, italic, underline, strike, code
-  - link (with href attribute)
+  - subscript, superscript
+  - link: { href: string }
+
+TextStyle Marks (requires textStyle wrapper):
+  - color: string (e.g., '#ff0000', 'rgb(255,0,0)')
+  - backgroundColor: string
+  - fontFamily: string (e.g., 'Arial', 'Times New Roman')
+  - fontSize: string (e.g., '16px', '1.2em')
+  - lineHeight: string (e.g., '1.5', '2')
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -605,6 +658,131 @@ await modify({
 
       para.insert(0, [text]);
       doc.insert(doc.length, [para]);
+    }
+  \`
+});
+
+// Example 7: Create a table using low-level API
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // Create table structure: table → tableRow → tableHeader/tableCell → paragraph → text
+      const table = new Y.XmlElement('table');
+
+      // Header row
+      const headerRow = new Y.XmlElement('tableRow');
+      ['Name', 'Email', 'Role'].forEach(headerText => {
+        const th = new Y.XmlElement('tableHeader');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, headerText);
+        p.insert(0, [t]);
+        th.insert(0, [p]);
+        headerRow.insert(headerRow.length, [th]);
+      });
+      table.insert(0, [headerRow]);
+
+      // Data rows
+      const data = [
+        ['Alice', 'alice@example.com', 'Engineer'],
+        ['Bob', 'bob@example.com', 'Designer']
+      ];
+      data.forEach(rowData => {
+        const row = new Y.XmlElement('tableRow');
+        rowData.forEach(cellText => {
+          const td = new Y.XmlElement('tableCell');
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, cellText);
+          p.insert(0, [t]);
+          td.insert(0, [p]);
+          row.insert(row.length, [td]);
+        });
+        table.insert(table.length, [row]);
+      });
+
+      doc.insert(doc.length, [table]);
+    }
+  \`
+});
+
+// Example 7b: Create a table using appendBlocks helper (much simpler!)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      appendBlocks(doc, [
+        { type: 'table',
+          headers: ['Name', 'Email', 'Role'],
+          rows: [
+            ['Alice', 'alice@example.com', 'Engineer'],
+            ['Bob', 'bob@example.com', 'Designer']
+          ]
+        }
+      ]);
+    }
+  \`
+});
+
+// Example 8: Apply TextStyle marks (color, font, etc.)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        { text: 'Red text', attrs: { color: '#ff0000' } },
+        ' and ',
+        { text: 'blue background', attrs: { backgroundColor: '#0000ff', color: '#ffffff' } },
+        ' and ',
+        { text: 'custom font', attrs: { fontFamily: 'Georgia', fontSize: '18px' } }
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+    }
+  \`
+});
+
+// Example 9: Create blockquote and horizontal rule
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // Using appendBlocks helper
+      appendBlocks(doc, [
+        { type: 'heading', level: 2, content: 'Famous Quote' },
+        { type: 'blockquote', content: 'The only way to do great work is to love what you do.' },
+        { type: 'horizontalRule' },
+        { type: 'paragraph', content: '— Steve Jobs' }
+      ]);
+    }
+  \`
+});
+
+// Example 10: Using subscript and superscript
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // Chemical formula: H₂O
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        'Water: H',
+        { text: '2', attrs: { subscript: true } },
+        'O'
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+
+      // Mathematical: x²
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = createFormattedText([
+        'Area = x',
+        { text: '2', attrs: { superscript: true } }
+      ]);
+      para2.insert(0, [text2]);
+      doc.insert(doc.length, [para2]);
     }
   \`
 });
