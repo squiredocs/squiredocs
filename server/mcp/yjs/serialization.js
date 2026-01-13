@@ -78,15 +78,22 @@ function toStructured(xmlFragment) {
         const text = op.insert;
         const attrs = op.attributes || {};
 
-        // Check if there are any marks
+        // Extract all marks from attributes
         const marks = [];
 
-        if (attrs.bold) marks.push('bold');
-        if (attrs.italic) marks.push('italic');
-        if (attrs.underline) marks.push('underline');
-        if (attrs.strike) marks.push('strike');
-        if (attrs.link) {
-          marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+        for (const [key, value] of Object.entries(attrs)) {
+          if (value === true) {
+            // Boolean marks (bold, italic, etc.)
+            marks.push(key);
+          } else if (typeof value === 'object' && value !== null) {
+            // Object marks (link, textStyle, etc.)
+            if (key === 'link') {
+              marks.push({ type: 'link', href: value.href || value });
+            } else {
+              marks.push({ type: key, ...value });
+            }
+          }
+          // Skip false/null/undefined values
         }
 
         if (marks.length > 0) {
@@ -261,14 +268,23 @@ function extractTextWithMarks(textNode) {
     if (typeof op.insert === 'string') {
       const text = op.insert;
       const attrs = op.attributes || {};
+
+      // Extract all marks from attributes
       const marks = [];
 
-      if (attrs.bold) marks.push('bold');
-      if (attrs.italic) marks.push('italic');
-      if (attrs.underline) marks.push('underline');
-      if (attrs.strike) marks.push('strike');
-      if (attrs.link) {
-        marks.push({ type: 'link', href: attrs.link.href || attrs.link });
+      for (const [key, value] of Object.entries(attrs)) {
+        if (value === true) {
+          // Boolean marks (bold, italic, etc.)
+          marks.push(key);
+        } else if (typeof value === 'object' && value !== null) {
+          // Object marks (link, textStyle, etc.)
+          if (key === 'link') {
+            marks.push({ type: 'link', href: value.href || value });
+          } else {
+            marks.push({ type: key, ...value });
+          }
+        }
+        // Skip false/null/undefined values
       }
 
       if (marks.length > 0) {
