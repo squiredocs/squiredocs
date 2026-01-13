@@ -129,15 +129,17 @@ function toStructured(xmlFragment) {
       const tagName = node.nodeName;
       const attrs = {};
 
-      // Get attributes - Yjs XmlElement uses getAttribute for individual attrs
-      // and stores them internally. We need to check known attributes.
-      const level = node.getAttribute('level');
-      if (level !== undefined) {
-        attrs.level = level;
-      }
-      const language = node.getAttribute('language');
-      if (language !== undefined) {
-        attrs.language = language;
+      // Get all attributes generically from the element
+      const allAttrs = node.getAttributes();
+      for (const [key, value] of Object.entries(allAttrs)) {
+        if (value !== undefined && value !== null) {
+          // Parse numeric attributes
+          if (['colspan', 'rowspan', 'level'].includes(key)) {
+            attrs[key] = parseInt(value, 10);
+          } else {
+            attrs[key] = value;
+          }
+        }
       }
 
       // Process children
@@ -151,20 +153,50 @@ function toStructured(xmlFragment) {
 
       const result = {
         type: tagName,
+        ...attrs, // Include all attributes generically
       };
 
-      // Add level for headings
-      if (attrs.level) {
-        result.level = parseInt(attrs.level, 10);
-      }
+      // For table cells - extract content from nested paragraphs
+      if (['tableCell', 'tableHeader'].includes(tagName)) {
+        if (children.length > 0) {
+          // Table cells contain paragraphs, extract their content
+          const flatContent = [];
+          let hasMarks = false;
 
-      // Add language for code blocks
-      if (attrs.language) {
-        result.language = attrs.language;
-      }
+          for (const child of children) {
+            if (child.type === 'paragraph' && child.content) {
+              if (Array.isArray(child.content)) {
+                flatContent.push(...child.content);
+                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+                  hasMarks = true;
+                }
+              } else if (typeof child.content === 'string') {
+                flatContent.push(child.content);
+              }
+            } else if (child.type === 'text' && child.content) {
+              // Direct text children
+              if (Array.isArray(child.content)) {
+                flatContent.push(...child.content);
+                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+                  hasMarks = true;
+                }
+              } else if (typeof child.content === 'string') {
+                flatContent.push(child.content);
+              }
+            }
+          }
 
-      // For content nodes (paragraph, heading, listItem, codeBlock)
-      if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+          // Simplify to string if no marks
+          if (!hasMarks && flatContent.every((c) => typeof c === 'string')) {
+            result.content = flatContent.join('');
+          } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+            result.content = flatContent[0];
+          } else if (flatContent.length > 0) {
+            result.content = flatContent;
+          }
+        }
+      } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+        // For content nodes (paragraph, heading, listItem, codeBlock)
         // Check if all children are text nodes
         const allText = children.every((c) => c.type === 'text');
 
@@ -316,11 +348,18 @@ function toStructuredNode(node) {
   const tagName = node.nodeName;
   const result = { type: tagName };
 
-  // Extract attributes
-  const level = node.getAttribute('level');
-  if (level !== undefined) result.level = parseInt(level, 10);
-  const language = node.getAttribute('language');
-  if (language !== undefined) result.language = language;
+  // Extract all attributes generically
+  const allAttrs = node.getAttributes();
+  for (const [key, value] of Object.entries(allAttrs)) {
+    if (value !== undefined && value !== null) {
+      // Parse numeric attributes
+      if (['colspan', 'rowspan', 'level'].includes(key)) {
+        result[key] = parseInt(value, 10);
+      } else {
+        result[key] = value;
+      }
+    }
+  }
 
   // Process children
   const children = [];
@@ -329,8 +368,43 @@ function toStructuredNode(node) {
     if (processed) children.push(processed);
   }
 
-  // Simplify content for leaf blocks
-  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+  // Simplify content for table cells - extract from nested paragraphs
+  if (['tableCell', 'tableHeader'].includes(tagName)) {
+    if (children.length > 0) {
+      const flatContent = [];
+      let hasMarks = false;
+      for (const child of children) {
+        if (child.type === 'paragraph' && child.content) {
+          if (Array.isArray(child.content)) {
+            flatContent.push(...child.content);
+            if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+              hasMarks = true;
+            }
+          } else if (typeof child.content === 'string') {
+            flatContent.push(child.content);
+          }
+        } else if (child.type === 'text' && child.content) {
+          if (Array.isArray(child.content)) {
+            flatContent.push(...child.content);
+            if (child.content.some((item) => typeof item === 'object' && item.marks)) {
+              hasMarks = true;
+            }
+          } else if (typeof child.content === 'string') {
+            flatContent.push(child.content);
+          }
+        }
+      }
+      // Collapse to string if no marks
+      if (!hasMarks && flatContent.every((c) => typeof c === 'string')) {
+        result.content = flatContent.join('');
+      } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+        result.content = flatContent[0];
+      } else if (flatContent.length > 0) {
+        result.content = flatContent;
+      }
+    }
+  } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+    // Simplify content for leaf blocks
     const allText = children.every((c) => c.type === 'text');
     if (allText && children.length > 0) {
       const flatContent = [];

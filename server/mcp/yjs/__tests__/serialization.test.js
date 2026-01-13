@@ -214,4 +214,89 @@ describe('Serialization', () => {
       ]);
     });
   });
+
+  describe('table cell attributes', () => {
+    it('should serialize table cells with colspan and rowspan', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.get('default', Y.XmlFragment);
+
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+
+      // Cell with colspan
+      const cell1 = new Y.XmlElement('tableHeader');
+      cell1.setAttribute('colspan', 2);
+      cell1.setAttribute('rowspan', 1);
+      cell1.setAttribute('colwidth', null);
+      const p1 = new Y.XmlElement('paragraph');
+      const t1 = new Y.XmlText();
+      t1.insert(0, 'Merged Header');
+      p1.insert(0, [t1]);
+      cell1.insert(0, [p1]);
+
+      // Normal cell
+      const cell2 = new Y.XmlElement('tableHeader');
+      cell2.setAttribute('colspan', 1);
+      cell2.setAttribute('rowspan', 1);
+      cell2.setAttribute('colwidth', null);
+      const p2 = new Y.XmlElement('paragraph');
+      const t2 = new Y.XmlText();
+      t2.insert(0, 'Normal');
+      p2.insert(0, [t2]);
+      cell2.insert(0, [p2]);
+
+      row.insert(0, [cell1, cell2]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+
+      const result = toStructuredNode(table);
+
+      expect(result.type).toBe('table');
+      expect(result.children[0].type).toBe('tableRow');
+      expect(result.children[0].children[0]).toMatchObject({
+        type: 'tableHeader',
+        colspan: 2,
+        rowspan: 1,
+        content: 'Merged Header'
+      });
+      expect(result.children[0].children[1]).toMatchObject({
+        type: 'tableHeader',
+        colspan: 1,
+        rowspan: 1,
+        content: 'Normal'
+      });
+    });
+
+    it('should serialize table cells with colwidth', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.get('default', Y.XmlFragment);
+
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+
+      const cell = new Y.XmlElement('tableCell');
+      cell.setAttribute('colspan', 1);
+      cell.setAttribute('rowspan', 1);
+      cell.setAttribute('colwidth', [150]); // Column width in pixels
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'Wide cell');
+      p.insert(0, [t]);
+      cell.insert(0, [p]);
+
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+
+      const result = toStructuredNode(table);
+
+      expect(result.children[0].children[0]).toMatchObject({
+        type: 'tableCell',
+        colspan: 1,
+        rowspan: 1,
+        colwidth: [150],
+        content: 'Wide cell'
+      });
+    });
+  });
 });
