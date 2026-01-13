@@ -5,15 +5,15 @@
  */
 const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 const Y = require('yjs');
-const { setPersistence } = require('y-websocket/bin/utils');
+const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
-const { getYDoc, extractDocGuid } = require('../../../documents');
 
 // Use shared test database configuration
 const pool = createPool();
 const persistenceProvider = createPersistence();
 
 // Import modules
+const documents = require('../../../documents');
 const createDocumentVersion = require('../../tools/create-document-version');
 const createDocument = require('../../tools/create-document');
 
@@ -46,7 +46,16 @@ describe('create_document_version tool', () => {
     });
 
     // Initialize document service
+    const extractDocGuid = (docName) => {
+      if (docName.startsWith('s/')) {
+        return docName.slice(2);
+      }
+      return docName;
+    };
     documentService.init(getYDoc, extractDocGuid);
+
+    // Initialize documents module
+    documents.init(pool);
 
     // Create test user
     const userResult = await pool.query(
@@ -109,19 +118,29 @@ describe('create_document_version tool', () => {
       );
       testDocGuid = result.docGuid;
 
-      // Add content to create a version
-      const ydoc = getYDoc(testDocGuid);
-      ydoc.transact(() => {
-        const xmlFragment = ydoc.get('default', Y.XmlFragment);
-        const paragraph = new Y.XmlElement('paragraph');
-        const text = new Y.XmlText();
-        text.insert(0, 'Content for named version');
-        paragraph.insert(0, [text]);
-        xmlFragment.insert(0, [paragraph]);
-      }, testUserId);
+      // Add content to create a version using documentService to ensure proper persistence
+      await documentService.updateDocument(
+        testDocGuid,
+        (ydoc) => {
+          const xmlFragment = ydoc.get('default', Y.XmlFragment);
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Content for named version');
+          paragraph.insert(0, [text]);
+          xmlFragment.insert(0, [paragraph]);
+        },
+        testUserId
+      );
 
+      // Wait for all updates to be persisted
       await Promise.all(pendingOperations);
       pendingOperations.length = 0;
+
+      // Add a delay to ensure database writes complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Force a read from persistence to ensure updates are stored
+      await persistenceProvider.getYDoc(testDocGuid);
     });
 
     afterEach(async () => {

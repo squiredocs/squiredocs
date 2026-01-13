@@ -5,20 +5,58 @@
  */
 const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 const Y = require('yjs');
+const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
+const documentService = require('../../../document-service');
 
 // Use shared test database configuration
 const pool = createPool();
 const persistenceProvider = createPersistence();
 
 // Import modules
+const documents = require('../../../documents');
 const listDocumentVersions = require('../../tools/list-document-versions');
 const createDocument = require('../../tools/create-document');
 
 describe('list_document_versions tool', () => {
   let testUserId;
   let testDocGuid;
+  const pendingOperations = [];
 
   beforeAll(async () => {
+    // Set up y-websocket persistence
+    const ORIGIN_DB_LOAD = 'db-load';
+    setPersistence({
+      bindState: async (docName, ydoc) => {
+        const docGuid = docName.startsWith('s/') ? docName.slice(2) : docName;
+        ydoc.on('update', (update, origin) => {
+          if (origin === ORIGIN_DB_LOAD) return;
+          const userId = typeof origin === 'string' ? origin : null;
+          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId);
+          pendingOperations.push(storePromise);
+        });
+        try {
+          const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
+          Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
+        } catch (error) {
+          // Document doesn't exist yet
+        }
+      },
+      writeState: async () => {},
+      provider: persistenceProvider,
+    });
+
+    // Initialize document service
+    const extractDocGuid = (docName) => {
+      if (docName.startsWith('s/')) {
+        return docName.slice(2);
+      }
+      return docName;
+    };
+    documentService.init(getYDoc, extractDocGuid);
+
+    // Initialize documents module
+    documents.init(pool);
+
     // Create test user
     const userResult = await pool.query(
       `INSERT INTO users (id, google_id, email, name)
@@ -34,10 +72,15 @@ describe('list_document_versions tool', () => {
   });
 
   afterAll(async () => {
-    // Cleanup
+    await Promise.all(pendingOperations);
     await pool.query('DELETE FROM documents WHERE creator_id = $1', [testUserId]);
     await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     await pool.end();
+  });
+
+  afterEach(async () => {
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
   });
 
   describe('schema', () => {

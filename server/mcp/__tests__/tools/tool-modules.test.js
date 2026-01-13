@@ -184,6 +184,11 @@ describe('Tool Registry Integration', () => {
       'redo',
       // Document modification
       'modify',
+      // Version history tools
+      'list_document_versions',
+      'read_document_version',
+      'create_document_version',
+      'restore_document_version',
     ];
 
     // Check each tool is registered

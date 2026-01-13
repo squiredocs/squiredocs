@@ -5,15 +5,15 @@
  */
 const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 const Y = require('yjs');
-const { setPersistence } = require('y-websocket/bin/utils');
+const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
-const { getYDoc, extractDocGuid } = require('../../../documents');
 
 // Use shared test database configuration
 const pool = createPool();
 const persistenceProvider = createPersistence();
 
 // Import modules
+const documents = require('../../../documents');
 const restoreDocumentVersion = require('../../tools/restore-document-version');
 const createDocument = require('../../tools/create-document');
 const agentPresence = require('../../agent-presence');
@@ -22,6 +22,7 @@ describe('restore_document_version tool', () => {
   let testUserId;
   let testDocGuid;
   const pendingOperations = [];
+  let originalGetOrCreateSession;
 
   beforeAll(async () => {
     // Set up y-websocket persistence
@@ -47,7 +48,16 @@ describe('restore_document_version tool', () => {
     });
 
     // Initialize document service
+    const extractDocGuid = (docName) => {
+      if (docName.startsWith('s/')) {
+        return docName.slice(2);
+      }
+      return docName;
+    };
     documentService.init(getYDoc, extractDocGuid);
+
+    // Initialize documents module
+    documents.init(pool);
 
     // Create test user
     const userResult = await pool.query(
@@ -62,12 +72,28 @@ describe('restore_document_version tool', () => {
     agentPresence.init(persistenceProvider);
     restoreDocumentVersion.init(persistenceProvider);
     createDocument.init(persistenceProvider);
+
+    // Mock getOrCreateSession to avoid WebSocket connections in tests
+    originalGetOrCreateSession = agentPresence.getOrCreateSession;
+    agentPresence.getOrCreateSession = async (docGuid, agentToken, timeout) => {
+      // Return a mock session with access to the real Yjs document
+      return {
+        provider: { doc: getYDoc(docGuid) },
+        sessionId: `test-session-${docGuid}`,
+      };
+    };
   });
 
   afterAll(async () => {
     await Promise.all(pendingOperations);
     await pool.query('DELETE FROM documents WHERE creator_id = $1', [testUserId]);
     await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
+
+    // Restore original getOrCreateSession
+    if (originalGetOrCreateSession) {
+      agentPresence.getOrCreateSession = originalGetOrCreateSession;
+    }
+
     await pool.end();
   });
 
@@ -109,36 +135,57 @@ describe('restore_document_version tool', () => {
       );
       testDocGuid = result.docGuid;
 
-      // Add initial content
-      const ydoc = getYDoc(testDocGuid);
-      ydoc.transact(() => {
-        const xmlFragment = ydoc.get('default', Y.XmlFragment);
-        const paragraph = new Y.XmlElement('paragraph');
-        const text = new Y.XmlText();
-        text.insert(0, 'Original content');
-        paragraph.insert(0, [text]);
-        xmlFragment.insert(0, [paragraph]);
-      }, testUserId);
+      // Add initial content using documentService for proper persistence
+      await documentService.updateDocument(
+        testDocGuid,
+        (ydoc) => {
+          const xmlFragment = ydoc.get('default', Y.XmlFragment);
+          const paragraph = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Original content');
+          paragraph.insert(0, [text]);
+          xmlFragment.insert(0, [paragraph]);
+        },
+        testUserId
+      );
 
+      // Wait for all updates to be persisted
       await Promise.all(pendingOperations);
       pendingOperations.length = 0;
+
+      // Add a delay to ensure database writes complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Force a read from persistence to ensure updates are stored
+      await persistenceProvider.getYDoc(testDocGuid);
 
       // Save the old clock
       const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       oldClock = updates[updates.length - 1].clock;
 
       // Make a second edit to create a new version
-      ydoc.transact(() => {
-        const xmlFragment = ydoc.get('default', Y.XmlFragment);
-        const paragraph = xmlFragment.get(0);
-        const text = paragraph.get(0);
-        // Clear and replace text
-        text.delete(0, text.length);
-        text.insert(0, 'Modified content');
-      }, testUserId);
+      await documentService.updateDocument(
+        testDocGuid,
+        (ydoc) => {
+          const xmlFragment = ydoc.get('default', Y.XmlFragment);
+          const paragraph = xmlFragment.get(0);
+          const text = paragraph.get(0);
+          // Clear and replace text
+          text.delete(0, text.length);
+          text.insert(0, 'Modified content');
+        },
+        testUserId
+      );
 
+      // Wait for all updates to be persisted
       await Promise.all(pendingOperations);
       pendingOperations.length = 0;
+
+      // Add a delay to ensure database writes complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Force a read from persistence to ensure updates are stored
+      await persistenceProvider.getYDoc(testDocGuid);
 
       // Save the new clock
       const updatedUpdates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
@@ -219,13 +266,22 @@ describe('restore_document_version tool', () => {
       await Promise.all(pendingOperations);
       pendingOperations.length = 0;
 
+      // Add delay for persistence
+      await new Promise(resolve => setTimeout(resolve, 200));
+
       // Verify content was restored
       const ydoc = await persistenceProvider.getYDoc(testDocGuid);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      const paragraph = xmlFragment.get(0);
-      const text = paragraph.get(0);
-      const content = text.toString();
 
+      expect(xmlFragment.length).toBeGreaterThan(0);
+      const paragraph = xmlFragment.get(0);
+      expect(paragraph).toBeDefined();
+      expect(paragraph.length).toBeGreaterThan(0);
+
+      const text = paragraph.get(0);
+      expect(text).toBeDefined();
+
+      const content = text.toString();
       expect(content).toBe('Original content');
     });
 
