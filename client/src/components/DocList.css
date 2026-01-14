@@ -4,10 +4,10 @@
   margin: 0 auto;
   padding: 24px 48px;
   min-height: 100vh;
-  height: 100vh;
   overflow-y: auto;
   background: #fff;
   box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 .doc-list-header {
