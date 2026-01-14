@@ -64,6 +64,14 @@ function AppContent() {
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
 
+  // Set data attribute on body for current view (used for view-specific CSS)
+  useEffect(() => {
+    document.body.setAttribute('data-view', route.view);
+    return () => {
+      document.body.removeAttribute('data-view');
+    };
+  }, [route.view]);
+
   // Handle browser back/forward navigation
   useEffect(() => {
     const handlePopState = () => {

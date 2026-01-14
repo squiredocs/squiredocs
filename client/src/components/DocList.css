@@ -454,6 +454,18 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  .doc-list-container {
+    /* Remove min-height on mobile - let content determine height */
+    min-height: 0;
+    /* Allow container to be shorter than viewport when keyboard is open */
+    height: auto;
+  }
+
+  .doc-list {
+    /* Reduce bottom margin on mobile for better keyboard visibility */
+    margin-bottom: 20px;
+  }
+
   .doc-list-toolbar {
     flex-direction: column;
     align-items: stretch;
