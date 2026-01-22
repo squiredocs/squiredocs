@@ -49,22 +49,7 @@ function reservoirSample(items, k) {
     return [first, last];
   }
 
-  // Reservoir sampling on middle items
-  const reservoir = middle.slice(0, middleK);
-  for (let i = middleK; i < middle.length; i++) {
-    const j = Math.floor(Math.random() * (i + 1));
-    if (j < middleK) {
-      reservoir[j] = middle[i];
-    }
-  }
-
-  // Sort reservoir by original index to maintain document order
-  // We need to track original indices for this
-  const middleWithIndices = middle.map((item, idx) => ({ item, idx }));
-  const reservoirSet = new Set();
-  const sampledReservoir = [];
-
-  // Re-do sampling but track indices
+  // Reservoir sampling on middle items, tracking indices for sorted output
   const reservoirIndices = [];
   for (let i = 0; i < Math.min(middleK, middle.length); i++) {
     reservoirIndices.push(i);
@@ -76,7 +61,7 @@ function reservoirSample(items, k) {
     }
   }
 
-  // Sort by index and extract items
+  // Sort by index to maintain document order and extract items
   reservoirIndices.sort((a, b) => a - b);
   const sampledMiddle = reservoirIndices.map(idx => middle[idx]);
 
@@ -138,6 +123,21 @@ function _buildAgentInfo(agentToken, userName, email, picture, userId) {
     color: agentColor,
     isAgent: true,
   };
+}
+
+/**
+ * Update session cursor and broadcast to awareness
+ * @private
+ * @param {object} session - Session object
+ * @param {object} anchor - Anchor RelativePosition (JSON)
+ * @param {object} head - Head RelativePosition (JSON)
+ */
+function _broadcastCursor(session, anchor, head) {
+  session.cursor = { anchor, head };
+  session.lastActivityAt = Date.now();
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalStateField('cursor', { anchor, head });
+  }
 }
 
 /**
@@ -372,7 +372,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
 
               resolve(session);
             } catch (error) {
-              pendingSessionCreations.delete(sessionKey);
               cleanup();
               reject(new Error(`Failed to set presence: ${error.message}`));
             }
@@ -382,27 +381,23 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
 
       // Handle connection errors
       provider.on('connection-error', (error) => {
-        pendingSessionCreations.delete(sessionKey);
         cleanup();
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
       // Handle connection close
       provider.on('connection-close', () => {
-        pendingSessionCreations.delete(sessionKey);
         cleanup();
       });
 
       // Set timeout for initial connection
       connectionTimeoutId = setTimeout(() => {
         if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
-          pendingSessionCreations.delete(sessionKey);
           cleanup();
           reject(new Error('Connection timeout: Could not establish WebSocket connection'));
         }
       }, 10000); // 10 second timeout for connection
     } catch (error) {
-      pendingSessionCreations.delete(sessionKey);
       cleanup();
       reject(new Error(`Failed to create agent presence: ${error.message}`));
     }
@@ -421,33 +416,18 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
  * @param {string} docGuid - Document UUID
  * @param {object} agentToken - Decoded agent JWT token (must include rawToken)
  * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
- * @returns {Promise<object>} { success, sessionId, expiresIn }
+ * @returns {Promise<object>} { success, sessionId, expiresIn, agent }
  */
 async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
-  if (!persistenceProvider) {
-    throw new Error('Agent presence manager not initialized');
-  }
-
-  const duration = Math.max(1, Math.min(300, durationSeconds));
-  const userId = agentToken.userId;
-  const sessionKey = `${userId}-${docGuid}`;
-
-  const { userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
-  const agentInfo = _buildAgentInfo(agentToken, userName, email, picture, userId);
-
-  const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
-
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('user', agentInfo);
-  }
+  const session = await getOrCreateSession(docGuid, agentToken, durationSeconds);
 
   return {
     success: true,
     sessionId: session.sessionId,
-    expiresIn: duration,
+    expiresIn: Math.max(1, Math.min(300, durationSeconds)),
     agent: {
-      name: agentInfo.name,
-      color: agentInfo.color,
+      name: session.agentInfo.name,
+      color: session.agentInfo.color,
     },
   };
 }
@@ -542,11 +522,13 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
 
+  // Store agentInfo on session for later access
+  session.agentInfo = agentInfo;
+
   if (session.provider && session.provider.awareness) {
     session.provider.awareness.setLocalStateField('user', agentInfo);
   }
 
-  // Return the full session object (as expected by callers like modify.js)
   return session;
 }
 
@@ -621,14 +603,7 @@ function updateSessionCursor(sessionId, anchor, head) {
     throw new Error(`Session not found: ${sessionId}`);
   }
 
-  // Update session cursor state
-  session.cursor = { anchor, head };
-  session.lastActivityAt = Date.now();
-
-  // Broadcast to awareness
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('cursor', { anchor, head });
-  }
+  _broadcastCursor(session, anchor, head);
 }
 
 /**
@@ -766,13 +741,7 @@ function processHighlightQueue(sessionId) {
       setTemporarySelection(sessionId, pos.anchor, pos.head);
     } else {
       // Intermediate highlight - update cursor directly
-      session.cursor = { anchor: pos.anchor, head: pos.head };
-      session.lastActivityAt = Date.now();
-
-      // Broadcast to awareness
-      if (session.provider && session.provider.awareness) {
-        session.provider.awareness.setLocalStateField('cursor', session.cursor);
-      }
+      _broadcastCursor(session, pos.anchor, pos.head);
 
       // Schedule next highlight with random delay
       const randomDelay = queue.minIntervalMs + Math.random() * (queue.maxIntervalMs - queue.minIntervalMs);
@@ -807,25 +776,12 @@ function setTemporarySelection(sessionId, anchor, head, durationMs = DEFAULT_SEL
     session.tempSelectionTimeoutId = null;
   }
 
-  // Update session cursor state
-  const newCursor = { anchor, head };
-  session.cursor = newCursor;
-  session.lastActivityAt = Date.now();
-
-  // Broadcast to awareness
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('cursor', newCursor);
-  }
+  _broadcastCursor(session, anchor, head);
 
   // Set timeout to collapse the selection to a cursor at the end position
   session.tempSelectionTimeoutId = setTimeout(() => {
     session.tempSelectionTimeoutId = null;
-    // Collapse selection to cursor at head (end) position
-    const collapsedCursor = { anchor: head, head: head };
-    session.cursor = collapsedCursor;
-    if (session.provider && session.provider.awareness) {
-      session.provider.awareness.setLocalStateField('cursor', collapsedCursor);
-    }
+    _broadcastCursor(session, head, head);
   }, durationMs);
 
   return true;
