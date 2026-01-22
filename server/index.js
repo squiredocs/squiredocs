@@ -99,79 +99,6 @@ const extractDocGuid = (docName) => {
 const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
 const ORIGIN_REDIS = 'redis'; // Origin marker for updates from Redis pub/sub (cross-instance sync)
 
-// Track active connections per document for version history attribution
-// Maps docGuid -> Map<connId, { userId, agentName? }>
-const documentConnectionMap = new Map();
-
-// Track which connection is currently processing an update for attribution
-// Maps docGuid -> connId (only set during message processing)
-const currentProcessingConnection = new Map();
-
-/**
- * Register a user connection for a document
- * @param {string} docGuid - Document GUID
- * @param {number} clientId - Client connection ID
- * @param {string} userId - User ID
- * @param {string|null} agentName - Agent name if this is an agent connection
- */
-function registerDocumentUser(docGuid, clientId, userId, agentName = null) {
-  if (!documentConnectionMap.has(docGuid)) {
-    documentConnectionMap.set(docGuid, new Map());
-  }
-  documentConnectionMap.get(docGuid).set(clientId, { userId, agentName });
-}
-
-/**
- * Unregister a user connection from a document
- */
-function unregisterDocumentUser(docGuid, clientId) {
-  const connections = documentConnectionMap.get(docGuid);
-  if (connections) {
-    connections.delete(clientId);
-    if (connections.size === 0) {
-      documentConnectionMap.delete(docGuid);
-    }
-  }
-}
-
-/**
- * Get user ID for the connection currently processing an update
- * Falls back to any active connection if no current processor
- */
-function getDocumentUserId(docGuid) {
-  const connections = documentConnectionMap.get(docGuid);
-  if (!connections || connections.size === 0) return null;
-
-  // Use the specific connection that's currently processing if available
-  const currentConnId = currentProcessingConnection.get(docGuid);
-  if (currentConnId) {
-    const conn = connections.get(currentConnId);
-    if (conn) return conn.userId;
-  }
-
-  // Fallback to first connection (for backwards compatibility)
-  return Array.from(connections.values())[0].userId;
-}
-
-/**
- * Get agent name for the connection currently processing an update
- * Returns null if the current connection is not an agent
- */
-function getDocumentAgentName(docGuid) {
-  const connections = documentConnectionMap.get(docGuid);
-  if (!connections || connections.size === 0) return null;
-
-  // Use the specific connection that's currently processing
-  const currentConnId = currentProcessingConnection.get(docGuid);
-  if (currentConnId) {
-    const conn = connections.get(currentConnId);
-    return conn?.agentName || null;
-  }
-
-  // If no current processor, don't guess - return null
-  return null;
-}
-
 setPersistence({
   bindState: async (docName, ydoc) => {
     // docName from y-websocket includes the URL path prefix (e.g., "s/uuid")
@@ -194,13 +121,11 @@ setPersistence({
         return;
       }
 
-      // Get the user ID for version history attribution
-      // If origin is a string (userId passed from MCP tools), use it
-      // Otherwise, get from active WebSocket connections
-      const userId = (typeof origin === 'string') ? origin : getDocumentUserId(docGuid);
-
-      // Get agent name if this update is from an agent
-      const agentName = getDocumentAgentName(docGuid);
+      // Get attribution info from the origin
+      // - WebSocket updates: origin is the ws object with userId/agentName properties
+      // - MCP tool updates: origin is a string (userId)
+      const userId = (typeof origin === 'string') ? origin : origin?.userId;
+      const agentName = (typeof origin === 'string') ? null : origin?.agentName;
 
       const persistStart = Date.now();
 
@@ -1179,12 +1104,10 @@ wss.on('connection', (ws, req) => {
   logPerf('WS_CONNECT', { connId, url: sanitizedUrl, role: userRole, canEdit });
   console.log(`✓ WebSocket connection established [connId=${connId}]: ${sanitizedUrl} (role: ${userRole}, userId: ${userId})`);
 
-  // Register user for version history attribution
-  // Use agent info from token (already verified) - no need to detect from awareness
-  if (userId && docId) {
-    const agentName = req.user?.isAgent ? req.user.agentName : null;
-    registerDocumentUser(docId, connId, userId, agentName);
-  }
+  // Store attribution info on ws for the update handler
+  // y-websocket passes ws as origin to ydoc.on('update')
+  ws.userId = userId;
+  ws.agentName = req.user?.isAgent ? req.user.agentName : null;
 
   // Setup ping/pong keepalive mechanism
   let isAlive = true;
@@ -1240,15 +1163,6 @@ wss.on('connection', (ws, req) => {
         }
       }
 
-      // Track which connection is processing this update for attribution
-      if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
-        currentProcessingConnection.set(docId, connId);
-        setTimeout(() => {
-          if (currentProcessingConnection.get(docId) === connId) {
-            currentProcessingConnection.delete(docId);
-          }
-        }, 100);
-      }
 
       // Block edit messages from viewers
       if (!canEdit && isEditMessage(buffer)) {
@@ -1269,12 +1183,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    // Clear ping interval
     clearInterval(pingInterval);
-    // Unregister user for version history attribution
-    if (docId) {
-      unregisterDocumentUser(docId, connId);
-    }
     logPerf('WS_CLOSE', { connId, duration: Date.now() - connStart });
     console.log('WebSocket connection closed:', sanitizedUrl);
   });
