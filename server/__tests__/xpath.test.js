@@ -274,4 +274,89 @@ describe('XPath module', () => {
       expect(() => xpath('//[invalid', fragment)).toThrow();
     });
   });
+
+  describe('context node from previous xpath result', () => {
+    // These tests verify the fix for the bug where following-sibling::
+    // didn't work when the context node came from a previous xpath result.
+    // The issue was that nodes returned from xpath() lost their parent
+    // reference, breaking sibling navigation in subsequent calls.
+
+    beforeEach(() => {
+      // Create structure: heading -> orderedList -> heading
+      const h1 = new Y.XmlElement('heading');
+      h1.setAttribute('level', 1);
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'Bugs');
+      h1.insert(0, [text1]);
+
+      const list = new Y.XmlElement('orderedList');
+      const items = [];
+      for (let i = 0; i < 3; i++) {
+        const item = new Y.XmlElement('listItem');
+        const para = new Y.XmlElement('paragraph');
+        const text = new Y.XmlText();
+        text.insert(0, `Item ${i + 1}`);
+        para.insert(0, [text]);
+        item.insert(0, [para]);
+        items.push(item);
+      }
+      list.insert(0, items);
+
+      const h2 = new Y.XmlElement('heading');
+      h2.setAttribute('level', 2);
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Next Section');
+      h2.insert(0, [text2]);
+
+      fragment.insert(0, [h1, list, h2]);
+    });
+
+    it('should find following-sibling when context is from xpathFirst', () => {
+      // This is the exact pattern from the bug report
+      const heading = xpathFirst('//heading[contains(., "Bugs")]', fragment);
+      expect(heading).not.toBeNull();
+
+      // Use the heading as context for a second xpath call
+      const list = xpath('following-sibling::orderedList[1]', heading);
+      expect(list.length).toBe(1);
+      expect(list[0].nodeName).toBe('orderedList');
+    });
+
+    it('should find preceding-sibling when context is from xpathFirst', () => {
+      const heading = xpathFirst('//heading[@level=2]', fragment);
+      expect(heading).not.toBeNull();
+
+      const list = xpath('preceding-sibling::orderedList', heading);
+      expect(list.length).toBe(1);
+    });
+
+    it('should allow delete on list found via two-step xpath', () => {
+      // Verify the full bug scenario: find heading, find sibling list, delete items
+      const heading = xpathFirst('//heading[contains(., "Bugs")]', fragment);
+      const lists = xpath('following-sibling::orderedList[1]', heading);
+      expect(lists.length).toBe(1);
+
+      const list = lists[0];
+      expect(list.length).toBe(3); // 3 list items
+
+      // Delete the last item
+      list.delete(2, 1);
+      expect(list.length).toBe(2);
+
+      // Delete another item
+      list.delete(0, 1);
+      expect(list.length).toBe(1);
+    });
+
+    it('should support chained context with multiple xpath calls', () => {
+      // Find heading, then list, then first item
+      const heading = xpathFirst('//heading[contains(., "Bugs")]', fragment);
+      const list = xpathFirst('following-sibling::orderedList', heading);
+      expect(list).not.toBeNull();
+
+      const firstItem = xpathFirst('listItem[1]', list);
+      expect(firstItem).not.toBeNull();
+      expect(firstItem.nodeName).toBe('listItem');
+    });
+  });
 });

@@ -22,6 +22,14 @@ const { evaluateXPathToNodes, evaluateXPathToFirstNode } = require('fontoxpath')
 const Y = require('yjs');
 
 /**
+ * Cache mapping child nodes to their parent nodes.
+ * Populated during getChildren() traversal, used to rebuild parent chains
+ * when a node from a previous xpath result is passed as context.
+ * WeakMap ensures entries are garbage collected when nodes are no longer referenced.
+ */
+const parentCache = new WeakMap();
+
+/**
  * Wrapper that adds DOM-like properties to Yjs nodes
  * Tracks parent reference for sibling navigation
  */
@@ -63,7 +71,12 @@ class YjsNodeWrapper {
     if (this._childrenCache === null) {
       const yjsNode = this._yjs;
       if (yjsNode && typeof yjsNode.toArray === 'function') {
-        this._childrenCache = yjsNode.toArray().map(child => new YjsNodeWrapper(child, this));
+        this._childrenCache = yjsNode.toArray().map(child => {
+          // Cache parent relationship so we can rebuild the chain later
+          // when this child is passed as context to a subsequent xpath call
+          parentCache.set(child, yjsNode);
+          return new YjsNodeWrapper(child, this);
+        });
       } else {
         this._childrenCache = [];
       }
@@ -201,6 +214,35 @@ const yjsDomFacade = {
 };
 
 /**
+ * Create a YjsNodeWrapper for a context node, rebuilding the parent chain
+ * from the parentCache so that sibling axes work correctly.
+ *
+ * @param {*} yjsNode - The Yjs node (or proxy) to wrap
+ * @returns {YjsNodeWrapper} Wrapper with parent chain reconstructed
+ */
+function createContextWrapper(yjsNode) {
+  // Check if we have a cached parent for this node
+  const parentYjsNode = parentCache.get(yjsNode);
+
+  if (!parentYjsNode) {
+    // No parent cached - this is either the root or a node we haven't traversed
+    return new YjsNodeWrapper(yjsNode);
+  }
+
+  // Recursively create wrapper for parent (building the chain up to root)
+  const parentWrapper = createContextWrapper(parentYjsNode);
+
+  // Get children from parent - this returns cached wrappers with _parent set
+  const children = parentWrapper.getChildren();
+
+  // Find this node among the children
+  const wrapper = children.find(child => child._yjs === yjsNode);
+
+  // Return the found wrapper (with _parent set) or fallback to orphan wrapper
+  return wrapper || new YjsNodeWrapper(yjsNode);
+}
+
+/**
  * Execute XPath query and return all matching nodes
  *
  * @param {string} expression - XPath expression (e.g., '//heading[@level=2]')
@@ -221,10 +263,10 @@ const yjsDomFacade = {
  *   const lists = xpath('//heading[contains(., "Items")]/following-sibling::bulletList[1]', doc);
  */
 function xpath(expression, contextNode) {
-  // Wrap the context node if it's not already wrapped
+  // Wrap the context node, rebuilding parent chain from cache if available
   const wrappedContext = contextNode instanceof YjsNodeWrapper
     ? contextNode
-    : new YjsNodeWrapper(contextNode);
+    : createContextWrapper(contextNode);
 
   const results = evaluateXPathToNodes(expression, wrappedContext, yjsDomFacade);
 
@@ -255,9 +297,10 @@ function xpath(expression, contextNode) {
  *   }
  */
 function xpathFirst(expression, contextNode) {
+  // Wrap the context node, rebuilding parent chain from cache if available
   const wrappedContext = contextNode instanceof YjsNodeWrapper
     ? contextNode
-    : new YjsNodeWrapper(contextNode);
+    : createContextWrapper(contextNode);
 
   const result = evaluateXPathToFirstNode(expression, wrappedContext, yjsDomFacade);
 
@@ -278,4 +321,5 @@ module.exports = {
   xpathFirst,
   YjsNodeWrapper,
   yjsDomFacade,
+  createContextWrapper,
 };
