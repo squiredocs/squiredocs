@@ -45,14 +45,9 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
     windowMs: 200, // Aggregate mutations within 200ms windows
     onFlush: (spans) => {
       // Clear any pending XPath highlights so mutations appear immediately
-      const highlightSession = agentPresence.getSession(session.sessionId);
-      if (highlightSession && highlightSession.highlightQueue) {
-        console.log(`[MutationAggregator] Clearing ${highlightSession.highlightQueue.positions.length - highlightSession.highlightQueue.currentIndex} pending XPath highlights`);
-        // Cancel the pending timeout to stop the old queue
-        if (highlightSession.highlightQueue.timeoutId) {
-          clearTimeout(highlightSession.highlightQueue.timeoutId);
-        }
-        highlightSession.highlightQueue = null;
+      const clearedCount = agentPresence.clearHighlightQueue(session.sessionId);
+      if (clearedCount > 0) {
+        console.log(`[MutationAggregator] Clearing ${clearedCount} pending XPath highlights`);
       }
 
       // Queue aggregated expanding spans with random delays (80-240ms) to show progression

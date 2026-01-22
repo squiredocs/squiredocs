@@ -7,7 +7,6 @@ const { executeScript, executeSandboxed, wrapForTracking, OperationTracker } = r
 
 // Spy on agent-presence functions
 let mockQueueHighlightSequence;
-let mockQueueHighlight;
 
 describe('XPath query highlighting', () => {
   let doc;
@@ -17,7 +16,6 @@ describe('XPath query highlighting', () => {
   beforeEach(() => {
     // Set up spies
     mockQueueHighlightSequence = jest.spyOn(agentPresence, 'queueHighlightSequence').mockImplementation(() => true);
-    mockQueueHighlight = jest.spyOn(agentPresence, 'queueHighlight').mockImplementation(() => true);
 
     doc = new Y.Doc();
     fragment = doc.get('test', Y.XmlFragment);

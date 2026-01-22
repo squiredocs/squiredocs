@@ -17,6 +17,9 @@ const activeSessions = new Map();
 // Secondary index: sessionKey -> sessionId for O(1) lookup by user/doc
 const sessionsByKey = new Map();
 
+// Secondary index: userId -> Set<sessionId> for O(1) lookup by user
+const sessionsByUserId = new Map();
+
 // Track in-progress session creation promises to prevent race conditions
 // Key: "${userId}-${docGuid}", Value: Promise
 const pendingSessionCreations = new Map();
@@ -297,6 +300,14 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         }
         activeSessions.delete(sessionId);
         sessionsByKey.delete(sessionKey);
+        // Remove from userId index
+        const userSessions = sessionsByUserId.get(userId);
+        if (userSessions) {
+          userSessions.delete(sessionId);
+          if (userSessions.size === 0) {
+            sessionsByUserId.delete(userId);
+          }
+        }
         pendingSessionCreations.delete(sessionKey);
         console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
       };
@@ -313,7 +324,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         WebSocketPolyfill: WebSocket,
       });
 
-      // Store session info in both indexes
+      // Store session info in all indexes
       activeSessions.set(sessionId, {
         sessionId,
         docGuid,
@@ -330,6 +341,11 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         lastActivityAt: Date.now(),
       });
       sessionsByKey.set(sessionKey, sessionId);
+      // Add to userId index
+      if (!sessionsByUserId.has(userId)) {
+        sessionsByUserId.set(userId, new Set());
+      }
+      sessionsByUserId.get(userId).add(sessionId);
 
       // Wait for document to sync before initializing cursor
       // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
@@ -490,14 +506,21 @@ function clearSession(sessionId) {
 }
 
 /**
- * Clear all active presence sessions for a user
+ * Clear all active presence sessions for a user (O(k) where k = user's sessions)
  * @param {string} userId - User ID
  * @returns {number} Number of sessions cleared
  */
 function clearUserSessions(userId) {
+  const userSessionIds = sessionsByUserId.get(userId);
+  if (!userSessionIds || userSessionIds.size === 0) {
+    return 0;
+  }
+
   let count = 0;
-  for (const [sessionId, session] of activeSessions.entries()) {
-    if (session.userId === userId) {
+  // Copy to array since cleanup() modifies sessionsByUserId
+  for (const sessionId of [...userSessionIds]) {
+    const session = activeSessions.get(sessionId);
+    if (session) {
       session.cleanup();
       count++;
     }
@@ -613,40 +636,27 @@ function updateSessionCursor(sessionId, anchor, head) {
 }
 
 /**
- * Queue a single highlight to be shown with a random delay
- * Used for both mutations and XPath results - unified API
- * Queue is limited to MAX_HIGHLIGHT_QUEUE_SIZE items; oldest unprocessed items are dropped
+ * Clear any pending highlights in the queue
+ * Used to cancel queued highlights when new mutations should take priority
  * @param {string} sessionId - Session ID
- * @param {object} anchor - Anchor RelativePosition (JSON)
- * @param {object} head - Head RelativePosition (JSON)
- * @param {number} [minIntervalMs=80] - Minimum interval before showing (ms)
- * @param {number} [maxIntervalMs=240] - Maximum interval before showing (ms)
- * @returns {boolean} True if highlight was queued
+ * @returns {number} Number of pending highlights that were cleared (0 if none or session not found)
  */
-function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxIntervalMs = 240) {
+function clearHighlightQueue(sessionId) {
   const session = activeSessions.get(sessionId);
-  if (!session || !anchor || !head) {
-    return false;
+  if (!session || !session.highlightQueue) {
+    return 0;
   }
 
-  const queue = _getOrInitHighlightQueue(session, minIntervalMs, maxIntervalMs);
-  queue.positions.push({ anchor, head });
+  const queue = session.highlightQueue;
+  const pendingCount = queue.positions.length - queue.currentIndex;
 
-  // Enforce queue size limit - keep only last MAX_HIGHLIGHT_QUEUE_SIZE items
-  // Remove from positions that haven't been processed yet
-  const unprocessedCount = queue.positions.length - queue.currentIndex;
-  if (unprocessedCount > MAX_HIGHLIGHT_QUEUE_SIZE) {
-    const toRemove = unprocessedCount - MAX_HIGHLIGHT_QUEUE_SIZE;
-    // Remove oldest unprocessed items
-    queue.positions.splice(queue.currentIndex, toRemove);
+  // Cancel any pending timeout
+  if (queue.timeoutId) {
+    clearTimeout(queue.timeoutId);
   }
 
-  // Start processing if not already running
-  if (!queue.isProcessing) {
-    processHighlightQueue(sessionId);
-  }
-
-  return true;
+  session.highlightQueue = null;
+  return pendingCount;
 }
 
 /**
@@ -681,7 +691,7 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
 
 /**
  * Process the highlight queue - shows highlights with random delays
- * Internal function used by queueHighlight and queueHighlightSequence
+ * @private
  * @param {string} sessionId - Session ID
  */
 function processHighlightQueue(sessionId) {
@@ -775,7 +785,10 @@ module.exports = {
   getActiveSessions,
   updateSessionCursor,
   setTemporarySelection,
-  queueHighlight,
+  clearHighlightQueue,
   queueHighlightSequence,
   getSession,
+  // Internal indexes exposed for testing only
+  _sessionsByKey: sessionsByKey,
+  _sessionsByUserId: sessionsByUserId,
 };
