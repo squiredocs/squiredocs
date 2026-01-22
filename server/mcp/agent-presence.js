@@ -200,11 +200,8 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   if (pendingSessionCreations.has(sessionKey)) {
     console.log(`[agent-presence] Session creation already in progress for ${userName} in ${docGuid}, waiting...`);
 
-    // Wait for the pending creation to complete
-    const pendingResult = await pendingSessionCreations.get(sessionKey);
-
-    // Check if we got a session object (from getOrCreateSession) or a result object (from setAgentPresence)
-    const session = pendingResult.sessionId ? activeSessions.get(pendingResult.sessionId) : pendingResult;
+    // Wait for the pending creation to complete - returns the session object directly
+    const session = await pendingSessionCreations.get(sessionKey);
 
     if (session) {
       // Verify session is fully initialized before extending
@@ -437,29 +434,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
 }
 
 /**
- * Set agent presence in a document
- * Makes the agent visible as an active user in the UI for the specified duration
- *
- * @param {string} docGuid - Document UUID
- * @param {object} agentToken - Decoded agent JWT token (must include rawToken)
- * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
- * @returns {Promise<object>} { success, sessionId, expiresIn, agent }
- */
-async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
-  const session = await getOrCreateSession(docGuid, agentToken, durationSeconds);
-
-  return {
-    success: true,
-    sessionId: session.sessionId,
-    expiresIn: Math.max(1, Math.min(300, durationSeconds)),
-    agent: {
-      name: session.agentInfo.name,
-      color: session.agentInfo.color,
-    },
-  };
-}
-
-/**
  * Convert HSL to RGB
  */
 function hslToRgb(h, s, l) {
@@ -595,13 +569,12 @@ function initializeCursorAtStart(xmlFragment) {
       return null;
     }
 
-    const firstTextNode = findFirstTextNode(blocks[0]);
-    let textNode = firstTextNode;
+    const textNode = findFirstTextNode(blocks[0]);
 
     if (!textNode) {
-      // First block has no text nodes - create one
-      textNode = new Y.XmlText();
-      blocks[0].insert(0, [textNode]);
+      // First block has no text nodes - return null cursor
+      // (don't modify the document during cursor initialization)
+      return null;
     }
 
     // Create RelativePosition at position 0
@@ -714,9 +687,6 @@ function processHighlightQueue(sessionId) {
 
   const queue = session.highlightQueue;
   queue.isProcessing = true;
-  const startTime = Date.now();
-
-  console.log(`[processHighlightQueue] Starting queue with ${queue.positions.length} positions, delays: ${queue.minIntervalMs}-${queue.maxIntervalMs}ms`);
 
   const showNextHighlight = () => {
     if (!session.highlightQueue || queue.currentIndex >= queue.positions.length) {
@@ -724,16 +694,12 @@ function processHighlightQueue(sessionId) {
       if (session.highlightQueue) {
         session.highlightQueue = null;
       }
-      console.log(`[processHighlightQueue] Queue completed in ${Date.now() - startTime}ms`);
       return;
     }
 
     const pos = queue.positions[queue.currentIndex];
     const isLastHighlight = queue.currentIndex === queue.positions.length - 1;
-    const highlightNum = queue.currentIndex + 1;
     queue.currentIndex++;
-
-    console.log(`[processHighlightQueue] Showing highlight ${highlightNum}/${queue.positions.length} at t+${Date.now() - startTime}ms (isLast: ${isLastHighlight})`);
 
     if (isLastHighlight) {
       // Final highlight - use setTemporarySelection for consistent timeout behavior
@@ -746,7 +712,6 @@ function processHighlightQueue(sessionId) {
 
       // Schedule next highlight with random delay
       const randomDelay = queue.minIntervalMs + Math.random() * (queue.maxIntervalMs - queue.minIntervalMs);
-      console.log(`[processHighlightQueue] Scheduling next highlight in ${randomDelay}ms`);
       queue.timeoutId = setTimeout(showNextHighlight, randomDelay);
     }
   };
@@ -799,7 +764,6 @@ function getSession(sessionId) {
 
 module.exports = {
   init,
-  setAgentPresence,
   getOrCreateSession,
   clearSession,
   clearUserSessions,

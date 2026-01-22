@@ -36,7 +36,6 @@ describe('Agent Presence Manager', () => {
   describe('module exports', () => {
     test('exports all required functions', () => {
       expect(typeof agentPresence.init).toBe('function');
-      expect(typeof agentPresence.setAgentPresence).toBe('function');
       expect(typeof agentPresence.getOrCreateSession).toBe('function');
       expect(typeof agentPresence.clearSession).toBe('function');
       expect(typeof agentPresence.clearUserSessions).toBe('function');
