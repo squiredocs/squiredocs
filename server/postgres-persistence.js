@@ -338,6 +338,42 @@ class PostgresPersistence {
   }
 
   /**
+   * Get recent updates with user info (limited query for metadata)
+   * @param {string} docGuid - Document GUID
+   * @param {number} limit - Maximum number of updates to return (default: 100)
+   * @returns {Promise<Array>} Recent updates with user metadata in ascending clock order
+   */
+  async getRecentUpdatesWithUsers(docGuid, limit = 100) {
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      // Query in descending order with limit, then reverse for ascending order
+      const result = await client.query(
+        `SELECT u.clock, u.created_at, u.user_id, u.agent_name,
+                usr.name as user_name, usr.email as user_email, usr.picture as user_picture
+         FROM yjs_updates u
+         LEFT JOIN users usr ON u.user_id = usr.id
+         WHERE u.doc_guid = $1
+         ORDER BY u.clock DESC
+         LIMIT $2`,
+        [docGuid, limit]
+      );
+      // Reverse to return in ascending clock order (for grouping logic compatibility)
+      return result.rows.reverse().map(row => ({
+        clock: row.clock,
+        createdAt: row.created_at,
+        userId: row.user_id,
+        userName: row.user_name,
+        userEmail: row.user_email,
+        userPicture: row.user_picture,
+        agentName: row.agent_name,
+      }));
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Get all updates with user info for version timeline
    * @param {string} docGuid - Document GUID
    * @returns {Promise<Array>} All updates with user metadata

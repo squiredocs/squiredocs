@@ -3,11 +3,13 @@
  */
 const {
   generateColorFromId,
+  createAuthor,
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,
   restoreVersion,
   getVersionContent,
+  getCurrentSessionAuthors,
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
@@ -506,6 +508,134 @@ describe('version-history module', () => {
     });
   });
 
+  describe('createAuthor', () => {
+    test('returns null for update without userId', () => {
+      expect(createAuthor({})).toBeNull();
+      expect(createAuthor({ userName: 'Test' })).toBeNull();
+    });
+
+    test('creates author object for regular user', () => {
+      const update = {
+        userId: 'user-123',
+        userName: 'Alice',
+        userEmail: 'alice@example.com',
+        userPicture: 'https://example.com/pic.jpg',
+      };
+
+      const author = createAuthor(update);
+
+      expect(author).toEqual({
+        id: 'user-123',
+        name: 'Alice',
+        email: 'alice@example.com',
+        picture: 'https://example.com/pic.jpg',
+        color: expect.stringMatching(/^hsl\(\d+, 70%, 45%\)$/),
+        isAgent: false,
+      });
+    });
+
+    test('creates author object for agent', () => {
+      const update = {
+        userId: 'user-123',
+        userName: 'Alice',
+        userEmail: 'alice@example.com',
+        agentName: 'Claude',
+      };
+
+      const author = createAuthor(update);
+
+      expect(author.name).toBe('Claude');
+      expect(author.isAgent).toBe(true);
+    });
+
+    test('uses different color for agent vs user', () => {
+      const userUpdate = { userId: 'user-123', userName: 'Alice' };
+      const agentUpdate = { userId: 'user-123', userName: 'Alice', agentName: 'Claude' };
+
+      const userAuthor = createAuthor(userUpdate);
+      const agentAuthor = createAuthor(agentUpdate);
+
+      expect(userAuthor.color).not.toBe(agentAuthor.color);
+    });
+  });
+
+  describe('getCurrentSessionAuthors', () => {
+    test('returns empty array for empty/null updates', () => {
+      expect(getCurrentSessionAuthors([])).toEqual([]);
+      expect(getCurrentSessionAuthors(null)).toEqual([]);
+      expect(getCurrentSessionAuthors(undefined)).toEqual([]);
+    });
+
+    test('returns authors from single update', () => {
+      const updates = [
+        { clock: 1, createdAt: '2024-01-01T10:00:00Z', userId: 'user-1', userName: 'Alice' },
+      ];
+
+      const authors = getCurrentSessionAuthors(updates);
+
+      expect(authors).toHaveLength(1);
+      expect(authors[0].name).toBe('Alice');
+    });
+
+    test('returns authors from last session only', () => {
+      const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
+
+      const updates = [
+        // First session - Alice
+        { clock: 1, createdAt: new Date(baseTime).toISOString(), userId: 'user-1', userName: 'Alice' },
+        { clock: 2, createdAt: new Date(baseTime + 1000).toISOString(), userId: 'user-1', userName: 'Alice' },
+        // Gap > 5 minutes (need more than threshold, not equal)
+        // Second session - Bob
+        { clock: 3, createdAt: new Date(baseTime + DEFAULT_INACTIVITY_THRESHOLD + 2000).toISOString(), userId: 'user-2', userName: 'Bob' },
+        { clock: 4, createdAt: new Date(baseTime + DEFAULT_INACTIVITY_THRESHOLD + 3000).toISOString(), userId: 'user-2', userName: 'Bob' },
+      ];
+
+      const authors = getCurrentSessionAuthors(updates);
+
+      // Should only return Bob (from last session)
+      expect(authors).toHaveLength(1);
+      expect(authors[0].name).toBe('Bob');
+    });
+
+    test('returns multiple authors from last session', () => {
+      const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
+
+      const updates = [
+        // First session (ignored)
+        { clock: 1, createdAt: new Date(baseTime).toISOString(), userId: 'user-1', userName: 'Alice' },
+        // Gap > 5 minutes
+        // Second session - Alice and Bob editing together
+        { clock: 2, createdAt: new Date(baseTime + DEFAULT_INACTIVITY_THRESHOLD + 1000).toISOString(), userId: 'user-1', userName: 'Alice' },
+        { clock: 3, createdAt: new Date(baseTime + DEFAULT_INACTIVITY_THRESHOLD + 2000).toISOString(), userId: 'user-2', userName: 'Bob' },
+        { clock: 4, createdAt: new Date(baseTime + DEFAULT_INACTIVITY_THRESHOLD + 3000).toISOString(), userId: 'user-1', userName: 'Alice' },
+      ];
+
+      const authors = getCurrentSessionAuthors(updates);
+
+      // Should return both Alice and Bob from last session
+      expect(authors).toHaveLength(2);
+      const names = authors.map(a => a.name).sort();
+      expect(names).toEqual(['Alice', 'Bob']);
+    });
+
+    test('distinguishes user from agent in same session', () => {
+      const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
+
+      const updates = [
+        { clock: 1, createdAt: new Date(baseTime).toISOString(), userId: 'user-1', userName: 'Sam' },
+        { clock: 2, createdAt: new Date(baseTime + 1000).toISOString(), userId: 'user-1', userName: 'Sam', agentName: 'Claude' },
+      ];
+
+      const authors = getCurrentSessionAuthors(updates);
+
+      // Should have both Sam (human) and Claude (agent) as separate authors
+      expect(authors).toHaveLength(2);
+      const humanAuthor = authors.find(a => !a.isAgent);
+      const agentAuthor = authors.find(a => a.isAgent);
+      expect(humanAuthor.name).toBe('Sam');
+      expect(agentAuthor.name).toBe('Claude');
+    });
+  });
 
   describe('restoreVersion', () => {
     test('restores document to previous version content', async () => {

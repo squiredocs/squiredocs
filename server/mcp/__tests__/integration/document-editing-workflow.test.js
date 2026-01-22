@@ -62,7 +62,7 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
     // Initialize modules
     documents.init(pool);
     documentService.init(getYDoc, extractDocGuid);
-    toolRegistry.init({ getPool: () => pool });
+    toolRegistry.init(persistence);
 
     // Initialize agent presence with persistence
     agentPresence.init(persistence);
@@ -147,18 +147,22 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
     // Give sessions time to close
     await new Promise((resolve) => setTimeout(resolve, 100));
 
+    // Close WebSocket server first (before cleaning up data)
+    // This prevents writeState callbacks from running during cleanup
+    wss.close();
+    await new Promise((resolve) => {
+      httpServer.close(resolve);
+    });
+
+    // Wait for any pending writeState callbacks to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     // Clean up test data
     await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [testDocGuid]);
     await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [testDocGuid]);
     await pool.query('DELETE FROM documents WHERE id = $1', [testDocGuid]);
     await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     await pool.end();
-
-    // Close WebSocket server
-    wss.close();
-    await new Promise((resolve) => {
-      httpServer.close(resolve);
-    });
 
     // Cleanup persistence
     await persistence.destroy();

@@ -771,6 +771,19 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
 }
 
 /**
+ * Get authors from the current editing session
+ * Uses same grouping logic as version history (5-minute inactivity threshold)
+ * @param {Array} updates - Array of updates with user info (in ascending clock order)
+ * @returns {Array} Authors from the most recent session (last version)
+ */
+function getCurrentSessionAuthors(updates) {
+  if (!updates || updates.length === 0) return [];
+  const versions = groupUpdatesIntoVersions(updates, DEFAULT_INACTIVITY_THRESHOLD);
+  if (versions.length === 0) return [];
+  return versions[versions.length - 1].authors;
+}
+
+/**
  * Get document content at a specific clock value
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -796,6 +809,7 @@ async function getContentAtClock(persistence, docGuid, clock) {
 
 module.exports = {
   generateColorFromId,
+  createAuthor,
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,
@@ -803,6 +817,7 @@ module.exports = {
   getVersionContent,
   getUpdatesForVersion,
   getContentAtClock,
+  getCurrentSessionAuthors,
   restoreVersion,
   DEFAULT_INACTIVITY_THRESHOLD,
   UPDATE_GROUPING_THRESHOLD,

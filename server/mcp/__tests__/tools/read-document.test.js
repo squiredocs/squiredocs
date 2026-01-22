@@ -9,6 +9,7 @@ const Y = require('yjs');
 // Mock agent-presence
 jest.mock('../../agent-presence', () => ({
   getOrCreateSession: jest.fn(),
+  queueHighlightSequence: jest.fn(),
 }));
 
 // Mock xpath module
@@ -68,6 +69,7 @@ describe('read_document tool', () => {
     // Mock persistence provider
     const mockPersistence = {
       getPool: () => mockPool,
+      getRecentUpdatesWithUsers: jest.fn().mockResolvedValue([]),
     };
 
     // Initialize tool

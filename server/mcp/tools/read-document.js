@@ -17,6 +17,7 @@ const {
   countCharacters,
   countBlocks,
 } = require('../yjs/serialization');
+const versionHistory = require('../../version-history');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -79,6 +80,11 @@ RETURNS
 - content: Structured array or text string (based on format)
 - matchCount: Number of elements returned (when using xpath)
 - blockCount: Total blocks in document
+- characterCount: Total characters in result
+- clock: Current document version (update counter)
+- lastModifiedAt: ISO timestamp of last modification
+- lastModifiedBy: Author object of last modifier
+- recentAuthors: Array of authors from current editing session
 
 ═══════════════════════════════════════════════════════════════════════════
 EXAMPLES
@@ -201,10 +207,30 @@ async function handler(args, agentToken) {
   // Count characters in results
   const characterCount = countCharacters(nodes);
 
+  // Fetch version metadata
+  const recentUpdates = await persistenceProvider.getRecentUpdatesWithUsers(docGuid, 100);
+
+  let clock = null;
+  let lastModifiedAt = null;
+  let lastModifiedBy = null;
+  let recentAuthors = [];
+
+  if (recentUpdates.length > 0) {
+    const lastUpdate = recentUpdates[recentUpdates.length - 1];
+    clock = lastUpdate.clock;
+    lastModifiedAt = lastUpdate.createdAt;
+    lastModifiedBy = versionHistory.createAuthor(lastUpdate);
+    recentAuthors = versionHistory.getCurrentSessionAuthors(recentUpdates);
+  }
+
   const result = {
     content,
     blockCount,
     characterCount,
+    clock,
+    lastModifiedAt,
+    lastModifiedBy,
+    recentAuthors,
   };
 
   if (xpathExpr) {
