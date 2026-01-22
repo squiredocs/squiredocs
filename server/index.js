@@ -1240,9 +1240,18 @@ wss.on('connection', (ws, req) => {
       }
 
       // Track which connection is processing this message for attribution
-      // Set before y-websocket processes it, clear after
+      // Set for edit messages - will be used by ydoc.on('update') handler
+      // Don't clear immediately - let it persist until next message overwrites it
       if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
         currentProcessingConnection.set(docId, connId);
+        // Clear after a short delay to handle async processing
+        // The update handler should fire within a few ms
+        setTimeout(() => {
+          // Only clear if it's still this connection (not overwritten by another)
+          if (currentProcessingConnection.get(docId) === connId) {
+            currentProcessingConnection.delete(docId);
+          }
+        }, 100);
       }
 
       // Block edit messages from viewers
@@ -1255,17 +1264,7 @@ wss.on('connection', (ws, req) => {
     }
 
     // Call original emit (this will trigger y-websocket processing and eventually ydoc.on('update'))
-    const result = originalEmit(event, ...args);
-
-    // Clean up after message is processed
-    if (event === 'message' && docId) {
-      const buffer = Buffer.isBuffer(args[0]) ? args[0] : Buffer.from(args[0]);
-      if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
-        currentProcessingConnection.delete(docId);
-      }
-    }
-
-    return result;
+    return originalEmit(event, ...args);
   };
 
   ws.on('error', (error) => {
