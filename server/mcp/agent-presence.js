@@ -225,7 +225,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
 
   // Create the promise and store it immediately to prevent race conditions
   const sessionPromise = new Promise((resolve, reject) => {
-    let timeoutId = null;
     let provider = null;
     let connectionTimeoutId = null;
 
@@ -260,10 +259,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
           }
         }
 
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
         if (connectionTimeoutId) {
           clearTimeout(connectionTimeoutId);
           connectionTimeoutId = null;
@@ -385,9 +380,10 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
-      // Handle connection close
+      // Handle connection close (unexpected close during setup)
       provider.on('connection-close', () => {
         cleanup();
+        reject(new Error('WebSocket connection closed unexpectedly'));
       });
 
       // Set timeout for initial connection
