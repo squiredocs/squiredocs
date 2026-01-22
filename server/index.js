@@ -1181,7 +1181,7 @@ wss.on('connection', (ws, req) => {
   const sanitizedUrl = req.url?.split('?')[0] || req.url;
 
   logPerf('WS_CONNECT', { connId, url: sanitizedUrl, role: userRole, canEdit });
-  console.log(`✓ WebSocket connection established: ${sanitizedUrl} (role: ${userRole})`);
+  console.log(`✓ WebSocket connection established [connId=${connId}]: ${sanitizedUrl} (role: ${userRole}, userId: ${userId})`);
 
   // Register user for version history attribution
   if (userId && docId) {
@@ -1414,8 +1414,11 @@ wss.on('connection', (ws, req) => {
         const checkAwareness = () => {
           for (const [clientId, state] of doc.awareness.getStates().entries()) {
             if (state.user?.isAgent && state.user?.name) {
-              registerDocumentUser(docId, connId, userId, state.user.name);
-              console.log(`[Agent] Detected: ${state.user.name} for doc ${docId}`);
+              // Only register agent for THIS connection's awareness state
+              if (clientId === connectionClientId) {
+                registerDocumentUser(docId, connId, userId, state.user.name);
+                console.log(`[Agent] Detected on connId=${connId}: ${state.user.name} for doc ${docId}`);
+              }
             }
           }
         };
