@@ -49,7 +49,7 @@ PARAMETERS
 - docGuid: Document UUID (required)
 - versionId: Version identifier (required)
   - UUID for named versions
-  - "auto-{clock}" for auto-generated versions (e.g., "auto-42")
+  - Clock number as string for auto-generated versions (e.g., "42")
 - xpath: XPath expression to filter results (optional)
   - Same syntax as read_document tool
 - format: "structured" or "text" (optional, default: "structured")
@@ -111,7 +111,7 @@ const inputSchema = {
     },
     versionId: {
       type: 'string',
-      description: 'Version ID (UUID or "auto-{clock}")',
+      description: 'Version ID (UUID or clock number as string)',
     },
     xpath: {
       type: 'string',

@@ -136,11 +136,11 @@ const inputSchema = {
     },
     versionId1: {
       type: 'string',
-      description: 'First version to compare. Formats: UUID (named version), "auto-{clock}" (version ending at clock), or "clock-{clock}" (state at exact clock)',
+      description: 'First version to compare. Formats: UUID (named version) or clock number as string',
     },
     versionId2: {
       type: 'string',
-      description: 'Second version to compare. Formats: UUID (named version), "auto-{clock}" (version ending at clock), or "clock-{clock}" (state at exact clock)',
+      description: 'Second version to compare. Formats: UUID (named version) or clock number as string',
     },
     script: {
       type: 'string',

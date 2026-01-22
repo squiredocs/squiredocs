@@ -26,9 +26,9 @@ function validateName(name) {
 
 /**
  * Parse versionId to extract clock value and type
- * Supports formats returned by list_document_versions: UUID, auto-{clock}, subversion-{clock}
+ * Supports formats returned by list_document_versions: UUID or clock number
  * @param {string} versionId
- * @returns {{ type: 'uuid'|'auto'|'subversion', clock?: number, uuid?: string }}
+ * @returns {{ type: 'uuid'|'clock', clock?: number, uuid?: string }}
  */
 function parseVersionId(versionId) {
   // Check for UUID format (named versions)
@@ -36,19 +36,13 @@ function parseVersionId(versionId) {
     return { type: 'uuid', uuid: versionId };
   }
 
-  // Check for auto-{clock} format (auto-generated versions)
-  const autoMatch = versionId.match(/^auto-(\d+)$/);
-  if (autoMatch) {
-    return { type: 'auto', clock: parseInt(autoMatch[1], 10) };
+  // Parse as clock number
+  const clock = parseInt(versionId, 10);
+  if (isNaN(clock)) {
+    throw new Error('Invalid versionId format. Must be UUID or clock number as returned by list_document_versions');
   }
 
-  // Check for subversion-{clock} format (subversions)
-  const subversionMatch = versionId.match(/^subversion-(\d+)$/);
-  if (subversionMatch) {
-    return { type: 'subversion', clock: parseInt(subversionMatch[1], 10) };
-  }
-
-  throw new Error('Invalid versionId format. Must be UUID, auto-{clock}, or subversion-{clock} as returned by list_document_versions');
+  return { type: 'clock', clock };
 }
 
 /**
@@ -75,26 +69,26 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
     };
   }
 
-  // Handle auto/subversion - need to look up in timeline
+  // Handle clock-based ID - search in timeline
   const timeline = await versionHistory.getVersionTimeline(persistenceProvider, docGuid);
 
-  // For subversions, we need to find the parent version and populate its subversions
-  if (parsed.type === 'subversion') {
-    // Find the parent version that contains this clock value
-    for (const version of timeline.versions) {
-      if (parsed.clock >= version.clockStart && parsed.clock <= version.clockEnd) {
-        // Populate subversions for this version
-        const result = await versionHistory.getUpdatesForVersion(
-          persistenceProvider,
-          docGuid,
-          version.clockStart,
-          version.clockEnd,
-          1000 // High limit to ensure we get all subversions
-        );
+  // First check if this clock might be a subversion (check parent versions that contain it)
+  // We prioritize subversions over main versions for more granular matching
+  for (const version of timeline.versions) {
+    if (parsed.clock >= version.clockStart && parsed.clock <= version.clockEnd) {
+      // Populate subversions for this version
+      const result = await versionHistory.getUpdatesForVersion(
+        persistenceProvider,
+        docGuid,
+        version.clockStart,
+        version.clockEnd,
+        1000 // High limit to ensure we get all subversions
+      );
 
-        // Search for the matching subversion in the returned array
+      // Search for the matching subversion
+      if (result && result.subversions && result.subversions.length > 0) {
         for (const subversion of result.subversions) {
-          if (subversion.id === versionId || subversion.clockEnd === parsed.clock) {
+          if (subversion.clockEnd === parsed.clock) {
             return {
               clockStart: subversion.clockStart,
               clockEnd: subversion.clockEnd,
@@ -104,12 +98,11 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
         }
       }
     }
-    return null;
   }
 
-  // For auto versions, search by ID or clockEnd
+  // If not found in subversions, check main versions
   for (const version of timeline.versions) {
-    if (version.id === versionId || version.clockEnd === parsed.clock) {
+    if (version.clockEnd === parsed.clock) {
       return {
         clockStart: version.clockStart,
         clockEnd: version.clockEnd,
@@ -139,7 +132,7 @@ const description = `Manage named document versions with three operations:
 - UPDATE: Rename existing named version
 - DELETE: Remove name from version (versionId + name: null)
 
-Use versionId from list_document_versions (UUID, auto-X, or subversion-X).
+Use versionId from list_document_versions (UUID or clock number).
 Omit versionId to name the current state.
 
 Examples:
@@ -147,11 +140,11 @@ Examples:
 // Name current state
 await set_document_version_name({ docGuid: "abc-123", name: "Draft 1" });
 
-// Name historical auto-version
-await set_document_version_name({ docGuid: "abc-123", versionId: "auto-12", name: "Before Refactor" });
+// Name historical version by clock number
+await set_document_version_name({ docGuid: "abc-123", versionId: "12", name: "Before Refactor" });
 
-// Name subversion
-await set_document_version_name({ docGuid: "abc-123", versionId: "subversion-28", name: "Checkpoint" });
+// Name subversion by clock number
+await set_document_version_name({ docGuid: "abc-123", versionId: "28", name: "Checkpoint" });
 
 // Rename existing named version
 await set_document_version_name({ docGuid: "abc-123", versionId: "uuid", name: "Final" });
@@ -177,7 +170,7 @@ const inputSchema = {
     },
     versionId: {
       type: 'string',
-      description: 'Version ID from list_document_versions (UUID, auto-X, or subversion-X) - optional',
+      description: 'Version ID from list_document_versions (UUID or clock number) - optional',
     },
   },
   required: ['docGuid', 'name'],
@@ -208,7 +201,7 @@ async function handler(args, agentToken) {
 
   // MODIFY or NAME existing version (with versionId)
   if (versionId) {
-    // Look up the version (supports UUID, auto-X, subversion-X, clock)
+    // Look up the version (supports UUID or clock number)
     const version = await lookupVersionById(docGuid, versionId, persistenceProvider);
     if (!version) {
       throw new Error('Version not found');
@@ -233,7 +226,7 @@ async function handler(args, agentToken) {
         message: `Version renamed to "${trimmedName}"`,
       };
     } else {
-      // This is an auto-version or subversion - CREATE a named version from it
+      // This is an unnamed version - CREATE a named version from it
       if (name === null) {
         throw new Error('Cannot delete unnamed version. This version does not have a name to remove');
       }

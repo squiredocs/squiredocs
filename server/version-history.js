@@ -122,7 +122,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
   if (!namedVersions || namedVersions.length === 0) {
     return autoVersions.map((v, i) => ({
       ...v,
-      id: `auto-${v.clockEnd}`,
+      id: String(v.clockEnd),
       isNamed: false,
       isCurrent: i === autoVersions.length - 1,
     }));
@@ -173,7 +173,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       // No overlap - keep the auto version as-is
       result.push({
         ...autoVersion,
-        id: `auto-${autoVersion.clockEnd}`,
+        id: String(autoVersion.clockEnd),
         isNamed: false,
       });
     } else {
@@ -193,7 +193,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
             ...autoVersion,
             clockStart: nv.clockEnd + 1,
             clockEnd: currentEnd,
-            id: `auto-${currentEnd}`,
+            id: String(currentEnd),
             isNamed: false,
           });
         }
@@ -209,7 +209,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
           ...autoVersion,
           clockStart: autoVersion.clockStart,
           clockEnd: currentEnd,
-          id: `auto-${currentEnd}`,
+          id: String(currentEnd),
           isNamed: false,
         });
       }
@@ -493,7 +493,7 @@ async function getVersionTimeline(persistence, docGuid) {
  * Get document content at a specific version
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
- * @param {string} versionId - Version ID (can be named version UUID or auto-{clock})
+ * @param {string} versionId - Version ID (UUID for named versions, or clock number as string)
  * @returns {Promise<Object>} Version content and metadata
  */
 async function getVersionContent(persistence, docGuid, versionId) {
@@ -524,20 +524,12 @@ async function getVersionContent(persistence, docGuid, versionId) {
         version: versionMeta,
       };
     }
-  } else if (versionId.startsWith('auto-')) {
-    // Auto-generated version ID format: auto-{clockEnd}
-    clockEnd = parseInt(versionId.replace('auto-', ''), 10);
-    if (isNaN(clockEnd)) {
-      throw new Error('Invalid version ID');
-    }
-  } else if (versionId.startsWith('clock-')) {
-    // Single clock update format: clock-{clock}
-    clockEnd = parseInt(versionId.replace('clock-', ''), 10);
-    if (isNaN(clockEnd)) {
-      throw new Error('Invalid version ID');
-    }
   } else {
-    throw new Error('Invalid version ID format');
+    // Parse as clock number
+    clockEnd = parseInt(versionId, 10);
+    if (isNaN(clockEnd)) {
+      throw new Error('Invalid version ID format');
+    }
   }
 
   // Validate that the requested clock exists
@@ -554,20 +546,8 @@ async function getVersionContent(persistence, docGuid, versionId) {
   const maxClock = Math.max(...clocks);
 
   // Check if requested clock is out of range
-  if (clockEnd < minClock) {
-    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} is before first update at clock ${minClock})`);
-  }
-
-  if (clockEnd > maxClock) {
-    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} exceeds latest update at clock ${maxClock})`);
-  }
-
-  // For clock- prefix, verify the exact clock exists
-  if (versionId.startsWith('clock-')) {
-    const clockExists = clocks.includes(clockEnd);
-    if (!clockExists) {
-      throw new Error(`Version not found: ${versionId} (no update exists at clock ${clockEnd}). Valid clocks range from ${minClock} to ${maxClock}`);
-    }
+  if (clockEnd < minClock || clockEnd > maxClock) {
+    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} out of range ${minClock}-${maxClock})`);
   }
 
   // Reconstruct document at the specified clock
@@ -763,7 +743,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
 
   // Map to response format and reverse to show most recent first (newest first)
   const allSubversions = subVersions.map((sv, i) => ({
-    id: `subversion-${sv.clockEnd}`,
+    id: String(sv.clockEnd),
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
     previousClock: i === subVersions.length - 1

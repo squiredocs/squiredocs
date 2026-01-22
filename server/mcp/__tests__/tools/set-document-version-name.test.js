@@ -375,7 +375,7 @@ describe('set_document_version_name', () => {
     });
   });
 
-  describe('NAME HISTORICAL mode (auto-version ID)', () => {
+  describe('NAME HISTORICAL mode (clock-based ID)', () => {
     beforeEach(() => {
       mockPool.query.mockResolvedValue({
         rows: [{ role: 'editor' }],
@@ -383,8 +383,8 @@ describe('set_document_version_name', () => {
 
       versionHistory.getVersionTimeline.mockResolvedValue({
         versions: [
-          { id: 'auto-20', clockStart: 15, clockEnd: 20, isNamed: false },
-          { id: 'auto-10', clockStart: 0, clockEnd: 10, isNamed: false },
+          { id: '20', clockStart: 15, clockEnd: 20, isNamed: false },
+          { id: '10', clockStart: 0, clockEnd: 10, isNamed: false },
         ],
       });
 
@@ -397,9 +397,9 @@ describe('set_document_version_name', () => {
       });
     });
 
-    test('names historical auto-version successfully', async () => {
+    test('names historical clock-based version successfully', async () => {
       const result = await tool.handler(
-        { docGuid: 'doc-123', versionId: 'auto-10', name: 'Historical Checkpoint' },
+        { docGuid: 'doc-123', versionId: '10', name: 'Historical Checkpoint' },
         mockAgentToken
       );
 
@@ -418,23 +418,23 @@ describe('set_document_version_name', () => {
 
     test('throws error for undefined name', async () => {
       await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10' }, mockAgentToken)
+        tool.handler({ docGuid: 'doc-123', versionId: '10' }, mockAgentToken)
       ).rejects.toThrow('name parameter is required');
     });
 
-    test('throws error for null name on auto-version', async () => {
+    test('throws error for null name on clock-based version', async () => {
       await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10', name: null }, mockAgentToken)
+        tool.handler({ docGuid: 'doc-123', versionId: '10', name: null }, mockAgentToken)
       ).rejects.toThrow('Cannot delete unnamed version');
     });
 
-    test('throws error for auto-version not found', async () => {
+    test('throws error for clock-based version not found', async () => {
       versionHistory.getVersionTimeline.mockResolvedValue({
-        versions: [{ id: 'auto-20', clockStart: 15, clockEnd: 20, isNamed: false }],
+        versions: [{ id: '20', clockStart: 15, clockEnd: 20, isNamed: false }],
       });
 
       await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: 'auto-10', name: 'Test' }, mockAgentToken)
+        tool.handler({ docGuid: 'doc-123', versionId: '10', name: 'Test' }, mockAgentToken)
       ).rejects.toThrow('Version not found');
     });
 
@@ -445,7 +445,7 @@ describe('set_document_version_name', () => {
     });
   });
 
-  describe('NAME HISTORICAL mode (subversion ID)', () => {
+  describe('NAME HISTORICAL mode (clock-based subversion ID)', () => {
     beforeEach(() => {
       mockPool.query.mockResolvedValue({
         rows: [{ role: 'editor' }],
@@ -454,7 +454,7 @@ describe('set_document_version_name', () => {
       versionHistory.getVersionTimeline.mockResolvedValue({
         versions: [
           {
-            id: 'auto-20',
+            id: '20',
             clockStart: 15,
             clockEnd: 20,
             isNamed: false,
@@ -462,12 +462,12 @@ describe('set_document_version_name', () => {
         ],
       });
 
-      // Mock getUpdatesForVersion to return object with subversions array
+      // Mock getUpdatesForVersion to return object with clock-based subversions array
       versionHistory.getUpdatesForVersion.mockResolvedValue({
         subversions: [
-          { id: 'subversion-16', clockStart: 15, clockEnd: 16 },
-          { id: 'subversion-18', clockStart: 17, clockEnd: 18 },
-          { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
+          { id: '16', clockStart: 15, clockEnd: 16 },
+          { id: '18', clockStart: 17, clockEnd: 18 },
+          { id: '20', clockStart: 19, clockEnd: 20 },
         ],
         total: 3,
         hasMore: false,
@@ -482,9 +482,9 @@ describe('set_document_version_name', () => {
       });
     });
 
-    test('names intermediate subversion successfully', async () => {
+    test('names intermediate clock-based subversion successfully', async () => {
       const result = await tool.handler(
-        { docGuid: 'doc-123', versionId: 'subversion-18', name: 'Subversion Checkpoint' },
+        { docGuid: 'doc-123', versionId: '18', name: 'Subversion Checkpoint' },
         mockAgentToken
       );
 
@@ -508,9 +508,9 @@ describe('set_document_version_name', () => {
       );
     });
 
-    test('names first subversion successfully', async () => {
+    test('names first clock-based subversion successfully', async () => {
       const result = await tool.handler(
-        { docGuid: 'doc-123', versionId: 'subversion-16', name: 'First Subversion' },
+        { docGuid: 'doc-123', versionId: '16', name: 'First Subversion' },
         mockAgentToken
       );
 
@@ -525,9 +525,9 @@ describe('set_document_version_name', () => {
       );
     });
 
-    test('names last subversion successfully', async () => {
+    test('names last clock-based subversion successfully', async () => {
       const result = await tool.handler(
-        { docGuid: 'doc-123', versionId: 'subversion-20', name: 'Last Subversion' },
+        { docGuid: 'doc-123', versionId: '20', name: 'Last Subversion' },
         mockAgentToken
       );
 
@@ -542,23 +542,23 @@ describe('set_document_version_name', () => {
       );
     });
 
-    test('throws error for subversion not found', async () => {
+    test('throws error for clock-based subversion not found', async () => {
       versionHistory.getUpdatesForVersion.mockResolvedValue({
         subversions: [
-          { id: 'subversion-20', clockStart: 19, clockEnd: 20 },
+          { id: '20', clockStart: 19, clockEnd: 20 },
         ],
         total: 1,
         hasMore: false,
       });
 
       await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: 'subversion-18', name: 'Test' }, mockAgentToken)
+        tool.handler({ docGuid: 'doc-123', versionId: '18', name: 'Test' }, mockAgentToken)
       ).rejects.toThrow('Version not found');
     });
 
-    test('throws error for subversion outside parent version range', async () => {
+    test('throws error for clock-based subversion outside parent version range', async () => {
       await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: 'subversion-50', name: 'Test' }, mockAgentToken)
+        tool.handler({ docGuid: 'doc-123', versionId: '50', name: 'Test' }, mockAgentToken)
       ).rejects.toThrow('Version not found');
     });
   });

@@ -44,7 +44,7 @@ PARAMETERS
 - docGuid: Document UUID (required)
 - versionId: Version to restore to (required)
   - UUID for named versions
-  - "auto-{clock}" for auto-generated versions
+  - Clock number as string for auto-generated versions
 
 ═══════════════════════════════════════════════════════════════════════════
 PERMISSIONS
@@ -91,7 +91,7 @@ const inputSchema = {
     },
     versionId: {
       type: 'string',
-      description: 'Version to restore to (UUID or "auto-{clock}")',
+      description: 'Version to restore to (UUID or clock number as string)',
     },
   },
   required: ['docGuid', 'versionId'],

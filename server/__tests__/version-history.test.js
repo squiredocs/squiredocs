@@ -140,8 +140,8 @@ describe('version-history module', () => {
       const result = mergeNamedVersions(autoVersions, []);
 
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe('auto-5');
-      expect(result[1].id).toBe('auto-10');
+      expect(result[0].id).toBe('5');
+      expect(result[1].id).toBe('10');
       expect(result[1].isCurrent).toBe(true); // Most recent
     });
 
@@ -217,7 +217,7 @@ describe('version-history module', () => {
       expect(result).toHaveLength(2);
 
       // Find the auto fragment - should only contain clock 60
-      const autoFragment = result.find(v => v.id === 'auto-60');
+      const autoFragment = result.find(v => v.id === '60');
       expect(autoFragment).toBeDefined();
       expect(autoFragment.clockStart).toBe(60);
       expect(autoFragment.clockEnd).toBe(60);
@@ -255,7 +255,7 @@ describe('version-history module', () => {
       expect(result).toHaveLength(2);
 
       // Fragment before the named version (50-57)
-      const autoFragment = result.find(v => v.id === 'auto-57');
+      const autoFragment = result.find(v => v.id === '57');
       expect(autoFragment).toBeDefined();
       expect(autoFragment.clockStart).toBe(50);
       expect(autoFragment.clockEnd).toBe(57);
@@ -291,7 +291,7 @@ describe('version-history module', () => {
       expect(result).toHaveLength(3);
 
       // Fragment after the named version (57-60)
-      const afterFragment = result.find(v => v.id === 'auto-60');
+      const afterFragment = result.find(v => v.id === '60');
       expect(afterFragment).toBeDefined();
       expect(afterFragment.clockStart).toBe(57);
       expect(afterFragment.clockEnd).toBe(60);
@@ -303,7 +303,7 @@ describe('version-history module', () => {
       expect(namedVersion.clockEnd).toBe(56);
 
       // Fragment before the named version (50-53)
-      const beforeFragment = result.find(v => v.id === 'auto-53');
+      const beforeFragment = result.find(v => v.id === '53');
       expect(beforeFragment).toBeDefined();
       expect(beforeFragment.clockStart).toBe(50);
       expect(beforeFragment.clockEnd).toBe(53);
@@ -617,7 +617,7 @@ describe('version-history module', () => {
       expect(getText(currentDoc)).toBe('Final version');
 
       // Now restore to version 1 (clock 1)
-      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1');
 
       // Get the document after restore
       const restoredDoc = await mockPersistence.getYDoc('test-doc');
@@ -742,7 +742,7 @@ describe('version-history module', () => {
       };
 
       // Restore to version 1 (clock 1) - this should update the in-memory document
-      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1', getSharedDocFn);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
 
       // Verify that the in-memory document was actually updated with the restored content
       // This is the key assertion - before the fix, this would fail because
@@ -872,7 +872,7 @@ describe('version-history module', () => {
       expect(currentMarks[0].attrs).toEqual({});
 
       // Now restore to version 1 (with formatting)
-      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1');
 
       // Get the document after restore
       const restoredDoc = await mockPersistence.getYDoc('test-doc');
@@ -989,7 +989,7 @@ describe('version-history module', () => {
       await mockPersistence.storeUpdate('test-doc', update2, 'user-1');
 
       // Restore to version 1
-      await restoreVersion(mockPersistence, 'test-doc', 'auto-1', 'user-1');
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1');
 
       // Verify marks are preserved with correct boundaries
       const restoredDoc = await mockPersistence.getYDoc('test-doc');
@@ -1033,38 +1033,25 @@ describe('version-history module', () => {
 
     test('rejects version ID with clock higher than max', async () => {
       await expect(
-        getVersionContent(mockPersistence, 'test-doc', 'auto-999')
-      ).rejects.toThrow('exceeds latest update at clock 15');
+        getVersionContent(mockPersistence, 'test-doc', '999')
+      ).rejects.toThrow('out of range');
     });
 
     test('rejects version ID with clock lower than min', async () => {
       await expect(
-        getVersionContent(mockPersistence, 'test-doc', 'auto-0')
-      ).rejects.toThrow('is before first update at clock 1');
+        getVersionContent(mockPersistence, 'test-doc', '0')
+      ).rejects.toThrow('out of range');
     });
 
-    test('accepts valid auto- version within range', async () => {
-      const result = await getVersionContent(mockPersistence, 'test-doc', 'auto-10');
+    test('accepts valid clock number within range', async () => {
+      const result = await getVersionContent(mockPersistence, 'test-doc', '10');
       expect(result).toHaveProperty('content');
       expect(result.content).toBeDefined();
     });
 
-    test('rejects clock- prefix with non-existent clock', async () => {
-      // Clock 7 doesn't exist (we have 1, 5, 10, 15)
-      await expect(
-        getVersionContent(mockPersistence, 'test-doc', 'clock-7')
-      ).rejects.toThrow('no update exists at clock 7');
-    });
-
-    test('accepts clock- prefix with exact existing clock', async () => {
-      const result = await getVersionContent(mockPersistence, 'test-doc', 'clock-10');
-      expect(result).toHaveProperty('content');
-      expect(result.content).toBeDefined();
-    });
-
-    test('auto- accepts any clock in range (not just exact)', async () => {
-      // auto-7 should work even though exact clock 7 doesn't exist
-      const result = await getVersionContent(mockPersistence, 'test-doc', 'auto-7');
+    test('accepts any clock in range (not just exact)', async () => {
+      // Clock 7 doesn't exist exactly (we have 1, 5, 10, 15) but is in range
+      const result = await getVersionContent(mockPersistence, 'test-doc', '7');
       expect(result).toHaveProperty('content');
       expect(result.content).toBeDefined();
     });
@@ -1073,17 +1060,14 @@ describe('version-history module', () => {
       mockPersistence.getUpdatesWithUsers = async () => [];
 
       await expect(
-        getVersionContent(mockPersistence, 'test-doc', 'auto-10')
+        getVersionContent(mockPersistence, 'test-doc', '10')
       ).rejects.toThrow('Document has no version history');
     });
 
-    test('error messages include helpful clock range info', async () => {
-      try {
-        await getVersionContent(mockPersistence, 'test-doc', 'clock-7');
-        fail('Should have thrown error');
-      } catch (error) {
-        expect(error.message).toContain('Valid clocks range from 1 to 15');
-      }
+    test('error message shows range for out-of-bounds clock', async () => {
+      await expect(
+        getVersionContent(mockPersistence, 'test-doc', '999')
+      ).rejects.toThrow(/out of range 1-15/);
     });
   });
 });

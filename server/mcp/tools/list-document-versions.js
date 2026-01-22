@@ -61,7 +61,7 @@ RETURNS
 ═══════════════════════════════════════════════════════════════════════════
 
 - versions: Array of version objects with:
-  - id: Version ID (UUID for named versions, "auto-{clock}" for auto versions)
+  - id: Version ID (UUID for named versions, clock number as string for auto versions)
   - name: Version name (null for auto versions)
   - clockStart: Starting clock value
   - clockEnd: Ending clock value

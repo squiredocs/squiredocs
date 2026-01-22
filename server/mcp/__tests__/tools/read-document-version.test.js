@@ -181,7 +181,7 @@ describe('read_document_version tool', () => {
       // Get the current version ID
       const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       const latestClock = updates[updates.length - 1].clock;
-      const versionId = `auto-${latestClock}`;
+      const versionId = String(latestClock);
 
       const result = await readDocumentVersion.handler(
         { docGuid: testDocGuid, versionId, format: 'structured' },
@@ -205,7 +205,7 @@ describe('read_document_version tool', () => {
 
       const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       const latestClock = updates[updates.length - 1].clock;
-      const versionId = `auto-${latestClock}`;
+      const versionId = String(latestClock);
 
       const result = await readDocumentVersion.handler(
         { docGuid: testDocGuid, versionId, format: 'text' },
@@ -225,7 +225,7 @@ describe('read_document_version tool', () => {
 
       const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       const latestClock = updates[updates.length - 1].clock;
-      const versionId = `auto-${latestClock}`;
+      const versionId = String(latestClock);
 
       const result = await readDocumentVersion.handler(
         {
@@ -258,7 +258,7 @@ describe('read_document_version tool', () => {
 
       await expect(
         readDocumentVersion.handler(
-          { docGuid: testDocGuid, versionId: 'auto-0' },
+          { docGuid: testDocGuid, versionId: '0' },
           agentToken
         )
       ).rejects.toThrow('do not have access');
@@ -288,7 +288,7 @@ describe('read_document_version tool', () => {
 
       const updates = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       const latestClock = updates[updates.length - 1].clock;
-      const versionId = `auto-${latestClock}`;
+      const versionId = String(latestClock);
 
       const result = await readDocumentVersion.handler(
         { docGuid: testDocGuid, versionId },

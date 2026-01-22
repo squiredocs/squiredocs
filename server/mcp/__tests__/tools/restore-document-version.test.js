@@ -214,7 +214,7 @@ describe('restore_document_version tool', () => {
         scopes: ['documents:write'],
       };
 
-      const oldVersionId = `auto-${oldClock}`;
+      const oldVersionId = String(oldClock);
 
       const result = await restoreDocumentVersion.handler(
         { docGuid: testDocGuid, versionId: oldVersionId },
@@ -237,7 +237,7 @@ describe('restore_document_version tool', () => {
         scopes: ['documents:write'],
       };
 
-      const oldVersionId = `auto-${oldClock}`;
+      const oldVersionId = String(oldClock);
       const updatesBeforeRestore = await persistenceProvider.getUpdatesWithUsers(testDocGuid);
       const countBefore = updatesBeforeRestore.length;
 
@@ -263,7 +263,7 @@ describe('restore_document_version tool', () => {
         scopes: ['documents:write'],
       };
 
-      const oldVersionId = `auto-${oldClock}`;
+      const oldVersionId = String(oldClock);
 
       await restoreDocumentVersion.handler(
         { docGuid: testDocGuid, versionId: oldVersionId },
@@ -316,7 +316,7 @@ describe('restore_document_version tool', () => {
         scopes: ['documents:write'],
       };
 
-      const oldVersionId = `auto-${oldClock}`;
+      const oldVersionId = String(oldClock);
 
       await expect(
         restoreDocumentVersion.handler(
@@ -344,7 +344,7 @@ describe('restore_document_version tool', () => {
         scopes: ['documents:write'],
       };
 
-      const oldVersionId = `auto-${oldClock}`;
+      const oldVersionId = String(oldClock);
 
       await expect(
         restoreDocumentVersion.handler(
