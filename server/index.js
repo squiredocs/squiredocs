@@ -202,6 +202,10 @@ setPersistence({
       // Get agent name if this update is from an agent
       const agentName = getDocumentAgentName(docGuid);
 
+      // DEBUG: Log attribution decisions
+      const currentConnId = currentProcessingConnection.get(docGuid);
+      console.log(`[Attribution] docGuid=${docGuid} currentConnId=${currentConnId} agentName=${agentName} userId=${userId}`);
+
       const persistStart = Date.now();
 
       // Helper for retry logic on transient failures
@@ -1243,12 +1247,16 @@ wss.on('connection', (ws, req) => {
       // Set for edit messages - will be used by ydoc.on('update') handler
       // Don't clear immediately - let it persist until next message overwrites it
       if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
+        const connections = documentConnectionMap.get(docId);
+        const conn = connections?.get(connId);
+        console.log(`[Attribution:Set] docId=${docId} connId=${connId} agentName=${conn?.agentName} userId=${conn?.userId}`);
         currentProcessingConnection.set(docId, connId);
         // Clear after a short delay to handle async processing
         // The update handler should fire within a few ms
         setTimeout(() => {
           // Only clear if it's still this connection (not overwritten by another)
           if (currentProcessingConnection.get(docId) === connId) {
+            console.log(`[Attribution:Clear] docId=${docId} connId=${connId}`);
             currentProcessingConnection.delete(docId);
           }
         }, 100);
