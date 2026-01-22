@@ -100,8 +100,12 @@ const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading pers
 const ORIGIN_REDIS = 'redis'; // Origin marker for updates from Redis pub/sub (cross-instance sync)
 
 // Track active connections per document for version history attribution
-// Maps docGuid -> Map<clientId, { userId, agentName? }>
+// Maps docGuid -> Map<connId, { userId, agentName? }>
 const documentConnectionMap = new Map();
+
+// Track which connection is currently processing an update for attribution
+// Maps docGuid -> connId (only set during message processing)
+const currentProcessingConnection = new Map();
 
 /**
  * Register a user connection for a document
@@ -131,28 +135,40 @@ function unregisterDocumentUser(docGuid, clientId) {
 }
 
 /**
- * Get any active user ID for a document (for attribution)
- * In concurrent editing scenarios, we pick one - this is a reasonable approximation
+ * Get user ID for the connection currently processing an update
+ * Falls back to any active connection if no current processor
  */
 function getDocumentUserId(docGuid) {
   const connections = documentConnectionMap.get(docGuid);
-  if (connections && connections.size > 0) {
-    return Array.from(connections.values())[0].userId;
+  if (!connections || connections.size === 0) return null;
+
+  // Use the specific connection that's currently processing if available
+  const currentConnId = currentProcessingConnection.get(docGuid);
+  if (currentConnId) {
+    const conn = connections.get(currentConnId);
+    if (conn) return conn.userId;
   }
-  return null;
+
+  // Fallback to first connection (for backwards compatibility)
+  return Array.from(connections.values())[0].userId;
 }
 
 /**
- * Get any active agent name for a document (for attribution)
+ * Get agent name for the connection currently processing an update
+ * Returns null if the current connection is not an agent
  */
 function getDocumentAgentName(docGuid) {
   const connections = documentConnectionMap.get(docGuid);
-  if (connections && connections.size > 0) {
-    // Find first connection with an agent name
-    for (const conn of connections.values()) {
-      if (conn.agentName) return conn.agentName;
-    }
+  if (!connections || connections.size === 0) return null;
+
+  // Use the specific connection that's currently processing
+  const currentConnId = currentProcessingConnection.get(docGuid);
+  if (currentConnId) {
+    const conn = connections.get(currentConnId);
+    return conn?.agentName || null;
   }
+
+  // If no current processor, don't guess - return null
   return null;
 }
 
@@ -1223,14 +1239,33 @@ wss.on('connection', (ws, req) => {
         }
       }
 
+      // Track which connection is processing this message for attribution
+      // Set before y-websocket processes it, clear after
+      if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
+        currentProcessingConnection.set(docId, connId);
+      }
+
       // Block edit messages from viewers
       if (!canEdit && isEditMessage(buffer)) {
         logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
         console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
+        currentProcessingConnection.delete(docId); // Clean up before returning
         return false;
       }
     }
-    return originalEmit(event, ...args);
+
+    // Call original emit (this will trigger y-websocket processing and eventually ydoc.on('update'))
+    const result = originalEmit(event, ...args);
+
+    // Clean up after message is processed
+    if (event === 'message' && docId) {
+      const buffer = Buffer.isBuffer(args[0]) ? args[0] : Buffer.from(args[0]);
+      if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
+        currentProcessingConnection.delete(docId);
+      }
+    }
+
+    return result;
   };
 
   ws.on('error', (error) => {
