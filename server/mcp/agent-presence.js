@@ -596,10 +596,11 @@ function initializeCursorAtStart(xmlFragment) {
 function updateSessionCursor(sessionId, anchor, head) {
   const session = activeSessions.get(sessionId);
   if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
+    return false;
   }
 
   _broadcastCursor(session, anchor, head);
+  return true;
 }
 
 /**
