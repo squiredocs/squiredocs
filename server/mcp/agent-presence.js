@@ -141,6 +141,32 @@ function _broadcastCursor(session, anchor, head) {
 }
 
 /**
+ * Get or initialize the highlight queue for a session
+ * @private
+ * @param {object} session - Session object
+ * @param {number} minIntervalMs - Minimum interval between highlights (ms)
+ * @param {number} maxIntervalMs - Maximum interval between highlights (ms)
+ * @returns {object} The highlight queue
+ */
+function _getOrInitHighlightQueue(session, minIntervalMs, maxIntervalMs) {
+  if (!session.highlightQueue) {
+    session.highlightQueue = {
+      positions: [],
+      currentIndex: 0,
+      minIntervalMs,
+      maxIntervalMs,
+      timeoutId: null,
+      isProcessing: false,
+    };
+  } else {
+    // Update intervals if queue already exists
+    session.highlightQueue.minIntervalMs = minIntervalMs;
+    session.highlightQueue.maxIntervalMs = maxIntervalMs;
+  }
+  return session.highlightQueue;
+}
+
+/**
  * Set or extend session timeout
  * @private
  * @param {object} session - Session object
@@ -227,6 +253,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   const sessionPromise = new Promise((resolve, reject) => {
     let provider = null;
     let connectionTimeoutId = null;
+    let setupComplete = false; // Track whether setup phase is complete
 
     // Cleanup function (idempotent - safe to call multiple times)
     const cleanup = (() => {
@@ -364,6 +391,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
               }
 
               pendingSessionCreations.delete(sessionKey);
+              setupComplete = true; // Mark setup as complete before resolving
 
               resolve(session);
             } catch (error) {
@@ -374,21 +402,24 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         }
       });
 
-      // Handle connection errors
+      // Handle connection errors (only during setup phase)
       provider.on('connection-error', (error) => {
+        if (setupComplete) return; // Ignore errors after setup - let y-websocket handle reconnection
         cleanup();
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
-      // Handle connection close (unexpected close during setup)
+      // Handle connection close (only during setup phase)
       provider.on('connection-close', () => {
+        if (setupComplete) return; // Ignore close after setup - let y-websocket handle reconnection
         cleanup();
         reject(new Error('WebSocket connection closed unexpectedly'));
       });
 
       // Set timeout for initial connection
       connectionTimeoutId = setTimeout(() => {
-        if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
+        if (setupComplete) return; // Setup already completed successfully
+        if (!provider.wsconnected) {
           cleanup();
           reject(new Error('Connection timeout: Could not establish WebSocket connection'));
         }
@@ -620,32 +651,20 @@ function queueHighlight(sessionId, anchor, head, minIntervalMs = 80, maxInterval
     return false;
   }
 
-  // Initialize queue if it doesn't exist
-  if (!session.highlightQueue) {
-    session.highlightQueue = {
-      positions: [],
-      currentIndex: 0,
-      minIntervalMs,
-      maxIntervalMs,
-      timeoutId: null,
-      isProcessing: false,
-    };
-  }
-
-  // Add position to queue
-  session.highlightQueue.positions.push({ anchor, head });
+  const queue = _getOrInitHighlightQueue(session, minIntervalMs, maxIntervalMs);
+  queue.positions.push({ anchor, head });
 
   // Enforce queue size limit - keep only last MAX_HIGHLIGHT_QUEUE_SIZE items
   // Remove from positions that haven't been processed yet
-  const unprocessedCount = session.highlightQueue.positions.length - session.highlightQueue.currentIndex;
+  const unprocessedCount = queue.positions.length - queue.currentIndex;
   if (unprocessedCount > MAX_HIGHLIGHT_QUEUE_SIZE) {
     const toRemove = unprocessedCount - MAX_HIGHLIGHT_QUEUE_SIZE;
     // Remove oldest unprocessed items
-    session.highlightQueue.positions.splice(session.highlightQueue.currentIndex, toRemove);
+    queue.positions.splice(queue.currentIndex, toRemove);
   }
 
   // Start processing if not already running
-  if (!session.highlightQueue.isProcessing) {
+  if (!queue.isProcessing) {
     processHighlightQueue(sessionId);
   }
 
@@ -671,26 +690,11 @@ function queueHighlightSequence(sessionId, positions, minIntervalMs = 80, maxInt
   // Apply reservoir sampling if too many positions
   const sampledPositions = reservoirSample(positions, MAX_HIGHLIGHT_QUEUE_SIZE);
 
-  // Initialize queue if it doesn't exist
-  if (!session.highlightQueue) {
-    session.highlightQueue = {
-      positions: [],
-      currentIndex: 0,
-      minIntervalMs,
-      maxIntervalMs,
-      timeoutId: null,
-      isProcessing: false,
-    };
-  } else {
-    session.highlightQueue.minIntervalMs = minIntervalMs;
-    session.highlightQueue.maxIntervalMs = maxIntervalMs;
-  }
-
-  // Add sampled positions to queue
-  session.highlightQueue.positions.push(...sampledPositions);
+  const queue = _getOrInitHighlightQueue(session, minIntervalMs, maxIntervalMs);
+  queue.positions.push(...sampledPositions);
 
   // Start processing if not already running
-  if (!session.highlightQueue.isProcessing) {
+  if (!queue.isProcessing) {
     processHighlightQueue(sessionId);
   }
 
