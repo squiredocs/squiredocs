@@ -11,12 +11,14 @@ const { WebsocketProvider } = require('y-websocket');
 // Persistence provider - set by init function
 let persistenceProvider = null;
 
-// Track active presence sessions
+// Track active presence sessions by sessionId
 const activeSessions = new Map();
+
+// Secondary index: sessionKey -> sessionId for O(1) lookup by user/doc
+const sessionsByKey = new Map();
 
 // Track in-progress session creation promises to prevent race conditions
 // Key: "${userId}-${docGuid}", Value: Promise
-// Used by both setAgentPresence and getOrCreateSession
 const pendingSessionCreations = new Map();
 
 // Default presence duration (in seconds)
@@ -216,13 +218,15 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   }
 
   // Check if we already have an active session for this user/doc combination
-  // If so, extend it instead of creating a new one
-  for (const [sid, session] of activeSessions.entries()) {
-    if (session.key === sessionKey && session.provider && session.provider.wsconnected && session.initialized) {
+  // If so, extend it instead of creating a new one (O(1) lookup via secondary index)
+  const existingSessionId = sessionsByKey.get(sessionKey);
+  if (existingSessionId) {
+    const session = activeSessions.get(existingSessionId);
+    if (session && session.provider && session.provider.wsconnected && session.initialized) {
       _setSessionTimeout(session, duration);
 
       // Ensure cursor is broadcast to awareness (in case it was cleared)
-      if (session.provider && session.provider.awareness && session.cursor) {
+      if (session.provider.awareness && session.cursor) {
         session.provider.awareness.setLocalStateField('cursor', session.cursor);
       }
 
@@ -292,7 +296,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
           provider = null;
         }
         activeSessions.delete(sessionId);
-        // Clean up from pending creations map
+        sessionsByKey.delete(sessionKey);
         pendingSessionCreations.delete(sessionKey);
         console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
       };
@@ -309,7 +313,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         WebSocketPolyfill: WebSocket,
       });
 
-      // Store session info
+      // Store session info in both indexes
       activeSessions.set(sessionId, {
         sessionId,
         docGuid,
@@ -325,6 +329,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
       });
+      sessionsByKey.set(sessionKey, sessionId);
 
       // Wait for document to sync before initializing cursor
       // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
