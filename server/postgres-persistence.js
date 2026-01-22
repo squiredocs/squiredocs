@@ -128,17 +128,34 @@ class PostgresPersistence {
   }
 
   /**
+   * Build a Y.Doc from update rows
+   * @private
+   * @param {Array} rows - Database rows with update_data column
+   * @param {Object} options - Options
+   * @param {boolean} [options.gc=true] - Enable garbage collection
+   * @returns {Y.Doc} The reconstructed document
+   */
+  _buildYDocFromRows(rows, options = {}) {
+    const { gc = true } = options;
+    const ydoc = new Y.Doc({ gc });
+    ydoc.transact(() => {
+      for (const row of rows) {
+        Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
+      }
+    });
+    return ydoc;
+  }
+
+  /**
    * Get all updates for a document and reconstruct the Y.Doc
    * @param {string} docGuid - Document GUID
    * @returns {Promise<Y.Doc>} The reconstructed Yjs document
    */
   async getYDoc(docGuid) {
     await this._init();
-    const startTime = Date.now();
 
     const client = await this.pool.connect();
     try {
-      // Get all updates ordered by clock
       const queryStart = Date.now();
       const result = await client.query(
         'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
@@ -146,26 +163,14 @@ class PostgresPersistence {
       );
       const queryTime = Date.now() - queryStart;
 
-      const updates = result.rows.map(row => new Uint8Array(row.update_data));
-      const totalBytes = updates.reduce((sum, u) => sum + u.byteLength, 0);
-
-      // Reconstruct the document by applying all updates
       const applyStart = Date.now();
-      const ydoc = new Y.Doc();
-      ydoc.transact(() => {
-        for (let i = 0; i < updates.length; i++) {
-          Y.applyUpdate(ydoc, updates[i]);
-        }
-      });
+      const ydoc = this._buildYDocFromRows(result.rows);
       const applyTime = Date.now() - applyStart;
 
-      if (updates.length > 0) {
-        console.log(`[Postgres] getYDoc ${docGuid}: ${updates.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
+      if (result.rows.length > 0) {
+        const totalBytes = result.rows.reduce((sum, r) => sum + r.update_data.length, 0);
+        console.log(`[Postgres] getYDoc ${docGuid}: ${result.rows.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
       }
-
-      // Version history: We no longer compact/delete updates to preserve history
-      // Instead, we create periodic snapshots for fast loading while keeping all updates
-      // Snapshots are created via the version-history module when needed
 
       return ydoc;
     } finally {
@@ -303,6 +308,81 @@ class PostgresPersistence {
   // ==================== Version History Methods ====================
 
   /**
+   * Transform a database row to an update object
+   * @private
+   */
+  _mapUpdateRow(row, includeData = false) {
+    const result = {
+      clock: row.clock,
+      createdAt: row.created_at,
+      userId: row.user_id,
+      userName: row.user_name,
+      userEmail: row.user_email,
+      userPicture: row.user_picture,
+      agentName: row.agent_name,
+    };
+    if (includeData && row.update_data) {
+      result.updateData = new Uint8Array(row.update_data);
+    }
+    return result;
+  }
+
+  /**
+   * Query updates with user info (consolidated query method)
+   * @private
+   * @param {string} docGuid - Document GUID
+   * @param {Object} options - Query options
+   * @param {number} [options.clockStart] - Starting clock value (inclusive)
+   * @param {number} [options.clockEnd] - Ending clock value (inclusive)
+   * @param {number} [options.limit] - Maximum number of updates to return
+   * @param {boolean} [options.includeData] - Include update_data in results
+   * @param {boolean} [options.recentFirst] - Query DESC and reverse (for efficient "last N" queries)
+   * @returns {Promise<Array>} Updates with user metadata in ascending clock order
+   */
+  async _queryUpdatesWithUsers(docGuid, options = {}) {
+    const { clockStart, clockEnd, limit, includeData = false, recentFirst = false } = options;
+
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      const dataColumn = includeData ? 'u.update_data, ' : '';
+      let whereClause = 'WHERE u.doc_guid = $1';
+      const params = [docGuid];
+
+      if (clockStart !== undefined && clockEnd !== undefined) {
+        whereClause += ` AND u.clock >= $${params.length + 1} AND u.clock <= $${params.length + 2}`;
+        params.push(clockStart, clockEnd);
+      }
+
+      let orderClause = 'ORDER BY u.clock ASC';
+      let limitClause = '';
+
+      if (recentFirst && limit) {
+        // Query DESC with limit, then reverse for ascending order
+        orderClause = 'ORDER BY u.clock DESC';
+        limitClause = `LIMIT $${params.length + 1}`;
+        params.push(limit);
+      }
+
+      const result = await client.query(
+        `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name,
+                usr.name as user_name, usr.email as user_email, usr.picture as user_picture
+         FROM yjs_updates u
+         LEFT JOIN users usr ON u.user_id = usr.id
+         ${whereClause}
+         ${orderClause}
+         ${limitClause}`,
+        params
+      );
+
+      const rows = recentFirst && limit ? result.rows.reverse() : result.rows;
+      return rows.map(row => this._mapUpdateRow(row, includeData));
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Get updates in a clock range with user info
    * @param {string} docGuid - Document GUID
    * @param {number} clockStart - Starting clock value (inclusive)
@@ -310,31 +390,7 @@ class PostgresPersistence {
    * @returns {Promise<Array>} Updates with metadata
    */
   async getUpdatesInRange(docGuid, clockStart, clockEnd) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(
-        `SELECT u.clock, u.update_data, u.created_at, u.user_id, u.agent_name,
-                usr.name as user_name, usr.email as user_email, usr.picture as user_picture
-         FROM yjs_updates u
-         LEFT JOIN users usr ON u.user_id = usr.id
-         WHERE u.doc_guid = $1 AND u.clock >= $2 AND u.clock <= $3
-         ORDER BY u.clock ASC`,
-        [docGuid, clockStart, clockEnd]
-      );
-      return result.rows.map(row => ({
-        clock: row.clock,
-        updateData: new Uint8Array(row.update_data),
-        createdAt: row.created_at,
-        userId: row.user_id,
-        userName: row.user_name,
-        userEmail: row.user_email,
-        userPicture: row.user_picture,
-        agentName: row.agent_name,
-      }));
-    } finally {
-      client.release();
-    }
+    return this._queryUpdatesWithUsers(docGuid, { clockStart, clockEnd, includeData: true });
   }
 
   /**
@@ -344,33 +400,7 @@ class PostgresPersistence {
    * @returns {Promise<Array>} Recent updates with user metadata in ascending clock order
    */
   async getRecentUpdatesWithUsers(docGuid, limit = 100) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      // Query in descending order with limit, then reverse for ascending order
-      const result = await client.query(
-        `SELECT u.clock, u.created_at, u.user_id, u.agent_name,
-                usr.name as user_name, usr.email as user_email, usr.picture as user_picture
-         FROM yjs_updates u
-         LEFT JOIN users usr ON u.user_id = usr.id
-         WHERE u.doc_guid = $1
-         ORDER BY u.clock DESC
-         LIMIT $2`,
-        [docGuid, limit]
-      );
-      // Reverse to return in ascending clock order (for grouping logic compatibility)
-      return result.rows.reverse().map(row => ({
-        clock: row.clock,
-        createdAt: row.created_at,
-        userId: row.user_id,
-        userName: row.user_name,
-        userEmail: row.user_email,
-        userPicture: row.user_picture,
-        agentName: row.agent_name,
-      }));
-    } finally {
-      client.release();
-    }
+    return this._queryUpdatesWithUsers(docGuid, { limit, recentFirst: true });
   }
 
   /**
@@ -379,30 +409,7 @@ class PostgresPersistence {
    * @returns {Promise<Array>} All updates with user metadata
    */
   async getUpdatesWithUsers(docGuid) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(
-        `SELECT u.clock, u.created_at, u.user_id, u.agent_name,
-                usr.name as user_name, usr.email as user_email, usr.picture as user_picture
-         FROM yjs_updates u
-         LEFT JOIN users usr ON u.user_id = usr.id
-         WHERE u.doc_guid = $1
-         ORDER BY u.clock ASC`,
-        [docGuid]
-      );
-      return result.rows.map(row => ({
-        clock: row.clock,
-        createdAt: row.created_at,
-        userId: row.user_id,
-        userName: row.user_name,
-        userEmail: row.user_email,
-        userPicture: row.user_picture,
-        agentName: row.agent_name,
-      }));
-    } finally {
-      client.release();
-    }
+    return this._queryUpdatesWithUsers(docGuid);
   }
 
   /**
@@ -419,15 +426,7 @@ class PostgresPersistence {
         'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
         [docGuid, clock]
       );
-
-      const ydoc = new Y.Doc();
-      ydoc.transact(() => {
-        for (const row of result.rows) {
-          Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
-        }
-      });
-
-      return ydoc;
+      return this._buildYDocFromRows(result.rows);
     } finally {
       client.release();
     }
@@ -448,16 +447,7 @@ class PostgresPersistence {
         'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
         [docGuid]
       );
-
-      // Create document with gc:false to preserve deleted items for snapshot comparison
-      const ydoc = new Y.Doc({ gc: false });
-      ydoc.transact(() => {
-        for (const row of result.rows) {
-          Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
-        }
-      });
-
-      return ydoc;
+      return this._buildYDocFromRows(result.rows, { gc: false });
     } finally {
       client.release();
     }

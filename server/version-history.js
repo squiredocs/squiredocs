@@ -40,24 +40,34 @@ function getAuthorKey(userId, agentName) {
 }
 
 /**
- * Create an author object from update data
+ * Create an author object from update data or named version data
  * Shared helper to ensure consistent author representation
- * @param {Object} update - Update object with userId, userName, agentName, etc.
+ * Accepts multiple input formats:
+ *   - Update format: { userId, userName, userEmail, userPicture, agentName }
+ *   - Named version format: { created_by, creator_name, creator_email, creator_picture }
+ * @param {Object} data - Data object with user info
  * @returns {Object|null} Author object or null if no userId
  */
-function createAuthor(update) {
-  if (!update.userId) return null;
+function createAuthor(data) {
+  // Support both naming conventions
+  const userId = data.userId || data.created_by;
+  const userName = data.userName || data.creator_name;
+  const userEmail = data.userEmail || data.creator_email;
+  const userPicture = data.userPicture || data.creator_picture;
+  const agentName = data.agentName;
 
-  const authorKey = getAuthorKey(update.userId, update.agentName);
-  const displayName = update.agentName || update.userName || 'Unknown';
+  if (!userId) return null;
+
+  const authorKey = getAuthorKey(userId, agentName);
+  const displayName = agentName || userName || 'Unknown';
 
   return {
-    id: update.userId,
+    id: userId,
     name: displayName,
-    email: update.userEmail,
-    picture: update.userPicture,
+    email: userEmail,
+    picture: userPicture,
     color: generateColorFromId(authorKey),
-    isAgent: !!update.agentName,
+    isAgent: !!agentName,
   };
 }
 
@@ -145,13 +155,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       clockEnd: nv.clock_end,
       timestamp,
       isNamed: true,
-      createdBy: nv.creator_name ? {
-        id: nv.created_by,
-        name: nv.creator_name,
-        email: nv.creator_email,
-        picture: nv.creator_picture,
-        color: generateColorFromId(nv.created_by),
-      } : null,
+      createdBy: createAuthor(nv),
       authors: matchingAutoVersion?.authors || [],
     };
   });
