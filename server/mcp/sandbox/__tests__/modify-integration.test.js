@@ -655,5 +655,192 @@ describe('modify Integration', () => {
       const heading = xmlFragment.get(0);
       expect(heading.getAttribute('level')).toBe(2);
     });
+
+    test('read/modify/write preserves formatting with getFormattedContent/setFormattedContent', async () => {
+      // Pre-populate document with formatted content
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello foo and bold foo text');
+      text.format(14, 4, { bold: true }); // "bold" is bold
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const para = doc.get(0);
+          const segments = getFormattedContent(para);
+
+          // Modify only plain text segments, preserving formatting
+          const updated = segments.map(s =>
+            typeof s === 'string' ? s.replace(/foo/g, 'bar') : s
+          );
+
+          setFormattedContent(para, updated);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      // Verify text was replaced
+      const updatedPara = xmlFragment.get(0);
+      const updatedText = updatedPara.get(0);
+      const delta = updatedText.toDelta();
+
+      // Get full text - should have replaced "foo" with "bar"
+      const fullText = delta.map(op => op.insert).join('');
+      expect(fullText).toBe('Hello bar and bold bar text');
+
+      // Verify "bold" is still bold
+      const boldSegment = delta.find(op => op.insert === 'bold');
+      expect(boldSegment).toBeDefined();
+      expect(boldSegment.attributes?.bold).toBe(true);
+    });
+
+    test('read/modify/write preserves link formatting', async () => {
+      // Pre-populate document with a link
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Visit Example for more');
+      text.format(6, 7, { link: { href: 'https://example.com' } });
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const para = doc.get(0);
+          const segments = getFormattedContent(para);
+
+          // Modify plain text, preserve link
+          const updated = segments.map(s =>
+            typeof s === 'string' ? s.replace('more', 'info') : s
+          );
+
+          setFormattedContent(para, updated);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      // Verify text was replaced
+      const updatedPara = xmlFragment.get(0);
+      const updatedText = updatedPara.get(0);
+      const delta = updatedText.toDelta();
+
+      const fullText = delta.map(op => op.insert).join('');
+      expect(fullText).toBe('Visit Example for info');
+
+      // Verify link is preserved
+      const linkSegment = delta.find(op => op.insert === 'Example');
+      expect(linkSegment).toBeDefined();
+      expect(linkSegment.attributes?.link?.href).toBe('https://example.com');
+    });
+
+    test('getPlainText extracts text from segments for searching', async () => {
+      // Pre-populate document with formatted TODO
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'TODO: complete task');
+      text.format(0, 4, { bold: true });
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      const script = `
+        export default function edit(doc) {
+          const para = doc.get(0);
+          const segments = getFormattedContent(para);
+
+          // Use getPlainText to search
+          if (getPlainText(segments).includes('TODO')) {
+            // Found TODO, replace the plain text portions
+            const updated = segments.map(s =>
+              typeof s === 'string' ? s.replace('complete task', 'DONE') : s
+            );
+            setFormattedContent(para, updated);
+          }
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      const updatedPara = xmlFragment.get(0);
+      const updatedText = updatedPara.get(0);
+      const delta = updatedText.toDelta();
+
+      const fullText = delta.map(op => op.insert).join('');
+      expect(fullText).toBe('TODO: DONE');
+
+      // Verify TODO is still bold
+      expect(delta[0].attributes?.bold).toBe(true);
+    });
+
+    test('getParagraphs and setParagraphs work with multi-paragraph containers', async () => {
+      // Pre-populate document with list item containing multiple paragraphs
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para1 = new Y.XmlElement('paragraph');
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'First line');
+      para1.insert(0, [text1]);
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Second line');
+      para2.insert(0, [text2]);
+      item.insert(0, [para1, para2]);
+      list.insert(0, [item]);
+      xmlFragment.insert(0, [list]);
+
+      const script = `
+        export default function edit(doc) {
+          const list = doc.get(0);
+          const item = list.get(0);
+
+          // Read all paragraphs
+          const paras = getParagraphs(item);
+
+          // Modify and add new paragraphs
+          const updated = [
+            ...paras.map(p =>
+              p.map(s => typeof s === 'string' ? s.toUpperCase() : s)
+            ),
+            ['Third line']
+          ];
+
+          setParagraphs(item, updated);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      const updatedList = xmlFragment.get(0);
+      const updatedItem = updatedList.get(0);
+
+      // Should now have 3 paragraphs
+      const children = updatedItem.toArray().filter(c =>
+        c instanceof Y.XmlElement && c.nodeName === 'paragraph'
+      );
+      expect(children.length).toBe(3);
+
+      // Verify content was uppercased
+      const helpers = require('../helpers');
+      expect(helpers.getTextContent(children[0])).toBe('FIRST LINE');
+      expect(helpers.getTextContent(children[1])).toBe('SECOND LINE');
+      expect(helpers.getTextContent(children[2])).toBe('Third line');
+    });
   });
 });

@@ -186,6 +186,31 @@ createFormattedText(segments)  ⭐ PREFERRED FOR MIXED FORMATTING
       ]);
       para.insert(0, [text]);
 
+getFormattedContent(element)  ⭐ READ FORMATTED CONTENT
+  - Read formatted content as segments (same format as createFormattedText)
+  - Works with paragraph, heading, listItem, tableCell, blockquote
+  - Returns array: ["plain", { text: "formatted", attrs: {...} }]
+  - Example: const segments = getFormattedContent(paragraph);
+
+setFormattedContent(element, segments)  ⭐ WRITE FORMATTED CONTENT
+  - Write segments to element (replaces existing content)
+  - Uses same format as createFormattedText
+  - Example: setFormattedContent(para, ["Hello ", { text: "world", attrs: { bold: true } }]);
+
+getPlainText(segments)
+  - Extract plain text from segments array
+  - Useful for searching/matching
+  - Example: if (getPlainText(segments).includes('TODO')) { ... }
+
+getParagraphs(container)
+  - Read all paragraphs from a container as array of segment arrays
+  - For listItem, tableCell, blockquote with multiple paragraphs
+  - Example: const paras = getParagraphs(listItem);
+
+setParagraphs(container, segmentArrays)
+  - Replace all paragraphs in a container
+  - Example: setParagraphs(listItem, [["First para"], ["Second para"]]);
+
 appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
   - Create multiple block elements from declarative definitions
   - ✓ Eliminates ~75% of boilerplate for common operations

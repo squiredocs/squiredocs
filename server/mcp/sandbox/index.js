@@ -230,7 +230,14 @@ function executeComparisonSandboxed(jsCode, doc1, doc2, timeout) {
     findByNodeName: helpers.findByNodeName,
     findByText: helpers.findByText,
 
-    // Comparison-specific helpers (will be added to helpers.js)
+    // Formatted content helpers (read/write symmetry)
+    getFormattedContent: helpers.getFormattedContent,
+    setFormattedContent: helpers.setFormattedContent,
+    getPlainText: helpers.getPlainText,
+    getParagraphs: helpers.getParagraphs,
+    setParagraphs: helpers.setParagraphs,
+
+    // Comparison-specific helpers
     extractPlainText: helpers.extractPlainText || helpers.getTextContent, // Alias
     getBlockCount: helpers.getBlockCount,
     getWordCount: helpers.getWordCount,

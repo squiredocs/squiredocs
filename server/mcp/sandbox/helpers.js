@@ -754,6 +754,208 @@ function findElementIndex(container, element) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Formatted Content Helpers (read/write format symmetry)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Get the text node for an element, handling containers like listItem, tableCell, etc.
+ * Internal helper - not exported.
+ *
+ * @param {Y.XmlElement|Y.XmlText} element - Element to get text node from
+ * @returns {Y.XmlText|null} Text node, or null if not found
+ */
+function getTextNodeForElement(element) {
+  if (element instanceof Y.XmlText) return element;
+
+  // For containers, get first paragraph's text
+  const containers = ['listItem', 'tableCell', 'tableHeader', 'blockquote'];
+  if (element instanceof Y.XmlElement && containers.includes(element.nodeName)) {
+    const firstPara = element.toArray().find(c =>
+      c instanceof Y.XmlElement && c.nodeName === 'paragraph'
+    );
+    if (firstPara) return findTextNode(firstPara);
+  }
+
+  return findTextNode(element);
+}
+
+/**
+ * Read formatted content from an element in the same format as createFormattedText
+ *
+ * This provides read/write symmetry - content read with getFormattedContent can be
+ * directly written back with setFormattedContent or passed to createFormattedText.
+ *
+ * @param {Y.XmlElement|Y.XmlText} element - Element to read from
+ * @returns {Array<string|{text: string, attrs: object}>} Array of segments
+ *
+ * @example
+ *   const segments = getFormattedContent(paragraph);
+ *   // Returns: ["Hello ", { text: "world", attrs: { bold: true } }]
+ *
+ *   // Round-trip: read, modify, write
+ *   const segments = getFormattedContent(para);
+ *   const updated = segments.map(s => typeof s === 'string' ? s.replace('foo', 'bar') : s);
+ *   setFormattedContent(para, updated);
+ */
+function getFormattedContent(element) {
+  const textNode = getTextNodeForElement(element);
+  if (!textNode) return [];
+
+  const delta = textNode.toDelta();
+  return delta.map(op => {
+    if (typeof op.insert !== 'string') return null;
+    if (!op.attributes || Object.keys(op.attributes).length === 0) {
+      return op.insert; // Plain string
+    }
+    return { text: op.insert, attrs: op.attributes };
+  }).filter(Boolean);
+}
+
+/**
+ * Write formatted content to an element (replaces existing content)
+ *
+ * Uses the same segment format as createFormattedText for read/write symmetry.
+ *
+ * @param {Y.XmlElement|Y.XmlText} element - Element to write to
+ * @param {Array<string|{text: string, attrs: object}>} segments - Content segments
+ *
+ * @example
+ *   setFormattedContent(para, ["Hello ", { text: "world", attrs: { bold: true } }]);
+ *
+ *   // Modify existing content
+ *   const segments = getFormattedContent(para);
+ *   segments.push({ text: " (updated)", attrs: { italic: true } });
+ *   setFormattedContent(para, segments);
+ */
+function setFormattedContent(element, segments) {
+  if (!Array.isArray(segments)) {
+    throw new Error('setFormattedContent: segments must be an array');
+  }
+
+  const textNode = getTextNodeForElement(element);
+  if (!textNode) {
+    throw new Error('setFormattedContent: no text node found in element');
+  }
+
+  // Clear existing content
+  if (textNode.length > 0) {
+    textNode.delete(0, textNode.length);
+  }
+
+  // Collect text and format ranges (same approach as createFormattedText)
+  const formatRanges = [];
+  let fullText = '';
+
+  for (const segment of segments) {
+    if (typeof segment === 'string') {
+      fullText += segment;
+    } else if (segment && typeof segment.text === 'string') {
+      const start = fullText.length;
+      fullText += segment.text;
+      if (segment.attrs && Object.keys(segment.attrs).length > 0) {
+        formatRanges.push({ start, length: segment.text.length, attrs: segment.attrs });
+      }
+    }
+  }
+
+  // Insert all text at once
+  textNode.insert(0, fullText);
+
+  // Apply formatting
+  for (const range of formatRanges) {
+    textNode.format(range.start, range.length, range.attrs);
+  }
+}
+
+/**
+ * Extract plain text from a segments array
+ *
+ * Useful for searching/matching content without formatting.
+ *
+ * @param {Array<string|{text: string, attrs: object}>} segments - Content segments
+ * @returns {string} Plain text content
+ *
+ * @example
+ *   const segments = getFormattedContent(para);
+ *   if (getPlainText(segments).includes('TODO')) {
+ *     // Found TODO in the content
+ *   }
+ */
+function getPlainText(segments) {
+  if (!Array.isArray(segments)) return '';
+  return segments.map(s => typeof s === 'string' ? s : (s?.text || '')).join('');
+}
+
+/**
+ * Read all paragraphs from a container as array of segment arrays
+ *
+ * For containers with multiple paragraphs (listItem, tableCell, blockquote).
+ *
+ * @param {Y.XmlElement} container - Container element
+ * @returns {Array<Array<string|{text: string, attrs: object}>>} Array of segment arrays
+ *
+ * @example
+ *   const paras = getParagraphs(listItem);
+ *   // Returns: [["First paragraph"], ["Second paragraph"]]
+ */
+function getParagraphs(container) {
+  if (!(container instanceof Y.XmlElement)) {
+    throw new Error('getParagraphs: expected Y.XmlElement');
+  }
+
+  const result = [];
+  for (const child of container.toArray()) {
+    if (child instanceof Y.XmlElement && child.nodeName === 'paragraph') {
+      result.push(getFormattedContent(child));
+    }
+  }
+  return result;
+}
+
+/**
+ * Replace all paragraphs in a container
+ *
+ * For containers with multiple paragraphs (listItem, tableCell, blockquote).
+ *
+ * @param {Y.XmlElement} container - Container element
+ * @param {Array<Array<string|{text: string, attrs: object}>>} segmentArrays - Array of segment arrays
+ *
+ * @example
+ *   setParagraphs(listItem, [["First paragraph"], ["Second paragraph"]]);
+ */
+function setParagraphs(container, segmentArrays) {
+  if (!(container instanceof Y.XmlElement)) {
+    throw new Error('setParagraphs: expected Y.XmlElement');
+  }
+  if (!Array.isArray(segmentArrays)) {
+    throw new Error('setParagraphs: expected array of segment arrays');
+  }
+
+  // Find and remove existing paragraphs
+  const children = container.toArray();
+  const paraIndices = [];
+  children.forEach((child, i) => {
+    if (child instanceof Y.XmlElement && child.nodeName === 'paragraph') {
+      paraIndices.push(i);
+    }
+  });
+
+  // Remove from end to start to preserve indices
+  for (let i = paraIndices.length - 1; i >= 0; i--) {
+    container.delete(paraIndices[i], 1);
+  }
+
+  // Create and insert new paragraphs at the first paragraph position (or start)
+  const insertPos = paraIndices.length > 0 ? paraIndices[0] : 0;
+  for (let i = segmentArrays.length - 1; i >= 0; i--) {
+    const para = new Y.XmlElement('paragraph');
+    const text = createFormattedText(segmentArrays[i]);
+    para.insert(0, [text]);
+    container.insert(insertPos, [para]);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Comparison Helpers (for compare_document_versions tool)
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -925,6 +1127,12 @@ module.exports = {
   findByText,
   createFormattedText,
   appendBlocks,
+  // Formatted content helpers (read/write symmetry)
+  getFormattedContent,
+  setFormattedContent,
+  getPlainText,
+  getParagraphs,
+  setParagraphs,
   // Comparison helpers
   getBlockCount,
   getWordCount,

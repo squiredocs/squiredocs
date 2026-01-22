@@ -80,6 +80,13 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
     findByNodeName: helpers.findByNodeName,
     findByText: helpers.findByText,
 
+    // Formatted content helpers (read/write symmetry)
+    getFormattedContent: helpers.getFormattedContent,
+    setFormattedContent: helpers.setFormattedContent,
+    getPlainText: helpers.getPlainText,
+    getParagraphs: helpers.getParagraphs,
+    setParagraphs: helpers.setParagraphs,
+
     // XPath query functions for flexible element selection
     // These allow selecting elements using standard XPath expressions
     // instead of fragile index-based access

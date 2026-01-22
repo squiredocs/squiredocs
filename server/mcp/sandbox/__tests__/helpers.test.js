@@ -1098,4 +1098,402 @@ describe('Sandbox Helpers', () => {
       });
     });
   });
+
+  describe('getFormattedContent', () => {
+    it('should read plain text correctly', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello world');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const segments = helpers.getFormattedContent(para);
+      expect(segments).toEqual(['Hello world']);
+    });
+
+    it('should read formatted text with attrs', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello bold world');
+      text.format(6, 4, { bold: true });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const segments = helpers.getFormattedContent(para);
+      expect(segments).toEqual([
+        'Hello ',
+        { text: 'bold', attrs: { bold: true } },
+        ' world'
+      ]);
+    });
+
+    it('should read text with link formatting', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Visit Example for info');
+      text.format(6, 7, { link: { href: 'https://example.com' } });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const segments = helpers.getFormattedContent(para);
+      expect(segments).toEqual([
+        'Visit ',
+        { text: 'Example', attrs: { link: { href: 'https://example.com' } } },
+        ' for info'
+      ]);
+    });
+
+    it('should handle container elements (listItem)', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'List item text');
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      const segments = helpers.getFormattedContent(item);
+      expect(segments).toEqual(['List item text']);
+    });
+
+    it('should handle container elements (tableCell)', () => {
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+      const cell = new Y.XmlElement('tableCell');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Cell content');
+      para.insert(0, [text]);
+      cell.insert(0, [para]);
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+
+      const segments = helpers.getFormattedContent(cell);
+      expect(segments).toEqual(['Cell content']);
+    });
+
+    it('should return empty array for element without text', () => {
+      const para = new Y.XmlElement('paragraph');
+      fragment.insert(0, [para]);
+
+      const segments = helpers.getFormattedContent(para);
+      expect(segments).toEqual([]);
+    });
+
+    it('should work directly on Y.XmlText', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Direct text');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      const segments = helpers.getFormattedContent(text);
+      expect(segments).toEqual(['Direct text']);
+    });
+  });
+
+  describe('setFormattedContent', () => {
+    it('should write plain text segments', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      helpers.setFormattedContent(para, ['Hello world']);
+
+      expect(helpers.getTextContent(para)).toBe('Hello world');
+    });
+
+    it('should write formatted segments', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      helpers.setFormattedContent(para, [
+        'Hello ',
+        { text: 'bold', attrs: { bold: true } },
+        ' world'
+      ]);
+
+      const resultText = helpers.findTextNode(para);
+      const delta = resultText.toDelta();
+      expect(delta).toHaveLength(3);
+      expect(delta[0].insert).toBe('Hello ');
+      expect(delta[1].insert).toBe('bold');
+      expect(delta[1].attributes).toEqual({ bold: true });
+      expect(delta[2].insert).toBe(' world');
+    });
+
+    it('should clear existing content before writing', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Old content');
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      helpers.setFormattedContent(para, ['New content']);
+
+      expect(helpers.getTextContent(para)).toBe('New content');
+    });
+
+    it('should throw for non-array segments', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      expect(() => helpers.setFormattedContent(para, 'not an array'))
+        .toThrow('segments must be an array');
+    });
+
+    it('should throw for element without text node', () => {
+      const para = new Y.XmlElement('paragraph');
+      fragment.insert(0, [para]);
+
+      expect(() => helpers.setFormattedContent(para, ['content']))
+        .toThrow('no text node found');
+    });
+
+    it('should handle container elements (listItem)', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Original');
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      helpers.setFormattedContent(item, ['Updated content']);
+
+      expect(helpers.getTextContent(item)).toBe('Updated content');
+    });
+  });
+
+  describe('getPlainText', () => {
+    it('should extract plain text from plain segments', () => {
+      const segments = ['Hello ', 'world'];
+      expect(helpers.getPlainText(segments)).toBe('Hello world');
+    });
+
+    it('should extract plain text from formatted segments', () => {
+      const segments = [
+        'Hello ',
+        { text: 'bold', attrs: { bold: true } },
+        ' world'
+      ];
+      expect(helpers.getPlainText(segments)).toBe('Hello bold world');
+    });
+
+    it('should handle mixed segments', () => {
+      const segments = [
+        'Visit ',
+        { text: 'Example', attrs: { link: { href: 'https://example.com' } } },
+        ' for info'
+      ];
+      expect(helpers.getPlainText(segments)).toBe('Visit Example for info');
+    });
+
+    it('should return empty string for empty array', () => {
+      expect(helpers.getPlainText([])).toBe('');
+    });
+
+    it('should return empty string for non-array', () => {
+      expect(helpers.getPlainText(null)).toBe('');
+      expect(helpers.getPlainText(undefined)).toBe('');
+      expect(helpers.getPlainText('string')).toBe('');
+    });
+
+    it('should handle segment with undefined text', () => {
+      const segments = ['Hello ', { attrs: { bold: true } }, ' world'];
+      expect(helpers.getPlainText(segments)).toBe('Hello  world');
+    });
+  });
+
+  describe('getParagraphs', () => {
+    it('should read all paragraphs from a container', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para1 = new Y.XmlElement('paragraph');
+      const text1 = new Y.XmlText();
+      text1.insert(0, 'First para');
+      para1.insert(0, [text1]);
+      const para2 = new Y.XmlElement('paragraph');
+      const text2 = new Y.XmlText();
+      text2.insert(0, 'Second para');
+      para2.insert(0, [text2]);
+      item.insert(0, [para1, para2]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      const paras = helpers.getParagraphs(item);
+      expect(paras).toEqual([['First para'], ['Second para']]);
+    });
+
+    it('should return formatted content for each paragraph', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Text with bold');
+      text.format(10, 4, { bold: true });
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      const paras = helpers.getParagraphs(item);
+      expect(paras).toEqual([
+        ['Text with ', { text: 'bold', attrs: { bold: true } }]
+      ]);
+    });
+
+    it('should return empty array for container without paragraphs', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      const paras = helpers.getParagraphs(item);
+      expect(paras).toEqual([]);
+    });
+
+    it('should throw for non-XmlElement input', () => {
+      expect(() => helpers.getParagraphs(null)).toThrow('expected Y.XmlElement');
+      expect(() => helpers.getParagraphs('string')).toThrow('expected Y.XmlElement');
+    });
+  });
+
+  describe('setParagraphs', () => {
+    it('should replace all paragraphs in a container', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Original');
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      helpers.setParagraphs(item, [['First new'], ['Second new']]);
+
+      const paras = helpers.getParagraphs(item);
+      expect(paras).toEqual([['First new'], ['Second new']]);
+    });
+
+    it('should support formatted content', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Original');
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      helpers.setParagraphs(item, [
+        ['Hello ', { text: 'world', attrs: { bold: true } }]
+      ]);
+
+      const paras = helpers.getParagraphs(item);
+      expect(paras).toEqual([
+        ['Hello ', { text: 'world', attrs: { bold: true } }]
+      ]);
+    });
+
+    it('should insert paragraphs at first paragraph position', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Original');
+      para.insert(0, [text]);
+      const nestedList = new Y.XmlElement('bulletList');
+      item.insert(0, [para, nestedList]); // paragraph at 0, nested list at 1
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      helpers.setParagraphs(item, [['New para']]);
+
+      // Nested list should still be at index 1
+      expect(item.get(0).nodeName).toBe('paragraph');
+      expect(item.get(1).nodeName).toBe('bulletList');
+      expect(helpers.getTextContent(item.get(0))).toBe('New para');
+    });
+
+    it('should throw for non-XmlElement input', () => {
+      expect(() => helpers.setParagraphs(null, [['test']]))
+        .toThrow('expected Y.XmlElement');
+    });
+
+    it('should throw for non-array segmentArrays', () => {
+      const para = new Y.XmlElement('paragraph');
+      fragment.insert(0, [para]);
+
+      expect(() => helpers.setParagraphs(para, 'not array'))
+        .toThrow('expected array of segment arrays');
+    });
+  });
+
+  describe('round-trip: getFormattedContent -> setFormattedContent', () => {
+    it('should preserve formatting through round-trip', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Hello bold and italic text');
+      text.format(6, 4, { bold: true });
+      text.format(15, 6, { italic: true });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      // Read
+      const segments = helpers.getFormattedContent(para);
+
+      // Modify only plain text
+      const modified = segments.map(s =>
+        typeof s === 'string' ? s.replace('Hello', 'Hi') : s
+      );
+
+      // Write back
+      helpers.setFormattedContent(para, modified);
+
+      // Verify
+      const result = helpers.getFormattedContent(para);
+      expect(helpers.getPlainText(result)).toBe('Hi bold and italic text');
+
+      // Formatting should be preserved
+      expect(result).toContainEqual({ text: 'bold', attrs: { bold: true } });
+      expect(result).toContainEqual({ text: 'italic', attrs: { italic: true } });
+    });
+
+    it('should preserve link formatting through round-trip', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Visit Example for more');
+      text.format(6, 7, { link: { href: 'https://example.com' } });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      // Read, modify, write
+      const segments = helpers.getFormattedContent(para);
+      const modified = segments.map(s =>
+        typeof s === 'string' ? s.replace('more', 'info') : s
+      );
+      helpers.setFormattedContent(para, modified);
+
+      // Verify
+      const result = helpers.getFormattedContent(para);
+      expect(helpers.getPlainText(result)).toBe('Visit Example for info');
+      expect(result).toContainEqual({
+        text: 'Example',
+        attrs: { link: { href: 'https://example.com' } }
+      });
+    });
+  });
 });
