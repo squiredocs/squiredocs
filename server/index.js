@@ -202,10 +202,6 @@ setPersistence({
       // Get agent name if this update is from an agent
       const agentName = getDocumentAgentName(docGuid);
 
-      // DEBUG: Log attribution decisions
-      const currentConnId = currentProcessingConnection.get(docGuid);
-      console.log(`[Attribution] docGuid=${docGuid} currentConnId=${currentConnId} agentName=${agentName} userId=${userId}`);
-
       const persistStart = Date.now();
 
       // Helper for retry logic on transient failures
@@ -1184,8 +1180,10 @@ wss.on('connection', (ws, req) => {
   console.log(`✓ WebSocket connection established [connId=${connId}]: ${sanitizedUrl} (role: ${userRole}, userId: ${userId})`);
 
   // Register user for version history attribution
+  // Use agent info from token (already verified) - no need to detect from awareness
   if (userId && docId) {
-    registerDocumentUser(docId, connId, userId);
+    const agentName = req.user?.isAgent ? req.user.agentName : null;
+    registerDocumentUser(docId, connId, userId, agentName);
   }
 
   // Setup ping/pong keepalive mechanism
@@ -1234,29 +1232,19 @@ wss.on('connection', (ws, req) => {
       }
 
       // Capture this connection's clientId from the first awareness message it sends
-      // Each client has a unique Y.Doc clientId - we need this for cleanup on disconnect
+      // Capture this connection's clientId for awareness cleanup on disconnect
       if (!connectionClientId && buffer[0] === MESSAGE_AWARENESS) {
         const clientIds = parseAwarenessClientIds(buffer);
         if (clientIds.length > 0) {
           connectionClientId = clientIds[0];
-          console.log(`[WS:${connId}] Captured connection clientId: ${connectionClientId}`);
         }
       }
 
-      // Track which connection is processing this message for attribution
-      // Set for edit messages - will be used by ydoc.on('update') handler
-      // Don't clear immediately - let it persist until next message overwrites it
+      // Track which connection is processing this update for attribution
       if (buffer[0] === MESSAGE_SYNC && buffer[1] === SYNC_UPDATE) {
-        const connections = documentConnectionMap.get(docId);
-        const conn = connections?.get(connId);
-        console.log(`[Attribution:Set] docId=${docId} connId=${connId} agentName=${conn?.agentName} userId=${conn?.userId}`);
         currentProcessingConnection.set(docId, connId);
-        // Clear after a short delay to handle async processing
-        // The update handler should fire within a few ms
         setTimeout(() => {
-          // Only clear if it's still this connection (not overwritten by another)
           if (currentProcessingConnection.get(docId) === connId) {
-            console.log(`[Attribution:Clear] docId=${docId} connId=${connId}`);
             currentProcessingConnection.delete(docId);
           }
         }, 100);
@@ -1406,35 +1394,12 @@ wss.on('connection', (ws, req) => {
       // ========== END REDIS PUB/SUB SYNC ==========
 
       if (doc.awareness) {
-        // Log current awareness states
-        const awarenessCount = doc.awareness.getStates().size;
-        console.log(`[WS:${connId}] Current awareness states: ${awarenessCount}`);
-
-        // Agent detection
-        const checkAwareness = () => {
-          for (const [clientId, state] of doc.awareness.getStates().entries()) {
-            if (state.user?.isAgent && state.user?.name) {
-              // Only register agent for THIS connection's awareness state
-              if (clientId === connectionClientId) {
-                registerDocumentUser(docId, connId, userId, state.user.name);
-                console.log(`[Agent] Detected on connId=${connId}: ${state.user.name} for doc ${docId}`);
-              }
-            }
-          }
-        };
-        checkAwareness();
-        doc.awareness.on('update', checkAwareness);
-
         // Clean up on close - explicitly remove this connection's awareness
         ws.on('close', () => {
-          // SIMPLIFIED FIX: Explicitly remove this connection's clientId from awareness
-          // This bypasses y-websocket's buggy controlled IDs tracking
           if (connectionClientId) {
-            console.log(`[WS:${connId}] CLOSING - removing awareness for clientId ${connectionClientId}`);
+            console.log(`[WS:${connId}] Closing - removing awareness for clientId ${connectionClientId}`);
             awarenessProtocol.removeAwarenessStates(doc.awareness, [connectionClientId], 'connection closed');
           }
-
-          doc.awareness.off('update', checkAwareness);
 
           // ========== REDIS PUB/SUB CLEANUP ==========
           // If no more local connections, unsubscribe from Redis
