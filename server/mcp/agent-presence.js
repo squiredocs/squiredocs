@@ -249,6 +249,11 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             clearTimeout(session.tempSelectionTimeoutId);
             session.tempSelectionTimeoutId = null;
           }
+          // Clear highlight queue timeout
+          if (session.highlightQueue && session.highlightQueue.timeoutId) {
+            clearTimeout(session.highlightQueue.timeoutId);
+            session.highlightQueue = null;
+          }
           // Clear awareness cursor
           if (session.provider && session.provider.awareness) {
             session.provider.awareness.setLocalStateField('cursor', null);
@@ -317,8 +322,11 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             // Document appears empty - wait for update event from bindState
             console.log(`[agent-presence] Document ${docGuid} appears empty, waiting for content...`);
 
+            // Declare timeout variable first so onUpdate can reference it
+            let emptyDocTimeoutId = null;
+
             const onUpdate = () => {
-              clearTimeout(timeoutId);
+              clearTimeout(emptyDocTimeoutId);
               console.log(`[agent-presence] Content arrived for ${docGuid}`);
               finalizeSession();
             };
@@ -327,7 +335,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             ydoc.once('update', onUpdate);
 
             // Timeout fallback for truly empty documents
-            const timeoutId = setTimeout(() => {
+            emptyDocTimeoutId = setTimeout(() => {
               ydoc.off('update', onUpdate);
               console.log(`[agent-presence] No content arrived for ${docGuid}, proceeding as empty`);
               finalizeSession();
