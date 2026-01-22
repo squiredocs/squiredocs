@@ -1168,7 +1168,6 @@ wss.on('connection', (ws, req) => {
       if (!canEdit && isEditMessage(buffer)) {
         logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
         console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
-        currentProcessingConnection.delete(docId); // Clean up before returning
         return false;
       }
     }

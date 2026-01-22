@@ -92,58 +92,19 @@ function init(persistence) {
 }
 
 /**
- * Set agent presence in a document
- * Makes the agent visible as an active user in the UI for the specified duration
+ * Internal core function for creating/reusing WebSocket sessions
+ * Handles race conditions, session reuse, and WebSocket setup
+ * @private
  *
  * @param {string} docGuid - Document UUID
  * @param {object} agentToken - Decoded agent JWT token (must include rawToken)
- * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
- * @returns {Promise<object>} { success, sessionId, expiresIn }
+ * @param {number} duration - Presence duration in seconds (already validated)
+ * @param {string} userId - User ID
+ * @param {string} sessionKey - Session key for tracking
+ * @param {string} userName - User name for logging
+ * @returns {Promise<object>} Session object with provider, awareness, sessionId, etc.
  */
-async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
-  if (!persistenceProvider) {
-    throw new Error('Agent presence manager not initialized');
-  }
-
-  // Validate duration
-  const duration = Math.max(1, Math.min(300, durationSeconds));
-  const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
-
-  // Check if user has access to the document
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role, u.name, u.email, u.picture
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     JOIN users u ON u.id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  const { name: userName, email, picture } = accessResult.rows[0];
-
-  // Generate a color for this agent (based on user ID for consistency)
-  const agentColor = generateColorFromUserId(userId);
-
-  // Get WebSocket URL from environment or construct it
-  const wsProtocol = process.env.WS_PROTOCOL || 'ws';
-  const wsHost = process.env.WS_HOST || 'localhost';
-  const wsPort = process.env.WS_PORT || process.env.PORT || 3001;
-  const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/s`;
-
-  // Use the raw JWT token from the agentToken for WebSocket authentication
-  const accessToken = agentToken.rawToken;
-
-  if (!accessToken) {
-    throw new Error('No authentication token available for WebSocket connection');
-  }
-
-  const sessionKey = `${userId}-${docGuid}`;
-
+async function _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName) {
   // CRITICAL: Check if there's already a session creation in progress
   // This prevents race conditions when multiple tools are called concurrently
   if (pendingSessionCreations.has(sessionKey)) {
@@ -152,19 +113,17 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
     // Wait for the pending creation to complete
     const pendingResult = await pendingSessionCreations.get(sessionKey);
 
-    // Now extend the newly created session
-    const session = activeSessions.get(pendingResult.sessionId);
+    // Check if we got a session object (from getOrCreateSession) or a result object (from setAgentPresence)
+    const session = pendingResult.sessionId ? activeSessions.get(pendingResult.sessionId) : pendingResult;
+
     if (session) {
       // Verify session is fully initialized before extending
       if (!session.provider || !session.cleanup) {
-        console.warn(`[agent-presence] Session ${pendingResult.sessionId} not fully initialized, skipping extend`);
-        return {
-          success: false,
-          error: 'Session initialization incomplete',
-          sessionId: pendingResult.sessionId,
-        };
+        console.warn(`[agent-presence] Session not fully initialized, skipping extend`);
+        return session;
       }
 
+      // Extend the session
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
       }
@@ -173,20 +132,14 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
       }, duration * 1000);
 
       console.log(`[agent-presence] Extended presence (after waiting) for ${userName} in ${docGuid} for ${duration}s`);
-      return {
-        success: true,
-        sessionId: pendingResult.sessionId,
-        expiresIn: duration,
-        extended: true,
-        waitedForCreation: true,
-      };
+      return session;
     }
   }
 
   // Check if we already have an active session for this user/doc combination
   // If so, extend it instead of creating a new one
   for (const [sid, session] of activeSessions.entries()) {
-    if (session.key === sessionKey) {
+    if (session.key === sessionKey && session.provider && session.provider.wsconnected && session.initialized) {
       // Extend the existing session
       if (session.timeoutId) {
         clearTimeout(session.timeoutId);
@@ -200,15 +153,22 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
         session.provider.awareness.setLocalStateField('cursor', session.cursor);
       }
 
-      console.log(`[agent-presence] Extended presence for ${userName} in ${docGuid} for ${duration}s`);
-      return {
-        success: true,
-        sessionId: sid,
-        expiresIn: duration,
-        extended: true,
-      };
+      console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
+      return session;
     }
   }
+
+  // No existing session, create a new one
+  const accessToken = agentToken.rawToken;
+  if (!accessToken) {
+    throw new Error('No authentication token available for WebSocket connection');
+  }
+
+  // Get WebSocket URL from environment or construct it
+  const wsProtocol = process.env.WS_PROTOCOL || 'ws';
+  const wsHost = process.env.WS_HOST || 'localhost';
+  const wsPort = process.env.WS_PORT || process.env.PORT || 3001;
+  const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/s`;
 
   // Create a unique session ID
   const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
@@ -327,18 +287,7 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
                 }
               }
 
-              const agentName = agentToken.agentName || 'AI Agent';
-              awareness.setLocalStateField('user', {
-                name: `${agentName} (${userName})`,
-                email,
-                picture,
-                color: agentColor,
-                isAgent: true,
-              });
-
-              console.log(
-                `[agent-presence] Set presence for ${agentName} (${userName}) in ${docGuid} for ${duration}s`
-              );
+              console.log(`[agent-presence] Created new session for ${userName} in ${docGuid}`);
 
               if (session) {
                 session.timeoutId = setTimeout(() => {
@@ -348,16 +297,9 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 
               pendingSessionCreations.delete(sessionKey);
 
-              resolve({
-                success: true,
-                sessionId,
-                expiresIn: duration,
-                agent: {
-                  name: `${agentName} (${userName})`,
-                  color: agentColor,
-                },
-              });
+              resolve(session);
             } catch (error) {
+              pendingSessionCreations.delete(sessionKey);
               cleanup();
               reject(new Error(`Failed to set presence: ${error.message}`));
             }
@@ -367,23 +309,27 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
 
       // Handle connection errors
       provider.on('connection-error', (error) => {
+        pendingSessionCreations.delete(sessionKey);
         cleanup();
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
       // Handle connection close
       provider.on('connection-close', () => {
+        pendingSessionCreations.delete(sessionKey);
         cleanup();
       });
 
       // Set timeout for initial connection
       setTimeout(() => {
         if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
+          pendingSessionCreations.delete(sessionKey);
           cleanup();
           reject(new Error('Connection timeout: Could not establish WebSocket connection'));
         }
       }, 10000); // 10 second timeout for connection
     } catch (error) {
+      pendingSessionCreations.delete(sessionKey);
       cleanup();
       reject(new Error(`Failed to create agent presence: ${error.message}`));
     }
@@ -393,6 +339,70 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
   pendingSessionCreations.set(sessionKey, sessionPromise);
 
   return sessionPromise;
+}
+
+/**
+ * Set agent presence in a document
+ * Makes the agent visible as an active user in the UI for the specified duration
+ *
+ * @param {string} docGuid - Document UUID
+ * @param {object} agentToken - Decoded agent JWT token (must include rawToken)
+ * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
+ * @returns {Promise<object>} { success, sessionId, expiresIn }
+ */
+async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
+  if (!persistenceProvider) {
+    throw new Error('Agent presence manager not initialized');
+  }
+
+  // Validate duration
+  const duration = Math.max(1, Math.min(300, durationSeconds));
+  const userId = agentToken.userId;
+  const pool = persistenceProvider.getPool();
+
+  // Check if user has access to the document
+  const accessResult = await pool.query(
+    `SELECT d.id, ds.role, u.name, u.email, u.picture
+     FROM documents d
+     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
+     JOIN users u ON u.id = $2
+     WHERE d.id = $1`,
+    [docGuid, userId]
+  );
+
+  if (accessResult.rows.length === 0) {
+    throw new Error('Document not found or you do not have access');
+  }
+
+  const { name: userName, email, picture } = accessResult.rows[0];
+  const agentColor = generateColorFromUserId(userId);
+  const agentName = agentToken.agentName || 'AI Agent';
+  const sessionKey = `${userId}-${docGuid}`;
+
+  // Get or create the session using the core function
+  const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
+
+  // Set the 'user' awareness field (this is the only difference from getOrCreateSession)
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalStateField('user', {
+      name: `${agentName} (${userName})`,
+      email,
+      picture,
+      color: agentColor,
+      isAgent: true,
+    });
+  }
+
+  // Return the expected format for setAgentPresence
+  return {
+    success: true,
+    sessionId: session.sessionId,
+    expiresIn: duration,
+    agent: {
+      name: `${agentName} (${userName})`,
+      color: agentColor,
+    },
+  };
 }
 
 /**
@@ -497,6 +507,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   const { name: userName, email, picture } = accessResult.rows[0];
   const agentColor = generateColorFromUserId(userId);
   const agentName = agentToken.agentName || 'AI Agent';
+  const sessionKey = `${userId}-${docGuid}`;
 
   const agentInfo = {
     name: `${agentName} (${userName})`,
@@ -506,233 +517,16 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
     isAgent: true,
   };
 
-  const existingSessionKey = `${userId}-${docGuid}`;
+  // Get or create the session using the core function
+  const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
 
-  // CRITICAL: Check if there's already a session creation in progress
-  // This prevents race conditions when multiple tools are called concurrently
-  // (e.g., multiple modify calls in rapid succession)
-  if (pendingSessionCreations.has(existingSessionKey)) {
-    console.log(`[agent-presence] getOrCreateSession: Session creation already in progress for ${userName} in ${docGuid}, waiting...`);
-
-    // Wait for the pending creation to complete
-    const pendingSession = await pendingSessionCreations.get(existingSessionKey);
-
-    // Extend the session timeout
-    if (pendingSession && pendingSession.timeoutId) {
-      clearTimeout(pendingSession.timeoutId);
-      pendingSession.timeoutId = setTimeout(() => {
-        pendingSession.cleanup();
-      }, duration * 1000);
-    }
-
-    console.log(`[agent-presence] Reusing session (after waiting) for ${userName} in ${docGuid}`);
-    return pendingSession;
+  // Set the 'user' awareness field
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalStateField('user', agentInfo);
   }
 
-  // Check if we already have an active session for this user/doc combination
-  for (const [sid, session] of activeSessions.entries()) {
-    // Reuse if session is connected and initialized
-    // Note: cursor can be null for empty documents - that's OK, we check 'initialized' flag instead
-    if (session.key === existingSessionKey && session.provider && session.provider.wsconnected && session.initialized) {
-      // Extend the existing session
-      if (session.timeoutId) {
-        clearTimeout(session.timeoutId);
-      }
-      session.timeoutId = setTimeout(() => {
-        session.cleanup();
-      }, duration * 1000);
-
-      // Ensure cursor is broadcast to awareness (in case it was cleared)
-      if (session.provider && session.provider.awareness && session.cursor) {
-        session.provider.awareness.setLocalStateField('cursor', session.cursor);
-      }
-
-      console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
-
-      // Return the session object
-      return session;
-    }
-  }
-
-  // No existing session, create a new one
-  const accessToken = agentToken.rawToken;
-  if (!accessToken) {
-    throw new Error('No authentication token available for WebSocket connection');
-  }
-
-  const wsProtocol = process.env.WS_PROTOCOL || 'ws';
-  const wsHost = process.env.WS_HOST || 'localhost';
-  const wsPort = process.env.WS_PORT || process.env.PORT || 3001;
-  const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/s`;
-
-  const sessionId = `agent-presence-${userId}-${docGuid}-${Date.now()}`;
-
-  // Create the session creation promise and store it to prevent race conditions
-  const sessionPromise = new Promise((resolve, reject) => {
-    let timeoutId = null;
-    let provider = null;
-
-    // Cleanup function
-    const cleanup = () => {
-      // Get session to clean up UndoManager and awareness
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        // Destroy UndoManager
-        if (session.undoManager) {
-          session.undoManager.destroy();
-          session.undoManager = null;
-        }
-        // Clear temporary selection timeout
-        if (session.tempSelectionTimeoutId) {
-          clearTimeout(session.tempSelectionTimeoutId);
-          session.tempSelectionTimeoutId = null;
-        }
-        // Clear awareness cursor
-        if (session.provider && session.provider.awareness) {
-          session.provider.awareness.setLocalStateField('cursor', null);
-        }
-      }
-
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (provider) {
-        provider.destroy();
-        provider = null;
-      }
-      activeSessions.delete(sessionId);
-      console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
-    };
-
-    try {
-      // Create Yjs document
-      const ydoc = new Y.Doc();
-
-      // Create WebSocket provider
-      provider = new WebsocketProvider(wsUrl, docGuid, ydoc, {
-        connect: true,
-        params: { token: accessToken },
-        WebSocketPolyfill: WebSocket,
-      });
-
-      // Store session info
-      activeSessions.set(sessionId, {
-        sessionId,
-        docGuid,
-        userId,
-        key: existingSessionKey,
-        provider,
-        cleanup,
-        timeoutId: null,
-        createdAt: Date.now(),
-        cursor: null,            // Will be initialized after connection (can be null for empty docs)
-        initialized: false,      // Set to true after sync completes - used for session reuse check
-        undoManager: null,       // Will be created after connection
-        clipboard: null,         // Clipboard storage for copy/paste
-        lastActivityAt: Date.now(),
-      });
-
-      // Wait for document to sync before initializing cursor
-      // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
-      // may fire before the server has finished loading from PostgreSQL.
-      // If empty, wait for the first update event (which fires when bindState applies content).
-      provider.on('sync', (isSynced) => {
-        if (isSynced) {
-          const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-          if (xmlFragment.toArray().length > 0) {
-            // Document has content - proceed immediately
-            finalizeSession();
-          } else {
-            // Document appears empty - wait for update event from bindState
-            console.log(`[agent-presence] Document ${docGuid} appears empty, waiting for content...`);
-
-            const onUpdate = () => {
-              clearTimeout(timeoutId);
-              console.log(`[agent-presence] Content arrived for ${docGuid}`);
-              finalizeSession();
-            };
-
-            // Listen for first update (fires when bindState applies persisted content)
-            ydoc.once('update', onUpdate);
-
-            // Timeout fallback for truly empty documents
-            const timeoutId = setTimeout(() => {
-              ydoc.off('update', onUpdate);
-              console.log(`[agent-presence] No content arrived for ${docGuid}, proceeding as empty`);
-              finalizeSession();
-            }, 2000);
-          }
-
-          function finalizeSession() {
-            try {
-              const awareness = provider.awareness;
-              const session = activeSessions.get(sessionId);
-              if (session) {
-                session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
-                session.cursor = initializeCursorAtStart(xmlFragment);
-                session.initialized = true;
-
-                if (session.cursor) {
-                  awareness.setLocalStateField('cursor', session.cursor);
-                }
-              }
-
-              awareness.setLocalStateField('user', agentInfo);
-
-              console.log(`[agent-presence] Created new session for ${agentInfo.name} in ${docGuid}`);
-
-              if (session) {
-                session.timeoutId = setTimeout(() => {
-                  cleanup();
-                }, duration * 1000);
-              }
-
-              pendingSessionCreations.delete(existingSessionKey);
-
-              resolve(session);
-            } catch (error) {
-              pendingSessionCreations.delete(existingSessionKey);
-              cleanup();
-              reject(new Error(`Failed to set presence: ${error.message}`));
-            }
-          }
-        }
-      });
-
-      // Handle connection errors
-      provider.on('connection-error', (error) => {
-        pendingSessionCreations.delete(existingSessionKey);
-        cleanup();
-        reject(new Error(`WebSocket connection failed: ${error.message}`));
-      });
-
-      // Handle connection close
-      provider.on('connection-close', () => {
-        pendingSessionCreations.delete(existingSessionKey);
-        cleanup();
-      });
-
-      // Set timeout for initial connection
-      setTimeout(() => {
-        if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
-          pendingSessionCreations.delete(existingSessionKey);
-          cleanup();
-          reject(new Error('Connection timeout: Could not establish WebSocket connection'));
-        }
-      }, 10000);
-    } catch (error) {
-      pendingSessionCreations.delete(existingSessionKey);
-      cleanup();
-      reject(new Error(`Failed to create agent presence: ${error.message}`));
-    }
-  });
-
-  // Store the promise immediately to prevent concurrent session creations
-  pendingSessionCreations.set(existingSessionKey, sessionPromise);
-
-  return sessionPromise;
+  // Return the full session object (as expected by callers like modify.js)
+  return session;
 }
 
 /**
