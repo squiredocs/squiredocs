@@ -92,6 +92,70 @@ function init(persistence) {
 }
 
 /**
+ * Verify user has access to a document and return user info
+ * @private
+ * @param {string} docGuid - Document UUID
+ * @param {string} userId - User ID
+ * @returns {Promise<{userName: string, email: string, picture: string}>}
+ * @throws {Error} If document not found or user lacks access
+ */
+async function _verifyDocumentAccess(docGuid, userId) {
+  const pool = persistenceProvider.getPool();
+  const accessResult = await pool.query(
+    `SELECT d.id, ds.role, u.name, u.email, u.picture
+     FROM documents d
+     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
+     JOIN users u ON u.id = $2
+     WHERE d.id = $1`,
+    [docGuid, userId]
+  );
+
+  if (accessResult.rows.length === 0) {
+    throw new Error('Document not found or you do not have access');
+  }
+
+  const { name: userName, email, picture } = accessResult.rows[0];
+  return { userName, email, picture };
+}
+
+/**
+ * Build agent info object for awareness
+ * @private
+ * @param {object} agentToken - Agent token with agentName
+ * @param {string} userName - User's display name
+ * @param {string} email - User's email
+ * @param {string} picture - User's picture URL
+ * @param {string} userId - User ID for color generation
+ * @returns {{name: string, email: string, picture: string, color: string, isAgent: boolean}}
+ */
+function _buildAgentInfo(agentToken, userName, email, picture, userId) {
+  const agentName = agentToken.agentName || 'AI Agent';
+  const agentColor = generateColorFromUserId(userId);
+  return {
+    name: `${agentName} (${userName})`,
+    email,
+    picture,
+    color: agentColor,
+    isAgent: true,
+  };
+}
+
+/**
+ * Set or extend session timeout
+ * @private
+ * @param {object} session - Session object
+ * @param {number} duration - Duration in seconds
+ */
+function _setSessionTimeout(session, duration) {
+  if (session.timeoutId) {
+    clearTimeout(session.timeoutId);
+  }
+  session.timeoutId = setTimeout(() => {
+    session.cleanup();
+  }, duration * 1000);
+}
+
+/**
  * Internal core function for creating/reusing WebSocket sessions
  * Handles race conditions, session reuse, and WebSocket setup
  * @private
@@ -122,14 +186,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         throw new Error('Session creation in progress but not fully initialized');
       }
 
-      // Extend the session
-      if (session.timeoutId) {
-        clearTimeout(session.timeoutId);
-      }
-      session.timeoutId = setTimeout(() => {
-        session.cleanup();
-      }, duration * 1000);
-
+      _setSessionTimeout(session, duration);
       console.log(`[agent-presence] Extended presence (after waiting) for ${userName} in ${docGuid} for ${duration}s`);
       return session;
     }
@@ -139,13 +196,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   // If so, extend it instead of creating a new one
   for (const [sid, session] of activeSessions.entries()) {
     if (session.key === sessionKey && session.provider && session.provider.wsconnected && session.initialized) {
-      // Extend the existing session
-      if (session.timeoutId) {
-        clearTimeout(session.timeoutId);
-      }
-      session.timeoutId = setTimeout(() => {
-        session.cleanup();
-      }, duration * 1000);
+      _setSessionTimeout(session, duration);
 
       // Ensure cursor is broadcast to awareness (in case it was cleared)
       if (session.provider && session.provider.awareness && session.cursor) {
@@ -306,9 +357,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
               console.log(`[agent-presence] Created new session for ${userName} in ${docGuid}`);
 
               if (session) {
-                session.timeoutId = setTimeout(() => {
-                  cleanup();
-                }, duration * 1000);
+                _setSessionTimeout(session, duration);
               }
 
               pendingSessionCreations.delete(sessionKey);
@@ -371,52 +420,26 @@ async function setAgentPresence(docGuid, agentToken, durationSeconds = DEFAULT_P
     throw new Error('Agent presence manager not initialized');
   }
 
-  // Validate duration
   const duration = Math.max(1, Math.min(300, durationSeconds));
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
-
-  // Check if user has access to the document
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role, u.name, u.email, u.picture
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     JOIN users u ON u.id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  const { name: userName, email, picture } = accessResult.rows[0];
-  const agentColor = generateColorFromUserId(userId);
-  const agentName = agentToken.agentName || 'AI Agent';
   const sessionKey = `${userId}-${docGuid}`;
 
-  // Get or create the session using the core function
+  const { userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
+  const agentInfo = _buildAgentInfo(agentToken, userName, email, picture, userId);
+
   const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
 
-  // Set the 'user' awareness field (this is the only difference from getOrCreateSession)
   if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('user', {
-      name: `${agentName} (${userName})`,
-      email,
-      picture,
-      color: agentColor,
-      isAgent: true,
-    });
+    session.provider.awareness.setLocalStateField('user', agentInfo);
   }
 
-  // Return the expected format for setAgentPresence
   return {
     success: true,
     sessionId: session.sessionId,
     expiresIn: duration,
     agent: {
-      name: `${agentName} (${userName})`,
-      color: agentColor,
+      name: agentInfo.name,
+      color: agentInfo.color,
     },
   };
 }
@@ -504,39 +527,13 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   const duration = Math.max(1, Math.min(300, durationSeconds));
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
-
-  // Check if user has access to the document
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role, u.name, u.email, u.picture
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     JOIN users u ON u.id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  const { name: userName, email, picture } = accessResult.rows[0];
-  const agentColor = generateColorFromUserId(userId);
-  const agentName = agentToken.agentName || 'AI Agent';
   const sessionKey = `${userId}-${docGuid}`;
 
-  const agentInfo = {
-    name: `${agentName} (${userName})`,
-    email,
-    picture,
-    color: agentColor,
-    isAgent: true,
-  };
+  const { userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
+  const agentInfo = _buildAgentInfo(agentToken, userName, email, picture, userId);
 
-  // Get or create the session using the core function
   const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
 
-  // Set the 'user' awareness field
   if (session.provider && session.provider.awareness) {
     session.provider.awareness.setLocalStateField('user', agentInfo);
   }
