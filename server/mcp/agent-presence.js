@@ -119,8 +119,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
     if (session) {
       // Verify session is fully initialized before extending
       if (!session.provider || !session.cleanup) {
-        console.warn(`[agent-presence] Session not fully initialized, skipping extend`);
-        return session;
+        throw new Error('Session creation in progress but not fully initialized');
       }
 
       // Extend the session
@@ -177,41 +176,52 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   const sessionPromise = new Promise((resolve, reject) => {
     let timeoutId = null;
     let provider = null;
+    let connectionTimeoutId = null;
 
-    // Cleanup function
-    const cleanup = () => {
-      // Get session to clean up UndoManager and awareness
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        // Destroy UndoManager
-        if (session.undoManager) {
-          session.undoManager.destroy();
-          session.undoManager = null;
-        }
-        // Clear temporary selection timeout
-        if (session.tempSelectionTimeoutId) {
-          clearTimeout(session.tempSelectionTimeoutId);
-          session.tempSelectionTimeoutId = null;
-        }
-        // Clear awareness cursor
-        if (session.provider && session.provider.awareness) {
-          session.provider.awareness.setLocalStateField('cursor', null);
-        }
-      }
+    // Cleanup function (idempotent - safe to call multiple times)
+    const cleanup = (() => {
+      let cleaned = false;
+      return () => {
+        if (cleaned) return;
+        cleaned = true;
 
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (provider) {
-        provider.destroy();
-        provider = null;
-      }
-      activeSessions.delete(sessionId);
-      // Clean up from pending creations map
-      pendingSessionCreations.delete(sessionKey);
-      console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
-    };
+        // Get session to clean up UndoManager and awareness
+        const session = activeSessions.get(sessionId);
+        if (session) {
+          // Destroy UndoManager
+          if (session.undoManager) {
+            session.undoManager.destroy();
+            session.undoManager = null;
+          }
+          // Clear temporary selection timeout
+          if (session.tempSelectionTimeoutId) {
+            clearTimeout(session.tempSelectionTimeoutId);
+            session.tempSelectionTimeoutId = null;
+          }
+          // Clear awareness cursor
+          if (session.provider && session.provider.awareness) {
+            session.provider.awareness.setLocalStateField('cursor', null);
+          }
+        }
+
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        if (connectionTimeoutId) {
+          clearTimeout(connectionTimeoutId);
+          connectionTimeoutId = null;
+        }
+        if (provider) {
+          provider.destroy();
+          provider = null;
+        }
+        activeSessions.delete(sessionId);
+        // Clean up from pending creations map
+        pendingSessionCreations.delete(sessionKey);
+        console.log(`[agent-presence] Cleaned up presence session ${sessionId}`);
+      };
+    })();
 
     try {
       // Create Yjs document
@@ -274,6 +284,12 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
           }
 
           function finalizeSession() {
+            // Clear connection timeout since we connected successfully
+            if (connectionTimeoutId) {
+              clearTimeout(connectionTimeoutId);
+              connectionTimeoutId = null;
+            }
+
             try {
               const awareness = provider.awareness;
               const session = activeSessions.get(sessionId);
@@ -321,7 +337,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
       });
 
       // Set timeout for initial connection
-      setTimeout(() => {
+      connectionTimeoutId = setTimeout(() => {
         if (!activeSessions.has(sessionId) || provider.wsconnected === false) {
           pendingSessionCreations.delete(sessionKey);
           cleanup();
