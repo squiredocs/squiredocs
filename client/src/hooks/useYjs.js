@@ -56,7 +56,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [connectionState, setConnectionState] = useState('connecting');
   const [synced, setSynced] = useState(false);
   const [users, setUsers] = useState([]);
-  const [docTitle, setDocTitleState] = useState('Untitled Document');
+  const [docTitle, setDocTitleState] = useState('');
   const [authError, setAuthError] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
@@ -102,10 +102,6 @@ export function useYjs(docGuid, accessToken, user = null) {
 
     const handleSync = (isSynced) => {
       setSynced(isSynced);
-      if (isSynced) {
-        const meta = ydoc.getMap('meta');
-        if (meta.get('title') === undefined) meta.set('title', 'Untitled Document');
-      }
     };
 
     // Handle auth failures - both WebSocket close codes AND HTTP upgrade failures
@@ -217,7 +213,8 @@ export function useYjs(docGuid, accessToken, user = null) {
     const meta = ydoc.getMap('meta');
     const update = () => {
       const title = meta.get('title');
-      if (title !== undefined) setDocTitleState(title);
+      // Convert undefined/null to empty string for controlled input
+      setDocTitleState(title ?? '');
     };
     update();
     meta.observe(update);

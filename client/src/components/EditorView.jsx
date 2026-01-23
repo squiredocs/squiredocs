@@ -650,7 +650,20 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                   e.target.style.height = 'auto';
                   e.target.style.height = e.target.scrollHeight + 'px';
                 }}
-                onFocus={(e) => e.target.select()}
+                onFocus={(e) => {
+                  // If title is empty, populate from first line of document
+                  if (!docTitle && editor) {
+                    const text = editor.getText();
+                    const firstLine = text.split('\n')[0].trim().slice(0, 75);
+                    if (firstLine) {
+                      setDocTitle(firstLine);
+                      // Need to wait for state update before selecting
+                      setTimeout(() => e.target.select(), 0);
+                      return;
+                    }
+                  }
+                  e.target.select();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Tab' && !e.shiftKey) {
                     e.preventDefault();

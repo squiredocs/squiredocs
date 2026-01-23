@@ -253,11 +253,11 @@ describe('useYjs', () => {
   });
 
   describe('document title', () => {
-    it('initializes with default document title', async () => {
+    it('initializes with empty title', async () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
-      // Initial title should be 'Untitled Document'
-      expect(result.current.docTitle).toBe('Untitled Document');
+      // Initial title should be empty (UI displays 'Untitled document' via placeholder/fallback)
+      expect(result.current.docTitle).toBe('');
     });
 
     it('provides setDocTitle function', () => {
