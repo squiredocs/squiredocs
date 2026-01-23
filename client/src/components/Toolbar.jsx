@@ -14,9 +14,15 @@ export default function Toolbar({ editor }) {
 
   // Find the editor container to get its position
   useEffect(() => {
-    if (editor && editor.view && editor.view.dom) {
-      const editorElement = editor.view.dom.closest('.editor-container') || editor.view.dom;
-      editorContainerRef.current = editorElement;
+    if (!editor || editor.isDestroyed) return;
+    try {
+      const dom = editor.view?.dom;
+      if (dom) {
+        const editorElement = dom.closest('.editor-container') || dom;
+        editorContainerRef.current = editorElement;
+      }
+    } catch {
+      // Editor view not ready yet
     }
   }, [editor]);
 

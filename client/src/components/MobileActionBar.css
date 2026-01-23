@@ -1,12 +1,25 @@
+/* Mobile toolbar container - sits below the title bar in the header */
 .mobile-action-bar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 8px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+/* Action row - undo, redo, indent controls */
+.mobile-action-row {
   display: flex;
   align-items: center;
   gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .mobile-action-button {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -16,11 +29,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.1s ease;
-}
-
-.mobile-action-button:hover:not(:disabled) {
-  background: #f3f4f6;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-action-button:active:not(:disabled) {
@@ -29,7 +38,6 @@
 
 .mobile-action-button:disabled {
   opacity: 0.35;
-  cursor: not-allowed;
 }
 
 .mobile-action-button svg {
@@ -38,76 +46,69 @@
 
 .mobile-action-divider {
   width: 1px;
-  height: 20px;
+  height: 24px;
   background: #d1d5db;
   margin: 0 4px;
+  flex-shrink: 0;
 }
 
-.mobile-action-button.active {
-  background: #4a90e2;
-  color: white;
-}
-
-.mobile-format-menu {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px 8px 0 0;
-  box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
+/* Format row - text formatting buttons */
 .mobile-format-row {
   display: flex;
-  gap: 8px;
-  justify-content: space-around;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  background: #f9fafb;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.mobile-format-button {
-  flex: 1;
-  min-width: 44px;
-  height: 44px;
-  border: 1px solid #ddd;
+.mobile-format-row::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-format-btn {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
+  border: none;
   border-radius: 6px;
-  background: white;
+  background: transparent;
   color: #374151;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.1s ease;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.mobile-format-button:active {
-  transform: scale(0.95);
+.mobile-format-btn:active {
+  background: #e5e7eb;
 }
 
-.mobile-format-button.active {
-  background: #4a90e2;
-  color: white;
-  border-color: #4a90e2;
+.mobile-format-btn.is-active {
+  background: #e0e7ff;
+  color: #4338ca;
 }
 
-.mobile-format-button strong {
+.mobile-format-btn strong {
   font-weight: 700;
 }
 
-.mobile-format-button em {
+.mobile-format-btn em {
   font-style: italic;
 }
 
-.mobile-format-button u {
+.mobile-format-btn u {
   text-decoration: underline;
 }
 
-.mobile-format-button s {
+.mobile-format-btn s {
   text-decoration: line-through;
 }

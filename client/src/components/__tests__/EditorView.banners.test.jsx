@@ -19,7 +19,6 @@ import { useYjs } from '../../hooks/useYjs';
 import { useAuth } from '../../contexts/AuthContext';
 import { useVersionHistory } from '../../hooks/useVersionHistory';
 import { useMobile } from '../../hooks/useMobile';
-import { useVisualViewport } from '../../hooks/useVisualViewport';
 import { createControllableMockProvider, createMockAuthContext } from '../../test/utils';
 
 // Mock all hooks
@@ -27,7 +26,6 @@ vi.mock('../../hooks/useYjs');
 vi.mock('../../contexts/AuthContext');
 vi.mock('../../hooks/useVersionHistory');
 vi.mock('../../hooks/useMobile');
-vi.mock('../../hooks/useVisualViewport');
 
 // Mock Editor component (complex, not needed for banner tests)
 vi.mock('../Editor', () => ({
@@ -118,9 +116,8 @@ describe('EditorView banner states', () => {
       clearSelection: vi.fn()
     });
 
-    // Mock mobile and viewport
+    // Mock mobile
     vi.mocked(useMobile).mockReturnValue(false);
-    vi.mocked(useVisualViewport).mockReturnValue({ height: 800, offsetTop: 0 });
   });
 
   afterEach(() => {

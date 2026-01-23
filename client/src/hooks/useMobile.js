@@ -1,22 +1,26 @@
 import { useState, useEffect } from 'react';
 
-const MOBILE_BREAKPOINT = 768;
+/**
+ * Detects if the user is on a mobile device.
+ * Uses user agent detection rather than screen width, so narrow desktop
+ * windows won't trigger mobile UI.
+ */
+function detectMobileDevice() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || navigator.vendor || window.opera || '';
+
+  // Check for mobile user agents
+  const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i;
+
+  return mobileRegex.test(userAgent);
+}
 
 export function useMobile() {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches
-  );
+  const [isMobile] = useState(() => detectMobileDevice());
 
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
-
-    const handleChange = (e) => {
-      setIsMobile(e.matches);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
+  // No need for useEffect since device type doesn't change during session
   return isMobile;
 }

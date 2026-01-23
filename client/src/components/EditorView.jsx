@@ -4,7 +4,6 @@ import { ySyncPluginKey, relativePositionToAbsolutePosition } from '@tiptap/y-ti
 import Editor from './Editor';
 import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';
-import MobileFormatBar from './MobileFormatBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
@@ -13,7 +12,6 @@ import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
-import { useVisualViewport } from '../hooks/useVisualViewport';
 import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
@@ -266,7 +264,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [showDiffHighlights, setShowDiffHighlights] = useState(true);
   const menuRef = useRef(null);
   const isMobile = useMobile();
-  const visualViewport = useVisualViewport();
 
   // Prevent page-level scrolling on mobile
   usePreventPageScroll();
@@ -691,7 +688,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 }}
               />
               {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
-              {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
             </div>
           </div>
           <div className="app-header-right">
@@ -905,6 +901,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </div>
+        {/* Mobile toolbar - full width rows below the title bar */}
+        {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
       </header>
       <div className="app-body">
         <main className="app-main">
@@ -987,25 +985,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                   editor.getText()}
               </pre>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile format bar at bottom - only shows when keyboard is active */}
-      {userRole !== 'viewer' && isMobile && visualViewport?.isKeyboardOpen && (
-        <div
-          className="mobile-format-bar-container"
-          style={{
-            position: 'fixed',
-            top: visualViewport.offsetTop,
-            left: 0,
-            right: 0,
-            height: visualViewport.height,
-            pointerEvents: 'none',
-          }}
-        >
-          <div className="mobile-format-bar" style={{ pointerEvents: 'auto' }}>
-            <MobileFormatBar editor={editor} />
           </div>
         </div>
       )}

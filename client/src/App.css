@@ -129,6 +129,9 @@
 
   .app-header {
     padding: 8px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
   }
 
   .app-header-content {
