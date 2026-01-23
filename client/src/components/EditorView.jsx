@@ -613,7 +613,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       {debouncedBanner === 'syncing' && (
         <div className="sync-banner">Syncing...</div>
       )}
-      <header className="app-header">
+      <header className={`app-header${isMobile ? ' mobile' : ''}`}>
         <div className="app-header-content">
           <div className="app-header-left">
             <a
@@ -638,57 +638,54 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 <rect x="7" y="13" width="6" height="1.5" rx="0.75" fill="white"/>
               </svg>
             </a>
-            <div className="title-toolbar-stack">
-              <textarea
-                value={docTitle}
-                onChange={(e) => {
-                  setDocTitle(e.target.value);
-                  // Auto-resize textarea
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                onFocus={(e) => {
-                  // If title is empty, populate from first line of document
-                  if (!docTitle && editor) {
-                    const text = editor.getText();
-                    const firstLine = text.split('\n')[0].trim().slice(0, 75);
-                    if (firstLine) {
-                      setDocTitle(firstLine);
-                      // Need to wait for state update before selecting
-                      setTimeout(() => e.target.select(), 0);
-                      return;
-                    }
+            <textarea
+              value={docTitle}
+              onChange={(e) => {
+                setDocTitle(e.target.value);
+                // Auto-resize textarea
+                e.target.style.height = 'auto';
+                e.target.style.height = e.target.scrollHeight + 'px';
+              }}
+              onFocus={(e) => {
+                // If title is empty, populate from first line of document
+                if (!docTitle && editor) {
+                  const text = editor.getText();
+                  const firstLine = text.split('\n')[0].trim().slice(0, 75);
+                  if (firstLine) {
+                    setDocTitle(firstLine);
+                    // Need to wait for state update before selecting
+                    setTimeout(() => e.target.select(), 0);
+                    return;
                   }
-                  e.target.select();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Tab' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (editor) {
-                      editor.commands.focus();
-                    }
+                }
+                e.target.select();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editor) {
+                    editor.commands.focus();
                   }
-                  // Prevent Enter key from creating new lines
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                  }
-                }}
-                className="app-title-input"
-                placeholder="Document title"
-                spellCheck={false}
-                readOnly={userRole === 'viewer'}
-                rows={1}
-                wrap="soft"
-                ref={(el) => {
-                  if (el) {
-                    // Initial resize
-                    el.style.height = 'auto';
-                    el.style.height = el.scrollHeight + 'px';
-                  }
-                }}
-              />
-              {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
-            </div>
+                }
+                // Prevent Enter key from creating new lines
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                }
+              }}
+              className="app-title-input"
+              placeholder="Document title"
+              spellCheck={false}
+              readOnly={userRole === 'viewer'}
+              rows={1}
+              wrap="soft"
+              ref={(el) => {
+                if (el) {
+                  // Initial resize
+                  el.style.height = 'auto';
+                  el.style.height = el.scrollHeight + 'px';
+                }
+              }}
+            />
           </div>
           <div className="app-header-right">
             {/* Active collaborators (excluding current user) - show fewer on mobile */}
@@ -901,6 +898,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />}
           </div>
         </div>
+        {/* Desktop toolbar - below the title bar */}
+        {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
         {/* Mobile toolbar - full width rows below the title bar */}
         {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
       </header>

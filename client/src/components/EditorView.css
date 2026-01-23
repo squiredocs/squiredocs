@@ -26,7 +26,7 @@
 
 .app-header-left {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -54,16 +54,8 @@
   display: block;
 }
 
-.title-toolbar-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-  padding-top: 2px;
-}
-
-.title-toolbar-stack .app-title-input {
+/* Title input in header */
+.app-header-left .app-title-input {
   height: auto;
   padding: 4px 8px;
   margin: -4px -8px;
@@ -73,25 +65,30 @@
   font-size: 18px;
   font-weight: 600;
   transition: border-color 0.15s ease;
+  flex: 1;
+  min-width: 0;
 }
 
-.title-toolbar-stack .app-title-input:hover {
+.app-header-left .app-title-input:hover {
   border-color: #d1d5db;
 }
 
-.title-toolbar-stack .app-title-input:focus {
+.app-header-left .app-title-input:focus {
   outline: none;
   border-color: #6b7280;
 }
 
-.title-toolbar-stack .toolbar {
-  padding: 0;
-  border: none;
+/* Desktop toolbar row below header content */
+.app-header > .toolbar {
+  padding: 6px 0;
+  margin: 8px -24px -12px -24px; /* Extend to header edges, pull up into bottom padding */
+  padding-left: 24px;
+  border-top: 1px solid #e5e7eb;
   background: transparent;
   gap: 4px;
 }
 
-.title-toolbar-stack .toolbar button {
+.app-header > .toolbar button {
   width: 28px;
   height: 28px;
   padding: 0;
@@ -108,12 +105,12 @@
   transition: background-color 0.1s ease;
 }
 
-.title-toolbar-stack .toolbar button:hover {
+.app-header > .toolbar button:hover {
   background: #f3f4f6;
 }
 
-.title-toolbar-stack .toolbar button:active,
-.title-toolbar-stack .toolbar button.is-active {
+.app-header > .toolbar button:active,
+.app-header > .toolbar button.is-active {
   background: #e5e7eb;
 }
 
@@ -255,30 +252,22 @@
     height: 36px;
   }
 
-  .title-toolbar-stack {
-    gap: 4px;
-    padding-top: 0;
-  }
-
-  .title-toolbar-stack .app-title-input {
+  .app-header-left .app-title-input {
     font-size: 16px;
     padding: 2px 6px;
     margin: -2px -6px;
-    max-height: 2.9em; /* ~1.8 lines */
-    overflow-y: auto;
-    overscroll-behavior: contain;
   }
+}
 
-  .title-toolbar-stack .toolbar {
-    gap: 2px;
-  }
+/* Mobile-only title height limit (based on user agent, not screen size) */
+.app-header.mobile .app-title-input {
+  max-height: 2.9em; /* ~1.8 lines */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
-  .title-toolbar-stack .toolbar button {
-    width: 24px;
-    height: 24px;
-    font-size: 11px;
-  }
-
+/* Small screen adjustments (these use media query since they're layout-related) */
+@media (max-width: 768px) {
   .share-btn {
     padding: 8px 12px;
   }
