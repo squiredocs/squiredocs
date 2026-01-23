@@ -21,7 +21,7 @@ spec:
             - name: postgresbackup
               image: ${IMG}
               imagePullPolicy: IfNotPresent
-              command: ["/bin/bash"]
+              command: ["/bin/sh"]
               args: ["/app/script/backup-postgres.sh"]
               env:
                 - name: POSTGRES_DATABASE
@@ -39,7 +39,7 @@ spec:
                       name: postgres-secret
                       key: password
                 - name: SHELL
-                  value: /bin/bash
+                  value: /bin/sh
               volumeMounts:
                 - name: s3cmd-config-volume
                   mountPath: "/etc/s3cmd"

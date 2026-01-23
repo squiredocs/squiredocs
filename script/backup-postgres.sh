@@ -1,16 +1,13 @@
-#!/bin/bash
+#!/bin/sh
 # This script performs the PostgreSQL backup and uploads it to S3.
 
-set -o pipefail # Exit if any command in a pipeline fails
 set -x # Print commands and their arguments as they are executed
 set -e # Exit immediately if a command exits with a non-zero status
 
 # Install PostgreSQL client tools if not already installed
-if ! command -v pg_dump &> /dev/null; then
+if ! command -v pg_dump > /dev/null 2>&1; then
     echo "Installing PostgreSQL client tools..."
-    # Add PostgreSQL official repository to get version 16
-    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-    apt-get update && apt-get install -y postgresql-client-16
+    apk add --no-cache postgresql16-client s3cmd
 fi
 
 # Ensure the s3cmd configuration is linked
