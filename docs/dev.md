@@ -820,6 +820,62 @@ kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run mig
 kubectl exec deployment/app-dev -n collab -- pkill -f node                             # Kill processes
 ```
 
+## Database Backups
+
+A Kubernetes CronJob automatically backs up PostgreSQL to S3 daily.
+
+### Configuration
+
+Create `k8s/s3cmd-configmap.yaml` with your S3 credentials (this file is gitignored):
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3cmd-config
+  namespace: collab
+data:
+  s3cfg: |
+    [default]
+    access_key = YOUR_AWS_ACCESS_KEY
+    secret_key = YOUR_AWS_SECRET_KEY
+    host_base = s3.amazonaws.com
+    host_bucket = %(bucket)s.s3.amazonaws.com
+    use_https = True
+```
+
+### Deployment
+
+The backup cronjob is automatically deployed by `script/deploy.sh` when the s3cmd configmap exists. You can also deploy it manually:
+
+```bash
+kubectl apply -f k8s/s3cmd-configmap.yaml -n collab
+kubectl apply -f k8s/postgres-backup-cronjob.yaml -n collab
+```
+
+### Monitoring
+
+```bash
+# Check cronjob status
+kubectl get cronjob -n collab
+
+# List completed backup jobs
+kubectl get jobs -n collab -l app=postgresbackup
+
+# View logs from last backup
+kubectl logs job/$(kubectl get jobs -n collab -l app=postgresbackup -o jsonpath='{.items[-1].metadata.name}') -n collab
+
+# Trigger manual backup
+kubectl create job --from=cronjob/postgres-backup manual-backup-$(date +%s) -n collab
+```
+
+### Backup Details
+
+- **Schedule**: Daily at 9:38 AM UTC
+- **Storage**: `s3://earthquaketracksql/`
+- **Naming**: `collab-postgres-<hostname>-<arch>-<day-of-year>.sql.gz`
+- **Script**: `script/backup-postgres.sh`
+
 ## Next Steps
 
 - See [README.md](../README.md) for application features and usage

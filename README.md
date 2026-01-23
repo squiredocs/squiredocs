@@ -645,6 +645,35 @@ paragraphs.forEach((node, index) => {
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 
+### Database Backups
+
+A Kubernetes CronJob performs daily PostgreSQL backups to S3:
+
+- **Schedule**: Daily at 9:38 AM UTC
+- **Storage**: `s3://earthquaketracksql/` (shared bucket)
+- **Naming**: `collab-postgres-<hostname>-<arch>-<day-of-year>.sql.gz`
+- **Retention**: Day-of-year naming means backups are overwritten annually (365 backup slots)
+
+**Setup**: The backup requires an S3 credentials ConfigMap. Create `k8s/s3cmd-configmap.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3cmd-config
+  namespace: collab
+data:
+  s3cfg: |
+    [default]
+    access_key = YOUR_AWS_ACCESS_KEY
+    secret_key = YOUR_AWS_SECRET_KEY
+    host_base = s3.amazonaws.com
+    host_bucket = %(bucket)s.s3.amazonaws.com
+    use_https = True
+```
+
+This file is gitignored for security. The cronjob is automatically deployed by `script/deploy.sh` when the configmap exists.
+
 ## Database Migrations
 
 This project uses [node-pg-migrate](https://github.com/salsita/node-pg-migrate) for database schema management.
