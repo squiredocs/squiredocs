@@ -87,11 +87,9 @@
   color: #666;
 }
 
-/* Mobile responsive styles - editor-specific overrides */
-@media (max-width: 768px) {
-  .editor-container {
-    /* Ensure cursor stays visible above the fixed format bar and keyboard when scrolling into view */
-    scroll-padding-bottom: 400px;
-  }
+/* Mobile-specific scroll padding (based on user agent, not screen size) */
+.editor-container.mobile {
+  /* Ensure cursor stays visible above the fixed format bar and keyboard when scrolling into view */
+  scroll-padding-bottom: 400px;
 }
 

@@ -190,15 +190,21 @@
   pointer-events: none;
 }
 
-/* Mobile responsive styles */
-@media (max-width: 768px) {
-  .editor-common-container {
-    /* Prevent this container from scrolling the page */
-    overscroll-behavior: contain;
-    /* Only allow vertical scrolling within this container */
-    touch-action: pan-y;
-  }
+/* Mobile-specific touch handling (based on user agent, not screen size) */
+.editor-common-container.mobile {
+  /* Prevent this container from scrolling the page */
+  overscroll-behavior: contain;
+  /* Only allow vertical scrolling within this container */
+  touch-action: pan-y;
+}
 
+.editor-common-container.mobile .ProseMirror {
+  /* Prevent touch gestures from affecting page layout during text selection */
+  touch-action: pan-y;
+}
+
+/* Small screen layout adjustments */
+@media (max-width: 768px) {
   .editor-common-content {
     padding: 0;
   }
@@ -209,7 +215,5 @@
     padding-bottom: 400px;
     border-left: none;
     border-right: none;
-    /* Prevent touch gestures from affecting page layout during text selection */
-    touch-action: pan-y;
   }
 }

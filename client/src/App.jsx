@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { useMobile } from './hooks/useMobile';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
 import LoginPage from './components/LoginPage';
@@ -63,14 +64,26 @@ function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
+  const isMobile = useMobile();
 
-  // Set data attribute on body for current view (used for view-specific CSS)
+  // Set data attributes on body for current view and mobile state (used for view-specific CSS)
   useEffect(() => {
     document.body.setAttribute('data-view', route.view);
     return () => {
       document.body.removeAttribute('data-view');
     };
   }, [route.view]);
+
+  useEffect(() => {
+    if (isMobile) {
+      document.body.setAttribute('data-mobile', 'true');
+    } else {
+      document.body.removeAttribute('data-mobile');
+    }
+    return () => {
+      document.body.removeAttribute('data-mobile');
+    };
+  }, [isMobile]);
 
   // Handle browser back/forward navigation
   useEffect(() => {

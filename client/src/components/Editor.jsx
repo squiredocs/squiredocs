@@ -384,7 +384,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
   }
 
   return (
-    <div className="editor-common-container editor-container" ref={containerRef} onClick={handleClick} onContextMenu={handleContextMenu}>
+    <div className={`editor-common-container editor-container${isMobile ? ' mobile' : ''}`} ref={containerRef} onClick={handleClick} onContextMenu={handleContextMenu}>
       <EditorContent editor={editor} className="editor-common-content editor-content" />
       {linkPreview && (
         <LinkPreview
