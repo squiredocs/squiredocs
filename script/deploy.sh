@@ -159,6 +159,12 @@ deploy_app() {
   envsubst_safe < k8s/app-service.yaml | kubectl apply -f - -n collab
   envsubst_safe < k8s/app-hpa.yaml | kubectl apply -f - -n collab
   kubectl apply -f k8s/collab-loadbalancer.yaml -n collab
+
+  # Deploy postgres backup cronjob if s3cmd config exists
+  if [[ -f "k8s/s3cmd-configmap.yaml" ]]; then
+    echo "Deploying postgres backup cronjob..."
+    envsubst_safe < k8s/postgres-backup-cronjob.yaml | kubectl apply -f - -n collab
+  fi
 }
 
 # Create namespace if it doesn't exist
@@ -181,6 +187,15 @@ else
   echo "WARNING: k8s/mcp-auth-secret.yaml not found."
   echo "MCP OAuth authentication will not work without this secret."
   echo "Generate it with: ./script/generate-mcp-secrets.sh --k8s"
+fi
+
+# Deploy s3cmd config for postgres backups if it exists
+if [[ -f "k8s/s3cmd-configmap.yaml" ]]; then
+  echo "Applying s3cmd config for postgres backups..."
+  kubectl apply -f k8s/s3cmd-configmap.yaml -n collab
+else
+  echo "WARNING: k8s/s3cmd-configmap.yaml not found."
+  echo "Postgres backups will not work without this config."
 fi
 
 # Deploy auth secret from appropriate .env file

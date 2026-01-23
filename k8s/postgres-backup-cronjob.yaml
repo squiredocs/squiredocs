@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: collab
+  labels:
+    app: postgresbackup
+spec:
+  schedule: "38 9 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 4
+      template:
+        metadata:
+          labels:
+            app: postgresbackup
+        spec:
+          containers:
+            - name: postgresbackup
+              image: ${IMG}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash"]
+              args: ["/app/script/backup-postgres.sh"]
+              env:
+                - name: POSTGRES_DATABASE
+                  value: collab_db
+                - name: POSTGRES_HOST
+                  value: collab-postgres
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: username
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: password
+                - name: SHELL
+                  value: /bin/bash
+              volumeMounts:
+                - name: s3cmd-config-volume
+                  mountPath: "/etc/s3cmd"
+                  readOnly: true
+          volumes:
+            - name: s3cmd-config-volume
+              configMap:
+                name: s3cmd-config
+                items:
+                  - key: s3cfg
+                    path: s3cfg
+          restartPolicy: OnFailure
