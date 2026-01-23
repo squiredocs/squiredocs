@@ -898,7 +898,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 )}
               </div>
             )}
-            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
+            {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />}
           </div>
         </div>
         {/* Mobile toolbar - full width rows below the title bar */}

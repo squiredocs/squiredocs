@@ -1,20 +1,38 @@
-/* Mobile toolbar container - sits below the title bar in the header */
+/* Mobile toolbar container - single row with fixed left and scrollable right */
 .mobile-action-bar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   width: 100%;
   margin-top: 8px;
   border-top: 1px solid #e5e7eb;
   background: #fff;
+  padding: 6px 0;
 }
 
-/* Action row - undo, redo, indent controls */
-.mobile-action-row {
+/* Fixed left section: Undo/Redo and conditional Indent/Outdent */
+.mobile-toolbar-fixed {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 0;
-  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+/* Scrollable format section */
+.mobile-toolbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-toolbar-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .mobile-action-button {
@@ -30,6 +48,7 @@
   justify-content: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
 }
 
 .mobile-action-button:active:not(:disabled) {
@@ -50,24 +69,6 @@
   background: #d1d5db;
   margin: 0 4px;
   flex-shrink: 0;
-}
-
-/* Format row - text formatting buttons */
-.mobile-format-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 0;
-  background: #f9fafb;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.mobile-format-row::-webkit-scrollbar {
-  display: none;
 }
 
 .mobile-format-btn {
