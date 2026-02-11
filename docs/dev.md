@@ -19,6 +19,19 @@ The development setup consists of:
 
 ## Setup
 
+### 0. Verify kubectl Context
+
+**Before running any kubectl commands, always confirm you are targeting the minikube cluster — not a production cluster.** Deploying to the wrong context can affect live infrastructure.
+
+```bash
+# Check current context
+kubectl config current-context
+
+# Should output: minikube
+# If not, switch to minikube:
+kubectl config use-context minikube
+```
+
 ### 1. Deploy the Development Pod
 
 ```bash
