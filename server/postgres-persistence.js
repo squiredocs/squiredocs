@@ -58,21 +58,18 @@ class PostgresPersistence {
   }
 
   /**
-   * Get the current update clock for a document
+   * Get the current update clock for a document using an existing client connection
    * @private
+   * @param {import('pg').PoolClient} client - Database client to use
+   * @param {string} docGuid - Document GUID
+   * @returns {Promise<number>} Current max clock, or -1 if no updates exist
    */
-  async _getCurrentUpdateClock(docGuid) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT MAX(clock) as max_clock FROM yjs_updates WHERE doc_guid = $1',
-        [docGuid]
-      );
-      return result.rows[0]?.max_clock ?? -1;
-    } finally {
-      client.release();
-    }
+  async _getCurrentUpdateClock(client, docGuid) {
+    const result = await client.query(
+      'SELECT MAX(clock) as max_clock FROM yjs_updates WHERE doc_guid = $1',
+      [docGuid]
+    );
+    return result.rows[0]?.max_clock ?? -1;
   }
 
   /**
@@ -86,28 +83,44 @@ class PostgresPersistence {
   async storeUpdate(docGuid, update, userId = null, agentName = null) {
     await this._init();
 
-    const clock = await this._getCurrentUpdateClock(docGuid);
-    const nextClock = clock + 1;
-
+    const MAX_RETRIES = 5;
     const client = await this.pool.connect();
     try {
-      // If this is the first update, create a state vector entry
-      if (clock === -1) {
-        const ydoc = new Y.Doc();
-        Y.applyUpdate(ydoc, update);
-        const stateVector = Y.encodeStateVector(ydoc);
+      let nextClock;
 
-        await client.query(
-          'INSERT INTO yjs_state_vectors (doc_guid, state_vector, clock) VALUES ($1, $2, $3) ON CONFLICT (doc_guid) DO UPDATE SET state_vector = $2, clock = $3, updated_at = CURRENT_TIMESTAMP',
-          [docGuid, Buffer.from(stateVector), nextClock]
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const clock = await this._getCurrentUpdateClock(client, docGuid);
+        nextClock = clock + 1;
+
+        // If this is the first update, create a state vector entry
+        if (clock === -1) {
+          const ydoc = new Y.Doc();
+          Y.applyUpdate(ydoc, update);
+          const stateVector = Y.encodeStateVector(ydoc);
+
+          await client.query(
+            'INSERT INTO yjs_state_vectors (doc_guid, state_vector, clock) VALUES ($1, $2, $3) ON CONFLICT (doc_guid) DO UPDATE SET state_vector = $2, clock = $3, updated_at = CURRENT_TIMESTAMP',
+            [docGuid, Buffer.from(stateVector), nextClock]
+          );
+        }
+
+        // Store the update with user_id and agent_name for version history tracking.
+        // ON CONFLICT DO NOTHING means rowCount === 0 if another writer claimed this clock.
+        const result = await client.query(
+          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (doc_guid, clock) DO NOTHING',
+          [docGuid, nextClock, Buffer.from(update), userId, agentName]
         );
-      }
 
-      // Store the update with user_id and agent_name for version history tracking
-      await client.query(
-        'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (doc_guid, clock) DO NOTHING',
-        [docGuid, nextClock, Buffer.from(update), userId, agentName]
-      );
+        if (result.rowCount > 0) {
+          // INSERT succeeded — we claimed this clock value
+          break;
+        }
+
+        // Conflict: another concurrent writer took this clock. Retry with refreshed MAX(clock).
+        if (attempt === MAX_RETRIES - 1) {
+          throw new Error(`storeUpdate: failed to acquire a unique clock for ${docGuid} after ${MAX_RETRIES} attempts`);
+        }
+      }
 
       // Update document timestamp (unified behavior for both regular user updates and MCP tool updates)
       // This ensures the "last opened" date is always updated when a document is edited
