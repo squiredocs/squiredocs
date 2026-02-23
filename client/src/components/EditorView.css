@@ -114,6 +114,40 @@
   background: #e5e7eb;
 }
 
+/* AI toggle button */
+.ai-toggle-btn {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6368;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ai-toggle-btn:hover {
+  background-color: #f3e8ff;
+  color: #7c3aed;
+}
+
+.ai-toggle-btn:active {
+  background-color: #ede9fe;
+}
+
+.ai-toggle-btn--active {
+  background-color: #f3e8ff;
+  color: #7c3aed;
+}
+
 /* Tools menu - contains Share, History, and Source buttons */
 .tools-menu-wrapper {
   position: relative;
@@ -299,6 +333,13 @@
 
   .tools-menu-btn:active {
     background-color: rgba(0, 0, 0, 0.1);
+  }
+
+  .ai-toggle-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -583,7 +624,8 @@
   .view-only-banner,
   .sync-banner,
   .modal-overlay,
-  .tools-menu-dropdown {
+  .tools-menu-dropdown,
+  .ai-toggle-btn {
     display: none !important;
   }
 

@@ -86,6 +86,17 @@
   margin: 0 auto;
 }
 
+/* When AI panel is open right, widen to accommodate panel beside editor */
+.app-body.ai-panel-right {
+  max-width: 2000px;
+}
+
+/* When AI panel is open at bottom, switch to column layout */
+.app-body.ai-panel-bottom {
+  flex-direction: column;
+  max-width: 1400px;
+}
+
 .app-main {
   flex: 1;
   display: flex;

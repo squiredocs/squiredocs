@@ -6,11 +6,11 @@ import { useMobile } from './useMobile';
  * Ensures only the editor container can scroll, preventing
  * the page from scrolling during text selection or other interactions
  */
-export function usePreventPageScroll() {
+export function usePreventPageScroll({ disabled = false } = {}) {
   const isMobile = useMobile();
 
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || disabled) return;
 
     const preventScroll = (e) => {
       // Reset any scroll on window
@@ -34,5 +34,5 @@ export function usePreventPageScroll() {
       window.removeEventListener('scroll', preventScroll);
       clearInterval(interval);
     };
-  }, [isMobile]);
+  }, [isMobile, disabled]);
 }
