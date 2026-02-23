@@ -11,11 +11,6 @@
   overflow: hidden;
 }
 
-/* Transition only during deliberate open/close */
-.ai-panel--transitioning {
-  transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease;
-}
-
 /* Right-docked panel */
 .ai-panel--right {
   width: var(--ai-panel-width, 380px);

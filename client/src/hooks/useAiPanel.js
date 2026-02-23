@@ -28,9 +28,8 @@ function savePrefs(prefs) {
   }
 }
 
-let nextId = 1;
 function makeId() {
-  return `msg-${Date.now()}-${nextId++}`;
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /**
@@ -49,25 +48,25 @@ export function useAiPanel() {
 
   const toggle = useCallback(() => setIsOpen(prev => !prev), []);
 
-  const persistPref = (key, value) => {
+  const persistPref = useCallback((key, value) => {
     prefs.current = { ...prefs.current, [key]: value };
     savePrefs(prefs.current);
-  };
+  }, []);
 
   const setPosition = useCallback((pos) => {
     setPositionState(pos);
     persistPref('position', pos);
-  }, []);
+  }, [persistPref]);
 
   const updateWidth = useCallback((px) => {
     setWidthPx(px);
     persistPref('widthPx', px);
-  }, []);
+  }, [persistPref]);
 
   const updateHeight = useCallback((px) => {
     setHeightPx(px);
     persistPref('heightPx', px);
-  }, []);
+  }, [persistPref]);
 
   const sendMessage = useCallback((text) => {
     const trimmed = text.trim();
