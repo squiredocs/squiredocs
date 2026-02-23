@@ -49,22 +49,24 @@ export function useAiPanel() {
 
   const toggle = useCallback(() => setIsOpen(prev => !prev), []);
 
+  const persistPref = (key, value) => {
+    prefs.current = { ...prefs.current, [key]: value };
+    savePrefs(prefs.current);
+  };
+
   const setPosition = useCallback((pos) => {
     setPositionState(pos);
-    prefs.current = { ...prefs.current, position: pos };
-    savePrefs(prefs.current);
+    persistPref('position', pos);
   }, []);
 
   const updateWidth = useCallback((px) => {
     setWidthPx(px);
-    prefs.current = { ...prefs.current, widthPx: px };
-    savePrefs(prefs.current);
+    persistPref('widthPx', px);
   }, []);
 
   const updateHeight = useCallback((px) => {
     setHeightPx(px);
-    prefs.current = { ...prefs.current, heightPx: px };
-    savePrefs(prefs.current);
+    persistPref('heightPx', px);
   }, []);
 
   const sendMessage = useCallback((text) => {
