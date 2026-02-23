@@ -8,22 +8,30 @@
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../../postgres-persistence');
 
+const TEST_DB_NAME = 'collab_test_db';
+
+/**
+ * Build a DATABASE_URL for the test database.
+ * Uses the same host/port/credentials as the app, but always targets collab_test_db.
+ * Respects DATABASE_URL if already set (e.g., in CI).
+ */
+function getTestDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const host = process.env.DB_HOST || 'localhost';
+  const port = process.env.DB_PORT || 5432;
+  const user = process.env.DB_USER || process.env.USER || 'postgres';
+  const password = process.env.DB_PASSWORD || '';
+  const auth = password ? `${user}:${password}` : user;
+  return `postgresql://${auth}@${host}:${port}/${TEST_DB_NAME}`;
+}
+
 /**
  * Get database config at call time (not module load time)
  * This ensures DATABASE_URL is checked when the function is called,
  * not when the module is first imported.
  */
 function getDbConfig() {
-  if (process.env.DATABASE_URL) {
-    return { connectionString: process.env.DATABASE_URL };
-  }
-  return {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'collab_db',
-    user: process.env.DB_USER || process.env.USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-  };
+  return { connectionString: getTestDatabaseUrl() };
 }
 
 /**
@@ -38,8 +46,7 @@ function createPool() {
  * Create a new PostgresPersistence instance
  */
 function createPersistence() {
-  const config = getDbConfig();
-  return new PostgresPersistence(config);
+  return new PostgresPersistence(getDbConfig());
 }
 
 /**
@@ -74,6 +81,8 @@ async function cleanupTestUser(pool, userId) {
 }
 
 module.exports = {
+  TEST_DB_NAME,
+  getTestDatabaseUrl,
   getDbConfig,
   createPool,
   createPersistence,

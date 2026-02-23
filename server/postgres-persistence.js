@@ -11,12 +11,24 @@ class PostgresPersistence {
    * @param {object} opts - Additional options
    */
   constructor(connectionStringOrConfig, opts = {}) {
-    this.pool = new Pool(
-      typeof connectionStringOrConfig === 'string'
-        ? { connectionString: connectionStringOrConfig }
-        : connectionStringOrConfig
-    );
-    
+    const poolConfig = typeof connectionStringOrConfig === 'string'
+      ? { connectionString: connectionStringOrConfig }
+      : connectionStringOrConfig;
+    this.pool = new Pool(poolConfig);
+
+    // Extract database name for safety checks on destructive operations
+    if (poolConfig.connectionString) {
+      // Parse database name from connection string (last path segment)
+      try {
+        const url = new URL(poolConfig.connectionString);
+        this._dbName = url.pathname.replace(/^\//, '');
+      } catch {
+        this._dbName = null;
+      }
+    } else {
+      this._dbName = poolConfig.database || null;
+    }
+
     this.initialized = false;
     this.initPromise = null;
   }
@@ -220,12 +232,21 @@ class PostgresPersistence {
   }
 
   /**
-   * Clear all data from the database
+   * Clear all data from the database.
+   * SAFETY: Only allowed on databases whose name contains "test".
+   * This prevents accidental data loss in development or production.
    * @returns {Promise<void>}
    */
   async clearAll() {
+    if (!this._dbName || !this._dbName.includes('test')) {
+      throw new Error(
+        `clearAll() refused: database "${this._dbName}" does not appear to be a test database. ` +
+        'This method only runs against databases with "test" in the name to prevent accidental data loss.'
+      );
+    }
+
     await this._init();
-    
+
     const client = await this.pool.connect();
     try {
       await client.query('DELETE FROM yjs_updates');
