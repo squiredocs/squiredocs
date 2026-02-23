@@ -575,3 +575,31 @@
     padding: 12px;
   }
 }
+
+/* Print styles */
+@media print {
+  /* Hide all UI chrome */
+  .app-header,
+  .view-only-banner,
+  .sync-banner,
+  .modal-overlay,
+  .tools-menu-dropdown {
+    display: none !important;
+  }
+
+  /* Remove layout constraints so full content prints */
+  .app-body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .app-main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Page margins */
+  @page {
+    margin: 0.75in;
+  }
+}

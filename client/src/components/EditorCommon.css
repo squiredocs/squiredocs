@@ -217,3 +217,32 @@
     border-right: none;
   }
 }
+
+/* Print styles for editor content */
+@media print {
+  .editor-common-container {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .editor-common-content {
+    padding: 0 !important;
+  }
+
+  .editor-common-content .ProseMirror {
+    max-width: 100% !important;
+    border-left: none !important;
+    border-right: none !important;
+    padding: 0 !important;
+  }
+
+  /* Clean page breaks */
+  .editor-common-content .ProseMirror table,
+  .editor-common-content .ProseMirror pre,
+  .editor-common-content .ProseMirror blockquote,
+  .editor-common-content .ProseMirror h1,
+  .editor-common-content .ProseMirror h2,
+  .editor-common-content .ProseMirror h3 {
+    break-inside: avoid;
+  }
+}
