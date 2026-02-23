@@ -26,6 +26,7 @@ function AiPanel({ aiPanel }) {
   // Streaming state: disable send when last message is streaming
   const lastMsg = messages[messages.length - 1];
   const isStreaming = lastMsg?.status === 'streaming';
+  const isEmpty = messages.length === 0;
 
   // Mobile: shrink panel to visual viewport height so it stays above the keyboard
   useEffect(() => {
@@ -81,16 +82,31 @@ function AiPanel({ aiPanel }) {
 
   if (!isOpen) return null;
 
-  // Shared panel content
-  const panelContent = (
-    <>
-      <AiChatMessages messages={messages} />
-      <AiChatInput onSend={sendMessage} disabled={isStreaming} />
-    </>
+  const welcomeBlock = (
+    <div className="ai-chat-welcome">
+      <div className="ai-chat-welcome-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
+        </svg>
+      </div>
+      <p className="ai-chat-welcome-text">Your AI writing partner</p>
+    </div>
   );
 
-  // Mobile: full-screen takeover (no fixed positioning, no keyboard issues)
+  // Mobile: full-screen takeover — input hugs content (not pinned to bottom)
   if (isMobile) {
+    const mobileBody = isEmpty ? (
+      <div className="ai-panel-body ai-panel-body--empty">
+        {welcomeBlock}
+        <AiChatInput onSend={sendMessage} disabled={isStreaming} />
+      </div>
+    ) : (
+      <div className="ai-panel-body ai-panel-body--active">
+        <AiChatMessages messages={messages} />
+        <AiChatInput onSend={sendMessage} disabled={isStreaming} />
+      </div>
+    );
+
     return (
       <div className="ai-panel-mobile" ref={mobileRef}>
         <div className="ai-panel-header">
@@ -101,7 +117,7 @@ function AiPanel({ aiPanel }) {
             </svg>
           </button>
         </div>
-        {panelContent}
+        {mobileBody}
       </div>
     );
   }
@@ -158,7 +174,17 @@ function AiPanel({ aiPanel }) {
           </button>
         </div>
       </div>
-      {panelContent}
+      {/* Desktop: welcome or messages in the body, input always pinned to bottom */}
+      {isEmpty ? (
+        <div className="ai-panel-body ai-panel-body--empty">
+          {welcomeBlock}
+        </div>
+      ) : (
+        <div className="ai-panel-body ai-panel-body--active">
+          <AiChatMessages messages={messages} />
+        </div>
+      )}
+      <AiChatInput onSend={sendMessage} disabled={isStreaming} />
     </aside>
   );
 }

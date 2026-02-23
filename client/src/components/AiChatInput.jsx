@@ -40,8 +40,8 @@ function AiChatInput({ onSend, disabled }) {
         value={value}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder="Ask about your document..."
-        rows={1}
+        placeholder="Write, brainstorm, edit together..."
+        rows={2}
       />
       <button
         className="ai-chat-send-btn"
