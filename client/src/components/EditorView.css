@@ -80,12 +80,12 @@
 
 /* Desktop toolbar row below header content */
 .app-header > .toolbar {
-  padding: 6px 0;
+  padding: 6px 24px;
   margin: 8px -24px -12px -24px; /* Extend to header edges, pull up into bottom padding */
-  padding-left: 24px;
   border-top: 1px solid #e5e7eb;
   background: transparent;
   gap: 4px;
+  justify-content: center;
 }
 
 .app-header > .toolbar button {
