@@ -28,27 +28,31 @@ function AiPanel({ aiPanel }) {
   const isStreaming = lastMsg?.status === 'streaming';
   const isEmpty = messages.length === 0;
 
-  // Mobile: shrink panel to visual viewport height so it stays above the keyboard
+  // Mobile: shrink panel to the visual viewport height so content stays above
+  // the on-screen keyboard.  A CSS ::before pseudo-element keeps a full-screen
+  // white backdrop behind the shortened panel to hide the document through the
+  // translucent iOS keyboard glass.
+  // On Android, `interactive-widget=resizes-content` in the viewport meta tag
+  // handles this via CSS, making these updates a no-op (keyboard height ≈ 0).
   useEffect(() => {
     if (!isMobile || !isOpen) return;
     const vv = window.visualViewport;
     if (!vv) return;
 
-    const update = () => {
+    const sync = () => {
       const el = panelRef.current;
       if (!el) return;
-      // Keep panel full-screen but pad the bottom so content stays above keyboard
-      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
-      el.style.paddingBottom = keyboardHeight > 50 ? keyboardHeight + 'px' : '0px';
+      el.style.height = `${vv.height}px`;
+      el.style.top = `${vv.offsetTop}px`;
     };
 
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    update();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    sync();
 
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
     };
   }, [isMobile, isOpen]);
 
@@ -169,24 +173,16 @@ function AiPanel({ aiPanel }) {
         )}
       </div>
       {isEmpty ? (
-        <div className="ai-panel-body ai-panel-body--empty">
-          <div className="ai-chat-welcome">
-            <div className="ai-chat-welcome-icon">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
-              </svg>
-            </div>
-            <p className="ai-chat-welcome-text">Your AI writing partner</p>
-          </div>
-          {isMobile && <AiChatInput onSend={sendMessage} disabled={isStreaming} />}
+        <div className="ai-panel-welcome">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+            <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
+          </svg>
+          <p className="ai-chat-welcome-text">Your AI writing partner</p>
         </div>
       ) : (
-        <div className="ai-panel-body ai-panel-body--active">
-          <AiChatMessages messages={messages} />
-          {isMobile && <AiChatInput onSend={sendMessage} disabled={isStreaming} />}
-        </div>
+        <AiChatMessages messages={messages} />
       )}
-      {!isMobile && <AiChatInput onSend={sendMessage} disabled={isStreaming} />}
+      <AiChatInput onSend={sendMessage} disabled={isStreaming} />
     </WrapperTag>
   );
 
