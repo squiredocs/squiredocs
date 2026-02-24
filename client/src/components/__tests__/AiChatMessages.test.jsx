@@ -116,6 +116,43 @@ describe('AiChatMessages', () => {
     expect(card).toHaveClass('ai-tool-card--running');
   });
 
+  it('renders markdown bold and links in assistant messages', () => {
+    const messages = [
+      makeMsg({
+        id: '1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'This is **bold** and a [link](https://example.com).' }],
+      }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    expect(container.querySelector('strong').textContent).toBe('bold');
+    const link = container.querySelector('a');
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('https://example.com');
+    expect(link.getAttribute('target')).toBe('_blank');
+  });
+
+  it('groups consecutive tool cards into a tool group', () => {
+    const messages = [
+      makeMsg({
+        id: '1',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'Let me search.' },
+          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', args: {}, output: {} },
+          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', args: {}, output: {} },
+          { type: 'text', text: 'Found results.' },
+        ],
+      }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const toolGroup = container.querySelector('.ai-tool-group');
+    expect(toolGroup).toBeInTheDocument();
+    expect(toolGroup.querySelectorAll('.ai-tool-card')).toHaveLength(2);
+  });
+
   it('auto-scrolls to bottom when messages change', () => {
     const messages = [makeMsg({ id: '1' })];
     const { container, rerender } = render(<AiChatMessages messages={messages} status="ready" />);

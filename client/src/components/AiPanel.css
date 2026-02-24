@@ -165,7 +165,6 @@
   font-size: 14px;
   line-height: 1.5;
   word-wrap: break-word;
-  white-space: pre-wrap;
 }
 
 .ai-chat-bubble--user {
@@ -173,6 +172,7 @@
   background: #7c3aed;
   color: #fff;
   border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
 }
 
 .ai-chat-bubble--assistant {
@@ -180,6 +180,70 @@
   background: #f3f4f6;
   color: #1f2937;
   border-bottom-left-radius: 4px;
+}
+
+/* ---------- Markdown inside assistant bubbles ---------- */
+
+.ai-chat-markdown p {
+  margin: 0 0 0.5em;
+}
+
+.ai-chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-chat-markdown strong {
+  font-weight: 600;
+}
+
+.ai-chat-markdown a {
+  color: #7c3aed;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-chat-markdown a:hover {
+  color: #6d28d9;
+}
+
+.ai-chat-markdown ul,
+.ai-chat-markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+.ai-chat-markdown li {
+  margin: 0.15em 0;
+}
+
+.ai-chat-markdown code {
+  font-size: 0.9em;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.ai-chat-markdown pre {
+  margin: 0.5em 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+
+.ai-chat-markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+/* ---------- Tool card groups ---------- */
+
+.ai-tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
 }
 
 /* Typing indicator */

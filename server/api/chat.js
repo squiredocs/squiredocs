@@ -80,7 +80,11 @@ router.post('/', requireAuth, async (req, res) => {
     const { anthropic } = getAnthropic();
     const { buildTools } = getChatTools();
 
-    const tools = buildTools(syntheticAgentToken);
+    const tools = {
+      ...buildTools(syntheticAgentToken),
+      webSearch: anthropic.tools.webSearch_20250305(),
+      webFetch: anthropic.tools.webFetch_20250910(),
+    };
 
     // Convert UI messages (parts-based) to model messages (content-based) for streamText
     const modelMessages = await convertToModelMessages(messages);
