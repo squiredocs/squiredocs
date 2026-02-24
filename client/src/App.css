@@ -91,10 +91,10 @@
   max-width: 2000px;
 }
 
-/* When AI panel is open at bottom, switch to column layout */
+/* When AI panel is open at bottom, switch to column layout and fill viewport width */
 .app-body.ai-panel-bottom {
   flex-direction: column;
-  max-width: 1400px;
+  max-width: none;
 }
 
 .app-main {

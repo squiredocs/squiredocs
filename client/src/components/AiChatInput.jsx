@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 
-function AiChatInput({ onSend, disabled }) {
+function AiChatInput({ onSend, disabled, placeholder }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
 
@@ -40,7 +40,7 @@ function AiChatInput({ onSend, disabled }) {
         value={value}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder="Write, brainstorm, edit together..."
+        placeholder={placeholder}
         rows={2}
       />
       <button

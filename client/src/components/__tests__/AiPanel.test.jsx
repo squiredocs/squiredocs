@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import AiPanel from '../AiPanel';
 
+// Mock useAuth
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { name: 'Test User' } }),
+}));
+
 // Mock useMobile
 let mockIsMobile = false;
 vi.mock('../../hooks/useMobile', () => ({
@@ -112,7 +117,7 @@ describe('AiPanel', () => {
 
   it('shows panel title on desktop', () => {
     render(<AiPanel aiPanel={makeAiPanel()} />);
-    expect(screen.getByText('AI Assistant')).toBeInTheDocument();
+    expect(screen.getByText('Chat Panel')).toBeInTheDocument();
   });
 
   // --------------- Mobile ---------------

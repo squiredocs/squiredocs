@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatMessages from './AiChatMessages';
 import AiChatInput from './AiChatInput';
 import WindowPortal from './WindowPortal';
 import './AiPanel.css';
+
+function getGreeting(name) {
+  const h = new Date().getHours();
+  const timeOfDay = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = name?.split(' ')[0];
+  return firstName ? `${timeOfDay}, ${firstName}` : timeOfDay;
+}
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
@@ -20,6 +28,7 @@ function AiPanel({ aiPanel }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
+  const { user } = useAuth();
   const isMobile = useMobile();
   const panelRef = useRef(null);
 
@@ -116,7 +125,7 @@ function AiPanel({ aiPanel }) {
         />
       )}
       <div className="ai-panel-header">
-        <span className="ai-panel-title">AI Assistant</span>
+        <span className="ai-panel-title">Chat Panel</span>
         {isMobile ? closeButton : (
           <div className="ai-panel-header-actions">
             {isPoppedOut ? (
@@ -177,12 +186,12 @@ function AiPanel({ aiPanel }) {
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
             <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
           </svg>
-          <p className="ai-chat-welcome-text">Your AI writing partner</p>
+          <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>
         </div>
       ) : (
         <AiChatMessages messages={messages} />
       )}
-      <AiChatInput onSend={sendMessage} disabled={isStreaming} />
+      <AiChatInput onSend={sendMessage} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
     </WrapperTag>
   );
 
