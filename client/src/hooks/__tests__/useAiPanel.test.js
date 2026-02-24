@@ -5,11 +5,9 @@ import { useAiPanel } from '../useAiPanel';
 describe('useAiPanel', () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -21,7 +19,6 @@ describe('useAiPanel', () => {
     expect(result.current.position).toBe('right');
     expect(result.current.widthPx).toBe(380);
     expect(result.current.heightPx).toBe(300);
-    expect(result.current.messages).toEqual([]);
   });
 
   it('toggle opens and closes the panel', () => {
@@ -98,54 +95,6 @@ describe('useAiPanel', () => {
     // Falls back to defaults
     expect(result.current.position).toBe('right');
     expect(result.current.widthPx).toBe(380);
-  });
-
-  it('sendMessage adds user and assistant messages', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.sendMessage('Hello'));
-
-    expect(result.current.messages).toHaveLength(2);
-    expect(result.current.messages[0].role).toBe('user');
-    expect(result.current.messages[0].content).toBe('Hello');
-    expect(result.current.messages[0].status).toBe('complete');
-    expect(result.current.messages[1].role).toBe('assistant');
-    expect(result.current.messages[1].status).toBe('streaming');
-  });
-
-  it('sendMessage ignores empty or whitespace-only input', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.sendMessage('   '));
-    expect(result.current.messages).toHaveLength(0);
-
-    act(() => result.current.sendMessage(''));
-    expect(result.current.messages).toHaveLength(0);
-  });
-
-  it('simulated streaming completes the assistant message', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.sendMessage('Hi'));
-
-    // Run timers until streaming finishes
-    act(() => vi.advanceTimersByTime(5000));
-
-    const assistant = result.current.messages[1];
-    expect(assistant.status).toBe('complete');
-    expect(assistant.content.length).toBeGreaterThan(0);
-  });
-
-  it('generates unique message IDs', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.sendMessage('First'));
-    act(() => vi.advanceTimersByTime(5000));
-    act(() => result.current.sendMessage('Second'));
-
-    const ids = result.current.messages.map(m => m.id);
-    const unique = new Set(ids);
-    expect(unique.size).toBe(ids.length);
   });
 
   // --------------- Pop-out ---------------

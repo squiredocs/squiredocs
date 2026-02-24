@@ -37,13 +37,21 @@ function makeAiPanel(overrides = {}) {
     updateWidth: vi.fn(),
     heightPx: 300,
     updateHeight: vi.fn(),
-    messages: [],
-    sendMessage: vi.fn(),
     isPoppedOut: false,
     popOut: vi.fn(),
     popIn: vi.fn(),
     setPopupWindow: vi.fn(),
     focusPopup: vi.fn(),
+    ...overrides,
+  };
+}
+
+function makeAiChat(overrides = {}) {
+  return {
+    messages: [],
+    sendMessage: vi.fn(),
+    status: 'ready',
+    stop: vi.fn(),
     ...overrides,
   };
 }
@@ -58,14 +66,14 @@ describe('AiPanel', () => {
   });
 
   it('returns null when not open', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isOpen: false })} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isOpen: false })} aiChat={makeAiChat()} />);
     expect(container.firstChild).toBeNull();
   });
 
   // --------------- Desktop ---------------
 
   it('renders desktop panel as aside with right position', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel()} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
 
     const aside = container.querySelector('aside.ai-panel');
     expect(aside).toBeInTheDocument();
@@ -73,14 +81,14 @@ describe('AiPanel', () => {
   });
 
   it('applies width CSS variable for right position', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ widthPx: 420 })} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ widthPx: 420 })} aiChat={makeAiChat()} />);
 
     const aside = container.querySelector('aside.ai-panel');
     expect(aside.style.getPropertyValue('--ai-panel-width')).toBe('420px');
   });
 
   it('renders desktop panel with bottom position', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ position: 'bottom' })} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ position: 'bottom' })} aiChat={makeAiChat()} />);
 
     const aside = container.querySelector('aside.ai-panel');
     expect(aside).toHaveClass('ai-panel--bottom');
@@ -88,20 +96,20 @@ describe('AiPanel', () => {
   });
 
   it('renders resize handle on desktop', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel()} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
 
     expect(container.querySelector('.ai-panel-resize-handle')).toBeInTheDocument();
   });
 
   it('renders position toggle button on desktop', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} />);
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
 
     expect(screen.getByRole('button', { name: /Move to bottom/i })).toBeInTheDocument();
   });
 
   it('position toggle switches position', () => {
     const setPosition = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ setPosition })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ setPosition })} aiChat={makeAiChat()} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Move to bottom/i }));
     expect(setPosition).toHaveBeenCalledWith('bottom');
@@ -109,14 +117,14 @@ describe('AiPanel', () => {
 
   it('close button calls close on desktop', () => {
     const close = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ close })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ close })} aiChat={makeAiChat()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(close).toHaveBeenCalled();
   });
 
   it('shows panel title on desktop', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} />);
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
     expect(screen.getByText('Chat Panel')).toBeInTheDocument();
   });
 
@@ -124,7 +132,7 @@ describe('AiPanel', () => {
 
   it('renders mobile full-screen panel', () => {
     mockIsMobile = true;
-    const { container } = render(<AiPanel aiPanel={makeAiPanel()} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
 
     expect(container.querySelector('.ai-panel-mobile')).toBeInTheDocument();
     // Should not render the desktop aside
@@ -134,7 +142,7 @@ describe('AiPanel', () => {
   it('close button calls close on mobile', () => {
     mockIsMobile = true;
     const close = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ close })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ close })} aiChat={makeAiChat()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(close).toHaveBeenCalled();
@@ -142,7 +150,7 @@ describe('AiPanel', () => {
 
   it('does not render position toggle or resize handle on mobile', () => {
     mockIsMobile = true;
-    const { container } = render(<AiPanel aiPanel={makeAiPanel()} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
 
     expect(container.querySelector('.ai-panel-resize-handle')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Move to/i })).not.toBeInTheDocument();
@@ -150,12 +158,15 @@ describe('AiPanel', () => {
 
   // --------------- Streaming ---------------
 
-  it('disables input when last message is streaming', () => {
-    const messages = [
-      { id: '1', role: 'user', content: 'Hi', status: 'complete', timestamp: Date.now() },
-      { id: '2', role: 'assistant', content: '', status: 'streaming', timestamp: Date.now() },
-    ];
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ messages })} />);
+  it('disables input when status is streaming', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'streaming' })} />);
+
+    const sendBtn = screen.getByRole('button', { name: 'Send message' });
+    expect(sendBtn).toBeDisabled();
+  });
+
+  it('disables input when status is submitted', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'submitted' })} />);
 
     const sendBtn = screen.getByRole('button', { name: 'Send message' });
     expect(sendBtn).toBeDisabled();
@@ -164,26 +175,26 @@ describe('AiPanel', () => {
   // --------------- Pop-out ---------------
 
   it('renders pop-out button on desktop', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} />);
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
     expect(screen.getByRole('button', { name: 'Pop out' })).toBeInTheDocument();
   });
 
   it('pop-out button is hidden on mobile', () => {
     mockIsMobile = true;
-    render(<AiPanel aiPanel={makeAiPanel()} />);
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
     expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
   });
 
   it('pop-out button calls popOut', () => {
     const popOut = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ popOut })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ popOut })} aiChat={makeAiChat()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Pop out' }));
     expect(popOut).toHaveBeenCalled();
   });
 
   it('shows dock button instead of pop-out and position toggle when popped out', () => {
-    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
 
     expect(screen.getByRole('button', { name: 'Dock panel' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
@@ -192,19 +203,19 @@ describe('AiPanel', () => {
 
   it('dock button calls popIn', () => {
     const popIn = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true, popIn })} />);
+    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true, popIn })} aiChat={makeAiChat()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dock panel' }));
     expect(popIn).toHaveBeenCalled();
   });
 
   it('hides resize handle when popped out', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
     expect(container.querySelector('.ai-panel-resize-handle')).not.toBeInTheDocument();
   });
 
   it('uses popup class when popped out', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
     expect(container.querySelector('.ai-panel--popup')).toBeInTheDocument();
   });
 });

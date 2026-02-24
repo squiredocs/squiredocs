@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AiChatProvider } from './contexts/AiChatContext';
 import { useMobile } from './hooks/useMobile';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
@@ -220,7 +221,9 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <AiChatProvider>
+        <AppContent />
+      </AiChatProvider>
     </AuthProvider>
   );
 }

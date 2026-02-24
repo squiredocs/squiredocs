@@ -1,19 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import AiChatMessages from '../AiChatMessages';
 
 const makeMsg = (overrides) => ({
   id: `msg-${Math.random()}`,
   role: 'user',
   content: 'Hello',
-  status: 'complete',
-  timestamp: Date.now(),
+  parts: [{ type: 'text', text: 'Hello' }],
   ...overrides,
 });
 
 describe('AiChatMessages', () => {
   it('renders nothing inside the list when messages is empty', () => {
-    const { container } = render(<AiChatMessages messages={[]} />);
+    const { container } = render(<AiChatMessages messages={[]} status="ready" />);
 
     const messageList = container.querySelector('.ai-chat-messages');
     expect(messageList).toBeInTheDocument();
@@ -21,8 +20,8 @@ describe('AiChatMessages', () => {
   });
 
   it('renders user message with correct class', () => {
-    const messages = [makeMsg({ content: 'User text', role: 'user' })];
-    const { container } = render(<AiChatMessages messages={messages} />);
+    const messages = [makeMsg({ role: 'user', parts: [{ type: 'text', text: 'User text' }] })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
     const bubble = container.querySelector('.ai-chat-bubble--user');
     expect(bubble).toBeInTheDocument();
@@ -30,8 +29,8 @@ describe('AiChatMessages', () => {
   });
 
   it('renders assistant message with correct class', () => {
-    const messages = [makeMsg({ content: 'Bot reply', role: 'assistant' })];
-    const { container } = render(<AiChatMessages messages={messages} />);
+    const messages = [makeMsg({ role: 'assistant', parts: [{ type: 'text', text: 'Bot reply' }] })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
     const bubble = container.querySelector('.ai-chat-bubble--assistant');
     expect(bubble).toBeInTheDocument();
@@ -40,11 +39,11 @@ describe('AiChatMessages', () => {
 
   it('renders multiple messages in order', () => {
     const messages = [
-      makeMsg({ id: '1', role: 'user', content: 'First' }),
-      makeMsg({ id: '2', role: 'assistant', content: 'Second' }),
-      makeMsg({ id: '3', role: 'user', content: 'Third' }),
+      makeMsg({ id: '1', role: 'user', parts: [{ type: 'text', text: 'First' }] }),
+      makeMsg({ id: '2', role: 'assistant', parts: [{ type: 'text', text: 'Second' }] }),
+      makeMsg({ id: '3', role: 'user', parts: [{ type: 'text', text: 'Third' }] }),
     ];
-    const { container } = render(<AiChatMessages messages={messages} />);
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
     const bubbles = container.querySelectorAll('.ai-chat-bubble');
     expect(bubbles).toHaveLength(3);
@@ -53,44 +52,80 @@ describe('AiChatMessages', () => {
     expect(bubbles[2].textContent).toBe('Third');
   });
 
-  it('shows typing indicator for streaming messages', () => {
-    const messages = [
-      makeMsg({ role: 'assistant', content: 'Partial...', status: 'streaming' }),
-    ];
-    const { container } = render(<AiChatMessages messages={messages} />);
+  it('shows typing indicator when status is submitted', () => {
+    const messages = [];
+    const { container } = render(<AiChatMessages messages={messages} status="submitted" />);
 
     expect(container.querySelector('.ai-typing-indicator')).toBeInTheDocument();
     expect(container.querySelectorAll('.ai-typing-dot')).toHaveLength(3);
   });
 
-  it('shows typing indicator for streaming messages with empty content', () => {
+  it('does not show typing indicator when status is ready', () => {
     const messages = [
-      makeMsg({ role: 'assistant', content: '', status: 'streaming' }),
+      makeMsg({ role: 'assistant', parts: [{ type: 'text', text: 'Done' }] }),
     ];
-    const { container } = render(<AiChatMessages messages={messages} />);
-
-    expect(container.querySelector('.ai-typing-indicator')).toBeInTheDocument();
-  });
-
-  it('does not show typing indicator for complete messages', () => {
-    const messages = [
-      makeMsg({ role: 'assistant', content: 'Done', status: 'complete' }),
-    ];
-    const { container } = render(<AiChatMessages messages={messages} />);
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
     expect(container.querySelector('.ai-typing-indicator')).not.toBeInTheDocument();
   });
 
+  it('does not show typing indicator when status is streaming', () => {
+    const messages = [
+      makeMsg({ role: 'assistant', parts: [{ type: 'text', text: 'Partial...' }] }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="streaming" />);
+
+    // Streaming shows text as it arrives, typing indicator only for submitted (waiting for first token)
+    expect(container.querySelector('.ai-typing-indicator')).not.toBeInTheDocument();
+  });
+
+  it('renders tool cards for completed tool parts', () => {
+    const messages = [
+      makeMsg({
+        id: '1',
+        role: 'assistant',
+        parts: [
+          { type: 'tool-read_document', toolName: 'read_document', state: 'output-available', args: {}, output: {} },
+          { type: 'text', text: 'Here is the document content.' },
+        ],
+      }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const card = container.querySelector('.ai-tool-card');
+    expect(card).toBeInTheDocument();
+    expect(card.textContent).toContain('Reading document');
+    expect(card).toHaveClass('ai-tool-card--complete');
+  });
+
+  it('renders tool cards for running tool parts', () => {
+    const messages = [
+      makeMsg({
+        id: '1',
+        role: 'assistant',
+        parts: [
+          { type: 'tool-list_documents', toolName: 'list_documents', state: 'call', args: {} },
+        ],
+      }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="streaming" />);
+
+    const card = container.querySelector('.ai-tool-card');
+    expect(card).toBeInTheDocument();
+    expect(card.textContent).toContain('Listing documents');
+    expect(card).toHaveClass('ai-tool-card--running');
+  });
+
   it('auto-scrolls to bottom when messages change', () => {
-    const messages = [makeMsg({ id: '1', content: 'Hello' })];
-    const { container, rerender } = render(<AiChatMessages messages={messages} />);
+    const messages = [makeMsg({ id: '1' })];
+    const { container, rerender } = render(<AiChatMessages messages={messages} status="ready" />);
 
     const scrollEl = container.querySelector('.ai-chat-messages');
     // Mock scrollHeight to simulate content taller than container
     Object.defineProperty(scrollEl, 'scrollHeight', { value: 500, configurable: true });
 
-    const updated = [...messages, makeMsg({ id: '2', content: 'World' })];
-    rerender(<AiChatMessages messages={updated} />);
+    const updated = [...messages, makeMsg({ id: '2' })];
+    rerender(<AiChatMessages messages={updated} status="ready" />);
 
     expect(scrollEl.scrollTop).toBe(500);
   });

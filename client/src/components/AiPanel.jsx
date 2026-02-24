@@ -18,24 +18,24 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-function AiPanel({ aiPanel }) {
+function AiPanel({ aiPanel, aiChat }) {
   const {
     isOpen, close,
     position, setPosition,
     widthPx, updateWidth,
     heightPx, updateHeight,
-    messages, sendMessage,
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
+
+  const { messages, sendMessage, status, stop } = aiChat || {};
 
   const { user } = useAuth();
   const isMobile = useMobile();
   const panelRef = useRef(null);
 
-  // Streaming state: disable send when last message is streaming
-  const lastMsg = messages[messages.length - 1];
-  const isStreaming = lastMsg?.status === 'streaming';
-  const isEmpty = messages.length === 0;
+  // Streaming state: disable send when AI is responding
+  const isStreaming = status === 'streaming' || status === 'submitted';
+  const isEmpty = !messages || messages.length === 0;
 
   // Mobile: shrink panel to the visual viewport height so content stays above
   // the on-screen keyboard.  A CSS ::before pseudo-element keeps a full-screen
@@ -189,9 +189,9 @@ function AiPanel({ aiPanel }) {
           <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>
         </div>
       ) : (
-        <AiChatMessages messages={messages} />
+        <AiChatMessages messages={messages} status={status} />
       )}
-      <AiChatInput onSend={sendMessage} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
+      <AiChatInput onSend={(text) => sendMessage({ text })} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
     </WrapperTag>
   );
 

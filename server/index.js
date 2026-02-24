@@ -19,6 +19,7 @@ const permissions = require('./permissions');
 const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
 const mcp = require('./mcp');
+const chat = require('./api/chat');
 const documentService = require('./document-service');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -216,6 +217,7 @@ app.use('/auth', authRouter);
 
 // Mount waitlist routes
 app.use('/api/waitlist', waitlist.router);
+app.use('/api/chat', chat.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities

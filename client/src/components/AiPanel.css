@@ -215,6 +215,30 @@
 }
 
 /* =============================================================================
+   Tool Invocation Cards
+   ============================================================================= */
+
+.ai-tool-card {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin: 2px 0;
+  white-space: nowrap;
+}
+
+.ai-tool-card--running {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+}
+
+.ai-tool-card--complete {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+/* =============================================================================
    Chat Input
    ============================================================================= */
 

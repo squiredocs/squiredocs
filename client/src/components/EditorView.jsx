@@ -12,6 +12,7 @@ import AiPanel from './AiPanel';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAiPanel } from '../hooks/useAiPanel';
+import { useAiChat } from '../contexts/AiChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
@@ -267,6 +268,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const menuRef = useRef(null);
   const isMobile = useMobile();
   const aiPanel = useAiPanel();
+  const aiChat = useAiChat();
 
   // Prevent page-level scrolling on mobile (disabled when AI panel is open)
   usePreventPageScroll({ disabled: aiPanel.isOpen });
@@ -949,7 +951,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             synced={synced}
           />
         </main>
-        <AiPanel aiPanel={aiPanel} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
       </div>
 
       {/* Share dialog */}

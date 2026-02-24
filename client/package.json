@@ -12,6 +12,7 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.100",
     "@floating-ui/dom": "^1.7.5",
     "@manuscripts/prosemirror-recreate-steps": "^0.1.4",
     "@tiptap/extension-collaboration": "^3.15.0",
