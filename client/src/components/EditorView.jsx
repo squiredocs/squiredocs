@@ -822,7 +822,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             {/* AI Assistant toggle */}
             <button
               className={`ai-toggle-btn${aiPanel.isOpen ? ' ai-toggle-btn--active' : ''}`}
-              onClick={aiPanel.toggle}
+              onClick={aiPanel.isPoppedOut ? aiPanel.focusPopup : aiPanel.toggle}
               aria-label="AI Assistant"
               title="AI Assistant"
             >
@@ -929,7 +929,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         {/* Mobile toolbar - full width rows below the title bar */}
         {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
       </header>
-      <div className={`app-body${aiPanel.isOpen && !isMobile ? ` ai-panel-${aiPanel.position}` : ''}`}>
+      <div className={`app-body${aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut ? ` ai-panel-${aiPanel.position}` : ''}`}>
         <main className="app-main">
           {userRole === 'viewer' && (
             <div className="view-only-banner">

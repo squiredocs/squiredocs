@@ -16,10 +16,16 @@ vi.mock('../../hooks/useResizeHandle', () => ({
     direction === 'horizontal' ? mockWidthResize : mockHeightResize,
 }));
 
+// Mock WindowPortal to render children inline (jsdom has no window.open)
+vi.mock('../WindowPortal', () => ({
+  default: ({ children }) => <div data-testid="window-portal">{children}</div>,
+}));
+
 function makeAiPanel(overrides = {}) {
   return {
     isOpen: true,
     setIsOpen: vi.fn(),
+    close: vi.fn(),
     position: 'right',
     setPosition: vi.fn(),
     widthPx: 380,
@@ -28,6 +34,11 @@ function makeAiPanel(overrides = {}) {
     updateHeight: vi.fn(),
     messages: [],
     sendMessage: vi.fn(),
+    isPoppedOut: false,
+    popOut: vi.fn(),
+    popIn: vi.fn(),
+    setPopupWindow: vi.fn(),
+    focusPopup: vi.fn(),
     ...overrides,
   };
 }
@@ -91,12 +102,12 @@ describe('AiPanel', () => {
     expect(setPosition).toHaveBeenCalledWith('bottom');
   });
 
-  it('close button calls setIsOpen(false) on desktop', () => {
-    const setIsOpen = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ setIsOpen })} />);
+  it('close button calls close on desktop', () => {
+    const close = vi.fn();
+    render(<AiPanel aiPanel={makeAiPanel({ close })} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(setIsOpen).toHaveBeenCalledWith(false);
+    expect(close).toHaveBeenCalled();
   });
 
   it('shows panel title on desktop', () => {
@@ -115,13 +126,13 @@ describe('AiPanel', () => {
     expect(container.querySelector('aside.ai-panel')).not.toBeInTheDocument();
   });
 
-  it('close button calls setIsOpen(false) on mobile', () => {
+  it('close button calls close on mobile', () => {
     mockIsMobile = true;
-    const setIsOpen = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ setIsOpen })} />);
+    const close = vi.fn();
+    render(<AiPanel aiPanel={makeAiPanel({ close })} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(setIsOpen).toHaveBeenCalledWith(false);
+    expect(close).toHaveBeenCalled();
   });
 
   it('does not render position toggle or resize handle on mobile', () => {
@@ -143,5 +154,52 @@ describe('AiPanel', () => {
 
     const sendBtn = screen.getByRole('button', { name: 'Send message' });
     expect(sendBtn).toBeDisabled();
+  });
+
+  // --------------- Pop-out ---------------
+
+  it('renders pop-out button on desktop', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} />);
+    expect(screen.getByRole('button', { name: 'Pop out' })).toBeInTheDocument();
+  });
+
+  it('pop-out button is hidden on mobile', () => {
+    mockIsMobile = true;
+    render(<AiPanel aiPanel={makeAiPanel()} />);
+    expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
+  });
+
+  it('pop-out button calls popOut', () => {
+    const popOut = vi.fn();
+    render(<AiPanel aiPanel={makeAiPanel({ popOut })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out' }));
+    expect(popOut).toHaveBeenCalled();
+  });
+
+  it('shows dock button instead of pop-out and position toggle when popped out', () => {
+    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+
+    expect(screen.getByRole('button', { name: 'Dock panel' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Move to/i })).not.toBeInTheDocument();
+  });
+
+  it('dock button calls popIn', () => {
+    const popIn = vi.fn();
+    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true, popIn })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dock panel' }));
+    expect(popIn).toHaveBeenCalled();
+  });
+
+  it('hides resize handle when popped out', () => {
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+    expect(container.querySelector('.ai-panel-resize-handle')).not.toBeInTheDocument();
+  });
+
+  it('uses popup class when popped out', () => {
+    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} />);
+    expect(container.querySelector('.ai-panel--popup')).toBeInTheDocument();
   });
 });

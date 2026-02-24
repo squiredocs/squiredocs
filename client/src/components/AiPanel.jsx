@@ -3,6 +3,7 @@ import { useMobile } from '../hooks/useMobile';
 import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatMessages from './AiChatMessages';
 import AiChatInput from './AiChatInput';
+import WindowPortal from './WindowPortal';
 import './AiPanel.css';
 
 const MIN_WIDTH = 280;
@@ -11,11 +12,12 @@ const MIN_HEIGHT = 200;
 
 function AiPanel({ aiPanel }) {
   const {
-    isOpen, setIsOpen,
+    isOpen, close,
     position, setPosition,
     widthPx, updateWidth,
     heightPx, updateHeight,
     messages, sendMessage,
+    isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
   const isMobile = useMobile();
@@ -75,26 +77,28 @@ function AiPanel({ aiPanel }) {
   const WrapperTag = isMobile ? 'div' : 'aside';
   const wrapperProps = isMobile
     ? { className: 'ai-panel-mobile' }
-    : {
-        className: `ai-panel ai-panel--${position}`,
-        style: isRight
-          ? { '--ai-panel-width': `${widthPx}px` }
-          : { '--ai-panel-height': `${heightPx}px` },
-      };
+    : isPoppedOut
+      ? { className: 'ai-panel ai-panel--popup' }
+      : {
+          className: `ai-panel ai-panel--${position}`,
+          style: isRight
+            ? { '--ai-panel-width': `${widthPx}px` }
+            : { '--ai-panel-height': `${heightPx}px` },
+        };
 
   const closeSize = isMobile ? 18 : 16;
   const closeButton = (
-    <button className="ai-panel-close-btn" onClick={() => setIsOpen(false)} aria-label="Close">
+    <button className="ai-panel-close-btn" onClick={close} aria-label="Close">
       <svg width={closeSize} height={closeSize} viewBox="0 0 24 24" fill="currentColor">
         <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
       </svg>
     </button>
   );
 
-  return (
+  const panelJsx = (
     <WrapperTag ref={panelRef} {...wrapperProps}>
-      {/* Resize handle (desktop only) */}
-      {!isMobile && (
+      {/* Resize handle (desktop only, not when popped out) */}
+      {!isMobile && !isPoppedOut && (
         <div
           className={`ai-panel-resize-handle ai-panel-resize-handle--${isRight ? 'left' : 'top'}`}
           onMouseDown={(e) => isRight
@@ -111,24 +115,55 @@ function AiPanel({ aiPanel }) {
         <span className="ai-panel-title">AI Assistant</span>
         {isMobile ? closeButton : (
           <div className="ai-panel-header-actions">
-            <button
-              className="ai-panel-position-btn"
-              onClick={handlePositionToggle}
-              aria-label={isRight ? 'Move to bottom' : 'Move to right'}
-              title={isRight ? 'Move to bottom' : 'Move to right'}
-            >
-              {isRight ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="3" y1="15" x2="21" y2="15" />
+            {isPoppedOut ? (
+              /* Pop-in / dock back button */
+              <button
+                className="ai-panel-position-btn"
+                onClick={popIn}
+                aria-label="Dock panel"
+                title="Dock panel"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 10 4 15 9 20" />
+                  <path d="M20 4v7a4 4 0 01-4 4H4" />
                 </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="15" y1="3" x2="15" y2="21" />
-                </svg>
-              )}
-            </button>
+              </button>
+            ) : (
+              <>
+                {/* Pop-out button */}
+                <button
+                  className="ai-panel-popout-btn"
+                  onClick={popOut}
+                  aria-label="Pop out"
+                  title="Pop out to window"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </button>
+                {/* Position toggle */}
+                <button
+                  className="ai-panel-position-btn"
+                  onClick={handlePositionToggle}
+                  aria-label={isRight ? 'Move to bottom' : 'Move to right'}
+                  title={isRight ? 'Move to bottom' : 'Move to right'}
+                >
+                  {isRight ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <line x1="3" y1="15" x2="21" y2="15" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" />
+                      <line x1="15" y1="3" x2="15" y2="21" />
+                    </svg>
+                  )}
+                </button>
+              </>
+            )}
             {closeButton}
           </div>
         )}
@@ -154,6 +189,16 @@ function AiPanel({ aiPanel }) {
       {!isMobile && <AiChatInput onSend={sendMessage} disabled={isStreaming} />}
     </WrapperTag>
   );
+
+  if (isPoppedOut) {
+    return (
+      <WindowPortal onOpen={setPopupWindow} onClose={close}>
+        {panelJsx}
+      </WindowPortal>
+    );
+  }
+
+  return panelJsx;
 }
 
 export default AiPanel;
