@@ -18,7 +18,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-function AiPanel({ aiPanel, aiChat }) {
+function AiPanel({ aiPanel, aiChat, standalone }) {
   const {
     isOpen, close,
     position, setPosition,
@@ -93,7 +93,7 @@ function AiPanel({ aiPanel, aiChat }) {
     : isPoppedOut
       ? { className: 'ai-panel ai-panel--popup' }
       : {
-          className: `ai-panel ai-panel--${position}`,
+          className: `ai-panel ai-panel--${position}${standalone ? ' ai-panel--standalone' : ''}`,
           style: isRight
             ? { '--ai-panel-width': `${widthPx}px` }
             : { '--ai-panel-height': `${heightPx}px` },
@@ -191,7 +191,7 @@ function AiPanel({ aiPanel, aiChat }) {
       ) : (
         <AiChatMessages messages={messages} status={status} />
       )}
-      <AiChatInput onSend={sendMessage} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
+      <AiChatInput onSend={sendMessage} disabled={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
     </WrapperTag>
   );
 

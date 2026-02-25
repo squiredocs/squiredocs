@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { AiChatProvider } from './contexts/AiChatContext';
+import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
+import { useAiPanel } from './hooks/useAiPanel';
 import { useMobile } from './hooks/useMobile';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
+import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
 import LandingPage from './components/LandingPage';
 import AuthorizePage from './pages/AuthorizePage';
@@ -176,9 +178,23 @@ function AppContent() {
     return <LoginPage onNavigateToLanding={navigateToLanding} />;
   }
 
-  // Editor view
+  return <AuthenticatedApp route={route} listKey={listKey} user={user}
+    navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
+    navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings} />;
+}
+
+/**
+ * Authenticated shell — renders the current page plus the AI panel.
+ * Separated so useAiPanel/useAiChat hooks are only called when logged in.
+ */
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings }) {
+  const aiPanel = useAiPanel();
+  const aiChat = useAiChat();
+  const isEditor = route.view === 'editor' || route.view === 'versions';
+
+  let page;
   if (route.view === 'editor' && route.docGuid) {
-    return (
+    page = (
       <EditorView
         key={route.docGuid}
         docGuid={route.docGuid}
@@ -187,13 +203,12 @@ function AppContent() {
         onNavigateToSettings={navigateToSettings}
         showVersionHistory={false}
         user={user}
+        aiPanel={aiPanel}
+        aiChat={aiChat}
       />
     );
-  }
-
-  // Version history view
-  if (route.view === 'versions' && route.docGuid) {
-    return (
+  } else if (route.view === 'versions' && route.docGuid) {
+    page = (
       <EditorView
         key={`${route.docGuid}-versions`}
         docGuid={route.docGuid}
@@ -202,17 +217,36 @@ function AppContent() {
         onNavigateToSettings={navigateToSettings}
         showVersionHistory={true}
         user={user}
+        aiPanel={aiPanel}
+        aiChat={aiChat}
       />
     );
+  } else if (route.view === 'settings') {
+    page = <SettingsPage onNavigateHome={navigateToDocs} user={user} />;
+  } else {
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} user={user} />;
   }
 
-  // Settings view
-  if (route.view === 'settings') {
-    return <SettingsPage onNavigateHome={navigateToDocs} user={user} />;
-  }
-
-  // Document list (default authenticated view)
-  return <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} user={user} />;
+  return (
+    <>
+      {page}
+      {/* Floating AI toggle — consistent across all pages */}
+      <button
+        className={`ai-fab${aiPanel.isOpen ? ' ai-fab--active' : ''}`}
+        onClick={aiPanel.isPoppedOut ? aiPanel.focusPopup : aiPanel.toggle}
+        aria-label="AI Assistant"
+        title="AI Assistant"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
+          <path d="M5 19l1.5-3L10 15" opacity="0.6" />
+          <path d="M19 19l-1.5-3L14 15" opacity="0.6" />
+        </svg>
+      </button>
+      {/* Standalone panel for non-editor pages (editor renders its own docked panel) */}
+      {!isEditor && <AiPanel aiPanel={aiPanel} aiChat={aiChat} standalone />}
+    </>
+  );
 }
 
 /**

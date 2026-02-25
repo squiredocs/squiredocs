@@ -419,6 +419,10 @@
   overflow: hidden;
 }
 
+.version-history-container.ai-panel-bottom {
+  flex-direction: column;
+}
+
 .version-history-main {
   flex: 1;
   overflow: hidden;

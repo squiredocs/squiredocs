@@ -1,6 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 
-function AiChatInput({ onSend, disabled, placeholder }) {
+function AiChatInput({ onSend, disabled, placeholder, autoFocus }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
 
@@ -29,6 +29,12 @@ function AiChatInput({ onSend, disabled, placeholder }) {
       handleSend();
     }
   }, [handleSend]);
+
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus]);
 
   const isEmpty = value.trim() === '';
 

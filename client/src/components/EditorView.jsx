@@ -11,8 +11,6 @@ import VersionPreview from './VersionPreview';
 import AiPanel from './AiPanel';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
-import { useAiPanel } from '../hooks/useAiPanel';
-import { useAiChat } from '../contexts/AiChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
@@ -211,7 +209,7 @@ function getDepth(node, doc) {
   return depth;
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user, aiPanel, aiChat }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -267,11 +265,9 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [showDiffHighlights, setShowDiffHighlights] = useState(true);
   const menuRef = useRef(null);
   const isMobile = useMobile();
-  const aiPanel = useAiPanel();
-  const aiChat = useAiChat();
 
   // Prevent page-level scrolling on mobile (disabled when AI panel is open)
-  usePreventPageScroll({ disabled: aiPanel.isOpen });
+  usePreventPageScroll({ disabled: aiPanel?.isOpen });
 
   // Filter out current user from the users list
   const displayUsers = React.useMemo(() => {
@@ -540,7 +536,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </div>
         </header>
 
-        <div className="version-history-container">
+        <div className={`version-history-container${aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut ? ` ai-panel-${aiPanel.position}` : ''}`}>
           <div className="version-history-main">
             <VersionPreview
               diffData={diffData}
@@ -574,6 +570,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             showDiffHighlights={showDiffHighlights}
             onToggleDiffHighlights={setShowDiffHighlights}
           />
+          <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
         </div>
       </div>
     );
@@ -821,19 +818,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 )}
               </div>
             )}
-            {/* AI Assistant toggle */}
-            <button
-              className={`ai-toggle-btn${aiPanel.isOpen ? ' ai-toggle-btn--active' : ''}`}
-              onClick={aiPanel.isPoppedOut ? aiPanel.focusPopup : aiPanel.toggle}
-              aria-label="AI Assistant"
-              title="AI Assistant"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
-                <path d="M5 19l1.5-3L10 15" opacity="0.6" />
-                <path d="M19 19l-1.5-3L14 15" opacity="0.6" />
-              </svg>
-            </button>
             {/* Tools menu - contains Share, History, and Source buttons */}
             {docInfoLoaded && userRole && (
               <div className="tools-menu-wrapper" ref={menuRef}>

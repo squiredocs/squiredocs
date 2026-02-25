@@ -133,6 +133,7 @@ describe('EditorView tools menu', () => {
         onNavigateToVersions={vi.fn()}
         onNavigateToSettings={vi.fn()}
         user={{ id: 'user-1', name: 'Test User', email: 'test@example.com' }}
+        aiPanel={{ isOpen: false, toggle: vi.fn(), focusPopup: vi.fn(), isPoppedOut: false, position: 'right' }}
       />
     );
 
