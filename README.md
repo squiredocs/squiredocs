@@ -5,7 +5,8 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 ## Features
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
-- **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing including hierarchical content manipulation
+- **In-App AI Assistant**: Built-in chat panel powered by Claude for editing, searching, and managing documents via natural language
+- **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions of documents
@@ -22,7 +23,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
-- **AI Integration**: Model Context Protocol (MCP) with OAuth 2.0 for AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 + Claude Haiku 4.5; Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
 
 ## Prerequisites
 
@@ -121,6 +122,7 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 - `DB_NAME`: Database name (default: `collab_db`)
 - `DB_USER`: Database user (default: `postgres`)
 - `DB_PASSWORD`: Database password (default: `postgres`)
+- `ANTHROPIC_API_KEY`: Anthropic API key (required for the in-app AI assistant)
 
 Example using connection string:
 ```bash
@@ -246,9 +248,45 @@ await list_document_versions({
 | `POST /api/docs/:docId/versions` | Create named version |
 | `POST /api/docs/:docId/restore` | Restore to previous version |
 
+## In-App AI Assistant
+
+A built-in chat panel lets users interact with an AI assistant directly inside the app. The assistant can read, edit, and manage documents using the same MCP tools that external agents use.
+
+### How It Works
+
+- **Model**: Claude Haiku 4.5 via the Anthropic API (requires `ANTHROPIC_API_KEY`)
+- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` on the server)
+- **Endpoint**: `POST /api/chat` — streams responses to the client
+- **Tools**: All 15 MCP document tools plus web search and web fetch
+- **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
+
+### Display Modes
+
+- **Right-docked** (default): Sidebar panel with adjustable width (280–600px)
+- **Bottom-docked**: Horizontal panel with adjustable height
+- **Pop-out**: Opens in a separate browser window
+- **Mobile**: Full-screen overlay with keyboard-aware layout
+
+Panel position and size preferences are persisted to localStorage.
+
+### Architecture
+
+```
+Client                              Server
+──────                              ──────
+AiChatContext.jsx                   server/api/chat.js
+  └─ useAiChat() (AI SDK)            ├─ streamText() with Claude Haiku 4.5
+       │                              ├─ MCP tools via chat-tools.js
+       ▼                              └─ Agent presence (cursor/highlights)
+AiPanel.jsx ── AiChatMessages.jsx
+            └─ AiChatInput.jsx
+```
+
+The chat endpoint builds a synthetic agent token from the user's session, so tool calls execute with the user's permissions and show up as agent activity in the editor (cursors, highlights).
+
 ## AI Agent Integration (Model Context Protocol)
 
-This editor supports AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude.
+This editor also supports external AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude Desktop.
 
 ### Features
 
@@ -604,9 +642,12 @@ paragraphs.forEach((node, index) => {
 │   ├── documents.js          # Document and share management
 │   ├── redis.js              # Redis caching layer
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
+│   ├── api/
+│   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + Claude)
+│   │   └── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
-│       ├── tools/            # 22 MCP tools for document operations
+│       ├── tools/            # MCP tools for document operations
 │       ├── yjs/              # Yjs utilities and serialization
 │       ├── auth/             # MCP OAuth 2.0 and PKCE flow
 │       └── agent-presence.js # Agent session management
@@ -616,11 +657,16 @@ paragraphs.forEach((node, index) => {
 │   │   │   ├── Editor.jsx    # TipTap editor component
 │   │   │   ├── EditorView.jsx # Editor page with header/toolbar
 │   │   │   ├── DocList.jsx   # Document list page
-│   │   │   └── ShareDialog.jsx # Share/permissions dialog
+│   │   │   ├── ShareDialog.jsx # Share/permissions dialog
+│   │   │   ├── AiPanel.jsx   # AI assistant panel (dock/pop-out/mobile)
+│   │   │   ├── AiChatMessages.jsx # Chat message list with markdown + tool cards
+│   │   │   └── AiChatInput.jsx    # Chat input textarea
 │   │   ├── hooks/            # Custom React hooks
-│   │   │   └── useYjs.js     # Yjs document and WebSocket management
+│   │   │   ├── useYjs.js     # Yjs document and WebSocket management
+│   │   │   └── useAiPanel.js # AI panel state (position, size, preferences)
 │   │   ├── contexts/         # React contexts
-│   │   │   └── AuthContext.jsx # Authentication state
+│   │   │   ├── AuthContext.jsx    # Authentication state
+│   │   │   └── AiChatContext.jsx  # AI chat provider (AI SDK transport)
 │   │   └── main.jsx          # Entry point
 │   └── package.json
 ├── migrations/               # Database migrations
