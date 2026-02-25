@@ -2,7 +2,7 @@
  * Chat API endpoint
  *
  * POST /api/chat — streaming AI chat with MCP tool access.
- * Uses AI SDK v6 streamText with Anthropic Claude.
+ * Uses AI SDK v6 streamText with a configurable model (see chat-models.js).
  *
  * AI SDK packages are loaded lazily on first request to avoid
  * slowing down server startup (they pull in OpenTelemetry, zod, etc.).
@@ -12,21 +12,17 @@ const { requireAuth } = require('../auth');
 const { extractBearerToken } = require('../auth/jwt');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
+const chatModels = require('./chat-models');
 const { getDocument } = require('../documents');
 
 const router = express.Router();
 
-// Lazy-loaded AI SDK modules (heavy imports — pull in OpenTelemetry, zod, etc.)
+// Lazy-loaded AI SDK core (heavy import — pulls in OpenTelemetry, zod, etc.)
 let _ai = null;
-let _anthropic = null;
 
 function getAI() {
   if (!_ai) _ai = require('ai');
   return _ai;
-}
-function getAnthropic() {
-  if (!_anthropic) _anthropic = require('@ai-sdk/anthropic');
-  return _anthropic;
 }
 
 const BASE_SYSTEM_PROMPT = `<identity>
@@ -121,19 +117,33 @@ router.post('/', requireAuth, async (req, res) => {
     };
 
     const { streamText, convertToModelMessages, stepCountIs } = getAI();
-    const { anthropic } = getAnthropic();
 
-    const tools = {
-      ...chatTools.buildTools(syntheticAgentToken),
-      webSearch: anthropic.tools.webSearch_20250305(),
-      webFetch: anthropic.tools.webFetch_20250910(),
-    };
+    // Resolve configured model (env var or default)
+    const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
+    let resolved = chatModels.resolveModel(modelKey);
+    if (!resolved) {
+      console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${chatModels.DEFAULT_MODEL_KEY}"`);
+      resolved = chatModels.resolveModel(chatModels.DEFAULT_MODEL_KEY);
+      if (!resolved) {
+        return res.status(500).json({ error: 'No valid chat model configured' });
+      }
+    }
+    const { model, def, provider } = resolved;
+
+    console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
+
+    // Build tool set — web search/fetch are provider-specific (Anthropic only)
+    const tools = chatTools.buildTools(syntheticAgentToken);
+    if (def.supportsWebTools) {
+      tools.webSearch = provider.tools.webSearch_20250305();
+      tools.webFetch = provider.tools.webFetch_20250910();
+    }
 
     // Convert UI messages (parts-based) to model messages (content-based) for streamText
     const modelMessages = await convertToModelMessages(messages);
 
     const result = streamText({
-      model: anthropic('claude-haiku-4-5-20251001'),
+      model,
       system: buildSystemPrompt(docGuid, docTitle),
       messages: modelMessages,
       tools,

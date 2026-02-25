@@ -23,7 +23,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
-- **AI Integration**: In-app assistant via AI SDK v6 + Claude Haiku 4.5; Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3.0 Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
 
 ## Prerequisites
 
@@ -122,7 +122,9 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 - `DB_NAME`: Database name (default: `collab_db`)
 - `DB_USER`: Database user (default: `postgres`)
 - `DB_PASSWORD`: Database password (default: `postgres`)
-- `ANTHROPIC_API_KEY`: Anthropic API key (required for the in-app AI assistant)
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-haiku`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3.0-pro`
+- `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
+- `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 
 Example using connection string:
 ```bash
@@ -254,10 +256,14 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Claude Haiku 4.5 via the Anthropic API (requires `ANTHROPIC_API_KEY`)
-- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` on the server)
+- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Haiku 4.5). Supported models:
+  - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
+  - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-3.0-pro` — Gemini 3.0 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
 - **Endpoint**: `POST /api/chat` — streams responses to the client
-- **Tools**: All 15 MCP document tools plus web search and web fetch
+- **Tools**: All 15 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
 
 ### Display Modes
@@ -275,9 +281,10 @@ Panel position and size preferences are persisted to localStorage.
 Client                              Server
 ──────                              ──────
 AiChatContext.jsx                   server/api/chat.js
-  └─ useAiChat() (AI SDK)            ├─ streamText() with Claude Haiku 4.5
-       │                              ├─ MCP tools via chat-tools.js
-       ▼                              └─ Agent presence (cursor/highlights)
+  └─ useAiChat() (AI SDK)            ├─ streamText() with configurable model
+       │                              ├─ Model registry (chat-models.js)
+       ▼                              ├─ MCP tools via chat-tools.js
+                                      └─ Agent presence (cursor/highlights)
 AiPanel.jsx ── AiChatMessages.jsx
             └─ AiChatInput.jsx
 ```
@@ -643,7 +650,8 @@ paragraphs.forEach((node, index) => {
 │   ├── redis.js              # Redis caching layer
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
 │   ├── api/
-│   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + Claude)
+│   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + configurable model)
+│   │   ├── chat-models.js    # Model registry (Claude, Gemini) with lazy provider loading
 │   │   └── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
