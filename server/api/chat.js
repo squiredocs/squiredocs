@@ -132,9 +132,10 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
-    // Build tool set — web search/fetch are provider-specific (Anthropic only)
+    // Build tool set — web search/fetch tools are Anthropic-only
+    // (Gemini doesn't support mixing function tools with provider-defined tools)
     const tools = chatTools.buildTools(syntheticAgentToken);
-    if (def.supportsWebTools) {
+    if (def.provider === 'anthropic') {
       tools.webSearch = provider.tools.webSearch_20250305();
       tools.webFetch = provider.tools.webFetch_20250910();
     }
