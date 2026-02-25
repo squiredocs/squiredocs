@@ -5,6 +5,12 @@ import { useAuth } from './AuthContext';
 
 const AiChatContext = createContext(null);
 
+// Extract docGuid from the current URL (e.g., /d/{uuid} or /doc/{uuid})
+function getActiveDocGuid() {
+  const match = window.location.pathname.match(/^\/d(?:oc)?\/([0-9a-f-]+)/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
 export function AiChatProvider({ children }) {
   const { accessToken } = useAuth();
   const tokenRef = useRef(accessToken);
@@ -18,6 +24,10 @@ export function AiChatProvider({ children }) {
     headers: () => {
       const token = tokenRef.current;
       return token ? { Authorization: `Bearer ${token}` } : {};
+    },
+    body: () => {
+      const docGuid = getActiveDocGuid();
+      return docGuid ? { docGuid } : {};
     },
   }), []);
 
