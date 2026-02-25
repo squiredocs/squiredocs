@@ -75,6 +75,7 @@ RESEARCH + WRITING:
 - If a tool call fails, explain the issue simply and suggest next steps.
 - Be direct. Do not apologize excessively or explain what you could hypothetically do.
 - If you cannot finish in one turn due to tool limits, tell the user and ask them to send a follow-up message.
+- When you need to gather information from multiple independent sources (e.g., reading several documents, searching and fetching), make all independent tool calls in a single response rather than one at a time. This executes them in parallel and is much faster.
 </rules>`;
 
 function buildSystemPrompt(docGuid, docTitle) {
