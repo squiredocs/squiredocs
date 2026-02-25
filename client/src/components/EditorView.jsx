@@ -8,7 +8,6 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import VersionPreview from './VersionPreview';
-import AiPanel from './AiPanel';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
 import { useAuth } from '../contexts/AuthContext';
@@ -209,7 +208,7 @@ function getDepth(node, doc) {
   return depth;
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user, aiPanel, aiChat }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -488,7 +487,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Version history mode - dedicated full-screen view
   if (showVersionHistory) {
     return (
-      <div className="app version-history-mode">
+      <>
         <header className="app-header version-history-header">
           <div className="app-header-content">
             <div className="app-header-left">
@@ -536,7 +535,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </div>
         </header>
 
-        <div className={`version-history-container${aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut ? ` ai-panel-${aiPanel.position}` : ''}`}>
+        <div className="version-history-inner">
           <div className="version-history-main">
             <VersionPreview
               diffData={diffData}
@@ -570,15 +569,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             showDiffHighlights={showDiffHighlights}
             onToggleDiffHighlights={setShowDiffHighlights}
           />
-          <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
         </div>
-      </div>
+      </>
     );
   }
 
   // Normal editor mode
   return (
-    <div className="app">
+    <>
       {debouncedBanner === 'authError' && (
         <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
           {isAuthenticated ? (
@@ -915,28 +913,25 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         {/* Mobile toolbar - full width rows below the title bar */}
         {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
       </header>
-      <div className={`app-body${aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut ? ` ai-panel-${aiPanel.position}` : ''}`}>
-        <main className="app-main">
-          {userRole === 'viewer' && (
-            <div className="view-only-banner">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
-              </svg>
-              View only
-            </div>
-          )}
-          <Editor
-            ydoc={ydoc}
-            provider={provider}
-            awareness={awareness}
-            onEditorReady={setEditor}
-            onShowLabelsReady={(callback) => setShowLabelsCallback(() => callback)}
-            editable={userRole !== 'viewer'}
-            synced={synced}
-          />
-        </main>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
-      </div>
+      <main className="app-main">
+        {userRole === 'viewer' && (
+          <div className="view-only-banner">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+            View only
+          </div>
+        )}
+        <Editor
+          ydoc={ydoc}
+          provider={provider}
+          awareness={awareness}
+          onEditorReady={setEditor}
+          onShowLabelsReady={(callback) => setShowLabelsCallback(() => callback)}
+          editable={userRole !== 'viewer'}
+          synced={synced}
+        />
+      </main>
 
       {/* Share dialog */}
       <ShareDialog
@@ -1000,7 +995,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

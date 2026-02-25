@@ -13,34 +13,19 @@
 
 /* Right-docked panel */
 .ai-panel--right {
+  grid-row: 2;
+  grid-column: 2;
   width: var(--ai-panel-width, 380px);
   border-left: 1px solid #e0e0e0;
-  flex-shrink: 0;
 }
 
 /* Bottom-docked panel */
 .ai-panel--bottom {
+  grid-row: 3;
+  grid-column: 1 / -1;
   height: var(--ai-panel-height, 300px);
   border-top: 1px solid #e0e0e0;
-  flex-shrink: 0;
   width: 100%;
-}
-
-/* Standalone panel (non-editor pages — no flex parent to dock into) */
-.ai-panel--standalone.ai-panel--right {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
-}
-
-.ai-panel--standalone.ai-panel--bottom {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* Pop-out panel (fills popup window) */

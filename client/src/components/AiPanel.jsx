@@ -18,7 +18,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-function AiPanel({ aiPanel, aiChat, standalone }) {
+function AiPanel({ aiPanel, aiChat }) {
   const {
     isOpen, close,
     position, setPosition,
@@ -93,7 +93,7 @@ function AiPanel({ aiPanel, aiChat, standalone }) {
     : isPoppedOut
       ? { className: 'ai-panel ai-panel--popup' }
       : {
-          className: `ai-panel ai-panel--${position}${standalone ? ' ai-panel--standalone' : ''}`,
+          className: `ai-panel ai-panel--${position}`,
           style: isRight
             ? { '--ai-panel-width': `${widthPx}px` }
             : { '--ai-panel-height': `${heightPx}px` },

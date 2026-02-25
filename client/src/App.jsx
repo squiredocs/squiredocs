@@ -190,7 +190,10 @@ function AppContent() {
 function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
-  const isEditor = route.view === 'editor' || route.view === 'versions';
+  const isMobile = useMobile();
+
+  const aiPanelClass = aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut
+    ? ` ai-panel-${aiPanel.position}` : '';
 
   let page;
   if (route.view === 'editor' && route.docGuid) {
@@ -204,7 +207,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         showVersionHistory={false}
         user={user}
         aiPanel={aiPanel}
-        aiChat={aiChat}
       />
     );
   } else if (route.view === 'versions' && route.docGuid) {
@@ -218,7 +220,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}
-        aiChat={aiChat}
       />
     );
   } else if (route.view === 'settings') {
@@ -228,8 +229,13 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   }
 
   return (
-    <>
-      {page}
+    <div className={`app-shell${route.view === 'versions' ? ' version-history-mode' : ''}`}>
+      <div className={`app-body${aiPanelClass}`}>
+        <div className="app-content">
+          {page}
+        </div>
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
+      </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button
         className={`ai-fab${aiPanel.isOpen ? ' ai-fab--active' : ''}`}
@@ -243,9 +249,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
           <path d="M19 19l-1.5-3L14 15" opacity="0.6" />
         </svg>
       </button>
-      {/* Standalone panel for non-editor pages (editor renders its own docked panel) */}
-      {!isEditor && <AiPanel aiPanel={aiPanel} aiChat={aiChat} standalone />}
-    </>
+    </div>
   );
 }
 

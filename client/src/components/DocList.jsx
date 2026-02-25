@@ -211,11 +211,11 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
 
   if (loading) {
     return (
-      <div className="doc-list-container">
+      <>
         <header className="doc-list-header">
           <div className="doc-list-title-wrapper">
-            <button 
-              className="doc-list-icon-btn" 
+            <button
+              className="doc-list-icon-btn"
               onClick={fetchDocs}
               title="Refresh documents"
             >
@@ -232,37 +232,41 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </header>
-        <div className="doc-list-loading">
-          <div className="loading-spinner"></div>
-          Loading documents...
+        <div className="doc-list-container">
+          <div className="doc-list-loading">
+            <div className="loading-spinner"></div>
+            Loading documents...
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (error) {
     return (
-      <div className="doc-list-container">
+      <>
         <header className="doc-list-header">
           <h1>Documents</h1>
           <div className="doc-list-header-right">
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </header>
-        <div className="doc-list-error">
-          <p>Error: {error}</p>
-          <button onClick={fetchDocs}>Try Again</button>
+        <div className="doc-list-container">
+          <div className="doc-list-error">
+            <p>Error: {error}</p>
+            <button onClick={fetchDocs}>Try Again</button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="doc-list-container">
+    <>
       <header className="doc-list-header">
         <div className="doc-list-title-wrapper">
-          <button 
-            className="doc-list-icon-btn" 
+          <button
+            className="doc-list-icon-btn"
             onClick={fetchDocs}
             title="Refresh documents"
           >
@@ -280,6 +284,7 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
         </div>
       </header>
 
+      <div className="doc-list-container">
       <div className="doc-list-toolbar">
         <button className="new-doc-btn" onClick={handleCreateNew} disabled={creating}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -441,7 +446,8 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
           }}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

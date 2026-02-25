@@ -351,11 +351,6 @@
 }
 
 /* Version history mode */
-.version-history-mode {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
 
 .version-history-header {
   background: #f8f9fa;
@@ -413,14 +408,12 @@
   background: #1557b0;
 }
 
-.version-history-container {
+.version-history-inner {
+  grid-row: 2;
+  grid-column: 1;
   display: flex;
-  flex: 1;
   overflow: hidden;
-}
-
-.version-history-container.ai-panel-bottom {
-  flex-direction: column;
+  min-height: 0;
 }
 
 .version-history-main {
@@ -438,7 +431,7 @@
 }
 
 @media (max-width: 768px) {
-  .version-history-container {
+  .version-history-inner {
     flex-direction: column-reverse;
   }
 
@@ -635,6 +628,7 @@
 
   /* Remove layout constraints so full content prints */
   .app-body {
+    display: block !important;
     overflow: visible !important;
     height: auto !important;
   }
