@@ -191,7 +191,7 @@ function AiPanel({ aiPanel, aiChat }) {
       ) : (
         <AiChatMessages messages={messages} status={status} />
       )}
-      <AiChatInput onSend={(text) => sendMessage({ text })} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
+      <AiChatInput onSend={sendMessage} disabled={isStreaming} placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
     </WrapperTag>
   );
 

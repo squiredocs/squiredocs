@@ -12,6 +12,7 @@ const registeredAgents = require('./auth/registered-agents');
 const oauthFlow = require('./auth/oauth-flow');
 const oauthRouter = require('./auth/oauth-router');
 const toolRegistry = require('./tools');
+const { buildBaseUrl } = require('../url');
 
 const router = express.Router();
 
@@ -71,10 +72,7 @@ const INTERNAL_ERROR = -32603;
  */
 router.get('/', (req, res) => {
   console.log('[MCP Discovery] Server info requested from:', req.get('origin') || req.get('referer') || 'unknown');
-  const host = req.get('host');
-  // Force HTTPS for production domains
-  const protocol = host.includes('herodocs.xyz') ? 'https' : req.protocol;
-  const baseUrl = `${protocol}://${host}`;
+  const baseUrl = buildBaseUrl(req);
   res.json({
     name: SERVER_NAME,
     version: SERVER_VERSION,
@@ -271,9 +269,7 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
     }
 
     // Add baseUrl to agentToken for tools that need to construct URLs
-    const host = req.get('host');
-    const protocol = host && host.includes('herodocs.xyz') ? 'https' : req.protocol;
-    req.agentToken.baseUrl = `${protocol}://${host}`;
+    req.agentToken.baseUrl = buildBaseUrl(req);
 
     const result = await toolRegistry.executeTool(name, args || {}, req.agentToken);
     res.json({

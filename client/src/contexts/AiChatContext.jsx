@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useEffect, useMemo } from 'react';
+import { createContext, useContext, useRef, useEffect, useMemo, useCallback } from 'react';
 import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useAuth } from './AuthContext';
@@ -23,8 +23,19 @@ export function AiChatProvider({ children }) {
 
   const chat = useChat({ transport });
 
+  // Stable wrapper so callers can pass a plain string instead of { text }
+  const sendMessage = useCallback(
+    (text) => chat.sendMessage({ text }),
+    [chat.sendMessage],
+  );
+
+  const value = useMemo(
+    () => ({ ...chat, sendMessage }),
+    [chat, sendMessage],
+  );
+
   return (
-    <AiChatContext.Provider value={chat}>
+    <AiChatContext.Provider value={value}>
       {children}
     </AiChatContext.Provider>
   );

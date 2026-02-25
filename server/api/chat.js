@@ -10,13 +10,14 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const { extractBearerToken } = require('../auth/jwt');
+const { buildBaseUrl } = require('../url');
+const chatTools = require('./chat-tools');
 
 const router = express.Router();
 
-// Lazy-loaded AI SDK modules (heavy imports)
+// Lazy-loaded AI SDK modules (heavy imports — pull in OpenTelemetry, zod, etc.)
 let _ai = null;
 let _anthropic = null;
-let _chatTools = null;
 
 function getAI() {
   if (!_ai) _ai = require('ai');
@@ -25,10 +26,6 @@ function getAI() {
 function getAnthropic() {
   if (!_anthropic) _anthropic = require('@ai-sdk/anthropic');
   return _anthropic;
-}
-function getChatTools() {
-  if (!_chatTools) _chatTools = require('./chat-tools');
-  return _chatTools;
 }
 
 const SYSTEM_PROMPT = `You are a helpful assistant embedded in a collaborative document editor called HeroDocs. You help users create, edit, and manage their documents.
@@ -59,11 +56,7 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Extract the raw bearer token for agent presence
     const rawToken = extractBearerToken(req.headers.authorization);
-
-    // Build baseUrl (matches pattern from server/mcp/index.js)
-    const host = req.get('host');
-    const protocol = host && host.includes('herodocs.xyz') ? 'https' : req.protocol;
-    const baseUrl = `${protocol}://${host}`;
+    const baseUrl = buildBaseUrl(req);
 
     // Synthetic agent token for tool execution
     const syntheticAgentToken = {
@@ -78,10 +71,9 @@ router.post('/', requireAuth, async (req, res) => {
 
     const { streamText, convertToModelMessages, stepCountIs } = getAI();
     const { anthropic } = getAnthropic();
-    const { buildTools } = getChatTools();
 
     const tools = {
-      ...buildTools(syntheticAgentToken),
+      ...chatTools.buildTools(syntheticAgentToken),
       webSearch: anthropic.tools.webSearch_20250305(),
       webFetch: anthropic.tools.webFetch_20250910(),
     };
