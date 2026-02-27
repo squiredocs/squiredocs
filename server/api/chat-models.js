@@ -15,6 +15,7 @@ const MODEL_DEFS = [
   { key: 'claude-haiku',     provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001' },
   { key: 'gemini-2.5-flash', provider: 'google',    modelId: 'gemini-2.5-flash' },
   { key: 'gemini-2.5-pro',   provider: 'google',    modelId: 'gemini-2.5-pro' },
+  { key: 'gemini-3-flash',   provider: 'google',    modelId: 'gemini-3-flash-preview' },
   { key: 'gemini-3-pro',     provider: 'google',    modelId: 'gemini-3-pro-preview' },
 ];
 
