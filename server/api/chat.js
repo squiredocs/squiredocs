@@ -132,12 +132,38 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
-    // Build tool set — web search/fetch tools are Anthropic-only
-    // (Gemini doesn't support mixing function tools with provider-defined tools)
+    // Build tool set with provider-appropriate web search
     const tools = chatTools.buildTools(syntheticAgentToken);
     if (def.provider === 'anthropic') {
       tools.webSearch = provider.tools.webSearch_20250305();
       tools.webFetch = provider.tools.webFetch_20250910();
+    } else if (def.provider === 'google') {
+      // Gemini can't combine googleSearch with function tools in one request,
+      // so we wrap it as a function tool that makes a separate generateText call
+      // with only googleSearch enabled. Uses flash for speed.
+      const { tool, generateText, jsonSchema } = getAI();
+      const searchModel = provider('gemini-2.5-flash');
+      tools.webSearch = tool({
+        description: 'Search the web for current information using Google Search. Returns a grounded summary of search results. You MUST provide a query.',
+        inputSchema: jsonSchema({
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The search query to look up on the web' },
+          },
+          required: ['query'],
+        }),
+        execute: async (args) => {
+          const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
+          console.log('[Chat API] webSearch query:', query);
+          const searchResult = await generateText({
+            model: searchModel,
+            maxTokens: 1024,
+            tools: { googleSearch: provider.tools.googleSearch({}) },
+            prompt: `Search the web and summarize what you find for: ${query}`,
+          });
+          return searchResult.text || 'No results found.';
+        },
+      });
     }
 
     // Convert UI messages (parts-based) to model messages (content-based) for streamText

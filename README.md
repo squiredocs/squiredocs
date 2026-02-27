@@ -23,7 +23,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3.0 Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
 
 ## Prerequisites
 
@@ -122,7 +122,7 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 - `DB_NAME`: Database name (default: `collab_db`)
 - `DB_USER`: Database user (default: `postgres`)
 - `DB_PASSWORD`: Database password (default: `postgres`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-haiku`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3.0-pro`
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-haiku`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-pro`
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 
@@ -260,7 +260,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
-  - `gemini-3.0-pro` — Gemini 3.0 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-3-pro` — Gemini 3 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
 - **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
 - **Endpoint**: `POST /api/chat` — streams responses to the client
 - **Tools**: All 15 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
