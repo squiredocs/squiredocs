@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Markdown from 'react-markdown';
 
 const TOOL_LABELS = {
@@ -42,14 +42,27 @@ function groupParts(parts) {
   const groups = [];
   let currentToolGroup = null;
 
+  let currentReasoningText = '';
+
   for (const part of parts) {
     if (isToolPart(part)) {
+      if (currentReasoningText) {
+        groups.push({ type: 'reasoning', text: currentReasoningText });
+        currentReasoningText = '';
+      }
       if (!currentToolGroup) {
         currentToolGroup = [];
         groups.push({ type: 'tools', parts: currentToolGroup });
       }
       currentToolGroup.push(part);
+    } else if (part.type === 'reasoning' && part.text) {
+      currentToolGroup = null;
+      currentReasoningText += part.text;
     } else if (part.type === 'text' && part.text) {
+      if (currentReasoningText) {
+        groups.push({ type: 'reasoning', text: currentReasoningText });
+        currentReasoningText = '';
+      }
       currentToolGroup = null;
       groups.push({ type: 'text', text: part.text });
     } else {
@@ -57,7 +70,28 @@ function groupParts(parts) {
     }
   }
 
+  if (currentReasoningText) {
+    groups.push({ type: 'reasoning', text: currentReasoningText });
+  }
+
   return groups;
+}
+
+function ThinkingBlock({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="ai-thinking-block">
+      <button
+        className="ai-thinking-toggle"
+        onClick={() => setExpanded(!expanded)}
+      >
+        Thinking {expanded ? '\u25B4' : '\u25BE'}
+      </button>
+      {expanded && (
+        <div className="ai-thinking-content">{text}</div>
+      )}
+    </div>
+  );
 }
 
 function ToolCard({ part }) {
@@ -103,6 +137,9 @@ function AssistantBubble({ parts }) {
               <Markdown components={markdownLinkRenderer}>{group.text}</Markdown>
             </div>
           );
+        }
+        if (group.type === 'reasoning') {
+          return <ThinkingBlock key={i} text={group.text} />;
         }
         if (group.type === 'tools') {
           return (

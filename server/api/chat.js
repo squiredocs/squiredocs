@@ -175,6 +175,12 @@ router.post('/', requireAuth, async (req, res) => {
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(10),
+      // Stream Gemini thinking/reasoning to the client
+      ...(def.provider === 'google' && {
+        providerOptions: {
+          google: { thinkingConfig: { includeThoughts: true } },
+        },
+      }),
       onError: ({ error }) => {
         console.error('[Chat API] Stream error:', error);
       },

@@ -304,6 +304,34 @@
   color: #059669;
 }
 
+/* ---------- Thinking / reasoning block ---------- */
+
+.ai-thinking-block {
+  margin: 4px 0;
+}
+
+.ai-thinking-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.ai-thinking-toggle:hover {
+  color: #6b7280;
+}
+
+.ai-thinking-content {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.5;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid #e5e7eb;
+  white-space: pre-wrap;
+}
+
 /* =============================================================================
    Chat Input
    ============================================================================= */
