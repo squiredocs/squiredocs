@@ -333,6 +333,98 @@ describe('Serialization', () => {
     });
   });
 
+  describe('table cell content extraction', () => {
+    /** Helper to build a table with one row and one cell containing given children */
+    function buildTableCell(doc, cellChildren) {
+      const fragment = doc.get('default', Y.XmlFragment);
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+      const cell = new Y.XmlElement('tableCell');
+      cell.setAttribute('colspan', 1);
+      cell.setAttribute('rowspan', 1);
+      for (const child of cellChildren) {
+        cell.insert(cell.length, [child]);
+      }
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+      return cell;
+    }
+
+    it('should extract text from a paragraph inside a table cell', () => {
+      const doc = new Y.Doc();
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Dublin → Adare');
+      para.insert(0, [text]);
+      const cell = buildTableCell(doc, [para]);
+
+      const result = toStructuredNode(cell);
+      expect(result.content).toBe('Dublin → Adare');
+    });
+
+    it('should extract text from multiple paragraphs in a table cell', () => {
+      const doc = new Y.Doc();
+      const p1 = new Y.XmlElement('paragraph');
+      const t1 = new Y.XmlText();
+      t1.insert(0, 'Line 1');
+      p1.insert(0, [t1]);
+
+      const p2 = new Y.XmlElement('paragraph');
+      const t2 = new Y.XmlText();
+      t2.insert(0, 'Line 2');
+      p2.insert(0, [t2]);
+
+      const cell = buildTableCell(doc, [p1, p2]);
+
+      const result = toStructuredNode(cell);
+      expect(result.content).toBe('Line 1Line 2');
+    });
+
+    it('should extract text from a bullet list inside a table cell', () => {
+      const doc = new Y.Doc();
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'List item text');
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      list.insert(0, [item]);
+      const cell = buildTableCell(doc, [list]);
+
+      const result = toStructuredNode(cell);
+      expect(result.content).toBe('List item text');
+    });
+
+    it('should preserve marks from text in table cells', () => {
+      const doc = new Y.Doc();
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'bold text');
+      text.format(0, 4, { bold: true });
+      para.insert(0, [text]);
+      const cell = buildTableCell(doc, [para]);
+
+      const result = toStructuredNode(cell);
+      expect(result.content).toEqual([
+        { text: 'bold', marks: ['bold'] },
+        ' text',
+      ]);
+    });
+
+    it('should return empty string for an empty table cell', () => {
+      const doc = new Y.Doc();
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      para.insert(0, [text]);
+      const cell = buildTableCell(doc, [para]);
+
+      const result = toStructuredNode(cell);
+      expect(result.content).toBe('');
+    });
+  });
+
   describe('horizontalRule serialization', () => {
     it('should serialize horizontalRule without children', () => {
       const doc = new Y.Doc();

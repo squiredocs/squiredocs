@@ -336,6 +336,33 @@ function extractTextWithMarks(textNode) {
 }
 
 /**
+ * Recursively collect text content from structured node children.
+ * Walks into content, children, and nested structures so that
+ * container elements like tableCell always get a content string
+ * even when their children are paragraphs, lists, etc.
+ */
+function collectContent(nodes, out, setHasMarks) {
+  for (const child of nodes) {
+    // Direct content (string or array of text/mark items)
+    const content = child.content;
+    if (content) {
+      if (Array.isArray(content)) {
+        out.push(...content);
+        if (content.some((item) => typeof item === 'object' && item.marks)) {
+          setHasMarks(true);
+        }
+      } else if (typeof content === 'string') {
+        out.push(content);
+      }
+    }
+    // Recurse into children (lists, blockquotes, nested structures)
+    if (child.children) {
+      collectContent(child.children, out, setHasMarks);
+    }
+  }
+}
+
+/**
  * Convert a single Yjs node to structured format (ProseMirror-like JSON)
  * Used for serializing xpath query results
  * @param {Y.XmlElement|Y.XmlText} node - Single Yjs node to serialize
@@ -379,32 +406,12 @@ function toStructuredNode(node) {
     return result;
   }
 
-  // Simplify content for table cells - extract from nested paragraphs
+  // Simplify content for table cells - extract text from nested children
   if (['tableCell', 'tableHeader'].includes(tagName)) {
     if (children.length > 0) {
       const flatContent = [];
       let hasMarks = false;
-      for (const child of children) {
-        if (child.type === 'paragraph' && child.content) {
-          if (Array.isArray(child.content)) {
-            flatContent.push(...child.content);
-            if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-              hasMarks = true;
-            }
-          } else if (typeof child.content === 'string') {
-            flatContent.push(child.content);
-          }
-        } else if (child.type === 'text' && child.content) {
-          if (Array.isArray(child.content)) {
-            flatContent.push(...child.content);
-            if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-              hasMarks = true;
-            }
-          } else if (typeof child.content === 'string') {
-            flatContent.push(child.content);
-          }
-        }
-      }
+      collectContent(children, flatContent, (m) => { hasMarks = hasMarks || m; });
       // Collapse to string if no marks
       if (!hasMarks && flatContent.every((c) => typeof c === 'string')) {
         result.content = flatContent.join('');

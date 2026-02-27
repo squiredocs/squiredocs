@@ -858,8 +858,9 @@ function setFormattedContent(element, segments) {
     }
   }
 
-  // Insert all text at once
-  textNode.insert(0, fullText);
+  // Insert all text at once (empty attrs object prevents inheriting
+  // formatting from previously-deleted content at position 0)
+  textNode.insert(0, fullText, {});
 
   // Apply formatting
   for (const range of formatRanges) {

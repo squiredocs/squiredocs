@@ -1442,6 +1442,90 @@ describe('Sandbox Helpers', () => {
     });
   });
 
+  describe('setFormattedContent — replacing formatted content', () => {
+    it('should not inherit marks from previously formatted content', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'italic text');
+      text.format(0, 11, { italic: true });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      // Replace with plain text (no formatting)
+      helpers.setFormattedContent(para, ['plain text']);
+
+      const delta = helpers.findTextNode(para).toDelta();
+      expect(delta).toHaveLength(1);
+      expect(delta[0].insert).toBe('plain text');
+      expect(delta[0].attributes).toBeUndefined();
+    });
+
+    it('should replace bold text with different formatting', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'bold text');
+      text.format(0, 9, { bold: true });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      // Replace with italic text
+      helpers.setFormattedContent(para, [
+        { text: 'italic text', attrs: { italic: true } }
+      ]);
+
+      const delta = helpers.findTextNode(para).toDelta();
+      expect(delta).toHaveLength(1);
+      expect(delta[0].insert).toBe('italic text');
+      expect(delta[0].attributes).toEqual({ italic: true });
+    });
+
+    it('should replace formatted content in a table cell', () => {
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+      const cell = new Y.XmlElement('tableCell');
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Dublin → Adare');
+      text.format(0, 14, { italic: true });
+      para.insert(0, [text]);
+      cell.insert(0, [para]);
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+      fragment.insert(0, [table]);
+
+      // Replace with plain text via the cell's paragraph
+      helpers.setFormattedContent(para, ['Cork → Galway']);
+
+      const delta = helpers.findTextNode(para).toDelta();
+      expect(delta).toHaveLength(1);
+      expect(delta[0].insert).toBe('Cork → Galway');
+      expect(delta[0].attributes).toBeUndefined();
+    });
+
+    it('should replace mixed-format content with new mixed formatting', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'hello world');
+      text.format(0, 5, { bold: true });
+      text.format(6, 5, { italic: true });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      // Replace with completely different formatting
+      helpers.setFormattedContent(para, [
+        'plain ',
+        { text: 'underlined', attrs: { underline: true } },
+      ]);
+
+      const delta = helpers.findTextNode(para).toDelta();
+      expect(delta).toHaveLength(2);
+      expect(delta[0].insert).toBe('plain ');
+      expect(delta[0].attributes).toBeUndefined();
+      expect(delta[1].insert).toBe('underlined');
+      expect(delta[1].attributes).toEqual({ underline: true });
+    });
+  });
+
   describe('round-trip: getFormattedContent -> setFormattedContent', () => {
     it('should preserve formatting through round-trip', () => {
       const para = new Y.XmlElement('paragraph');
