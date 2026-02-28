@@ -217,7 +217,7 @@ app.use('/auth', authRouter);
 
 // Mount waitlist routes
 app.use('/api/waitlist', waitlist.router);
-app.use('/api/chat', chat.router);
+app.use('/api/chat', express.json({ limit: '2mb' }), chat.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities
