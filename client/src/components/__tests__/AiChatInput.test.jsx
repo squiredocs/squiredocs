@@ -5,37 +5,29 @@ import AiChatInput from '../AiChatInput';
 
 describe('AiChatInput', () => {
   let onSend;
+  let onStop;
 
   beforeEach(() => {
     onSend = vi.fn();
+    onStop = vi.fn();
   });
 
   it('renders textarea and send button', () => {
-    render(<AiChatInput onSend={onSend} disabled={false} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     expect(screen.getByRole('textbox')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
   });
 
   it('send button is disabled when input is empty', () => {
-    render(<AiChatInput onSend={onSend} disabled={false} />);
-
-    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
-  });
-
-  it('send button is disabled when disabled prop is true', async () => {
-    const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={true} />);
-
-    const textarea = screen.getByRole('textbox');
-    await user.type(textarea, 'Hello');
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
   it('calls onSend with trimmed text on button click', async () => {
     const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={false} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, '  Hello world  ');
@@ -46,7 +38,7 @@ describe('AiChatInput', () => {
 
   it('clears input after sending', async () => {
     const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={false} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello');
@@ -57,7 +49,7 @@ describe('AiChatInput', () => {
 
   it('sends on Enter key', async () => {
     const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={false} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello{Enter}');
@@ -67,7 +59,7 @@ describe('AiChatInput', () => {
 
   it('does not send on Shift+Enter', async () => {
     const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={false} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello{Shift>}{Enter}{/Shift}');
@@ -75,13 +67,37 @@ describe('AiChatInput', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('does not send when disabled even via Enter', async () => {
+  it('does not send when streaming even via Enter', async () => {
     const user = userEvent.setup();
-    render(<AiChatInput onSend={onSend} disabled={true} />);
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={true} />);
 
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello{Enter}');
 
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('shows stop button when streaming', () => {
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={true} />);
+
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+  });
+
+  it('calls onStop when stop button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={true} />);
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+
+    expect(onStop).toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('shows send button when not streaming', () => {
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
   });
 });
