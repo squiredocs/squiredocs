@@ -1,0 +1,170 @@
+/* =============================================================================
+   AI Chat History
+   ============================================================================= */
+
+.ai-chat-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  gap: 8px;
+}
+
+/* New Chat button */
+.ai-chat-history-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #7c3aed;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.ai-chat-history-new:hover {
+  background: #f5f3ff;
+  border-color: #7c3aed;
+}
+
+/* Search */
+.ai-chat-history-search {
+  flex-shrink: 0;
+}
+
+.ai-chat-history-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.ai-chat-history-search-input:focus {
+  border-color: #7c3aed;
+}
+
+.ai-chat-history-search-input::placeholder {
+  color: #9ca3af;
+}
+
+/* Chat list */
+.ai-chat-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-chat-history-empty {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+  padding: 24px 0;
+  margin: 0;
+}
+
+/* Individual chat item */
+.ai-chat-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.ai-chat-history-item:hover {
+  background: #f3f4f6;
+}
+
+.ai-chat-history-item--active {
+  background: #f5f3ff;
+  border-left: 2px solid #7c3aed;
+  padding-left: 8px;
+}
+
+.ai-chat-history-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-chat-history-item-title {
+  font-size: 14px;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-chat-history-item-time {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Action buttons (rename, delete) — visible on hover */
+.ai-chat-history-item-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ai-chat-history-item:hover .ai-chat-history-item-actions {
+  display: flex;
+}
+
+.ai-chat-history-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  padding: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-chat-history-action-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.ai-chat-history-action-btn--danger {
+  color: #dc2626;
+}
+
+.ai-chat-history-action-btn--danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* Inline rename input */
+.ai-chat-history-rename-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #7c3aed;
+  border-radius: 4px;
+  font-size: 14px;
+  outline: none;
+  min-width: 0;
+}

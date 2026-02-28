@@ -14,6 +14,7 @@ const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { getDocument } = require('../documents');
+const chatStore = require('../chat-store');
 
 const router = express.Router();
 
@@ -83,13 +84,19 @@ The user is currently viewing document${titleStr} (${docGuid}). When they refer 
 </active_document>`;
 }
 
+// ── Streaming chat endpoint ──────────────────────────────────────────────────
+
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { messages, docGuid } = req.body;
+    const { message, id: chatId, docGuid } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'messages array is required' });
+    if (!message || !chatId) {
+      return res.status(400).json({ error: 'message and id are required' });
     }
+
+    // Load previous messages from DB and append the new user message
+    const previousMessages = await chatStore.loadChat(chatId);
+    const allMessages = [...previousMessages, message];
 
     // Look up document title if docGuid provided
     let docTitle = null;
@@ -117,7 +124,7 @@ router.post('/', requireAuth, async (req, res) => {
       baseUrl,
     };
 
-    const { streamText, convertToModelMessages, stepCountIs } = getAI();
+    const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
 
     // Resolve configured model (env var or default)
     const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
@@ -167,8 +174,9 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
-    // Convert UI messages (parts-based) to model messages (content-based) for streamText
-    const modelMessages = await convertToModelMessages(messages);
+    // Validate and convert UI messages for streamText
+    const validatedMessages = await validateUIMessages({ messages: allMessages, tools });
+    const modelMessages = await convertToModelMessages(validatedMessages);
 
     const result = streamText({
       model,
@@ -187,12 +195,87 @@ router.post('/', requireAuth, async (req, res) => {
       },
     });
 
-    result.pipeUIMessageStreamToResponse(res);
+    // Ensure onFinish fires even if the client disconnects mid-stream
+    result.consumeStream();
+
+    result.pipeUIMessageStreamToResponse(res, {
+      originalMessages: validatedMessages,
+      generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
+      onFinish: ({ messages }) => {
+        chatStore.saveChat(chatId, messages).catch((err) => {
+          console.error('[Chat API] Failed to save chat:', err);
+        });
+      },
+    });
   } catch (error) {
     console.error('[Chat API] Error:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }
+  }
+});
+
+// ── Chat CRUD routes ─────────────────────────────────────────────────────────
+
+// Create a new chat
+router.post('/chats', requireAuth, async (req, res) => {
+  try {
+    const id = await chatStore.createChat(req.user.userId);
+    res.json({ id });
+  } catch (error) {
+    console.error('[Chat API] Error creating chat:', error);
+    res.status(500).json({ error: 'Failed to create chat' });
+  }
+});
+
+// List user's chats
+router.get('/chats', requireAuth, async (req, res) => {
+  try {
+    const chats = await chatStore.getChatsForUser(req.user.userId);
+    res.json(chats);
+  } catch (error) {
+    console.error('[Chat API] Error listing chats:', error);
+    res.status(500).json({ error: 'Failed to list chats' });
+  }
+});
+
+// Load a specific chat's messages
+router.get('/chats/:id', requireAuth, async (req, res) => {
+  try {
+    const messages = await chatStore.loadChat(req.params.id);
+    res.json({ messages });
+  } catch (error) {
+    console.error('[Chat API] Error loading chat:', error);
+    res.status(500).json({ error: 'Failed to load chat' });
+  }
+});
+
+// Delete a chat
+router.delete('/chats/:id', requireAuth, async (req, res) => {
+  try {
+    const deleted = await chatStore.deleteChat(req.params.id, req.user.userId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Chat API] Error deleting chat:', error);
+    res.status(500).json({ error: 'Failed to delete chat' });
+  }
+});
+
+// Update chat title
+router.patch('/chats/:id', requireAuth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (typeof title !== 'string') {
+      return res.status(400).json({ error: 'title is required' });
+    }
+    await chatStore.updateChatTitle(req.params.id, title);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Chat API] Error updating chat:', error);
+    res.status(500).json({ error: 'Failed to update chat' });
   }
 });
 

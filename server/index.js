@@ -20,6 +20,7 @@ const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
 const mcp = require('./mcp');
 const chat = require('./api/chat');
+const chatStore = require('./chat-store');
 const documentService = require('./document-service');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -205,6 +206,9 @@ documents.init(persistenceProvider.getPool());
 
 // Initialize waitlist module with shared database pool
 waitlist.init(persistenceProvider.getPool());
+
+// Initialize chat store with shared database pool
+chatStore.init(persistenceProvider.getPool());
 
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);

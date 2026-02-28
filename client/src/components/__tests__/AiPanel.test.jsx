@@ -26,6 +26,15 @@ vi.mock('../WindowPortal', () => ({
   default: ({ children }) => <div data-testid="window-portal">{children}</div>,
 }));
 
+// Mock AiChatHistory (tested separately)
+vi.mock('../AiChatHistory', () => ({
+  default: ({ onBack }) => (
+    <div data-testid="ai-chat-history">
+      <button onClick={onBack}>Back to chat</button>
+    </div>
+  ),
+}));
+
 function makeAiPanel(overrides = {}) {
   return {
     isOpen: true,
@@ -52,6 +61,13 @@ function makeAiChat(overrides = {}) {
     sendMessage: vi.fn(),
     status: 'ready',
     stop: vi.fn(),
+    chatList: [],
+    currentChatId: null,
+    createChat: vi.fn(),
+    selectChat: vi.fn(),
+    deleteChat: vi.fn(),
+    renameChat: vi.fn(),
+    refreshChatList: vi.fn(),
     ...overrides,
   };
 }
@@ -217,5 +233,52 @@ describe('AiPanel', () => {
   it('uses popup class when popped out', () => {
     const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
     expect(container.querySelector('.ai-panel--popup')).toBeInTheDocument();
+  });
+
+  // --------------- Chat History ---------------
+
+  it('renders history button on desktop', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+    expect(screen.getByRole('button', { name: 'Chat history' })).toBeInTheDocument();
+  });
+
+  it('clicking history button shows history view', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chat history' }));
+    expect(screen.getByTestId('ai-chat-history')).toBeInTheDocument();
+
+    // Should hide the chat input
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+  });
+
+  it('shows back button in header when history is visible', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chat history' }));
+    // The header should have a back button (aria-label)
+    const backButtons = screen.getAllByRole('button', { name: 'Back to chat' });
+    expect(backButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clicking back returns to conversation view', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    // Open history
+    fireEvent.click(screen.getByRole('button', { name: 'Chat history' }));
+    expect(screen.getByTestId('ai-chat-history')).toBeInTheDocument();
+
+    // Click back (from AiChatHistory mock)
+    fireEvent.click(screen.getByText('Back to chat'));
+    expect(screen.queryByTestId('ai-chat-history')).not.toBeInTheDocument();
+  });
+
+  it('history button works on mobile', () => {
+    mockIsMobile = true;
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    expect(screen.getByRole('button', { name: 'Chat history' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Chat history' }));
+    expect(screen.getByTestId('ai-chat-history')).toBeInTheDocument();
   });
 });

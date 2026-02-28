@@ -106,18 +106,6 @@ function ToolCard({ part }) {
   );
 }
 
-function TypingIndicator() {
-  return (
-    <div className="ai-chat-bubble ai-chat-bubble--assistant">
-      <span className="ai-typing-indicator">
-        <span className="ai-typing-dot" />
-        <span className="ai-typing-dot" />
-        <span className="ai-typing-dot" />
-      </span>
-    </div>
-  );
-}
-
 /** Open links from assistant messages in a new tab. */
 const markdownLinkRenderer = {
   a: ({ href, children }) => (
@@ -125,37 +113,44 @@ const markdownLinkRenderer = {
   ),
 };
 
-function AssistantBubble({ parts }) {
-  const groups = groupParts(parts);
-
+function AssistantBubble({ groups, isLoading }) {
   return (
     <div className="ai-chat-bubble ai-chat-bubble--assistant">
-      {groups.map((group, i) => {
-        if (group.type === 'text') {
-          return (
-            <div key={i} className="ai-chat-markdown">
-              <Markdown components={markdownLinkRenderer}>{group.text}</Markdown>
-            </div>
-          );
-        }
-        if (group.type === 'reasoning') {
-          return <ThinkingBlock key={i} text={group.text} />;
-        }
-        if (group.type === 'tools') {
-          return (
-            <div key={i} className="ai-tool-group">
-              {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
-            </div>
-          );
-        }
-        return null;
-      })}
+      {groups.length > 0
+        ? groups.map((group, i) => {
+            if (group.type === 'text') {
+              return (
+                <div key={i} className="ai-chat-markdown">
+                  <Markdown components={markdownLinkRenderer}>{group.text}</Markdown>
+                </div>
+              );
+            }
+            if (group.type === 'reasoning') {
+              return <ThinkingBlock key={i} text={group.text} />;
+            }
+            if (group.type === 'tools') {
+              return (
+                <div key={i} className="ai-tool-group">
+                  {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
+                </div>
+              );
+            }
+            return null;
+          })
+        : isLoading && (
+            <span className="ai-typing-indicator">
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+            </span>
+          )}
     </div>
   );
 }
 
 function AiChatMessages({ messages, status }) {
   const scrollRef = useRef(null);
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -164,14 +159,19 @@ function AiChatMessages({ messages, status }) {
     }
   }, [messages, status]);
 
+  // Check if the last message is an assistant response with visible content
+  const lastMsg = messages[messages.length - 1];
+  const lastGroups = lastMsg?.role === 'assistant' ? groupParts(lastMsg.parts || []) : [];
+  const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
+
   return (
     <div className="ai-chat-messages" ref={scrollRef}>
       {messages.map((msg) => {
-        if (msg.role === 'assistant' && msg.parts && msg.parts.length > 0) {
-          return <AssistantBubble key={msg.id} parts={msg.parts} />;
+        if (msg.role === 'assistant') {
+          const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
+          if (groups.length === 0 && !isLoading) return null;
+          return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} />;
         }
-
-        // User messages — plain text
         const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
         return (
           <div key={msg.id} className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
@@ -179,7 +179,7 @@ function AiChatMessages({ messages, status }) {
           </div>
         );
       })}
-      {status === 'submitted' && <TypingIndicator />}
+      {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
     </div>
   );
 }

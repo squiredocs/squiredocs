@@ -104,10 +104,8 @@ exports.up = async (pgm) => {
     console.warn('Backfill failed, but migration will continue. Titles will populate as documents are edited.');
   }
 
-  // Record the migration
-  await pgm.db.query(`
-    INSERT INTO pgmigrations (name, run_on) VALUES ('1766103664104_add-title-to-documents', NOW());
-  `);
+  // Note: node-pg-migrate records the migration automatically.
+  // A manual INSERT was previously here but caused duplicate rows in pgmigrations.
 };
 
 /**
