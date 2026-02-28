@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
-function AiChatInput({ onSend, disabled, placeholder, autoFocus }) {
+function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
 
@@ -14,14 +14,14 @@ function AiChatInput({ onSend, disabled, placeholder, autoFocus }) {
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || isStreaming) return;
     onSend(trimmed);
     setValue('');
     // Reset height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [value, disabled, onSend]);
+  }, [value, isStreaming, onSend]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -49,16 +49,28 @@ function AiChatInput({ onSend, disabled, placeholder, autoFocus }) {
         placeholder={placeholder}
         rows={2}
       />
-      <button
-        className="ai-chat-send-btn"
-        onClick={handleSend}
-        disabled={isEmpty || disabled}
-        aria-label="Send message"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-        </svg>
-      </button>
+      {isStreaming ? (
+        <button
+          className="ai-chat-send-btn ai-chat-stop-btn"
+          onClick={onStop}
+          aria-label="Stop"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          className="ai-chat-send-btn"
+          onClick={handleSend}
+          disabled={isEmpty}
+          aria-label="Send message"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

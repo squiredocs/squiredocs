@@ -398,6 +398,14 @@
   cursor: default;
 }
 
+.ai-chat-stop-btn {
+  background: #dc2626;
+}
+
+.ai-chat-stop-btn:hover {
+  background: #b91c1c;
+}
+
 /* =============================================================================
    Mobile — full-screen takeover
    ============================================================================= */

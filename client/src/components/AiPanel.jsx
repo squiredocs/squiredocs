@@ -285,7 +285,7 @@ function AiPanel({ aiPanel, aiChat }) {
           ) : (
             <AiChatMessages messages={messages} status={status} />
           )}
-          <AiChatInput onSend={sendMessage} disabled={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
+          <AiChatInput onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
         </>
       )}
     </WrapperTag>
