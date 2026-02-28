@@ -1,3 +1,4 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import AiPanel from '../AiPanel';
@@ -174,18 +175,18 @@ describe('AiPanel', () => {
 
   // --------------- Streaming ---------------
 
-  it('disables input when status is streaming', () => {
+  it('shows stop button when status is streaming', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'streaming' })} />);
 
-    const sendBtn = screen.getByRole('button', { name: 'Send message' });
-    expect(sendBtn).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
   });
 
-  it('disables input when status is submitted', () => {
+  it('shows stop button when status is submitted', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'submitted' })} />);
 
-    const sendBtn = screen.getByRole('button', { name: 'Send message' });
-    expect(sendBtn).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
   });
 
   // --------------- Pop-out ---------------
@@ -280,5 +281,53 @@ describe('AiPanel', () => {
     expect(screen.getByRole('button', { name: 'Chat history' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Chat history' }));
     expect(screen.getByTestId('ai-chat-history')).toBeInTheDocument();
+  });
+
+  // --------------- Usage limit ---------------
+
+  it('shows usage limit banner when usageLimitReached is true', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: true })} />);
+
+    expect(screen.getByText("You've reached your AI usage limit for this month.")).toBeInTheDocument();
+  });
+
+  it('disables input when usage limit is reached', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: true })} />);
+
+    // isStreaming is set to true when usageLimitReached, so stop button shows instead of disabled send
+    // The input area should show the usage limit placeholder
+    const textarea = screen.getByRole('textbox');
+    expect(textarea).toHaveAttribute('placeholder', 'Usage limit reached');
+  });
+
+  it('does not show usage limit banner when not reached', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: false })} />);
+
+    expect(screen.queryByText("You've reached your AI usage limit for this month.")).not.toBeInTheDocument();
+  });
+
+  // --------------- Generic error ---------------
+
+  it('shows error banner on non-usage-limit error', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'error', error: new Error('Server error') })} />);
+
+    expect(screen.getByText('Something went wrong. Please try again.')).toBeInTheDocument();
+  });
+
+  it('does not show generic error banner when status is ready', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'ready', error: null })} />);
+
+    expect(screen.queryByText('Something went wrong. Please try again.')).not.toBeInTheDocument();
+  });
+
+  it('shows usage limit banner instead of generic error when both apply', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({
+      status: 'error',
+      error: new Error('usage limit'),
+      usageLimitReached: true,
+    })} />);
+
+    expect(screen.getByText("You've reached your AI usage limit for this month.")).toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong. Please try again.')).not.toBeInTheDocument();
   });
 });

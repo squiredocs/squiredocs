@@ -21,6 +21,7 @@ const versionHistory = require('./version-history');
 const mcp = require('./mcp');
 const chat = require('./api/chat');
 const chatStore = require('./chat-store');
+const aiUsage = require('./ai-usage');
 const documentService = require('./document-service');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -209,6 +210,9 @@ waitlist.init(persistenceProvider.getPool());
 
 // Initialize chat store with shared database pool
 chatStore.init(persistenceProvider.getPool());
+
+// Initialize AI usage metering with shared database pool
+aiUsage.init(persistenceProvider.getPool());
 
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);

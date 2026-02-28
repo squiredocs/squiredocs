@@ -1,8 +1,16 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
-function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus }) {
+function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
+
+  // Restore draft text on error
+  useEffect(() => {
+    if (draftText) {
+      setValue(draftText);
+      onDraftConsumed?.();
+    }
+  }, [draftText, onDraftConsumed]);
 
   const handleInput = useCallback((e) => {
     setValue(e.target.value);

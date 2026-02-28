@@ -28,7 +28,7 @@ function AiPanel({ aiPanel, aiChat }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft } = aiChat || {};
 
   const { user } = useAuth();
   const isMobile = useMobile();
@@ -285,7 +285,16 @@ function AiPanel({ aiPanel, aiChat }) {
           ) : (
             <AiChatMessages messages={messages} status={status} />
           )}
-          <AiChatInput onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} />
+          {usageLimitReached ? (
+            <div className="ai-panel-usage-limit">
+              You've reached your AI usage limit for this month.
+            </div>
+          ) : status === 'error' && error && (
+            <div className="ai-panel-error">
+              Something went wrong. Please try again.
+            </div>
+          )}
+          <AiChatInput onSend={sendMessage} onStop={stop} isStreaming={isStreaming || usageLimitReached} autoFocus placeholder={usageLimitReached ? 'Usage limit reached' : isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
         </>
       )}
     </WrapperTag>

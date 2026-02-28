@@ -15,6 +15,7 @@ const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
+const aiUsage = require('../ai-usage');
 
 const router = express.Router();
 
@@ -110,6 +111,12 @@ router.post('/', requireAuth, async (req, res) => {
 
     if (!message || !chatId) {
       return res.status(400).json({ error: 'message and id are required' });
+    }
+
+    // Check AI usage quota before proceeding
+    const quota = await aiUsage.checkQuota(req.user.userId);
+    if (!quota.allowed) {
+      return res.status(429).json({ error: 'AI usage limit reached' });
     }
 
     // Load previous messages from DB and append the new user message
@@ -210,6 +217,16 @@ router.post('/', requireAuth, async (req, res) => {
       }),
       onError: ({ error }) => {
         console.error('[Chat API] Stream error:', error);
+      },
+      onFinish: async ({ usage }) => {
+        if (!usage) return;
+        const inputTokens = usage.inputTokens ?? 0;
+        const outputTokens = usage.outputTokens ?? 0;
+        const costCents = aiUsage.computeCostCents(def.key, inputTokens, outputTokens);
+        aiUsage.recordUsage(req.user.userId, {
+          chatId, modelKey: def.key,
+          inputTokens, outputTokens, costCents,
+        }).catch(err => console.error('[Chat API] Failed to record usage:', err));
       },
     });
 

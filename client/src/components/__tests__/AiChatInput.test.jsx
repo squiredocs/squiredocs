@@ -100,4 +100,27 @@ describe('AiChatInput', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
   });
+
+  // --------------- Draft text restoration ---------------
+
+  it('restores draft text when draftText prop is set', () => {
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} draftText="restored message" onDraftConsumed={vi.fn()} />);
+
+    expect(screen.getByRole('textbox')).toHaveValue('restored message');
+  });
+
+  it('calls onDraftConsumed after restoring draft', () => {
+    const onDraftConsumed = vi.fn();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} draftText="restored" onDraftConsumed={onDraftConsumed} />);
+
+    expect(onDraftConsumed).toHaveBeenCalled();
+  });
+
+  it('does not restore when draftText is empty', () => {
+    const onDraftConsumed = vi.fn();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} draftText="" onDraftConsumed={onDraftConsumed} />);
+
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    expect(onDraftConsumed).not.toHaveBeenCalled();
+  });
 });

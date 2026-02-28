@@ -82,8 +82,29 @@ export function AiChatProvider({ children }) {
     },
   }), []);
 
+  // Usage limit error state
+  const [usageLimitReached, setUsageLimitReached] = useState(false);
+
+  // Track last sent text so we can restore it on error
+  const lastSentTextRef = useRef('');
+  const [draftText, setDraftText] = useState('');
+
   // Single Chat instance — never pass `id` so useChat doesn't recreate it
-  const chat = useChat({ transport });
+  const chat = useChat({
+    transport,
+    onError: (error) => {
+      // Restore the user's message to the input
+      if (lastSentTextRef.current) {
+        setDraftText(lastSentTextRef.current);
+        lastSentTextRef.current = '';
+      }
+      // DefaultChatTransport throws Error(responseBody) on non-200.
+      // Our 429 returns JSON: {"error":"AI usage limit reached"}
+      if (error?.message?.includes('usage limit')) {
+        setUsageLimitReached(true);
+      }
+    },
+  });
 
   // ── Load messages when chat changes ──────────────────────────────────────
 
@@ -213,6 +234,7 @@ export function AiChatProvider({ children }) {
         // but we need it immediately for the transport. Set it directly.
         chatIdRef.current = id;
       }
+      lastSentTextRef.current = text;
       chat.sendMessage({ text });
     },
     [chat.sendMessage, currentChatId, createChat],
@@ -229,8 +251,11 @@ export function AiChatProvider({ children }) {
       deleteChat,
       renameChat,
       refreshChatList,
+      usageLimitReached,
+      draftText,
+      clearDraft: () => setDraftText(''),
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, usageLimitReached, draftText],
   );
 
   return (

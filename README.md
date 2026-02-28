@@ -266,6 +266,15 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **Tools**: All 15 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
 
+### Usage Limits
+
+Each user has a monthly AI credit allowance (default: $5.00). Usage is tracked per-request based on token counts from the AI provider, with costs computed from official pricing. When a user exceeds their allowance, chat requests return a 429 and the UI shows a clear error banner. Usage resets automatically at the start of each calendar month.
+
+- **Credits**: Stored as `ai_credit_cents` on the `users` table (overridable per user)
+- **Tracking**: Append-only `ai_usage_log` table records every request with model, token counts, and cost
+- **Pricing**: Computed from official per-token rates for each model (see `server/ai-usage.js`)
+- **No cron needed**: Current month's spend is computed on-the-fly by summing log entries
+
 ### Display Modes
 
 - **Right-docked** (default): Sidebar panel with adjustable width (280–600px)
@@ -653,6 +662,7 @@ paragraphs.forEach((node, index) => {
 │   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + configurable model)
 │   │   ├── chat-models.js    # Model registry (Claude, Gemini) with lazy provider loading
 │   │   └── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
+│   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
 │       ├── tools/            # MCP tools for document operations
@@ -695,7 +705,8 @@ paragraphs.forEach((node, index) => {
   - **Yjs data**: `yjs_updates` (stores document updates), `yjs_state_vectors` (stores document state)
   - **Document metadata**: `documents` table (document info, creator)
   - **Permissions**: `document_shares` table (user-document access with roles)
-  - **Users**: `users` table (OAuth user accounts)
+  - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
+  - **AI usage**: `ai_usage_log` table (per-request token usage and cost tracking)
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 

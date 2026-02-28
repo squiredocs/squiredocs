@@ -459,6 +459,28 @@
    Print
    ============================================================================= */
 
+/* Usage limit banner */
+.ai-panel-usage-limit {
+  padding: 8px 16px;
+  margin: 0 12px 4px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* Generic error banner */
+.ai-panel-error {
+  padding: 8px 16px;
+  margin: 0 12px 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  border-radius: 6px;
+  text-align: center;
+}
+
 @media print {
   .ai-panel,
   .ai-panel-mobile,
