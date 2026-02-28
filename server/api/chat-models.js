@@ -11,12 +11,13 @@
 
 const DEFAULT_MODEL_KEY = 'claude-haiku';
 
+// pricing: cents per 1M tokens (from official Anthropic/Google pricing)
 const MODEL_DEFS = [
-  { key: 'claude-haiku',     provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001' },
-  { key: 'gemini-2.5-flash', provider: 'google',    modelId: 'gemini-2.5-flash' },
-  { key: 'gemini-2.5-pro',   provider: 'google',    modelId: 'gemini-2.5-pro' },
-  { key: 'gemini-3-flash',   provider: 'google',    modelId: 'gemini-3-flash-preview' },
-  { key: 'gemini-3-pro',     provider: 'google',    modelId: 'gemini-3-pro-preview' },
+  { key: 'claude-haiku',     provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001', pricing: { input: 100, output: 500 } },
+  { key: 'gemini-2.5-flash', provider: 'google',    modelId: 'gemini-2.5-flash',          pricing: { input:  30, output: 250 } },
+  { key: 'gemini-2.5-pro',   provider: 'google',    modelId: 'gemini-2.5-pro',            pricing: { input: 125, output: 1000 } },
+  { key: 'gemini-3-flash',   provider: 'google',    modelId: 'gemini-3-flash-preview',    pricing: { input:  50, output: 300 } },
+  { key: 'gemini-3-pro',     provider: 'google',    modelId: 'gemini-3-pro-preview',      pricing: { input: 200, output: 1200 } },
 ];
 
 // Cached provider factory functions, keyed by provider name

@@ -6,20 +6,13 @@
  * counters to reset at month boundaries.
  */
 
+const { MODEL_DEFS } = require('./api/chat-models');
+
 let pool = null;
 
 function init(dbPool) {
   pool = dbPool;
 }
-
-// Cents per 1M tokens (from official Anthropic/Google pricing)
-const PRICING = {
-  'claude-haiku':     { input:  100, output:   500 },  // $1 / $5
-  'gemini-2.5-flash': { input:   30, output:   250 },  // $0.30 / $2.50
-  'gemini-2.5-pro':   { input:  125, output:  1000 },  // $1.25 / $10
-  'gemini-3-flash':   { input:   50, output:   300 },  // $0.50 / $3
-  'gemini-3-pro':     { input:  200, output:  1200 },  // $2 / $12
-};
 
 /**
  * Compute cost in cents for a request.
@@ -30,11 +23,12 @@ const PRICING = {
  * @returns {number} cost in cents
  */
 function computeCostCents(modelKey, inputTokens, outputTokens) {
-  const pricing = PRICING[modelKey];
-  if (!pricing) {
+  const def = MODEL_DEFS.find((d) => d.key === modelKey);
+  if (!def) {
     console.warn(`[ai-usage] Unknown model key "${modelKey}", defaulting to claude-haiku pricing`);
     return computeCostCents('claude-haiku', inputTokens, outputTokens);
   }
+  const pricing = def.pricing;
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
   return Math.ceil(inputCost + outputCost);
@@ -91,21 +85,9 @@ async function recordUsage(userId, { chatId, modelKey, inputTokens, outputTokens
   );
 }
 
-/**
- * Get usage summary for a user (current month).
- * @param {string} userId
- * @returns {Promise<{creditCents: number, usedCents: number, remainingCents: number}>}
- */
-async function getUsageSummary(userId) {
-  const { creditCents, usedCents, remainingCents } = await checkQuota(userId);
-  return { creditCents, usedCents, remainingCents };
-}
-
 module.exports = {
   init,
   computeCostCents,
   checkQuota,
   recordUsage,
-  getUsageSummary,
-  PRICING,
 };

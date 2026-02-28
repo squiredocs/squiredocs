@@ -93,6 +93,17 @@ spec:
                 secretKeyRef:
                   name: mcp-auth-secret
                   key: MCP_AUTH_CODE_SECRET
+            # AI Chat
+            - name: GOOGLE_GENERATIVE_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: GOOGLE_GENERATIVE_AI_API_KEY
+            - name: AI_CHAT_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: AI_CHAT_MODEL
             # Redis
             - name: REDIS_HOST
               value: collab-redis

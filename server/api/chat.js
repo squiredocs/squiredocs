@@ -119,8 +119,12 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(429).json({ error: 'AI usage limit reached' });
     }
 
-    // Load previous messages from DB and append the new user message
-    const previousMessages = await chatStore.loadChat(chatId);
+    // Load previous messages from DB and append the new user message.
+    // Filter out any messages with empty parts — these can occur when a
+    // stream is interrupted before any content arrives, and the AI SDK
+    // requires every message to have at least one part.
+    const previousMessages = (await chatStore.loadChat(chatId))
+      .filter(m => m.parts && m.parts.length > 0);
     const allMessages = [...previousMessages, message];
 
     // Look up document title if docGuid provided

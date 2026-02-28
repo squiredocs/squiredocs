@@ -218,20 +218,4 @@ describe('AI Usage', () => {
     });
   });
 
-  // ── getUsageSummary ───────────────────────────────────────────────────────
-
-  describe('getUsageSummary', () => {
-    test('returns usage summary', async () => {
-      await aiUsage.recordUsage(testUserId, {
-        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 7,
-      });
-
-      const summary = await aiUsage.getUsageSummary(testUserId);
-      expect(summary.creditCents).toBe(500);
-      expect(summary.usedCents).toBe(7);
-      expect(summary.remainingCents).toBe(493);
-      // Should not include 'allowed' field
-      expect(summary).not.toHaveProperty('allowed');
-    });
-  });
 });
