@@ -1,8 +1,30 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
+
+// Serve static landing.html for / in dev mode (matches Express production behavior)
+function landingPagePlugin() {
+  return {
+    name: 'serve-landing-page',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/' || req.url === '/index.html') {
+          const landingPath = path.resolve(__dirname, 'public/landing.html');
+          if (fs.existsSync(landingPath)) {
+            res.setHeader('Content-Type', 'text/html');
+            res.end(fs.readFileSync(landingPath, 'utf-8'));
+            return;
+          }
+        }
+        next();
+      });
+    }
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [landingPagePlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HeroDocs - AI-Native Collaborative Documents</title>
+  <meta name="description" content="Google Docs with a Built-In AI Project Manager. Teams generate effective, accurate documents 10x faster by eliminating coordination overhead." />
+  <meta property="og:title" content="HeroDocs - AI-Native Collaborative Documents" />
+  <meta property="og:description" content="Google Docs with a Built-In AI Project Manager. Teams generate effective, accurate documents 10x faster by eliminating coordination overhead." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://herodocs.ai" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="HeroDocs - AI-Native Collaborative Documents" />
+  <meta name="twitter:description" content="Google Docs with a Built-In AI Project Manager. Teams generate effective, accurate documents 10x faster." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <style>
+    /* Reset */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Landing Page - Light Theme with Purple Accent */
+    .landing-page {
+      min-height: 100vh;
+      background: #ffffff;
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+    }
+
+    /* Header */
+    .landing-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .landing-header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .landing-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      color: #1f2937;
+    }
+
+    .landing-logo-icon {
+      width: 32px;
+      height: 32px;
+      color: #7c3aed;
+    }
+
+    .landing-logo-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .landing-nav-btn {
+      padding: 0.5rem 1.25rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: transparent;
+      color: #6b7280;
+      border: 1px solid #d1d5db;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .landing-nav-btn:hover {
+      color: #1f2937;
+      border-color: #9ca3af;
+    }
+
+    .landing-nav-btn.primary {
+      background: #7c3aed;
+      color: #ffffff;
+      border-color: #7c3aed;
+    }
+
+    .landing-nav-btn.primary:hover {
+      background: #6d28d9;
+      border-color: #6d28d9;
+    }
+
+    /* Hero Section */
+    .landing-hero {
+      padding: 10rem 2rem 6rem;
+      text-align: center;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+    }
+
+    .landing-hero-content {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .landing-headline {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.1;
+      margin: 0 0 1rem;
+      letter-spacing: -0.03em;
+      color: #1f2937;
+    }
+
+    .landing-subheadline {
+      font-size: 1.5rem;
+      color: #7c3aed;
+      margin: 0 0 1.5rem;
+      font-weight: 500;
+    }
+
+    .landing-value-prop {
+      font-size: 1.25rem;
+      color: #6b7280;
+      margin: 0 0 2.5rem;
+      line-height: 1.6;
+    }
+
+    .landing-hero-cta {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+    }
+
+    /* Buttons */
+    .landing-btn {
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
+
+    .landing-btn.primary {
+      background: #7c3aed;
+      color: #ffffff;
+    }
+
+    .landing-btn.primary:hover:not(:disabled) {
+      background: #6d28d9;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(124, 58, 237, 0.3);
+    }
+
+    .landing-btn.primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Sections */
+    .landing-section {
+      padding: 5rem 2rem;
+    }
+
+    .landing-section-content {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .landing-section-title {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin: 0 0 1.5rem;
+      text-align: center;
+      letter-spacing: -0.02em;
+      color: #1f2937;
+    }
+
+    .landing-section-text {
+      font-size: 1.15rem;
+      color: #6b7280;
+      line-height: 1.7;
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto 2rem;
+    }
+
+    /* Problem Section */
+    .landing-section.problem {
+      background: #f9fafb;
+    }
+
+    /* Solution Section */
+    .landing-section.solution {
+      background: #ffffff;
+    }
+
+    .landing-features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+      margin-top: 3rem;
+    }
+
+    .landing-feature-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+    }
+
+    .landing-feature-card:hover {
+      border-color: #c4b5fd;
+      transform: translateY(-4px);
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.1);
+    }
+
+    .landing-feature-icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 1.25rem;
+      color: #7c3aed;
+    }
+
+    .landing-feature-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .landing-feature-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem;
+      color: #1f2937;
+    }
+
+    .landing-feature-text {
+      font-size: 1rem;
+      color: #6b7280;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    /* Social Proof Section */
+    .landing-section.social-proof {
+      background: #f9fafb;
+      padding: 3rem 2rem;
+    }
+
+    .landing-social-text {
+      font-size: 1rem;
+      color: #9ca3af;
+      text-align: center;
+      font-style: italic;
+      margin: 0;
+    }
+
+    /* Waitlist Section */
+    .landing-section.waitlist {
+      background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+      padding: 6rem 2rem;
+    }
+
+    .landing-form {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .landing-form-row {
+      margin-bottom: 1rem;
+    }
+
+    .landing-form-row.optional {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .landing-input,
+    .landing-select {
+      width: 100%;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #1f2937;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    }
+
+    .landing-input::placeholder {
+      color: #9ca3af;
+    }
+
+    .landing-input:focus,
+    .landing-select:focus {
+      outline: none;
+      border-color: #7c3aed;
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+    }
+
+    .landing-select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      padding-right: 2.5rem;
+    }
+
+    .landing-select option {
+      background: #ffffff;
+      color: #1f2937;
+    }
+
+    .landing-form-error {
+      background: #fef2f2;
+      color: #dc2626;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      border: 1px solid #fecaca;
+      display: none;
+    }
+
+    .landing-form .landing-btn {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    .landing-form-privacy {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      text-align: center;
+      margin: 1rem 0 0;
+    }
+
+    .landing-form-success {
+      text-align: center;
+      padding: 2rem;
+      background: #f5f3ff;
+      border: 1px solid #c4b5fd;
+      border-radius: 12px;
+      display: none;
+    }
+
+    .landing-form-success svg {
+      width: 48px;
+      height: 48px;
+      color: #7c3aed;
+      margin-bottom: 1rem;
+    }
+
+    .landing-form-success p {
+      font-size: 1.1rem;
+      margin: 0;
+      color: #1f2937;
+    }
+
+    /* Footer */
+    .landing-footer {
+      background: #f9fafb;
+      padding: 2rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .landing-footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .landing-copyright {
+      font-size: 0.9rem;
+      color: #9ca3af;
+      margin: 0;
+    }
+
+    .landing-footer-links {
+      display: flex;
+      gap: 1.5rem;
+    }
+
+    .landing-footer-links a {
+      color: #9ca3af;
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s ease;
+    }
+
+    .landing-footer-links a:hover {
+      color: #6b7280;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .landing-header-content {
+        padding: 1rem;
+      }
+
+      .landing-hero {
+        padding: 8rem 1.5rem 4rem;
+      }
+
+      .landing-headline {
+        font-size: 2.5rem;
+      }
+
+      .landing-subheadline {
+        font-size: 1.25rem;
+      }
+
+      .landing-value-prop {
+        font-size: 1.1rem;
+      }
+
+      .landing-section {
+        padding: 3rem 1.5rem;
+      }
+
+      .landing-section-title {
+        font-size: 1.75rem;
+      }
+
+      .landing-features {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+      }
+
+      .landing-form-row.optional {
+        grid-template-columns: 1fr;
+      }
+
+      .landing-footer-content {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .landing-headline {
+        font-size: 2rem;
+      }
+
+      .landing-subheadline {
+        font-size: 1.1rem;
+      }
+
+      .landing-logo-text {
+        font-size: 1.25rem;
+      }
+
+      .landing-btn {
+        padding: 0.875rem 1.5rem;
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="landing-page">
+    <!-- Header -->
+    <header class="landing-header">
+      <div class="landing-header-content">
+        <a href="/" class="landing-logo">
+          <svg class="landing-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <path d="M12 18v-6" />
+            <path d="M9 15l3 3 3-3" />
+          </svg>
+          <span class="landing-logo-text">HeroDocs</span>
+        </a>
+        <nav class="landing-nav">
+          <a href="/login" class="landing-nav-btn">Sign In</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="landing-hero">
+      <div class="landing-hero-content">
+        <h1 class="landing-headline">AI-Native Collaborative Documents</h1>
+        <p class="landing-subheadline">Google Docs with a Built-In AI Project Manager</p>
+        <p class="landing-value-prop">
+          Teams generate effective, accurate documents 10x faster by eliminating coordination overhead
+        </p>
+        <div class="landing-hero-cta">
+          <a href="#waitlist" class="landing-btn primary">Join Waitlist</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Problem Section -->
+    <section class="landing-section problem">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Every Collaborative Document Needs a Hero</h2>
+        <p class="landing-section-text">
+          Someone must manually coordinate contributors, chase input, synthesize responses,
+          and keep documents synchronized with fragmented discussions. This coordination work
+          consumes 60-80% of effort on high-stakes documents like RFPs, contracts, and proposals.
+        </p>
+      </div>
+    </section>
+
+    <!-- Solution Section -->
+    <section class="landing-section solution">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">HeroDocs = AI Project Manager for Documents</h2>
+        <p class="landing-section-text">
+          Combines real-time collaborative editing with intelligent AI orchestration
+          that eliminates coordination overhead.
+        </p>
+
+        <div class="landing-features">
+          <div class="landing-feature-card">
+            <div class="landing-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <h3 class="landing-feature-title">Coordinate Contributors</h3>
+            <p class="landing-feature-text">
+              AI identifies and prompts stakeholders with targeted questions—not generic "please review" requests.
+            </p>
+          </div>
+
+          <div class="landing-feature-card">
+            <div class="landing-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </div>
+            <h3 class="landing-feature-title">Synthesize Input</h3>
+            <p class="landing-feature-text">
+              AI proposes document updates based on collected input with transparent attribution. Human approval required.
+            </p>
+          </div>
+
+          <div class="landing-feature-card">
+            <div class="landing-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+            </div>
+            <h3 class="landing-feature-title">Track Decisions</h3>
+            <p class="landing-feature-text">
+              Complete audit trail of all inputs, discussions, and resolutions. Searchable and exportable.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Social Proof Section -->
+    <section class="landing-section social-proof">
+      <div class="landing-section-content">
+        <p class="landing-social-text">
+          Currently working with design partners in consulting, legal, and grant writing
+        </p>
+      </div>
+    </section>
+
+    <!-- Waitlist Section -->
+    <section class="landing-section waitlist" id="waitlist">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Join the Waitlist</h2>
+        <p class="landing-section-text">
+          Be the first to know when HeroDocs is ready.
+        </p>
+
+        <div class="landing-form-success" id="waitlist-success">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+          <p>You're on the list! We'll be in touch soon.</p>
+        </div>
+
+        <form class="landing-form" id="waitlist-form">
+          <div class="landing-form-row">
+            <input
+              type="email"
+              placeholder="Email address"
+              required
+              class="landing-input"
+              id="waitlist-email"
+            />
+          </div>
+
+          <div class="landing-form-row optional">
+            <select class="landing-select" id="waitlist-role">
+              <option value="">Role (optional)</option>
+              <option value="consultant">Consultant</option>
+              <option value="legal">Legal Professional</option>
+              <option value="grant_writer">Grant Writer</option>
+              <option value="rfp_manager">RFP Manager</option>
+              <option value="other">Other</option>
+            </select>
+
+            <select class="landing-select" id="waitlist-org-size">
+              <option value="">Organization size (optional)</option>
+              <option value="1-10">1-10</option>
+              <option value="11-50">11-50</option>
+              <option value="51-200">51-200</option>
+              <option value="201-1000">201-1000</option>
+              <option value="1000+">1000+</option>
+            </select>
+          </div>
+
+          <div class="landing-form-error" id="waitlist-error"></div>
+
+          <button type="submit" class="landing-btn primary" id="waitlist-submit">
+            Join Waitlist
+          </button>
+
+          <p class="landing-form-privacy">
+            We'll email you when HeroDocs is ready. Unsubscribe anytime.
+          </p>
+        </form>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+      <div class="landing-footer-content">
+        <p class="landing-copyright">&copy; 2025 HeroDocs</p>
+        <div class="landing-footer-links">
+          <a href="mailto:contact@herodocs.ai">Contact</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    document.getElementById('waitlist-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      var submitBtn = document.getElementById('waitlist-submit');
+      var errorDiv = document.getElementById('waitlist-error');
+      var email = document.getElementById('waitlist-email').value;
+      var role = document.getElementById('waitlist-role').value;
+      var orgSize = document.getElementById('waitlist-org-size').value;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Joining...';
+      errorDiv.style.display = 'none';
+
+      try {
+        var response = await fetch('/api/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: email,
+            role: role || undefined,
+            org_size: orgSize || undefined
+          })
+        });
+
+        var data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to join waitlist');
+        }
+
+        document.getElementById('waitlist-form').style.display = 'none';
+        document.getElementById('waitlist-success').style.display = 'block';
+      } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Join Waitlist';
+      }
+    });
+  </script>
+</body>
+</html>
