@@ -8,6 +8,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
+const { getTextContent } = require('../sandbox/helpers');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -414,6 +415,13 @@ Table Structure:
       └── tableCell (for data cells)
           └── paragraph → text
 
+  ⚠️ Table cell text is nested inside a paragraph. To read or write cell text,
+  use the helpers that handle this automatically:
+    getFormattedContent(tableCell)  — reads cell text (navigates cell → paragraph → text)
+    setFormattedContent(tableCell, segments) — writes cell text
+    findTextNode(tableCell) — returns the inner Y.XmlText node
+  Low-level access requires: tableCell.get(0) → paragraph, paragraph.get(0) → text
+
 Table Cell Attributes:
   - colspan: number (merge cells horizontally)
   - rowspan: number (merge cells vertically)
@@ -457,6 +465,7 @@ RETURNS
 ═══════════════════════════════════════════════════════════════════════════
 
 - success: true if script executed successfully
+- changed: true if the document content actually changed (detects silent no-ops)
 - operationCount: Number of Yjs operations performed
 - summary: Object mapping operation types to counts
 - error: Error message if execution failed
@@ -1467,9 +1476,9 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  // DIAGNOSTIC LOGGING: Capture state before and after script execution
-  // This helps debug the duplicate H1 heading bug
+  // Capture state before script execution for change detection and diagnostics
   const blockCountBefore = xmlFragment.toArray().length;
+  const textBefore = getTextContent(xmlFragment);
   console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
   console.log(`[modify:DIAGNOSTIC] blockCountBefore=${blockCountBefore}`);
@@ -1480,14 +1489,18 @@ async function handler(args, agentToken) {
       timeout: validatedTimeout,
     });
 
-    // DIAGNOSTIC LOGGING: Capture state after script execution
+    // Capture state after script execution for change detection and diagnostics
     const blockCountAfter = xmlFragment.toArray().length;
+    const textAfter = getTextContent(xmlFragment);
+    const changed = (blockCountBefore !== blockCountAfter) || (textBefore !== textAfter);
     console.log(`[modify:DIAGNOSTIC] blockCountAfter=${blockCountAfter}`);
     console.log(`[modify:DIAGNOSTIC] blocksAdded=${blockCountAfter - blockCountBefore}`);
+    console.log(`[modify:DIAGNOSTIC] changed=${changed}`);
 
     if (result.success) {
       return {
         success: true,
+        changed,
         operationCount: result.operationCount,
         summary: result.summary,
       };
