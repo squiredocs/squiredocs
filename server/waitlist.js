@@ -4,6 +4,7 @@
  */
 
 const express = require('express');
+const { notifyWaitlistSignup } = require('./email');
 const router = express.Router();
 
 let pool = null;
@@ -67,6 +68,8 @@ router.post('/', async (req, res) => {
        RETURNING id, email, created_at`,
       [normalizedEmail, role || null, org_size || null]
     );
+
+    notifyWaitlistSignup({ email: normalizedEmail, role, org_size });
 
     res.status(201).json({
       success: true,

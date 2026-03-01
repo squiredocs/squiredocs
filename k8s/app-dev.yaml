@@ -59,6 +59,27 @@ spec:
           value: collab-redis
         - name: REDIS_PORT
           value: "6379"
+        # Email Notifications (AWS SES SMTP)
+        - name: SES_SMTP_USER
+          valueFrom:
+            secretKeyRef:
+              name: ses-secret
+              key: SES_SMTP_USER
+        - name: SES_SMTP_PASS
+          valueFrom:
+            secretKeyRef:
+              name: ses-secret
+              key: SES_SMTP_PASS
+        - name: SES_FROM_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: ses-secret
+              key: SES_FROM_EMAIL
+        - name: ADMIN_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: ses-secret
+              key: ADMIN_EMAIL
         # Add resource limits for better performance
         resources:
           requests:

@@ -42,7 +42,9 @@ async function findOrCreateUser({ googleId, email, name, picture }) {
        RETURNING *`,
       [email, name, picture, googleId]
     );
-    return updateResult.rows[0];
+    const existingUser = updateResult.rows[0];
+    existingUser.isNew = false;
+    return existingUser;
   }
 
   // Create new user
@@ -53,7 +55,9 @@ async function findOrCreateUser({ googleId, email, name, picture }) {
     [googleId, email, name, picture]
   );
 
-  return insertResult.rows[0];
+  const newUser = insertResult.rows[0];
+  newUser.isNew = true;
+  return newUser;
 }
 
 /**

@@ -14,6 +14,7 @@ const {
 } = require('./jwt');
 const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion } = require('./users');
 const { requireAuth } = require('./middleware');
+const { notifyNewUser } = require('../email');
 
 const router = express.Router();
 
@@ -99,7 +100,11 @@ router.get('/google/callback', async (req, res) => {
     
     // Create or update user in database
     const user = await findOrCreateUser(profile);
-    
+
+    if (user.isNew) {
+      notifyNewUser({ email: user.email, name: user.name });
+    }
+
     // Generate application tokens
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
