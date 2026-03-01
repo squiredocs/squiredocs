@@ -10,7 +10,7 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const { extractBearerToken } = require('../auth/jwt');
-const { generateAgentToken } = require('../mcp/auth/jwt');
+const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
@@ -139,27 +139,14 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    // Generate a real agent JWT so WebSocket upgrade sees isAgent: true
-    // and sets ws.agentName = 'HeroDocs Assistant' for proper attribution
-    const agentJwt = generateAgentToken({
-      id: `in-app-chat-${req.user.userId}`,
-      user_id: req.user.userId,
-      agent_id: 'in-app-chat',
-      agent_name: 'HeroDocs Assistant',
-      scopes: ['read', 'write'],
-    });
     const baseUrl = buildBaseUrl(req);
-
-    // Synthetic agent token for tool execution
-    const syntheticAgentToken = {
+    const { token: syntheticAgentToken } = createAgentTokenPair({
       userId: req.user.userId,
       agentId: 'in-app-chat',
       agentName: 'HeroDocs Assistant',
       scopes: ['read', 'write'],
-      isAgent: true,
-      rawToken: agentJwt,
       baseUrl,
-    };
+    });
 
     const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
 

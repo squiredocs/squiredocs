@@ -7,6 +7,7 @@ const { createPool, createPersistence } = require('../../../__tests__/helpers/db
 const Y = require('yjs');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
+const { ORIGIN_DB_LOAD, parseOrigin } = require('../../../origin');
 
 // Use shared test database configuration
 const pool = createPool();
@@ -48,14 +49,13 @@ describe('restore_document_version tool', () => {
 
   beforeAll(async () => {
     // Set up y-websocket persistence
-    const ORIGIN_DB_LOAD = 'db-load';
     setPersistence({
       bindState: async (docName, ydoc) => {
         const docGuid = docName.startsWith('s/') ? docName.slice(2) : docName;
         ydoc.on('update', (update, origin) => {
-          if (origin === ORIGIN_DB_LOAD) return;
-          const userId = typeof origin === 'string' ? origin : origin?.userId;
-          const agentName = typeof origin === 'string' ? null : origin?.agentName;
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          const { userId, agentName } = parsed;
           const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName);
           pendingOperations.push(storePromise);
         });
@@ -174,7 +174,7 @@ describe('restore_document_version tool', () => {
           paragraph.insert(0, [text]);
           xmlFragment.insert(0, [paragraph]);
         },
-        testUserId
+        { userId: testUserId }
       );
 
       // Wait for persistence and verify content exists
@@ -192,7 +192,7 @@ describe('restore_document_version tool', () => {
           text.delete(0, text.length);
           text.insert(0, 'Modified content');
         },
-        testUserId
+        { userId: testUserId }
       );
 
       // Wait for persistence and verify we have at least 2 updates

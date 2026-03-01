@@ -104,8 +104,7 @@ async function handler(args, agentToken) {
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
       blockCountAfterCreate = xmlFragment.toArray().length;
     },
-    userId,
-    agentToken.agentName
+    { userId, agentName: agentToken.agentName }
   );
 
   console.log(`[create_document:DIAGNOSTIC] docGuid=${docGuid}`);

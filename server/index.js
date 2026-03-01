@@ -22,6 +22,7 @@ const chat = require('./api/chat');
 const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
 const documentService = require('./document-service');
+const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 
@@ -98,9 +99,6 @@ const extractDocGuid = (docName) => {
 // y-websocket expects a persistence object with bindState and writeState methods
 // bindState is async but not awaited by y-websocket - it applies persisted state when it completes
 // Note: y-websocket calls it "docName" but we use it as a UUID (docGuid)
-const ORIGIN_DB_LOAD = 'db-load'; // Origin marker for updates from loading persisted state
-const ORIGIN_REDIS = 'redis'; // Origin marker for updates from Redis pub/sub (cross-instance sync)
-
 setPersistence({
   bindState: async (docName, ydoc) => {
     // docName from y-websocket includes the URL path prefix (e.g., "s/uuid")
@@ -113,21 +111,10 @@ setPersistence({
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
     ydoc.on('update', (update, origin) => {
-      // Skip persisting updates that come from loading persisted state
-      // (they're already in the DB, no need to save again)
-      // Also skip updates from Redis pub/sub - those originated on another server
-      // and were already persisted there. Re-persisting here would:
-      // 1. Cause "invalid uuid: redis" error (ORIGIN_REDIS is the string "redis")
-      // 2. Create duplicate persistence attempts
-      if (origin === ORIGIN_DB_LOAD || origin === ORIGIN_REDIS) {
-        return;
-      }
-
-      // Get attribution info from the origin
-      // - WebSocket updates: origin is the ws object with userId/agentName properties
-      // - MCP tool updates: origin is a string (userId)
-      const userId = (typeof origin === 'string') ? origin : origin?.userId;
-      const agentName = (typeof origin === 'string') ? null : origin?.agentName;
+      // Skip sentinel origins (db-load, redis) — already persisted
+      const parsed = parseOrigin(origin);
+      if (!parsed) return;
+      const { userId, agentName } = parsed;
 
       const persistStart = Date.now();
 

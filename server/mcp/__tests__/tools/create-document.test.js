@@ -15,6 +15,7 @@ const documents = require('../../../documents');
 const createDocument = require('../../tools/create-document');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
+const { ORIGIN_DB_LOAD, parseOrigin } = require('../../../origin');
 
 // Track pending persistence operations for test reliability
 const pendingOperations = [];
@@ -24,7 +25,6 @@ describe('create_document tool', () => {
 
   beforeAll(async () => {
     // Initialize y-websocket persistence for tests
-    const ORIGIN_DB_LOAD = 'db-load';
     setPersistence({
       bindState: async (docName, ydoc) => {
         // Extract docGuid from docName (format: "s/{docGuid}")
@@ -32,11 +32,9 @@ describe('create_document tool', () => {
 
         // Set up update listener to persist changes
         ydoc.on('update', (update, origin) => {
-          if (origin === ORIGIN_DB_LOAD) return;
-
-          // Extract userId and agentName from origin (matches real index.js logic)
-          const userId = typeof origin === 'string' ? origin : origin?.userId;
-          const agentName = typeof origin === 'string' ? null : origin?.agentName;
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          const { userId, agentName } = parsed;
 
           // Track the promise to ensure persistence completes before test cleanup
           const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName).catch((err) => {

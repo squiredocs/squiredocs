@@ -4,6 +4,7 @@
  */
 
 const Y = require('yjs');
+const { createOrigin } = require('./origin');
 
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
@@ -694,8 +695,7 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
         // Apply the update with proper origin so it's attributed correctly
         // The update event will try to persist it again, but ON CONFLICT DO NOTHING
         // in storeUpdate will prevent duplicates
-        const origin = agentName ? { userId, agentName } : userId;
-        Y.applyUpdate(sharedDoc, restoreUpdate, origin);
+        Y.applyUpdate(sharedDoc, restoreUpdate, createOrigin(userId, agentName));
         console.log(`[Restore] Applied restore update to in-memory document`);
       } else {
         console.warn(`[Restore] Could not get shared document for ${docGuid} - update not broadcast`);

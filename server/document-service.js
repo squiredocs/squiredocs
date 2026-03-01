@@ -6,6 +6,7 @@
  * ydoc cache and are broadcast to connected clients.
  */
 const Y = require('yjs');
+const { createOrigin } = require('./origin');
 
 let getYDocFn = null;
 let extractDocGuidFn = null;
@@ -39,11 +40,12 @@ function getSharedDoc(docGuid) {
  * Apply a function to a document with proper transacting
  * @param {string} docGuid - Document UUID
  * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
- * @param {string|null} userId - User ID for attribution
- * @param {string|null} agentName - Agent name for attribution (e.g., 'Chat Assistant')
+ * @param {Object} options - Attribution options
+ * @param {string|null} options.userId - User ID for attribution
+ * @param {string|null} options.agentName - Agent name for attribution (e.g., 'Chat Assistant')
  * @returns {Promise<void>} Promise that resolves when update is applied and persistence is initiated
  */
-async function updateDocument(docGuid, updateFn, userId = null, agentName = null) {
+async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
   const ydoc = getSharedDoc(docGuid);
 
   // Track whether update fired
@@ -68,7 +70,7 @@ async function updateDocument(docGuid, updateFn, userId = null, agentName = null
   // The update event will automatically trigger:
   // 1. Broadcast to WebSocket clients (via updateHandler)
   // 2. Persistence to database with userId attribution (via bindState listener)
-  const origin = agentName ? { userId, agentName } : userId;
+  const origin = createOrigin(userId, agentName);
   ydoc.transact(() => {
     updateFn(ydoc);
   }, origin); // Pass origin for attribution
