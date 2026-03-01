@@ -34,11 +34,12 @@ describe('create_document tool', () => {
         ydoc.on('update', (update, origin) => {
           if (origin === ORIGIN_DB_LOAD) return;
 
-          // Extract userId from origin if it's a string (passed from MCP tools)
-          const userId = typeof origin === 'string' ? origin : null;
+          // Extract userId and agentName from origin (matches real index.js logic)
+          const userId = typeof origin === 'string' ? origin : origin?.userId;
+          const agentName = typeof origin === 'string' ? null : origin?.agentName;
 
           // Track the promise to ensure persistence completes before test cleanup
-          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId).catch((err) => {
+          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName).catch((err) => {
             console.error(`Error persisting update for ${docGuid}:`, err);
           });
           pendingOperations.push(storePromise);

@@ -40,9 +40,10 @@ function getSharedDoc(docGuid) {
  * @param {string} docGuid - Document UUID
  * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
  * @param {string|null} userId - User ID for attribution
+ * @param {string|null} agentName - Agent name for attribution (e.g., 'Chat Assistant')
  * @returns {Promise<void>} Promise that resolves when update is applied and persistence is initiated
  */
-async function updateDocument(docGuid, updateFn, userId = null) {
+async function updateDocument(docGuid, updateFn, userId = null, agentName = null) {
   const ydoc = getSharedDoc(docGuid);
 
   // Track whether update fired
@@ -67,9 +68,10 @@ async function updateDocument(docGuid, updateFn, userId = null) {
   // The update event will automatically trigger:
   // 1. Broadcast to WebSocket clients (via updateHandler)
   // 2. Persistence to database with userId attribution (via bindState listener)
+  const origin = agentName ? { userId, agentName } : userId;
   ydoc.transact(() => {
     updateFn(ydoc);
-  }, userId); // Pass userId as origin for attribution
+  }, origin); // Pass origin for attribution
 
   // Wait for the update event to fire and async operations to be initiated
   // If no changes were made, the update event won't fire and we timeout

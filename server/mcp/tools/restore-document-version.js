@@ -144,7 +144,8 @@ async function handler(args, agentToken) {
     docGuid,
     versionId,
     userId,
-    getSharedDocFn
+    getSharedDocFn,
+    agentToken.agentName
   );
 
   return result;

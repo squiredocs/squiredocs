@@ -544,7 +544,7 @@ describe('version-history module', () => {
 
       const author = createAuthor(update);
 
-      expect(author.name).toBe('Claude');
+      expect(author.name).toBe('Claude (Alice)');
       expect(author.isAgent).toBe(true);
     });
 
@@ -633,7 +633,7 @@ describe('version-history module', () => {
       const humanAuthor = authors.find(a => !a.isAgent);
       const agentAuthor = authors.find(a => a.isAgent);
       expect(humanAuthor.name).toBe('Sam');
-      expect(agentAuthor.name).toBe('Claude');
+      expect(agentAuthor.name).toBe('Claude (Sam)');
     });
   });
 

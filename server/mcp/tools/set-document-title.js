@@ -82,8 +82,9 @@ async function handler(args, agentToken) {
       const meta = ydoc.getMap('meta');
       meta.set('title', title);
     },
-    userId
-  ); // Pass userId for attribution
+    userId,
+    agentToken.agentName
+  );
 
   // Note: updated_at is now automatically updated by storeUpdate in postgres-persistence.js
   // This ensures unified behavior for both regular user updates and MCP tool updates

@@ -54,8 +54,9 @@ describe('restore_document_version tool', () => {
         const docGuid = docName.startsWith('s/') ? docName.slice(2) : docName;
         ydoc.on('update', (update, origin) => {
           if (origin === ORIGIN_DB_LOAD) return;
-          const userId = typeof origin === 'string' ? origin : null;
-          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId);
+          const userId = typeof origin === 'string' ? origin : origin?.userId;
+          const agentName = typeof origin === 'string' ? null : origin?.agentName;
+          const storePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName);
           pendingOperations.push(storePromise);
         });
         try {

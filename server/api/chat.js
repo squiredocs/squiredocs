@@ -10,6 +10,7 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const { extractBearerToken } = require('../auth/jwt');
+const { generateAgentToken } = require('../mcp/auth/jwt');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
@@ -138,18 +139,25 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    // Extract the raw bearer token for agent presence
-    const rawToken = extractBearerToken(req.headers.authorization);
+    // Generate a real agent JWT so WebSocket upgrade sees isAgent: true
+    // and sets ws.agentName = 'HeroDocs Assistant' for proper attribution
+    const agentJwt = generateAgentToken({
+      id: `in-app-chat-${req.user.userId}`,
+      user_id: req.user.userId,
+      agent_id: 'in-app-chat',
+      agent_name: 'HeroDocs Assistant',
+      scopes: ['read', 'write'],
+    });
     const baseUrl = buildBaseUrl(req);
 
     // Synthetic agent token for tool execution
     const syntheticAgentToken = {
       userId: req.user.userId,
       agentId: 'in-app-chat',
-      agentName: 'Chat Assistant',
+      agentName: 'HeroDocs Assistant',
       scopes: ['read', 'write'],
       isAgent: true,
-      rawToken,
+      rawToken: agentJwt,
       baseUrl,
     };
 

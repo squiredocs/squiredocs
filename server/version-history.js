@@ -59,7 +59,9 @@ function createAuthor(data) {
   if (!userId) return null;
 
   const authorKey = getAuthorKey(userId, agentName);
-  const displayName = agentName || userName || 'Unknown';
+  const displayName = agentName
+    ? (userName ? `${agentName} (${userName})` : agentName)
+    : (userName || 'Unknown');
 
   return {
     id: userId,
@@ -589,9 +591,10 @@ async function getVersionContent(persistence, docGuid, versionId) {
  * @param {string} versionId - Version ID to restore
  * @param {string} userId - User performing the restore
  * @param {Function|null} getSharedDocFn - Optional function to get the in-memory shared document
+ * @param {string|null} agentName - Agent name for attribution (e.g., 'Chat Assistant')
  * @returns {Promise<Object>} Result with new version info
  */
-async function restoreVersion(persistence, docGuid, versionId, userId, getSharedDocFn = null) {
+async function restoreVersion(persistence, docGuid, versionId, userId, getSharedDocFn = null, agentName = null) {
   console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
 
   // Get the target version content
@@ -680,7 +683,7 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
   console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
 
   // Store as a new update (this is the restore operation)
-  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId);
+  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName);
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   // Apply the restore update to the in-memory document so it broadcasts to clients
@@ -688,10 +691,11 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
     try {
       const sharedDoc = getSharedDocFn(docGuid);
       if (sharedDoc) {
-        // Apply the update with userId as origin so it's attributed correctly
+        // Apply the update with proper origin so it's attributed correctly
         // The update event will try to persist it again, but ON CONFLICT DO NOTHING
         // in storeUpdate will prevent duplicates
-        Y.applyUpdate(sharedDoc, restoreUpdate, userId);
+        const origin = agentName ? { userId, agentName } : userId;
+        Y.applyUpdate(sharedDoc, restoreUpdate, origin);
         console.log(`[Restore] Applied restore update to in-memory document`);
       } else {
         console.warn(`[Restore] Could not get shared document for ${docGuid} - update not broadcast`);
