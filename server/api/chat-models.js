@@ -9,7 +9,7 @@
  * dependencies at startup.
  */
 
-const DEFAULT_MODEL_KEY = 'claude-haiku';
+const DEFAULT_MODEL_KEY = 'gemini-3-flash';
 
 // pricing: cents per 1M tokens (from official Anthropic/Google pricing)
 const MODEL_DEFS = [

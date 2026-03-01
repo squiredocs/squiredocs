@@ -23,7 +23,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Flash/Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
 
 ## Prerequisites
 
@@ -122,9 +122,14 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 - `DB_NAME`: Database name (default: `collab_db`)
 - `DB_USER`: Database user (default: `postgres`)
 - `DB_PASSWORD`: Database password (default: `postgres`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-haiku`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-pro`
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `gemini-3-flash`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3-pro`
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
+- `ADMIN_EMAIL`: Email address to receive new-user signup notifications (optional)
+- `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
+- `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
+- `SES_SMTP_USER`: SES SMTP username
+- `SES_SMTP_PASS`: SES SMTP password
 
 Example using connection string:
 ```bash
@@ -256,15 +261,19 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Haiku 4.5). Supported models:
+- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Gemini 3 Flash). Supported models:
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-3-flash` — Gemini 3 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3-pro` — Gemini 3 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
 - **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
 - **Endpoint**: `POST /api/chat` — streams responses to the client
-- **Tools**: All 15 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
+- **Tools**: All 14 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
+- **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats
+- **Thinking display**: Gemini models show collapsible reasoning/thinking blocks so users can see how the model arrived at its answer
+- **Stop generation**: Abort a streaming response at any time with the stop button
 
 ### Usage Limits
 
@@ -328,18 +337,20 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - `get_collaborators` - See who else is editing
 
 **Sandboxed Script Execution:**
-- `execute_script` - Execute TypeScript scripts with direct Yjs API access
+- `modify` - Execute TypeScript scripts with direct Yjs API access
   - Edit text, format content, create/modify blocks
   - Build complex nested structures
   - Find and replace patterns
   - All changes atomic (single undo)
   - Real-time sync to all users
+  - Returns change detection (`changed`, `operationCount`, `summary`)
 
 **History:**
 - `list_document_versions` - List version history with optional nested subversions and time-based filtering
 - `read_document_version` - Read document at specific version
 - `set_document_version_name` - Create, rename, or delete named versions
 - `restore_document_version` - Restore to previous version
+- `compare_document_versions` - Compare two versions using custom TypeScript scripts
 - `undo` - Undo last operation
 - `redo` - Redo previously undone operation
 
@@ -443,7 +454,7 @@ await modify({
 // IMPORTANT: Creating mixed formatting
 // When inserting text with different formatting, ALWAYS pass {} for unformatted text:
 
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: `
     export default function edit(doc) {
@@ -466,13 +477,13 @@ await execute_script({
 
 ## Hierarchical Document Editing
 
-This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization using the `execute_script` tool with direct Yjs API access.
+This editor supports advanced hierarchical document structures with nested lists, subsections, and complex content organization using the `modify` tool with direct Yjs API access.
 
 ### Creating Nested Content
 
 **Build complex hierarchical structures with TypeScript:**
 ```typescript
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: `
     export default function edit(doc) {
@@ -510,7 +521,7 @@ await execute_script({
 ### Example: Creating a Complex Document Structure
 
 ```typescript
-await execute_script({
+await modify({
   docGuid: "abc-123",
   script: `
     export default function edit(doc) {
