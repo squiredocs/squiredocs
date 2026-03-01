@@ -7,7 +7,6 @@ import DocList from './components/DocList';
 import EditorView from './components/EditorView';
 import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
-import LandingPage from './components/LandingPage';
 import AuthorizePage from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
 import './App.css';
@@ -148,15 +147,13 @@ function AppContent() {
     );
   }
 
-  // Landing page - always public
+  // Landing page - redirect to docs or login
   if (route.view === 'landing') {
-    return (
-      <LandingPage
-        isAuthenticated={isAuthenticated}
-        onNavigateToDocs={navigateToDocs}
-        onNavigateToLogin={navigateToLogin}
-      />
-    );
+    if (isAuthenticated) {
+      navigateToDocs();
+      return null;
+    }
+    return <LoginPage onNavigateToLanding={navigateToLanding} />;
   }
 
   // Authorization page - for OAuth agent authorization
