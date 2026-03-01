@@ -942,8 +942,13 @@ app.delete('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res)
 
 // Serve static files and React app (only if build directory exists)
 if (fs.existsSync(clientBuildPath)) {
+  // Serve landing page at root (matches Vite dev plugin behavior)
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(clientBuildPath, 'landing.html'));
+  });
+
   app.use(express.static(clientBuildPath));
-  
+
   // Serve React app for all other routes
   app.get('*', (req, res) => {
     res.sendFile(path.join(clientBuildPath, 'index.html'));
