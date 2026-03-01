@@ -4,7 +4,7 @@
  */
 const crypto = require('crypto');
 const chatStore = require('../chat-store');
-const { createPool } = require('./helpers/db');
+const { createPool, createTestUser } = require('./helpers/db');
 
 describe('Chat Store', () => {
   let pool;
@@ -15,11 +15,7 @@ describe('Chat Store', () => {
     chatStore.init(pool);
 
     // Create a test user
-    testUserId = crypto.randomUUID();
-    await pool.query(
-      "INSERT INTO users (id, email, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-      [testUserId, `chattest-${testUserId}@test.com`, 'Chat Test User']
-    );
+    testUserId = await createTestUser(pool, `chattest-${crypto.randomUUID()}@test.com`);
   });
 
   afterAll(async () => {
