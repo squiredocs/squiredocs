@@ -16,7 +16,6 @@ const { router: authRouter, initUsers, requireAuth } = require('./auth');
 const { parseCookies, verifyAccessToken } = require('./auth/jwt');
 const documents = require('./documents');
 const permissions = require('./permissions');
-const waitlist = require('./waitlist');
 const versionHistory = require('./version-history');
 const mcp = require('./mcp');
 const chat = require('./api/chat');
@@ -205,9 +204,6 @@ initUsers(persistenceProvider.getPool());
 // Initialize documents module with shared database pool
 documents.init(persistenceProvider.getPool());
 
-// Initialize waitlist module with shared database pool
-waitlist.init(persistenceProvider.getPool());
-
 // Initialize chat store with shared database pool
 chatStore.init(persistenceProvider.getPool());
 
@@ -223,8 +219,6 @@ const diffService = new DiffService(persistenceProvider.getPool());
 // Mount auth routes
 app.use('/auth', authRouter);
 
-// Mount waitlist routes
-app.use('/api/waitlist', waitlist.router);
 app.use('/api/chat', express.json({ limit: '2mb' }), chat.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)

@@ -43,23 +43,6 @@ async function sendEmail({ to, subject, html }) {
 }
 
 /**
- * Notify admin of a new waitlist signup
- */
-function notifyWaitlistSignup({ email, role, org_size }) {
-  if (!ADMIN_EMAIL) return;
-  sendEmail({
-    to: ADMIN_EMAIL,
-    subject: `Waitlist signup: ${email}`,
-    html: `
-      <h3>New waitlist signup</h3>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Role:</strong> ${role || '(not provided)'}</p>
-      <p><strong>Org size:</strong> ${org_size || '(not provided)'}</p>
-    `,
-  });
-}
-
-/**
  * Notify admin of a new user registration
  */
 function notifyNewUser({ email, name }) {
@@ -75,4 +58,4 @@ function notifyNewUser({ email, name }) {
   });
 }
 
-module.exports = { sendEmail, notifyWaitlistSignup, notifyNewUser };
+module.exports = { sendEmail, notifyNewUser };
