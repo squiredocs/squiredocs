@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Markdown from 'react-markdown';
 
 const TOOL_LABELS = {
@@ -182,12 +182,24 @@ function AssistantBubble({ groups, isLoading }) {
 
 function AiChatMessages({ messages, status }) {
   const scrollRef = useRef(null);
+  const isAtBottomRef = useRef(true);
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 50;
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
+    if (!el) return;
+    const lastMsg = messages[messages.length - 1];
+    // Always scroll when the human sends a message; otherwise only scroll if
+    // the user hasn't manually scrolled up.
+    if (lastMsg?.role === 'user' || isAtBottomRef.current) {
       el.scrollTop = el.scrollHeight;
+      isAtBottomRef.current = true;
     }
   }, [messages, status]);
 
@@ -197,7 +209,7 @@ function AiChatMessages({ messages, status }) {
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
   return (
-    <div className="ai-chat-messages" ref={scrollRef}>
+    <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
       {messages.map((msg) => {
         if (msg.role === 'assistant') {
           const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
