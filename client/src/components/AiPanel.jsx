@@ -15,6 +15,14 @@ function getGreeting(name) {
   return firstName ? `${timeOfDay}, ${firstName}` : timeOfDay;
 }
 
+const TypingDots = () => (
+  <div className="ai-typing-indicator">
+    <span className="ai-typing-dot" />
+    <span className="ai-typing-dot" />
+    <span className="ai-typing-dot" />
+  </div>
+);
+
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
@@ -236,11 +244,7 @@ function AiPanel({ aiPanel, aiChat }) {
         <>
           {messagesLoading ? (
             <div className="ai-panel-welcome">
-              <div className="ai-typing-indicator">
-                <span className="ai-typing-dot" />
-                <span className="ai-typing-dot" />
-                <span className="ai-typing-dot" />
-              </div>
+              <TypingDots />
             </div>
           ) : messagesError ? (
             <div className="ai-panel-welcome">
@@ -258,11 +262,7 @@ function AiPanel({ aiPanel, aiChat }) {
             <AiChatMessages messages={messages} status={status} />
           )}
           {pendingAssistantResponse && (
-            <div className="ai-typing-indicator" style={{ padding: '8px 16px' }}>
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-            </div>
+            <div style={{ padding: '8px 16px' }}><TypingDots /></div>
           )}
           {usageLimitReached ? (
             <div className="ai-panel-usage-limit">

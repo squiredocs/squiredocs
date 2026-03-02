@@ -237,14 +237,11 @@ router.post('/', requireAuth, async (req, res) => {
       },
     });
 
-    // Ensure streamText's onFinish fires (for usage tracking) even if client disconnects
-    result.consumeStream();
-
     // Build the UI message stream with an onFinish callback for persistence.
     // We tee the stream so one branch is drained independently — this
-    // guarantees onFinish fires even if the HTTP response breaks (e.g. the
-    // user refreshes mid-stream), because the drain branch fully consumes
-    // the stream regardless of the HTTP branch's state.
+    // guarantees both onFinish callbacks fire (streamText's for usage
+    // tracking, toUIMessageStream's for message saving) even if the HTTP
+    // response breaks (e.g. the user refreshes mid-stream).
     const uiStream = result.toUIMessageStream({
       originalMessages: validatedMessages,
       generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),

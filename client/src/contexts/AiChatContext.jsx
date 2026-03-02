@@ -79,6 +79,14 @@ export function AiChatProvider({ children }) {
     },
   }), []);
 
+  // Shared helper: fetch a chat's messages from the server
+  const fetchChatMessages = useCallback(async (id) => {
+    const res = await apiFetch(`/api/chat/chats/${id}`);
+    if (!res.ok) throw new Error('Failed to load messages');
+    const data = await res.json();
+    return data.messages || [];
+  }, [apiFetch]);
+
   // Message loading state
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState(null);
@@ -130,20 +138,13 @@ export function AiChatProvider({ children }) {
     setMessagesError(null);
     setPendingAssistantResponse(false);
     chat.setMessages([]);
-    apiFetch(`/api/chat/chats/${currentChatId}`).then(async (res) => {
+    fetchChatMessages(currentChatId).then((msgs) => {
       if (cancelled) return;
-      if (res.ok) {
-        const data = await res.json();
-        const msgs = data.messages || [];
-        chat.setMessages(msgs);
-        // If the last message is from the user, the server may still be
-        // generating a response (e.g. page was refreshed mid-stream).
-        const last = msgs[msgs.length - 1];
-        if (last?.role === 'user') {
-          setPendingAssistantResponse(true);
-        }
-      } else {
-        setMessagesError('Failed to load messages');
+      chat.setMessages(msgs);
+      // If the last message is from the user, the server may still be
+      // generating a response (e.g. page was refreshed mid-stream).
+      if (msgs[msgs.length - 1]?.role === 'user') {
+        setPendingAssistantResponse(true);
       }
     }).catch(() => {
       if (!cancelled) setMessagesError('Failed to load messages');
@@ -151,7 +152,7 @@ export function AiChatProvider({ children }) {
       if (!cancelled) setMessagesLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentChatId, loadMessagesTick, apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentChatId, loadMessagesTick, fetchChatMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Poll for assistant response after interrupted stream ─────────────────
   // When we load a chat whose last message is from the user, the server may
@@ -163,16 +164,11 @@ export function AiChatProvider({ children }) {
 
     const interval = setInterval(async () => {
       try {
-        const res = await apiFetch(`/api/chat/chats/${currentChatId}`);
+        const msgs = await fetchChatMessages(currentChatId);
         if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          const msgs = data.messages || [];
-          const last = msgs[msgs.length - 1];
-          if (last?.role === 'assistant') {
-            chat.setMessages(msgs);
-            setPendingAssistantResponse(false);
-          }
+        if (msgs[msgs.length - 1]?.role === 'assistant') {
+          chat.setMessages(msgs);
+          setPendingAssistantResponse(false);
         }
       } catch (e) {
         // ignore poll errors
@@ -189,7 +185,7 @@ export function AiChatProvider({ children }) {
       clearInterval(interval);
       clearTimeout(timeout);
     };
-  }, [pendingAssistantResponse, currentChatId, apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingAssistantResponse, currentChatId, fetchChatMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load chat list on mount (once we have a token)
   useEffect(() => {
@@ -205,7 +201,13 @@ export function AiChatProvider({ children }) {
 
   // ── Auto-title on first assistant response ───────────────────────────────
   // Fire only when a stream completes (status transitions to 'ready'),
-  // not on every streaming token update.
+  // not on every streaming token update. Messages and chatList are read
+  // from refs so this effect doesn't re-run on every streaming token.
+
+  const messagesRef = useRef(chat.messages);
+  messagesRef.current = chat.messages;
+  const chatListRef = useRef(chatList);
+  chatListRef.current = chatList;
 
   const prevStatusRef = useRef(chat.status);
   useEffect(() => {
@@ -216,12 +218,13 @@ export function AiChatProvider({ children }) {
     if (chat.status !== 'ready' || prev === 'ready') return;
     if (!currentChatId || titleSetRef.current.has(currentChatId)) return;
 
-    const userMsg = chat.messages?.find((m) => m.role === 'user');
-    const assistantMsg = chat.messages?.find((m) => m.role === 'assistant');
+    const msgs = messagesRef.current;
+    const userMsg = msgs?.find((m) => m.role === 'user');
+    const assistantMsg = msgs?.find((m) => m.role === 'assistant');
     if (!userMsg || !assistantMsg) return;
 
     // Check if this chat already has a title in the list
-    const existing = chatList.find((c) => c.id === currentChatId);
+    const existing = chatListRef.current.find((c) => c.id === currentChatId);
     if (existing?.title) {
       titleSetRef.current.add(currentChatId);
       return;
@@ -239,7 +242,7 @@ export function AiChatProvider({ children }) {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }).then(() => refreshChatList()).catch(() => {});
-  }, [currentChatId, chat.status, chat.messages, chatList, apiFetch, refreshChatList]);
+  }, [currentChatId, chat.status, apiFetch, refreshChatList]);
 
   // ── CRUD operations ──────────────────────────────────────────────────────
 
