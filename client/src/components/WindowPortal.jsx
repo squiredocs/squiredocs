@@ -55,11 +55,26 @@ function WindowPortal({ children, onOpen, onClose, width = 420, height = 600, ti
       base.href = window.location.origin;
       popup.document.head.appendChild(base);
 
-      // Copy all stylesheets from main document into popup head
+      // Copy all stylesheets from main document into popup head.
+      // Track <link> elements so we can wait for them to load before
+      // rendering content (prevents flash of unstyled content).
+      const linkLoadPromises = [];
       const mainStyles = document.querySelectorAll('style, link[rel="stylesheet"]');
       mainStyles.forEach((node) => {
-        popup.document.head.appendChild(node.cloneNode(true));
+        const clone = node.cloneNode(true);
+        if (clone.tagName === 'LINK') {
+          linkLoadPromises.push(
+            new Promise((resolve) => {
+              clone.addEventListener('load', resolve, { once: true });
+              clone.addEventListener('error', resolve, { once: true });
+            })
+          );
+        }
+        popup.document.head.appendChild(clone);
       });
+
+      // Hide popup body until stylesheets are ready
+      popup.document.body.style.visibility = 'hidden';
 
       // Set up popup body styles
       popup.document.body.style.margin = '0';
@@ -74,7 +89,13 @@ function WindowPortal({ children, onOpen, onClose, width = 420, height = 600, ti
       containerRef.current = container;
 
       onOpen?.(popup);
-      setReady(true);
+
+      // Wait for all external stylesheets to load, then reveal content
+      Promise.all(linkLoadPromises).then(() => {
+        if (cancelled || !popup || popup.closed) return;
+        popup.document.body.style.visibility = '';
+        setReady(true);
+      });
 
       // Poll for popup closed by browser X button
       pollId = setInterval(() => {
