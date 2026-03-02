@@ -48,6 +48,13 @@ function WindowPortal({ children, onOpen, onClose, width = 420, height = 600, ti
       // Set up the popup document
       popup.document.title = title;
 
+      // Set base href so relative stylesheet URLs resolve against the app origin
+      // (the popup URL is about:blank, so relative paths like /assets/foo.css
+      // would otherwise fail to load)
+      const base = popup.document.createElement('base');
+      base.href = window.location.origin;
+      popup.document.head.appendChild(base);
+
       // Copy all stylesheets from main document into popup head
       const mainStyles = document.querySelectorAll('style, link[rel="stylesheet"]');
       mainStyles.forEach((node) => {
