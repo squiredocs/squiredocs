@@ -695,7 +695,11 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       if (!xpathFirst) {
         throw new Error('appendBlocks: xpath positioning requires xpathFirst function in options');
       }
-      targetElement = xpathFirst(targetElement, container);
+      // Convert absolute // to relative .// so search stays within the container
+      const relativeExpr = targetElement.startsWith('//')
+        ? '.' + targetElement
+        : targetElement;
+      targetElement = xpathFirst(relativeExpr, container);
       if (!targetElement) {
         throw new Error(`appendBlocks: no element found matching xpath "${position.before}"`);
       }
@@ -715,7 +719,11 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       if (!xpathFirst) {
         throw new Error('appendBlocks: xpath positioning requires xpathFirst function in options');
       }
-      targetElement = xpathFirst(targetElement, container);
+      // Convert absolute // to relative .// so search stays within the container
+      const relativeExpr = targetElement.startsWith('//')
+        ? '.' + targetElement
+        : targetElement;
+      targetElement = xpathFirst(relativeExpr, container);
       if (!targetElement) {
         throw new Error(`appendBlocks: no element found matching xpath "${position.after}"`);
       }
