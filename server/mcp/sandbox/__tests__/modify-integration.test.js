@@ -843,4 +843,151 @@ describe('modify Integration', () => {
       expect(helpers.getTextContent(children[2])).toBe('Third line');
     });
   });
+
+  describe('nested list synchronization', () => {
+    test('appendBlocks to a nested bulletList via xpathFirst', async () => {
+      // Build: bulletList > listItem("Identity Mapping") > bulletList > [listItem("Original 1"), listItem("Original 2")]
+      const outerList = new Y.XmlElement('bulletList');
+      const outerItem = new Y.XmlElement('listItem');
+      const outerPara = new Y.XmlElement('paragraph');
+      const outerText = new Y.XmlText();
+      outerText.insert(0, 'Identity Mapping');
+      outerPara.insert(0, [outerText]);
+      outerItem.insert(0, [outerPara]);
+
+      const innerList = new Y.XmlElement('bulletList');
+      for (const label of ['Original 1', 'Original 2']) {
+        const li = new Y.XmlElement('listItem');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, label);
+        p.insert(0, [t]);
+        li.insert(0, [p]);
+        innerList.insert(innerList.length, [li]);
+      }
+
+      outerItem.insert(1, [innerList]);
+      outerList.insert(0, [outerItem]);
+      xmlFragment.insert(0, [outerList]);
+
+      // Script mirrors the user's exact reproduction scenario
+      const script = `
+        export default function edit(doc) {
+          const nestedList = xpathFirst('//listItem[contains(., "Identity Mapping")]/bulletList');
+          appendBlocks(nestedList, [{ type: 'paragraph', content: 'REPRODUCTION TEST' }]);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      // The nested bulletList should now have 3 children (2 original + 1 new)
+      const nestedBulletList = xmlFragment.get(0).get(0).get(1);
+      expect(nestedBulletList.nodeName).toBe('bulletList');
+      expect(nestedBulletList.length).toBe(3);
+
+      // The new item should have the correct text
+      const helpers = require('../helpers');
+      const newItem = nestedBulletList.get(2);
+      expect(helpers.getTextContent(newItem)).toBe('REPRODUCTION TEST');
+    });
+
+    test('setParagraphs on a deeply nested listItem', async () => {
+      // Build: bulletList > listItem > bulletList > listItem(paragraph: "Original")
+      const outerList = new Y.XmlElement('bulletList');
+      const outerItem = new Y.XmlElement('listItem');
+      const outerPara = new Y.XmlElement('paragraph');
+      const outerText = new Y.XmlText();
+      outerText.insert(0, 'Parent');
+      outerPara.insert(0, [outerText]);
+      outerItem.insert(0, [outerPara]);
+
+      const innerList = new Y.XmlElement('bulletList');
+      const innerItem = new Y.XmlElement('listItem');
+      const innerPara = new Y.XmlElement('paragraph');
+      const innerText = new Y.XmlText();
+      innerText.insert(0, 'Original');
+      innerPara.insert(0, [innerText]);
+      innerItem.insert(0, [innerPara]);
+      innerList.insert(0, [innerItem]);
+
+      outerItem.insert(1, [innerList]);
+      outerList.insert(0, [outerItem]);
+      xmlFragment.insert(0, [outerList]);
+
+      const script = `
+        export default function edit(doc) {
+          const nestedItem = xpathFirst('//bulletList/listItem/bulletList/listItem');
+          setParagraphs(nestedItem, [['Updated content']]);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      // The nested listItem's paragraph should be updated
+      const helpers = require('../helpers');
+      const deepItem = xmlFragment.get(0).get(0).get(1).get(0);
+      expect(helpers.getTextContent(deepItem)).toBe('Updated content');
+    });
+
+    test('appendBlocks with position { after: xpath } targeting inside a nested list', async () => {
+      // Build nested list with 2 items in inner bulletList
+      const outerList = new Y.XmlElement('bulletList');
+      const outerItem = new Y.XmlElement('listItem');
+      const outerPara = new Y.XmlElement('paragraph');
+      const outerText = new Y.XmlText();
+      outerText.insert(0, 'Parent Item');
+      outerPara.insert(0, [outerText]);
+      outerItem.insert(0, [outerPara]);
+
+      const innerList = new Y.XmlElement('bulletList');
+      for (const label of ['Original 1', 'Original 2']) {
+        const li = new Y.XmlElement('listItem');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, label);
+        p.insert(0, [t]);
+        li.insert(0, [p]);
+        innerList.insert(innerList.length, [li]);
+      }
+
+      outerItem.insert(1, [innerList]);
+      outerList.insert(0, [outerItem]);
+      xmlFragment.insert(0, [outerList]);
+
+      // Insert a new item after "Original 1" inside the nested list
+      const script = `
+        export default function edit(doc) {
+          const nestedList = xpathFirst('//listItem[contains(., "Parent Item")]/bulletList');
+          appendBlocks(nestedList, [
+            { type: 'paragraph', content: 'Inserted After' }
+          ], { after: '//listItem[contains(., "Original 1")]' });
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+
+      // The nested bulletList should now have 3 items
+      const nestedBulletList = xmlFragment.get(0).get(0).get(1);
+      expect(nestedBulletList.nodeName).toBe('bulletList');
+      expect(nestedBulletList.length).toBe(3);
+
+      // The inserted item should be at index 1 (between Original 1 and Original 2)
+      const helpers = require('../helpers');
+      expect(helpers.getTextContent(nestedBulletList.get(0))).toBe('Original 1');
+      expect(helpers.getTextContent(nestedBulletList.get(1))).toBe('Inserted After');
+      expect(helpers.getTextContent(nestedBulletList.get(2))).toBe('Original 2');
+    });
+  });
 });

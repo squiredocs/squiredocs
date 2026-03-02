@@ -1580,4 +1580,90 @@ describe('Sandbox Helpers', () => {
       });
     });
   });
+
+  describe('nested list bug reproductions', () => {
+    it('appendBlocks should append items to a nested bulletList container', () => {
+      // Build: bulletList > listItem > [paragraph, bulletList > [listItem("Existing 1"), listItem("Existing 2")]]
+      const outerList = new Y.XmlElement('bulletList');
+      const outerItem = new Y.XmlElement('listItem');
+      const outerPara = new Y.XmlElement('paragraph');
+      const outerText = new Y.XmlText();
+      outerText.insert(0, 'Parent');
+      outerPara.insert(0, [outerText]);
+      outerItem.insert(0, [outerPara]);
+
+      const innerList = new Y.XmlElement('bulletList');
+      for (const label of ['Existing 1', 'Existing 2']) {
+        const li = new Y.XmlElement('listItem');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, label);
+        p.insert(0, [t]);
+        li.insert(0, [p]);
+        innerList.insert(innerList.length, [li]);
+      }
+
+      outerItem.insert(1, [innerList]);
+      outerList.insert(0, [outerItem]);
+      fragment.insert(0, [outerList]);
+
+      // Append to the *nested* bulletList, not the root
+      helpers.appendBlocks(innerList, [
+        { type: 'paragraph', content: 'New item' }
+      ]);
+
+      // Items should be added to the nested list
+      expect(innerList.length).toBe(3);
+      expect(helpers.getTextContent(innerList.get(2))).toBe('New item');
+
+      // The outer structure should be unchanged
+      expect(outerList.length).toBe(1);
+      expect(outerItem.length).toBe(2); // paragraph + nested list
+    });
+
+    it('setParagraphs on a nested listItem should preserve sibling nested list', () => {
+      // Build: bulletList > listItem > [paragraph("Parent"), bulletList > listItem > [paragraph("Original"), bulletList > ...]]
+      const outerList = new Y.XmlElement('bulletList');
+      const outerItem = new Y.XmlElement('listItem');
+      const outerPara = new Y.XmlElement('paragraph');
+      const outerText = new Y.XmlText();
+      outerText.insert(0, 'Parent');
+      outerPara.insert(0, [outerText]);
+      outerItem.insert(0, [outerPara]);
+
+      const innerList = new Y.XmlElement('bulletList');
+      const innerItem = new Y.XmlElement('listItem');
+      const innerPara = new Y.XmlElement('paragraph');
+      const innerText = new Y.XmlText();
+      innerText.insert(0, 'Original');
+      innerPara.insert(0, [innerText]);
+
+      // The inner listItem has both a paragraph and a deeper nested list
+      const deeperList = new Y.XmlElement('bulletList');
+      const deeperItem = new Y.XmlElement('listItem');
+      const deeperPara = new Y.XmlElement('paragraph');
+      const deeperText = new Y.XmlText();
+      deeperText.insert(0, 'Deep child');
+      deeperPara.insert(0, [deeperText]);
+      deeperItem.insert(0, [deeperPara]);
+      deeperList.insert(0, [deeperItem]);
+
+      innerItem.insert(0, [innerPara, deeperList]);
+      innerList.insert(0, [innerItem]);
+      outerItem.insert(1, [innerList]);
+      outerList.insert(0, [outerItem]);
+      fragment.insert(0, [outerList]);
+
+      // Update the inner listItem's paragraph text
+      helpers.setParagraphs(innerItem, [['Updated']]);
+
+      // Paragraph text should be updated
+      expect(helpers.getTextContent(innerItem.get(0))).toBe('Updated');
+
+      // The deeper nested list should still be intact
+      expect(innerItem.length).toBe(2); // paragraph + deeperList
+      expect(innerItem.get(1).nodeName).toBe('bulletList');
+      expect(helpers.getTextContent(innerItem.get(1).get(0))).toBe('Deep child');
+    });
+  });
 });
