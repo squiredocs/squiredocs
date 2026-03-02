@@ -85,7 +85,7 @@ describe('AiChatMessages', () => {
         id: '1',
         role: 'assistant',
         parts: [
-          { type: 'tool-read_document', toolName: 'read_document', state: 'output-available', args: {}, output: {} },
+          { type: 'tool-read_document', toolName: 'read_document', state: 'output-available', input: {}, output: {} },
           { type: 'text', text: 'Here is the document content.' },
         ],
       }),
@@ -95,7 +95,8 @@ describe('AiChatMessages', () => {
     const card = container.querySelector('.ai-tool-card');
     expect(card).toBeInTheDocument();
     expect(card.textContent).toContain('Reading document');
-    expect(card).toHaveClass('ai-tool-card--complete');
+    const toggle = card.querySelector('.ai-tool-card-toggle');
+    expect(toggle).toHaveClass('ai-tool-card--complete');
   });
 
   it('renders tool cards for running tool parts', () => {
@@ -104,7 +105,7 @@ describe('AiChatMessages', () => {
         id: '1',
         role: 'assistant',
         parts: [
-          { type: 'tool-list_documents', toolName: 'list_documents', state: 'call', args: {} },
+          { type: 'tool-list_documents', toolName: 'list_documents', state: 'call', input: {} },
         ],
       }),
     ];
@@ -113,7 +114,8 @@ describe('AiChatMessages', () => {
     const card = container.querySelector('.ai-tool-card');
     expect(card).toBeInTheDocument();
     expect(card.textContent).toContain('Listing documents');
-    expect(card).toHaveClass('ai-tool-card--running');
+    const toggle = card.querySelector('.ai-tool-card-toggle');
+    expect(toggle).toHaveClass('ai-tool-card--running');
   });
 
   it('renders markdown bold and links in assistant messages', () => {
@@ -140,8 +142,8 @@ describe('AiChatMessages', () => {
         role: 'assistant',
         parts: [
           { type: 'text', text: 'Let me search.' },
-          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', args: {}, output: {} },
-          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', args: {}, output: {} },
+          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', input: {}, output: {} },
+          { type: 'tool-webSearch', toolName: 'webSearch', state: 'output-available', input: {}, output: {} },
           { type: 'text', text: 'Found results.' },
         ],
       }),

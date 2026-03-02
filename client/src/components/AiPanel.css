@@ -258,7 +258,7 @@
 
 .ai-tool-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
   margin: 4px 0;
 }
@@ -300,23 +300,65 @@
    ============================================================================= */
 
 .ai-tool-card {
+  margin: 2px 0;
+}
+
+.ai-tool-card-toggle {
   display: inline-block;
   font-size: 12px;
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 6px;
-  margin: 2px 0;
   white-space: nowrap;
+  border: none;
+  cursor: pointer;
+  background: none;
 }
 
-.ai-tool-card--running {
+.ai-tool-card-toggle:hover {
+  filter: brightness(0.95);
+}
+
+.ai-tool-card-toggle.ai-tool-card--running {
   background: rgba(124, 58, 237, 0.1);
   color: #7c3aed;
 }
 
-.ai-tool-card--complete {
+.ai-tool-card-toggle.ai-tool-card--complete {
   background: rgba(16, 185, 129, 0.1);
   color: #059669;
+}
+
+.ai-tool-card-detail {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid #e5e7eb;
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+.ai-tool-card-detail p {
+  margin: 0;
+  word-break: break-word;
+}
+
+.ai-tool-card-detail pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-tool-card-detail pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
 }
 
 /* ---------- Thinking / reasoning block ---------- */

@@ -96,15 +96,45 @@ function ThinkingBlock({ text }) {
   );
 }
 
+function ToolCardDetail({ toolName, input }) {
+  if (toolName === 'modify' && input.script) {
+    return <pre><code>{input.script}</code></pre>;
+  }
+  if (toolName === 'webSearch' && input.query) {
+    return <p>{input.query}</p>;
+  }
+  if (toolName === 'webFetch' && input.url) {
+    return <p>{input.url}</p>;
+  }
+  if (toolName === 'read_document') {
+    return <p>{[input.docGuid, input.xpath].filter(Boolean).join(' — ')}</p>;
+  }
+  return <pre>{JSON.stringify(input, null, 2)}</pre>;
+}
+
 function ToolCard({ part }) {
+  const [expanded, setExpanded] = useState(false);
   const toolName = getToolName(part);
   const label = getToolLabel(toolName);
   const isComplete = part.state === 'output-available' || part.state === 'output-error';
+  const input = part.input;
+  const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
 
   return (
-    <span className={`ai-tool-card ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}`}>
-      {label}{isComplete ? ' \u2713' : '...'}
-    </span>
+    <div className="ai-tool-card">
+      <button
+        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}`}
+        onClick={hasInput ? () => setExpanded(!expanded) : undefined}
+        style={hasInput ? undefined : { cursor: 'default' }}
+      >
+        {label}{isComplete ? ' \u2713' : '...'}{hasInput ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
+      </button>
+      {expanded && hasInput && (
+        <div className="ai-tool-card-detail">
+          <ToolCardDetail toolName={toolName} input={input} />
+        </div>
+      )}
+    </div>
   );
 }
 
