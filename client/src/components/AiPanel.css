@@ -538,6 +538,22 @@
   text-align: center;
 }
 
+/* Retry button (used in message load error state) */
+.ai-panel-retry-btn {
+  margin-top: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: #7c3aed;
+  background: transparent;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ai-panel-retry-btn:hover {
+  background: #f5f3ff;
+}
+
 @media print {
   .ai-panel,
   .ai-panel-mobile,

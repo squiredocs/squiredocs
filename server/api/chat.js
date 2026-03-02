@@ -128,6 +128,9 @@ router.post('/', requireAuth, async (req, res) => {
       .filter(m => m.parts && m.parts.length > 0);
     const allMessages = [...previousMessages, message];
 
+    // Persist user message immediately so it survives interrupted streams
+    await chatStore.saveChat(chatId, allMessages);
+
     // Look up document title if docGuid provided
     let docTitle = null;
     if (docGuid) {
@@ -148,7 +151,7 @@ router.post('/', requireAuth, async (req, res) => {
       baseUrl,
     });
 
-    const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
+    const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs, pipeUIMessageStreamToResponse } = getAI();
 
     // Resolve configured model (env var or default)
     const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
@@ -234,10 +237,15 @@ router.post('/', requireAuth, async (req, res) => {
       },
     });
 
-    // Ensure onFinish fires even if the client disconnects mid-stream
+    // Ensure streamText's onFinish fires (for usage tracking) even if client disconnects
     result.consumeStream();
 
-    result.pipeUIMessageStreamToResponse(res, {
+    // Build the UI message stream with an onFinish callback for persistence.
+    // We tee the stream so one branch is drained independently — this
+    // guarantees onFinish fires even if the HTTP response breaks (e.g. the
+    // user refreshes mid-stream), because the drain branch fully consumes
+    // the stream regardless of the HTTP branch's state.
+    const uiStream = result.toUIMessageStream({
       originalMessages: validatedMessages,
       generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
       onFinish: ({ messages }) => {
@@ -246,6 +254,11 @@ router.post('/', requireAuth, async (req, res) => {
         });
       },
     });
+
+    const [httpStream, saveStream] = uiStream.tee();
+    saveStream.pipeTo(new WritableStream()).catch(() => {});
+
+    pipeUIMessageStreamToResponse({ response: res, stream: httpStream });
   } catch (error) {
     console.error('[Chat API] Error:', error);
     if (!res.headersSent) {

@@ -20,15 +20,12 @@ function generateTitle(text) {
 export function AiChatProvider({ children }) {
   const { accessToken } = useAuth();
   const tokenRef = useRef(accessToken);
-
-  useEffect(() => {
-    tokenRef.current = accessToken;
-  }, [accessToken]);
+  tokenRef.current = accessToken;
 
   // Chat ID & list state
   const [currentChatId, setCurrentChatId] = useState(null);
   const [chatList, setChatList] = useState([]);
-  const [chatListLoaded, setChatListLoaded] = useState(false);
+  const chatListLoadedRef = useRef(false);
   const titleSetRef = useRef(new Set()); // track which chats already have titles
 
   // Helper for authed API calls
@@ -63,7 +60,7 @@ export function AiChatProvider({ children }) {
   // ── Transport (sends single message + chat ID) ──────────────────────────
 
   const chatIdRef = useRef(currentChatId);
-  useEffect(() => { chatIdRef.current = currentChatId; }, [currentChatId]);
+  chatIdRef.current = currentChatId;
 
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
@@ -81,6 +78,18 @@ export function AiChatProvider({ children }) {
       };
     },
   }), []);
+
+  // Message loading state
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState(null);
+  const [loadMessagesTick, setLoadMessagesTick] = useState(0);
+  // True when we loaded a chat whose last message is from the user,
+  // suggesting the server is still generating an assistant response.
+  const [pendingAssistantResponse, setPendingAssistantResponse] = useState(false);
+
+  const retryLoadMessages = useCallback(() => {
+    setLoadMessagesTick((t) => t + 1);
+  }, []);
 
   // Usage limit error state
   const [usageLimitReached, setUsageLimitReached] = useState(false);
@@ -111,40 +120,102 @@ export function AiChatProvider({ children }) {
   useEffect(() => {
     if (!currentChatId) {
       chat.setMessages([]);
+      setMessagesLoading(false);
+      setMessagesError(null);
+      setPendingAssistantResponse(false);
       return;
     }
     let cancelled = false;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    setPendingAssistantResponse(false);
+    chat.setMessages([]);
     apiFetch(`/api/chat/chats/${currentChatId}`).then(async (res) => {
       if (cancelled) return;
       if (res.ok) {
         const data = await res.json();
-        chat.setMessages(data.messages || []);
+        const msgs = data.messages || [];
+        chat.setMessages(msgs);
+        // If the last message is from the user, the server may still be
+        // generating a response (e.g. page was refreshed mid-stream).
+        const last = msgs[msgs.length - 1];
+        if (last?.role === 'user') {
+          setPendingAssistantResponse(true);
+        }
       } else {
-        chat.setMessages([]);
+        setMessagesError('Failed to load messages');
       }
     }).catch(() => {
-      if (!cancelled) chat.setMessages([]);
+      if (!cancelled) setMessagesError('Failed to load messages');
+    }).finally(() => {
+      if (!cancelled) setMessagesLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentChatId, apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentChatId, loadMessagesTick, apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Poll for assistant response after interrupted stream ─────────────────
+  // When we load a chat whose last message is from the user, the server may
+  // still be generating. Poll every 2s until the assistant response arrives.
+
+  useEffect(() => {
+    if (!pendingAssistantResponse || !currentChatId) return;
+    let cancelled = false;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(`/api/chat/chats/${currentChatId}`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          const msgs = data.messages || [];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === 'assistant') {
+            chat.setMessages(msgs);
+            setPendingAssistantResponse(false);
+          }
+        }
+      } catch (e) {
+        // ignore poll errors
+      }
+    }, 2000);
+
+    // Give up after 2 minutes
+    const timeout = setTimeout(() => {
+      if (!cancelled) setPendingAssistantResponse(false);
+    }, 120_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [pendingAssistantResponse, currentChatId, apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load chat list on mount (once we have a token)
   useEffect(() => {
-    if (!accessToken || chatListLoaded) return;
-    setChatListLoaded(true);
+    if (!accessToken || chatListLoadedRef.current) return;
+    chatListLoadedRef.current = true;
     refreshChatList().then((list) => {
       // Auto-select the most recent chat, or leave empty
       if (list.length > 0) {
         setCurrentChatId(list[0].id);
       }
     });
-  }, [accessToken, chatListLoaded, refreshChatList]);
+  }, [accessToken, refreshChatList]);
 
   // ── Auto-title on first assistant response ───────────────────────────────
+  // Fire only when a stream completes (status transitions to 'ready'),
+  // not on every streaming token update.
 
+  const prevStatusRef = useRef(chat.status);
   useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = chat.status;
+
+    // Only act when stream just finished
+    if (chat.status !== 'ready' || prev === 'ready') return;
     if (!currentChatId || titleSetRef.current.has(currentChatId)) return;
-    // Find the first user message and check if there's at least one assistant message
+
     const userMsg = chat.messages?.find((m) => m.role === 'user');
     const assistantMsg = chat.messages?.find((m) => m.role === 'assistant');
     if (!userMsg || !assistantMsg) return;
@@ -168,7 +239,7 @@ export function AiChatProvider({ children }) {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }).then(() => refreshChatList()).catch(() => {});
-  }, [currentChatId, chat.messages, chatList, apiFetch, refreshChatList]);
+  }, [currentChatId, chat.status, chat.messages, chatList, apiFetch, refreshChatList]);
 
   // ── CRUD operations ──────────────────────────────────────────────────────
 
@@ -251,11 +322,15 @@ export function AiChatProvider({ children }) {
       deleteChat,
       renameChat,
       refreshChatList,
+      messagesLoading,
+      messagesError,
+      retryLoadMessages,
+      pendingAssistantResponse,
       usageLimitReached,
       draftText,
       clearDraft: () => setDraftText(''),
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, usageLimitReached, draftText],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, pendingAssistantResponse, usageLimitReached, draftText],
   );
 
   return (

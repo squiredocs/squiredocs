@@ -28,7 +28,7 @@ function AiPanel({ aiPanel, aiChat }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, pendingAssistantResponse } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -234,7 +234,20 @@ function AiPanel({ aiPanel, aiChat }) {
         <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />
       ) : (
         <>
-          {isEmpty ? (
+          {messagesLoading ? (
+            <div className="ai-panel-welcome">
+              <div className="ai-typing-indicator">
+                <span className="ai-typing-dot" />
+                <span className="ai-typing-dot" />
+                <span className="ai-typing-dot" />
+              </div>
+            </div>
+          ) : messagesError ? (
+            <div className="ai-panel-welcome">
+              <p className="ai-chat-welcome-text">{messagesError}</p>
+              <button className="ai-panel-retry-btn" onClick={retryLoadMessages}>Retry</button>
+            </div>
+          ) : isEmpty ? (
             <div className="ai-panel-welcome">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
                 <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
@@ -243,6 +256,13 @@ function AiPanel({ aiPanel, aiChat }) {
             </div>
           ) : (
             <AiChatMessages messages={messages} status={status} />
+          )}
+          {pendingAssistantResponse && (
+            <div className="ai-typing-indicator" style={{ padding: '8px 16px' }}>
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+              <span className="ai-typing-dot" />
+            </div>
           )}
           {usageLimitReached ? (
             <div className="ai-panel-usage-limit">
