@@ -88,7 +88,9 @@ function ThinkingBlock({ text }) {
         Thinking {expanded ? '\u25B4' : '\u25BE'}
       </button>
       {expanded && (
-        <div className="ai-thinking-content">{text}</div>
+        <div className="ai-thinking-content ai-chat-markdown">
+          <Markdown components={markdownLinkRenderer}>{text}</Markdown>
+        </div>
       )}
     </div>
   );
