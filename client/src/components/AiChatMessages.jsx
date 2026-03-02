@@ -180,7 +180,7 @@ function AssistantBubble({ groups, isLoading }) {
   );
 }
 
-function AiChatMessages({ messages, status }) {
+function AiChatMessages({ messages, status, pendingAssistantResponse }) {
   const scrollRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -206,7 +206,7 @@ function AiChatMessages({ messages, status }) {
   // Check if the last message is an assistant response with visible content
   const lastMsg = messages[messages.length - 1];
   const lastGroups = lastMsg?.role === 'assistant' ? groupParts(lastMsg.parts || []) : [];
-  const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
+  const needsTypingBubble = (isLoading || pendingAssistantResponse) && lastMsg?.role !== 'assistant';
 
   return (
     <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>

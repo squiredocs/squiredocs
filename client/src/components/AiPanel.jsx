@@ -259,12 +259,7 @@ function AiPanel({ aiPanel, aiChat }) {
               <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>
             </div>
           ) : (
-            <AiChatMessages messages={messages} status={status} />
-          )}
-          {pendingAssistantResponse && (
-            <div style={{ padding: '8px 16px' }}>
-              <div className="ai-chat-bubble ai-chat-bubble--assistant"><TypingDots /></div>
-            </div>
+            <AiChatMessages messages={messages} status={status} pendingAssistantResponse={pendingAssistantResponse} />
           )}
           {usageLimitReached ? (
             <div className="ai-panel-usage-limit">
