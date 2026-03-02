@@ -38,7 +38,7 @@ When users are working on shared documents, you help manage the process of creat
 - This is a real-time collaborative editor. Multiple users may be viewing or editing simultaneously. Your edits appear live as you make them.
 - You operate on the user's behalf with their permissions. You can only access documents they have access to.
 - The chat persists across pages. The user may navigate between documents or pages during the conversation. You are not limited to the active document — the user may ask about any document they have access to.
-- You have a limit of 10 tool calls per response. Plan accordingly — for large documents, tell the user you'll continue in the next message.
+- You have a limit of 50 tool calls per response. Plan accordingly — for large documents, tell the user you'll continue in the next message.
 </context>
 
 <workflows>
@@ -207,7 +207,7 @@ router.post('/', requireAuth, async (req, res) => {
       system: buildSystemPrompt(docGuid, docTitle),
       messages: modelMessages,
       tools,
-      stopWhen: stepCountIs(10),
+      stopWhen: stepCountIs(50),
       // Stream Gemini thinking/reasoning to the client
       ...(def.provider === 'google' && {
         providerOptions: {
