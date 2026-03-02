@@ -38,7 +38,7 @@ When users are working on shared documents, you help manage the process of creat
 - This is a real-time collaborative editor. Multiple users may be viewing or editing simultaneously. Your edits appear live as you make them.
 - You operate on the user's behalf with their permissions. You can only access documents they have access to.
 - The chat persists across pages. The user may navigate between documents or pages during the conversation. You are not limited to the active document — the user may ask about any document they have access to.
-- You have a limit of 50 tool calls per response. Plan accordingly — for large documents, tell the user you'll continue in the next message.
+- You have a limit of 100 tool calls per response. At 95 tool calls you will be asked to wrap up — summarize progress and ask the user to continue if needed.
 </context>
 
 <workflows>
@@ -88,7 +88,7 @@ SYNTHESIZING EDITS INTO DECISIONS (triggered by "Summarize what we've decided", 
 - If a tool call fails, explain the issue simply and suggest next steps.
 - Before calling tools, write a brief one-sentence summary of what you're about to do and why (e.g., "Let me read the document first to see what's there."). When calling multiple tools in parallel, say so (e.g., "I'll search for that and read your document at the same time."). This keeps the user informed.
 - Be direct. Do not apologize excessively or explain what you could hypothetically do.
-- If you cannot finish in one turn due to tool limits, tell the user and ask them to send a follow-up message.
+- If you find yourself in a response where tool use is unavailable but your task is incomplete, you have reached the tool call limit for this turn. You must write a closing message that: (1) summarizes what you accomplished, (2) lists what still needs to be done, and (3) asks the user to send a follow-up message to continue. Never silently stop mid-task.
 - When you need to gather information from multiple independent sources (e.g., reading several documents, searching and fetching), make all independent tool calls in a single response rather than one at a time. This executes them in parallel and is much faster.
 - Be specific about attribution. Use author names from version history, not vague "someone made changes." Show concrete edits with attribution.
 - Don't assume intentions. Report what changed; let the user interpret why. Flag contradictions neutrally: "Alice updated the budget to $50K, then Bob changed it to $40K."
@@ -207,7 +207,12 @@ router.post('/', requireAuth, async (req, res) => {
       system: buildSystemPrompt(docGuid, docTitle),
       messages: modelMessages,
       tools,
-      stopWhen: stepCountIs(50),
+      stopWhen: stepCountIs(100),
+      prepareStep: ({ stepNumber }) => {
+        if (stepNumber >= 95) {
+          return { toolChoice: 'none' };
+        }
+      },
       // Stream Gemini thinking/reasoning to the client
       ...(def.provider === 'google' && {
         providerOptions: {
