@@ -1,8 +1,14 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 
-function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed }) {
+const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed }, ref) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    focus() {
+      textareaRef.current?.focus();
+    },
+  }));
 
   // Restore draft text on error
   useEffect(() => {
@@ -81,6 +87,6 @@ function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draf
       )}
     </div>
   );
-}
+});
 
 export default AiChatInput;

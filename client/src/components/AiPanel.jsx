@@ -35,6 +35,7 @@ function AiPanel({ aiPanel, aiChat }) {
   const { user } = useAuth();
   const isMobile = useMobile();
   const panelRef = useRef(null);
+  const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
 
   // Streaming state: disable send when AI is responding
@@ -153,7 +154,7 @@ function AiPanel({ aiPanel, aiChat }) {
               <>
                 <button
                   className="ai-panel-position-btn"
-                  onClick={() => { aiChat.createChat(); }}
+                  onClick={() => { aiChat.createChat(); chatInputRef.current?.focus(); }}
                   aria-label="New chat"
                   title="New chat"
                 >
@@ -252,7 +253,7 @@ function AiPanel({ aiPanel, aiChat }) {
               Something went wrong. Please try again.
             </div>
           )}
-          <AiChatInput onSend={sendMessage} onStop={stop} isStreaming={isStreaming || usageLimitReached} autoFocus placeholder={usageLimitReached ? 'Usage limit reached' : isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
+          <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming || usageLimitReached} autoFocus placeholder={usageLimitReached ? 'Usage limit reached' : isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
         </>
       )}
     </WrapperTag>
