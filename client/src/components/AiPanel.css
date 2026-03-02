@@ -85,10 +85,25 @@
   flex-shrink: 0;
 }
 
+.ai-panel-title-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .ai-panel-title {
   font-size: 14px;
   font-weight: 600;
   color: #111827;
+}
+
+.ai-panel-chat-title {
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-panel-header-actions {

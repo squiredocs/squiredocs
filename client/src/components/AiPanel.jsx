@@ -28,7 +28,9 @@ function AiPanel({ aiPanel, aiChat }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList } = aiChat || {};
+
+  const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
   const { user } = useAuth();
   const isMobile = useMobile();
@@ -127,7 +129,12 @@ function AiPanel({ aiPanel, aiChat }) {
         />
       )}
       <div className="ai-panel-header">
-        <span className="ai-panel-title">Chat Panel</span>
+        <div className="ai-panel-title-group">
+          <span className="ai-panel-title">Chat Panel</span>
+          {currentChatTitle && (
+            <span className="ai-panel-chat-title">{currentChatTitle}</span>
+          )}
+        </div>
         <div className="ai-panel-header-actions">
           {(() => {
             const iconSize = isMobile ? 18 : 16;
