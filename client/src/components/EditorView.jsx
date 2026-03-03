@@ -631,7 +631,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               }}
               title="Documents Home"
             >
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="56" height="56">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                 <rect x="4" y="2" width="16" height="20" rx="2" fill="#7c3aed"/>
                 <rect x="7" y="7" width="10" height="1.5" rx="0.75" fill="white"/>
                 <rect x="7" y="10" width="10" height="1.5" rx="0.75" fill="white"/>
@@ -908,11 +908,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />}
           </div>
         </div>
-        {/* Desktop toolbar - below the title bar */}
-        {userRole !== 'viewer' && !isMobile && <Toolbar editor={editor} />}
-        {/* Mobile toolbar - full width rows below the title bar */}
-        {userRole !== 'viewer' && isMobile && <MobileActionBar editor={editor} />}
       </header>
+      {/* Desktop toolbar - below the header */}
+      {userRole !== 'viewer' && !isMobile && <div className="editor-toolbar"><Toolbar editor={editor} /></div>}
+      {/* Mobile toolbar - full width rows below the header */}
+      {userRole !== 'viewer' && isMobile && <div className="editor-toolbar"><MobileActionBar editor={editor} /></div>}
       <main className="app-main">
         {userRole === 'viewer' && (
           <div className="view-only-banner">

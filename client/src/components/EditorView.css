@@ -24,32 +24,6 @@
   color: #c2410c;
 }
 
-.app-header-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.back-btn {
-  background: none;
-  border: none;
-  border-radius: 6px;
-  padding: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-  text-decoration: none;
-}
-
-.back-btn:hover {
-  background: #f3f0ff;
-}
-
 .back-btn svg {
   display: block;
 }
@@ -78,17 +52,23 @@
   border-color: #6b7280;
 }
 
-/* Desktop toolbar row below header content */
-.app-header > .toolbar {
+/* Desktop toolbar row below header */
+.editor-toolbar {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.editor-toolbar > .toolbar {
   padding: 6px 24px;
-  margin: 8px -24px -12px -24px; /* Extend to header edges, pull up into bottom padding */
-  border-top: 1px solid #e5e7eb;
+  max-width: 1400px;
+  margin: 0 auto;
   background: transparent;
   gap: 4px;
   justify-content: center;
 }
 
-.app-header > .toolbar button {
+.editor-toolbar > .toolbar button {
   width: 28px;
   height: 28px;
   padding: 0;
@@ -105,12 +85,12 @@
   transition: background-color 0.1s ease;
 }
 
-.app-header > .toolbar button:hover {
+.editor-toolbar > .toolbar button:hover {
   background: #f3f4f6;
 }
 
-.app-header > .toolbar button:active,
-.app-header > .toolbar button.is-active {
+.editor-toolbar > .toolbar button:active,
+.editor-toolbar > .toolbar button.is-active {
   background: #e5e7eb;
 }
 
@@ -127,7 +107,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #5f6368;
+  color: #6b7280;
   flex-shrink: 0;
   transition: background-color 0.15s ease, color 0.15s ease;
   padding: 0;
@@ -168,7 +148,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #5f6368;
+  color: #6b7280;
   flex-shrink: 0;
   transition: background-color 0.15s ease;
   padding: 0;
@@ -372,7 +352,7 @@
   cursor: pointer;
   padding: 8px;
   border-radius: 50%;
-  color: #5f6368;
+  color: #6b7280;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -409,7 +389,7 @@
 }
 
 .version-history-inner {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 1;
   display: flex;
   overflow: hidden;

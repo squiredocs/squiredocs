@@ -61,7 +61,40 @@
 .app-title-input:focus {
   outline: none;
   background-color: #fff;
-  box-shadow: 0 0 0 2px #4a90e2;
+  box-shadow: 0 0 0 2px #7c3aed;
+}
+
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-header-left h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+.back-btn:hover {
+  background: #f3f0ff;
 }
 
 .app-header-right {
@@ -80,14 +113,14 @@
 
 .user-name-input:focus {
   outline: none;
-  border-color: #4a90e2;
+  border-color: #7c3aed;
 }
 
 .app-body {
   flex: 1;
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   overflow: hidden;
 }
 
@@ -96,13 +129,13 @@
   grid-template-columns: 1fr auto;
 }
 
-/* When AI panel is open at bottom, add a third row */
+/* When AI panel is open at bottom, add a row for it */
 .app-body.ai-panel-bottom {
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
 }
 
 .app-main {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 1;
   display: flex;
   flex-direction: column;
@@ -121,7 +154,7 @@
   justify-content: center;
   height: 100vh;
   font-size: 18px;
-  color: #666;
+  color: #6b7280;
   gap: 1rem;
 }
 
@@ -273,7 +306,7 @@ body[data-mobile] .app-header {
 }
 
 .agent-description {
-  color: #666;
+  color: #6b7280;
   font-size: 14px;
   margin: 0;
 }
@@ -292,7 +325,7 @@ body[data-mobile] .app-header {
 .permissions-list h3 {
   font-size: 14px;
   font-weight: 600;
-  color: #666;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 16px;
@@ -328,7 +361,7 @@ body[data-mobile] .app-header {
 .scope-details p {
   margin: 0;
   font-size: 13px;
-  color: #666;
+  color: #6b7280;
 }
 
 .existing-warning {
@@ -351,7 +384,7 @@ body[data-mobile] .app-header {
   border-top: 1px solid #e0e0e0;
   text-align: center;
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
 }
 
 .user-info strong {
@@ -377,7 +410,7 @@ body[data-mobile] .app-header {
 
 .btn-deny {
   background: #fff;
-  color: #666;
+  color: #6b7280;
   border: 2px solid #ddd;
 }
 
@@ -420,7 +453,7 @@ body[data-mobile] .app-header {
 
 .delegation-list .subtitle {
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
   margin: 0 0 24px;
 }
 
@@ -474,7 +507,7 @@ body[data-mobile] .app-header {
 .agent-info .description {
   margin: 0;
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
 }
 
 .delegation-details {
@@ -491,7 +524,7 @@ body[data-mobile] .app-header {
 
 .delegation-details .label {
   font-weight: 600;
-  color: #666;
+  color: #6b7280;
 }
 
 .delegation-details .value {
@@ -503,7 +536,7 @@ body[data-mobile] .app-header {
   display: flex;
   gap: 16px;
   font-size: 13px;
-  color: #666;
+  color: #6b7280;
 }
 
 .btn-revoke {
@@ -526,7 +559,7 @@ body[data-mobile] .app-header {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: #6b7280;
 }
 
 .empty-state h3 {
@@ -574,7 +607,7 @@ body[data-mobile] .app-header {
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -608,7 +641,7 @@ body[data-mobile] .app-header {
 
 .settings-description {
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
   margin: 0 0 20px;
   line-height: 1.5;
 }
@@ -627,7 +660,7 @@ body[data-mobile] .app-header {
 
 .settings-item label {
   font-weight: 600;
-  color: #666;
+  color: #6b7280;
   font-size: 14px;
 }
 
@@ -707,7 +740,7 @@ body[data-mobile] .app-header {
 
 .settings-name-cancel {
   background: white;
-  color: #666;
+  color: #6b7280;
 }
 
 .settings-name-cancel:hover:not(:disabled) {
@@ -798,7 +831,7 @@ body[data-mobile] .app-header {
 .step-text {
   margin: 0 0 8px;
   font-size: 14px;
-  color: #666;
+  color: #6b7280;
   line-height: 1.5;
 }
 

@@ -13,7 +13,7 @@
 
 /* Right-docked panel */
 .ai-panel--right {
-  grid-row: 2;
+  grid-row: 3 / -1;
   grid-column: 2;
   width: var(--ai-panel-width, 380px);
   border-left: 1px solid #e0e0e0;
@@ -21,7 +21,7 @@
 
 /* Bottom-docked panel */
 .ai-panel--bottom {
-  grid-row: 3;
+  grid-row: 4;
   grid-column: 1 / -1;
   height: var(--ai-panel-height, 300px);
   border-top: 1px solid #e0e0e0;
@@ -326,7 +326,7 @@
 
 .ai-tool-card-toggle.ai-tool-card--complete {
   background: rgba(16, 185, 129, 0.1);
-  color: #059669;
+  color: #16a34a;
 }
 
 .ai-tool-card-detail {
