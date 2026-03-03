@@ -10,7 +10,7 @@
 .hierarchy-chevron {
   flex-shrink: 0;
   transition: transform 0.2s ease;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .hierarchy-chevron.expanded {
@@ -107,7 +107,7 @@
 
 .hierarchy-version-time {
   font-size: 13px;
-  color: #5f6368;
+  color: #6b7280;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -126,7 +126,7 @@
 .hierarchy-version-badge {
   display: inline-block;
   font-size: 11px;
-  color: #5f6368;
+  color: #6b7280;
   margin-top: 4px;
 }
 
@@ -152,7 +152,7 @@
 
 .hierarchy-author-name {
   font-size: 12px;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .hierarchy-author-more {
@@ -173,7 +173,7 @@
   cursor: pointer;
   padding: 4px;
   border-radius: 50%;
-  color: #5f6368;
+  color: #6b7280;
   opacity: 0;
   transition: opacity 0.15s, background-color 0.15s;
   display: flex;
@@ -256,7 +256,7 @@
 .hierarchy-loading {
   padding: 20px;
   text-align: center;
-  color: #5f6368;
+  color: #6b7280;
   font-size: 14px;
 }
 
@@ -270,7 +270,7 @@
 .hierarchy-empty-state {
   padding: 40px 20px;
   text-align: center;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .hierarchy-empty-hint {
@@ -286,7 +286,7 @@
   gap: 4px;
   padding: 8px 16px;
   font-size: 13px;
-  color: #5f6368;
+  color: #6b7280;
   border-bottom: 1px solid #e0e0e0;
   flex-wrap: wrap;
 }

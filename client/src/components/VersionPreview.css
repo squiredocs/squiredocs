@@ -13,7 +13,7 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: #5f6368;
+  color: #6b7280;
   font-size: 14px;
 }
 
@@ -22,7 +22,7 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: #5f6368;
+  color: #6b7280;
   font-size: 14px;
 }
 
@@ -30,7 +30,7 @@
   padding: 12px 20px;
   border-top: 1px solid #e0e0e0;
   font-size: 13px;
-  color: #5f6368;
+  color: #6b7280;
   background: #f8f9fa;
 }
 
@@ -47,7 +47,7 @@
   padding: 8px 16px;
   background: #f0f4f8;
   border-bottom: 1px solid #e0e0e0;
-  color: #5f6368;
+  color: #6b7280;
   font-size: 13px;
   text-align: center;
 }

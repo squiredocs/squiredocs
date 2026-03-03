@@ -36,7 +36,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #5f6368;
+  color: #6b7280;
   transition: background-color 0.2s;
   text-decoration: none;
 }
@@ -83,7 +83,7 @@
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #5f6368;
+  color: #6b7280;
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -111,7 +111,7 @@
   background: #fff;
   border: none;
   cursor: pointer;
-  color: #5f6368;
+  color: #6b7280;
   transition: background-color 0.15s, color 0.15s;
 }
 
@@ -133,7 +133,7 @@
 .version-history-empty {
   padding: 40px 20px;
   text-align: center;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .version-history-error {
@@ -164,7 +164,7 @@
   padding: 8px 20px;
   font-size: 12px;
   font-weight: 500;
-  color: #5f6368;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   cursor: pointer;
@@ -230,14 +230,14 @@
 .version-item-time {
   font-size: 13px;
   font-weight: 400;
-  color: #5f6368;
+  color: #6b7280;
   margin-bottom: 4px;
 }
 
 .version-item-badge {
   display: inline-block;
   font-size: 11px;
-  color: #5f6368;
+  color: #6b7280;
   margin-bottom: 6px;
 }
 
@@ -262,7 +262,7 @@
 
 .version-author-name {
   font-size: 12px;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .version-author-more {
@@ -283,7 +283,7 @@
   cursor: pointer;
   padding: 4px;
   border-radius: 50%;
-  color: #5f6368;
+  color: #6b7280;
   opacity: 0;
   transition: opacity 0.15s, background-color 0.15s;
   display: flex;
@@ -353,7 +353,7 @@
   padding: 12px 20px;
   border-top: 1px solid #e0e0e0;
   font-size: 13px;
-  color: #5f6368;
+  color: #6b7280;
   text-align: center;
 }
 
@@ -419,7 +419,7 @@
 .version-dialog-actions button:first-child {
   background: none;
   border: 1px solid #dadce0;
-  color: #5f6368;
+  color: #6b7280;
 }
 
 .version-dialog-actions button:first-child:hover {

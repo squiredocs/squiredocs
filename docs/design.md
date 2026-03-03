@@ -53,7 +53,7 @@ Purple is the brand color. It signals interactivity and distinguishes HeroDocs f
 | Role | Hex | Usage |
 |------|-----|-------|
 | Text primary | `#1f2937`, `#333` | Headings, body text, titles |
-| Text secondary | `#6b7280`, `#666` | Descriptions, timestamps, placeholders |
+| Text secondary | `#6b7280` | Descriptions, timestamps, placeholders |
 | Text tertiary | `#9ca3af` | Copyright, helper text |
 | Border | `#e0e0e0`, `#e5e7eb`, `#dadce0` | Dividers, card borders, input borders |
 | Surface | `#ffffff` | Primary background |

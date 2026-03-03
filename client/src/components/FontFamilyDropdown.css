@@ -17,7 +17,7 @@
   background: white;
   border: 1px solid #ddd;
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
   z-index: 10000;
   min-width: 180px;
   max-height: 300px;

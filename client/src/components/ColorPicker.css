@@ -5,7 +5,7 @@
   background: white;
   border: 1px solid #ddd;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
   z-index: 10000;
   padding: 12px;
   margin-top: 4px;
@@ -27,7 +27,7 @@
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
-  color: #666;
+  color: #6b7280;
   padding: 0;
   width: 24px;
   height: 24px;
@@ -58,11 +58,11 @@
 
 .color-swatch:hover {
   transform: scale(1.1);
-  border-color: #4a90e2;
+  border-color: #7c3aed;
 }
 
 .color-swatch.selected {
-  border-color: #4a90e2;
+  border-color: #7c3aed;
   border-width: 3px;
 }
 
@@ -83,12 +83,12 @@
 
 .color-picker-hex input:focus {
   outline: none;
-  border-color: #4a90e2;
+  border-color: #7c3aed;
 }
 
 .color-picker-hex button {
   padding: 6px 12px;
-  background: #4a90e2;
+  background: #7c3aed;
   color: white;
   border: none;
   border-radius: 4px;
@@ -97,7 +97,7 @@
 }
 
 .color-picker-hex button:hover {
-  background: #357abd;
+  background: #6d28d9;
 }
 
 .color-picker-footer {
@@ -112,7 +112,7 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  color: #666;
+  color: #6b7280;
 }
 
 .color-picker-remove:hover {

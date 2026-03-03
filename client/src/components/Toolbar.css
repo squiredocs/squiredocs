@@ -39,14 +39,14 @@
 }
 
 .toolbar-button.is-active {
-  background-color: #4a90e2;
+  background-color: #7c3aed;
   color: #ffffff;
-  border-color: #4a90e2;
+  border-color: #7c3aed;
 }
 
 .toolbar-button.is-active:hover {
-  background-color: #357abd;
-  border-color: #357abd;
+  background-color: #6d28d9;
+  border-color: #6d28d9;
 }
 
 .toolbar-button strong {

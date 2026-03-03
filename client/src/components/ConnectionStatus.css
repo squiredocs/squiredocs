@@ -26,13 +26,13 @@
 
 /* Connecting state - yellow with pulse animation */
 .connection-status.connecting .connection-status-dot {
-  background-color: #ff9800;
-  box-shadow: 0 0 4px rgba(255, 152, 0, 0.5);
+  background-color: #ffc107;
+  box-shadow: 0 0 4px rgba(255, 193, 7, 0.5);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .connection-status.connecting .connection-status-text {
-  color: #ff9800;
+  color: #ffc107;
 }
 
 @keyframes pulse {
@@ -46,17 +46,17 @@
 
 /* Disconnected state - red */
 .connection-status.disconnected .connection-status-dot {
-  background-color: #f44336;
-  box-shadow: 0 0 4px rgba(244, 67, 54, 0.5);
+  background-color: #dc2626;
+  box-shadow: 0 0 4px rgba(220, 38, 38, 0.5);
 }
 
 .connection-status.disconnected .connection-status-text {
-  color: #f44336;
+  color: #dc2626;
 }
 
 /* Default text color */
 .connection-status-text {
-  color: #666;
+  color: #6b7280;
   font-weight: 500;
 }
 
@@ -65,20 +65,20 @@
   margin-left: 4px;
   padding: 2px 8px;
   font-size: 11px;
-  background-color: #f44336;
+  background-color: #dc2626;
   color: white;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   font-weight: 500;
   transition: background-color 0.2s;
 }
 
 .connection-status-retry:hover {
-  background-color: #d32f2f;
+  background-color: #b91c1c;
 }
 
 .connection-status-retry:active {
-  background-color: #b71c1c;
+  background-color: #991b1b;
 }
 
