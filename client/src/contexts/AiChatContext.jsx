@@ -48,6 +48,7 @@ export function AiChatProvider({ children }) {
       const res = await apiFetch('/api/chat/chats');
       if (res.ok) {
         const list = await res.json();
+        list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
         setChatList(list);
         return list;
       }
