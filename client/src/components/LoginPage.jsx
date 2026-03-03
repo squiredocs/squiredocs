@@ -51,7 +51,7 @@ export default function LoginPage({ onNavigateToLanding }) {
             </div>
             <h1 className="login-title">HeroDocs</h1>
           </a>
-          <p className="login-subtitle">AI-Native Collaborative Documents</p>
+          <p className="login-subtitle">Docs that work as hard as you do</p>
         </div>
 
         <h2 className="login-headline">Welcome Back</h2>

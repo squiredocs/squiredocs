@@ -178,7 +178,7 @@
     /* Hero Screenshot */
     .landing-hero-screenshot {
       max-width: 1100px;
-      margin: 4rem auto 0;
+      margin: 1rem auto;
     }
 
     .landing-hero-screenshot img {
@@ -215,36 +215,33 @@
       margin: 0 auto 2rem;
     }
 
-    /* Features Section */
-    .landing-section.features {
+    /* Feature Sections */
+    .landing-feature-section {
+      padding: 5rem 2rem;
+    }
+
+    .landing-feature-section:nth-child(odd) {
       background: #ffffff;
     }
 
-    .landing-features {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 2rem;
-      margin-top: 3rem;
+    .landing-feature-section:nth-child(even) {
+      background: #f9fafb;
     }
 
-    .landing-feature-card {
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 2rem;
-      transition: all 0.3s ease;
+    .landing-feature-section-content {
+      max-width: 1000px;
+      margin: 0 auto;
     }
 
-    .landing-feature-card:hover {
-      border-color: #c4b5fd;
-      transform: translateY(-4px);
-      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.1);
+    .landing-feature-header {
+      text-align: center;
+      margin-bottom: 2rem;
     }
 
     .landing-feature-icon {
       width: 48px;
       height: 48px;
-      margin-bottom: 1.25rem;
+      margin: 0 auto 1rem;
       color: #7c3aed;
     }
 
@@ -254,44 +251,14 @@
     }
 
     .landing-feature-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin: 0 0 0.75rem;
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 1rem;
       color: #1f2937;
     }
 
     .landing-feature-text {
-      font-size: 1rem;
-      color: #6b7280;
-      line-height: 1.6;
-      margin: 0;
-    }
-
-    /* Feature Showcase */
-    .landing-feature-showcase {
-      background: #f9fafb;
-      padding: 5rem 2rem;
-    }
-
-    .landing-feature-showcase-content {
-      max-width: 1000px;
-      margin: 0 auto;
-    }
-
-    .landing-feature-showcase-header {
-      text-align: center;
-      margin-bottom: 3rem;
-    }
-
-    .landing-feature-showcase-header h2 {
-      font-size: 2.25rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: #1f2937;
-      margin: 0 0 1rem;
-    }
-
-    .landing-feature-showcase-header p {
       font-size: 1.15rem;
       color: #6b7280;
       line-height: 1.7;
@@ -299,7 +266,7 @@
       margin: 0 auto;
     }
 
-    .landing-feature-showcase img {
+    .landing-feature-section img {
       width: 100%;
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -337,20 +304,50 @@
 
     /* Footer */
     .landing-footer {
-      background: #f9fafb;
-      padding: 2rem;
-      border-top: 1px solid #e5e7eb;
+      background: #1f2937;
+      padding: 3.5rem 2rem 2rem;
+      color: #9ca3af;
     }
 
     .landing-footer-content {
       max-width: 1200px;
       margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
 
-    .landing-copyright {
+    .landing-footer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 2.5rem;
+    }
+
+    .landing-footer-brand {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .landing-footer-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      color: #ffffff;
+    }
+
+    .landing-footer-logo svg {
+      width: 24px;
+      height: 24px;
+      color: #a78bfa;
+    }
+
+    .landing-footer-logo span {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .landing-footer-tagline {
       font-size: 0.9rem;
       color: #9ca3af;
       margin: 0;
@@ -358,18 +355,50 @@
 
     .landing-footer-links {
       display: flex;
-      gap: 1.5rem;
+      gap: 2rem;
     }
 
-    .landing-footer-links a {
+    .landing-footer-column h4 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0 0 0.75rem;
+    }
+
+    .landing-footer-column ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .landing-footer-column a {
       color: #9ca3af;
       text-decoration: none;
       font-size: 0.9rem;
       transition: color 0.2s ease;
     }
 
-    .landing-footer-links a:hover {
+    .landing-footer-column a:hover {
+      color: #ffffff;
+    }
+
+    .landing-footer-bottom {
+      border-top: 1px solid #374151;
+      padding-top: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .landing-copyright {
+      font-size: 0.85rem;
       color: #6b7280;
+      margin: 0;
     }
 
     /* Responsive Design */
@@ -398,14 +427,18 @@
         font-size: 1.75rem;
       }
 
-      .landing-features {
-        grid-template-columns: 1fr;
-        gap: 1.5rem;
+      .landing-feature-section {
+        padding: 3rem 1.5rem;
       }
 
-      .landing-footer-content {
+      .landing-footer-top {
         flex-direction: column;
-        gap: 1rem;
+        gap: 2rem;
+      }
+
+      .landing-footer-bottom {
+        flex-direction: column;
+        gap: 0.5rem;
         text-align: center;
       }
     }
@@ -453,13 +486,19 @@
     <!-- Hero Section -->
     <section class="landing-hero">
       <div class="landing-hero-content">
-        <h1 class="landing-headline">Accelerate Your Best Ideas</h1>
+        <h1 class="landing-headline">Docs that work as hard<br>as you do</h1>
         <p class="landing-subheadline">
-          Online, collaborative documents for you, your team, and your AI co-author.
+          It feels like the doc editor you already know. It just does more of the work.
+        </p>
+        <div class="landing-hero-screenshot">
+          <img src="/hero-screenshot.png" alt="HeroDocs editor with AI chat panel — collaborative document editing with an AI co-author" />
+        </div>
+        <p class="landing-subheadline">
+          Stop switching between your writing and your thinking tools. They should be the same thing.
         </p>
         <div class="landing-hero-cta">
           <div class="landing-signup-card">
-            <h3>Start for Free</h3>
+            <h3>Start writing</h3>
             <p class="landing-signup-subtext">Get started for free with a HeroDocs account</p>
             <a href="/login" class="landing-btn google">
               <svg class="google-icon" viewBox="0 0 24 24">
@@ -472,78 +511,65 @@
             </a>
           </div>
         </div>
-        <div class="landing-hero-screenshot">
-          <img src="/hero-screenshot.png" alt="HeroDocs editor with AI chat panel — collaborative document editing with an AI co-author" />
-        </div>
       </div>
     </section>
 
-    <!-- Features Section -->
-    <section class="landing-section features">
-      <div class="landing-section-content">
-        <div class="landing-features">
-          <div class="landing-feature-card">
-            <div class="landing-feature-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-              </svg>
-            </div>
-            <h3 class="landing-feature-title">Skip the Copy/Paste Loop</h3>
-            <p class="landing-feature-text">
-              Bring AI directly to your cursor. Draft, edit, and iterate without the friction of moving text between tools. Changes happen directly in your document, preserving your headings, lists, and formatting automatically.
-            </p>
+    <!-- Section 1: Skip the Copy/Paste Loop -->
+    <section class="landing-feature-section">
+      <div class="landing-feature-section-content">
+        <div class="landing-feature-header">
+          <div class="landing-feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
           </div>
-
-          <div class="landing-feature-card">
-            <div class="landing-feature-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-                <path d="M12 7v5l4 2" />
-              </svg>
-            </div>
-            <h3 class="landing-feature-title">Everything Tracked</h3>
-            <p class="landing-feature-text">
-              Every edit, whether by you or the AI, is tracked with full attribution. Compare versions, undo any change, and restore previous states at any time.
-            </p>
-          </div>
-
-          <div class="landing-feature-card">
-            <div class="landing-feature-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </div>
-            <h3 class="landing-feature-title">Integrates with Your Favorite AI Tools</h3>
-            <p class="landing-feature-text">
-              Use our built-in AI assistant or connect your own tools through the Model Context Protocol (MCP).
-            </p>
-          </div>
+          <h2 class="landing-feature-title">Skip the copy/paste loop</h2>
+          <p class="landing-feature-text">You know the loop — write something, copy it into a chat, paste the result back, fix the formatting that broke. HeroDocs skips all of that. Edits happen directly in your document, with your structure and formatting preserved.</p>
         </div>
+        <img src="/hero-screenshot.png" alt="HeroDocs editor making inline changes to a real document" />
       </div>
     </section>
 
-    <!-- Feature Showcase -->
-    <section class="landing-feature-showcase">
-      <div class="landing-feature-showcase-content">
-        <div class="landing-feature-showcase-header">
-          <h2>Skip the Copy/Paste Loop</h2>
-          <p>Bring AI directly to your cursor. Draft, edit, and iterate without the friction of moving text between tools. Changes happen directly in your document, preserving your headings, lists, and formatting automatically.</p>
+    <!-- Section 2: Every Edit Tracked -->
+    <section class="landing-feature-section">
+      <div class="landing-feature-section-content">
+        <div class="landing-feature-header">
+          <div class="landing-feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l4 2" />
+            </svg>
+          </div>
+          <h2 class="landing-feature-title">Every edit tracked</h2>
+          <p class="landing-feature-text">Every change is tracked with full attribution — whether it came from you, a teammate, or an AI agent. Compare any two versions side by side and restore a previous state with one click. You don't have to trust that things went right. You can check.</p>
         </div>
-        <img src="/skipcopypaste.png" alt="HeroDocs product demo — AI editing a document directly in the editor, updating nested content while preserving formatting" />
+        <img src="/hero-screenshot.png" alt="Version history showing attributed changes from humans and AI" />
+      </div>
+    </section>
+
+    <!-- Section 3: Works with Your Favorite AI -->
+    <section class="landing-feature-section">
+      <div class="landing-feature-section-content">
+        <div class="landing-feature-header">
+          <div class="landing-feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+          </div>
+          <h2 class="landing-feature-title">Works with your favorite AI</h2>
+          <p class="landing-feature-text">HeroDocs comes with a built-in assistant that can draft, edit, and research alongside you. Want to use something else? Connect the AI tools you already rely on through MCP — they work right inside your document.</p>
+        </div>
+        <img src="/hero-screenshot.png" alt="Chat panel with MCP tools connected for AI-powered document editing" />
       </div>
     </section>
 
     <!-- Bottom CTA Section -->
     <section class="landing-section cta">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">Ready to accelerate your best ideas?</h2>
-        <p class="landing-section-text">
-          Get started for free with your Google account.
-        </p>
+        <h2 class="landing-section-title">Ready to start writing?</h2>
         <div class="landing-signup-card">
-          <h3>Start for Free</h3>
           <p class="landing-signup-subtext">Get started for free with a HeroDocs account</p>
           <a href="/login" class="landing-btn google">
             <svg class="google-icon" viewBox="0 0 24 24">
@@ -561,9 +587,36 @@
     <!-- Footer -->
     <footer class="landing-footer">
       <div class="landing-footer-content">
-        <p class="landing-copyright">&copy; 2025 HeroDocs</p>
-        <div class="landing-footer-links">
-          <a href="mailto:contact@herodocs.xyz">Contact</a>
+        <div class="landing-footer-top">
+          <div class="landing-footer-brand">
+            <a href="/" class="landing-footer-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M12 18v-6" />
+                <path d="M9 15l3 3 3-3" />
+              </svg>
+              <span>HeroDocs</span>
+            </a>
+            <p class="landing-footer-tagline">Docs that work as hard as you do</p>
+          </div>
+          <div class="landing-footer-links">
+            <div class="landing-footer-column">
+              <h4>Product</h4>
+              <ul>
+                <li><a href="/login">Sign In</a></li>
+              </ul>
+            </div>
+            <div class="landing-footer-column">
+              <h4>Contact</h4>
+              <ul>
+                <li><a href="mailto:contact@herodocs.xyz">contact@herodocs.xyz</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="landing-footer-bottom">
+          <p class="landing-copyright">&copy; 2026 HeroDocs</p>
         </div>
       </div>
     </footer>
