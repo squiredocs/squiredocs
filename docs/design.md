@@ -105,7 +105,7 @@ font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monosp
 
 Follows a loose 4px base grid: `4, 6, 8, 12, 16, 20, 24, 32, 48`.
 
-Content areas use generous padding (96px horizontal on desktop, 16px on mobile) to keep the document feeling spacious and focused. Max content width is 816px for the editor.
+Content areas use generous horizontal padding (96px on desktop, 16px on mobile) to keep the document feeling spacious and focused, with compact vertical padding (32px on desktop). No page borders — the editor content floats cleanly in the white surface. Max content width is 816px for the editor.
 
 ### Border Radius
 
