@@ -125,12 +125,36 @@ async function getTokenVersion(userId) {
   return result.rows[0].token_version;
 }
 
+/**
+ * Update a user's display name
+ * @param {string} userId - User's UUID
+ * @param {string} name - New display name
+ * @returns {Promise<object>} Updated user record
+ */
+async function updateName(userId, name) {
+  if (!pool) {
+    throw new Error('Users module not initialized. Call init(pool) first.');
+  }
+
+  const result = await pool.query(
+    `UPDATE users SET name = $1 WHERE id = $2 RETURNING *`,
+    [name, userId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error('User not found');
+  }
+
+  return result.rows[0];
+}
+
 module.exports = {
   init,
   findOrCreateUser,
   findById,
   incrementTokenVersion,
   getTokenVersion,
+  updateName,
 };
 
 

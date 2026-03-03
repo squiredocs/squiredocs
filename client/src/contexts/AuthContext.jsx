@@ -121,6 +121,17 @@ export function AuthProvider({ children }) {
   }, []);
 
   /**
+   * Update user profile (e.g. display name)
+   */
+  const updateUser = useCallback(async (fields) => {
+    const response = await api.patch('/auth/me', fields);
+    const { user: updatedUser, accessToken: newToken } = response.data;
+    setUser(updatedUser);
+    setAccessToken(newToken);
+    return updatedUser;
+  }, []);
+
+  /**
    * Login - redirect to Google OAuth or use dev login if bypass enabled
    * Uses relative URL so it stays on the same domain/port
    */
@@ -332,6 +343,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!user && !!accessToken,
     login,
     logout,
+    updateUser,
     api, // Export configured axios instance for other components
     refreshAccessToken, // Expose for forced refresh when WebSocket auth fails
   };

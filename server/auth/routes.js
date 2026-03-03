@@ -12,7 +12,7 @@ const {
   clearAuthCookies,
   getJwtErrorResponse,
 } = require('./jwt');
-const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion } = require('./users');
+const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion, updateName } = require('./users');
 const { requireAuth } = require('./middleware');
 const { notifyNewUser } = require('../email');
 
@@ -197,6 +197,45 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to get user profile' });
+  }
+});
+
+/**
+ * PATCH /auth/me
+ * Updates current user's profile (name)
+ * Requires authentication
+ */
+router.patch('/me', requireAuth, async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const trimmed = name.trim();
+    if (trimmed.length > 255) {
+      return res.status(400).json({ error: 'Name must be 255 characters or fewer' });
+    }
+
+    const user = await updateName(req.user.userId, trimmed);
+
+    // Issue a fresh access token so JWT claims reflect the new name
+    const newAccessToken = generateAccessToken(user);
+    res.cookie('accessToken', newAccessToken, getAccessTokenCookieOptions());
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+      },
+      accessToken: newAccessToken,
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 

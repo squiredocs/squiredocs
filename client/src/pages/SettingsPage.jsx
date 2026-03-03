@@ -3,9 +3,43 @@
  *
  * User account settings and preferences, including authorized AI agents.
  */
+import { useState } from 'react';
 import AgentDelegationList from '../components/AgentDelegationList';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function SettingsPage({ onNavigateHome, user }) {
+  const { updateUser } = useAuth();
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(user?.name || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSave = async () => {
+    const trimmed = nameValue.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateUser({ name: trimmed });
+      setEditingName(false);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to update name');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setNameValue(user?.name || '');
+    setEditingName(false);
+    setError(null);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleSave();
+    if (e.key === 'Escape') handleCancel();
+  };
+
   return (
     <div className="settings-page">
       <div className="settings-header">
@@ -24,7 +58,38 @@ export default function SettingsPage({ onNavigateHome, user }) {
           </div>
           <div className="settings-item">
             <label>Name</label>
-            <div className="settings-value">{user?.name}</div>
+            {editingName ? (
+              <div className="settings-name-edit">
+                <input
+                  className="settings-name-input"
+                  type="text"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  maxLength={255}
+                  autoFocus
+                  disabled={saving}
+                />
+                <button className="settings-name-save" onClick={handleSave} disabled={saving || !nameValue.trim()}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+                <button className="settings-name-cancel" onClick={handleCancel} disabled={saving}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="settings-value settings-value-editable">
+                {user?.name}
+                <button
+                  className="settings-edit-btn"
+                  onClick={() => { setNameValue(user?.name || ''); setEditingName(true); }}
+                  title="Edit name"
+                >
+                  ✎
+                </button>
+              </div>
+            )}
+            {error && <div className="settings-name-error">{error}</div>}
           </div>
         </section>
 
@@ -34,7 +99,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
             Manage which AI agents can access your documents on your behalf.
             These agents use OAuth to securely act on your behalf with the permissions you grant.
           </p>
-          
+
           <div className="connection-instructions">
             <h3 className="connection-title">Connect an AI Agent:</h3>
             <div className="connection-step">
@@ -55,9 +120,9 @@ export default function SettingsPage({ onNavigateHome, user }) {
           <div className="connect-section">
             <h3 className="connect-section-title">Connect</h3>
             <div className="connect-buttons">
-              <a 
-                href="https://claude.ai/settings/connectors?modal=add-custom-connector" 
-                target="_blank" 
+              <a
+                href="https://claude.ai/settings/connectors?modal=add-custom-connector"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="connect-btn connect-claude-btn"
               >
@@ -73,9 +138,9 @@ export default function SettingsPage({ onNavigateHome, user }) {
                   <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </a>
-              <a 
-                href="https://chatgpt.com/apps#settings/Connectors/Advanced" 
-                target="_blank" 
+              <a
+                href="https://chatgpt.com/apps#settings/Connectors/Advanced"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="connect-btn connect-chatgpt-btn"
               >
@@ -92,7 +157,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
               </a>
             </div>
           </div>
-          
+
           <AgentDelegationList />
         </section>
       </div>
