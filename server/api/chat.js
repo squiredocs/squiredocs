@@ -195,9 +195,9 @@ router.post('/', requireAuth, async (req, res) => {
       tools.webSearch = provider.tools.webSearch_20250305();
       tools.webFetch = provider.tools.webFetch_20250910();
     } else if (def.provider === 'google') {
-      // Gemini can't combine googleSearch with function tools in one request,
-      // so we wrap it as a function tool that makes a separate generateText call
-      // with only googleSearch enabled. Uses flash for speed.
+      // Gemini can't combine googleSearch/urlContext with function tools in one
+      // request, so we wrap them as function tools that make separate
+      // generateText calls. Uses flash for speed.
       const { tool, generateText, jsonSchema } = getAI();
       const searchModel = provider('gemini-2.5-flash');
       tools.webSearch = tool({
@@ -219,6 +219,27 @@ router.post('/', requireAuth, async (req, res) => {
             prompt: `Search the web and summarize what you find for: ${query}`,
           });
           return searchResult.text || 'No results found.';
+        },
+      });
+      tools.webFetch = tool({
+        description: 'Fetch and read the contents of a specific URL. Use this when the user asks you to read, review, or summarize a web page. Returns a summary of the page content.',
+        inputSchema: jsonSchema({
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The URL to fetch and read' },
+          },
+          required: ['url'],
+        }),
+        execute: async (args) => {
+          const url = args.url || (typeof args === 'string' ? args : '');
+          console.log('[Chat API] webFetch url:', url);
+          const fetchResult = await generateText({
+            model: searchModel,
+            maxTokens: 4096,
+            tools: { urlContext: provider.tools.urlContext({}) },
+            prompt: `Fetch and summarize the content of this URL: ${url}`,
+          });
+          return fetchResult.text || 'Could not fetch URL content.';
         },
       });
     }
