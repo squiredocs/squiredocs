@@ -33,181 +33,6 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
-/**
- * Prettify HTML with proper indentation
- */
-function prettifyHTML(html) {
-  let formatted = '';
-  let indent = 0;
-  const tab = '  ';
-
-  // Split by tags
-  html.split(/(<[^>]+>)/g).forEach(part => {
-    if (!part.trim()) return;
-
-    // Closing tag
-    if (part.match(/^<\/\w/)) {
-      indent = Math.max(0, indent - 1);
-      formatted += tab.repeat(indent) + part + '\n';
-    }
-    // Self-closing tag or text content
-    else if (part.match(/\/>$/) || !part.match(/^</)) {
-      formatted += tab.repeat(indent) + part + '\n';
-    }
-    // Opening tag
-    else {
-      formatted += tab.repeat(indent) + part + '\n';
-      indent++;
-    }
-  });
-
-  return formatted.trim();
-}
-
-/**
- * Format document block structure with indexes
- * Shows elementIndex (for MCP API) and character offsets
- * Only shows top-level elements to match xmlFragment.get(elementIndex) behavior
- */
-/**
- * Get text content from a Yjs node
- */
-function getTextContent(node) {
-  if (node instanceof Y.XmlText) {
-    return node.toString();
-  } else if (node instanceof Y.XmlElement) {
-    let text = '';
-    for (let i = 0; i < node.length; i++) {
-      const child = node.get(i);
-      text += getTextContent(child);
-    }
-    return text;
-  }
-  return '';
-}
-
-/**
- * Get attributes from a Yjs node
- */
-function getNodeAttributes(node) {
-  if (!(node instanceof Y.XmlElement)) return null;
-
-  const attrs = {};
-  const level = node.getAttribute('level');
-  if (level !== undefined) attrs.level = level;
-
-  const language = node.getAttribute('language');
-  if (language !== undefined) attrs.language = language;
-
-  const start = node.getAttribute('start');
-  if (start !== undefined) attrs.start = start;
-
-  const type = node.getAttribute('type');
-  if (type !== undefined) attrs.type = type;
-
-  return Object.keys(attrs).length > 0 ? attrs : null;
-}
-
-/**
- * Format block structure for debugging
- * Uses Yjs document directly (same source as server-side MCP tools)
- */
-function formatBlocks(ydoc) {
-  const xmlFragment = ydoc.get('default', Y.XmlFragment);
-  let output = 'Block Structure (for MCP API)\n';
-  output += '─'.repeat(70) + '\n\n';
-
-  const state = { elementIndex: 0 };
-  let cumulativeOffset = 0;
-
-  function formatNode(node, depth = 0, topLevelOffset = 0, absoluteOffset = 0) {
-    const indent = '  '.repeat(depth);
-    const textContent = getTextContent(node);
-    const textLength = textContent.length;
-
-    let result = '';
-
-    // Only top-level blocks get an elementIndex
-    if (depth === 0) {
-      const preview = textContent ? ` "${textContent.slice(0, 50)}${textContent.length > 50 ? '...' : ''}"` : '';
-      const endPos = absoluteOffset + textLength; // Exclusive end position
-      const attrs = getNodeAttributes(node);
-      const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
-
-      result += `${indent}[${state.elementIndex}] <${node.nodeName}>${attrsStr} offsets:${absoluteOffset}-${endPos}${preview}\n`;
-      state.elementIndex++;
-
-      // Process children
-      if (node.length > 0) {
-        let childOffset = 0;
-        for (let i = 0; i < node.length; i++) {
-          const child = node.get(i);
-          if (child instanceof Y.XmlElement) {
-            result += formatNode(child, depth + 1, childOffset, absoluteOffset + childOffset);
-            childOffset += getTextContent(child).length;
-          }
-        }
-      }
-    } else {
-      // Nested blocks show offset within TOP-LEVEL element
-      const preview = textContent ? ` "${textContent.slice(0, 40)}${textContent.length > 40 ? '...' : ''}"` : '';
-      const endPos = topLevelOffset + textLength; // Exclusive end position
-      const attrs = getNodeAttributes(node);
-      const attrsStr = attrs ? ` ${JSON.stringify(attrs)}` : '';
-
-      result += `${indent}  ↳ <${node.nodeName}>${attrsStr} offsets:${topLevelOffset}-${endPos}${preview}\n`;
-
-      // Process children
-      if (node.length > 0) {
-        let childOffset = topLevelOffset;
-        for (let i = 0; i < node.length; i++) {
-          const child = node.get(i);
-          if (child instanceof Y.XmlElement) {
-            result += formatNode(child, depth + 1, childOffset, absoluteOffset + (childOffset - topLevelOffset));
-            childOffset += getTextContent(child).length;
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  for (let i = 0; i < xmlFragment.length; i++) {
-    const node = xmlFragment.get(i);
-    if (node instanceof Y.XmlElement) {
-      output += formatNode(node, 0, 0, cumulativeOffset);
-      cumulativeOffset += getTextContent(node).length;
-    }
-  }
-
-  if (state.elementIndex === 0) {
-    return 'No block elements found';
-  }
-
-  output += '\n' + '─'.repeat(70) + '\n';
-  output += `Total top-level elements: ${state.elementIndex}\n\n`;
-  output += 'Usage with MCP API:\n';
-  output += '  - elementIndex: Use the [N] value (top-level only)\n';
-  output += '  - textOffset: Use any value in the offset range shown\n';
-  output += '  - Nested items (↳) are inside their parent element\n';
-
-  return output;
-}
-
-/**
- * Get depth of a node in the document tree
- */
-function getDepth(node, doc) {
-  let depth = 0;
-  let current = node;
-  while (current && current !== doc) {
-    depth++;
-    current = current.parent;
-  }
-  return depth;
-}
-
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
@@ -254,8 +79,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
 
   const [editor, setEditor] = useState(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [sourceFormat, setSourceFormat] = useState('json');
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
@@ -876,13 +699,15 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                     </button>
                     <button
                       className="tools-menu-item"
-                      onClick={(e) => handleMenuItemClick(e, () => setSourceModalOpen(true))}
-                      title="View raw document source"
+                      onClick={(e) => handleMenuItemClick(e, aiPanel.toggle)}
+                      title={aiPanel.isOpen ? 'Close chat panel' : 'Open chat panel'}
                     >
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
+                        <path d="M5 19l1.5-3L10 15" opacity="0.6" />
+                        <path d="M19 19l-1.5-3L14 15" opacity="0.6" />
                       </svg>
-                      <span>Source</span>
+                      <span>{aiPanel.isOpen ? 'Close chat panel' : 'Open chat panel'}</span>
                     </button>
                     <button
                       className={`tools-menu-item ${userRole !== 'owner' ? 'disabled' : 'danger'}`}
@@ -941,60 +766,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         onClose={() => setShareDialogOpen(false)}
       />
 
-      {/* Source modal - debugging feature */}
-      {sourceModalOpen && (
-        <div className="modal-overlay" onClick={() => setSourceModalOpen(false)}>
-          <div className="source-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="source-modal-header">
-              <h2>Document Source</h2>
-              <div className="source-format-tabs">
-                <button
-                  className={`source-format-tab ${sourceFormat === 'json' ? 'active' : ''}`}
-                  onClick={() => setSourceFormat('json')}
-                >
-                  JSON
-                </button>
-                <button
-                  className={`source-format-tab ${sourceFormat === 'html' ? 'active' : ''}`}
-                  onClick={() => setSourceFormat('html')}
-                >
-                  HTML
-                </button>
-                <button
-                  className={`source-format-tab ${sourceFormat === 'blocks' ? 'active' : ''}`}
-                  onClick={() => setSourceFormat('blocks')}
-                >
-                  Blocks
-                </button>
-                <button
-                  className={`source-format-tab ${sourceFormat === 'text' ? 'active' : ''}`}
-                  onClick={() => setSourceFormat('text')}
-                >
-                  Text
-                </button>
-              </div>
-              <button
-                className="source-modal-close"
-                onClick={() => setSourceModalOpen(false)}
-                title="Close"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
-            </div>
-            <div className="source-modal-content">
-              <pre>
-                {!editor ? 'Loading...' :
-                  sourceFormat === 'json' ? JSON.stringify(editor.getJSON(), null, 2) :
-                  sourceFormat === 'html' ? prettifyHTML(editor.getHTML()) :
-                  sourceFormat === 'blocks' ? formatBlocks(ydoc) :
-                  editor.getText()}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
