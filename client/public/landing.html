@@ -181,10 +181,18 @@
       margin: 1rem auto;
     }
 
-    .landing-hero-screenshot img {
-      width: 100%;
+    .landing-hero-screenshot {
+      overflow: hidden;
       border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+      border: 1px solid #e5e7eb;
+    }
+
+    .landing-hero-screenshot img {
+      width: calc(100% + 4px);
+      margin-left: -4px;
+      margin-top: -8px;
+      display: block;
     }
 
     /* Sections */
@@ -266,10 +274,19 @@
       margin: 0 auto;
     }
 
-    .landing-feature-section img {
-      width: 100%;
+
+    .landing-feature-screenshot {
+      overflow: hidden;
       border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+      border: 1px solid #e5e7eb;
+    }
+
+    .landing-feature-screenshot img {
+      width: calc(100% + 4px);
+      margin-left: -4px;
+      margin-top: -8px;
+      display: block;
     }
 
     /* CTA Section */
@@ -526,7 +543,9 @@
           <h2 class="landing-feature-title">Skip the copy/paste loop</h2>
           <p class="landing-feature-text">You know the loop — write something, copy it into a chat, paste the result back, fix the formatting that broke. HeroDocs skips all of that. Edits happen directly in your document, with your structure and formatting preserved.</p>
         </div>
-        <img src="/hero-screenshot.png" alt="HeroDocs editor making inline changes to a real document" />
+        <div class="landing-feature-screenshot">
+          <img src="/screenshot-copypaste.png" alt="HeroDocs AI chat panel editing a document — correcting spelling and adding links inline" />
+        </div>
       </div>
     </section>
 
@@ -544,7 +563,9 @@
           <h2 class="landing-feature-title">Every edit tracked</h2>
           <p class="landing-feature-text">Every change is tracked with full attribution, whether it came from you, a teammate, or an AI agent. Compare any two versions side by side and restore a previous state with one click. You don't have to trust that things went right. You can check.</p>
         </div>
-        <img src="/hero-screenshot.png" alt="Version history showing attributed changes from humans and AI" />
+        <div class="landing-feature-screenshot">
+          <img src="/screenshot-versionhistory.png" alt="Version history with highlighted changes and full attribution from humans and AI agents" />
+        </div>
       </div>
     </section>
 
@@ -561,7 +582,9 @@
           <h2 class="landing-feature-title">Works with your favorite AI</h2>
           <p class="landing-feature-text">HeroDocs comes with a built-in assistant that can draft, edit, and research alongside you. Want to use something else? Connect the AI tools you already rely on through MCP. They work right inside your document.</p>
         </div>
-        <img src="/hero-screenshot.png" alt="Chat panel with MCP tools connected for AI-powered document editing" />
+        <div class="landing-feature-screenshot">
+          <img src="/screenshot-mcp.png" alt="Settings page showing AI agent access with MCP connection and Connect Claude button" />
+        </div>
       </div>
     </section>
 
