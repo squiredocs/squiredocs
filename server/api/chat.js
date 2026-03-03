@@ -20,6 +20,10 @@ const aiUsage = require('../ai-usage');
 
 const router = express.Router();
 
+// Map<chatId, { chunks: string[], done: boolean }>
+// Buffers SSE chunks so reconnecting clients can replay + continue.
+const activeStreams = new Map();
+
 // Lazy-loaded AI SDK core (heavy import — pulls in OpenTelemetry, zod, etc.)
 let _ai = null;
 
@@ -255,13 +259,80 @@ router.post('/', requireAuth, async (req, res) => {
     const [httpStream, saveStream] = uiStream.tee();
     saveStream.pipeTo(new WritableStream()).catch(() => {});
 
-    pipeUIMessageStreamToResponse({ response: res, stream: httpStream });
+    // Buffer SSE for stream reconnection after page reload
+    const entry = { chunks: [], done: false };
+    activeStreams.set(chatId, entry);
+
+    pipeUIMessageStreamToResponse({
+      response: res,
+      stream: httpStream,
+      consumeSseStream: ({ stream: sseStream }) => {
+        sseStream.pipeTo(new WritableStream({
+          write(chunk) { entry.chunks.push(chunk); },
+          close() {
+            entry.done = true;
+            setTimeout(() => activeStreams.delete(chatId), 30_000);
+          },
+          abort() {
+            entry.done = true;
+            setTimeout(() => activeStreams.delete(chatId), 5_000);
+          },
+        })).catch(() => {
+          entry.done = true;
+          setTimeout(() => activeStreams.delete(chatId), 5_000);
+        });
+      },
+    });
   } catch (error) {
     console.error('[Chat API] Error:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }
   }
+});
+
+// ── Stream reconnection endpoint ─────────────────────────────────────────────
+// AI SDK calls GET /api/chat/{chatId}/stream to reconnect after page reload.
+// Returns 204 if no active stream, or replays buffered SSE chunks + tails for
+// new ones so the client sees live tokens.
+
+router.get('/:id/stream', requireAuth, async (req, res) => {
+  const entry = activeStreams.get(req.params.id);
+  if (!entry) {
+    return res.status(204).end();
+  }
+
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    'connection': 'keep-alive',
+    'x-vercel-ai-ui-message-stream': 'v1',
+    'x-accel-buffering': 'no',
+  });
+
+  // Replay buffered chunks
+  for (const chunk of entry.chunks) {
+    res.write(chunk);
+  }
+
+  if (entry.done) {
+    res.end();
+    return;
+  }
+
+  // Tail the buffer for new chunks
+  let cursor = entry.chunks.length;
+  const interval = setInterval(() => {
+    while (cursor < entry.chunks.length) {
+      res.write(entry.chunks[cursor++]);
+    }
+    if (entry.done) {
+      clearInterval(interval);
+      res.end();
+    }
+  }, 50);
+
+  res.on('close', () => clearInterval(interval));
 });
 
 // ── Chat CRUD routes ─────────────────────────────────────────────────────────

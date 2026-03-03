@@ -36,7 +36,7 @@ function AiPanel({ aiPanel, aiChat }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, pendingAssistantResponse } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -259,7 +259,7 @@ function AiPanel({ aiPanel, aiChat }) {
               <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>
             </div>
           ) : (
-            <AiChatMessages messages={messages} status={status} pendingAssistantResponse={pendingAssistantResponse} />
+            <AiChatMessages messages={messages} status={status} />
           )}
           {usageLimitReached ? (
             <div className="ai-panel-usage-limit">
