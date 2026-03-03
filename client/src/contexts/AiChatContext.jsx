@@ -171,51 +171,6 @@ export function AiChatProvider({ children }) {
     });
   }, [accessToken, refreshChatList]);
 
-  // ── Auto-title on first assistant response ───────────────────────────────
-  // Fire only when a stream completes (status transitions to 'ready'),
-  // not on every streaming token update. Messages and chatList are read
-  // from refs so this effect doesn't re-run on every streaming token.
-
-  const messagesRef = useRef(chat.messages);
-  messagesRef.current = chat.messages;
-  const chatListRef = useRef(chatList);
-  chatListRef.current = chatList;
-
-  const prevStatusRef = useRef(chat.status);
-  useEffect(() => {
-    const prev = prevStatusRef.current;
-    prevStatusRef.current = chat.status;
-
-    // Only act when stream just finished
-    if (chat.status !== 'ready' || prev === 'ready') return;
-    if (!currentChatId || titleSetRef.current.has(currentChatId)) return;
-
-    const msgs = messagesRef.current;
-    const userMsg = msgs?.find((m) => m.role === 'user');
-    const assistantMsg = msgs?.find((m) => m.role === 'assistant');
-    if (!userMsg || !assistantMsg) return;
-
-    // Check if this chat already has a title in the list
-    const existing = chatListRef.current.find((c) => c.id === currentChatId);
-    if (existing?.title) {
-      titleSetRef.current.add(currentChatId);
-      return;
-    }
-
-    // Generate title from first user message text
-    const firstText = userMsg.parts
-      ?.filter((p) => p.type === 'text')
-      .map((p) => p.text)
-      .join(' ') || '';
-    const title = generateTitle(firstText);
-    titleSetRef.current.add(currentChatId);
-
-    apiFetch(`/api/chat/chats/${currentChatId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ title }),
-    }).then(() => refreshChatList()).catch(() => {});
-  }, [currentChatId, chat.status, apiFetch, refreshChatList]);
-
   // ── CRUD operations ──────────────────────────────────────────────────────
 
   const createChat = useCallback(async () => {
@@ -273,17 +228,29 @@ export function AiChatProvider({ children }) {
   // Auto-creates a chat if none is selected
   const sendMessage = useCallback(
     async (text) => {
-      if (!currentChatId) {
-        const id = await createChat();
-        if (!id) return;
+      let chatId = currentChatId;
+      if (!chatId) {
+        chatId = await createChat();
+        if (!chatId) return;
         // chatIdRef is updated synchronously via setCurrentChatId → useEffect,
         // but we need it immediately for the transport. Set it directly.
-        chatIdRef.current = id;
+        chatIdRef.current = chatId;
       }
+
+      // Auto-title the chat on the first message
+      if (!titleSetRef.current.has(chatId)) {
+        titleSetRef.current.add(chatId);
+        const title = generateTitle(text);
+        apiFetch(`/api/chat/chats/${chatId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ title }),
+        }).then(() => refreshChatList()).catch(() => {});
+      }
+
       lastSentTextRef.current = text;
       chat.sendMessage({ text });
     },
-    [chat.sendMessage, currentChatId, createChat],
+    [chat.sendMessage, currentChatId, createChat, apiFetch, refreshChatList],
   );
 
   const value = useMemo(

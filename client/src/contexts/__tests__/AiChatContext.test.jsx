@@ -164,6 +164,27 @@ describe('AiChatContext', () => {
     expect(result).toEqual({ api: '/api/chat/null/stream' });
   });
 
+  it('sets chat title immediately on first sendMessage', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    // Create a chat — returns { id }
+    mockFetchResponse({ id: 'new-chat-1' }); // createChat POST
+    mockFetchResponse([]); // refreshChatList after create
+    mockFetchResponse({ ok: true }); // PATCH title
+    mockFetchResponse([]); // refreshChatList after title
+
+    await act(async () => { await result.current.sendMessage('Hello world'); });
+
+    // Find the PATCH call that sets the title
+    const patchCall = mockFetch.mock.calls.find(
+      ([url, opts]) => url.includes('/api/chat/chats/new-chat-1') && opts?.method === 'PATCH'
+    );
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(patchCall[1].body);
+    expect(body.title).toBe('Hello world');
+  });
+
   it('pendingAssistantResponse is not in context value', () => {
     const { result } = renderAiChat();
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');
