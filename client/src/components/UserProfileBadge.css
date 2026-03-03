@@ -40,7 +40,7 @@
 .user-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
 }
 
 .user-menu {
@@ -52,7 +52,7 @@
   border-radius: 12px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
   min-width: 200px;
-  z-index: 101;
+  z-index: 1001;
   overflow: hidden;
 }
 
