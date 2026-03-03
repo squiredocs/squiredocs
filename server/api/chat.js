@@ -111,8 +111,18 @@ The user is currently viewing document${titleStr} (${docGuid}). When they refer 
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
 router.post('/', requireAuth, async (req, res) => {
+  const chatId = req.body?.id;
+  let entry = null;
+  const cleanupEntry = (ms = 5_000) => {
+    if (!entry) return;
+    entry.done = true;
+    setTimeout(() => {
+      if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
+    }, ms);
+  };
+
   try {
-    const { message, id: chatId, docGuid } = req.body;
+    const { message, docGuid } = req.body;
 
     if (!message || !chatId) {
       return res.status(400).json({ error: 'message and id are required' });
@@ -121,14 +131,8 @@ router.post('/', requireAuth, async (req, res) => {
     // Register a stream entry immediately so a reconnecting client (page
     // refresh) can attach before the response actually starts streaming.
     // Replaces any stale entry from a previous completed stream.
-    const entry = { chunks: [], done: false };
+    entry = { chunks: [], done: false };
     activeStreams.set(chatId, entry);
-    const cleanupEntry = (ms = 5_000) => {
-      entry.done = true;
-      setTimeout(() => {
-        if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
-      }, ms);
-    };
 
     // Check AI usage quota before proceeding
     const quota = await aiUsage.checkQuota(req.user.userId);
@@ -286,15 +290,7 @@ router.post('/', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('[Chat API] Error:', error);
-    // Clean up the stream entry if we never started streaming
-    const failedChatId = req.body?.id;
-    const staleEntry = failedChatId && activeStreams.get(failedChatId);
-    if (staleEntry && !staleEntry.done) {
-      staleEntry.done = true;
-      setTimeout(() => {
-        if (activeStreams.get(failedChatId) === staleEntry) activeStreams.delete(failedChatId);
-      }, 5_000);
-    }
+    cleanupEntry();
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }

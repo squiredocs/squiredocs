@@ -240,17 +240,13 @@ export function AiChatProvider({ children }) {
       // Auto-title the chat on the first message
       if (!titleSetRef.current.has(chatId)) {
         titleSetRef.current.add(chatId);
-        const title = generateTitle(text);
-        apiFetch(`/api/chat/chats/${chatId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ title }),
-        }).then(() => refreshChatList()).catch(() => {});
+        renameChat(chatId, generateTitle(text));
       }
 
       lastSentTextRef.current = text;
       chat.sendMessage({ text });
     },
-    [chat.sendMessage, currentChatId, createChat, apiFetch, refreshChatList],
+    [chat.sendMessage, currentChatId, createChat, renameChat],
   );
 
   const value = useMemo(
