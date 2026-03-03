@@ -126,6 +126,11 @@ export function AiChatProvider({ children }) {
   // ── Load messages when chat changes ──────────────────────────────────────
 
   useEffect(() => {
+    // Disconnect any active stream from the previous chat so its tokens
+    // don't spill into the new chat's view. The server-side tee ensures
+    // the response is still saved even after the client disconnects.
+    chat.stop();
+
     if (!currentChatId) {
       chat.setMessages([]);
       setMessagesLoading(false);
