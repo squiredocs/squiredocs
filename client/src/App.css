@@ -942,7 +942,7 @@ body[data-mobile] .app-header {
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
   transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-  z-index: 40;
+  z-index: 150;
 }
 
 .ai-fab:hover {
