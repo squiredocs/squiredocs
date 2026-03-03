@@ -118,6 +118,10 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'message and id are required' });
     }
 
+    // Clear any stale stream entry immediately so a page refresh during
+    // the setup phase below returns 204 instead of replaying old data.
+    activeStreams.delete(chatId);
+
     // Check AI usage quota before proceeding
     const quota = await aiUsage.checkQuota(req.user.userId);
     if (!quota.allowed) {
@@ -267,20 +271,14 @@ router.post('/', requireAuth, async (req, res) => {
       response: res,
       stream: httpStream,
       consumeSseStream: ({ stream: sseStream }) => {
+        const cleanup = (ms) => setTimeout(() => {
+          if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
+        }, ms);
         sseStream.pipeTo(new WritableStream({
           write(chunk) { entry.chunks.push(chunk); },
-          close() {
-            entry.done = true;
-            setTimeout(() => activeStreams.delete(chatId), 30_000);
-          },
-          abort() {
-            entry.done = true;
-            setTimeout(() => activeStreams.delete(chatId), 5_000);
-          },
-        })).catch(() => {
-          entry.done = true;
-          setTimeout(() => activeStreams.delete(chatId), 5_000);
-        });
+          close() { entry.done = true; cleanup(30_000); },
+          abort() { entry.done = true; cleanup(5_000); },
+        })).catch(() => { entry.done = true; cleanup(5_000); });
       },
     });
   } catch (error) {
