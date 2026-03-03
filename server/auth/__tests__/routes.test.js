@@ -195,6 +195,110 @@ describe('Auth routes', () => {
     });
   });
 
+  describe('PATCH /auth/me', () => {
+    test('updates user name and returns fresh token', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: 'New Display Name' })
+        .expect(200);
+
+      expect(response.body.user.name).toBe('New Display Name');
+      expect(response.body.user.id).toBe(testUser.id);
+      expect(response.body.accessToken).toBeDefined();
+      expect(typeof response.body.accessToken).toBe('string');
+
+      // Should set accessToken cookie
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      expect(cookies.some(c => c.includes('accessToken='))).toBe(true);
+    });
+
+    test('trims whitespace from name', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: '  Trimmed Name  ' })
+        .expect(200);
+
+      expect(response.body.user.name).toBe('Trimmed Name');
+    });
+
+    test('returns 400 for empty name', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: '' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Name is required');
+    });
+
+    test('returns 400 for whitespace-only name', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: '   ' })
+        .expect(400);
+
+      expect(response.body.error).toBe('Name is required');
+    });
+
+    test('returns 400 for missing name field', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({})
+        .expect(400);
+
+      expect(response.body.error).toBe('Name is required');
+    });
+
+    test('returns 400 for name exceeding 255 characters', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: 'a'.repeat(256) })
+        .expect(400);
+
+      expect(response.body.error).toBe('Name must be 255 characters or fewer');
+    });
+
+    test('returns 401 without authorization', async () => {
+      const response = await request(app)
+        .patch('/auth/me')
+        .send({ name: 'New Name' })
+        .expect(401);
+
+      expect(response.body.error).toBe('No authorization header or invalid format');
+    });
+
+    test('persists the name change in the database', async () => {
+      const accessToken = generateAccessToken(testUser);
+
+      await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: 'Persisted Name' })
+        .expect(200);
+
+      const dbUser = await users.findById(testUser.id);
+      expect(dbUser.name).toBe('Persisted Name');
+    });
+  });
+
   describe('POST /auth/logout', () => {
     test('invalidates refresh tokens and clears cookie', async () => {
       const accessToken = generateAccessToken(testUser);

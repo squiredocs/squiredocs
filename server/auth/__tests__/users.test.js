@@ -163,6 +163,45 @@ describe('Users module', () => {
     });
   });
 
+  describe('updateName', () => {
+    test('updates user name', async () => {
+      const profile = {
+        googleId: `test-google-${crypto.randomUUID()}`,
+        email: `test-${crypto.randomUUID()}@example.com`,
+        name: 'Original Name',
+        picture: null,
+      };
+
+      const user = await users.findOrCreateUser(profile);
+      const updated = await users.updateName(user.id, 'New Name');
+
+      expect(updated.name).toBe('New Name');
+      expect(updated.id).toBe(user.id);
+      expect(updated.email).toBe(profile.email);
+    });
+
+    test('returns updated row from database', async () => {
+      const profile = {
+        googleId: `test-google-${crypto.randomUUID()}`,
+        email: `test-${crypto.randomUUID()}@example.com`,
+        name: 'Original Name',
+        picture: null,
+      };
+
+      const user = await users.findOrCreateUser(profile);
+      await users.updateName(user.id, 'Persisted Name');
+
+      const found = await users.findById(user.id);
+      expect(found.name).toBe('Persisted Name');
+    });
+
+    test('throws for non-existent user', async () => {
+      await expect(
+        users.updateName('00000000-0000-0000-0000-000000000000', 'Name')
+      ).rejects.toThrow('User not found');
+    });
+  });
+
   describe('getTokenVersion', () => {
     test('returns current token version', async () => {
       const profile = {
