@@ -118,13 +118,22 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'message and id are required' });
     }
 
-    // Clear any stale stream entry immediately so a page refresh during
-    // the setup phase below returns 204 instead of replaying old data.
-    activeStreams.delete(chatId);
+    // Register a stream entry immediately so a reconnecting client (page
+    // refresh) can attach before the response actually starts streaming.
+    // Replaces any stale entry from a previous completed stream.
+    const entry = { chunks: [], done: false };
+    activeStreams.set(chatId, entry);
+    const cleanupEntry = (ms = 5_000) => {
+      entry.done = true;
+      setTimeout(() => {
+        if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
+      }, ms);
+    };
 
     // Check AI usage quota before proceeding
     const quota = await aiUsage.checkQuota(req.user.userId);
     if (!quota.allowed) {
+      cleanupEntry();
       return res.status(429).json({ error: 'AI usage limit reached' });
     }
 
@@ -168,6 +177,7 @@ router.post('/', requireAuth, async (req, res) => {
       console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${chatModels.DEFAULT_MODEL_KEY}"`);
       resolved = chatModels.resolveModel(chatModels.DEFAULT_MODEL_KEY);
       if (!resolved) {
+        cleanupEntry();
         return res.status(500).json({ error: 'No valid chat model configured' });
       }
     }
@@ -263,26 +273,28 @@ router.post('/', requireAuth, async (req, res) => {
     const [httpStream, saveStream] = uiStream.tee();
     saveStream.pipeTo(new WritableStream()).catch(() => {});
 
-    // Buffer SSE for stream reconnection after page reload
-    const entry = { chunks: [], done: false };
-    activeStreams.set(chatId, entry);
-
     pipeUIMessageStreamToResponse({
       response: res,
       stream: httpStream,
       consumeSseStream: ({ stream: sseStream }) => {
-        const cleanup = (ms) => setTimeout(() => {
-          if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
-        }, ms);
         sseStream.pipeTo(new WritableStream({
           write(chunk) { entry.chunks.push(chunk); },
-          close() { entry.done = true; cleanup(30_000); },
-          abort() { entry.done = true; cleanup(5_000); },
-        })).catch(() => { entry.done = true; cleanup(5_000); });
+          close() { cleanupEntry(30_000); },
+          abort() { cleanupEntry(); },
+        })).catch(() => { cleanupEntry(); });
       },
     });
   } catch (error) {
     console.error('[Chat API] Error:', error);
+    // Clean up the stream entry if we never started streaming
+    const failedChatId = req.body?.id;
+    const staleEntry = failedChatId && activeStreams.get(failedChatId);
+    if (staleEntry && !staleEntry.done) {
+      staleEntry.done = true;
+      setTimeout(() => {
+        if (activeStreams.get(failedChatId) === staleEntry) activeStreams.delete(failedChatId);
+      }, 5_000);
+    }
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }
