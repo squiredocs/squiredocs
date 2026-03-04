@@ -14,6 +14,7 @@ const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
+const { webFetch } = require('./web-fetch');
 const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
@@ -189,15 +190,13 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
-    // Build tool set with provider-appropriate web search
+    // Build tool set with provider-appropriate web search + universal webFetch
     const tools = chatTools.buildTools(syntheticAgentToken);
     if (def.provider === 'anthropic') {
       tools.webSearch = provider.tools.webSearch_20250305();
-      tools.webFetch = provider.tools.webFetch_20250910();
     } else if (def.provider === 'google') {
-      // Gemini can't combine googleSearch/urlContext with function tools in one
-      // request, so we wrap them as function tools that make separate
-      // generateText calls. Uses flash for speed.
+      // Gemini can't combine googleSearch with function tools in one request,
+      // so we wrap it as a function tool that makes a separate generateText call.
       const { tool, generateText, jsonSchema } = getAI();
       const searchModel = provider('gemini-2.5-flash');
       tools.webSearch = tool({
@@ -221,8 +220,13 @@ router.post('/', requireAuth, async (req, res) => {
           return searchResult.text || 'No results found.';
         },
       });
+    }
+
+    // Universal webFetch — works the same for all providers
+    {
+      const { tool, jsonSchema } = getAI();
       tools.webFetch = tool({
-        description: 'Fetch and read the contents of a specific URL. Use this when the user asks you to read, review, or summarize a web page. Returns a summary of the page content.',
+        description: 'Fetch and read the contents of a web page at a specific URL. Use this when the user asks you to read, review, or summarize a web page, or when you need to check a link.',
         inputSchema: jsonSchema({
           type: 'object',
           properties: {
@@ -233,13 +237,13 @@ router.post('/', requireAuth, async (req, res) => {
         execute: async (args) => {
           const url = args.url || (typeof args === 'string' ? args : '');
           console.log('[Chat API] webFetch url:', url);
-          const fetchResult = await generateText({
-            model: searchModel,
-            maxTokens: 4096,
-            tools: { urlContext: provider.tools.urlContext({}) },
-            prompt: `Fetch and summarize the content of this URL: ${url}`,
-          });
-          return fetchResult.text || 'Could not fetch URL content.';
+          try {
+            const result = await webFetch(url);
+            return result.truncated ? result.content + '\n\n[Content truncated]' : result.content;
+          } catch (err) {
+            console.error('[Chat API] webFetch error:', err.message);
+            return 'Could not fetch the requested URL.';
+          }
         },
       });
     }

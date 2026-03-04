@@ -1,5 +1,5 @@
 # Build stage for client
-FROM node:18-alpine AS client-builder
+FROM node:22-alpine AS client-builder
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY client/ ./
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 # Copy package files and install server dependencies
