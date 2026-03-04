@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const TOOL_LABELS = {
   read_document: 'Reading document',
@@ -89,7 +90,7 @@ function ThinkingBlock({ text }) {
       </button>
       {expanded && (
         <div className="ai-thinking-content ai-chat-markdown">
-          <Markdown components={markdownLinkRenderer}>{text}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{text}</Markdown>
         </div>
       )}
     </div>
@@ -153,7 +154,7 @@ function AssistantBubble({ groups, isLoading }) {
             if (group.type === 'text') {
               return (
                 <div key={i} className="ai-chat-markdown">
-                  <Markdown components={markdownLinkRenderer}>{group.text}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
                 </div>
               );
             }

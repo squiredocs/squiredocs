@@ -254,6 +254,25 @@
   padding: 0;
 }
 
+.ai-chat-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+
+.ai-chat-markdown th,
+.ai-chat-markdown td {
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.ai-chat-markdown th {
+  background: rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+}
+
 /* ---------- Tool card groups ---------- */
 
 .ai-tool-group {
