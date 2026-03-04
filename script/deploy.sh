@@ -156,20 +156,15 @@ run_migrations() {
 deploy_app() {
   echo "Deploying app..."
 
-  if [[ "$CURRENT_CONTEXT" == *"minikube"* ]]; then
-    # Minikube: use LoadBalancer service (no ingress)
-    envsubst_safe < k8s/app-deployment.yaml | kubectl apply -f - -n collab
-    envsubst_safe < k8s/app-service.yaml | kubectl apply -f - -n collab
-    envsubst_safe < k8s/app-hpa.yaml | kubectl apply -f - -n collab
-    kubectl apply -f k8s/collab-loadbalancer.yaml -n collab
-  else
-    # GKE: use Ingress (BackendConfig must exist before the service references it)
+  # Deploy ingress resources (BackendConfig must exist before the service references it)
+  if [[ "$CURRENT_CONTEXT" != *"minikube"* ]]; then
     echo "Deploying GKE ingress resources..."
     kubectl apply -f k8s/ingress.yaml -n collab
-    envsubst_safe < k8s/app-deployment.yaml | kubectl apply -f - -n collab
-    envsubst_safe < k8s/app-service.yaml | kubectl apply -f - -n collab
-    envsubst_safe < k8s/app-hpa.yaml | kubectl apply -f - -n collab
   fi
+
+  envsubst_safe < k8s/app-deployment.yaml | kubectl apply -f - -n collab
+  envsubst_safe < k8s/app-service.yaml | kubectl apply -f - -n collab
+  envsubst_safe < k8s/app-hpa.yaml | kubectl apply -f - -n collab
 
   # Deploy postgres backup cronjob if s3cmd config exists
   if [[ -f "k8s/s3cmd-configmap.yaml" ]]; then
