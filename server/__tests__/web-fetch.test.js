@@ -226,15 +226,97 @@ describe('webFetch — SSRF protection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// webFetch — successful fetch
+// webFetch — content extraction (mocked fetch)
 // ---------------------------------------------------------------------------
 
 describe('webFetch — content extraction', () => {
-  it('fetches and extracts text from a public URL', async () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockFetch(body, contentType = 'text/html', url = 'https://example.com/') {
+    global.fetch = jest.fn().mockResolvedValue({
+      url,
+      headers: new Headers({ 'content-type': contentType }),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(Buffer.from(body));
+          controller.close();
+        },
+      }),
+    });
+  }
+
+  it('extracts text from HTML, preferring <article>', async () => {
+    mockFetch(`<html><body>
+      <nav>Menu</nav>
+      <article><h1>Hello World</h1><p>Article content here.</p></article>
+      <footer>Footer</footer>
+    </body></html>`);
+
     const result = await webFetch('https://example.com');
-    expect(result.content).toContain('Example Domain');
+    expect(result.content).toContain('# Hello World');
+    expect(result.content).toContain('Article content here.');
+    expect(result.content).not.toContain('Menu');
+    expect(result.content).not.toContain('Footer');
     expect(result.contentType).toBe('text/html');
-    expect(result.url).toMatch(/example\.com/);
     expect(result.truncated).toBe(false);
-  }, 15_000);
+  });
+
+  it('strips script, style, and non-content elements', async () => {
+    mockFetch(`<html><body>
+      <script>alert('xss')</script>
+      <style>.red { color: red }</style>
+      <p>Visible text</p>
+      <iframe src="x"></iframe>
+      <noscript>No JS</noscript>
+    </body></html>`);
+
+    const result = await webFetch('https://example.com');
+    expect(result.content).toContain('Visible text');
+    expect(result.content).not.toContain('alert');
+    expect(result.content).not.toContain('.red');
+    expect(result.content).not.toContain('No JS');
+  });
+
+  it('converts list items to "- " lines', async () => {
+    mockFetch(`<html><body><ul><li>First</li><li>Second</li></ul></body></html>`);
+
+    const result = await webFetch('https://example.com');
+    expect(result.content).toContain('- First');
+    expect(result.content).toContain('- Second');
+  });
+
+  it('pretty-prints JSON responses', async () => {
+    mockFetch('{"key":"value","num":42}', 'application/json');
+
+    const result = await webFetch('https://example.com/api');
+    expect(result.content).toBe('{\n  "key": "value",\n  "num": 42\n}');
+    expect(result.contentType).toBe('application/json');
+  });
+
+  it('passes through plain text as-is', async () => {
+    mockFetch('Just plain text.', 'text/plain');
+
+    const result = await webFetch('https://example.com/file.txt');
+    expect(result.content).toBe('Just plain text.');
+    expect(result.contentType).toBe('text/plain');
+  });
+
+  it('truncates content exceeding 80,000 chars', async () => {
+    mockFetch('<html><body>' + 'a'.repeat(90_000) + '</body></html>');
+
+    const result = await webFetch('https://example.com');
+    expect(result.content.length).toBe(80_000);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('rejects unsupported content types', async () => {
+    mockFetch('binary data', 'application/octet-stream');
+
+    await expect(webFetch('https://example.com/file.bin'))
+      .rejects.toThrow('Unsupported content type');
+  });
 });
