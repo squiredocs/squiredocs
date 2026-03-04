@@ -6,6 +6,8 @@ metadata:
   annotations:
     # This service handles both client (HTTP at /) and server (WebSocket at /s)
     # WebSocket connections upgrade from HTTP, so a single HTTP port handles both
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "collab-backend-config"}'
 spec:
   ports:
     - name: http

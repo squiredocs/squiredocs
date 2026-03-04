@@ -1,0 +1,49 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: herodocs-cert
+  namespace: collab
+spec:
+  domains:
+    - herodocs.xyz
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: collab-backend-config
+  namespace: collab
+spec:
+  # WebSocket connections need long timeouts
+  timeoutSec: 86400
+  connectionDraining:
+    drainingTimeoutSec: 300
+  sessionAffinity:
+    affinityType: "CLIENT_IP"
+    affinityCookieTtlSec: 10800
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: collab-ingress-2
+  namespace: collab
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    networking.gke.io/managed-certificates: herodocs-cert
+    # Redirect HTTP to HTTPS
+    networking.gke.io/v1beta1.FrontendConfig: collab-frontend-config
+spec:
+  defaultBackend:
+    service:
+      name: collab-app
+      port:
+        number: 80
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: collab-frontend-config
+  namespace: collab
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
