@@ -447,6 +447,7 @@
 @media print {
   /* Hide all UI chrome */
   .app-header,
+  .editor-toolbar,
   .view-only-banner,
   .sync-banner,
   .tools-menu-dropdown,
