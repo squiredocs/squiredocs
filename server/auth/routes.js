@@ -114,7 +114,7 @@ router.get('/google/callback', async (req, res) => {
     res.cookie('refreshToken', refreshToken, getCookieOptions());
 
     // Redirect to client (token is in cookie, not URL)
-    res.redirect(`${clientUrl}/docs`);
+    res.redirect(`${clientUrl}/docs?signup=1`);
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.redirect(`${clientUrl}/login?error=auth_failed`);

@@ -29,6 +29,22 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Fire Google Ads sign-up conversion event for new users
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('signup') === '1') {
+      if (typeof gtag === 'function') {
+        gtag('event', 'conversion', {
+          'send_to': 'AW-977363147/wzKYCLj5pPwbEMvBhdID',
+          'value': 1.0,
+          'currency': 'USD'
+        });
+      }
+      // Clean up the URL
+      window.history.replaceState({}, '', '/docs');
+    }
+  }, []);
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
