@@ -7,6 +7,15 @@ spec:
   domains:
     - herodocs.xyz
 ---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: heradocs-cert
+  namespace: collab
+spec:
+  domains:
+    - heradocs.com
+---
 apiVersion: cloud.google.com/v1
 kind: BackendConfig
 metadata:
@@ -28,7 +37,7 @@ metadata:
   namespace: collab
   annotations:
     kubernetes.io/ingress.class: "gce"
-    networking.gke.io/managed-certificates: herodocs-cert
+    networking.gke.io/managed-certificates: herodocs-cert,heradocs-cert
     # Redirect HTTP to HTTPS
     networking.gke.io/v1beta1.FrontendConfig: collab-frontend-config
 spec:
