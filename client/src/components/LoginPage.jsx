@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
+import Logo from './Logo';
 import './LoginPage.css';
 
 /**
@@ -42,12 +43,7 @@ export default function LoginPage({ onNavigateToLanding }) {
         <div className="login-branding">
           <a href="/" onClick={handleLogoClick} className="login-logo-link">
             <div className="login-logo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <path d="M12 18v-6" />
-                <path d="M9 15l3 3 3-3" />
-              </svg>
+              <Logo color="currentColor" />
             </div>
             <h1 className="login-title">Squire Docs</h1>
           </a>
