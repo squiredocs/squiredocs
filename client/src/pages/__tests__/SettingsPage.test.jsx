@@ -10,9 +10,11 @@ import SettingsPage from '../SettingsPage';
 
 // Mock useAuth
 const mockUpdateUser = vi.fn();
+const mockApi = { get: vi.fn().mockRejectedValue(new Error('not available')) };
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     updateUser: mockUpdateUser,
+    api: mockApi,
   }),
 }));
 
