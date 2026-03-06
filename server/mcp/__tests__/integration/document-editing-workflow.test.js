@@ -542,11 +542,15 @@ export default function edit(doc) {
   const currentLength = firstText.length;
   firstText.insert(currentLength, '\\n\\nHere are some fun activities:');
 
-  // Create a new ordered list item with content
+  // Create a new ordered list with properly wrapped listItem
   const orderedList = new Y.XmlElement('orderedList');
+  const listItem = new Y.XmlElement('listItem');
+  const listPara = new Y.XmlElement('paragraph');
   const listText = new Y.XmlText();
   listText.insert(0, 'Watch the sunrise together as a family');
-  orderedList.insert(0, [listText]);
+  listPara.insert(0, [listText]);
+  listItem.insert(0, [listPara]);
+  orderedList.insert(0, [listItem]);
 
   // Insert the ordered list after the first paragraph
   doc.insert(1, [orderedList]);
@@ -800,11 +804,15 @@ export default function edit(doc) {
       const uniqueText = 'BULLET_ITEM_' + Date.now();
       const script = `
 export default function edit(doc) {
-  // Create a bulletList item
+  // Create a bulletList with properly wrapped listItem
   const bulletList = new Y.XmlElement('bulletList');
+  const li = new Y.XmlElement('listItem');
+  const p = new Y.XmlElement('paragraph');
   const text = new Y.XmlText();
   text.insert(0, '${uniqueText}');
-  bulletList.insert(0, [text]);
+  p.insert(0, [text]);
+  li.insert(0, [p]);
+  bulletList.insert(0, [li]);
 
   // Insert at the end
   doc.insert(doc.length, [bulletList]);
@@ -841,11 +849,15 @@ export default function edit(doc) {
       const uniqueText = 'ORDERED_ITEM_' + Date.now();
       const script = `
 export default function edit(doc) {
-  // Create an orderedList item
+  // Create an orderedList with properly wrapped listItem
   const orderedList = new Y.XmlElement('orderedList');
+  const li = new Y.XmlElement('listItem');
+  const p = new Y.XmlElement('paragraph');
   const text = new Y.XmlText();
   text.insert(0, '${uniqueText}');
-  orderedList.insert(0, [text]);
+  p.insert(0, [text]);
+  li.insert(0, [p]);
+  orderedList.insert(0, [li]);
 
   // Insert at the end
   doc.insert(doc.length, [orderedList]);
@@ -884,25 +896,37 @@ export default function edit(doc) {
 
       const script = `
 export default function edit(doc) {
-  // Create an orderedList item
+  // Create an orderedList with properly wrapped listItem
   const orderedList1 = new Y.XmlElement('orderedList');
+  const li1 = new Y.XmlElement('listItem');
+  const p1 = new Y.XmlElement('paragraph');
   const text1 = new Y.XmlText();
   text1.insert(0, 'Watch the sunrise together as a family');
-  orderedList1.insert(0, [text1]);
+  p1.insert(0, [text1]);
+  li1.insert(0, [p1]);
+  orderedList1.insert(0, [li1]);
   doc.insert(doc.length, [orderedList1]);
 
   // Insert a bulletList after it
   const bulletList = new Y.XmlElement('bulletList');
+  const li2 = new Y.XmlElement('listItem');
+  const p2 = new Y.XmlElement('paragraph');
   const text2 = new Y.XmlText();
   text2.insert(0, 'Sub-item A');
-  bulletList.insert(0, [text2]);
+  p2.insert(0, [text2]);
+  li2.insert(0, [p2]);
+  bulletList.insert(0, [li2]);
   doc.insert(doc.length, [bulletList]);
 
   // Insert another orderedList
   const orderedList2 = new Y.XmlElement('orderedList');
+  const li3 = new Y.XmlElement('listItem');
+  const p3 = new Y.XmlElement('paragraph');
   const text3 = new Y.XmlText();
   text3.insert(0, 'Next numbered item');
-  orderedList2.insert(0, [text3]);
+  p3.insert(0, [text3]);
+  li3.insert(0, [p3]);
+  orderedList2.insert(0, [li3]);
   doc.insert(doc.length, [orderedList2]);
 }
 `;

@@ -129,9 +129,31 @@ function validateTextContent(item, index) {
   }
 }
 
+/**
+ * Validate a Yjs XmlFragment against the ProseMirror schema.
+ *
+ * Converts the fragment to a ProseMirror node and calls node.check(),
+ * which throws if the structure violates schema content constraints.
+ *
+ * @param {Y.XmlFragment} xmlFragment - Document fragment to validate
+ * @returns {{ valid: boolean, error: string|null }}
+ */
+function validateDocumentSchema(xmlFragment) {
+  try {
+    const { yXmlFragmentToProseMirrorRootNode } = require('y-prosemirror');
+    const { schema } = require('../../../shared/prosemirror-schema');
+    const node = yXmlFragmentToProseMirrorRootNode(xmlFragment, schema);
+    node.check();
+    return { valid: true, error: null };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
+
 module.exports = {
   validateNode,
   validateTextContent,
+  validateDocumentSchema,
   VALID_NODE_TYPES,
   VALID_MARKS,
 };

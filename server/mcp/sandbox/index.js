@@ -14,6 +14,7 @@ const { executeSandboxed } = require('./executor');
 const { wrapForTracking } = require('./yjs-interceptor');
 const { OperationTracker } = require('./operation-tracker');
 const { createOperationSelection } = require('../yjs/cursor-operations');
+const { validateDocumentSchema } = require('../yjs/validation');
 const agentPresence = require('../agent-presence');
 const { MutationAggregator } = require('../mutation-aggregator');
 
@@ -134,6 +135,19 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       return {
         success: false,
         error: executionError.message,
+        operationCount: tracker.getOperationCount(),
+      };
+    }
+
+    // 7.5. Validate document schema against ProseMirror content rules
+    const validation = validateDocumentSchema(xmlFragment);
+    if (!validation.valid) {
+      if (session.undoManager.canUndo()) {
+        session.undoManager.undo();
+      }
+      return {
+        success: false,
+        error: `Script produced invalid document structure: ${validation.error}`,
         operationCount: tracker.getOperationCount(),
       };
     }

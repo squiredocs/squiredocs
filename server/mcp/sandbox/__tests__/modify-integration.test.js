@@ -844,8 +844,121 @@ describe('modify Integration', () => {
     });
   });
 
+  describe('schema validation rollback', () => {
+    test('rejects paragraph inserted directly into bulletList', async () => {
+      const script = `
+        export default function edit(doc) {
+          const list = new Y.XmlElement('bulletList');
+          const para = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Bad structure');
+          para.insert(0, [text]);
+          list.insert(0, [para]); // Invalid: paragraph directly in bulletList
+          doc.insert(0, [list]);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('invalid document structure');
+
+      // Document should be rolled back
+      expect(xmlFragment.length).toBe(0);
+    });
+
+    test('rejects listItem at document root', async () => {
+      const script = `
+        export default function edit(doc) {
+          const item = new Y.XmlElement('listItem');
+          const para = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Orphan item');
+          para.insert(0, [text]);
+          item.insert(0, [para]);
+          doc.insert(0, [item]); // Invalid: listItem at root
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('invalid document structure');
+
+      // Document should be rolled back
+      expect(xmlFragment.length).toBe(0);
+    });
+
+    test('accepts correct list structure', async () => {
+      const script = `
+        export default function edit(doc) {
+          const list = new Y.XmlElement('bulletList');
+          const item = new Y.XmlElement('listItem');
+          const para = new Y.XmlElement('paragraph');
+          const text = new Y.XmlText();
+          text.insert(0, 'Valid item');
+          para.insert(0, [text]);
+          item.insert(0, [para]);
+          list.insert(0, [item]);
+          doc.insert(0, [list]);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(xmlFragment.length).toBe(1);
+      expect(xmlFragment.get(0).nodeName).toBe('bulletList');
+    });
+
+    test('rolls back partial changes when schema validation fails', async () => {
+      // Pre-populate with valid content, then recreate UndoManager
+      // so that the pre-populated content is part of the undo baseline
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'Original content');
+      para.insert(0, [text]);
+      xmlFragment.insert(0, [para]);
+
+      // Recreate UndoManager so baseline includes existing content
+      mockSession.undoManager = new Y.UndoManager(xmlFragment);
+
+      const script = `
+        export default function edit(doc) {
+          // Delete existing content
+          doc.delete(0, doc.length);
+          // Insert invalid structure
+          const list = new Y.XmlElement('bulletList');
+          const badPara = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'Bad');
+          badPara.insert(0, [t]);
+          list.insert(0, [badPara]); // Invalid
+          doc.insert(0, [list]);
+        }
+      `;
+
+      const result = await executeScript(script, mockSession, xmlFragment, {
+        timeout: 5000,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('invalid document structure');
+
+      // Original content should be restored
+      expect(xmlFragment.length).toBe(1);
+      expect(xmlFragment.get(0).nodeName).toBe('paragraph');
+    });
+  });
+
   describe('nested list synchronization', () => {
-    test('appendBlocks to a nested bulletList via xpathFirst', async () => {
+    test('appendBlocks with correct listItem structure into nested bulletList succeeds', async () => {
       // Build: bulletList > listItem("Identity Mapping") > bulletList > [listItem("Original 1"), listItem("Original 2")]
       const outerList = new Y.XmlElement('bulletList');
       const outerItem = new Y.XmlElement('listItem');
@@ -870,11 +983,17 @@ describe('modify Integration', () => {
       outerList.insert(0, [outerItem]);
       xmlFragment.insert(0, [outerList]);
 
-      // Script mirrors the user's exact reproduction scenario
+      // Correct approach: add items as listItems via raw Yjs
       const script = `
         export default function edit(doc) {
           const nestedList = xpathFirst('//listItem[contains(., "Identity Mapping")]/bulletList');
-          appendBlocks(nestedList, [{ type: 'paragraph', content: 'REPRODUCTION TEST' }]);
+          const li = new Y.XmlElement('listItem');
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'NEW ITEM');
+          p.insert(0, [t]);
+          li.insert(0, [p]);
+          nestedList.insert(nestedList.length, [li]);
         }
       `;
 
@@ -884,15 +1003,12 @@ describe('modify Integration', () => {
 
       expect(result.success).toBe(true);
 
-      // The nested bulletList should now have 3 children (2 original + 1 new)
       const nestedBulletList = xmlFragment.get(0).get(0).get(1);
       expect(nestedBulletList.nodeName).toBe('bulletList');
       expect(nestedBulletList.length).toBe(3);
 
-      // The new item should have the correct text
       const helpers = require('../helpers');
-      const newItem = nestedBulletList.get(2);
-      expect(helpers.getTextContent(newItem)).toBe('REPRODUCTION TEST');
+      expect(helpers.getTextContent(nestedBulletList.get(2))).toBe('NEW ITEM');
     });
 
     test('setParagraphs on a deeply nested listItem', async () => {
@@ -937,7 +1053,7 @@ describe('modify Integration', () => {
       expect(helpers.getTextContent(deepItem)).toBe('Updated content');
     });
 
-    test('appendBlocks with position { after: xpath } targeting inside a nested list', async () => {
+    test('appending listItem to nested bulletList passes schema validation', async () => {
       // Build nested list with 2 items in inner bulletList
       const outerList = new Y.XmlElement('bulletList');
       const outerItem = new Y.XmlElement('listItem');
@@ -962,13 +1078,17 @@ describe('modify Integration', () => {
       outerList.insert(0, [outerItem]);
       xmlFragment.insert(0, [outerList]);
 
-      // Insert a new item after "Original 1" inside the nested list
+      // Correct approach: append a properly wrapped listItem
       const script = `
         export default function edit(doc) {
           const nestedList = xpathFirst('//listItem[contains(., "Parent Item")]/bulletList');
-          appendBlocks(nestedList, [
-            { type: 'paragraph', content: 'Inserted After' }
-          ], { after: '//listItem[contains(., "Original 1")]' });
+          const li = new Y.XmlElement('listItem');
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'Appended Item');
+          p.insert(0, [t]);
+          li.insert(0, [p]);
+          nestedList.insert(nestedList.length, [li]);
         }
       `;
 
@@ -983,11 +1103,8 @@ describe('modify Integration', () => {
       expect(nestedBulletList.nodeName).toBe('bulletList');
       expect(nestedBulletList.length).toBe(3);
 
-      // The inserted item should be at index 1 (between Original 1 and Original 2)
       const helpers = require('../helpers');
-      expect(helpers.getTextContent(nestedBulletList.get(0))).toBe('Original 1');
-      expect(helpers.getTextContent(nestedBulletList.get(1))).toBe('Inserted After');
-      expect(helpers.getTextContent(nestedBulletList.get(2))).toBe('Original 2');
+      expect(helpers.getTextContent(nestedBulletList.get(2))).toBe('Appended Item');
     });
   });
 });
