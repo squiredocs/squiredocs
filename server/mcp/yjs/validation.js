@@ -132,8 +132,10 @@ function validateTextContent(item, index) {
 /**
  * Validate a Yjs XmlFragment against the ProseMirror schema.
  *
- * Converts the fragment to a ProseMirror node and calls node.check(),
- * which throws if the structure violates schema content constraints.
+ * Converts the fragment to a ProseMirror node via y-prosemirror, then calls
+ * node.check(). The converter drops nodes that violate schema rules (e.g. a
+ * paragraph directly inside a bulletList), which typically produces an empty
+ * or under-filled doc that check() rejects.
  *
  * @param {Y.XmlFragment} xmlFragment - Document fragment to validate
  * @returns {{ valid: boolean, error: string|null }}

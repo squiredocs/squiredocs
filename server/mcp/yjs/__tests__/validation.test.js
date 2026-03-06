@@ -73,6 +73,32 @@ describe('validateDocumentSchema', () => {
     expect(result.error).toBeDefined();
   });
 
+  test('paragraph in bulletList alongside valid items returns valid: false', () => {
+    const list = new Y.XmlElement('bulletList');
+
+    // Valid item
+    const item = new Y.XmlElement('listItem');
+    const validPara = new Y.XmlElement('paragraph');
+    const validText = new Y.XmlText();
+    validText.insert(0, 'Valid item');
+    validPara.insert(0, [validText]);
+    item.insert(0, [validPara]);
+    list.insert(0, [item]);
+
+    // Invalid: bare paragraph in bulletList
+    const badPara = new Y.XmlElement('paragraph');
+    const badText = new Y.XmlText();
+    badText.insert(0, 'Lost content');
+    badPara.insert(0, [badText]);
+    list.insert(1, [badPara]);
+
+    xmlFragment.insert(0, [list]);
+
+    const result = validateDocumentSchema(xmlFragment);
+    expect(result.valid).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+
   test('listItem at document root returns valid: false', () => {
     const item = new Y.XmlElement('listItem');
     const para = new Y.XmlElement('paragraph');

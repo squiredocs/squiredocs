@@ -147,7 +147,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
       }
       return {
         success: false,
-        error: `Script produced invalid document structure: ${validation.error}`,
+        error: `Script produced invalid document structure (changes rolled back). ${validation.error}. Common cause: inserting nodes into the wrong container (e.g. 'paragraph' directly inside 'bulletList' requires a 'listItem' wrapper).`,
         operationCount: tracker.getOperationCount(),
       };
     }
