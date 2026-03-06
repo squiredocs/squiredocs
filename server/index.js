@@ -42,6 +42,15 @@ const PORT = process.env.PORT || 3001;
 // This is needed when behind a reverse proxy/load balancer that terminates SSL
 app.set('trust proxy', true);
 
+// Redirect old domains to squiredocs.com
+app.use((req, res, next) => {
+  const host = req.get('host');
+  if (host === 'herodocs.xyz' || host === 'heradocs.com') {
+    return res.redirect(301, `https://squiredocs.com${req.originalUrl}`);
+  }
+  next();
+});
+
 // Client URL for CORS (configurable via env)
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
