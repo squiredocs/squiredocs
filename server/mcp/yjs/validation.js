@@ -130,21 +130,70 @@ function validateTextContent(item, index) {
 }
 
 /**
+ * Build a ProseMirror-compatible JSON tree by walking the Yjs structure.
+ *
+ * Read-only traversal — unlike yXmlFragmentToProseMirrorRootNode from
+ * y-prosemirror, this does NOT mutate the Yjs document.
+ */
+function yjsToProseMirrorJson(node) {
+  const Y = require('yjs');
+
+  if (node instanceof Y.XmlText) {
+    const delta = node.toDelta();
+    if (!delta.length) return [];
+    return delta.map((op) => {
+      const result = { type: 'text', text: op.insert };
+      if (op.attributes) {
+        result.marks = Object.entries(op.attributes)
+          .filter(([, v]) => v !== null)
+          .map(([type, value]) =>
+            typeof value === 'object' ? { type, attrs: value } : { type }
+          );
+      }
+      return result;
+    });
+  }
+
+  if (node instanceof Y.XmlElement) {
+    const children = [];
+    for (let i = 0; i < node.length; i++) {
+      const r = yjsToProseMirrorJson(node.get(i));
+      if (Array.isArray(r)) children.push(...r);
+      else children.push(r);
+    }
+    const json = { type: node.nodeName };
+    if (children.length) json.content = children;
+    const attrs = node.getAttributes();
+    if (Object.keys(attrs).length) json.attrs = attrs;
+    return json;
+  }
+
+  // XmlFragment → doc node
+  const children = [];
+  for (let i = 0; i < node.length; i++) {
+    const r = yjsToProseMirrorJson(node.get(i));
+    if (Array.isArray(r)) children.push(...r);
+    else children.push(r);
+  }
+  return { type: 'doc', content: children.length ? children : undefined };
+}
+
+/**
  * Validate a Yjs XmlFragment against the ProseMirror schema.
  *
- * Converts the fragment to a ProseMirror node via y-prosemirror, then calls
- * node.check(). The converter drops nodes that violate schema rules (e.g. a
- * paragraph directly inside a bulletList), which typically produces an empty
- * or under-filled doc that check() rejects.
+ * Builds a ProseMirror JSON tree from the Yjs structure (read-only, no
+ * mutation), then uses schema.nodeFromJSON() + node.check() to validate.
+ * Produces clear errors like:
+ *   "Invalid content for node bulletList: <paragraph("Bad")>"
  *
  * @param {Y.XmlFragment} xmlFragment - Document fragment to validate
  * @returns {{ valid: boolean, error: string|null }}
  */
 function validateDocumentSchema(xmlFragment) {
   try {
-    const { yXmlFragmentToProseMirrorRootNode } = require('y-prosemirror');
     const { schema } = require('../../../shared/prosemirror-schema');
-    const node = yXmlFragmentToProseMirrorRootNode(xmlFragment, schema);
+    const json = yjsToProseMirrorJson(xmlFragment);
+    const node = schema.nodeFromJSON(json);
     node.check();
     return { valid: true, error: null };
   } catch (err) {
