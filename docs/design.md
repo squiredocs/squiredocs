@@ -1,21 +1,21 @@
-# HeroDocs Design Guidelines
+# Squire Docs Design Guidelines
 
-Brand identity, visual language, and UX principles for HeroDocs.
+Brand identity, visual language, and UX principles for Squire Docs.
 
 ---
 
 ## Brand Identity
 
-**Product**: HeroDocs
-**URL**: herodocs.xyz
+**Product**: Squire Docs
+**URL**: squiredocs.com
 
 **What it is**: A collaborative document editor that removes the friction from how people actually work today. It feels like the doc editor you already know — but with AI woven into the editing experience so naturally that the old workflow (write, copy to a chat tool, copy back, fix formatting) feels broken in hindsight.
 
-Think Cursor or Claude Code, but for documents. Those tools didn't invent code editors or AI — they just made the integration so seamless that going back felt absurd. HeroDocs is that same shift for everyday document work.
+Think Cursor or Claude Code, but for documents. Those tools didn't invent code editors or AI — they just made the integration so seamless that going back felt absurd. Squire Docs is that same shift for everyday document work.
 
 **Audience**: Anyone who uses Google Docs. Writers, teams, knowledge workers. The product is intentionally broad — documents are universal.
 
-**Core value proposition**: The best tools disappear into your workflow. HeroDocs makes AI a natural part of writing and editing — present when you need it, invisible when you don't. Every change is tracked and reversible, so you stay in control.
+**Core value proposition**: The best tools disappear into your workflow. Squire Docs makes AI a natural part of writing and editing — present when you need it, invisible when you don't. Every change is tracked and reversible, so you stay in control.
 
 ### Brand Personality
 
@@ -30,7 +30,7 @@ Think Cursor or Claude Code, but for documents. Those tools didn't invent code e
 
 ### Overall Aesthetic
 
-Clean, professional, document-centric. The interface disappears behind the content. Familiar enough to feel productive immediately — you should be able to open HeroDocs and start writing without thinking about it — but refined enough to feel like its own product, not a clone.
+Clean, professional, document-centric. The interface disappears behind the content. Familiar enough to feel productive immediately — you should be able to open Squire Docs and start writing without thinking about it — but refined enough to feel like its own product, not a clone.
 
 **Theme**: Light only (no dark mode). White surfaces, light gray backgrounds for depth, purple as the primary accent.
 
@@ -38,7 +38,7 @@ Clean, professional, document-centric. The interface disappears behind the conte
 
 #### Primary — Purple
 
-Purple is the brand color. It signals interactivity and distinguishes HeroDocs from the blue/green palette of most productivity tools.
+Purple is the brand color. It signals interactivity and distinguishes Squire Docs from the blue/green palette of most productivity tools.
 
 | Role | Hex | Usage |
 |------|-----|-------|
@@ -199,7 +199,7 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 └──────────────────────────┴──────────────────┘
 ```
 
-- **Header**: Fixed. Logo (purple doc icon + "HeroDocs"), editable title input, collaborator avatars, tools menu, AI toggle.
+- **Header**: Fixed. Logo (purple doc icon + "Squire Docs"), editable title input, collaborator avatars, tools menu, AI toggle.
 - **Toolbar**: Sticky below header on editor pages. Formatting tools, disappears on non-editor pages.
 - **Content area**: Centered, max-width 816px, generous horizontal padding.
 - **AI Panel**: Toggled via floating action button (bottom-right, purple). Can dock right, bottom, or pop out.
@@ -256,7 +256,7 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 ## Logo & Brand Mark
 
 - **Icon**: Purple document SVG with downward arrow motif (suggesting "bringing content in")
-- **Wordmark**: "HeroDocs" in bold sans-serif (system font, 700 weight, -0.02em tracking)
+- **Wordmark**: "Squire Docs" in bold sans-serif (system font, 700 weight, -0.02em tracking)
 - **Color**: Purple (`#7c3aed`) for icon, dark gray (`#1f2937`) for text
 - **Minimum size**: 32px icon, typically paired with text at 1.5rem
 

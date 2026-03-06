@@ -1,6 +1,15 @@
 apiVersion: networking.gke.io/v1
 kind: ManagedCertificate
 metadata:
+  name: squiredocs-cert
+  namespace: collab
+spec:
+  domains:
+    - squiredocs.com
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
   name: herodocs-cert
   namespace: collab
 spec:
@@ -37,7 +46,7 @@ metadata:
   namespace: collab
   annotations:
     kubernetes.io/ingress.class: "gce"
-    networking.gke.io/managed-certificates: herodocs-cert,heradocs-cert
+    networking.gke.io/managed-certificates: squiredocs-cert,herodocs-cert,heradocs-cert
     # Redirect HTTP to HTTPS
     networking.gke.io/v1beta1.FrontendConfig: collab-frontend-config
 spec:

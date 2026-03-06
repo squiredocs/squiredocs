@@ -4,7 +4,7 @@ import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import './LoginPage.css';
 
 /**
- * Login page component for HeroDocs
+ * Login page component for Squire Docs
  * Displays branding and Google sign-in button
  */
 export default function LoginPage({ onNavigateToLanding }) {
@@ -49,7 +49,7 @@ export default function LoginPage({ onNavigateToLanding }) {
                 <path d="M9 15l3 3 3-3" />
               </svg>
             </div>
-            <h1 className="login-title">HeroDocs</h1>
+            <h1 className="login-title">Squire Docs</h1>
           </a>
           <p className="login-subtitle">Docs that work as hard as you do</p>
         </div>

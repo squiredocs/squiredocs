@@ -36,7 +36,7 @@ async function sendEmail({ to, subject, html }) {
   }
 
   try {
-    await getTransporter().sendMail({ from: `HeroDocs <${FROM_EMAIL}>`, to, subject, html });
+    await getTransporter().sendMail({ from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html });
   } catch (err) {
     console.error('Failed to send email:', subject, err.message);
   }

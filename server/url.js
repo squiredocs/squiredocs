@@ -4,7 +4,7 @@
  */
 function buildBaseUrl(req) {
   const host = req.get('host');
-  const protocol = host && host.includes('herodocs.xyz') ? 'https' : req.protocol;
+  const protocol = host && host.includes('squiredocs.com') ? 'https' : req.protocol;
   return `${protocol}://${host}`;
 }
 

@@ -58,11 +58,11 @@ function DocList({ onNavigate, onNavigateToSettings, user }) {
   const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
-    document.title = 'Documents - HeroDocs';
+    document.title = 'Documents - Squire Docs';
     fetchDocs();
 
     return () => {
-      document.title = 'HeroDocs';
+      document.title = 'Squire Docs';
     };
   }, []);
 

@@ -142,7 +142,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
               <span className="step-number">1</span>
               <div className="step-content">
                 <p className="step-text">Configure your agent to connect to our MCP server:</p>
-                <code className="mcp-url">https://herodocs.xyz/mcp</code>
+                <code className="mcp-url">https://squiredocs.com/mcp</code>
               </div>
             </div>
             <div className="connection-step">

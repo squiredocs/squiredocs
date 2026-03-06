@@ -268,10 +268,10 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Update HTML title when document title changes
   useEffect(() => {
     const title = docTitle || 'Untitled document';
-    document.title = `${title} - HeroDocs`;
+    document.title = `${title} - Squire Docs`;
 
     return () => {
-      document.title = 'HeroDocs';
+      document.title = 'Squire Docs';
     };
   }, [docTitle]);
 
