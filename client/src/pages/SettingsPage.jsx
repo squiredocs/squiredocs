@@ -3,16 +3,23 @@
  *
  * User account settings and preferences, including authorized AI agents.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AgentDelegationList from '../components/AgentDelegationList';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function SettingsPage({ onNavigateHome, user }) {
-  const { updateUser } = useAuth();
+  const { updateUser, api } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [usage, setUsage] = useState(null);
+
+  useEffect(() => {
+    api.get('/api/usage')
+      .then(res => setUsage(res.data))
+      .catch(() => {});
+  }, [api]);
 
   const handleSave = async () => {
     const trimmed = nameValue.trim();
@@ -92,6 +99,35 @@ export default function SettingsPage({ onNavigateHome, user }) {
             {error && <div className="settings-name-error">{error}</div>}
           </div>
         </section>
+
+        {usage && (
+          <section className="settings-section">
+            <h2>AI Usage</h2>
+            <p className="settings-description">
+              Your AI assistant usage for the current billing month.
+            </p>
+            <div className="usage-stats">
+              <div className="usage-amounts">
+                <span className="usage-used">${(usage.usedCents / 100).toFixed(2)} used</span>
+                <span className="usage-total">${(usage.creditCents / 100).toFixed(2)} limit</span>
+              </div>
+              <div className="usage-bar-track">
+                <div
+                  className={`usage-bar-fill${usage.usedCents >= usage.creditCents ? ' usage-bar-exceeded' : ''}`}
+                  style={{ width: `${Math.min(100, (usage.usedCents / usage.creditCents) * 100)}%` }}
+                />
+              </div>
+              <div className="usage-footer">
+                <span className="usage-remaining">
+                  ${(usage.remainingCents / 100).toFixed(2)} remaining
+                </span>
+                <span className="usage-resets">
+                  Resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="settings-section">
           <h2>AI Agent Access</h2>

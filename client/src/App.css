@@ -782,6 +782,53 @@ body[data-mobile] .app-header {
   transform: scale(0.95);
 }
 
+/* AI Usage Styles */
+.usage-stats {
+  margin-top: 12px;
+}
+
+.usage-amounts {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.usage-used {
+  font-weight: 600;
+  color: #333;
+}
+
+.usage-total {
+  color: #888;
+}
+
+.usage-bar-track {
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  background: #4a9eff;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.usage-bar-fill.usage-bar-exceeded {
+  background: #dc3545;
+}
+
+.usage-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #666;
+  margin-top: 6px;
+}
+
 /* Connection Instructions Styles */
 .connection-instructions {
   background: #f8f9fa;

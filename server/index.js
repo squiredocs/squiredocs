@@ -328,6 +328,17 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// API: Get AI usage quota for the current user
+app.get('/api/usage', requireAuth, async (req, res) => {
+  try {
+    const quota = await aiUsage.checkQuota(req.user.userId);
+    res.json(quota);
+  } catch (err) {
+    console.error('[Usage] Error fetching quota:', err);
+    res.status(500).json({ error: 'Failed to fetch usage data' });
+  }
+});
+
 // API: List documents accessible by the current user
 // Query params: search, filter, sortBy, sortOrder, limit, offset
 app.get('/api/docs', requireAuth, async (req, res) => {
