@@ -23,9 +23,12 @@ function parseRoute() {
     return { view: 'authorize', docGuid: null };
   }
 
-  // Check for /login path
+  // Check for /login or /signup path
   if (path === '/login') {
     return { view: 'login', docGuid: null };
+  }
+  if (path === '/signup') {
+    return { view: 'signup', docGuid: null };
   }
 
   // Check for /settings path
@@ -119,16 +122,16 @@ function AppContent() {
     setListKey(k => k + 1); // Force DocList to refetch
   };
 
-  // Navigate to landing page
-  const navigateToLanding = () => {
-    window.history.pushState({}, '', '/');
-    setRoute({ view: 'landing', docGuid: null });
-  };
-
   // Navigate to login page
   const navigateToLogin = () => {
     window.history.pushState({}, '', '/login');
     setRoute({ view: 'login', docGuid: null });
+  };
+
+  // Navigate to signup page
+  const navigateToSignup = () => {
+    window.history.pushState({}, '', '/signup');
+    setRoute({ view: 'signup', docGuid: null });
   };
 
   // Navigate to settings page
@@ -147,18 +150,28 @@ function AppContent() {
     );
   }
 
-  // Landing page - redirect to docs or login
+  // Landing page - redirect to docs or signup
   if (route.view === 'landing') {
     if (isAuthenticated) {
       navigateToDocs();
-      return null;
+    } else {
+      navigateToSignup();
     }
-    return <LoginPage onNavigateToLanding={navigateToLanding} />;
+    return null;
   }
 
   // Authorization page - for OAuth agent authorization
   if (route.view === 'authorize') {
     return <AuthorizePage />;
+  }
+
+  // Signup page - redirect to docs if already authenticated
+  if (route.view === 'signup') {
+    if (isAuthenticated) {
+      navigateToDocs();
+      return null;
+    }
+    return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="signup" />;
   }
 
   // Login page - redirect to docs if already authenticated
@@ -167,12 +180,12 @@ function AppContent() {
       navigateToDocs();
       return null;
     }
-    return <LoginPage onNavigateToLanding={navigateToLanding} />;
+    return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="login" />;
   }
 
   // Protected routes - require authentication
   if (!isAuthenticated) {
-    return <LoginPage onNavigateToLanding={navigateToLanding} />;
+    return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="login" />;
   }
 
   return <AuthenticatedApp route={route} listKey={listKey} user={user}

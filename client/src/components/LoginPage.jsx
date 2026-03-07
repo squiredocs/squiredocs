@@ -8,7 +8,7 @@ import './LoginPage.css';
  * Login page component for Squire Docs
  * Displays branding and Google sign-in button
  */
-export default function LoginPage({ onNavigateToLanding }) {
+export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode = 'signup' }) {
   const { login, error, loading } = useAuth();
 
   // Map error codes to user-friendly messages
@@ -22,18 +22,27 @@ export default function LoginPage({ onNavigateToLanding }) {
     return errorMessages[error] || `Authentication error: ${error}`;
   };
 
-  const handleLogoClick = (e) => {
-    // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+  const handleLoginClick = (e) => {
     if (shouldUseBrowserLinkBehavior(e)) {
-      return; // Let the browser handle it
+      return;
     }
-
-    // For normal clicks, use SPA navigation
     e.preventDefault();
-    if (onNavigateToLanding) {
-      onNavigateToLanding();
+    if (onNavigateToLogin) {
+      onNavigateToLogin();
     } else {
-      window.location.href = '/';
+      window.location.href = '/login';
+    }
+  };
+
+  const handleSignupClick = (e) => {
+    if (shouldUseBrowserLinkBehavior(e)) {
+      return;
+    }
+    e.preventDefault();
+    if (onNavigateToSignup) {
+      onNavigateToSignup();
+    } else {
+      window.location.href = '/signup';
     }
   };
 
@@ -41,7 +50,7 @@ export default function LoginPage({ onNavigateToLanding }) {
     <div className="login-page">
       <div className="login-container">
         <div className="login-branding">
-          <a href="/" onClick={handleLogoClick} className="login-logo-link">
+          <a href="/signup" onClick={handleSignupClick} className="login-logo-link">
             <div className="login-logo">
               <Logo color="currentColor" />
             </div>
@@ -50,7 +59,7 @@ export default function LoginPage({ onNavigateToLanding }) {
           <p className="login-subtitle">Docs that work as hard as you do</p>
         </div>
 
-        <h2 className="login-headline">Welcome Back</h2>
+        <h2 className="login-headline">{mode === 'login' ? 'Welcome Back' : 'Get Started'}</h2>
 
         {error && (
           <div className="login-error">
@@ -69,14 +78,25 @@ export default function LoginPage({ onNavigateToLanding }) {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
+          <span>{loading ? 'Signing in...' : (mode === 'login' ? 'Sign in with Google' : 'Sign up with Google')}</span>
         </button>
 
         <div className="login-footer">
-          <span>Don't have an account?</span>
-          <a href="/" onClick={handleLogoClick} className="login-waitlist-link">
-            Join the Waitlist
-          </a>
+          {mode === 'login' ? (
+            <>
+              <span>Don't have an account?</span>
+              <a href="/signup" onClick={handleSignupClick} className="login-signup-link">
+                Sign Up
+              </a>
+            </>
+          ) : (
+            <>
+              <span>Already have an account?</span>
+              <a href="/login" onClick={handleLoginClick} className="login-signup-link">
+                Sign In
+              </a>
+            </>
+          )}
         </div>
       </div>
     </div>

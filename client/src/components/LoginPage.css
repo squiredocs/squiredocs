@@ -134,7 +134,7 @@
   color: #6b7280;
 }
 
-.login-waitlist-link {
+.login-signup-link {
   color: #7c3aed;
   text-decoration: none;
   margin-left: 0.5rem;
@@ -142,7 +142,7 @@
   transition: color 0.2s ease;
 }
 
-.login-waitlist-link:hover {
+.login-signup-link:hover {
   color: #6d28d9;
   text-decoration: underline;
 }
