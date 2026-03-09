@@ -454,30 +454,27 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   return sessionPromise;
 }
 
-// 100 bold, perceptually-spaced colors for avatar borders and cursors.
-// Hue distribution is weighted: fewer greens (look similar), more reds/blues/purples (more distinct).
-// HSL(hue, 75%, 45%) converted to hex.
+// Kelly's 22 colors of maximum contrast (1965), minus white, black, and
+// 3 colors too light for avatar borders. Every pair is visually distinct.
+// Source: https://gist.github.com/ollieglass/f6ddd781eeae1d24e391265432297538
 const PALETTE = [
-  '#c9221d', '#c92b1d', '#c9341d', '#c93c1d', '#c9451d',
-  '#c94d1d', '#c9591d', '#c9621d', '#c96a1d', '#c9731d',
-  '#c97b1d', '#c9841d', '#c98d1d', '#c9981d', '#c9a11d',
-  '#c9a91d', '#c9b21d', '#c9ba1d', '#c9c31d', '#c0c91d',
-  '#b2c91d', '#a4c91d', '#95c91d', '#87c91d', '#78c91d',
-  '#6ac91d', '#59c91d', '#48c91d', '#37c91d', '#25c91d',
-  '#1dc925', '#1dc937', '#1dc948', '#1dc959', '#1dc96a',
-  '#1dc978', '#1dc984', '#1dc98f', '#1dc99e', '#1dc9a9',
-  '#1dc9b5', '#1dc9c0', '#1dc6c9', '#1dbac9', '#1dacc9',
-  '#1da1c9', '#1d95c9', '#1d8ac9', '#1d81c9', '#1d78c9',
-  '#1d70c9', '#1d67c9', '#1d5cc9', '#1d53c9', '#1d4bc9',
-  '#1d42c9', '#1d39c9', '#1d31c9', '#1d25c9', '#1d1dc9',
-  '#251dc9', '#2e1dc9', '#371dc9', '#421dc9', '#4b1dc9',
-  '#531dc9', '#5c1dc9', '#641dc9', '#6d1dc9', '#761dc9',
-  '#7e1dc9', '#871dc9', '#8f1dc9', '#981dc9', '#a11dc9',
-  '#a91dc9', '#b21dc9', '#ba1dc9', '#c31dc9', '#c91dc9',
-  '#c91dc0', '#c91db8', '#c91daf', '#c91da6', '#c91d9e',
-  '#c91d95', '#c91d8d', '#c91d84', '#c91d7b', '#c91d73',
-  '#c91d6d', '#c91d64', '#c91d5c', '#c91d53', '#c91d4b',
-  '#c91d42', '#c91d39', '#c91d31', '#c91d28', '#c91d20',
+  '#875692', // Strong Purple
+  '#F38400', // Vivid Orange
+  '#BE0032', // Vivid Red
+  '#C2B280', // Grayish Yellow
+  '#848482', // Medium Gray
+  '#008856', // Vivid Green
+  '#E68FAC', // Strong Purplish Pink
+  '#0067A5', // Strong Blue
+  '#F99379', // Strong Yellowish Pink
+  '#604E97', // Strong Violet
+  '#F6A600', // Vivid Orange Yellow
+  '#B3446C', // Strong Purplish Red
+  '#882D17', // Strong Reddish Brown
+  '#8DB600', // Vivid Yellowish Green
+  '#654522', // Deep Yellowish Brown
+  '#E25822', // Vivid Reddish Orange
+  '#2B3D26', // Dark Olive Green
 ];
 
 /**
