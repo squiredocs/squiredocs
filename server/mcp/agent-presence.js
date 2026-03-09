@@ -120,7 +120,7 @@ async function _verifyDocumentAccess(docGuid, userId) {
  */
 function _buildAgentInfo(agentToken, userName, email, picture, userId) {
   const agentName = agentToken.agentName || 'AI Agent';
-  const agentColor = generateColorFromUserId(userId);
+  const agentColor = generateColorFromUserId(`${userId}-agent-${agentName}`);
   return {
     name: `${agentName} (${userName})`,
     email,
@@ -473,9 +473,9 @@ function hslToRgb(h, s, l) {
 
 /**
  * Generate a consistent color for a user ID
- * Returns RGB format for compatibility with y-prosemirror cursor plugin
+ * Returns hex format for compatibility with y-prosemirror cursor plugin
  * @param {string} userId - User ID
- * @returns {string} RGB color
+ * @returns {string} Hex color (e.g. #rrggbb)
  */
 function generateColorFromUserId(userId) {
   // Generate a hash from the user ID
@@ -486,9 +486,8 @@ function generateColorFromUserId(userId) {
 
   // Generate a color with good saturation and lightness for visibility
   const hue = Math.abs(hash) % 360;
-  // Convert to RGB for y-prosemirror compatibility (it doesn't support HSL)
   const [r, g, b] = hslToRgb(hue, 70, 50);
-  return `rgb(${r}, ${g}, ${b})`;
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 /**
