@@ -454,22 +454,31 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
   return sessionPromise;
 }
 
-/**
- * Convert HSL to RGB
- */
-function hslToRgb(h, s, l) {
-  s /= 100;
-  l /= 100;
-  const k = n => (n + h / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = n =>
-    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [
-    Math.round(255 * f(0)),
-    Math.round(255 * f(8)),
-    Math.round(255 * f(4))
-  ];
-}
+// 100 bold, perceptually-spaced colors for avatar borders and cursors.
+// Hue distribution is weighted: fewer greens (look similar), more reds/blues/purples (more distinct).
+// HSL(hue, 75%, 45%) converted to hex.
+const PALETTE = [
+  '#c9221d', '#c92b1d', '#c9341d', '#c93c1d', '#c9451d',
+  '#c94d1d', '#c9591d', '#c9621d', '#c96a1d', '#c9731d',
+  '#c97b1d', '#c9841d', '#c98d1d', '#c9981d', '#c9a11d',
+  '#c9a91d', '#c9b21d', '#c9ba1d', '#c9c31d', '#c0c91d',
+  '#b2c91d', '#a4c91d', '#95c91d', '#87c91d', '#78c91d',
+  '#6ac91d', '#59c91d', '#48c91d', '#37c91d', '#25c91d',
+  '#1dc925', '#1dc937', '#1dc948', '#1dc959', '#1dc96a',
+  '#1dc978', '#1dc984', '#1dc98f', '#1dc99e', '#1dc9a9',
+  '#1dc9b5', '#1dc9c0', '#1dc6c9', '#1dbac9', '#1dacc9',
+  '#1da1c9', '#1d95c9', '#1d8ac9', '#1d81c9', '#1d78c9',
+  '#1d70c9', '#1d67c9', '#1d5cc9', '#1d53c9', '#1d4bc9',
+  '#1d42c9', '#1d39c9', '#1d31c9', '#1d25c9', '#1d1dc9',
+  '#251dc9', '#2e1dc9', '#371dc9', '#421dc9', '#4b1dc9',
+  '#531dc9', '#5c1dc9', '#641dc9', '#6d1dc9', '#761dc9',
+  '#7e1dc9', '#871dc9', '#8f1dc9', '#981dc9', '#a11dc9',
+  '#a91dc9', '#b21dc9', '#ba1dc9', '#c31dc9', '#c91dc9',
+  '#c91dc0', '#c91db8', '#c91daf', '#c91da6', '#c91d9e',
+  '#c91d95', '#c91d8d', '#c91d84', '#c91d7b', '#c91d73',
+  '#c91d6d', '#c91d64', '#c91d5c', '#c91d53', '#c91d4b',
+  '#c91d42', '#c91d39', '#c91d31', '#c91d28', '#c91d20',
+];
 
 /**
  * Generate a consistent color for a user ID
@@ -478,16 +487,13 @@ function hslToRgb(h, s, l) {
  * @returns {string} Hex color (e.g. #rrggbb)
  */
 function generateColorFromUserId(userId) {
-  // Generate a hash from the user ID
+  // Include today's date so each agent gets a fresh color daily
+  const key = userId + new Date().toISOString().slice(0, 10);
   let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < key.length; i++) {
+    hash = key.charCodeAt(i) + ((hash << 5) - hash);
   }
-
-  // Generate a color with good saturation and lightness for visibility
-  const hue = Math.abs(hash) % 360;
-  const [r, g, b] = hslToRgb(hue, 70, 50);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
 /**
