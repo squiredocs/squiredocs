@@ -145,13 +145,6 @@ router.post('/', requireAuth, async (req, res) => {
     entry = { chunks: [], done: false };
     activeStreams.set(chatId, entry);
 
-    // Check AI usage quota before proceeding
-    const quota = await aiUsage.checkQuota(req.user.userId);
-    if (!quota.allowed) {
-      cleanupEntry();
-      return res.status(429).json({ error: 'AI usage limit reached' });
-    }
-
     // Load previous messages from DB and append the new user message.
     // Filter out any messages with empty parts — these can occur when a
     // stream is interrupted before any content arrives, and the AI SDK
@@ -162,6 +155,13 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Persist user message immediately so it survives interrupted streams
     await chatStore.saveChat(chatId, allMessages);
+
+    // Check AI usage quota before proceeding
+    const quota = await aiUsage.checkQuota(req.user.userId);
+    if (!quota.allowed) {
+      cleanupEntry();
+      return res.status(429).json({ error: 'AI usage limit reached' });
+    }
 
     // Look up document title if docGuid provided
     let docTitle = null;

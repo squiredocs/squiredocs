@@ -263,14 +263,14 @@ function AiPanel({ aiPanel, aiChat }) {
           )}
           {usageLimitReached ? (
             <div className="ai-panel-usage-limit">
-              You've reached your AI usage limit for this month.
+              You've reached your AI usage limit for this month. <a href="/settings" className="ai-panel-usage-limit-link">View Usage</a>
             </div>
           ) : status === 'error' && error && (
             <div className="ai-panel-error">
               Something went wrong. Please try again.
             </div>
           )}
-          <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming || usageLimitReached} autoFocus placeholder={usageLimitReached ? 'Usage limit reached' : isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
+          <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
         </>
       )}
     </WrapperTag>
