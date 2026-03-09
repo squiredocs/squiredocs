@@ -288,22 +288,22 @@ describe('AiPanel', () => {
   it('shows usage limit banner when usageLimitReached is true', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: true })} />);
 
-    expect(screen.getByText("You've reached your AI usage limit for this month.")).toBeInTheDocument();
+    expect(screen.getByText(/You've reached your AI usage limit for this month/)).toBeInTheDocument();
+    expect(screen.getByText('View Usage')).toHaveAttribute('href', '/settings');
   });
 
-  it('disables input when usage limit is reached', () => {
+  it('keeps input usable when usage limit is reached', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: true })} />);
 
-    // isStreaming is set to true when usageLimitReached, so stop button shows instead of disabled send
-    // The input area should show the usage limit placeholder
+    // Input should remain functional so users can resend after increasing their limit
     const textarea = screen.getByRole('textbox');
-    expect(textarea).toHaveAttribute('placeholder', 'Usage limit reached');
+    expect(textarea).toHaveAttribute('placeholder', 'How can I help you?');
   });
 
   it('does not show usage limit banner when not reached', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ usageLimitReached: false })} />);
 
-    expect(screen.queryByText("You've reached your AI usage limit for this month.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/You've reached your AI usage limit for this month/)).not.toBeInTheDocument();
   });
 
   // --------------- Generic error ---------------
