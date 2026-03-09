@@ -5,10 +5,11 @@
  */
 import { useState, useEffect } from 'react';
 import AgentDelegationList from '../components/AgentDelegationList';
+import UserProfileBadge from '../components/UserProfileBadge';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function SettingsPage({ onNavigateHome, user }) {
-  const { updateUser, api } = useAuth();
+  const { updateUser, api, logout } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
   const [saving, setSaving] = useState(false);
@@ -48,15 +49,22 @@ export default function SettingsPage({ onNavigateHome, user }) {
   };
 
   return (
-    <div className="settings-page">
-      <div className="settings-header">
-        <button className="back-btn" onClick={onNavigateHome}>
-          ← Back to Documents
-        </button>
-        <h1>Settings</h1>
-      </div>
+    <>
+      <header className="app-header">
+        <div className="app-header-content">
+          <div className="app-header-left">
+            <button className="back-btn" onClick={onNavigateHome}>
+              ← Back to Documents
+            </button>
+            <h1>Settings</h1>
+          </div>
+          <div className="app-header-right">
+            <UserProfileBadge user={user} onLogout={logout} />
+          </div>
+        </div>
+      </header>
 
-      <div className="settings-content">
+      <div className="settings-page">
         <section className="settings-section">
           <h2>Account</h2>
           <div className="settings-item">
@@ -201,6 +209,6 @@ export default function SettingsPage({ onNavigateHome, user }) {
           <AgentDelegationList />
         </section>
       </div>
-    </div>
+    </>
   );
 }
