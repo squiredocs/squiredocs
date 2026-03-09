@@ -13,7 +13,7 @@ describe('Agent Presence Manager', () => {
       sessionId: `test-session-${Date.now()}-${Math.random()}`,
       docGuid: 'test-doc-guid',
       userId: 'test-user-id',
-      key: 'test-user-id-test-doc-guid',
+      agentId: 'default',
       provider: {
         wsconnected: true,
         awareness: { setLocalStateField: jest.fn() },
@@ -29,7 +29,7 @@ describe('Agent Presence Manager', () => {
       highlightQueue: null,
     };
     const session = { ...defaults, ...overrides };
-    session.key = `${session.userId}-${session.docGuid}`;
+    session.key = `${session.userId}-${session.agentId}-${session.docGuid}`;
 
     // Add to all indexes (mirroring what _createSessionCore does)
     sessions.set(session.sessionId, session);
@@ -334,6 +334,61 @@ describe('Agent Presence Manager', () => {
       expect(typeof retrieved.initialized).toBe('boolean');
 
       cleanupMockSession(session.sessionId);
+    });
+  });
+
+  describe('session keys include agentId', () => {
+    test('different agents for the same user and doc get separate sessions', () => {
+      const userId = 'user-1';
+      const docGuid = 'doc-1';
+
+      const session1 = createMockSession({
+        sessionId: 'session-agent-a',
+        userId,
+        agentId: 'in-app-chat',
+        docGuid,
+      });
+      const session2 = createMockSession({
+        sessionId: 'session-agent-b',
+        userId,
+        agentId: 'claude-desktop',
+        docGuid,
+      });
+
+      // Both sessions should exist independently
+      expect(agentPresence.getSession('session-agent-a')).toBe(session1);
+      expect(agentPresence.getSession('session-agent-b')).toBe(session2);
+
+      // Session keys should be different
+      expect(session1.key).not.toBe(session2.key);
+      expect(session1.key).toBe(`${userId}-in-app-chat-${docGuid}`);
+      expect(session2.key).toBe(`${userId}-claude-desktop-${docGuid}`);
+
+      cleanupMockSession(session1.sessionId);
+      cleanupMockSession(session2.sessionId);
+    });
+
+    test('same agent on different docs gets separate sessions', () => {
+      const userId = 'user-1';
+      const agentId = 'in-app-chat';
+
+      const session1 = createMockSession({
+        sessionId: 'session-doc-a',
+        userId,
+        agentId,
+        docGuid: 'doc-a',
+      });
+      const session2 = createMockSession({
+        sessionId: 'session-doc-b',
+        userId,
+        agentId,
+        docGuid: 'doc-b',
+      });
+
+      expect(session1.key).not.toBe(session2.key);
+
+      cleanupMockSession(session1.sessionId);
+      cleanupMockSession(session2.sessionId);
     });
   });
 

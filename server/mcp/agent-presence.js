@@ -549,7 +549,8 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   const duration = Math.max(1, Math.min(300, durationSeconds));
   const userId = agentToken.userId;
-  const sessionKey = `${userId}-${docGuid}`;
+  const agentId = agentToken.agentId || 'default';
+  const sessionKey = `${userId}-${agentId}-${docGuid}`;
 
   const { userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
   const agentInfo = _buildAgentInfo(agentToken, userName, email, picture, userId);
