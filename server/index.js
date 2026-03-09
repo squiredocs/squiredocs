@@ -72,8 +72,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Parse JSON bodies
-app.use(express.json());
+// Parse JSON bodies (skip /api/chat — it has its own larger limit)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/chat')) return next();
+  express.json()(req, res, next);
+});
 
 // Parse form-encoded bodies (required for OAuth token requests)
 app.use(express.urlencoded({ extended: true }));
@@ -215,7 +218,7 @@ const diffService = new DiffService(persistenceProvider.getPool());
 // Mount auth routes
 app.use('/auth', authRouter);
 
-app.use('/api/chat', express.json({ limit: '2mb' }), chat.router);
+app.use('/api/chat', express.json({ limit: '10mb' }), chat.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities

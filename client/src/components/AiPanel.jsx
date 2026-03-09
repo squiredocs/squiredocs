@@ -36,7 +36,7 @@ function AiPanel({ aiPanel, aiChat }) {
     isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -45,6 +45,33 @@ function AiPanel({ aiPanel, aiChat }) {
   const panelRef = useRef(null);
   const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) {
+      chatInputRef.current?.addFiles(e.dataTransfer.files);
+    }
+  }, []);
 
   // Streaming state: disable send when AI is responding
   const isStreaming = status === 'streaming' || status === 'submitted';
@@ -122,7 +149,8 @@ function AiPanel({ aiPanel, aiChat }) {
   );
 
   const panelJsx = (
-    <WrapperTag ref={panelRef} {...wrapperProps}>
+    <WrapperTag ref={panelRef} {...wrapperProps} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      {isDragOver && <div className="ai-panel-drop-overlay">Drop image here</div>}
       {/* Resize handle (desktop only, not when popped out) */}
       {!isMobile && !isPoppedOut && (
         <div
@@ -270,7 +298,7 @@ function AiPanel({ aiPanel, aiChat }) {
               Something went wrong. Please try again.
             </div>
           )}
-          <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} />
+          <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} />
         </>
       )}
     </WrapperTag>

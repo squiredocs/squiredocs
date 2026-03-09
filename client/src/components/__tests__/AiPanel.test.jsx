@@ -320,6 +320,32 @@ describe('AiPanel', () => {
     expect(screen.queryByText('Something went wrong. Please try again.')).not.toBeInTheDocument();
   });
 
+  // --------------- Drag & drop ---------------
+
+  it('shows drop overlay on dragEnter and hides on dragLeave', () => {
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    const panel = container.querySelector('.ai-panel');
+    fireEvent.dragEnter(panel);
+    expect(screen.getByText('Drop image here')).toBeInTheDocument();
+
+    fireEvent.dragLeave(panel);
+    expect(screen.queryByText('Drop image here')).not.toBeInTheDocument();
+  });
+
+  it('hides drop overlay on drop', () => {
+    const { container } = render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    const panel = container.querySelector('.ai-panel');
+    fireEvent.dragEnter(panel);
+    expect(screen.getByText('Drop image here')).toBeInTheDocument();
+
+    fireEvent.drop(panel, { dataTransfer: { files: [] } });
+    expect(screen.queryByText('Drop image here')).not.toBeInTheDocument();
+  });
+
+  // --------------- Usage limit (continued) ---------------
+
   it('shows usage limit banner instead of generic error when both apply', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({
       status: 'error',

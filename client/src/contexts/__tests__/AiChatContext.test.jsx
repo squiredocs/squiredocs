@@ -185,6 +185,82 @@ describe('AiChatContext', () => {
     expect(body.title).toBe('Hello world');
   });
 
+  // --------------- Image file forwarding ---------------
+
+  it('forwards files to chat.sendMessage', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
+
+    mockFetchResponse({ id: 'chat-img' }); // createChat
+    mockFetchResponse([]); // refreshChatList
+    mockFetchResponse({ ok: true }); // PATCH title
+    mockFetchResponse([]); // refreshChatList
+
+    await act(async () => { await result.current.sendMessage('Look at this', files); });
+
+    expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'Look at this', files });
+  });
+
+  it('uses fallback title for image-only messages', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
+
+    mockFetchResponse({ id: 'chat-img2' }); // createChat
+    mockFetchResponse([]); // refreshChatList
+    mockFetchResponse({ ok: true }); // PATCH title
+    mockFetchResponse([]); // refreshChatList
+
+    await act(async () => { await result.current.sendMessage('', files); });
+
+    const patchCall = mockFetch.mock.calls.find(
+      ([url, opts]) => url.includes('/api/chat/chats/chat-img2') && opts?.method === 'PATCH'
+    );
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse(patchCall[1].body);
+    expect(body.title).toBe('Image');
+  });
+
+  it('sends text as space for image-only messages', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
+
+    mockFetchResponse({ id: 'chat-img3' }); // createChat
+    mockFetchResponse([]); // refreshChatList
+    mockFetchResponse({ ok: true }); // PATCH title
+    mockFetchResponse([]); // refreshChatList
+
+    await act(async () => { await result.current.sendMessage('', files); });
+
+    expect(sendMessageSpy).toHaveBeenCalledWith({ text: ' ', files });
+  });
+
+  it('does not pass files when none provided', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    mockFetchResponse({ id: 'chat-nf' }); // createChat
+    mockFetchResponse([]); // refreshChatList
+    mockFetchResponse({ ok: true }); // PATCH title
+    mockFetchResponse([]); // refreshChatList
+
+    await act(async () => { await result.current.sendMessage('No files'); });
+
+    expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'No files', files: undefined });
+  });
+
+  it('exposes draftFiles and clearDraftFiles in context value', () => {
+    const { result } = renderAiChat();
+    expect(result.current).toHaveProperty('draftFiles');
+    expect(result.current).toHaveProperty('clearDraftFiles');
+    expect(typeof result.current.clearDraftFiles).toBe('function');
+  });
+
   it('pendingAssistantResponse is not in context value', () => {
     const { result } = renderAiChat();
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');

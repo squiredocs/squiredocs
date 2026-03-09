@@ -262,6 +262,19 @@ router.post('/', requireAuth, async (req, res) => {
     const validatedMessages = await validateUIMessages({ messages: allMessages, tools });
     const modelMessages = await convertToModelMessages(validatedMessages);
 
+    // Convert data-URL file parts to inline Buffers so the AI SDK doesn't
+    // try to download them (validateDownloadUrl rejects data: scheme).
+    for (const msg of modelMessages) {
+      if (!Array.isArray(msg.content)) continue;
+      for (const part of msg.content) {
+        if ((part.type === 'file' || part.type === 'image') &&
+            typeof part.data === 'string' && part.data.startsWith('data:')) {
+          const m = part.data.match(/^data:[^;]+;base64,(.+)$/s);
+          if (m) part.data = Buffer.from(m[1], 'base64');
+        }
+      }
+    }
+
     const result = streamText({
       model,
       system: buildSystemPrompt(docGuid, docTitle),

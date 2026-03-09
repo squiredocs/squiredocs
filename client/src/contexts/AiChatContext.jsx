@@ -103,18 +103,22 @@ export function AiChatProvider({ children }) {
   // Usage limit error state
   const [usageLimitReached, setUsageLimitReached] = useState(false);
 
-  // Track last sent text so we can restore it on error
+  // Track last sent text/files so we can restore them on error
   const lastSentTextRef = useRef('');
+  const lastSentFilesRef = useRef(null);
   const [draftText, setDraftText] = useState('');
+  const [draftFiles, setDraftFiles] = useState(null);
 
   // Single Chat instance — never pass `id` so useChat doesn't recreate it
   const chat = useChat({
     transport,
     onError: (error) => {
-      // Restore the user's message to the input
-      if (lastSentTextRef.current) {
-        setDraftText(lastSentTextRef.current);
+      // Restore the user's message and files to the input
+      if (lastSentTextRef.current || lastSentFilesRef.current) {
+        if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+        if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
         lastSentTextRef.current = '';
+        lastSentFilesRef.current = null;
       }
       // DefaultChatTransport throws Error(responseBody) on non-200.
       // Our 429 returns JSON: {"error":"AI usage limit reached"}
@@ -228,7 +232,7 @@ export function AiChatProvider({ children }) {
   // Stable wrapper so callers can pass a plain string instead of { text }
   // Auto-creates a chat if none is selected
   const sendMessage = useCallback(
-    async (text) => {
+    async (text, files) => {
       let chatId = currentChatId;
       if (!chatId) {
         chatId = await createChat();
@@ -241,11 +245,12 @@ export function AiChatProvider({ children }) {
       // Auto-title the chat on the first message
       if (!titleSetRef.current.has(chatId)) {
         titleSetRef.current.add(chatId);
-        renameChat(chatId, generateTitle(text));
+        renameChat(chatId, generateTitle(text || 'Image'));
       }
 
       lastSentTextRef.current = text;
-      chat.sendMessage({ text });
+      lastSentFilesRef.current = files || null;
+      chat.sendMessage({ text: text || ' ', files: files?.length ? files : undefined });
     },
     [chat.sendMessage, currentChatId, createChat, renameChat],
   );
@@ -267,8 +272,10 @@ export function AiChatProvider({ children }) {
       usageLimitReached,
       draftText,
       clearDraft: () => setDraftText(''),
+      draftFiles,
+      clearDraftFiles: () => setDraftFiles(null),
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles],
   );
 
   return (

@@ -155,6 +155,71 @@ describe('AiChatMessages', () => {
     expect(toolGroup.querySelectorAll('.ai-tool-card')).toHaveLength(2);
   });
 
+  // --------------- Image rendering ---------------
+
+  it('renders images in user message bubbles', () => {
+    const messages = [makeMsg({
+      role: 'user',
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc', filename: 'screenshot.png' },
+        { type: 'text', text: 'Check this out' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const img = container.querySelector('.ai-chat-image');
+    expect(img).toBeInTheDocument();
+    expect(img.getAttribute('src')).toBe('data:image/png;base64,abc');
+    expect(img.getAttribute('alt')).toBe('screenshot.png');
+    expect(container.querySelector('.ai-chat-bubble--user').textContent).toContain('Check this out');
+  });
+
+  it('renders multiple images in a single user message', () => {
+    const messages = [makeMsg({
+      role: 'user',
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,a', filename: 'img1.png' },
+        { type: 'file', mediaType: 'image/jpeg', url: 'data:image/jpeg;base64,b', filename: 'img2.jpg' },
+        { type: 'text', text: 'Two images' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const images = container.querySelectorAll('.ai-chat-image');
+    expect(images).toHaveLength(2);
+    expect(container.querySelector('.ai-chat-images')).toBeInTheDocument();
+  });
+
+  it('renders image-only user message (no text)', () => {
+    const messages = [makeMsg({
+      role: 'user',
+      content: '',
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc', filename: 'only-image.png' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const img = container.querySelector('.ai-chat-image');
+    expect(img).toBeInTheDocument();
+    const bubble = container.querySelector('.ai-chat-bubble--user');
+    expect(bubble).toBeInTheDocument();
+  });
+
+  it('renders user message without images normally', () => {
+    const messages = [makeMsg({
+      role: 'user',
+      parts: [{ type: 'text', text: 'No images here' }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    expect(container.querySelector('.ai-chat-images')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-chat-image')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-chat-bubble--user').textContent).toBe('No images here');
+  });
+
+  // --------------- Auto-scroll ---------------
+
   it('auto-scrolls to bottom when messages change', () => {
     const messages = [makeMsg({ id: '1' })];
     const { container, rerender } = render(<AiChatMessages messages={messages} status="ready" />);

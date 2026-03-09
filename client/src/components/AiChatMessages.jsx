@@ -218,8 +218,16 @@ function AiChatMessages({ messages, status }) {
           return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} />;
         }
         const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
+        const fileParts = msg.parts?.filter(p => p.type === 'file') || [];
         return (
           <div key={msg.id} className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
+            {fileParts.length > 0 && (
+              <div className="ai-chat-images">
+                {fileParts.map((fp, i) => (
+                  <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+                ))}
+              </div>
+            )}
             {text}
           </div>
         );
