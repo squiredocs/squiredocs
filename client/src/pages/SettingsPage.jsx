@@ -126,6 +126,10 @@ export default function SettingsPage({ onNavigateHome, user }) {
                 </span>
               </div>
             </div>
+            <p className="settings-description usage-beta-note">
+              Squire Docs is currently in public beta and accepting design partners.
+              To increase your usage limit, reach out to <a href="mailto:contact@squiredocs.com">contact@squiredocs.com</a>.
+            </p>
           </section>
         )}
 
