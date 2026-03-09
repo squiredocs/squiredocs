@@ -22,30 +22,40 @@ function savePrefs(prefs) {
 
 /**
  * Single source of truth for all AI panel state.
- * isOpen is NOT persisted — starts false every page load.
- * position, widthPx, heightPx are persisted to localStorage.
+ * isOpen, position, widthPx, heightPx are persisted to localStorage.
  */
 export function useAiPanel() {
   const prefs = useRef(loadPrefs());
 
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(prefs.current.isOpen || false);
   const [isPoppedOut, setIsPoppedOut] = useState(false);
   const [position, setPositionState] = useState(prefs.current.position || 'right');
   const [widthPx, setWidthPx] = useState(prefs.current.widthPx || 380);
   const [heightPx, setHeightPx] = useState(prefs.current.heightPx || 300);
   const popupWindowRef = useRef(null);
 
-  const toggle = useCallback(() => setIsOpen(prev => !prev), []);
+  const persistPref = useCallback((key, value) => {
+    prefs.current = { ...prefs.current, [key]: value };
+    savePrefs(prefs.current);
+  }, []);
+
+  const toggle = useCallback(() => setIsOpen(prev => {
+    const next = !prev;
+    persistPref('isOpen', next);
+    return next;
+  }), [persistPref]);
 
   const close = useCallback(() => {
     setIsOpen(false);
     setIsPoppedOut(false);
-  }, []);
+    persistPref('isOpen', false);
+  }, [persistPref]);
 
   const popOut = useCallback(() => {
     setIsOpen(true);
     setIsPoppedOut(true);
-  }, []);
+    persistPref('isOpen', true);
+  }, [persistPref]);
 
   const popIn = useCallback(() => {
     setIsPoppedOut(false);
@@ -59,11 +69,6 @@ export function useAiPanel() {
     if (popupWindowRef.current && !popupWindowRef.current.closed) {
       popupWindowRef.current.focus();
     }
-  }, []);
-
-  const persistPref = useCallback((key, value) => {
-    prefs.current = { ...prefs.current, [key]: value };
-    savePrefs(prefs.current);
   }, []);
 
   const setPosition = useCallback((pos) => {
