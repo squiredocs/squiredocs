@@ -538,7 +538,7 @@ async function handleRegister(req, res) {
   const agent = await createOrUpdateAgent({
     id: clientId,
     name: client_name || clientId,
-    description: `Dynamically registered agent: ${client_name || clientId}`,
+    description: `OAuth registered agent: ${client_name || clientId}`,
     allowed_scopes: allowedScopes,
     default_scopes: allowedScopes,
     allowed_redirect_uris: redirect_uris || [], // Store but don't enforce

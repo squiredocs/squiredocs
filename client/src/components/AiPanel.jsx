@@ -167,7 +167,7 @@ function AiPanel({ aiPanel, aiChat }) {
       )}
       <div className="ai-panel-header">
         <div className="ai-panel-title-group">
-          <span className="ai-panel-title">Chat Panel</span>
+          <span className="ai-panel-title">Squire Docs Assistant</span>
           {currentChatTitle && (
             <span className="ai-panel-chat-title">{currentChatTitle}</span>
           )}

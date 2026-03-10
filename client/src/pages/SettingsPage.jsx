@@ -114,7 +114,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
 
           {usage && (
             <section className="settings-section">
-              <h2>AI Usage</h2>
+              <h2>Squire Docs Assistant AI Usage</h2>
               <p className="settings-description">
                 Your AI assistant usage for the current billing month.
               </p>
