@@ -64,11 +64,11 @@ describe('ApiTokenList', () => {
     });
   });
 
-  it('shows "Create API Token" button', async () => {
+  it('shows "New Token" button', async () => {
     mockApi.get.mockResolvedValue({ data: { tokens: [] } });
     render(<ApiTokenList />);
     await waitFor(() => {
-      expect(screen.getByText('Create API Token')).toBeDefined();
+      expect(screen.getByText('+ New Token')).toBeDefined();
     });
   });
 
@@ -79,9 +79,9 @@ describe('ApiTokenList', () => {
 
     it('opens create form when button clicked', async () => {
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
 
       expect(screen.getByPlaceholderText(/Token name/)).toBeDefined();
     });
@@ -99,9 +99,9 @@ describe('ApiTokenList', () => {
       });
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'New Token' },
       });
@@ -126,9 +126,9 @@ describe('ApiTokenList', () => {
       });
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'Mono Token' },
       });
@@ -153,9 +153,9 @@ describe('ApiTokenList', () => {
       });
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'Copy Token' },
       });
@@ -182,9 +182,9 @@ describe('ApiTokenList', () => {
       });
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'Done Token' },
       });
@@ -203,9 +203,9 @@ describe('ApiTokenList', () => {
       mockApi.post.mockReturnValue(new Promise(resolve => { resolvePost = resolve; }));
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'Slow Token' },
       });
@@ -232,9 +232,9 @@ describe('ApiTokenList', () => {
       });
 
       render(<ApiTokenList />);
-      await waitFor(() => screen.getByText('Create API Token'));
+      await waitFor(() => screen.getByText('+ New Token'));
 
-      fireEvent.click(screen.getByText('Create API Token'));
+      fireEvent.click(screen.getByText('+ New Token'));
       fireEvent.change(screen.getByPlaceholderText(/Token name/), {
         target: { value: 'Failing Token' },
       });

@@ -75,66 +75,71 @@ export default function AgentDelegationList() {
     return <div className="error">{error}</div>;
   }
 
-  if (delegations.length === 0) {
-    return (
-      <div className="empty-state">
-        <h3>No authorized agents</h3>
-        <p>AI agents like Claude Code can request access to your documents using OAuth.</p>
-        <p>When an agent requests authorization, you'll see a consent screen where you can approve or deny access. Authorized agents will appear here.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="delegation-list">
-      <h3>Authorized AI Agents</h3>
-      <p className="subtitle">
-        These applications can access your documents on your behalf.
-      </p>
-
-      <ul>
-        {delegations.map(delegation => (
-          <li key={delegation.id} className="delegation-card">
-            <div className="delegation-header">
-              {delegation.iconUrl ? (
-                <img src={delegation.iconUrl} alt="" className="agent-icon" />
-              ) : (
-                <div className="agent-icon default">🤖</div>
-              )}
-              <div className="agent-info">
-                <strong>{delegation.agentName}</strong>
-                {delegation.description && (
-                  <p className="description">{delegation.description}</p>
-                )}
+      <div className="delegation-section-header">
+        <h3>OAuth</h3>
+        <div className="connect-buttons">
+          <a
+            href="https://claude.ai/settings/connectors?modal=add-custom-connector"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="connect-btn"
+          >
+            Connect Claude
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="external-icon">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="15 3 21 3 21 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </a>
+          <a
+            href="https://chatgpt.com/apps#settings/Connectors/Advanced"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="connect-btn"
+          >
+            Connect ChatGPT
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="external-icon">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="15 3 21 3 21 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+      <p className="settings-description">Agents authorized via the interactive OAuth flow with scoped, time-limited access.</p>
+      {delegations.length === 0 ? (
+        <p className="settings-empty-text">No agents authorized yet. Use the MCP server URL above to connect one.</p>
+      ) : (
+        <ul>
+          {delegations.map(delegation => (
+            <li key={delegation.id} className="delegation-card">
+              <div className="delegation-header">
+                <div className="agent-info">
+                  <strong>{delegation.agentName}</strong>
+                  {delegation.description && (
+                    <span className="description">{delegation.description}</span>
+                  )}
+                </div>
+                <button
+                  className="btn-revoke"
+                  onClick={() => handleRevoke(delegation.id, delegation.agentName)}
+                >
+                  Revoke
+                </button>
               </div>
-            </div>
-
-            <div className="delegation-details">
-              <div className="scopes">
-                <span className="label">Permissions:</span>
-                <span className="value">{delegation.scopes.join(', ')}</span>
-              </div>
-              <div className="dates">
-                <span>
-                  Authorized {formatTimeAgo(delegation.createdAt)}
-                </span>
+              <div className="delegation-meta">
+                <span>{delegation.scopes.join(', ')}</span>
+                <span>Authorized {formatTimeAgo(delegation.createdAt)}</span>
                 {delegation.lastUsedAt && (
-                  <span>
-                    Last used {formatTimeAgo(delegation.lastUsedAt)}
-                  </span>
+                  <span>Last used {formatTimeAgo(delegation.lastUsedAt)}</span>
                 )}
               </div>
-            </div>
-
-            <button
-              className="btn-revoke"
-              onClick={() => handleRevoke(delegation.id, delegation.agentName)}
-            >
-              Revoke Access
-            </button>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

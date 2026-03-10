@@ -439,22 +439,22 @@ body[data-mobile] .app-header {
    Agent Delegation List Styles
    ============================================================================= */
 
-.delegation-list {
-  padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
+/* =============================================================================
+   Agent Delegation List
+   ============================================================================= */
+
+.delegation-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .delegation-list h3 {
-  font-size: 24px;
+  font-size: 15px;
+  font-weight: 600;
   color: #333;
-  margin: 0 0 8px;
-}
-
-.delegation-list .subtitle {
-  font-size: 14px;
-  color: #6b7280;
-  margin: 0 0 24px;
+  margin: 0;
 }
 
 .delegation-list ul {
@@ -464,148 +464,121 @@ body[data-mobile] .app-header {
 }
 
 .delegation-card {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 16px;
-  transition: box-shadow 0.2s ease;
-}
-
-.delegation-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
 }
 
 .delegation-header {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 16px;
 }
 
 .delegation-header .agent-icon {
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
+  border-radius: 6px;
 }
 
 .delegation-header .agent-icon.default {
-  font-size: 24px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .agent-info {
   flex: 1;
+  min-width: 0;
 }
 
 .agent-info strong {
-  display: block;
-  font-size: 16px;
+  font-size: 14px;
   color: #333;
-  margin-bottom: 4px;
 }
 
 .agent-info .description {
-  margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   color: #6b7280;
-}
-
-.delegation-details {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.delegation-details .scopes {
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
-.delegation-details .label {
-  font-weight: 600;
-  color: #6b7280;
-}
-
-.delegation-details .value {
-  color: #333;
   margin-left: 8px;
 }
 
-.delegation-details .dates {
+.delegation-meta {
   display: flex;
-  gap: 16px;
-  font-size: 13px;
-  color: #6b7280;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 6px;
 }
 
 .btn-revoke {
-  padding: 8px 16px;
+  padding: 4px 12px;
   background: #fff;
   color: #dc3545;
-  border: 1px solid #dc3545;
+  border: 1px solid #fecaca;
   border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .btn-revoke:hover {
-  background: #dc3545;
-  color: white;
+  background: #fef2f2;
+  border-color: #dc3545;
 }
 
 /* =============================================================================
    API Token Styles
    ============================================================================= */
 
-.api-token-section {
-  padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
 .api-token-section h3 {
-  font-size: 24px;
+  font-size: 15px;
+  font-weight: 600;
   color: #333;
-  margin: 0 0 8px;
+  margin: 0;
 }
 
-.api-token-section .subtitle {
-  font-size: 14px;
-  color: #6b7280;
-  margin: 0 0 24px;
+.api-token-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .api-token-create-form {
   display: flex;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
 .api-token-create-form input {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .api-token-create-form button {
-  padding: 8px 16px;
+  padding: 5px 12px;
   border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   border: 1px solid #d1d5db;
   background: white;
 }
 
 .api-token-create-form button[type="submit"] {
-  background: #2563eb;
+  background: #7c3aed;
   color: white;
-  border-color: #2563eb;
+  border-color: #7c3aed;
 }
 
 .api-token-create-form button[type="submit"]:disabled {
@@ -614,44 +587,45 @@ body[data-mobile] .app-header {
 }
 
 .btn-create-token {
-  padding: 8px 16px;
-  background: #2563eb;
-  color: white;
-  border: none;
+  padding: 4px 12px;
+  background: white;
+  color: #7c3aed;
+  border: 1px solid #7c3aed;
   border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  margin-bottom: 24px;
+  transition: all 0.15s ease;
 }
 
 .btn-create-token:hover {
-  background: #1d4ed8;
+  background: #f5f3ff;
 }
 
 .api-token-reveal {
-  background: #fef3c7;
-  border: 1px solid #f59e0b;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 24px;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
 }
 
 .api-token-reveal-warning {
-  margin: 0 0 12px;
-  font-size: 14px;
+  margin: 0 0 8px;
+  font-size: 13px;
   font-weight: 600;
   color: #92400e;
 }
 
 .api-token-reveal-value {
   display: block;
-  padding: 12px;
-  background: #fffbeb;
+  padding: 8px 10px;
+  background: white;
+  border: 1px solid #fde68a;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   word-break: break-all;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .api-token-reveal-actions {
@@ -660,28 +634,28 @@ body[data-mobile] .app-header {
 }
 
 .btn-copy-token {
-  padding: 6px 16px;
-  background: #2563eb;
+  padding: 5px 14px;
+  background: #7c3aed;
   color: white;
   border: none;
   border-radius: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .btn-copy-token:hover {
-  background: #1d4ed8;
+  background: #6d28d9;
 }
 
 .btn-done-token {
-  padding: 6px 16px;
+  padding: 5px 14px;
   background: white;
   color: #333;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -696,86 +670,55 @@ body[data-mobile] .app-header {
 }
 
 .api-token-card {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 16px;
-  transition: box-shadow 0.2s ease;
-}
-
-.api-token-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
 }
 
 .api-token-header {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 16px;
-}
-
-.api-token-icon {
-  font-size: 24px;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
 }
 
 .api-token-info {
   flex: 1;
+  min-width: 0;
 }
 
 .api-token-info strong {
-  display: block;
-  font-size: 16px;
+  font-size: 14px;
   color: #333;
-  margin-bottom: 4px;
 }
 
 .api-token-prefix {
-  font-size: 13px;
-  color: #6b7280;
+  font-size: 12px;
+  color: #9ca3af;
   background: #f3f4f6;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.api-token-details {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.api-token-details .scopes {
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
-.api-token-details .label {
-  font-weight: 600;
-  color: #6b7280;
-}
-
-.api-token-details .value {
-  color: #333;
+  padding: 1px 5px;
+  border-radius: 3px;
   margin-left: 8px;
 }
 
-.api-token-details .dates {
+.api-token-meta {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+
+.settings-empty-text {
   font-size: 13px;
-  color: #6b7280;
+  color: #9ca3af;
+  margin: 0;
 }
 
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   color: #6b7280;
 }
 
@@ -802,27 +745,59 @@ body[data-mobile] .app-header {
   background: #f8f9fa;
 }
 
+.settings-content {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
 .settings-section {
   background: white;
   border-radius: 12px;
   padding: 24px;
-  margin-bottom: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .settings-section h2 {
   margin: 0 0 16px;
-  font-size: 20px;
+  font-size: 16px;
+  font-weight: 600;
   color: #333;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 .settings-description {
-  font-size: 14px;
+  font-size: 13px;
   color: #6b7280;
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   line-height: 1.5;
+}
+
+.settings-subsection {
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  margin-top: 16px;
+}
+
+.settings-subsection:first-of-type {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.settings-subsection h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 10px;
+}
+
+.mcp-server-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .usage-beta-note {
@@ -1017,144 +992,47 @@ body[data-mobile] .app-header {
   margin-top: 6px;
 }
 
-/* Connection Instructions Styles */
-.connection-instructions {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 20px;
-  margin: 20px 0 24px;
-  border: 1px solid #e0e0e0;
-}
-
-.connection-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 16px;
-}
-
-.connection-step {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  align-items: flex-start;
-}
-
-.connection-step:last-child {
-  margin-bottom: 0;
-}
-
-.step-number {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 50%;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.step-content {
-  flex: 1;
-}
-
-.step-text {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: #6b7280;
-  line-height: 1.5;
-}
-
 .mcp-url {
   display: inline-block;
-  background: white;
-  border: 1px solid #ddd;
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 13px;
+  font-size: 12px;
   color: #333;
   word-break: break-all;
 }
 
 .connect-buttons {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .connect-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  color: white;
+  gap: 6px;
+  padding: 4px 12px;
+  background: white;
+  color: #7c3aed;
+  border: 1px solid #7c3aed;
   text-decoration: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
   cursor: pointer;
 }
 
-.connect-claude-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
-}
-
-.connect-claude-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.connect-claude-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
-}
-
-.connect-chatgpt-btn {
-  background: linear-gradient(135deg, #10a37f 0%, #0d8b6b 100%);
-  box-shadow: 0 2px 4px rgba(16, 163, 127, 0.2);
-}
-
-.connect-chatgpt-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.4);
-}
-
-.connect-chatgpt-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(16, 163, 127, 0.2);
-}
-
-.connect-icon {
-  flex-shrink: 0;
+.connect-btn:hover {
+  background: #f5f3ff;
 }
 
 .external-icon {
   flex-shrink: 0;
-  opacity: 0.8;
-}
-
-.connect-section {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 20px;
-  margin: 20px 0 24px;
-  border: 1px solid #e0e0e0;
-}
-
-.connect-section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 16px;
+  opacity: 0.7;
 }
 
 /* =============================================================================

@@ -115,11 +115,18 @@ export default function ApiTokenList() {
 
   return (
     <div className="api-token-section">
-      <h3>API Tokens</h3>
-      <p className="subtitle">
-        Personal access tokens for CLI tools, scripts, and custom integrations.
-        Use these as Bearer tokens for MCP API access.
-      </p>
+      <div className="api-token-section-header">
+        <h3>API Tokens</h3>
+        {!showCreateForm && (
+          <button
+            className="btn-create-token"
+            onClick={() => setShowCreateForm(true)}
+          >
+            + New Token
+          </button>
+        )}
+      </div>
+      <p className="settings-description">Static bearer tokens for CLI tools, scripts, and other integrations.</p>
 
       {error && <div className="error">{error}</div>}
 
@@ -140,7 +147,7 @@ export default function ApiTokenList() {
         </div>
       )}
 
-      {showCreateForm ? (
+      {showCreateForm && (
         <form className="api-token-create-form" onSubmit={handleCreate}>
           <input
             type="text"
@@ -158,52 +165,35 @@ export default function ApiTokenList() {
             Cancel
           </button>
         </form>
-      ) : (
-        <button
-          className="btn-create-token"
-          onClick={() => setShowCreateForm(true)}
-        >
-          Create API Token
-        </button>
       )}
 
       {tokens.length === 0 && !revealedToken ? (
-        <div className="empty-state">
-          <p>No API tokens yet. Create one to use with CLI tools or scripts.</p>
-        </div>
+        <p className="settings-empty-text">No API tokens yet. Create one to use with CLI tools or scripts.</p>
       ) : (
         <ul className="api-token-list">
           {tokens.map(token => (
             <li key={token.id} className="api-token-card">
               <div className="api-token-header">
-                <div className="api-token-icon">🔑</div>
                 <div className="api-token-info">
                   <strong>{token.name}</strong>
                   <code className="api-token-prefix">{token.tokenPrefix}...</code>
                 </div>
+                <button
+                  className="btn-revoke"
+                  onClick={() => handleRevoke(token.id, token.name)}
+                >
+                  Revoke
+                </button>
               </div>
-
-              <div className="api-token-details">
-                <div className="scopes">
-                  <span className="label">Scopes:</span>
-                  <span className="value">{token.scopes.join(', ')}</span>
-                </div>
-                <div className="dates">
-                  <span>Created {formatTimeAgo(token.createdAt)}</span>
-                  <span>
-                    {token.lastUsedAt
-                      ? `Last used ${formatTimeAgo(token.lastUsedAt)}`
-                      : 'Never used'}
-                  </span>
-                </div>
+              <div className="api-token-meta">
+                <span>{token.scopes.join(', ')}</span>
+                <span>Created {formatTimeAgo(token.createdAt)}</span>
+                <span>
+                  {token.lastUsedAt
+                    ? `Last used ${formatTimeAgo(token.lastUsedAt)}`
+                    : 'Never used'}
+                </span>
               </div>
-
-              <button
-                className="btn-revoke"
-                onClick={() => handleRevoke(token.id, token.name)}
-              >
-                Revoke
-              </button>
             </li>
           ))}
         </ul>

@@ -18,9 +18,15 @@ vi.mock('../../contexts/AuthContext', () => ({
   }),
 }));
 
-// Mock AgentDelegationList to keep tests focused
+// Mock child components to keep tests focused
 vi.mock('../../components/AgentDelegationList', () => ({
   default: () => <div data-testid="agent-delegation-list" />,
+}));
+vi.mock('../../components/ApiTokenList', () => ({
+  default: () => <div data-testid="api-token-list" />,
+}));
+vi.mock('../../components/Logo', () => ({
+  default: () => <div data-testid="logo" />,
 }));
 
 const testUser = {
