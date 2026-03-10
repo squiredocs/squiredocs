@@ -556,6 +556,223 @@ body[data-mobile] .app-header {
   color: white;
 }
 
+/* =============================================================================
+   API Token Styles
+   ============================================================================= */
+
+.api-token-section {
+  padding: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.api-token-section h3 {
+  font-size: 24px;
+  color: #333;
+  margin: 0 0 8px;
+}
+
+.api-token-section .subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 24px;
+}
+
+.api-token-create-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.api-token-create-form input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.api-token-create-form button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #d1d5db;
+  background: white;
+}
+
+.api-token-create-form button[type="submit"] {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+
+.api-token-create-form button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-create-token {
+  padding: 8px 16px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 24px;
+}
+
+.btn-create-token:hover {
+  background: #1d4ed8;
+}
+
+.api-token-reveal {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.api-token-reveal-warning {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.api-token-reveal-value {
+  display: block;
+  padding: 12px;
+  background: #fffbeb;
+  border-radius: 6px;
+  font-size: 13px;
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+
+.api-token-reveal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-copy-token {
+  padding: 6px 16px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-copy-token:hover {
+  background: #1d4ed8;
+}
+
+.btn-done-token {
+  padding: 6px 16px;
+  background: white;
+  color: #333;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-done-token:hover {
+  background: #f3f4f6;
+}
+
+.api-token-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.api-token-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: box-shadow 0.2s ease;
+}
+
+.api-token-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.api-token-header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.api-token-icon {
+  font-size: 24px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.api-token-info {
+  flex: 1;
+}
+
+.api-token-info strong {
+  display: block;
+  font-size: 16px;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.api-token-prefix {
+  font-size: 13px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.api-token-details {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.api-token-details .scopes {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.api-token-details .label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.api-token-details .value {
+  color: #333;
+  margin-left: 8px;
+}
+
+.api-token-details .dates {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;

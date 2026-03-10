@@ -100,10 +100,10 @@ describe('MCP Auth Middleware', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    test('returns 401 for invalid token', () => {
+    test('returns 401 for invalid token', async () => {
       const { req, res, next } = createMocks('Bearer invalid-token');
 
-      requireAgentAuth(req, res, next);
+      await requireAgentAuth(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({

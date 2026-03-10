@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from 'react';
 import AgentDelegationList from '../components/AgentDelegationList';
+import ApiTokenList from '../components/ApiTokenList';
 import UserProfileBadge from '../components/UserProfileBadge';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -207,6 +208,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
           </div>
 
           <AgentDelegationList />
+          <ApiTokenList />
         </section>
       </div>
     </>

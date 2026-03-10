@@ -1019,7 +1019,7 @@ server.on('upgrade', async (request, socket, head) => {
 
   // Try cookie first, then query param (for backwards compatibility & MCP agents)
   const token = cookies.accessToken || url.searchParams.get('token');
-  const user = permissions.extractUser({ queryToken: token });
+  const user = await permissions.extractUser({ queryToken: token });
 
   if (!user) {
     console.error('❌ WebSocket auth failed: no valid token for doc', docId);

@@ -6,6 +6,7 @@
 const documents = require('./documents');
 const { verifyAccessToken, extractBearerToken } = require('./auth/jwt');
 const { verifyAgentToken } = require('./mcp/auth/jwt');
+const apiTokens = require('./mcp/auth/api-tokens');
 
 /**
  * Permission levels required for different actions
@@ -24,15 +25,15 @@ const REQUIRED_ROLES = {
  * @param {string} options.authHeader - Authorization header
  * @param {string} options.token - Direct token
  * @param {string} options.queryToken - Token from query string
- * @returns {object|null} Decoded user or null
+ * @returns {Promise<object|null>} Decoded user or null
  */
-function extractUser({ authHeader, token, queryToken }) {
+async function extractUser({ authHeader, token, queryToken }) {
   /**
-   * Helper to try verifying a token as both user and agent token
-   * @param {string} tokenString - JWT token string
-   * @returns {object|null} Decoded token or null
+   * Helper to try verifying a token as user JWT, agent JWT, or API token
+   * @param {string} tokenString - Token string
+   * @returns {Promise<object|null>} Decoded token or null
    */
-  const tryVerifyToken = (tokenString) => {
+  const tryVerifyToken = async (tokenString) => {
     // Try as regular user token first
     try {
       return verifyAccessToken(tokenString);
@@ -41,7 +42,24 @@ function extractUser({ authHeader, token, queryToken }) {
       try {
         return verifyAgentToken(tokenString);
       } catch (e2) {
-        // Not a valid agent token either
+        // Not a valid agent token either, try as API token
+        if (tokenString && tokenString.startsWith('sqd_')) {
+          try {
+            const record = await apiTokens.verifyToken(tokenString);
+            if (record) {
+              return {
+                userId: record.user_id,
+                agentId: `api-token:${record.id}`,
+                agentName: record.name,
+                scopes: record.scopes,
+                isAgent: true,
+                apiTokenId: record.id,
+              };
+            }
+          } catch (e3) {
+            // API token lookup failed
+          }
+        }
         return null;
       }
     }
@@ -51,20 +69,20 @@ function extractUser({ authHeader, token, queryToken }) {
   if (authHeader) {
     const headerToken = extractBearerToken(authHeader);
     if (headerToken) {
-      const result = tryVerifyToken(headerToken);
+      const result = await tryVerifyToken(headerToken);
       if (result) return result;
     }
   }
 
   // Try direct token
   if (token) {
-    const result = tryVerifyToken(token);
+    const result = await tryVerifyToken(token);
     if (result) return result;
   }
 
   // Try query string token
   if (queryToken) {
-    const result = tryVerifyToken(queryToken);
+    const result = await tryVerifyToken(queryToken);
     if (result) return result;
   }
 

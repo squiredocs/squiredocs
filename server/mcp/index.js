@@ -11,6 +11,7 @@ const delegation = require('./auth/delegation');
 const registeredAgents = require('./auth/registered-agents');
 const oauthFlow = require('./auth/oauth-flow');
 const oauthRouter = require('./auth/oauth-router');
+const apiTokens = require('./auth/api-tokens');
 const toolRegistry = require('./tools');
 const { buildBaseUrl } = require('../url');
 
@@ -34,6 +35,7 @@ function init(persistence) {
   delegation.init(pool);
   registeredAgents.init(pool);
   oauthFlow.init(pool);
+  apiTokens.init(pool);
   toolRegistry.init(persistence);
 }
 

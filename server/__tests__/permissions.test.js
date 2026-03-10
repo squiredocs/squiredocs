@@ -78,54 +78,54 @@ describe('Permissions module', () => {
   });
 
   describe('extractUser', () => {
-    test('extracts user from Authorization header', () => {
-      const user = permissions.extractUser({
+    test('extracts user from Authorization header', async () => {
+      const user = await permissions.extractUser({
         authHeader: `Bearer ${testAccessToken}`
       });
-      
+
       expect(user).not.toBeNull();
       expect(user.userId).toBe(testUserId);
     });
 
-    test('extracts user from query token', () => {
-      const user = permissions.extractUser({
+    test('extracts user from query token', async () => {
+      const user = await permissions.extractUser({
         queryToken: testAccessToken
       });
-      
+
       expect(user).not.toBeNull();
       expect(user.userId).toBe(testUserId);
     });
 
-    test('extracts user from direct token', () => {
-      const user = permissions.extractUser({
+    test('extracts user from direct token', async () => {
+      const user = await permissions.extractUser({
         token: testAccessToken
       });
-      
+
       expect(user).not.toBeNull();
       expect(user.userId).toBe(testUserId);
     });
 
-    test('returns null for invalid token', () => {
-      const user = permissions.extractUser({
+    test('returns null for invalid token', async () => {
+      const user = await permissions.extractUser({
         authHeader: 'Bearer invalid-token'
       });
-      
+
       expect(user).toBeNull();
     });
 
-    test('returns null for missing auth', () => {
-      const user = permissions.extractUser({});
-      
+    test('returns null for missing auth', async () => {
+      const user = await permissions.extractUser({});
+
       expect(user).toBeNull();
     });
 
-    test('prefers Authorization header over other sources', () => {
-      const user = permissions.extractUser({
+    test('prefers Authorization header over other sources', async () => {
+      const user = await permissions.extractUser({
         authHeader: `Bearer ${testAccessToken}`,
         queryToken: 'invalid',
         token: 'invalid'
       });
-      
+
       expect(user).not.toBeNull();
       expect(user.userId).toBe(testUserId);
     });
