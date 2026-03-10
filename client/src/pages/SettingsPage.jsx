@@ -17,6 +17,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [mcpCopied, setMcpCopied] = useState(false);
 
   useEffect(() => {
     api.get('/api/usage')
@@ -149,6 +150,20 @@ export default function SettingsPage({ onNavigateHome, user }) {
             <p className="settings-description">
               Connect AI agents to Squire Docs via MCP using OAuth or API tokens.
             </p>
+
+            <div className="mcp-url-row">
+              <code className="mcp-url">https://squiredocs.com/mcp</code>
+              <button
+                className="btn-copy-mcp"
+                onClick={() => {
+                  navigator.clipboard.writeText('https://squiredocs.com/mcp');
+                  setMcpCopied(true);
+                  setTimeout(() => setMcpCopied(false), 2000);
+                }}
+              >
+                {mcpCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
 
             <div className="settings-subsection">
               <AgentDelegationList />

@@ -992,6 +992,13 @@ body[data-mobile] .app-header {
   margin-top: 6px;
 }
 
+.mcp-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .mcp-url {
   display: inline-block;
   background: #f8f9fa;
@@ -1002,6 +1009,22 @@ body[data-mobile] .app-header {
   font-size: 12px;
   color: #333;
   word-break: break-all;
+}
+
+.btn-copy-mcp {
+  padding: 4px 12px;
+  background: white;
+  color: #7c3aed;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-mcp:hover {
+  background: #f5f3ff;
 }
 
 .connect-buttons {
