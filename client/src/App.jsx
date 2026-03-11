@@ -71,6 +71,16 @@ function AppContent() {
   const [listKey, setListKey] = useState(0);
   const isMobile = useMobile();
 
+  // Track SPA page views in Google Analytics
+  useEffect(() => {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'page_view', {
+        page_path: window.location.pathname,
+        page_title: document.title,
+      });
+    }
+  }, [route.view, route.docGuid]);
+
   // Set data attributes on body for current view and mobile state (used for view-specific CSS)
   useEffect(() => {
     document.body.setAttribute('data-view', route.view);
