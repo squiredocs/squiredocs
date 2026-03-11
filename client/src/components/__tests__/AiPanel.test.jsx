@@ -142,7 +142,7 @@ describe('AiPanel', () => {
 
   it('shows panel title on desktop', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
-    expect(screen.getByText('Chat Panel')).toBeInTheDocument();
+    expect(screen.getByText('Squire Docs Assistant')).toBeInTheDocument();
   });
 
   // --------------- Mobile ---------------
