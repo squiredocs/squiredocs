@@ -178,12 +178,12 @@ export function AiChatProvider({ children }) {
 
   // ── CRUD operations ──────────────────────────────────────────────────────
 
-  const createChat = useCallback(async () => {
+  // Create a chat row on the server (called lazily on first message)
+  const createChatOnServer = useCallback(async () => {
     try {
       const res = await apiFetch('/api/chat/chats', { method: 'POST' });
       if (res.ok) {
         const { id } = await res.json();
-        chat.setMessages([]);
         setCurrentChatId(id);
         await refreshChatList();
         return id;
@@ -192,7 +192,14 @@ export function AiChatProvider({ children }) {
       console.error('[AiChat] Failed to create chat:', e);
     }
     return null;
-  }, [apiFetch, refreshChatList, chat.setMessages]);
+  }, [apiFetch, refreshChatList]);
+
+  // Reset UI to a blank chat (no server call — persisted on first message)
+  const createChat = useCallback(async () => {
+    chat.setMessages([]);
+    setCurrentChatId(null);
+    return null;
+  }, [chat.setMessages]);
 
   const selectChat = useCallback((id) => {
     setCurrentChatId(id);
@@ -235,7 +242,7 @@ export function AiChatProvider({ children }) {
     async (text, files) => {
       let chatId = currentChatId;
       if (!chatId) {
-        chatId = await createChat();
+        chatId = await createChatOnServer();
         if (!chatId) return;
         // chatIdRef is updated synchronously via setCurrentChatId → useEffect,
         // but we need it immediately for the transport. Set it directly.
@@ -252,7 +259,7 @@ export function AiChatProvider({ children }) {
       lastSentFilesRef.current = files || null;
       chat.sendMessage({ text: text || ' ', files: files?.length ? files : undefined });
     },
-    [chat.sendMessage, currentChatId, createChat, renameChat],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat],
   );
 
   const value = useMemo(
