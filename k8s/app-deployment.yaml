@@ -104,6 +104,11 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: AI_CHAT_MODEL
+            - name: API_KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: API_KEY_ENCRYPTION_KEY
             # Email Notifications (AWS SES SMTP)
             - name: SES_SMTP_USER
               valueFrom:
