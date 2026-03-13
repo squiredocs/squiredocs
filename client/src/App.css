@@ -805,6 +805,203 @@ body[data-mobile] .app-header {
   margin-bottom: 0;
 }
 
+.byok-usage-note {
+  color: #059669;
+  font-weight: 500;
+}
+
+/* BYOK Toggle */
+.byok-toggle-row {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.byok-toggle-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: white;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.byok-toggle-btn:first-child {
+  border-right: 1px solid #d1d5db;
+}
+
+.byok-toggle-btn:hover:not(.byok-toggle-active):not(:disabled) {
+  background: #f9fafb;
+}
+
+.byok-toggle-btn.byok-toggle-active {
+  background: #7c3aed;
+  color: white;
+}
+
+.byok-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.byok-config {
+  margin-top: 4px;
+}
+
+/* BYOK Settings */
+.byok-model-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.byok-model-select label {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 14px;
+  min-width: 50px;
+}
+
+.byok-model-dropdown {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  color: #333;
+  cursor: pointer;
+}
+
+.byok-model-dropdown:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.byok-model-dropdown:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.byok-key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #f0f0f0;
+}
+
+.byok-key-row label {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 14px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.byok-key-saved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.byok-key-masked {
+  font-size: 13px;
+  color: #059669;
+  background: #ecfdf5;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.byok-key-clear {
+  padding: 4px 10px;
+  background: white;
+  color: #dc3545;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.byok-key-clear:hover {
+  background: #fef2f2;
+  border-color: #dc3545;
+}
+
+.byok-key-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.byok-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.byok-key-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.byok-key-input:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.byok-key-input:disabled {
+  opacity: 0.6;
+}
+
+.byok-key-save {
+  padding: 6px 14px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.byok-key-save:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.byok-key-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.byok-error {
+  color: #dc3545;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.byok-note {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
 .usage-beta-note a {
   color: #7c3aed;
 }
@@ -946,6 +1143,10 @@ body[data-mobile] .app-header {
 }
 
 /* AI Usage Styles */
+.usage-section-content {
+  min-height: 120px;
+}
+
 .usage-stats {
   margin-top: 12px;
 }

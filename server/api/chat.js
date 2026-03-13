@@ -18,8 +18,15 @@ const { webFetch } = require('./web-fetch');
 const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
+const { decrypt } = require('../crypto');
 
 const router = express.Router();
+
+let pool = null;
+
+function init(dbPool) {
+  pool = dbPool;
+}
 
 // Map<chatId, { chunks: string[], done: boolean }>
 // Buffers SSE chunks so reconnecting clients can replay + continue.
@@ -156,11 +163,30 @@ router.post('/', requireAuth, async (req, res) => {
     // Persist user message immediately so it survives interrupted streams
     await chatStore.saveChat(chatId, allMessages);
 
-    // Check AI usage quota before proceeding
-    const quota = await aiUsage.checkQuota(req.user.userId);
-    if (!quota.allowed) {
-      cleanupEntry();
-      return res.status(429).json({ error: 'AI usage limit reached' });
+    // Load BYOK settings for the user
+    let byokSettings = null;
+    if (pool) {
+      const byokResult = await pool.query(
+        `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
+        [req.user.userId]
+      );
+      if (byokResult.rows.length > 0) {
+        byokSettings = byokResult.rows[0];
+      }
+    }
+
+    // BYOK is active when the toggle is on AND there's a model + matching provider key
+    const isByok = !!(byokSettings?.byok_enabled && byokSettings.byok_model_key &&
+      ((chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key)?.provider === 'anthropic' && byokSettings.byok_anthropic_key) ||
+       (chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key)?.provider === 'google' && byokSettings.byok_google_key)));
+
+    // Check AI usage quota before proceeding (skip for BYOK users)
+    if (!isByok) {
+      const quota = await aiUsage.checkQuota(req.user.userId);
+      if (!quota.allowed) {
+        cleanupEntry();
+        return res.status(429).json({ error: 'AI usage limit reached' });
+      }
     }
 
     // Look up document title if docGuid provided
@@ -185,15 +211,26 @@ router.post('/', requireAuth, async (req, res) => {
 
     const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs, pipeUIMessageStreamToResponse } = getAI();
 
-    // Resolve configured model (env var or default)
-    const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
-    let resolved = chatModels.resolveModel(modelKey);
+    // Resolve model — BYOK uses user's key + selected model, otherwise server default
+    let resolved;
+    if (isByok) {
+      const modelDef = chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key);
+      const encryptedKey = modelDef.provider === 'anthropic'
+        ? byokSettings.byok_anthropic_key
+        : byokSettings.byok_google_key;
+      const userApiKey = decrypt(encryptedKey);
+      resolved = chatModels.resolveModelWithKey(byokSettings.byok_model_key, userApiKey);
+    }
     if (!resolved) {
-      console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${chatModels.DEFAULT_MODEL_KEY}"`);
-      resolved = chatModels.resolveModel(chatModels.DEFAULT_MODEL_KEY);
+      const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
+      resolved = chatModels.resolveModel(modelKey);
       if (!resolved) {
-        cleanupEntry();
-        return res.status(500).json({ error: 'No valid chat model configured' });
+        console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${chatModels.DEFAULT_MODEL_KEY}"`);
+        resolved = chatModels.resolveModel(chatModels.DEFAULT_MODEL_KEY);
+        if (!resolved) {
+          cleanupEntry();
+          return res.status(500).json({ error: 'No valid chat model configured' });
+        }
       }
     }
     const { model, def, provider } = resolved;
@@ -302,7 +339,7 @@ router.post('/', requireAuth, async (req, res) => {
         const costCents = aiUsage.computeCostCents(def.key, inputTokens, outputTokens);
         aiUsage.recordUsage(req.user.userId, {
           chatId, modelKey: def.key,
-          inputTokens, outputTokens, costCents,
+          inputTokens, outputTokens, costCents, isByok,
         }).catch(err => console.error('[Chat API] Failed to record usage:', err));
       },
     });
@@ -453,4 +490,4 @@ router.patch('/chats/:id', requireAuth, async (req, res) => {
   }
 });
 
-module.exports = { router, activeStreams };
+module.exports = { router, activeStreams, init };

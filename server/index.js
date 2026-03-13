@@ -21,6 +21,7 @@ const mcp = require('./mcp');
 const chat = require('./api/chat');
 const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
+const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
@@ -209,6 +210,12 @@ chatStore.init(persistenceProvider.getPool());
 // Initialize AI usage metering with shared database pool
 aiUsage.init(persistenceProvider.getPool());
 
+// Initialize chat module with shared database pool (for BYOK lookups)
+chat.init(persistenceProvider.getPool());
+
+// Initialize BYOK settings with shared database pool
+byokSettings.init(persistenceProvider.getPool());
+
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
 
@@ -219,6 +226,7 @@ const diffService = new DiffService(persistenceProvider.getPool());
 app.use('/auth', authRouter);
 
 app.use('/api/chat', express.json({ limit: '10mb' }), chat.router);
+app.use('/api/settings/byok', express.json(), byokSettings.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities

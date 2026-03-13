@@ -50,6 +50,7 @@ async function checkQuota(userId) {
      LEFT JOIN ai_usage_log l
        ON l.user_id = u.id
        AND l.created_at >= date_trunc('month', now())
+       AND l.is_byok = false
      WHERE u.id = $1
      GROUP BY u.ai_credit_cents`,
     [userId]
@@ -73,15 +74,15 @@ async function checkQuota(userId) {
 /**
  * Record a usage entry in the log.
  * @param {string} userId
- * @param {{chatId?: string, modelKey: string, inputTokens: number, outputTokens: number, costCents: number}} entry
+ * @param {{chatId?: string, modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok?: boolean}} entry
  */
-async function recordUsage(userId, { chatId, modelKey, inputTokens, outputTokens, costCents }) {
+async function recordUsage(userId, { chatId, modelKey, inputTokens, outputTokens, costCents, isByok }) {
   if (!pool) throw new Error('ai-usage module not initialized');
 
   await pool.query(
-    `INSERT INTO ai_usage_log (user_id, chat_id, model_key, input_tokens, output_tokens, cost_cents)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, chatId || null, modelKey, inputTokens, outputTokens, costCents]
+    `INSERT INTO ai_usage_log (user_id, chat_id, model_key, input_tokens, output_tokens, cost_cents, is_byok)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [userId, chatId || null, modelKey, inputTokens, outputTokens, costCents, !!isByok]
   );
 }
 
