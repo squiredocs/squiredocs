@@ -27,7 +27,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-function AiPanel({ aiPanel, aiChat }) {
+function AiPanel({ aiPanel, aiChat, isByok }) {
   const {
     isOpen, close,
     position, setPosition,
@@ -127,13 +127,14 @@ function AiPanel({ aiPanel, aiChat }) {
   if (!isOpen) return null;
 
   const isRight = position === 'right';
+  const byokClass = isByok ? ' ai-panel--byok' : '';
   const WrapperTag = isMobile ? 'div' : 'aside';
   const wrapperProps = isMobile
-    ? { className: 'ai-panel-mobile' }
+    ? { className: `ai-panel-mobile${byokClass}` }
     : isPoppedOut
-      ? { className: 'ai-panel ai-panel--popup' }
+      ? { className: `ai-panel ai-panel--popup${byokClass}` }
       : {
-          className: `ai-panel ai-panel--${position}`,
+          className: `ai-panel ai-panel--${position}${byokClass}`,
           style: isRight
             ? { '--ai-panel-width': `${widthPx}px` }
             : { '--ai-panel-height': `${heightPx}px` },
@@ -167,7 +168,7 @@ function AiPanel({ aiPanel, aiChat }) {
       )}
       <div className="ai-panel-header">
         <div className="ai-panel-title-group">
-          <span className="ai-panel-title">Squire Docs Assistant</span>
+          <span className="ai-panel-title">{isByok ? 'Squire Docs Assistant (BYOK)' : 'Squire Docs Assistant'}</span>
           {currentChatTitle && (
             <span className="ai-panel-chat-title">{currentChatTitle}</span>
           )}
@@ -281,7 +282,7 @@ function AiPanel({ aiPanel, aiChat }) {
             </div>
           ) : isEmpty ? (
             <div className="ai-panel-welcome">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={isByok ? '#312e81' : '#7c3aed'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
                 <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
               </svg>
               <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>

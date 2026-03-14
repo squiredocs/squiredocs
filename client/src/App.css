@@ -810,48 +810,66 @@ body[data-mobile] .app-header {
   font-weight: 500;
 }
 
-/* BYOK Toggle */
-.byok-toggle-row {
-  display: flex;
-  gap: 0;
-  margin-bottom: 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  overflow: hidden;
+/* BYOK Section */
+.byok-subheading {
+  font-size: 13px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 16px 0 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.byok-toggle-btn {
-  flex: 1;
-  padding: 10px 16px;
-  border: none;
-  background: white;
+.byok-enable-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.byok-enable-row label {
+  font-weight: 600;
   color: #6b7280;
   font-size: 14px;
-  font-weight: 500;
+}
+
+.byok-enable-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  background: #d1d5db;
   cursor: pointer;
-  transition: all 0.15s ease;
+  padding: 0;
+  transition: background 0.2s ease;
 }
 
-.byok-toggle-btn:first-child {
-  border-right: 1px solid #d1d5db;
+.byok-enable-toggle--on {
+  background: #312e81;
 }
 
-.byok-toggle-btn:hover:not(.byok-toggle-active):not(:disabled) {
-  background: #f9fafb;
-}
-
-.byok-toggle-btn.byok-toggle-active {
-  background: #7c3aed;
-  color: white;
-}
-
-.byok-toggle-btn:disabled {
-  opacity: 0.6;
+.byok-enable-toggle:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.byok-config {
-  margin-top: 4px;
+.byok-enable-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.byok-enable-toggle--on .byok-enable-toggle-knob {
+  transform: translateX(20px);
 }
 
 /* BYOK Settings */
@@ -859,7 +877,7 @@ body[data-mobile] .app-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  padding: 8px 0 12px;
 }
 
 .byok-model-select label {
@@ -898,6 +916,10 @@ body[data-mobile] .app-header {
   gap: 8px 12px;
   padding: 10px 0;
   border-top: 1px solid #f0f0f0;
+}
+
+.byok-subheading + .byok-key-row {
+  border-top: none;
 }
 
 .byok-key-row label {

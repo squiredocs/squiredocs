@@ -28,6 +28,16 @@ vi.mock('../../components/ApiTokenList', () => ({
 vi.mock('../../components/Logo', () => ({
   default: () => <div data-testid="logo" />,
 }));
+vi.mock('../../contexts/ByokContext', () => ({
+  useByok: () => ({
+    settings: null,
+    loading: false,
+    saving: false,
+    error: null,
+    saveSettings: vi.fn(),
+    clearKey: vi.fn(),
+  }),
+}));
 
 const testUser = {
   email: 'test@example.com',

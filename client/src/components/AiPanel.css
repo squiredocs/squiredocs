@@ -711,6 +711,50 @@
   background: #f5f3ff;
 }
 
+/* =============================================================================
+   BYOK color overrides — swap purple (#7c3aed) to blue (#312e81)
+   ============================================================================= */
+
+.ai-panel--byok .ai-chat-bubble--user {
+  background: #312e81;
+}
+
+.ai-panel--byok .ai-chat-markdown a {
+  color: #312e81;
+}
+
+.ai-panel--byok .ai-tool-card--running {
+  background: rgba(49, 46, 129, 0.1);
+  color: #312e81;
+}
+
+.ai-panel--byok .ai-chat-drop-overlay {
+  border-color: #312e81;
+  color: #312e81;
+}
+
+.ai-panel--byok .ai-chat-attach-btn:hover {
+  color: #312e81;
+  background: #eeedf5;
+}
+
+.ai-panel--byok .ai-chat-textarea:focus {
+  border-color: #312e81;
+}
+
+.ai-panel--byok .ai-chat-send-btn {
+  background: #312e81;
+}
+
+.ai-panel--byok .ai-panel-retry-btn {
+  color: #312e81;
+  border-color: #312e81;
+}
+
+.ai-panel--byok .ai-panel-retry-btn:hover {
+  background: #eeedf5;
+}
+
 @media print {
   .ai-panel,
   .ai-panel-mobile,

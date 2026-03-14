@@ -9,7 +9,7 @@ import ApiTokenList from '../components/ApiTokenList';
 import Logo from '../components/Logo';
 import UserProfileBadge from '../components/UserProfileBadge';
 import { useAuth } from '../contexts/AuthContext';
-import useByokSettings from '../hooks/useByokSettings';
+import { useByok } from '../contexts/ByokContext';
 
 // Fallback labels — server provides authoritative labels via models[].label
 const MODEL_LABELS = {
@@ -30,7 +30,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
   const [error, setError] = useState(null);
   const [usage, setUsage] = useState(null);
   const [mcpCopied, setMcpCopied] = useState(false);
-  const byok = useByokSettings();
+  const byok = useByok();
   const [anthropicKeyInput, setAnthropicKeyInput] = useState('');
   const [googleKeyInput, setGoogleKeyInput] = useState('');
   const [byokError, setByokError] = useState(null);
@@ -171,165 +171,156 @@ export default function SettingsPage({ onNavigateHome, user }) {
 
             {byok.settings && (
               <div className="settings-subsection">
-                <h3>Model</h3>
-                <div className="byok-toggle-row">
+                <h3>Bring Your Own Key</h3>
+                <p className="settings-description">
+                  Configure the built-in assistant to use your AI provider account and choice of model.
+                </p>
+
+                <div className="byok-enable-row">
+                  <label>Use my key</label>
                   <button
-                    className={`byok-toggle-btn${!byok.settings.enabled ? ' byok-toggle-active' : ''}`}
+                    className={`byok-enable-toggle${byok.settings.enabled ? ' byok-enable-toggle--on' : ''}`}
                     onClick={async () => {
-                      if (!byok.settings.enabled) return;
                       setByokError(null);
-                      try { await byok.saveSettings({ enabled: false }); } catch (err) { setByokError(err.message); }
+                      try { await byok.saveSettings({ enabled: !byok.settings.enabled }); } catch (err) { setByokError(err.message); }
                     }}
                     disabled={byok.saving}
+                    role="switch"
+                    aria-checked={byok.settings.enabled}
                   >
-                    Use built-in
-                  </button>
-                  <button
-                    className={`byok-toggle-btn${byok.settings.enabled ? ' byok-toggle-active' : ''}`}
-                    onClick={async () => {
-                      if (byok.settings.enabled) return;
-                      setByokError(null);
-                      try { await byok.saveSettings({ enabled: true }); } catch (err) { setByokError(err.message); }
-                    }}
-                    disabled={byok.saving}
-                  >
-                    Bring your own key
+                    <span className="byok-enable-toggle-knob" />
                   </button>
                 </div>
 
-                {byok.settings.enabled && (
-                  <div className="byok-config">
-                    <div className="byok-model-select">
-                      <label>Model</label>
-                      <select
-                        className="byok-model-dropdown"
-                        value={byok.settings.modelKey || ''}
-                        onChange={async (e) => {
+                <div className="byok-model-select">
+                  <label>Model</label>
+                  <select
+                    className="byok-model-dropdown"
+                    value={byok.settings.modelKey || ''}
+                    onChange={async (e) => {
+                      setByokError(null);
+                      try {
+                        await byok.saveSettings({ modelKey: e.target.value || null });
+                      } catch (err) {
+                        setByokError(err.message);
+                      }
+                    }}
+                    disabled={byok.saving}
+                  >
+                    <option value="" disabled>Select a model...</option>
+                    <optgroup label="Anthropic">
+                      {byok.settings.models
+                        ?.filter(m => m.provider === 'anthropic')
+                        .map(m => (
+                          <option key={m.key} value={m.key} disabled={!byok.settings.anthropic?.hasKey}>
+                            {m.label || MODEL_LABELS[m.key] || m.key}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Google">
+                      {byok.settings.models
+                        ?.filter(m => m.provider === 'google')
+                        .map(m => (
+                          <option key={m.key} value={m.key} disabled={!byok.settings.google?.hasKey}>
+                            {m.label || MODEL_LABELS[m.key] || m.key}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <h4 className="byok-subheading">API Keys</h4>
+                <div className="byok-key-row">
+                  <label>Anthropic Key</label>
+                  {byok.settings.anthropic?.hasKey ? (
+                    <div className="byok-key-saved">
+                      <code className="byok-key-masked">sk-ant-...saved</code>
+                      <button
+                        className="byok-key-clear"
+                        onClick={async () => {
                           setByokError(null);
-                          try {
-                            await byok.saveSettings({ modelKey: e.target.value || null });
-                          } catch (err) {
-                            setByokError(err.message);
-                          }
+                          try { await byok.clearKey('anthropic'); } catch (err) { setByokError(err.message); }
                         }}
                         disabled={byok.saving}
                       >
-                        <option value="" disabled>Select a model...</option>
-                        <optgroup label={`Anthropic${byok.settings.anthropic?.hasKey ? '' : ' (add key below)'}`}>
-                          {byok.settings.models
-                            ?.filter(m => m.provider === 'anthropic')
-                            .map(m => (
-                              <option key={m.key} value={m.key} disabled={!byok.settings.anthropic?.hasKey}>
-                                {m.label || MODEL_LABELS[m.key] || m.key}
-                              </option>
-                            ))}
-                        </optgroup>
-                        <optgroup label={`Google${byok.settings.google?.hasKey ? '' : ' (add key below)'}`}>
-                          {byok.settings.models
-                            ?.filter(m => m.provider === 'google')
-                            .map(m => (
-                              <option key={m.key} value={m.key} disabled={!byok.settings.google?.hasKey}>
-                                {m.label || MODEL_LABELS[m.key] || m.key}
-                              </option>
-                            ))}
-                        </optgroup>
-                      </select>
+                        Clear
+                      </button>
                     </div>
-
-                    <div className="byok-key-row">
-                      <label>Anthropic API Key</label>
-                      {byok.settings.anthropic?.hasKey ? (
-                        <div className="byok-key-saved">
-                          <code className="byok-key-masked">sk-ant-...saved</code>
-                          <button
-                            className="byok-key-clear"
-                            onClick={async () => {
-                              setByokError(null);
-                              try { await byok.clearKey('anthropic'); } catch (err) { setByokError(err.message); }
-                            }}
-                            disabled={byok.saving}
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="byok-key-input-row">
-                          <input
-                            className="byok-key-input"
-                            type="password"
-                            placeholder="sk-ant-..."
-                            value={anthropicKeyInput}
-                            onChange={(e) => setAnthropicKeyInput(e.target.value)}
-                            disabled={byok.saving}
-                          />
-                          <button
-                            className="byok-key-save"
-                            onClick={async () => {
-                              if (!anthropicKeyInput.trim()) return;
-                              setByokError(null);
-                              try {
-                                await byok.saveSettings({ anthropicKey: anthropicKeyInput.trim() });
-                                setAnthropicKeyInput('');
-                              } catch (err) { setByokError(err.message); }
-                            }}
-                            disabled={byok.saving || !anthropicKeyInput.trim()}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      )}
+                  ) : (
+                    <div className="byok-key-input-row">
+                      <input
+                        className="byok-key-input"
+                        type="password"
+                        placeholder="sk-ant-..."
+                        value={anthropicKeyInput}
+                        onChange={(e) => setAnthropicKeyInput(e.target.value)}
+                        disabled={byok.saving}
+                      />
+                      <button
+                        className="byok-key-save"
+                        onClick={async () => {
+                          if (!anthropicKeyInput.trim()) return;
+                          setByokError(null);
+                          try {
+                            await byok.saveSettings({ anthropicKey: anthropicKeyInput.trim() });
+                            setAnthropicKeyInput('');
+                          } catch (err) { setByokError(err.message); }
+                        }}
+                        disabled={byok.saving || !anthropicKeyInput.trim()}
+                      >
+                        Save
+                      </button>
                     </div>
-
-                    <div className="byok-key-row">
-                      <label>Google API Key</label>
-                      {byok.settings.google?.hasKey ? (
-                        <div className="byok-key-saved">
-                          <code className="byok-key-masked">AIza...saved</code>
-                          <button
-                            className="byok-key-clear"
-                            onClick={async () => {
-                              setByokError(null);
-                              try { await byok.clearKey('google'); } catch (err) { setByokError(err.message); }
-                            }}
-                            disabled={byok.saving}
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="byok-key-input-row">
-                          <input
-                            className="byok-key-input"
-                            type="password"
-                            placeholder="AIza..."
-                            value={googleKeyInput}
-                            onChange={(e) => setGoogleKeyInput(e.target.value)}
-                            disabled={byok.saving}
-                          />
-                          <button
-                            className="byok-key-save"
-                            onClick={async () => {
-                              if (!googleKeyInput.trim()) return;
-                              setByokError(null);
-                              try {
-                                await byok.saveSettings({ googleKey: googleKeyInput.trim() });
-                                setGoogleKeyInput('');
-                              } catch (err) { setByokError(err.message); }
-                            }}
-                            disabled={byok.saving || !googleKeyInput.trim()}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      )}
+                  )}
+                </div>
+                <div className="byok-key-row">
+                  <label>Google Key</label>
+                  {byok.settings.google?.hasKey ? (
+                    <div className="byok-key-saved">
+                      <code className="byok-key-masked">AIza...saved</code>
+                      <button
+                        className="byok-key-clear"
+                        onClick={async () => {
+                          setByokError(null);
+                          try { await byok.clearKey('google'); } catch (err) { setByokError(err.message); }
+                        }}
+                        disabled={byok.saving}
+                      >
+                        Clear
+                      </button>
                     </div>
+                  ) : (
+                    <div className="byok-key-input-row">
+                      <input
+                        className="byok-key-input"
+                        type="password"
+                        placeholder="AIza..."
+                        value={googleKeyInput}
+                        onChange={(e) => setGoogleKeyInput(e.target.value)}
+                        disabled={byok.saving}
+                      />
+                      <button
+                        className="byok-key-save"
+                        onClick={async () => {
+                          if (!googleKeyInput.trim()) return;
+                          setByokError(null);
+                          try {
+                            await byok.saveSettings({ googleKey: googleKeyInput.trim() });
+                            setGoogleKeyInput('');
+                          } catch (err) { setByokError(err.message); }
+                        }}
+                        disabled={byok.saving || !googleKeyInput.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                    {byokError && <div className="byok-error">{byokError}</div>}
-                    <p className="settings-description byok-note">
-                      Keys are encrypted and never exposed. Using your own key bypasses the monthly usage limit.
-                    </p>
-                  </div>
-                )}
+                {byokError && <div className="byok-error">{byokError}</div>}
+                <p className="settings-description byok-note">
+                  Keys are encrypted and never exposed. Using your own key bypasses AI usage limits.
+                </p>
               </div>
             )}
           </section>
