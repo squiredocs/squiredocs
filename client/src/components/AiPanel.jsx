@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useByok } from '../contexts/ByokContext';
 import { useMobile } from '../hooks/useMobile';
 import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatMessages from './AiChatMessages';
@@ -29,7 +30,10 @@ const MIN_HEIGHT = 200;
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
 
-function AiPanel({ aiPanel, aiChat, isByok, byokProvider }) {
+function AiPanel({ aiPanel, aiChat }) {
+  const byok = useByok();
+  const isByok = !!byok.settings?.enabled;
+  const byokProvider = byok.settings?.models?.find(m => m.key === byok.settings?.modelKey)?.provider;
   const {
     isOpen, close,
     position, setPosition,

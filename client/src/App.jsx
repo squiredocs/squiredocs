@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
-import { ByokProvider, useByok } from './contexts/ByokContext';
+import { ByokProvider } from './contexts/ByokContext';
 import { useMobile } from './hooks/useMobile';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
@@ -199,27 +199,22 @@ function AppContent() {
     return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="login" />;
   }
 
-  return <AuthenticatedApp route={route} listKey={listKey} user={user}
-    navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
-    navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings} />;
+  return (
+    <ByokProvider>
+      <AuthenticatedApp route={route} listKey={listKey} user={user}
+        navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
+        navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings} />
+    </ByokProvider>
+  );
 }
 
 /**
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp(props) {
-  return (
-    <ByokProvider>
-      <AuthenticatedAppInner {...props} />
-    </ByokProvider>
-  );
-}
-
-function AuthenticatedAppInner({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
-  const byok = useByok();
   const isMobile = useMobile();
 
   const aiPanelClass = aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut
@@ -264,7 +259,7 @@ function AuthenticatedAppInner({ route, listKey, user, navigateToDocs, navigateT
         <div className="app-content">
           {page}
         </div>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} isByok={!!byok.settings?.enabled} byokProvider={byok.settings?.models?.find(m => m.key === byok.settings?.modelKey)?.provider} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
       </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button

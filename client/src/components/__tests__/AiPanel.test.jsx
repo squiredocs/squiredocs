@@ -14,6 +14,11 @@ vi.mock('../../hooks/useMobile', () => ({
   useMobile: () => mockIsMobile,
 }));
 
+// Mock useByok
+vi.mock('../../contexts/ByokContext', () => ({
+  useByok: () => ({ settings: null, loading: false, saving: false, error: null, saveSettings: vi.fn(), clearKey: vi.fn() }),
+}));
+
 // Mock useResizeHandle
 const mockWidthResize = { handleMouseDown: vi.fn(), handleTouchStart: vi.fn(), isDragging: false };
 const mockHeightResize = { handleMouseDown: vi.fn(), handleTouchStart: vi.fn(), isDragging: false };

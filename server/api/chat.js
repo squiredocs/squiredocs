@@ -22,6 +22,18 @@ const { decrypt } = require('../crypto');
 
 const router = express.Router();
 
+/**
+ * Check whether BYOK is fully configured and active for a user.
+ * Requires the toggle on, a model selected, and the matching provider key stored.
+ */
+function isByokActive(settings) {
+  if (!settings?.byok_enabled || !settings.byok_model_key) return false;
+  const def = chatModels.MODEL_DEFS.find(d => d.key === settings.byok_model_key);
+  if (!def) return false;
+  const key = def.provider === 'anthropic' ? settings.byok_anthropic_key : settings.byok_google_key;
+  return !!key;
+}
+
 let pool = null;
 
 function init(dbPool) {
@@ -175,10 +187,9 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    // BYOK is active when the toggle is on AND there's a model + matching provider key
-    const isByok = !!(byokSettings?.byok_enabled && byokSettings.byok_model_key &&
-      ((chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key)?.provider === 'anthropic' && byokSettings.byok_anthropic_key) ||
-       (chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key)?.provider === 'google' && byokSettings.byok_google_key)));
+    // BYOK is active when the toggle is on, a model is selected, and the
+    // matching provider key is stored
+    const isByok = isByokActive(byokSettings);
 
     // Check AI usage quota before proceeding (skip for BYOK users)
     if (!isByok) {
@@ -214,12 +225,9 @@ router.post('/', requireAuth, async (req, res) => {
     // Resolve model — BYOK uses user's key + selected model, otherwise server default
     let resolved;
     if (isByok) {
-      const modelDef = chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key);
-      const encryptedKey = modelDef.provider === 'anthropic'
-        ? byokSettings.byok_anthropic_key
-        : byokSettings.byok_google_key;
-      const userApiKey = decrypt(encryptedKey);
-      resolved = chatModels.resolveModelWithKey(byokSettings.byok_model_key, userApiKey);
+      const def = chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key);
+      const encryptedKey = def.provider === 'anthropic' ? byokSettings.byok_anthropic_key : byokSettings.byok_google_key;
+      resolved = chatModels.resolveModelWithKey(byokSettings.byok_model_key, decrypt(encryptedKey));
     }
     if (!resolved) {
       const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
