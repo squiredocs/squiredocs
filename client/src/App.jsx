@@ -264,7 +264,7 @@ function AuthenticatedAppInner({ route, listKey, user, navigateToDocs, navigateT
         <div className="app-content">
           {page}
         </div>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} isByok={!!byok.settings?.enabled} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} isByok={!!byok.settings?.enabled} byokProvider={byok.settings?.models?.find(m => m.key === byok.settings?.modelKey)?.provider} />
       </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button

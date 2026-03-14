@@ -27,7 +27,9 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-function AiPanel({ aiPanel, aiChat, isByok }) {
+const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
+
+function AiPanel({ aiPanel, aiChat, isByok, byokProvider }) {
   const {
     isOpen, close,
     position, setPosition,
@@ -296,7 +298,7 @@ function AiPanel({ aiPanel, aiChat, isByok }) {
             </div>
           ) : status === 'error' && error && (
             <div className="ai-panel-error">
-              Something went wrong. Please try again.
+              {isByok && error.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : 'Something went wrong. Please try again.'}
             </div>
           )}
           <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} />
