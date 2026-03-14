@@ -194,6 +194,43 @@ describe('BYOK Settings API', () => {
       expect(res.body.modelKey).toBe('gemini-2.5-flash');
     });
 
+    test('clearing the provider key disables BYOK', async () => {
+      // Set up: Anthropic key + Anthropic model + enabled
+      const encrypted = crypto.encrypt('sk-ant-test-key');
+      await pool.query(
+        `UPDATE users SET byok_enabled = true, byok_anthropic_key = $1, byok_model_key = 'claude-haiku' WHERE id = $2`,
+        [encrypted, testUserId]
+      );
+
+      // Clear the Anthropic key
+      const res = await request(app)
+        .put('/api/settings/byok')
+        .send({ anthropicKey: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.enabled).toBe(false);
+      expect(res.body.anthropic.hasKey).toBe(false);
+      // Model selection should persist
+      expect(res.body.modelKey).toBe('claude-haiku');
+    });
+
+    test('clearing an unrelated provider key does not disable BYOK', async () => {
+      // Set up: Anthropic key + Anthropic model + enabled
+      const encrypted = crypto.encrypt('sk-ant-test-key');
+      await pool.query(
+        `UPDATE users SET byok_enabled = true, byok_anthropic_key = $1, byok_model_key = 'claude-haiku' WHERE id = $2`,
+        [encrypted, testUserId]
+      );
+
+      // Clear the Google key (not used by the selected model)
+      const res = await request(app)
+        .put('/api/settings/byok')
+        .send({ googleKey: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.enabled).toBe(true);
+    });
+
     test('requires auth', async () => {
       mockUserId = null;
       const res = await request(app)

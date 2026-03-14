@@ -99,7 +99,7 @@ router.put('/', requireAuth, async (req, res) => {
     const row = current.rows[0];
 
     // Toggle
-    const newEnabled = typeof enabled === 'boolean' ? enabled : row.byok_enabled;
+    let newEnabled = typeof enabled === 'boolean' ? enabled : row.byok_enabled;
 
     // Determine new values (undefined = no change, null = clear, string = set)
     // Validate keys against provider APIs before accepting them.
@@ -130,6 +130,13 @@ router.put('/', requireAuth, async (req, res) => {
         return res.status(400).json({ error: `Unknown model: ${modelKey}` });
       }
       newModelKey = modelKey;
+    }
+
+    // If the selected model's provider key was cleared, disable BYOK
+    if (newEnabled && newModelKey) {
+      const selectedDef = MODEL_DEFS.find((d) => d.key === newModelKey);
+      const hasProviderKey = selectedDef?.provider === 'anthropic' ? !!newAnthropicKey : !!newGoogleKey;
+      if (!hasProviderKey) newEnabled = false;
     }
 
     await pool.query(
