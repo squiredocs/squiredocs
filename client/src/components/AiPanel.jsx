@@ -42,6 +42,16 @@ function AiPanel({ aiPanel, aiChat, isByok, byokProvider }) {
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
+  // Snapshot BYOK state when an error occurs so toggling modes
+  // doesn't retroactively change how the error is displayed
+  const errorByokRef = useRef(null);
+  const prevErrorRef = useRef(null);
+  if (error !== prevErrorRef.current) {
+    prevErrorRef.current = error;
+    errorByokRef.current = error ? isByok : null;
+  }
+  const errorWasByok = errorByokRef.current ?? false;
+
   const { user } = useAuth();
   const isMobile = useMobile();
   const panelRef = useRef(null);
@@ -298,7 +308,7 @@ function AiPanel({ aiPanel, aiChat, isByok, byokProvider }) {
             </div>
           ) : status === 'error' && error && (
             <div className="ai-panel-error">
-              {isByok && error.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : 'Something went wrong. Please try again.'}
+              {errorWasByok && error.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : 'Something went wrong. Please try again.'}
             </div>
           )}
           <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} />
