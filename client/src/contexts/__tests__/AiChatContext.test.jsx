@@ -265,4 +265,93 @@ describe('AiChatContext', () => {
     const { result } = renderAiChat();
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');
   });
+
+  // ── New-chat creation: first message should not be swallowed ──────────
+
+  describe('new chat first message', () => {
+    it('does not call stop() when creating a new chat', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      // Clear any calls from initial mount
+      stopSpy.mockClear();
+      setMessagesSpy.mockClear();
+
+      mockFetchResponse({ id: 'new-chat-a' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList after create
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList after title
+
+      await act(async () => { await result.current.sendMessage('First message'); });
+
+      // The creatingChatRef flag should skip the useEffect's stop/clear cycle
+      expect(stopSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not clear messages when creating a new chat', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      stopSpy.mockClear();
+      setMessagesSpy.mockClear();
+
+      mockFetchResponse({ id: 'new-chat-b' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList after create
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList after title
+
+      await act(async () => { await result.current.sendMessage('First message'); });
+
+      // setMessages([]) should NOT be called — that would wipe the just-sent message
+      expect(setMessagesSpy).not.toHaveBeenCalledWith([]);
+    });
+
+    it('transport gets the new chat ID, not null', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      mockFetchResponse({ id: 'fresh-42' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList after create
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList after title
+
+      await act(async () => { await result.current.sendMessage('Hello'); });
+
+      // The transport reads chatIdRef — verify it has the new chat ID
+      const config = capturedTransportArgs.prepareSendMessagesRequest({
+        messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+      });
+      expect(config.body.id).toBe('fresh-42');
+    });
+
+    it('reconnect URL uses the new chat ID', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      mockFetchResponse({ id: 'reconnect-99' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList after create
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList after title
+
+      await act(async () => { await result.current.sendMessage('Test'); });
+
+      const reconnect = capturedTransportArgs.prepareReconnectToStreamRequest();
+      expect(reconnect.api).toBe('/api/chat/reconnect-99/stream');
+    });
+
+    it('sends the message to chat.sendMessage', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      sendMessageSpy.mockClear();
+
+      mockFetchResponse({ id: 'new-chat-c' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList after create
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList after title
+
+      await act(async () => { await result.current.sendMessage('My first msg'); });
+
+      expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'My first msg', files: undefined });
+    });
+  });
 });

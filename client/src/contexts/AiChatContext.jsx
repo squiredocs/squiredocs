@@ -27,6 +27,7 @@ export function AiChatProvider({ children }) {
   const [chatList, setChatList] = useState([]);
   const chatListLoadedRef = useRef(false);
   const titleSetRef = useRef(new Set()); // track which chats already have titles
+  const creatingChatRef = useRef(false); // skip load-messages effect after new-chat creation
 
   // Helper for authed API calls
   const apiFetch = useCallback((path, opts = {}) => {
@@ -61,7 +62,11 @@ export function AiChatProvider({ children }) {
   // ── Transport (sends single message + chat ID) ──────────────────────────
 
   const chatIdRef = useRef(currentChatId);
-  chatIdRef.current = currentChatId;
+  // Guard: don't overwrite the ref during the new-chat creation window —
+  // sendMessage sets it explicitly before the state update is processed.
+  if (!creatingChatRef.current) {
+    chatIdRef.current = currentChatId;
+  }
 
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
@@ -131,6 +136,13 @@ export function AiChatProvider({ children }) {
   // ── Load messages when chat changes ──────────────────────────────────────
 
   useEffect(() => {
+    // After new-chat creation the stream is already running and messages
+    // are in the correct state — skip the stop/clear/reload cycle.
+    if (creatingChatRef.current) {
+      creatingChatRef.current = false;
+      return;
+    }
+
     // Disconnect any active stream from the previous chat so its tokens
     // don't spill into the new chat's view. The server-side tee ensures
     // the response is still saved even after the client disconnects.
@@ -178,13 +190,13 @@ export function AiChatProvider({ children }) {
 
   // ── CRUD operations ──────────────────────────────────────────────────────
 
-  // Create a chat row on the server (called lazily on first message)
+  // Create a chat row on the server (called lazily on first message).
+  // Does NOT set currentChatId — the caller does that after sending.
   const createChatOnServer = useCallback(async () => {
     try {
       const res = await apiFetch('/api/chat/chats', { method: 'POST' });
       if (res.ok) {
         const { id } = await res.json();
-        setCurrentChatId(id);
         await refreshChatList();
         return id;
       }
@@ -241,12 +253,15 @@ export function AiChatProvider({ children }) {
   const sendMessage = useCallback(
     async (text, files) => {
       let chatId = currentChatId;
-      if (!chatId) {
+      const isNewChat = !chatId;
+      if (isNewChat) {
         chatId = await createChatOnServer();
         if (!chatId) return;
-        // chatIdRef is updated synchronously via setCurrentChatId → useEffect,
-        // but we need it immediately for the transport. Set it directly.
         chatIdRef.current = chatId;
+        // Flag so the load-messages useEffect skips its stop/clear cycle
+        // when currentChatId changes — the stream is about to start.
+        creatingChatRef.current = true;
+        setCurrentChatId(chatId);
       }
 
       // Auto-title the chat on the first message
