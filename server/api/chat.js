@@ -147,6 +147,16 @@ function isTokenLimitError(errorOrMessage) {
 }
 
 /**
+ * Detect Google API INVALID_ARGUMENT errors (e.g. thought_signature issues
+ * with Gemini 3 models when thinking is enabled with multi-turn tool calls).
+ */
+function isInvalidArgumentError(errorOrMessage) {
+  const status = errorOrMessage?.data?.error?.status || errorOrMessage?.statusCode;
+  const msg = errorOrMessage?.data?.error?.message || errorOrMessage?.message || '';
+  return status === 'INVALID_ARGUMENT' || (status === 400 && /invalid argument/i.test(msg));
+}
+
+/**
  * Compact messages by summarizing older messages, preserving recent ones verbatim.
  * Always compacts when called — the caller decides when compaction is needed.
  * Uses gemini-2.5-flash for fast, cheap summarization regardless of chat model.
@@ -401,7 +411,8 @@ router.post('/', requireAuth, async (req, res) => {
     const modelMessages = await convertToModelMessages(validatedMessages);
     inlineDataUrls(modelMessages);
 
-    // Build streamText options (reusable for compaction retry)
+    // Build streamText options (reusable for compaction/retry)
+    const useThinking = def.provider === 'google';
     const streamTextOpts = {
       model,
       system: buildSystemPrompt(docGuid, docTitle),
@@ -410,7 +421,7 @@ router.post('/', requireAuth, async (req, res) => {
       prepareStep: async ({ stepNumber }) => {
         if (stepNumber >= 95) return { toolChoice: 'none' };
       },
-      ...(def.provider === 'google' && {
+      ...(useThinking && {
         providerOptions: {
           google: { thinkingConfig: { includeThoughts: true } },
         },
@@ -431,8 +442,9 @@ router.post('/', requireAuth, async (req, res) => {
     };
 
     /** Run streamText and pipe the resulting UI stream as SSE to the response. */
-    async function runStream(messages, writeHeaders) {
-      const result = streamText({ ...streamTextOpts, messages });
+    async function runStream(messages, opts = {}) {
+      const finalOpts = { ...streamTextOpts, ...opts, messages };
+      const result = streamText(finalOpts);
       const uiStream = result.toUIMessageStream({
         originalMessages: validatedMessages,
         generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
@@ -442,18 +454,17 @@ router.post('/', requireAuth, async (req, res) => {
           });
         },
       });
-      await pipeAsSSE(uiStream, res, entry, { writeHeaders });
+      await pipeAsSSE(uiStream, res, entry, { writeHeaders: opts.writeHeaders ?? true });
     }
 
     try {
-      await runStream(modelMessages, true);
+      await runStream(modelMessages);
       cleanupEntry(30_000);
       res.end();
     } catch (streamError) {
       if (isTokenLimitError(streamError)) {
         console.log('[Chat API] Token limit hit, compacting conversation…');
 
-        // Write SSE headers if not already sent (pre-headers error path)
         if (!res.headersSent) {
           res.writeHead(200, SSE_HEADERS);
         }
@@ -474,7 +485,20 @@ router.post('/', requireAuth, async (req, res) => {
         });
 
         // Retry with compacted messages (headers already sent)
-        await runStream(compacted, false);
+        await runStream(compacted, { writeHeaders: false });
+        cleanupEntry(30_000);
+        res.end();
+      } else if (useThinking && isInvalidArgumentError(streamError)) {
+        // Gemini 3 models can fail with INVALID_ARGUMENT when thought
+        // signatures from earlier turns are lost during DB persistence.
+        // Retry without thinkingConfig so the request isn't rejected.
+        console.warn(
+          '[Chat API] INVALID_ARGUMENT with thinking enabled — retrying without thinkingConfig'
+        );
+        await runStream(modelMessages, {
+          providerOptions: {},
+          writeHeaders: !res.headersSent,
+        });
         cleanupEntry(30_000);
         res.end();
       } else {

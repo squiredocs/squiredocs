@@ -32,10 +32,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.46",
+    "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/google": "^3.0.51",
     "@manuscripts/prosemirror-recreate-steps": "^0.1.4",
-    "ai": "^6.0.98",
+    "ai": "^6.0.116",
     "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
