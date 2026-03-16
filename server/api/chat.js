@@ -138,6 +138,80 @@ The user is currently viewing document${titleStr} (${docGuid}). When they refer 
 </active_document>`;
 }
 
+// ── Cross-turn context compaction ─────────────────────────────────────────────
+// When conversation history exceeds a fraction of the model's context window,
+// summarize older messages to keep the context lean.
+
+const COMPACTION_THRESHOLD_RATIO = 0.5; // compact when messages use >50% of context
+const RECENT_MESSAGES_TO_KEEP = 10;     // keep this many recent messages verbatim
+
+/**
+ * Compact messages if they exceed the context threshold.
+ * Uses a fast model to summarize older messages, preserving recent ones verbatim.
+ * @param {Array} messages - Model-format messages
+ * @param {number} contextWindowTokens - Model's context window in tokens
+ * @param {Function} compactionProvider - AI SDK provider for the compaction model
+ * @returns {Array} Original or compacted messages
+ */
+async function compactMessages(messages, contextWindowTokens, compactionProvider) {
+  const serialized = JSON.stringify(messages);
+  const estimatedTokens = serialized.length / 4;
+  const threshold = contextWindowTokens * COMPACTION_THRESHOLD_RATIO;
+
+  if (estimatedTokens <= threshold) return messages;
+
+  console.log(
+    `[Chat API] Compacting: ~${Math.round(estimatedTokens).toLocaleString()} tokens `
+    + `exceeds threshold of ~${Math.round(threshold).toLocaleString()}`
+  );
+
+  const splitAt = Math.max(0, messages.length - RECENT_MESSAGES_TO_KEEP);
+  const oldMessages = messages.slice(0, splitAt);
+  const recentMessages = messages.slice(splitAt);
+
+  // If there's nothing to compact, return as-is
+  if (oldMessages.length === 0) return messages;
+
+  try {
+    const { generateText } = getAI();
+    const compactionModel = compactionProvider('gemini-2.5-flash');
+
+    const oldSerialized = JSON.stringify(oldMessages);
+    const summaryResult = await generateText({
+      model: compactionModel,
+      maxTokens: 2048,
+      prompt: `Summarize this conversation history concisely. Preserve:\n`
+        + `- Key decisions made\n`
+        + `- Document IDs (docGuid values) mentioned and what was done with them\n`
+        + `- Tool calls made and their key results\n`
+        + `- Any unresolved questions or pending tasks\n`
+        + `Omit: raw document content, redundant exchanges, verbose tool outputs.\n\n`
+        + `Conversation history:\n${oldSerialized}`,
+    });
+
+    const summaryText = summaryResult.text;
+    if (!summaryText) return messages;
+
+    const summaryMessage = {
+      role: 'user',
+      content: [{
+        type: 'text',
+        text: `[Earlier conversation summary — ${oldMessages.length} messages compacted]\n\n${summaryText}`,
+      }],
+    };
+
+    console.log(
+      `[Chat API] Compacted ${oldMessages.length} messages into summary `
+      + `(${summaryText.length} chars), keeping ${recentMessages.length} recent`
+    );
+
+    return [summaryMessage, ...recentMessages];
+  } catch (err) {
+    console.error('[Chat API] Compaction failed, using full history:', err.message);
+    return messages;
+  }
+}
+
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
 router.post('/', requireAuth, async (req, res) => {
@@ -246,7 +320,13 @@ router.post('/', requireAuth, async (req, res) => {
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
     // Build tool set with provider-appropriate web search + universal webFetch
-    const tools = chatTools.buildTools(syntheticAgentToken);
+    const thinkingEnabled = def.provider === 'google';
+    const currentUsageChars = JSON.stringify(allMessages).length;
+    const tools = chatTools.buildTools(syntheticAgentToken, {
+      contextWindowTokens: def.contextWindow || 1_000_000,
+      currentUsageChars,
+      thinkingEnabled,
+    });
     if (def.provider === 'anthropic') {
       tools.webSearch = provider.tools.webSearch_20250305();
     } else if (def.provider === 'google') {
@@ -326,7 +406,17 @@ router.post('/', requireAuth, async (req, res) => {
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(100),
-      prepareStep: ({ stepNumber }) => {
+      prepareStep: async ({ stepNumber, messages }) => {
+        // Cross-turn compaction: on the first step, check if conversation
+        // history is large enough to warrant summarization
+        if (stepNumber === 0) {
+          const compacted = await compactMessages(
+            messages, def.contextWindow || 1_000_000, provider,
+          );
+          if (compacted !== messages) {
+            return { messages: compacted };
+          }
+        }
         if (stepNumber >= 95) {
           return { toolChoice: 'none' };
         }

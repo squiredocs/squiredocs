@@ -33,7 +33,7 @@
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.46",
-    "@ai-sdk/google": "^3.0.31",
+    "@ai-sdk/google": "^3.0.51",
     "@manuscripts/prosemirror-recreate-steps": "^0.1.4",
     "ai": "^6.0.98",
     "cheerio": "^1.2.0",
