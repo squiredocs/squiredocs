@@ -197,7 +197,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
                   <label>Anthropic Key</label>
                   {byok.settings.anthropic?.hasKey ? (
                     <div className="byok-key-saved">
-                      <code className="byok-key-masked">sk-ant-...saved</code>
+                      <code className="byok-key-masked">sk-ant-••••••</code>
                       <button
                         className="byok-key-clear"
                         onClick={async () => {
@@ -240,7 +240,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
                   <label>Google Key</label>
                   {byok.settings.google?.hasKey ? (
                     <div className="byok-key-saved">
-                      <code className="byok-key-masked">AIza...saved</code>
+                      <code className="byok-key-masked">AIza••••••</code>
                       <button
                         className="byok-key-clear"
                         onClick={async () => {
