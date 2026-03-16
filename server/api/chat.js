@@ -240,15 +240,22 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      // Before headers are committed, check for error chunks so the caller
-      // can intercept token-limit errors and retry with compacted messages.
+      // Intercept token-limit error chunks at ANY point in the stream so
+      // the caller can compact and retry — whether headers are sent or not.
+      if (value?.type === 'error' && isTokenLimitError(new Error(value.errorText || ''))) {
+        throw new Error(value.errorText || 'Stream error');
+      }
+
+      // Before headers are committed, buffer metadata-only events and
+      // commit on the first content chunk.
       if (!headersWritten) {
         if (value?.type === 'error') {
           throw new Error(value.errorText || 'Stream error');
         }
         pending.push(value);
-        // Buffer metadata-only events; commit on the first content chunk
-        if (value?.type === 'start' || value?.type === 'start-step') continue;
+        const isMetadata = value?.type === 'start' || value?.type === 'start-step'
+          || value?.type === 'finish-step' || value?.type === 'finish';
+        if (isMetadata) continue;
         commitHeaders();
         continue;
       }
@@ -512,17 +519,20 @@ router.post('/', requireAuth, async (req, res) => {
       cleanupEntry(30_000);
       res.end();
     } catch (streamError) {
-      if (isTokenLimitError(streamError) && !res.headersSent) {
+      if (isTokenLimitError(streamError)) {
         console.log('[Chat API] Token limit hit, compacting conversation…');
 
-        // Write SSE headers + compacting badge
-        res.writeHead(200, {
-          'content-type': 'text/event-stream',
-          'cache-control': 'no-cache',
-          'connection': 'keep-alive',
-          'x-vercel-ai-ui-message-stream': 'v1',
-          'x-accel-buffering': 'no',
-        });
+        // Write SSE headers if not already sent (pre-headers error path)
+        if (!res.headersSent) {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            'connection': 'keep-alive',
+            'x-vercel-ai-ui-message-stream': 'v1',
+            'x-accel-buffering': 'no',
+          });
+        }
+
         writeSSEEvent(res, entry, {
           type: 'tool-input-available',
           toolCallId: 'compact-1',
