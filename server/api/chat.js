@@ -14,6 +14,7 @@ const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
+const { loadByokSettings, isByokActive } = require('./byok-settings');
 const { webFetch } = require('./web-fetch');
 const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
@@ -22,17 +23,13 @@ const { decrypt } = require('../crypto');
 
 const router = express.Router();
 
-/**
- * Check whether BYOK is fully configured and active for a user.
- * Requires the toggle on, a model selected, and the matching provider key stored.
- */
-function isByokActive(settings) {
-  if (!settings?.byok_enabled || !settings.byok_model_key) return false;
-  const def = chatModels.MODEL_DEFS.find(d => d.key === settings.byok_model_key);
-  if (!def) return false;
-  const key = def.provider === 'anthropic' ? settings.byok_anthropic_key : settings.byok_google_key;
-  return !!key;
-}
+const SSE_HEADERS = {
+  'content-type': 'text/event-stream',
+  'cache-control': 'no-cache',
+  'connection': 'keep-alive',
+  'x-vercel-ai-ui-message-stream': 'v1',
+  'x-accel-buffering': 'no',
+};
 
 let pool = null;
 
@@ -219,13 +216,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   let headersWritten = !writeHeaders;
 
   function commitHeaders() {
-    res.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      'connection': 'keep-alive',
-      'x-vercel-ai-ui-message-stream': 'v1',
-      'x-accel-buffering': 'no',
-    });
+    res.writeHead(200, SSE_HEADERS);
     headersWritten = true;
     for (const p of pending) {
       const c = `data: ${JSON.stringify(p)}\n\n`;
@@ -325,19 +316,7 @@ router.post('/', requireAuth, async (req, res) => {
     await chatStore.saveChat(chatId, allMessages);
 
     // Load BYOK settings for the user
-    let byokSettings = null;
-    if (pool) {
-      const byokResult = await pool.query(
-        `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
-        [req.user.userId]
-      );
-      if (byokResult.rows.length > 0) {
-        byokSettings = byokResult.rows[0];
-      }
-    }
-
-    // BYOK is active when the toggle is on, a model is selected, and the
-    // matching provider key is stored
+    const byokSettings = pool ? await loadByokSettings(req.user.userId) : null;
     const isByok = isByokActive(byokSettings);
 
     // Check AI usage quota before proceeding (skip for BYOK users)
@@ -524,13 +503,7 @@ router.post('/', requireAuth, async (req, res) => {
 
         // Write SSE headers if not already sent (pre-headers error path)
         if (!res.headersSent) {
-          res.writeHead(200, {
-            'content-type': 'text/event-stream',
-            'cache-control': 'no-cache',
-            'connection': 'keep-alive',
-            'x-vercel-ai-ui-message-stream': 'v1',
-            'x-accel-buffering': 'no',
-          });
+          res.writeHead(200, SSE_HEADERS);
         }
 
         writeSSEEvent(res, entry, {
@@ -576,13 +549,7 @@ router.get('/:id/stream', requireAuth, async (req, res) => {
     return res.status(204).end();
   }
 
-  res.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'connection': 'keep-alive',
-    'x-vercel-ai-ui-message-stream': 'v1',
-    'x-accel-buffering': 'no',
-  });
+  res.writeHead(200, SSE_HEADERS);
 
   // Replay buffered chunks
   for (const chunk of entry.chunks) {

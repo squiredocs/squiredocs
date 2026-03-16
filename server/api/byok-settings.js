@@ -69,14 +69,11 @@ function buildResponse(row) {
 // GET /api/settings/byok — return current BYOK state (never returns actual keys)
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
-      [req.user.userId]
-    );
-    if (result.rows.length === 0) {
+    const row = await loadByokSettings(req.user.userId);
+    if (!row) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json(buildResponse(result.rows[0]));
+    res.json(buildResponse(row));
   } catch (err) {
     console.error('[BYOK] Error fetching settings:', err);
     res.status(500).json({ error: 'Failed to fetch BYOK settings' });
@@ -89,14 +86,10 @@ router.put('/', requireAuth, async (req, res) => {
     const { enabled, anthropicKey, googleKey, modelKey } = req.body;
 
     // Load current state to merge partial updates
-    const current = await pool.query(
-      `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
-      [req.user.userId]
-    );
-    if (current.rows.length === 0) {
+    const row = await loadByokSettings(req.user.userId);
+    if (!row) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const row = current.rows[0];
 
     // Toggle
     let newEnabled = typeof enabled === 'boolean' ? enabled : row.byok_enabled;
@@ -164,4 +157,28 @@ router.put('/', requireAuth, async (req, res) => {
   }
 });
 
-module.exports = { router, init };
+/**
+ * Load raw BYOK settings for a user from the database.
+ * Returns null if user not found.
+ */
+async function loadByokSettings(userId) {
+  const result = await pool.query(
+    `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * Check whether BYOK is fully configured and active for a settings row.
+ * Requires the toggle on, a model selected, and the matching provider key stored.
+ */
+function isByokActive(settings) {
+  if (!settings?.byok_enabled || !settings.byok_model_key) return false;
+  const def = MODEL_DEFS.find(d => d.key === settings.byok_model_key);
+  if (!def) return false;
+  const key = def.provider === 'anthropic' ? settings.byok_anthropic_key : settings.byok_google_key;
+  return !!key;
+}
+
+module.exports = { router, init, loadByokSettings, isByokActive };
