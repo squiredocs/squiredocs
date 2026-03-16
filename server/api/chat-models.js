@@ -94,4 +94,12 @@ function getAvailableModels(hasAnthropicKey, hasGoogleKey) {
   }));
 }
 
-module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, DEFAULT_MODEL_KEY, MODEL_DEFS };
+/**
+ * Return a model instance suitable for compaction (fast, cheap summarization).
+ * Uses the cached Google provider so it shares the same lazy-load path.
+ */
+function getCompactionModel() {
+  return getProvider('google')('gemini-2.5-flash');
+}
+
+module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, DEFAULT_MODEL_KEY, MODEL_DEFS };

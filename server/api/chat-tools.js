@@ -11,6 +11,7 @@
  * Imports from 'ai' are lazy-loaded (called from chat.js at request time).
  */
 const toolRegistry = require('../mcp/tools');
+const { webFetch } = require('./web-fetch');
 
 // Static cap for any single tool result. Documents larger than this should
 // be read in chunks via xpath. Reactive compaction handles overall context.
@@ -58,11 +59,81 @@ function buildOversizedError(toolName, resultChars, maxChars, result) {
 }
 
 /**
- * Build AI SDK tool definitions from the MCP tool registry.
+ * Build provider-specific webSearch and universal webFetch tools.
+ * @param {string} providerName - 'anthropic' or 'google'
+ * @param {object} provider - AI SDK provider factory (e.g. google or anthropic)
+ * @returns {object} { webSearch, webFetch } tool definitions
+ */
+function buildWebTools(providerName, provider) {
+  const { tool, generateText, jsonSchema } = require('ai');
+  const tools = {};
+
+  // Provider-specific web search
+  if (providerName === 'anthropic') {
+    tools.webSearch = provider.tools.webSearch_20250305();
+  } else if (providerName === 'google') {
+    // Gemini can't combine googleSearch with function tools in one request,
+    // so we wrap it as a function tool that makes a separate generateText call.
+    const searchModel = provider('gemini-2.5-flash');
+    tools.webSearch = tool({
+      description: 'Search the web for current information using Google Search. Returns a grounded summary of search results. You MUST provide a query.',
+      inputSchema: jsonSchema({
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query to look up on the web' },
+        },
+        required: ['query'],
+      }),
+      execute: async (args) => {
+        const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
+        console.log('[Chat API] webSearch query:', query);
+        const searchResult = await generateText({
+          model: searchModel,
+          maxTokens: 1024,
+          tools: { googleSearch: provider.tools.googleSearch({}) },
+          prompt: `Search the web and summarize what you find for: ${query}`,
+        });
+        return searchResult.text || 'No results found.';
+      },
+    });
+  }
+
+  // Universal webFetch — works the same for all providers
+  tools.webFetch = tool({
+    description: 'Fetch and read the contents of a web page at a specific URL. Use this when the user asks you to read, review, or summarize a web page, or when you need to check a link.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The URL to fetch and read' },
+      },
+      required: ['url'],
+    }),
+    execute: async (args) => {
+      const url = args.url || (typeof args === 'string' ? args : '');
+      console.log('[Chat API] webFetch url:', url);
+      try {
+        const result = await webFetch(url);
+        return result.truncated ? result.content + '\n\n[Content truncated]' : result.content;
+      } catch (err) {
+        console.error('[Chat API] webFetch error:', err.message);
+        return 'Could not fetch the requested URL.';
+      }
+    },
+  });
+
+  return tools;
+}
+
+/**
+ * Build AI SDK tool definitions from the MCP tool registry,
+ * plus provider-specific web tools when provider info is given.
  * @param {object} syntheticAgentToken - Token object for tool execution context
+ * @param {object} [opts] - Optional provider info for web tools
+ * @param {string} [opts.providerName] - 'anthropic' or 'google'
+ * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken) {
+function buildTools(syntheticAgentToken, { providerName, provider } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -90,7 +161,11 @@ function buildTools(syntheticAgentToken) {
     });
   }
 
+  if (providerName && provider) {
+    Object.assign(aiTools, buildWebTools(providerName, provider));
+  }
+
   return aiTools;
 }
 
-module.exports = { buildTools, MAX_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };
+module.exports = { buildTools, buildWebTools, MAX_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };

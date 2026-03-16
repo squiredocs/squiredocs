@@ -9,13 +9,11 @@
  */
 const express = require('express');
 const { requireAuth } = require('../auth');
-const { extractBearerToken } = require('../auth/jwt');
 const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
-const { webFetch } = require('./web-fetch');
 const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
@@ -139,9 +137,12 @@ The user is currently viewing document${titleStr} (${docGuid}). When they refer 
 
 /**
  * Detect provider token-limit / context-length errors so we can compact and retry.
+ * Accepts an Error object or a plain error-message string.
  */
-function isTokenLimitError(error) {
-  const msg = error?.message || error?.data?.error?.message || '';
+function isTokenLimitError(errorOrMessage) {
+  const msg = typeof errorOrMessage === 'string'
+    ? errorOrMessage
+    : errorOrMessage?.message || errorOrMessage?.data?.error?.message || '';
   return /exceeds the maximum number of tokens|prompt is too long|context_length_exceeded/i.test(msg);
 }
 
@@ -160,8 +161,7 @@ async function compactMessages(messages) {
 
   try {
     const { generateText } = getAI();
-    const { google } = require('@ai-sdk/google');
-    const compactionModel = google('gemini-2.5-flash');
+    const compactionModel = chatModels.getCompactionModel();
 
     const oldSerialized = JSON.stringify(oldMessages);
     const summaryResult = await generateText({
@@ -233,7 +233,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
 
       // Intercept token-limit error chunks at ANY point in the stream so
       // the caller can compact and retry — whether headers are sent or not.
-      if (value?.type === 'error' && isTokenLimitError(new Error(value.errorText || ''))) {
+      if (value?.type === 'error' && isTokenLimitError(value.errorText || '')) {
         throw new Error(value.errorText || 'Stream error');
       }
 
@@ -268,6 +268,23 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   } catch (err) {
     reader.releaseLock();
     throw err;
+  }
+}
+
+/**
+ * Convert data-URL file parts to inline Buffers so the AI SDK doesn't
+ * try to download them (validateDownloadUrl rejects data: scheme).
+ */
+function inlineDataUrls(modelMessages) {
+  for (const msg of modelMessages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const part of msg.content) {
+      if ((part.type === 'file' || part.type === 'image') &&
+          typeof part.data === 'string' && part.data.startsWith('data:')) {
+        const m = part.data.match(/^data:[^;]+;base64,(.+)$/s);
+        if (m) part.data = Buffer.from(m[1], 'base64');
+      }
+    }
   }
 }
 
@@ -373,81 +390,16 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
-    // Build tool set with provider-appropriate web search + universal webFetch
-    const thinkingEnabled = def.provider === 'google';
-    const tools = chatTools.buildTools(syntheticAgentToken);
-    if (def.provider === 'anthropic') {
-      tools.webSearch = provider.tools.webSearch_20250305();
-    } else if (def.provider === 'google') {
-      // Gemini can't combine googleSearch with function tools in one request,
-      // so we wrap it as a function tool that makes a separate generateText call.
-      const { tool, generateText, jsonSchema } = getAI();
-      const searchModel = provider('gemini-2.5-flash');
-      tools.webSearch = tool({
-        description: 'Search the web for current information using Google Search. Returns a grounded summary of search results. You MUST provide a query.',
-        inputSchema: jsonSchema({
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'The search query to look up on the web' },
-          },
-          required: ['query'],
-        }),
-        execute: async (args) => {
-          const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
-          console.log('[Chat API] webSearch query:', query);
-          const searchResult = await generateText({
-            model: searchModel,
-            maxTokens: 1024,
-            tools: { googleSearch: provider.tools.googleSearch({}) },
-            prompt: `Search the web and summarize what you find for: ${query}`,
-          });
-          return searchResult.text || 'No results found.';
-        },
-      });
-    }
-
-    // Universal webFetch — works the same for all providers
-    {
-      const { tool, jsonSchema } = getAI();
-      tools.webFetch = tool({
-        description: 'Fetch and read the contents of a web page at a specific URL. Use this when the user asks you to read, review, or summarize a web page, or when you need to check a link.',
-        inputSchema: jsonSchema({
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'The URL to fetch and read' },
-          },
-          required: ['url'],
-        }),
-        execute: async (args) => {
-          const url = args.url || (typeof args === 'string' ? args : '');
-          console.log('[Chat API] webFetch url:', url);
-          try {
-            const result = await webFetch(url);
-            return result.truncated ? result.content + '\n\n[Content truncated]' : result.content;
-          } catch (err) {
-            console.error('[Chat API] webFetch error:', err.message);
-            return 'Could not fetch the requested URL.';
-          }
-        },
-      });
-    }
+    // Build tool set: MCP tools + provider-specific web search + universal webFetch
+    const tools = chatTools.buildTools(syntheticAgentToken, {
+      providerName: def.provider,
+      provider,
+    });
 
     // Validate and convert UI messages for streamText
     const validatedMessages = await validateUIMessages({ messages: allMessages, tools });
     const modelMessages = await convertToModelMessages(validatedMessages);
-
-    // Convert data-URL file parts to inline Buffers so the AI SDK doesn't
-    // try to download them (validateDownloadUrl rejects data: scheme).
-    for (const msg of modelMessages) {
-      if (!Array.isArray(msg.content)) continue;
-      for (const part of msg.content) {
-        if ((part.type === 'file' || part.type === 'image') &&
-            typeof part.data === 'string' && part.data.startsWith('data:')) {
-          const m = part.data.match(/^data:[^;]+;base64,(.+)$/s);
-          if (m) part.data = Buffer.from(m[1], 'base64');
-        }
-      }
-    }
+    inlineDataUrls(modelMessages);
 
     // Build streamText options (reusable for compaction retry)
     const streamTextOpts = {
