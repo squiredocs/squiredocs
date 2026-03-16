@@ -191,45 +191,8 @@ export default function SettingsPage({ onNavigateHome, user }) {
                     <span className="byok-enable-toggle-knob" />
                   </button>
                 </div>
+                {byokError && <div className="byok-error">{byokError}</div>}
 
-                <div className="byok-model-select">
-                  <label>Model</label>
-                  <select
-                    className="byok-model-dropdown"
-                    value={byok.settings.modelKey || ''}
-                    onChange={async (e) => {
-                      setByokError(null);
-                      try {
-                        await byok.saveSettings({ modelKey: e.target.value || null });
-                      } catch (err) {
-                        setByokError(err.message);
-                      }
-                    }}
-                    disabled={byok.saving}
-                  >
-                    <option value="" disabled>Select a model...</option>
-                    <optgroup label="Anthropic">
-                      {byok.settings.models
-                        ?.filter(m => m.provider === 'anthropic')
-                        .map(m => (
-                          <option key={m.key} value={m.key} disabled={!byok.settings.anthropic?.hasKey}>
-                            {m.label || MODEL_LABELS[m.key] || m.key}
-                          </option>
-                        ))}
-                    </optgroup>
-                    <optgroup label="Google">
-                      {byok.settings.models
-                        ?.filter(m => m.provider === 'google')
-                        .map(m => (
-                          <option key={m.key} value={m.key} disabled={!byok.settings.google?.hasKey}>
-                            {m.label || MODEL_LABELS[m.key] || m.key}
-                          </option>
-                        ))}
-                    </optgroup>
-                  </select>
-                </div>
-
-                <h4 className="byok-subheading">API Keys</h4>
                 <div className="byok-key-row">
                   <label>Anthropic Key</label>
                   {byok.settings.anthropic?.hasKey ? (
@@ -316,11 +279,46 @@ export default function SettingsPage({ onNavigateHome, user }) {
                     </div>
                   )}
                 </div>
-
-                {byokError && <div className="byok-error">{byokError}</div>}
                 <p className="settings-description byok-note">
                   Keys are encrypted and never exposed. Using your own key bypasses AI usage limits.
                 </p>
+
+                <div className="byok-model-select">
+                  <label>Model</label>
+                  <select
+                    className="byok-model-dropdown"
+                    value={byok.settings.modelKey || ''}
+                    onChange={async (e) => {
+                      setByokError(null);
+                      try {
+                        await byok.saveSettings({ modelKey: e.target.value || null });
+                      } catch (err) {
+                        setByokError(err.message);
+                      }
+                    }}
+                    disabled={byok.saving}
+                  >
+                    <option value="" disabled>Select a model...</option>
+                    <optgroup label="Anthropic">
+                      {byok.settings.models
+                        ?.filter(m => m.provider === 'anthropic')
+                        .map(m => (
+                          <option key={m.key} value={m.key} disabled={!byok.settings.anthropic?.hasKey}>
+                            {m.label || MODEL_LABELS[m.key] || m.key}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Google">
+                      {byok.settings.models
+                        ?.filter(m => m.provider === 'google')
+                        .map(m => (
+                          <option key={m.key} value={m.key} disabled={!byok.settings.google?.hasKey}>
+                            {m.label || MODEL_LABELS[m.key] || m.key}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </div>
               </div>
             )}
           </section>

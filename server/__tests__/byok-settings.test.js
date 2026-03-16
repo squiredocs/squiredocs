@@ -103,6 +103,13 @@ describe('BYOK Settings API', () => {
 
   describe('PUT /api/settings/byok', () => {
     test('saves enabled toggle', async () => {
+      // Must have a key to enable BYOK
+      const encrypted = crypto.encrypt('test-google-key');
+      await pool.query(
+        `UPDATE users SET byok_google_key = $1 WHERE id = $2`,
+        [encrypted, testUserId]
+      );
+
       const res = await request(app)
         .put('/api/settings/byok')
         .send({ enabled: true });
@@ -165,10 +172,12 @@ describe('BYOK Settings API', () => {
     });
 
     test('toggle persists independently of model key', async () => {
-      // Set model + enable
-      await request(app)
-        .put('/api/settings/byok')
-        .send({ enabled: true, modelKey: 'claude-haiku' });
+      // Set up: key + model + enable
+      const encrypted = crypto.encrypt('sk-ant-test-key');
+      await pool.query(
+        `UPDATE users SET byok_anthropic_key = $1, byok_model_key = 'claude-haiku', byok_enabled = true WHERE id = $2`,
+        [encrypted, testUserId]
+      );
 
       // Toggle off — model key should remain
       const res = await request(app)
@@ -180,10 +189,12 @@ describe('BYOK Settings API', () => {
     });
 
     test('partial updates do not overwrite other fields', async () => {
-      // Set model + enable
-      await request(app)
-        .put('/api/settings/byok')
-        .send({ modelKey: 'gemini-2.5-flash', enabled: true });
+      // Set up: key + model + enable
+      const encrypted = crypto.encrypt('test-google-key');
+      await pool.query(
+        `UPDATE users SET byok_google_key = $1, byok_model_key = 'gemini-2.5-flash', byok_enabled = true WHERE id = $2`,
+        [encrypted, testUserId]
+      );
 
       // Update only enabled
       const res = await request(app)
@@ -192,6 +203,30 @@ describe('BYOK Settings API', () => {
 
       expect(res.body.enabled).toBe(false);
       expect(res.body.modelKey).toBe('gemini-2.5-flash');
+    });
+
+    test('enabling without any API key returns error', async () => {
+      const res = await request(app)
+        .put('/api/settings/byok')
+        .send({ enabled: true });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('API key');
+    });
+
+    test('enabling without a key works when a key exists', async () => {
+      const encrypted = crypto.encrypt('test-google-key');
+      await pool.query(
+        `UPDATE users SET byok_google_key = $1 WHERE id = $2`,
+        [encrypted, testUserId]
+      );
+
+      const res = await request(app)
+        .put('/api/settings/byok')
+        .send({ enabled: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.enabled).toBe(true);
     });
 
     test('clearing the provider key disables BYOK', async () => {

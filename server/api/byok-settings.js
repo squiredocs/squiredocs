@@ -132,11 +132,19 @@ router.put('/', requireAuth, async (req, res) => {
       newModelKey = modelKey;
     }
 
-    // If the selected model's provider key was cleared, disable BYOK
-    if (newEnabled && newModelKey) {
-      const selectedDef = MODEL_DEFS.find((d) => d.key === newModelKey);
-      const hasProviderKey = selectedDef?.provider === 'anthropic' ? !!newAnthropicKey : !!newGoogleKey;
-      if (!hasProviderKey) newEnabled = false;
+    // Enabling BYOK requires at least one API key to be present.
+    // - Explicit toggle on → reject with error so the user knows why
+    // - Key cleared while already on → silently disable (existing behavior)
+    if (newEnabled) {
+      const hasAnyKey = !!newAnthropicKey || !!newGoogleKey;
+      if (!hasAnyKey) {
+        if (enabled === true) {
+          return res.status(400).json({
+            error: 'Add an API key before enabling BYOK',
+          });
+        }
+        newEnabled = false;
+      }
     }
 
     await pool.query(
