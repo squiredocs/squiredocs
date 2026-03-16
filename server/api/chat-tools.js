@@ -4,24 +4,17 @@
  * Wraps existing MCP tool modules as AI SDK `tool()` definitions
  * so the chat endpoint can use them with streamText().
  *
- * Includes a dynamic size limit for tool results to prevent exceeding the
- * model's context window. The limit adapts based on the model's context
- * window and current conversation size.
+ * Tool results are capped at a static size limit. Large documents can be
+ * read in chunks via xpath, and the reactive compaction system handles
+ * context overflow automatically.
  *
  * Imports from 'ai' are lazy-loaded (called from chat.js at request time).
  */
 const toolRegistry = require('../mcp/tools');
 
-// Reserve ~100K tokens (400K chars) for system prompt, tool definitions,
-// and output tokens
-const OVERHEAD_CHARS = 400_000;
-
-// When thinking/reasoning is enabled, the model reserves a large portion of
-// its context window for thinking tokens. Halve the effective window.
-const THINKING_BUDGET_RATIO = 0.5;
-
-// Always allow at least this much, even for small-context models
-const MIN_RESULT_CHARS = 50_000;
+// Static cap for any single tool result. Documents larger than this should
+// be read in chunks via xpath. Reactive compaction handles overall context.
+const MAX_RESULT_CHARS = 100_000;
 
 // Tools that support xpath for reading documents in chunks
 const XPATH_TOOLS = new Set(['read_document', 'read_document_version']);
@@ -67,26 +60,12 @@ function buildOversizedError(toolName, resultChars, maxChars, result) {
 /**
  * Build AI SDK tool definitions from the MCP tool registry.
  * @param {object} syntheticAgentToken - Token object for tool execution context
- * @param {object} [contextInfo] - Context window info for dynamic size limiting
- * @param {number} [contextInfo.contextWindowTokens] - Model's context window in tokens
- * @param {number} [contextInfo.currentUsageChars] - Estimated current message size in chars
- * @param {boolean} [contextInfo.thinkingEnabled] - Whether model thinking/reasoning is enabled
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, contextInfo = {}) {
+function buildTools(syntheticAgentToken) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
-
-  let contextWindowTokens = contextInfo.contextWindowTokens || 1_000_000;
-  if (contextInfo.thinkingEnabled) {
-    contextWindowTokens = Math.floor(contextWindowTokens * THINKING_BUDGET_RATIO);
-  }
-  const currentUsageChars = contextInfo.currentUsageChars || 0;
-  const maxResultChars = Math.max(
-    MIN_RESULT_CHARS,
-    (contextWindowTokens * 4) - currentUsageChars - OVERHEAD_CHARS,
-  );
 
   for (const { name, description, inputSchema } of mcpTools) {
     aiTools[name] = tool({
@@ -96,12 +75,12 @@ function buildTools(syntheticAgentToken, contextInfo = {}) {
         try {
           const result = await toolRegistry.executeTool(name, args, syntheticAgentToken);
           const serialized = JSON.stringify(result);
-          if (serialized.length > maxResultChars) {
+          if (serialized.length > MAX_RESULT_CHARS) {
             console.warn(
               `[chat-tools] "${name}" result too large: ${serialized.length.toLocaleString()} chars `
-              + `(limit: ${maxResultChars.toLocaleString()})`
+              + `(limit: ${MAX_RESULT_CHARS.toLocaleString()})`
             );
-            return buildOversizedError(name, serialized.length, maxResultChars, result);
+            return buildOversizedError(name, serialized.length, MAX_RESULT_CHARS, result);
           }
           return result;
         } catch (error) {
@@ -114,4 +93,4 @@ function buildTools(syntheticAgentToken, contextInfo = {}) {
   return aiTools;
 }
 
-module.exports = { buildTools, OVERHEAD_CHARS, MIN_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };
+module.exports = { buildTools, MAX_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };

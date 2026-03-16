@@ -1,7 +1,7 @@
 /**
  * Chat tools adapter tests
  *
- * Tests the dynamic tool result size limiting in chat-tools.js.
+ * Tests the static tool result size limiting in chat-tools.js.
  */
 
 // Mock the MCP tool registry
@@ -20,7 +20,7 @@ jest.mock('ai', () => ({
   jsonSchema: mockJsonSchema,
 }));
 
-const { buildTools, buildOversizedError, OVERHEAD_CHARS, MIN_RESULT_CHARS, XPATH_TOOLS } = require('../api/chat-tools');
+const { buildTools, buildOversizedError, MAX_RESULT_CHARS, XPATH_TOOLS } = require('../api/chat-tools');
 
 describe('chat-tools', () => {
   const fakeToken = { token: 'test-token' };
@@ -32,6 +32,12 @@ describe('chat-tools', () => {
       { name: 'list_documents', description: 'List docs', inputSchema: { type: 'object' } },
       { name: 'read_document_version', description: 'Read version', inputSchema: { type: 'object' } },
     ]);
+  });
+
+  describe('MAX_RESULT_CHARS', () => {
+    it('is 100,000', () => {
+      expect(MAX_RESULT_CHARS).toBe(100_000);
+    });
   });
 
   describe('buildTools', () => {
@@ -47,28 +53,19 @@ describe('chat-tools', () => {
       const smallResult = { content: 'hello', blockCount: 1 };
       mockExecuteTool.mockResolvedValue(smallResult);
 
-      const tools = buildTools(fakeToken, {
-        contextWindowTokens: 1_000_000,
-        currentUsageChars: 0,
-      });
+      buildTools(fakeToken);
 
-      // Extract the execute function from the tool call
       const executeFn = mockTool.mock.calls.find(c => c[0].description === 'Read a doc')[0].execute;
       const result = await executeFn({});
       expect(result).toEqual(smallResult);
     });
 
-    it('returns an error when result exceeds the dynamic limit', async () => {
-      // Create a result that's larger than available context
-      const largeContent = 'x'.repeat(200_000);
+    it('returns an error when result exceeds the static limit', async () => {
+      const largeContent = 'x'.repeat(MAX_RESULT_CHARS + 1);
       const largeResult = { content: largeContent, blockCount: 271 };
       mockExecuteTool.mockResolvedValue(largeResult);
 
-      // Small context window: 100K tokens = 400K chars, minus 400K overhead = near floor
-      const tools = buildTools(fakeToken, {
-        contextWindowTokens: 100_000,
-        currentUsageChars: 0,
-      });
+      buildTools(fakeToken);
 
       const executeFn = mockTool.mock.calls.find(c => c[0].description === 'Read a doc')[0].execute;
       const result = await executeFn({});
@@ -76,74 +73,32 @@ describe('chat-tools', () => {
       expect(result.error).toContain('exceeds available context');
     });
 
-    it('uses MIN_RESULT_CHARS as a floor', () => {
-      // Even with a tiny context window, the limit shouldn't go below MIN_RESULT_CHARS
-      const tools = buildTools(fakeToken, {
-        contextWindowTokens: 10_000, // very small
-        currentUsageChars: 100_000,
-      });
-
-      // The computed limit would be negative, but clamped to MIN_RESULT_CHARS
-      // We verify by checking a result just under MIN_RESULT_CHARS passes
-      expect(MIN_RESULT_CHARS).toBe(50_000);
-    });
-
-    it('computes a larger limit for larger context windows', () => {
-      // With 1M token window and 0 usage:
-      // available = (1_000_000 * 4) - 0 - 400_000 = 3_600_000
-      const tools1M = buildTools(fakeToken, {
-        contextWindowTokens: 1_000_000,
-        currentUsageChars: 0,
-      });
-
-      // With 200K token window and 0 usage:
-      // available = (200_000 * 4) - 0 - 400_000 = 400_000
-      const tools200K = buildTools(fakeToken, {
-        contextWindowTokens: 200_000,
-        currentUsageChars: 0,
-      });
-
-      // Both should create tools, but with different internal limits
-      // We test this by checking that a 500K result passes on 1M but fails on 200K
-      expect(tools1M).toHaveProperty('read_document');
-      expect(tools200K).toHaveProperty('read_document');
-    });
-
-    it('reduces available context as conversation grows', async () => {
-      const result = { content: 'x'.repeat(100_000), blockCount: 50 };
+    it('passes results just under the limit', async () => {
+      // A result whose JSON serialization is under MAX_RESULT_CHARS
+      const content = 'x'.repeat(MAX_RESULT_CHARS - 100);
+      const result = { content };
       mockExecuteTool.mockResolvedValue(result);
 
-      // With heavy existing usage, even a moderate result may exceed the limit
-      buildTools(fakeToken, {
-        contextWindowTokens: 200_000, // 800K chars total
-        currentUsageChars: 500_000,   // already using 500K
-      });
-      // available = 800K - 500K - 400K = -100K → clamped to 50K (MIN_RESULT_CHARS)
+      buildTools(fakeToken);
 
       const executeFn = mockTool.mock.calls.find(c => c[0].description === 'Read a doc')[0].execute;
       const execResult = await executeFn({});
-      expect(execResult).toHaveProperty('error');
+      expect(execResult).toEqual(result);
     });
 
-    it('still catches thrown errors from tool execution', async () => {
+    it('catches thrown errors from tool execution', async () => {
       mockExecuteTool.mockRejectedValue(new Error('Database connection failed'));
 
-      const tools = buildTools(fakeToken);
+      buildTools(fakeToken);
       const executeFn = mockTool.mock.calls.find(c => c[0].description === 'Read a doc')[0].execute;
       const result = await executeFn({});
       expect(result).toEqual({ error: 'Database connection failed' });
-    });
-
-    it('defaults to 1M token context window when no context info provided', () => {
-      const tools = buildTools(fakeToken);
-      // Should not throw, uses defaults
-      expect(tools).toHaveProperty('read_document');
     });
   });
 
   describe('buildOversizedError', () => {
     it('includes xpath paging instructions for read_document', () => {
-      const error = buildOversizedError('read_document', 726_163, 500_000, { blockCount: 271 });
+      const error = buildOversizedError('read_document', 726_163, MAX_RESULT_CHARS, { blockCount: 271 });
       expect(error.error).toContain('xpath');
       expect(error.error).toContain('/*[position() <= 50]');
       expect(error.error).toContain('271 blocks');
@@ -151,20 +106,20 @@ describe('chat-tools', () => {
     });
 
     it('includes xpath paging instructions for read_document_version', () => {
-      const error = buildOversizedError('read_document_version', 500_000, 400_000, { blockCount: 100 });
+      const error = buildOversizedError('read_document_version', 500_000, MAX_RESULT_CHARS, { blockCount: 100 });
       expect(error.error).toContain('xpath');
       expect(error.error).toContain('100 blocks');
     });
 
     it('uses generic message for non-xpath tools', () => {
-      const error = buildOversizedError('list_documents', 200_000, 100_000, {});
+      const error = buildOversizedError('list_documents', 200_000, MAX_RESULT_CHARS, {});
       expect(error.error).toContain('too large');
       expect(error.error).toContain('more specific parameters');
       expect(error.error).not.toContain('xpath');
     });
 
     it('handles missing blockCount gracefully', () => {
-      const error = buildOversizedError('read_document', 500_000, 400_000, {});
+      const error = buildOversizedError('read_document', 500_000, MAX_RESULT_CHARS, {});
       expect(error.error).toContain('xpath');
       expect(error.error).not.toContain('undefined');
     });

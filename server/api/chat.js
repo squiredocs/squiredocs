@@ -389,12 +389,7 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Build tool set with provider-appropriate web search + universal webFetch
     const thinkingEnabled = def.provider === 'google';
-    const currentUsageChars = JSON.stringify(allMessages).length;
-    const tools = chatTools.buildTools(syntheticAgentToken, {
-      contextWindowTokens: def.contextWindow || 1_000_000,
-      currentUsageChars,
-      thinkingEnabled,
-    });
+    const tools = chatTools.buildTools(syntheticAgentToken);
     if (def.provider === 'anthropic') {
       tools.webSearch = provider.tools.webSearch_20250305();
     } else if (def.provider === 'google') {
