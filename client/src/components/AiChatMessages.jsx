@@ -19,6 +19,7 @@ const TOOL_LABELS = {
   compare_document_versions: 'Comparing versions',
   webSearch: 'Searching the web',
   webFetch: 'Fetching page',
+  _compacting: 'Compacting conversation',
 };
 
 function getToolLabel(toolName) {
@@ -147,36 +148,38 @@ const markdownLinkRenderer = {
 };
 
 function AssistantBubble({ groups, isLoading }) {
+  const lastGroup = groups[groups.length - 1];
+  const showDots = isLoading && (!lastGroup || lastGroup.type !== 'text');
+
   return (
     <div className="ai-chat-bubble ai-chat-bubble--assistant">
-      {groups.length > 0
-        ? groups.map((group, i) => {
-            if (group.type === 'text') {
-              return (
-                <div key={i} className="ai-chat-markdown">
-                  <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
-                </div>
-              );
-            }
-            if (group.type === 'reasoning') {
-              return <ThinkingBlock key={i} text={group.text} />;
-            }
-            if (group.type === 'tools') {
-              return (
-                <div key={i} className="ai-tool-group">
-                  {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
-                </div>
-              );
-            }
-            return null;
-          })
-        : isLoading && (
-            <span className="ai-typing-indicator">
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-            </span>
-          )}
+      {groups.map((group, i) => {
+        if (group.type === 'text') {
+          return (
+            <div key={i} className="ai-chat-markdown">
+              <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
+            </div>
+          );
+        }
+        if (group.type === 'reasoning') {
+          return <ThinkingBlock key={i} text={group.text} />;
+        }
+        if (group.type === 'tools') {
+          return (
+            <div key={i} className="ai-tool-group">
+              {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
+            </div>
+          );
+        }
+        return null;
+      })}
+      {showDots && (
+        <span className="ai-typing-indicator">
+          <span className="ai-typing-dot" />
+          <span className="ai-typing-dot" />
+          <span className="ai-typing-dot" />
+        </span>
+      )}
     </div>
   );
 }

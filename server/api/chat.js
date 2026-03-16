@@ -139,42 +139,32 @@ The user is currently viewing document${titleStr} (${docGuid}). When they refer 
 }
 
 // ── Cross-turn context compaction ─────────────────────────────────────────────
-// When conversation history exceeds a fraction of the model's context window,
-// summarize older messages to keep the context lean.
-
-const COMPACTION_THRESHOLD_RATIO = 0.5; // compact when messages use >50% of context
-const RECENT_MESSAGES_TO_KEEP = 10;     // keep this many recent messages verbatim
 
 /**
- * Compact messages if they exceed the context threshold.
- * Uses a fast model to summarize older messages, preserving recent ones verbatim.
- * @param {Array} messages - Model-format messages
- * @param {number} contextWindowTokens - Model's context window in tokens
- * @param {Function} compactionProvider - AI SDK provider for the compaction model
- * @returns {Array} Original or compacted messages
+ * Detect provider token-limit / context-length errors so we can compact and retry.
  */
-async function compactMessages(messages, contextWindowTokens, compactionProvider) {
-  const serialized = JSON.stringify(messages);
-  const estimatedTokens = serialized.length / 4;
-  const threshold = contextWindowTokens * COMPACTION_THRESHOLD_RATIO;
+function isTokenLimitError(error) {
+  const msg = error?.message || error?.data?.error?.message || '';
+  return /exceeds the maximum number of tokens|prompt is too long|context_length_exceeded/i.test(msg);
+}
 
-  if (estimatedTokens <= threshold) return messages;
-
-  console.log(
-    `[Chat API] Compacting: ~${Math.round(estimatedTokens).toLocaleString()} tokens `
-    + `exceeds threshold of ~${Math.round(threshold).toLocaleString()}`
-  );
-
-  const splitAt = Math.max(0, messages.length - RECENT_MESSAGES_TO_KEEP);
+/**
+ * Compact messages by summarizing older messages, preserving recent ones verbatim.
+ * Always compacts when called — the caller decides when compaction is needed.
+ * Uses gemini-2.5-flash for fast, cheap summarization regardless of chat model.
+ * @param {Array} messages - Model-format messages
+ * @returns {Array} Compacted messages (or original if nothing to compact / on error)
+ */
+async function compactMessages(messages) {
+  const splitAt = Math.max(0, messages.length - 10);
   const oldMessages = messages.slice(0, splitAt);
   const recentMessages = messages.slice(splitAt);
-
-  // If there's nothing to compact, return as-is
   if (oldMessages.length === 0) return messages;
 
   try {
     const { generateText } = getAI();
-    const compactionModel = compactionProvider('gemini-2.5-flash');
+    const { google } = require('@ai-sdk/google');
+    const compactionModel = google('gemini-2.5-flash');
 
     const oldSerialized = JSON.stringify(oldMessages);
     const summaryResult = await generateText({
@@ -210,6 +200,84 @@ async function compactMessages(messages, contextWindowTokens, compactionProvider
     console.error('[Chat API] Compaction failed, using full history:', err.message);
     return messages;
   }
+}
+
+/**
+ * Pipe a UI message stream to an HTTP response as SSE events.
+ *
+ * Buffers initial metadata chunks (start, start-step) and only commits
+ * HTTP headers once a content-bearing chunk arrives.  If an error chunk
+ * arrives before any content (e.g. a token-limit error), it throws so the
+ * caller can intercept and retry with compacted messages.
+ */
+async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
+  const [httpStream, saveStream] = uiStream.tee();
+  saveStream.pipeTo(new WritableStream()).catch(() => {});
+
+  const reader = httpStream.getReader();
+  const pending = [];
+  let headersWritten = !writeHeaders;
+
+  function commitHeaders() {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'connection': 'keep-alive',
+      'x-vercel-ai-ui-message-stream': 'v1',
+      'x-accel-buffering': 'no',
+    });
+    headersWritten = true;
+    for (const p of pending) {
+      const c = `data: ${JSON.stringify(p)}\n\n`;
+      entry.chunks.push(c);
+      res.write(c);
+    }
+    pending.length = 0;
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Before headers are committed, check for error chunks so the caller
+      // can intercept token-limit errors and retry with compacted messages.
+      if (!headersWritten) {
+        if (value?.type === 'error') {
+          throw new Error(value.errorText || 'Stream error');
+        }
+        pending.push(value);
+        // Buffer metadata-only events; commit on the first content chunk
+        if (value?.type === 'start' || value?.type === 'start-step') continue;
+        commitHeaders();
+        continue;
+      }
+
+      const sseChunk = `data: ${JSON.stringify(value)}\n\n`;
+      entry.chunks.push(sseChunk);
+      res.write(sseChunk);
+    }
+
+    // Edge case: stream contained only buffered metadata (no content)
+    if (!headersWritten && pending.length > 0) commitHeaders();
+
+    // Signal end-of-stream (matches JsonToSseTransformStream behaviour)
+    if (headersWritten) {
+      const doneChunk = 'data: [DONE]\n\n';
+      entry.chunks.push(doneChunk);
+      res.write(doneChunk);
+    }
+  } catch (err) {
+    reader.releaseLock();
+    throw err;
+  }
+}
+
+/** Write a single SSE event to both the response and the replay buffer. */
+function writeSSEEvent(res, entry, data) {
+  const chunk = `data: ${JSON.stringify(data)}\n\n`;
+  entry.chunks.push(chunk);
+  res.write(chunk);
 }
 
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
@@ -294,7 +362,7 @@ router.post('/', requireAuth, async (req, res) => {
       baseUrl,
     });
 
-    const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs, pipeUIMessageStreamToResponse } = getAI();
+    const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
 
     // Resolve model — BYOK uses user's key + selected model, otherwise server default
     let resolved;
@@ -400,28 +468,15 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    const result = streamText({
+    // Build streamText options (reusable for compaction retry)
+    const streamTextOpts = {
       model,
       system: buildSystemPrompt(docGuid, docTitle),
-      messages: modelMessages,
       tools,
       stopWhen: stepCountIs(100),
-      prepareStep: async ({ stepNumber, messages }) => {
-        // Cross-turn compaction: on the first step, check if conversation
-        // history is large enough to warrant summarization
-        if (stepNumber === 0) {
-          const compacted = await compactMessages(
-            messages, def.contextWindow || 1_000_000, provider,
-          );
-          if (compacted !== messages) {
-            return { messages: compacted };
-          }
-        }
-        if (stepNumber >= 95) {
-          return { toolChoice: 'none' };
-        }
+      prepareStep: async ({ stepNumber }) => {
+        if (stepNumber >= 95) return { toolChoice: 'none' };
       },
-      // Stream Gemini thinking/reasoning to the client
       ...(def.provider === 'google' && {
         providerOptions: {
           google: { thinkingConfig: { includeThoughts: true } },
@@ -440,37 +495,62 @@ router.post('/', requireAuth, async (req, res) => {
           inputTokens, outputTokens, costCents, isByok,
         }).catch(err => console.error('[Chat API] Failed to record usage:', err));
       },
-    });
+    };
 
-    // Build the UI message stream with an onFinish callback for persistence.
-    // We tee the stream so one branch is drained independently — this
-    // guarantees both onFinish callbacks fire (streamText's for usage
-    // tracking, toUIMessageStream's for message saving) even if the HTTP
-    // response breaks (e.g. the user refreshes mid-stream).
-    const uiStream = result.toUIMessageStream({
-      originalMessages: validatedMessages,
-      generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
-      onFinish: ({ messages }) => {
-        chatStore.saveChat(chatId, messages).catch((err) => {
-          console.error('[Chat API] Failed to save chat:', err);
+    /** Run streamText and pipe the resulting UI stream as SSE to the response. */
+    async function runStream(messages, writeHeaders) {
+      const result = streamText({ ...streamTextOpts, messages });
+      const uiStream = result.toUIMessageStream({
+        originalMessages: validatedMessages,
+        generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
+        onFinish: ({ messages: saved }) => {
+          chatStore.saveChat(chatId, saved).catch((err) => {
+            console.error('[Chat API] Failed to save chat:', err);
+          });
+        },
+      });
+      await pipeAsSSE(uiStream, res, entry, { writeHeaders });
+    }
+
+    try {
+      await runStream(modelMessages, true);
+      cleanupEntry(30_000);
+      res.end();
+    } catch (streamError) {
+      if (isTokenLimitError(streamError) && !res.headersSent) {
+        console.log('[Chat API] Token limit hit, compacting conversation…');
+
+        // Write SSE headers + compacting badge
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          'connection': 'keep-alive',
+          'x-vercel-ai-ui-message-stream': 'v1',
+          'x-accel-buffering': 'no',
         });
-      },
-    });
+        writeSSEEvent(res, entry, {
+          type: 'tool-input-available',
+          toolCallId: 'compact-1',
+          toolName: '_compacting',
+          input: {},
+        });
 
-    const [httpStream, saveStream] = uiStream.tee();
-    saveStream.pipeTo(new WritableStream()).catch(() => {});
+        const compacted = await compactMessages(modelMessages);
 
-    pipeUIMessageStreamToResponse({
-      response: res,
-      stream: httpStream,
-      consumeSseStream: ({ stream: sseStream }) => {
-        sseStream.pipeTo(new WritableStream({
-          write(chunk) { entry.chunks.push(chunk); },
-          close() { cleanupEntry(30_000); },
-          abort() { cleanupEntry(); },
-        })).catch(() => { cleanupEntry(); });
-      },
-    });
+        writeSSEEvent(res, entry, {
+          type: 'tool-output-available',
+          toolCallId: 'compact-1',
+          output: 'done',
+        });
+
+        // Retry with compacted messages (headers already sent)
+        await runStream(compacted, false);
+        cleanupEntry(30_000);
+        res.end();
+      } else {
+        throw streamError; // re-throw for outer catch
+      }
+    }
   } catch (error) {
     console.error('[Chat API] Error:', error);
     cleanupEntry();
