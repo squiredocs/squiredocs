@@ -18,6 +18,7 @@ const { getDocument } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
 const { decrypt } = require('../crypto');
+const { notifyException } = require('../exception-notifier');
 
 const router = express.Router();
 
@@ -507,6 +508,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
   } catch (error) {
     console.error('[Chat API] Error:', error);
+    notifyException(error, { req, source: 'chat-api' });
     cleanupEntry();
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
@@ -561,6 +563,7 @@ router.post('/chats', requireAuth, async (req, res) => {
     res.json({ id });
   } catch (error) {
     console.error('[Chat API] Error creating chat:', error);
+    notifyException(error, { req, source: 'chat-api' });
     res.status(500).json({ error: 'Failed to create chat' });
   }
 });
@@ -572,6 +575,7 @@ router.get('/chats', requireAuth, async (req, res) => {
     res.json(chats);
   } catch (error) {
     console.error('[Chat API] Error listing chats:', error);
+    notifyException(error, { req, source: 'chat-api' });
     res.status(500).json({ error: 'Failed to list chats' });
   }
 });
@@ -583,6 +587,7 @@ router.get('/chats/:id', requireAuth, async (req, res) => {
     res.json({ messages });
   } catch (error) {
     console.error('[Chat API] Error loading chat:', error);
+    notifyException(error, { req, source: 'chat-api' });
     res.status(500).json({ error: 'Failed to load chat' });
   }
 });
@@ -597,6 +602,7 @@ router.delete('/chats/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('[Chat API] Error deleting chat:', error);
+    notifyException(error, { req, source: 'chat-api' });
     res.status(500).json({ error: 'Failed to delete chat' });
   }
 });
@@ -612,6 +618,7 @@ router.patch('/chats/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('[Chat API] Error updating chat:', error);
+    notifyException(error, { req, source: 'chat-api' });
     res.status(500).json({ error: 'Failed to update chat' });
   }
 });

@@ -14,6 +14,7 @@ const oauthRouter = require('./auth/oauth-router');
 const apiTokens = require('./auth/api-tokens');
 const toolRegistry = require('./tools');
 const { buildBaseUrl } = require('../url');
+const { notifyException } = require('../exception-notifier');
 
 const router = express.Router();
 
@@ -134,6 +135,7 @@ router.post('/', requireAgentAuth, async (req, res) => {
     res.json(jsonRpcResponse(id, result));
   } catch (error) {
     console.error('MCP error:', error);
+    notifyException(error, { req, source: 'mcp' });
     // Pass full error details including stack trace in data field
     // This ensures detailed error messages from tools (like modify) are preserved
     res.json(jsonRpcError(id, INTERNAL_ERROR, error.message, {
@@ -216,6 +218,7 @@ async function handleToolCall(params, agentToken) {
     // Return error in MCP tool result format with is_error: true
     // This ensures the agent sees detailed error messages instead of generic ones
     console.error(`Tool "${name}" execution error:`, error);
+    notifyException(error, { source: 'mcp-tool', extra: { tool: name } });
 
     return {
       is_error: true,
@@ -279,6 +282,7 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Tool execution error:', error);
+    notifyException(error, { req, source: 'mcp-tool' });
     // Return error in MCP tool result format with is_error: true
     res.status(500).json({
       is_error: true,
@@ -331,6 +335,7 @@ router.post('/auth/delegate', async (req, res) => {
     });
   } catch (error) {
     console.error('Delegation error:', error);
+    notifyException(error, { req, source: 'mcp' });
     res.status(500).json({ error: error.message });
   }
 });
@@ -345,6 +350,7 @@ router.get('/auth/delegations/:userId', async (req, res) => {
     res.json({ delegations });
   } catch (error) {
     console.error('List delegations error:', error);
+    notifyException(error, { req, source: 'mcp' });
     res.status(500).json({ error: error.message });
   }
 });
@@ -375,6 +381,7 @@ router.post('/auth/token', async (req, res) => {
     res.json({ token });
   } catch (error) {
     console.error('Token generation error:', error);
+    notifyException(error, { req, source: 'mcp' });
     res.status(500).json({ error: error.message });
   }
 });

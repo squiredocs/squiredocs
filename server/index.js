@@ -26,6 +26,8 @@ const documentService = require('./document-service');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
+const { notifyException, setupProcessHandlers } = require('./exception-notifier');
+setupProcessHandlers();
 
 // Profiling utilities
 const PROFILING_ENABLED = true;
@@ -165,6 +167,7 @@ setPersistence({
         .catch((err) => {
           // Log failed persistence with high severity - this is data loss risk
           console.error(`CRITICAL: Failed to persist update for ${docGuid} after retries:`, err);
+          notifyException(err, { source: 'persistence', extra: { docGuid } });
         });
     });
 
@@ -355,6 +358,7 @@ app.get('/api/usage', requireAuth, async (req, res) => {
     res.json(quota);
   } catch (err) {
     console.error('[Usage] Error fetching quota:', err);
+    notifyException(err, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to fetch usage data' });
   }
 });
@@ -401,6 +405,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Error fetching documents:', error);
+    notifyException(error, { req, source: 'api' });
     const errorMessage = error.message || 'Failed to fetch documents';
     const hint = errorMessage.includes('doc_guid')
       ? ' (Have you run the migration? npm run migrate)'
@@ -442,6 +447,7 @@ app.post('/api/docs', requireAuth, async (req, res) => {
     res.status(201).json({ doc, role: 'owner', created: true });
   } catch (error) {
     console.error('Error creating document:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to create document' });
   }
 });
@@ -473,6 +479,7 @@ app.get('/api/docs/:docId', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting document:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get document' });
   }
 });
@@ -501,6 +508,7 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting document:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to delete document' });
   }
 });
@@ -563,6 +571,7 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error sharing document:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to share document' });
   }
 });
@@ -600,6 +609,7 @@ app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) =>
     res.json({ role: share.role });
   } catch (error) {
     console.error('Error updating role:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to update role' });
   }
 });
@@ -635,6 +645,7 @@ app.delete('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res)
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing access:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to remove access' });
   }
 });
@@ -659,6 +670,7 @@ app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting shares:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get shares' });
   }
 });
@@ -681,6 +693,7 @@ app.get('/api/docs/:docId/history', requireAuth, async (req, res) => {
     res.json(timeline);
   } catch (error) {
     console.error('Error getting version history:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get version history' });
   }
 });
@@ -709,6 +722,7 @@ app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
     res.json({ updates: result.subversions });
   } catch (error) {
     console.error('Error getting version updates:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get version updates' });
   }
 });
@@ -734,6 +748,7 @@ app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) =
     res.json(content);
   } catch (error) {
     console.error('Error getting content at clock:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get content at clock' });
   }
 });
@@ -765,6 +780,7 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error getting diff data:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get diff data' });
   }
 });
@@ -788,6 +804,7 @@ app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
     if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
       return res.status(404).json({ error: error.message });
     }
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get version content' });
   }
 });
@@ -827,6 +844,7 @@ app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
     if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
       return res.status(404).json({ error: error.message });
     }
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to restore version' });
   }
 });
@@ -891,6 +909,7 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
     res.status(201).json({ version });
   } catch (error) {
     console.error('Error creating named version:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to create named version' });
   }
 });
@@ -918,6 +937,7 @@ app.put('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
     res.json({ version });
   } catch (error) {
     console.error('Error renaming version:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to rename version' });
   }
 });
@@ -948,6 +968,7 @@ app.delete('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res)
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting version:', error);
+    notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to delete version' });
   }
 });
@@ -980,6 +1001,15 @@ if (fs.existsSync(clientBuildPath)) {
   });
 }
 
+// Express error-handling middleware (safety net for unhandled errors)
+app.use((err, req, res, next) => {
+  console.error('Unhandled Express error:', err);
+  notifyException(err, { req, source: 'express-middleware' });
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create HTTP server
 const server = app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
@@ -997,6 +1027,7 @@ const server = app.listen(PORT, async () => {
     await redisPubSub.init();
   } catch (err) {
     console.error('[RedisPubSub] Failed to initialize:', err.message);
+    notifyException(err, { source: 'redis-init' });
   }
 });
 
@@ -1206,6 +1237,7 @@ wss.on('connection', (ws, req) => {
   ws.on('error', (error) => {
     logPerf('WS_ERROR', { connId, error: error.message });
     console.error('✗ WebSocket client error:', error.message);
+    notifyException(error, { source: 'websocket', extra: { connId, docId, userId } });
   });
 
   ws.on('close', () => {
@@ -1368,6 +1400,7 @@ wss.on('connection', (ws, req) => {
   } catch (error) {
     logPerf('WS_SETUP_ERROR', { connId, error: error.message });
     console.error('✗ Error setting up WebSocket connection:', error);
+    notifyException(error, { source: 'websocket-setup', extra: { connId, docId, userId } });
     ws.close();
   }
 });
@@ -1375,6 +1408,7 @@ wss.on('connection', (ws, req) => {
 // Handle WebSocket server errors
 wss.on('error', (error) => {
   console.error('✗ WebSocket server error:', error);
+  notifyException(error, { source: 'websocket-server' });
 });
 
 // Graceful shutdown
