@@ -58,4 +58,21 @@ function notifyNewUser({ email, name }) {
   });
 }
 
-module.exports = { sendEmail, notifyNewUser };
+/**
+ * Notify admin of a user login
+ */
+function notifyLogin({ email, name }) {
+  if (!ADMIN_EMAIL) return;
+  sendEmail({
+    to: ADMIN_EMAIL,
+    subject: `User logged in: ${email}`,
+    html: `
+      <h3>User login</h3>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Name:</strong> ${name || '(not provided)'}</p>
+      <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+    `,
+  });
+}
+
+module.exports = { sendEmail, notifyNewUser, notifyLogin };
