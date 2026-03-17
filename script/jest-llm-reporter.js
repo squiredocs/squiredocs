@@ -1,5 +1,7 @@
 const path = require('path');
 
+const STACK_RE = /^\s+at\s.+[:(](\d+):\d+/;
+
 class LlmReporter {
   onRunComplete(_testContexts, results) {
     const {
@@ -13,15 +15,12 @@ class LlmReporter {
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
-    // Build summary line
     const parts = [`Server: ${numTotalTestSuites} suites`];
     if (numPassedTests > 0) parts.push(`${numPassedTests} passed`);
     if (numPendingTests > 0) parts.push(`${numPendingTests} skipped`);
     if (numFailedTests > 0) parts.push(`${numFailedTests} FAILED`);
-    parts.push(`(${duration}s)`);
-    console.log(parts.join(', '));
+    console.log(`${parts.join(', ')} (${duration}s)`);
 
-    // Print failure details
     if (numFailedTests > 0) {
       console.log('\nFAILED:\n');
       let failIndex = 0;
@@ -29,25 +28,24 @@ class LlmReporter {
         for (const test of suite.testResults || []) {
           if (test.status !== 'failed') continue;
           failIndex++;
-          const relPath = path.relative(process.cwd(), suite.testFilePath || suite.name || '');
+          const relPath = path.relative(process.cwd(), suite.testFilePath || '');
           const testName = [...(test.ancestorTitles || []), test.title].join(' > ');
           console.log(`${failIndex}) ${relPath} > ${testName}`);
 
-          // Extract assertion message (lines before stack trace)
           if (test.failureMessages && test.failureMessages.length > 0) {
             const lines = test.failureMessages[0].split('\n');
-            const msgLines = [];
             let lineNum = null;
+            let printed = 0;
             for (const line of lines) {
-              const atMatch = line.match(/^\s+at\s.+[:(](\d+):\d+/);
+              const atMatch = line.match(STACK_RE);
               if (atMatch) {
                 if (!lineNum) lineNum = atMatch[1];
                 break;
               }
-              if (msgLines.length < 10) msgLines.push(line);
-            }
-            for (const ml of msgLines) {
-              if (ml.trim()) console.log(`   ${ml.trim()}`);
+              if (printed < 10 && line.trim()) {
+                console.log(`   ${line.trim()}`);
+                printed++;
+              }
             }
             if (lineNum) console.log(`   (line ${lineNum})`);
           }
