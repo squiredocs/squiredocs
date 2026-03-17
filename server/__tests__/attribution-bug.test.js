@@ -94,47 +94,6 @@ describe('Attribution Bug', () => {
   });
 
   describe('Bug reproduction scenario', () => {
-    test.skip('human edits should NOT be attributed to agent when agent connects first', async () => {
-      /**
-       * This test documents the bug scenario.
-       *
-       * Setup:
-       * 1. Start the server with attribution tracking enabled
-       * 2. Create a document with docId
-       * 3. Create an agent connection:
-       *    - Connect with agent token (isAgent: true, agentName: "Test Agent")
-       *    - Send awareness with { user: { isAgent: true, name: "Test Agent" } }
-       *    - Server detects agent and registers: documentConnectionMap[docId][agentConnId] = { userId, agentName: "Test Agent" }
-       *
-       * 4. Create a human connection:
-       *    - Connect with human token (isAgent: false)
-       *    - y-websocket broadcasts existing awareness (agent's state) to new connection
-       *    - BUG: The first awareness message contains agent's clientId
-       *    - Server captures this as connectionClientId for the human connection
-       *    - checkAwareness() runs and sees: awareness has isAgent:true, clientId matches connectionClientId
-       *    - Server incorrectly registers: documentConnectionMap[docId][humanConnId] = { userId, agentName: "Test Agent" }
-       *
-       * 5. Human sends an edit:
-       *    - currentProcessingConnection[docId] = humanConnId
-       *    - getDocumentAgentName() looks up humanConnId -> returns "Test Agent" (incorrect!)
-       *    - Edit is persisted with agentName: "Test Agent"
-       *
-       * Expected:
-       * - Human edits should have agentName: null
-       *
-       * Actual (bug):
-       * - Human edits have agentName: "Test Agent"
-       */
-
-      // This is a documentation-only test for now
-      // A proper integration test would require:
-      // 1. A test harness that can run the full server
-      // 2. Ability to inspect the stored updates in the database
-      // 3. Multiple WebSocket connections with proper auth
-
-      expect(true).toBe(true);
-    });
-
     test('connectionClientId should only be captured from messages this connection SENDS', () => {
       /**
        * The fix should ensure:
