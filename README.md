@@ -855,6 +855,7 @@ If you encounter database connection errors:
 - **Multi-document**: Users can create and manage multiple documents
 - **Permission System**: Centralized RBAC enforcement (see `server/permissions.js`)
 - **UI Features**: Word processor-style editor with visible margins, share badges, and role-based UI
+- **Google Analytics**: The gtag.js snippet is duplicated in `client/index.html` (SPA entry) and `client/public/landing.html` (static landing page). If you update tracking IDs, change both files.
 
 ### ⚠️ Common Pitfall: Y.XmlText Methods
 
