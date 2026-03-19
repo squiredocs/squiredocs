@@ -268,7 +268,11 @@ app.use('/mcp', mcp.router);
 app.get('/oauth-callback', (req, res) => {
   const { code, state, error, error_description } = req.query;
 
+  // Escape values for safe HTML interpolation
+  const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
   if (error) {
+    const safeMessage = escapeHtml(error_description || error);
     return res.send(`
       <!DOCTYPE html>
       <html>
@@ -282,12 +286,15 @@ app.get('/oauth-callback', (req, res) => {
         <body>
           <div class="error">
             <h2>❌ Authorization Failed</h2>
-            <p>${error_description || error}</p>
+            <p>${safeMessage}</p>
           </div>
         </body>
       </html>
     `);
   }
+
+  const safeCode = escapeHtml(code);
+  const jsonData = JSON.stringify({ code: code || '', state: state || '' });
 
   res.send(`
     <!DOCTYPE html>
@@ -310,13 +317,15 @@ app.get('/oauth-callback', (req, res) => {
         </div>
         <div class="code-box">
           <strong>Authorization Code:</strong>
-          <code id="authCode">${code}</code>
+          <code id="authCode">${safeCode}</code>
           <button onclick="copyCode()">Copy Code</button>
         </div>
         <script>
+          var __oauthData = ${jsonData};
+
           function copyCode() {
-            const code = document.getElementById('authCode').textContent;
-            navigator.clipboard.writeText(code).then(() => {
+            var code = document.getElementById('authCode').textContent;
+            navigator.clipboard.writeText(code).then(function() {
               alert('Code copied to clipboard!');
             });
           }
@@ -326,13 +335,13 @@ app.get('/oauth-callback', (req, res) => {
             try {
               window.opener.postMessage({
                 type: 'oauth_callback',
-                code: '${code}',
-                state: '${state || ''}'
+                code: __oauthData.code,
+                state: __oauthData.state
               }, window.location.origin);
               document.getElementById('message').textContent = 'Code sent! You can close this window.';
 
               // Auto-close after 2 seconds
-              setTimeout(() => {
+              setTimeout(function() {
                 window.close();
               }, 2000);
             } catch (err) {
