@@ -34,7 +34,7 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToAdmin, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -726,7 +726,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 )}
               </div>
             )}
-            {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />}
+            {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />}
           </div>
         </div>
       </header>

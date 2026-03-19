@@ -51,6 +51,7 @@ function generateAccessToken(user) {
     email: user.email,
     name: user.name,
     picture: user.picture,
+    isAdmin: !!user.is_admin,
   };
   
   return jwt.sign(payload, ACCESS_TOKEN_SECRET, {

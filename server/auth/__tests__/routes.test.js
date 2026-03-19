@@ -160,9 +160,22 @@ describe('Auth routes', () => {
       expect(response.body.email).toBe(testUser.email);
       expect(response.body.name).toBe(testUser.name);
       expect(response.body.picture).toBe(testUser.picture);
+      expect(response.body.isAdmin).toBe(false);
       // Sensitive fields should not be included
       expect(response.body.token_version).toBeUndefined();
       expect(response.body.google_id).toBeUndefined();
+    });
+
+    test('returns isAdmin=true for admin user', async () => {
+      await pool.query('UPDATE users SET is_admin = true WHERE id = $1', [testUser.id]);
+      const accessToken = generateAccessToken(testUser);
+
+      const response = await request(app)
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(response.body.isAdmin).toBe(true);
     });
 
     test('returns 401 without authorization header', async () => {
@@ -406,6 +419,18 @@ describe('Auth routes', () => {
         .expect(403);
 
       expect(response.body.error).toBe('Dev login only available in development mode');
+    });
+
+    test('updates last_login_at on login', async () => {
+      process.env.NODE_ENV = 'development';
+
+      const response = await request(app)
+        .post('/auth/dev-login')
+        .expect(200);
+
+      const userId = response.body.user.id;
+      const dbUser = await users.findById(userId);
+      expect(dbUser.last_login_at).not.toBeNull();
     });
   });
 });

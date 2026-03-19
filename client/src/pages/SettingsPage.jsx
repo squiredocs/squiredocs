@@ -63,7 +63,7 @@ function ByokKeyField({ label, provider, mask, placeholder, byok, onError }) {
   );
 }
 
-export default function SettingsPage({ onNavigateHome, user }) {
+export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, user }) {
   const { updateUser, api, logout } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
@@ -117,7 +117,7 @@ export default function SettingsPage({ onNavigateHome, user }) {
             <h1>Settings</h1>
           </div>
           <div className="app-header-right">
-            <UserProfileBadge user={user} onLogout={logout} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToAdmin={onNavigateToAdmin} />
           </div>
         </div>
       </header>

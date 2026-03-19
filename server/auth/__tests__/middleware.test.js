@@ -162,6 +162,102 @@ describe('Auth middleware', () => {
       expect(req.user).toBeUndefined();
     });
   });
+
+  describe('requireAdmin', () => {
+    // requireAdmin composes with requireAuth and then checks admin status
+    // It needs a DB lookup, so we mock the users module
+    let requireAdmin;
+
+    beforeEach(() => {
+      jest.resetModules();
+      // Re-require to get fresh module with mock
+      process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
+      process.env.REFRESH_TOKEN_SECRET = 'test-refresh-secret';
+    });
+
+    test('returns 401 when no authorization header', (done) => {
+      const { requireAdmin: ra } = require('../middleware');
+      const { req, res, next } = createMocks(undefined);
+
+      // Spy on res.json to detect when the response is sent
+      res.json.mockImplementation(() => {
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(next).not.toHaveBeenCalled();
+        done();
+        return res;
+      });
+
+      ra(req, res, next);
+    });
+
+    test('returns 403 when JWT does not have isAdmin claim', (done) => {
+      const { generateAccessToken } = require('../jwt');
+      const nonAdminUser = { ...mockUser, is_admin: false };
+      const token = generateAccessToken(nonAdminUser);
+      const { requireAdmin: ra } = require('../middleware');
+      const { req, res, next } = createMocks(`Bearer ${token}`);
+
+      res.json.mockImplementation(() => {
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Admin access required' });
+        expect(next).not.toHaveBeenCalled();
+        done();
+        return res;
+      });
+
+      ra(req, res, next);
+    });
+
+    test('returns 403 when JWT has isAdmin but DB says not admin', (done) => {
+      // Mock users.findById to return a non-admin user
+      jest.doMock('../users', () => ({
+        findById: jest.fn().mockResolvedValue({ id: mockUser.id, is_admin: false }),
+      }));
+
+      const { generateAccessToken } = require('../jwt');
+      const adminUser = { ...mockUser, is_admin: true };
+      const token = generateAccessToken(adminUser);
+
+      // Clear middleware module cache so it picks up the mocked users
+      delete require.cache[require.resolve('../middleware')];
+      const { requireAdmin: ra } = require('../middleware');
+
+      const { req, res, next } = createMocks(`Bearer ${token}`);
+
+      res.json.mockImplementation(() => {
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Admin access required' });
+        expect(next).not.toHaveBeenCalled();
+        done();
+        return res;
+      });
+
+      ra(req, res, next);
+    });
+
+    test('calls next() when JWT and DB both confirm admin', (done) => {
+      // Mock users.findById to return an admin user
+      jest.doMock('../users', () => ({
+        findById: jest.fn().mockResolvedValue({ id: mockUser.id, is_admin: true }),
+      }));
+
+      const { generateAccessToken } = require('../jwt');
+      const adminUser = { ...mockUser, is_admin: true };
+      const token = generateAccessToken(adminUser);
+
+      delete require.cache[require.resolve('../middleware')];
+      const { requireAdmin: ra } = require('../middleware');
+
+      const { req, res, next } = createMocks(`Bearer ${token}`);
+
+      next.mockImplementation(() => {
+        expect(res.status).not.toHaveBeenCalled();
+        done();
+      });
+
+      ra(req, res, next);
+    });
+  });
 });
 
 

@@ -148,6 +148,17 @@ async function updateName(userId, name) {
   return result.rows[0];
 }
 
+/**
+ * Update last_login_at timestamp for a user
+ * @param {string} userId - User's UUID
+ */
+async function updateLastLogin(userId) {
+  if (!pool) {
+    throw new Error('Users module not initialized. Call init(pool) first.');
+  }
+  await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
+}
+
 module.exports = {
   init,
   findOrCreateUser,
@@ -155,6 +166,7 @@ module.exports = {
   incrementTokenVersion,
   getTokenVersion,
   updateName,
+  updateLastLogin,
 };
 
 

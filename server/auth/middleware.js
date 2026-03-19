@@ -50,9 +50,40 @@ function optionalAuth(req, res, next) {
   next();
 }
 
+/**
+ * Middleware to require admin access
+ * Composes with requireAuth, then verifies admin status against the database
+ */
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, (err) => {
+    if (err) return next(err);
+    if (res.headersSent) return; // requireAuth already sent a response
+
+    // Fast reject from JWT claim
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Defense in depth: verify against DB
+    const { findById } = require('./users');
+    findById(req.user.userId)
+      .then((dbUser) => {
+        if (!dbUser || !dbUser.is_admin) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+        next();
+      })
+      .catch((error) => {
+        console.error('Admin middleware DB check error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+      });
+  });
+}
+
 module.exports = {
   requireAuth,
   optionalAuth,
+  requireAdmin,
 };
 
 

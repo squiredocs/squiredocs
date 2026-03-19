@@ -12,7 +12,8 @@ const redisPubSub = require('./redis-pubsub');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
-const { router: authRouter, initUsers, requireAuth } = require('./auth');
+const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
+const admin = require('./api/admin');
 const { parseCookies, verifyAccessToken } = require('./auth/jwt');
 const documents = require('./documents');
 const permissions = require('./permissions');
@@ -219,6 +220,9 @@ chat.init(persistenceProvider.getPool());
 // Initialize BYOK settings with shared database pool
 byokSettings.init(persistenceProvider.getPool());
 
+// Initialize admin module with shared database pool
+admin.init(persistenceProvider.getPool());
+
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
 
@@ -230,6 +234,7 @@ app.use('/auth', authRouter);
 
 app.use('/api/chat', express.json({ limit: '10mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
+app.use('/api/admin/users', requireAdmin, admin.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities

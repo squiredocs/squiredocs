@@ -10,6 +10,7 @@ import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
 import AuthorizePage from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
+import AdminPage from './pages/AdminPage';
 import './App.css';
 
 // UUID validation regex
@@ -35,6 +36,11 @@ function parseRoute() {
   // Check for /settings path
   if (path === '/settings') {
     return { view: 'settings', docGuid: null };
+  }
+
+  // /admin path — parsed here but gated on isAdmin in AppContent
+  if (path === '/admin') {
+    return { view: 'admin', docGuid: null };
   }
 
   // Check for /docs path (document list)
@@ -151,6 +157,12 @@ function AppContent() {
     setRoute({ view: 'settings', docGuid: null });
   };
 
+  // Navigate to admin page
+  const navigateToAdmin = () => {
+    window.history.pushState({}, '', '/admin');
+    setRoute({ view: 'admin', docGuid: null });
+  };
+
   // Show loading state during auth initialization
   if (loading) {
     return (
@@ -194,6 +206,16 @@ function AppContent() {
     return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="login" />;
   }
 
+  // Admin page — non-admins get redirected to docs (same as unknown route)
+  if (route.view === 'admin' && (!isAuthenticated || !user?.isAdmin)) {
+    if (isAuthenticated) {
+      navigateToDocs();
+    } else {
+      navigateToSignup();
+    }
+    return null;
+  }
+
   // Protected routes - require authentication
   if (!isAuthenticated) {
     return <LoginPage onNavigateToSignup={navigateToSignup} onNavigateToLogin={navigateToLogin} mode="login" />;
@@ -203,7 +225,8 @@ function AppContent() {
     <ByokProvider>
       <AuthenticatedApp route={route} listKey={listKey} user={user}
         navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
-        navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings} />
+        navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings}
+        navigateToAdmin={navigateToAdmin} />
     </ByokProvider>
   );
 }
@@ -212,7 +235,7 @@ function AppContent() {
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToAdmin }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
@@ -229,6 +252,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
+        onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         showVersionHistory={false}
         user={user}
         aiPanel={aiPanel}
@@ -242,15 +266,18 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
+        onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}
       />
     );
   } else if (route.view === 'settings') {
-    page = <SettingsPage onNavigateHome={navigateToDocs} user={user} />;
+    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} user={user} />;
+  } else if (route.view === 'admin') {
+    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} user={user} />;
   } else {
-    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} user={user} />;
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} user={user} />;
   }
 
   return (

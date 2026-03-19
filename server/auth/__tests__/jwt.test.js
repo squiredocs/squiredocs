@@ -36,12 +36,27 @@ describe('JWT utilities', () => {
     test('includes correct user claims', () => {
       const token = generateAccessToken(mockUser);
       const decoded = jwt.decode(token);
-      
+
       expect(decoded.userId).toBe(mockUser.id);
       expect(decoded.email).toBe(mockUser.email);
       expect(decoded.name).toBe(mockUser.name);
       expect(decoded.picture).toBe(mockUser.picture);
       expect(decoded.iss).toBe('collab-app');
+    });
+
+    test('includes isAdmin=false when user is not admin', () => {
+      const token = generateAccessToken(mockUser);
+      const decoded = jwt.decode(token);
+
+      expect(decoded.isAdmin).toBe(false);
+    });
+
+    test('includes isAdmin=true when user is admin', () => {
+      const adminUser = { ...mockUser, is_admin: true };
+      const token = generateAccessToken(adminUser);
+      const decoded = jwt.decode(token);
+
+      expect(decoded.isAdmin).toBe(true);
     });
 
     test('sets correct expiration', () => {

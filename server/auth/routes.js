@@ -12,7 +12,7 @@ const {
   clearAuthCookies,
   getJwtErrorResponse,
 } = require('./jwt');
-const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion, updateName } = require('./users');
+const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion, updateName, updateLastLogin } = require('./users');
 const { requireAuth } = require('./middleware');
 const { notifyNewUser, notifyLogin } = require('../email');
 
@@ -106,6 +106,9 @@ router.get('/google/callback', async (req, res) => {
     }
     notifyLogin({ email: user.email, name: user.name });
 
+    // Record last login timestamp
+    await updateLastLogin(user.id);
+
     // Generate application tokens
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
@@ -194,6 +197,7 @@ router.get('/me', requireAuth, async (req, res) => {
       email: user.email,
       name: user.name,
       picture: user.picture,
+      isAdmin: !!user.is_admin,
     });
   } catch (error) {
     console.error('Get user error:', error);
@@ -281,6 +285,9 @@ router.post('/dev-login', async (req, res) => {
     };
 
     const user = await findOrCreateUser(testUserProfile);
+
+    // Record last login timestamp
+    await updateLastLogin(user.id);
 
     // Generate application tokens
     const accessToken = generateAccessToken(user);
