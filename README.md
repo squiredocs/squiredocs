@@ -860,6 +860,36 @@ If you encounter database connection errors:
 - **UI Features**: Word processor-style editor with visible margins, share badges, and role-based UI
 - **Google Analytics**: The gtag.js snippet is duplicated in `client/index.html` (SPA entry) and `client/public/landing.html` (static landing page). If you update tracking IDs, change both files.
 
+### ⚠️ Security: User Ownership Checks on All Data Access
+
+**CRITICAL:** Every server-side query that reads or mutates a user-owned resource **must** include the authenticated user's ID in its WHERE clause. Never look up a record by its primary key alone — always scope to the owning user.
+
+```javascript
+// ❌ WRONG - Allows any authenticated user to access any record by ID
+const result = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+
+// ✅ CORRECT - Enforces ownership at the database level
+const result = await pool.query('SELECT * FROM chats WHERE id = $1 AND user_id = $2', [chatId, userId]);
+```
+
+**Why this matters:**
+- Without ownership checks, any authenticated user who obtains or guesses a record ID can read, modify, or delete another user's data (IDOR vulnerability)
+- Client-side checks are not a substitute — the server must enforce authorization
+- Random/unguessable IDs are defense-in-depth, not a replacement for proper authorization
+
+**Where to check:**
+- `server/chat-store.js` — all chat CRUD operations require `userId`
+- `server/permissions.js` — document access uses the `document_shares` table
+- `server/api/admin.js` — admin endpoints use `requireAdmin` middleware with DB verification
+- Any new API endpoint that accesses user-owned data
+
+**When adding new endpoints or data stores**, ensure:
+1. The SQL query includes `AND user_id = $N` (or equivalent ownership join)
+2. The route handler passes `req.user.userId` to the data layer
+3. Non-matching queries return 404, not the other user's data
+
+**For HTML email templates**, always escape user-controlled values with `escapeHtml()` before interpolation (see `server/email.js`).
+
 ### ⚠️ Common Pitfall: Y.XmlText Methods
 
 **CRITICAL:** When working with `Y.XmlText` nodes that may contain formatting (bold, italic, etc.), always use `toDelta()` to extract plain text, **never** `toString()`.

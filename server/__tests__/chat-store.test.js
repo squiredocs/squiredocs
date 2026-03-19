@@ -46,12 +46,18 @@ describe('Chat Store', () => {
   describe('loadChat', () => {
     test('returns empty array for new chat', async () => {
       const id = await chatStore.createChat(testUserId);
-      const messages = await chatStore.loadChat(id);
+      const messages = await chatStore.loadChat(id, testUserId);
       expect(messages).toEqual([]);
     });
 
     test('returns empty array for non-existent chat', async () => {
-      const messages = await chatStore.loadChat('non-existent-id');
+      const messages = await chatStore.loadChat('non-existent-id', testUserId);
+      expect(messages).toEqual([]);
+    });
+
+    test('returns empty array when userId does not match', async () => {
+      const id = await chatStore.createChat(testUserId);
+      const messages = await chatStore.loadChat(id, crypto.randomUUID());
       expect(messages).toEqual([]);
     });
   });
@@ -64,10 +70,20 @@ describe('Chat Store', () => {
         { id: 'msg2', role: 'assistant', parts: [{ type: 'text', text: 'Hi!' }] },
       ];
 
-      await chatStore.saveChat(id, messages);
+      await chatStore.saveChat(id, testUserId, messages);
 
-      const loaded = await chatStore.loadChat(id);
+      const loaded = await chatStore.loadChat(id, testUserId);
       expect(loaded).toEqual(messages);
+    });
+
+    test('does not save when userId does not match', async () => {
+      const id = await chatStore.createChat(testUserId);
+      const messages = [{ id: 'msg1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }];
+
+      await chatStore.saveChat(id, crypto.randomUUID(), messages);
+
+      const loaded = await chatStore.loadChat(id, testUserId);
+      expect(loaded).toEqual([]);
     });
 
     test('updates updated_at timestamp', async () => {
@@ -77,7 +93,7 @@ describe('Chat Store', () => {
       // Small delay to ensure timestamp changes
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      await chatStore.saveChat(id, [{ id: 'msg1', role: 'user', parts: [] }]);
+      await chatStore.saveChat(id, testUserId, [{ id: 'msg1', role: 'user', parts: [] }]);
       const after = await pool.query('SELECT updated_at FROM chats WHERE id = $1', [id]);
 
       expect(new Date(after.rows[0].updated_at).getTime())
@@ -96,7 +112,7 @@ describe('Chat Store', () => {
       const id2 = await chatStore.createChat(testUserId);
 
       // Update the first chat so it becomes most recently updated
-      await chatStore.saveChat(id1, [{ id: 'msg', role: 'user', parts: [] }]);
+      await chatStore.saveChat(id1, testUserId, [{ id: 'msg', role: 'user', parts: [] }]);
 
       const chats = await chatStore.getChatsForUser(testUserId);
       expect(chats.length).toBe(2);
@@ -106,7 +122,7 @@ describe('Chat Store', () => {
 
     test('returns metadata without messages', async () => {
       const id = await chatStore.createChat(testUserId);
-      await chatStore.updateChatTitle(id, 'Test Title');
+      await chatStore.updateChatTitle(id, testUserId, 'Test Title');
 
       const chats = await chatStore.getChatsForUser(testUserId);
       expect(chats[0]).toHaveProperty('id');
@@ -146,10 +162,20 @@ describe('Chat Store', () => {
   describe('updateChatTitle', () => {
     test('updates the title of a chat', async () => {
       const id = await chatStore.createChat(testUserId);
-      await chatStore.updateChatTitle(id, 'My Chat Title');
+      const updated = await chatStore.updateChatTitle(id, testUserId, 'My Chat Title');
+      expect(updated).toBe(true);
 
       const result = await pool.query('SELECT title FROM chats WHERE id = $1', [id]);
       expect(result.rows[0].title).toBe('My Chat Title');
+    });
+
+    test('returns false when userId does not match', async () => {
+      const id = await chatStore.createChat(testUserId);
+      const updated = await chatStore.updateChatTitle(id, crypto.randomUUID(), 'Hacked');
+      expect(updated).toBe(false);
+
+      const result = await pool.query('SELECT title FROM chats WHERE id = $1', [id]);
+      expect(result.rows[0].title).toBeNull();
     });
   });
 });

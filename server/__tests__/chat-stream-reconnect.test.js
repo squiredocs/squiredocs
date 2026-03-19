@@ -69,7 +69,7 @@ describe('GET /:id/stream', () => {
   });
 
   test('returns 200 with SSE headers for a done stream', async () => {
-    activeStreams.set('chat-1', { chunks: ['data: hello\n\n'], done: true });
+    activeStreams.set('chat-1', { chunks: ['data: hello\n\n'], done: true, userId: 'test-user' });
 
     const res = await request(app).get('/chat-1/stream');
     expect(res.status).toBe(200);
@@ -79,14 +79,14 @@ describe('GET /:id/stream', () => {
 
   test('replays all chunks for a done stream', async () => {
     const chunks = ['data: a\n\n', 'data: b\n\n', 'data: c\n\n'];
-    activeStreams.set('chat-2', { chunks, done: true });
+    activeStreams.set('chat-2', { chunks, done: true, userId: 'test-user' });
 
     const res = await request(app).get('/chat-2/stream');
     expect(res.text).toBe(chunks.join(''));
   });
 
   test('replays buffered chunks then tails live stream', (done) => {
-    const entry = { chunks: ['data: first\n\n'], done: false };
+    const entry = { chunks: ['data: first\n\n'], done: false, userId: 'test-user' };
     activeStreams.set('chat-3', entry);
 
     // Collect the full body after the response closes
@@ -117,7 +117,7 @@ describe('GET /:id/stream', () => {
   });
 
   test('ends response when stream finishes', (done) => {
-    const entry = { chunks: ['data: x\n\n'], done: false };
+    const entry = { chunks: ['data: x\n\n'], done: false, userId: 'test-user' };
     activeStreams.set('chat-4', entry);
 
     request(app)

@@ -1,6 +1,10 @@
 /**
  * Chat persistence store
  * Stores and retrieves AI chat conversations (messages as JSONB).
+ *
+ * SECURITY: Every query that reads or mutates a specific chat MUST include
+ * `AND user_id = $N` to enforce ownership. Never load, save, or update a
+ * chat by ID alone — always require the caller to pass userId.
  */
 
 let pool = null;
@@ -26,29 +30,31 @@ async function createChat(userId) {
 }
 
 /**
- * Load chat messages by ID
+ * Load chat messages by ID (with ownership check)
  * @param {string} id - Chat ID
+ * @param {string} userId - User UUID (ownership check)
  * @returns {Promise<Array>} UIMessage array
  */
-async function loadChat(id) {
+async function loadChat(id, userId) {
   if (!pool) throw new Error('Chat store not initialized');
   const result = await pool.query(
-    'SELECT messages FROM chats WHERE id = $1',
-    [id]
+    'SELECT messages FROM chats WHERE id = $1 AND user_id = $2',
+    [id, userId]
   );
   return result.rows[0]?.messages || [];
 }
 
 /**
- * Save messages to a chat (full replace)
+ * Save messages to a chat (full replace, with ownership check)
  * @param {string} chatId - Chat ID
+ * @param {string} userId - User UUID (ownership check)
  * @param {Array} messages - UIMessage array
  */
-async function saveChat(chatId, messages) {
+async function saveChat(chatId, userId, messages) {
   if (!pool) throw new Error('Chat store not initialized');
   await pool.query(
-    'UPDATE chats SET messages = $1, updated_at = NOW() WHERE id = $2',
-    [JSON.stringify(messages), chatId]
+    'UPDATE chats SET messages = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3',
+    [JSON.stringify(messages), chatId, userId]
   );
 }
 
@@ -82,16 +88,18 @@ async function deleteChat(id, userId) {
 }
 
 /**
- * Update chat title
+ * Update chat title (with ownership check)
  * @param {string} id - Chat ID
+ * @param {string} userId - User UUID (ownership check)
  * @param {string} title - New title
  */
-async function updateChatTitle(id, title) {
+async function updateChatTitle(id, userId, title) {
   if (!pool) throw new Error('Chat store not initialized');
-  await pool.query(
-    'UPDATE chats SET title = $1, updated_at = NOW() WHERE id = $2',
-    [title, id]
+  const result = await pool.query(
+    'UPDATE chats SET title = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3',
+    [title, id, userId]
   );
+  return result.rowCount > 0;
 }
 
 module.exports = {

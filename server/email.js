@@ -26,6 +26,11 @@ function getTransporter() {
   return transporter;
 }
 
+/** Escape a string for safe interpolation into HTML. */
+const escapeHtml = (s) => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 /**
  * Send an email via SES SMTP. Never throws.
  */
@@ -47,13 +52,15 @@ async function sendEmail({ to, subject, html }) {
  */
 function notifyNewUser({ email, name }) {
   if (!ADMIN_EMAIL) return;
+  const safeEmail = escapeHtml(email);
+  const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
     subject: `New user registered: ${email}`,
     html: `
       <h3>New user registration</h3>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Name:</strong> ${name || '(not provided)'}</p>
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      <p><strong>Name:</strong> ${safeName}</p>
     `,
   });
 }
@@ -63,13 +70,15 @@ function notifyNewUser({ email, name }) {
  */
 function notifyLogin({ email, name }) {
   if (!ADMIN_EMAIL) return;
+  const safeEmail = escapeHtml(email);
+  const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
     subject: `User logged in: ${email}`,
     html: `
       <h3>User login</h3>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Name:</strong> ${name || '(not provided)'}</p>
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      <p><strong>Name:</strong> ${safeName}</p>
       <p><strong>Time:</strong> ${new Date().toISOString()}</p>
     `,
   });
@@ -90,13 +99,15 @@ function notifyCreditLimitReached({ email, name, creditCents, usedCents }) {
 
   const credit = (creditCents / 100).toFixed(2);
   const used = (usedCents / 100).toFixed(2);
+  const safeEmail = escapeHtml(email);
+  const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
     subject: `AI credit limit reached: ${email}`,
     html: `
       <h3>AI credit limit reached</h3>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Name:</strong> ${name || '(not provided)'}</p>
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      <p><strong>Name:</strong> ${safeName}</p>
       <p><strong>Monthly allowance:</strong> $${credit}</p>
       <p><strong>Used this month:</strong> $${used}</p>
       <p><strong>Time:</strong> ${new Date().toISOString()}</p>

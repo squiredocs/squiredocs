@@ -332,19 +332,20 @@ router.post('/', requireAuth, async (req, res) => {
     // Register a stream entry immediately so a reconnecting client (page
     // refresh) can attach before the response actually starts streaming.
     // Replaces any stale entry from a previous completed stream.
-    entry = { chunks: [], done: false };
+    entry = { chunks: [], done: false, userId: req.user.userId };
     activeStreams.set(chatId, entry);
 
     // Load previous messages from DB and append the new user message.
     // Filter out any messages with empty parts — these can occur when a
     // stream is interrupted before any content arrives, and the AI SDK
     // requires every message to have at least one part.
-    const previousMessages = (await chatStore.loadChat(chatId))
+    const userId = req.user.userId;
+    const previousMessages = (await chatStore.loadChat(chatId, userId))
       .filter(m => m.parts && m.parts.length > 0);
     const allMessages = [...previousMessages, message];
 
     // Persist user message immediately so it survives interrupted streams
-    await chatStore.saveChat(chatId, allMessages);
+    await chatStore.saveChat(chatId, userId, allMessages);
 
     // Load BYOK settings for the user
     const byokSettings = pool ? await loadByokSettings(req.user.userId) : null;
@@ -459,7 +460,7 @@ router.post('/', requireAuth, async (req, res) => {
         originalMessages: validatedMessages,
         generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
         onFinish: ({ messages: saved }) => {
-          chatStore.saveChat(chatId, saved).catch((err) => {
+          chatStore.saveChat(chatId, userId, saved).catch((err) => {
             console.error('[Chat API] Failed to save chat:', err);
           });
         },
@@ -532,7 +533,7 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.get('/:id/stream', requireAuth, async (req, res) => {
   const entry = activeStreams.get(req.params.id);
-  if (!entry) {
+  if (!entry || entry.userId !== req.user.userId) {
     return res.status(204).end();
   }
 
@@ -592,7 +593,7 @@ router.get('/chats', requireAuth, async (req, res) => {
 // Load a specific chat's messages
 router.get('/chats/:id', requireAuth, async (req, res) => {
   try {
-    const messages = await chatStore.loadChat(req.params.id);
+    const messages = await chatStore.loadChat(req.params.id, req.user.userId);
     res.json({ messages });
   } catch (error) {
     console.error('[Chat API] Error loading chat:', error);
@@ -623,7 +624,10 @@ router.patch('/chats/:id', requireAuth, async (req, res) => {
     if (typeof title !== 'string') {
       return res.status(400).json({ error: 'title is required' });
     }
-    await chatStore.updateChatTitle(req.params.id, title);
+    const updated = await chatStore.updateChatTitle(req.params.id, req.user.userId, title);
+    if (!updated) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
     res.json({ ok: true });
   } catch (error) {
     console.error('[Chat API] Error updating chat:', error);
