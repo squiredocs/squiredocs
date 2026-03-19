@@ -291,6 +291,8 @@
     left: 0;
     right: 0;
     max-height: 80vh;
+    will-change: bottom, max-height;
+    transition: bottom 0.15s ease-out, max-height 0.15s ease-out;
   }
 
   .share-input-row {

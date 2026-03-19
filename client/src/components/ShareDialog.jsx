@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useMobile } from '../hooks/useMobile';
+import { useVisualViewport } from '../hooks/useVisualViewport';
 import './ShareDialog.css';
 
 function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const { api, user: currentUser } = useAuth();
+  const isMobile = useMobile();
+  const viewport = useVisualViewport();
   const [email, setEmail] = useState('');
   const [shareRole, setShareRole] = useState('editor');
   const [users, setUsers] = useState([]);
@@ -103,11 +107,17 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'editor';
 
+  // On iOS, shift the bottom-sheet above the virtual keyboard
+  const mobileKeyboardStyle = (isMobile && viewport?.isKeyboardOpen) ? {
+    bottom: `${window.innerHeight - viewport.height - viewport.offsetTop}px`,
+    maxHeight: `${viewport.height * 0.8}px`,
+  } : {};
+
   if (!isOpen) return null;
 
   return (
     <div className="share-dialog-overlay" onClick={onClose}>
-      <div className="share-dialog" onClick={e => e.stopPropagation()}>
+      <div className="share-dialog" onClick={e => e.stopPropagation()} style={mobileKeyboardStyle}>
         <div className="share-dialog-header">
           <h2>Share "{docTitle || 'Untitled document'}"</h2>
           <button className="share-dialog-close" onClick={onClose} aria-label="Close">
