@@ -294,7 +294,8 @@ app.get('/oauth-callback', (req, res) => {
   }
 
   const safeCode = escapeHtml(code);
-  const jsonData = JSON.stringify({ code: code || '', state: state || '' });
+  const jsonData = JSON.stringify({ code: code || '', state: state || '' })
+    .replace(/</g, '\\u003c');
 
   res.send(`
     <!DOCTYPE html>

@@ -6,6 +6,7 @@
  */
 const express = require('express');
 const { requireAgentAuth, requireScope, optionalAgentAuth } = require('./auth/middleware');
+const { requireAuth } = require('../auth/middleware');
 const { generateAgentToken } = require('./auth/jwt');
 const delegation = require('./auth/delegation');
 const registeredAgents = require('./auth/registered-agents');
@@ -305,7 +306,7 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
  * POST /mcp/auth/delegate - Create a delegation and get a token
  * This is a simplified endpoint for testing - in production, use OAuth flow
  */
-router.post('/auth/delegate', async (req, res) => {
+router.post('/auth/delegate', requireAuth, async (req, res) => {
   try {
     const { userId, agentId, agentName, scopes } = req.body;
 
@@ -313,6 +314,11 @@ router.post('/auth/delegate', async (req, res) => {
       return res.status(400).json({
         error: 'Missing required fields: userId, agentId, agentName',
       });
+    }
+
+    // Ensure users can only create delegations for themselves
+    if (req.user.userId !== userId) {
+      return res.status(403).json({ error: 'Cannot create delegation for another user' });
     }
 
     // Create delegation
@@ -343,9 +349,15 @@ router.post('/auth/delegate', async (req, res) => {
 /**
  * GET /mcp/auth/delegations/:userId - List delegations for a user
  */
-router.get('/auth/delegations/:userId', async (req, res) => {
+router.get('/auth/delegations/:userId', requireAuth, async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Ensure users can only list their own delegations
+    if (req.user.userId !== userId) {
+      return res.status(403).json({ error: 'Cannot list delegations for another user' });
+    }
+
     const delegations = await delegation.listUserDelegations(userId);
     res.json({ delegations });
   } catch (error) {
@@ -358,7 +370,7 @@ router.get('/auth/delegations/:userId', async (req, res) => {
 /**
  * POST /mcp/auth/token - Generate a new token for an existing delegation
  */
-router.post('/auth/token', async (req, res) => {
+router.post('/auth/token', requireAuth, async (req, res) => {
   try {
     const { delegationId } = req.body;
 
