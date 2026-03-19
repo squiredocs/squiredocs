@@ -11,6 +11,7 @@ process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
 process.env.REFRESH_TOKEN_SECRET = 'test-refresh-secret';
 
 const admin = require('../admin');
+const aiUsage = require('../../ai-usage');
 const users = require('../../auth/users');
 const { generateAccessToken } = require('../../auth/jwt');
 const { requireAdmin } = require('../../auth/middleware');
@@ -25,6 +26,7 @@ describe('Admin API', () => {
     pool = createPool();
     users.init(pool);
     admin.init(pool);
+    aiUsage.init(pool);
 
     app = express();
     app.use(express.json());
@@ -59,6 +61,7 @@ describe('Admin API', () => {
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM ai_extra_credits WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')");
     await pool.query("DELETE FROM document_shares WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')");
     await pool.query("DELETE FROM ai_usage_log WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')");
     await pool.query("DELETE FROM users WHERE email LIKE '%@example.com'");
@@ -267,6 +270,115 @@ describe('Admin API', () => {
       for (let i = 1; i < dates.length; i++) {
         expect(dates[i - 1]).toBeGreaterThanOrEqual(dates[i]);
       }
+    });
+
+    test('includes aiExtraCreditCents in user list', async () => {
+      await aiUsage.grantExtraCredits(regularUser.id, 300, { memo: 'test' });
+
+      const token = generateAccessToken(adminUser);
+      const response = await request(app)
+        .get('/api/admin/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const user = response.body.users.find(u => u.id === regularUser.id);
+      expect(user.aiExtraCreditCents).toBe(300);
+      expect(user.aiRemainingCents).toBe(regularUser.ai_credit_cents + 300);
+    });
+
+    test('excludes expired extra credits from stats', async () => {
+      await pool.query(
+        `INSERT INTO ai_extra_credits (user_id, amount_cents, expires_at)
+         VALUES ($1, 500, now() - interval '1 day')`,
+        [regularUser.id]
+      );
+
+      const token = generateAccessToken(adminUser);
+      const response = await request(app)
+        .get('/api/admin/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const user = response.body.users.find(u => u.id === regularUser.id);
+      expect(user.aiExtraCreditCents).toBe(0);
+    });
+  });
+
+  describe('POST /api/admin/users/extra-credits', () => {
+    test('grants extra credits to a user', async () => {
+      const token = generateAccessToken(adminUser);
+
+      const response = await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id, amountCents: 500, memo: 'Beta bonus' })
+        .expect(200);
+
+      expect(response.body.grant).toBeDefined();
+      expect(response.body.grant.amountCents).toBe(500);
+      expect(response.body.grant.memo).toBe('Beta bonus');
+      expect(response.body.grant.grantedBy).toBe(adminUser.id);
+    });
+
+    test('grants extra credits with expiration', async () => {
+      const token = generateAccessToken(adminUser);
+      const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const response = await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id, amountCents: 200, expiresAt: future })
+        .expect(200);
+
+      expect(response.body.grant.expiresAt).toBeDefined();
+    });
+
+    test('returns 400 for missing amountCents', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id })
+        .expect(400);
+    });
+
+    test('returns 400 for negative amountCents', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id, amountCents: -100 })
+        .expect(400);
+    });
+
+    test('returns 400 for past expiresAt', async () => {
+      const token = generateAccessToken(adminUser);
+      const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+      await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id, amountCents: 100, expiresAt: past })
+        .expect(400);
+    });
+
+    test('returns 403 for non-admin user', async () => {
+      const token = generateAccessToken(regularUser);
+
+      await request(app)
+        .post('/api/admin/users/extra-credits')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ userId: regularUser.id, amountCents: 500 })
+        .expect(403);
+    });
+
+    test('returns 401 without authorization', async () => {
+      await request(app)
+        .post('/api/admin/users/extra-credits')
+        .send({ userId: regularUser.id, amountCents: 500 })
+        .expect(401);
     });
   });
 });

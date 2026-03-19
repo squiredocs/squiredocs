@@ -182,12 +182,17 @@ export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, user }
                     <div className="usage-stats">
                       <div className="usage-amounts">
                         <span className="usage-used">${(usage.usedCents / 100).toFixed(2)} used</span>
-                        <span className="usage-total">${(usage.creditCents / 100).toFixed(2)} limit</span>
+                        <span className="usage-total">
+                          ${(usage.creditCents / 100).toFixed(2)} limit
+                          {usage.extraCreditCents > 0 && (
+                            <> + ${(usage.extraCreditCents / 100).toFixed(2)} extra</>
+                          )}
+                        </span>
                       </div>
                       <div className="usage-bar-track">
                         <div
-                          className={`usage-bar-fill${usage.usedCents >= usage.creditCents ? ' usage-bar-exceeded' : ''}`}
-                          style={{ width: `${Math.min(100, (usage.usedCents / usage.creditCents) * 100)}%` }}
+                          className={`usage-bar-fill${usage.usedCents >= usage.creditCents + (usage.extraCreditCents || 0) ? ' usage-bar-exceeded' : ''}`}
+                          style={{ width: `${Math.min(100, (usage.usedCents / (usage.creditCents + (usage.extraCreditCents || 0))) * 100)}%` }}
                         />
                       </div>
                       <div className="usage-footer">

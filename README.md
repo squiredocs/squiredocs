@@ -14,6 +14,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
 - **Document Management**: Create, share, and delete documents with permission enforcement
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login) and granting extra AI credits
 
 ## Technology Stack
 
@@ -280,6 +281,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 Each user has a monthly AI credit allowance (default: $5.00). Usage is tracked per-request based on token counts from the AI provider, with costs computed from official pricing. When a user exceeds their allowance, chat requests return a 429 and the UI shows a clear error banner. Usage resets automatically at the start of each calendar month.
 
 - **Credits**: Stored as `ai_credit_cents` on the `users` table (overridable per user)
+- **Extra credits**: One-off credit grants via the `ai_extra_credits` table — admins can grant bonus credits that supplement the monthly allowance and persist until depleted or expired
 - **Tracking**: Append-only `ai_usage_log` table records every request with model, token counts, and cost
 - **Pricing**: Computed from official per-token rates for each model (see `server/ai-usage.js`)
 - **No cron needed**: Current month's spend is computed on-the-fly by summing log entries
@@ -718,6 +720,7 @@ paragraphs.forEach((node, index) => {
   - **Permissions**: `document_shares` table (user-document access with roles)
   - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
   - **AI usage**: `ai_usage_log` table (per-request token usage and cost tracking)
+  - **AI extra credits**: `ai_extra_credits` table (one-off credit grants with optional expiration)
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 

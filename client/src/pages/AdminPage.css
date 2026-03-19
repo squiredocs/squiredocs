@@ -1,5 +1,5 @@
 .admin-page {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 24px 20px;
 }
@@ -86,4 +86,86 @@
   padding: 2px 6px;
   border-radius: 4px;
   margin-left: 4px;
+}
+
+.admin-grant-btn {
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-grant-btn:hover {
+  background: #f3f4f6;
+}
+
+.admin-grant-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-grant-form input {
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.admin-grant-amount {
+  width: 70px;
+}
+
+.admin-grant-memo {
+  width: 120px;
+}
+
+.admin-grant-expires {
+  width: 130px;
+}
+
+.admin-grant-confirm {
+  font-size: 13px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #7c3aed;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-grant-confirm:hover {
+  background: #6d28d9;
+}
+
+.admin-grant-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-grant-cancel {
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-grant-cancel:hover {
+  background: #f3f4f6;
+}
+
+.admin-grant-error {
+  color: #991b1b;
+  font-size: 12px;
+  width: 100%;
 }

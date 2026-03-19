@@ -73,6 +73,7 @@ async function createTestUser(pool, email) {
  */
 async function cleanupTestUser(pool, userId) {
   // Clean up in order of dependencies
+  await pool.query('DELETE FROM ai_extra_credits WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM agent_activity_log WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM agent_delegations WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM document_shares WHERE user_id = $1', [userId]);

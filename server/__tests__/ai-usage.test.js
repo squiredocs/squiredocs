@@ -17,12 +17,14 @@ describe('AI Usage', () => {
   });
 
   afterAll(async () => {
+    await pool.query('DELETE FROM ai_extra_credits WHERE user_id = $1', [testUserId]);
     await pool.query('DELETE FROM ai_usage_log WHERE user_id = $1', [testUserId]);
     await cleanupTestUser(pool, testUserId);
     await pool.end();
   });
 
   afterEach(async () => {
+    await pool.query('DELETE FROM ai_extra_credits WHERE user_id = $1', [testUserId]);
     await pool.query('DELETE FROM ai_usage_log WHERE user_id = $1', [testUserId]);
   });
 
@@ -215,6 +217,171 @@ describe('AI Usage', () => {
       expect(quota.remainingCents).toBe(1000);
 
       await pool.query('UPDATE users SET ai_credit_cents = 500 WHERE id = $1', [testUserId]);
+    });
+  });
+
+  // ── Extra Credits ─────────────────────────────────────────────────────────
+
+  describe('extra credits', () => {
+    afterEach(async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 500 WHERE id = $1', [testUserId]);
+    });
+
+    test('grantExtraCredits inserts a row with correct fields', async () => {
+      const grant = await aiUsage.grantExtraCredits(testUserId, 300, { memo: 'Beta bonus' });
+
+      expect(grant.amountCents).toBe(300);
+      expect(grant.usedCents).toBe(0);
+      expect(grant.memo).toBe('Beta bonus');
+      expect(grant.createdAt).toBeDefined();
+
+      const { rows } = await pool.query('SELECT * FROM ai_extra_credits WHERE user_id = $1', [testUserId]);
+      expect(rows.length).toBe(1);
+      expect(rows[0].amount_cents).toBe(300);
+    });
+
+    test('grantExtraCredits supports expiresAt', async () => {
+      const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const grant = await aiUsage.grantExtraCredits(testUserId, 100, { expiresAt: future });
+
+      expect(grant.expiresAt).toBeDefined();
+      expect(new Date(grant.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    test('checkQuota includes extra credits in effective limit', async () => {
+      await aiUsage.grantExtraCredits(testUserId, 300);
+
+      const quota = await aiUsage.checkQuota(testUserId);
+      expect(quota.extraCreditCents).toBe(300);
+      expect(quota.remainingCents).toBe(800); // 500 monthly + 300 extra
+      expect(quota.allowed).toBe(true);
+    });
+
+    test('extra credits allow requests when monthly limit is exhausted', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 5,
+      });
+
+      // Without extra credits: blocked
+      let quota = await aiUsage.checkQuota(testUserId);
+      expect(quota.allowed).toBe(false);
+
+      // Grant extra credits
+      await aiUsage.grantExtraCredits(testUserId, 10);
+
+      // Now allowed
+      quota = await aiUsage.checkQuota(testUserId);
+      expect(quota.allowed).toBe(true);
+      expect(quota.remainingCents).toBe(10);
+    });
+
+    test('recordUsage debits extra credits when over monthly limit', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+      await aiUsage.grantExtraCredits(testUserId, 10);
+
+      // Record 8 cents — 5 covered by monthly, 3 overflow into extra credits
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 8,
+      });
+
+      const { rows } = await pool.query(
+        'SELECT used_cents FROM ai_extra_credits WHERE user_id = $1',
+        [testUserId]
+      );
+      expect(rows[0].used_cents).toBe(3);
+    });
+
+    test('extra credits are debited oldest first', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+
+      // Insert two extra credit rows
+      await aiUsage.grantExtraCredits(testUserId, 5, { memo: 'first' });
+      await aiUsage.grantExtraCredits(testUserId, 10, { memo: 'second' });
+
+      // Record usage that overflows monthly by 7 cents
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 12,
+      });
+
+      const { rows } = await pool.query(
+        'SELECT memo, used_cents FROM ai_extra_credits WHERE user_id = $1 ORDER BY id',
+        [testUserId]
+      );
+      expect(rows[0].memo).toBe('first');
+      expect(rows[0].used_cents).toBe(5); // fully consumed
+      expect(rows[1].memo).toBe('second');
+      expect(rows[1].used_cents).toBe(2); // partial
+    });
+
+    test('fully depleted extra credits block requests', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+      await aiUsage.grantExtraCredits(testUserId, 3);
+
+      // Use all 8 cents (5 monthly + 3 extra)
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 8,
+      });
+
+      const quota = await aiUsage.checkQuota(testUserId);
+      expect(quota.allowed).toBe(false);
+      expect(quota.remainingCents).toBe(0);
+    });
+
+    test('expired extra credits are ignored by checkQuota', async () => {
+      // Insert an expired extra credit directly
+      await pool.query(
+        `INSERT INTO ai_extra_credits (user_id, amount_cents, expires_at)
+         VALUES ($1, 500, now() - interval '1 day')`,
+        [testUserId]
+      );
+
+      const quota = await aiUsage.checkQuota(testUserId);
+      expect(quota.extraCreditCents).toBe(0);
+      expect(quota.remainingCents).toBe(500); // only monthly
+    });
+
+    test('expired extra credits are not debited', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+
+      // Insert expired credit
+      await pool.query(
+        `INSERT INTO ai_extra_credits (user_id, amount_cents, expires_at)
+         VALUES ($1, 100, now() - interval '1 day')`,
+        [testUserId]
+      );
+      // Insert valid credit
+      await aiUsage.grantExtraCredits(testUserId, 10);
+
+      // Overflow by 3 cents
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 8,
+      });
+
+      const { rows } = await pool.query(
+        'SELECT amount_cents, used_cents, expires_at FROM ai_extra_credits WHERE user_id = $1 ORDER BY id',
+        [testUserId]
+      );
+      // Expired row untouched
+      expect(rows[0].expires_at).not.toBeNull();
+      expect(rows[0].used_cents).toBe(0);
+      // Valid row debited
+      expect(rows[1].used_cents).toBe(3);
+    });
+
+    test('BYOK usage does not debit extra credits', async () => {
+      await pool.query('UPDATE users SET ai_credit_cents = 5 WHERE id = $1', [testUserId]);
+      await aiUsage.grantExtraCredits(testUserId, 10);
+
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 20, isByok: true,
+      });
+
+      const { rows } = await pool.query(
+        'SELECT used_cents FROM ai_extra_credits WHERE user_id = $1',
+        [testUserId]
+      );
+      expect(rows[0].used_cents).toBe(0);
     });
   });
 
