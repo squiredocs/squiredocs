@@ -110,9 +110,11 @@ async function handler(args, agentToken) {
   console.log(`[create_document:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[create_document:DIAGNOSTIC] blockCountAfterCreate=${blockCountAfterCreate}`);
 
+  const baseUrl = agentToken.baseUrl || '';
   return {
     docGuid,
     title,
+    url: `${baseUrl}/d/${docGuid}`,
     message: `Created document "${title}"`,
   };
 }

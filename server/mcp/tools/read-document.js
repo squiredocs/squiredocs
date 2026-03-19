@@ -223,8 +223,10 @@ async function handler(args, agentToken) {
     recentAuthors = versionHistory.getCurrentSessionAuthors(recentUpdates);
   }
 
+  const baseUrl = agentToken.baseUrl || '';
   const result = {
     content,
+    url: `${baseUrl}/d/${docGuid}`,
     blockCount,
     characterCount,
     clock,

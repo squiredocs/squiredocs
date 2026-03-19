@@ -127,10 +127,12 @@ async function handler(args, agentToken) {
   // Update document timestamp
   await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
 
+  const baseUrl = agentToken.baseUrl || '';
   return {
     success: true,
     message,
     docGuid,
+    url: `${baseUrl}/d/${docGuid}`,
     sharedWith: {
       email: targetUser.email,
       name: targetUser.name,

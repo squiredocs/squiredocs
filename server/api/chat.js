@@ -126,11 +126,13 @@ SYNTHESIZING EDITS INTO DECISIONS (triggered by "Summarize what we've decided", 
 - Be transparent about limitations. You cannot message other collaborators, see their chats, or send notifications. If asked, suggest sharing the document or handling coordination outside the app.
 </rules>`;
 
-function buildSystemPrompt(docGuid, docTitle) {
+function buildSystemPrompt(docGuid, docTitle, baseUrl) {
   if (!docGuid) return BASE_SYSTEM_PROMPT;
   const titleStr = docTitle ? ` "${docTitle}"` : '';
+  const urlStr = baseUrl ? `\nURL: ${baseUrl}/d/${docGuid}` : '';
   return BASE_SYSTEM_PROMPT + `\n\n<active_document>
-The user is currently viewing document${titleStr} (${docGuid}). When they refer to "this document", "the document", or "my document" without specifying which one, assume they mean this document. However, you are not limited to this document — the user may ask about or work on other documents too.
+The user is currently viewing document${titleStr} (${docGuid}).${urlStr}
+When they refer to "this document", "the document", or "my document" without specifying which one, assume they mean this document. However, you are not limited to this document — the user may ask about or work on other documents too.
 </active_document>`;
 }
 
@@ -416,7 +418,7 @@ router.post('/', requireAuth, async (req, res) => {
     const useThinking = def.provider === 'google';
     const streamTextOpts = {
       model,
-      system: buildSystemPrompt(docGuid, docTitle),
+      system: buildSystemPrompt(docGuid, docTitle, baseUrl),
       tools,
       stopWhen: stepCountIs(100),
       prepareStep: async ({ stepNumber }) => {
