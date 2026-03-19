@@ -86,7 +86,21 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
     };
   }, [searchQuery, filter]);
 
-  const fetchDocs = async () => {
+  // Poll for near-realtime doc list updates
+  useEffect(() => {
+    const POLL_INTERVAL = 5000;
+    const id = setInterval(() => {
+      if (!document.hidden) fetchDocs(true);
+    }, POLL_INTERVAL);
+    const onVisibility = () => { if (!document.hidden) fetchDocs(true); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [searchQuery, filter]);
+
+  const fetchDocs = async (background = false) => {
     try {
       // Build query params
       const params = new URLSearchParams();
@@ -102,9 +116,12 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
       // Use the authenticated API client
       const response = await api.get(url);
       setDocs(response.data.docs || []);
+      if (error) setError(null);
     } catch (err) {
-      console.error('Error fetching docs:', err);
-      setError(err.response?.data?.error || err.message);
+      if (!background) {
+        console.error('Error fetching docs:', err);
+        setError(err.response?.data?.error || err.message);
+      }
     } finally {
       setLoading(false);
     }
