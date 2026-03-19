@@ -75,4 +75,33 @@ function notifyLogin({ email, name }) {
   });
 }
 
-module.exports = { sendEmail, notifyNewUser, notifyLogin };
+/**
+ * Notify admin when a user hits their AI credit limit.
+ * Deduped: only one email per user per calendar month.
+ */
+const creditLimitNotified = new Set();
+
+function notifyCreditLimitReached({ email, name, creditCents, usedCents }) {
+  if (!ADMIN_EMAIL) return;
+  const month = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const key = `${email}-${month}`;
+  if (creditLimitNotified.has(key)) return;
+  creditLimitNotified.add(key);
+
+  const credit = (creditCents / 100).toFixed(2);
+  const used = (usedCents / 100).toFixed(2);
+  sendEmail({
+    to: ADMIN_EMAIL,
+    subject: `AI credit limit reached: ${email}`,
+    html: `
+      <h3>AI credit limit reached</h3>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Name:</strong> ${name || '(not provided)'}</p>
+      <p><strong>Monthly allowance:</strong> $${credit}</p>
+      <p><strong>Used this month:</strong> $${used}</p>
+      <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+    `,
+  });
+}
+
+module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached };

@@ -19,6 +19,7 @@ const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
 const { decrypt } = require('../crypto');
 const { notifyException } = require('../exception-notifier');
+const { notifyCreditLimitReached } = require('../email');
 
 const router = express.Router();
 
@@ -353,6 +354,12 @@ router.post('/', requireAuth, async (req, res) => {
     if (!isByok) {
       const quota = await aiUsage.checkQuota(req.user.userId);
       if (!quota.allowed) {
+        notifyCreditLimitReached({
+          email: req.user.email,
+          name: req.user.name,
+          creditCents: quota.creditCents,
+          usedCents: quota.usedCents,
+        });
         cleanupEntry();
         return res.status(429).json({ error: 'AI usage limit reached' });
       }
