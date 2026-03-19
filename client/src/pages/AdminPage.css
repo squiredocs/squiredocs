@@ -21,6 +21,8 @@
   text-align: center;
 }
 
+/* ─── Main table ───────────────────────────────────────── */
+
 .admin-table-wrapper {
   overflow-x: auto;
   border-radius: 10px;
@@ -53,12 +55,15 @@
   white-space: nowrap;
 }
 
-.admin-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
 .admin-table tbody tr:hover {
   background: #f9fafb;
+}
+
+.admin-row-expanded {
+  background: #f9fafb;
+}
+.admin-row-expanded td {
+  border-bottom: none;
 }
 
 .admin-cell-name {
@@ -88,20 +93,188 @@
   margin-left: 4px;
 }
 
-.admin-grant-btn {
+.admin-actions {
+  text-align: right;
+}
+
+/* ─── Extra credit tag in remaining column ─────────────── */
+
+.admin-extra-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: #059669;
+  background: #ecfdf5;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+/* ─── Inline editable monthly limit ────────────────────── */
+
+.admin-editable {
+  cursor: pointer;
+  border-bottom: 1px dashed #d1d5db;
+  padding-bottom: 1px;
+}
+.admin-editable:hover {
+  color: #7c3aed;
+  border-bottom-color: #7c3aed;
+}
+
+.admin-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.admin-credit-input {
+  width: 65px;
   font-size: 13px;
+  padding: 3px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+/* ─── Shared button styles ─────────────────────────────── */
+
+.admin-btn-sm {
+  font-size: 12px;
   padding: 4px 10px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #fff;
   color: #374151;
   cursor: pointer;
   white-space: nowrap;
 }
-
-.admin-grant-btn:hover {
+.admin-btn-sm:hover {
   background: #f3f4f6;
 }
+.admin-btn-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-btn-primary {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.admin-btn-primary:hover {
+  background: #6d28d9;
+}
+
+.admin-btn-danger {
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+.admin-btn-danger:hover {
+  background: #fef2f2;
+}
+
+/* ─── Expanded detail row ──────────────────────────────── */
+
+.admin-detail-row td {
+  padding: 0 14px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+.admin-detail-row:hover {
+  background: unset;
+}
+
+.admin-detail {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.admin-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-detail-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.admin-detail-loading,
+.admin-detail-empty {
+  padding: 12px 0;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* ─── Extra credits sub-table ──────────────────────────── */
+
+.admin-credits-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-credits-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.admin-credits-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f9fafb;
+  white-space: nowrap;
+}
+
+.admin-credits-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-credit-inactive {
+  opacity: 0.5;
+}
+
+/* ─── Status badges ────────────────────────────────────── */
+
+.admin-status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-status-active {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.admin-status-depleted {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.admin-status-expired {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* ─── Grant form ───────────────────────────────────────── */
 
 .admin-grant-form {
   display: flex;
@@ -127,41 +300,6 @@
 
 .admin-grant-expires {
   width: 130px;
-}
-
-.admin-grant-confirm {
-  font-size: 13px;
-  padding: 4px 10px;
-  border: none;
-  border-radius: 6px;
-  background: #7c3aed;
-  color: #fff;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.admin-grant-confirm:hover {
-  background: #6d28d9;
-}
-
-.admin-grant-confirm:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-grant-cancel {
-  font-size: 13px;
-  padding: 4px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.admin-grant-cancel:hover {
-  background: #f3f4f6;
 }
 
 .admin-grant-error {

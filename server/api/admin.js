@@ -1,5 +1,5 @@
 /**
- * Admin API — user list with stats, extra credit grants
+ * Admin API — user list with stats, credit management
  *
  * Follows the init(pool) + Express router pattern used by ai-usage.js.
  */
@@ -72,6 +72,73 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * PATCH /:userId/credit — update a user's monthly AI credit allowance
+ * Body: { aiCreditCents: number }
+ */
+router.patch('/:userId/credit', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { aiCreditCents } = req.body;
+
+    if (typeof aiCreditCents !== 'number' || aiCreditCents < 0) {
+      return res.status(400).json({ error: 'aiCreditCents must be a non-negative number' });
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET ai_credit_cents = $1 WHERE id = $2 RETURNING ai_credit_cents',
+      [Math.round(aiCreditCents), userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ aiCreditCents: result.rows[0].ai_credit_cents });
+  } catch (err) {
+    console.error('[Admin] Error updating credit:', err);
+    res.status(500).json({ error: 'Failed to update credit' });
+  }
+});
+
+/**
+ * GET /:userId/extra-credits — list all extra credit records for a user
+ */
+router.get('/:userId/extra-credits', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT ec.id, ec.amount_cents, ec.used_cents, ec.memo,
+              ec.created_at, ec.expires_at,
+              g.name AS granted_by_name
+       FROM ai_extra_credits ec
+       LEFT JOIN users g ON g.id = ec.granted_by
+       WHERE ec.user_id = $1
+       ORDER BY ec.id DESC`,
+      [userId]
+    );
+
+    const credits = rows.map((r) => ({
+      id: r.id,
+      amountCents: r.amount_cents,
+      usedCents: r.used_cents,
+      remainingCents: r.amount_cents - r.used_cents,
+      memo: r.memo,
+      grantedByName: r.granted_by_name,
+      createdAt: r.created_at,
+      expiresAt: r.expires_at,
+      isExpired: !!(r.expires_at && new Date(r.expires_at) <= new Date()),
+      isDepleted: r.used_cents >= r.amount_cents,
+    }));
+
+    res.json({ credits });
+  } catch (err) {
+    console.error('[Admin] Error fetching extra credits:', err);
+    res.status(500).json({ error: 'Failed to fetch extra credits' });
+  }
+});
+
+/**
  * POST /extra-credits — grant extra AI credits to a user
  * Body: { userId, amountCents, memo?, expiresAt? }
  */
@@ -100,6 +167,29 @@ router.post('/extra-credits', async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error granting extra credits:', err);
     res.status(500).json({ error: 'Failed to grant extra credits' });
+  }
+});
+
+/**
+ * DELETE /extra-credits/:creditId — remove an extra credit record
+ */
+router.delete('/extra-credits/:creditId', async (req, res) => {
+  try {
+    const { creditId } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM ai_extra_credits WHERE id = $1 RETURNING id',
+      [creditId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Extra credit record not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Admin] Error deleting extra credit:', err);
+    res.status(500).json({ error: 'Failed to delete extra credit' });
   }
 });
 

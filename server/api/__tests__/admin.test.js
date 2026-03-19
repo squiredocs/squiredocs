@@ -381,4 +381,187 @@ describe('Admin API', () => {
         .expect(401);
     });
   });
+
+  describe('PATCH /api/admin/users/:userId/credit', () => {
+    test('updates monthly credit allowance', async () => {
+      const token = generateAccessToken(adminUser);
+
+      const response = await request(app)
+        .patch(`/api/admin/users/${regularUser.id}/credit`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: 1000 })
+        .expect(200);
+
+      expect(response.body.aiCreditCents).toBe(1000);
+
+      // Verify in DB
+      const { rows } = await pool.query('SELECT ai_credit_cents FROM users WHERE id = $1', [regularUser.id]);
+      expect(rows[0].ai_credit_cents).toBe(1000);
+    });
+
+    test('allows setting credit to zero', async () => {
+      const token = generateAccessToken(adminUser);
+
+      const response = await request(app)
+        .patch(`/api/admin/users/${regularUser.id}/credit`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: 0 })
+        .expect(200);
+
+      expect(response.body.aiCreditCents).toBe(0);
+    });
+
+    test('returns 400 for negative credit', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .patch(`/api/admin/users/${regularUser.id}/credit`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: -100 })
+        .expect(400);
+    });
+
+    test('returns 400 for non-numeric credit', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .patch(`/api/admin/users/${regularUser.id}/credit`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: 'abc' })
+        .expect(400);
+    });
+
+    test('returns 404 for non-existent user', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .patch('/api/admin/users/00000000-0000-0000-0000-000000000000/credit')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: 500 })
+        .expect(404);
+    });
+
+    test('returns 403 for non-admin', async () => {
+      const token = generateAccessToken(regularUser);
+
+      await request(app)
+        .patch(`/api/admin/users/${regularUser.id}/credit`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ aiCreditCents: 1000 })
+        .expect(403);
+    });
+  });
+
+  describe('GET /api/admin/users/:userId/extra-credits', () => {
+    test('lists extra credit records for a user', async () => {
+      const token = generateAccessToken(adminUser);
+
+      // Grant two credits
+      await aiUsage.grantExtraCredits(regularUser.id, 300, { memo: 'First' });
+      await aiUsage.grantExtraCredits(regularUser.id, 200, { memo: 'Second' });
+
+      const response = await request(app)
+        .get(`/api/admin/users/${regularUser.id}/extra-credits`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(response.body.credits).toHaveLength(2);
+      // Ordered by id DESC (newest first)
+      expect(response.body.credits[0].memo).toBe('Second');
+      expect(response.body.credits[1].memo).toBe('First');
+    });
+
+    test('includes correct fields', async () => {
+      const token = generateAccessToken(adminUser);
+      await aiUsage.grantExtraCredits(regularUser.id, 500, {
+        memo: 'Test', grantedBy: adminUser.id,
+      });
+
+      const response = await request(app)
+        .get(`/api/admin/users/${regularUser.id}/extra-credits`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const credit = response.body.credits[0];
+      expect(credit.amountCents).toBe(500);
+      expect(credit.usedCents).toBe(0);
+      expect(credit.remainingCents).toBe(500);
+      expect(credit.memo).toBe('Test');
+      expect(credit.grantedByName).toBe('Admin User');
+      expect(credit.createdAt).toBeDefined();
+      expect(credit.isExpired).toBe(false);
+      expect(credit.isDepleted).toBe(false);
+    });
+
+    test('marks expired credits', async () => {
+      const token = generateAccessToken(adminUser);
+      await pool.query(
+        `INSERT INTO ai_extra_credits (user_id, amount_cents, expires_at)
+         VALUES ($1, 100, now() - interval '1 day')`,
+        [regularUser.id]
+      );
+
+      const response = await request(app)
+        .get(`/api/admin/users/${regularUser.id}/extra-credits`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(response.body.credits[0].isExpired).toBe(true);
+    });
+
+    test('returns empty array for user with no credits', async () => {
+      const token = generateAccessToken(adminUser);
+
+      const response = await request(app)
+        .get(`/api/admin/users/${regularUser.id}/extra-credits`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(response.body.credits).toHaveLength(0);
+    });
+
+    test('returns 403 for non-admin', async () => {
+      const token = generateAccessToken(regularUser);
+
+      await request(app)
+        .get(`/api/admin/users/${regularUser.id}/extra-credits`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+  });
+
+  describe('DELETE /api/admin/users/extra-credits/:creditId', () => {
+    test('deletes an extra credit record', async () => {
+      const token = generateAccessToken(adminUser);
+      const grant = await aiUsage.grantExtraCredits(regularUser.id, 500);
+
+      await request(app)
+        .delete(`/api/admin/users/extra-credits/${grant.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // Verify deleted
+      const { rows } = await pool.query('SELECT * FROM ai_extra_credits WHERE id = $1', [grant.id]);
+      expect(rows).toHaveLength(0);
+    });
+
+    test('returns 404 for non-existent credit', async () => {
+      const token = generateAccessToken(adminUser);
+
+      await request(app)
+        .delete('/api/admin/users/extra-credits/999999')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+
+    test('returns 403 for non-admin', async () => {
+      const token = generateAccessToken(regularUser);
+      const grant = await aiUsage.grantExtraCredits(regularUser.id, 500);
+
+      await request(app)
+        .delete(`/api/admin/users/extra-credits/${grant.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+  });
 });
