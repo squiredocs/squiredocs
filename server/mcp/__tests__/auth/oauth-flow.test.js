@@ -188,14 +188,14 @@ describe('OAuth Flow', () => {
       expect(mockRes.status).not.toHaveBeenCalledWith(400);
     });
 
-    test('rejects non-localhost redirect_uri for auto-registered agent', async () => {
+    test('rejects HTTP non-localhost redirect_uri for auto-registered agent', async () => {
       registeredAgents.getRegisteredAgent.mockResolvedValue(null);
       registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
       registeredAgents.isLocalhostUri.mockReturnValue(false);
 
       mockReq.query = {
         agent_client_id: 'unknown-agent',
-        redirect_uri: 'https://evil.com/steal',
+        redirect_uri: 'http://evil.com/steal',
         code_challenge: 'challenge',
         state: 'state',
       };
@@ -206,6 +206,24 @@ describe('OAuth Flow', () => {
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ error: 'invalid_request' })
       );
+    });
+
+    test('allows HTTPS redirect_uri for auto-registered agent', async () => {
+      registeredAgents.getRegisteredAgent.mockResolvedValue(null);
+      registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
+      registeredAgents.isLocalhostUri.mockReturnValue(false);
+
+      mockReq.query = {
+        agent_client_id: 'unknown-agent',
+        redirect_uri: 'https://claude.ai/api/mcp/auth_callback',
+        code_challenge: 'challenge',
+        state: 'state',
+      };
+
+      await oauthFlow.handleAuthorize(mockReq, mockRes);
+
+      expect(mockRes.redirect).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalledWith(400);
     });
 
     test('allows localhost redirect_uri for auto-registered agent', async () => {
@@ -425,12 +443,12 @@ describe('OAuth Flow', () => {
       expect(pkce.generateAuthCode).toHaveBeenCalled();
     });
 
-    test('rejects non-localhost redirect_uri for auto-registered agent in approve', async () => {
+    test('rejects HTTP non-localhost redirect_uri for auto-registered agent in approve', async () => {
       registeredAgents.getRegisteredAgent.mockResolvedValue(null);
       registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
       registeredAgents.isLocalhostUri.mockReturnValue(false);
 
-      mockReq.body.redirect_uri = 'https://evil.com/steal';
+      mockReq.body.redirect_uri = 'http://evil.com/steal';
 
       await oauthFlow.handleApprove(mockReq, mockRes);
 

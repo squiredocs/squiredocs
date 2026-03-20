@@ -16,14 +16,25 @@ function checkRedirectUri(agent, redirectUri) {
     return { allowed: true };
   }
 
-  // Auto-registered agents (empty allowed list) may only use localhost
+  // Auto-registered agents (empty allowed list): allow localhost or HTTPS URIs.
+  // HTTPS is allowed because the user sees the redirect URL on the consent page
+  // and can decide whether to trust it. HTTP non-localhost is blocked to prevent
+  // auth code interception on shared networks.
   if (agent.allowed_redirect_uris.length === 0) {
     if (isLocalhostUri(redirectUri)) {
       return { allowed: true };
     }
+    try {
+      const parsed = new URL(redirectUri);
+      if (parsed.protocol === 'https:') {
+        return { allowed: true };
+      }
+    } catch {
+      // Invalid URI — fall through to rejection
+    }
     return {
       allowed: false,
-      error: 'Auto-registered agents may only use localhost redirect URIs. Register via POST /mcp/auth/register first.',
+      error: 'Auto-registered agents may only use localhost or HTTPS redirect URIs.',
     };
   }
 
@@ -584,14 +595,24 @@ async function handleRegister(req, res) {
   // Generate a unique client ID if not provided
   const clientId = req.body.client_id || `client_${crypto.randomBytes(16).toString('hex')}`;
 
-  // Validate redirect URIs are localhost-only for unauthenticated registration
+  // Validate redirect URIs: allow localhost or HTTPS for unauthenticated registration
   if (redirect_uris && Array.isArray(redirect_uris)) {
     for (const uri of redirect_uris) {
       if (!isLocalhostUri(uri)) {
-        return res.status(400).json({
-          error: 'invalid_redirect_uri',
-          error_description: 'Only localhost redirect URIs are allowed for dynamic registration',
-        });
+        try {
+          const parsed = new URL(uri);
+          if (parsed.protocol !== 'https:') {
+            return res.status(400).json({
+              error: 'invalid_redirect_uri',
+              error_description: 'Only localhost or HTTPS redirect URIs are allowed for dynamic registration',
+            });
+          }
+        } catch {
+          return res.status(400).json({
+            error: 'invalid_redirect_uri',
+            error_description: 'Invalid redirect URI',
+          });
+        }
       }
     }
   }
