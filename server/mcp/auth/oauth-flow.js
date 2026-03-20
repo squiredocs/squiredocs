@@ -612,20 +612,15 @@ async function handleRegister(req, res) {
     is_public_client: true,
   });
 
-  if (!created) {
-    return res.status(409).json({
-      error: 'invalid_client_metadata',
-      error_description: 'Client ID already registered',
-    });
+  if (created) {
+    console.log(`[MCP OAuth] Registered new agent: ${clientId}`);
   }
 
-  console.log(`[MCP OAuth] Registered new agent: ${clientId}`);
-
-  // Return client configuration per RFC 7591
-  res.status(201).json({
+  // Return client configuration per RFC 7591 (idempotent — returns existing agent if already registered)
+  res.status(created ? 201 : 200).json({
     client_id: agent.id,
     client_name: agent.name,
-    redirect_uris: redirect_uris || [],
+    redirect_uris: agent.allowed_redirect_uris || [],
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',

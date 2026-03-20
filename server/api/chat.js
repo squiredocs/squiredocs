@@ -409,7 +409,7 @@ router.post('/', requireAuth, async (req, res) => {
       userId: req.user.userId,
       agentId: 'in-app-chat',
       agentName: 'Squire Docs Assistant',
-      scopes: ['read', 'write'],
+      scopes: ['documents:read', 'documents:write'],
       baseUrl,
     });
 
