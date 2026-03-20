@@ -84,10 +84,13 @@ const CORS_ALLOWED_ORIGINS = new Set([
 ]);
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+  // MCP endpoints use Bearer token auth (not cookies), so allow any origin
+  const isMcpRoute = req.path.startsWith('/mcp') || req.path.startsWith('/.well-known/');
   if (origin === CLIENT_URL
-    || (process.env.NODE_ENV === 'development') // permissive in dev
+    || isMcpRoute
+    || (process.env.NODE_ENV === 'development')
     || CORS_ALLOWED_ORIGINS.has(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || CLIENT_URL);
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
