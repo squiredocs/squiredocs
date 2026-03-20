@@ -1470,7 +1470,8 @@ async function handler(args, agentToken) {
   const session = await agentPresence.getOrCreateSession(
     docGuid,
     agentToken,
-    300 // 5 minute session duration
+    300, // 5 minute session duration
+    { requiredRole: 'editor' }
   );
 
   const ydoc = session.provider.doc;

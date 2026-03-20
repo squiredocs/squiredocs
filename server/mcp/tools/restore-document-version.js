@@ -128,7 +128,7 @@ async function handler(args, agentToken) {
   }
 
   // Get or create agent session to get the shared document
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
+  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60, { requiredRole: 'editor' });
 
   // Get function to access shared document for broadcasting
   const getSharedDocFn = (guid) => {

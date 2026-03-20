@@ -137,12 +137,11 @@ router.post('/', requireAgentAuth, async (req, res) => {
   } catch (error) {
     console.error('MCP error:', error);
     notifyException(error, { req, source: 'mcp' });
-    // Pass full error details including stack trace in data field
-    // This ensures detailed error messages from tools (like modify) are preserved
-    res.json(jsonRpcError(id, INTERNAL_ERROR, error.message, {
-      stack: error.stack,
-      name: error.name,
-    }));
+    // In production, only return error message. In dev, include stack for debugging.
+    const errorData = process.env.NODE_ENV === 'production'
+      ? { name: error.name }
+      : { stack: error.stack, name: error.name };
+    res.json(jsonRpcError(id, INTERNAL_ERROR, error.message, errorData));
   }
 });
 
@@ -381,6 +380,11 @@ router.post('/auth/token', requireAuth, async (req, res) => {
     const delegationRecord = await delegation.getDelegation(delegationId);
     if (!delegationRecord) {
       return res.status(404).json({ error: 'Delegation not found' });
+    }
+
+    // Verify the authenticated user owns this delegation
+    if (delegationRecord.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Not authorized for this delegation' });
     }
 
     // Check if delegation is still valid

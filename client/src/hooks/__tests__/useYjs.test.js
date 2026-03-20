@@ -13,7 +13,10 @@ vi.mock('y-indexeddb');
 // Test document GUID
 const TEST_DOC_GUID = '12345678-1234-4123-8123-123456789abc';
 // Mock access token for tests
-const TEST_ACCESS_TOKEN = 'mock-access-token-12345';
+// Create a parseable JWT token (isTokenExpired needs to parse the exp claim)
+const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+const payload = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
+const TEST_ACCESS_TOKEN = `${header}.${payload}.sig`;
 
 describe('useYjs', () => {
   let mockProvider;

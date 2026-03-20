@@ -14,7 +14,7 @@ const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
-const { getDocument } = require('../documents');
+const { getDocument, hasAccess } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
 const { decrypt } = require('../crypto');
@@ -37,9 +37,11 @@ function init(dbPool) {
   pool = dbPool;
 }
 
-// Map<chatId, { chunks: string[], done: boolean }>
+// Map<chatId, { chunks: string[], done: boolean, userId: string }>
 // Buffers SSE chunks so reconnecting clients can replay + continue.
 const activeStreams = new Map();
+const MAX_STREAMS_PER_USER = 10;
+const MAX_CHUNKS_PER_STREAM = 5000;
 
 // Lazy-loaded AI SDK core (heavy import — pulls in OpenTelemetry, zod, etc.)
 let _ai = null;
@@ -129,7 +131,11 @@ SYNTHESIZING EDITS INTO DECISIONS (triggered by "Summarize what we've decided", 
 
 function buildSystemPrompt(docGuid, docTitle, baseUrl) {
   if (!docGuid) return BASE_SYSTEM_PROMPT;
-  const titleStr = docTitle ? ` "${docTitle}"` : '';
+  let sanitizedTitle = '';
+  if (docTitle) {
+    sanitizedTitle = docTitle.slice(0, 200).replace(/<[^>]*>/g, '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  const titleStr = sanitizedTitle ? ` "${sanitizedTitle}"` : '';
   const urlStr = baseUrl ? `\nURL: ${baseUrl}/d/${docGuid}` : '';
   return BASE_SYSTEM_PROMPT + `\n\n<active_document>
 The user is currently viewing document${titleStr} (${docGuid}).${urlStr}
@@ -305,7 +311,9 @@ function inlineDataUrls(modelMessages) {
 /** Write a single SSE event to both the response and the replay buffer. */
 function writeSSEEvent(res, entry, data) {
   const chunk = `data: ${JSON.stringify(data)}\n\n`;
-  entry.chunks.push(chunk);
+  if (entry.chunks.length < MAX_CHUNKS_PER_STREAM) {
+    entry.chunks.push(chunk);
+  }
   res.write(chunk);
 }
 
@@ -327,6 +335,15 @@ router.post('/', requireAuth, async (req, res) => {
 
     if (!message || !chatId) {
       return res.status(400).json({ error: 'message and id are required' });
+    }
+
+    // Enforce per-user stream limit to prevent memory exhaustion
+    let userStreamCount = 0;
+    for (const [, s] of activeStreams) {
+      if (s.userId === req.user.userId && !s.done) userStreamCount++;
+    }
+    if (userStreamCount >= MAX_STREAMS_PER_USER) {
+      return res.status(429).json({ error: 'Too many concurrent chat streams' });
     }
 
     // Register a stream entry immediately so a reconnecting client (page
@@ -352,6 +369,7 @@ router.post('/', requireAuth, async (req, res) => {
     const isByok = isByokActive(byokSettings);
 
     // Check AI usage quota before proceeding (skip for BYOK users)
+    let reservationId = null;
     if (!isByok) {
       const quota = await aiUsage.checkQuota(req.user.userId);
       if (!quota.allowed) {
@@ -364,14 +382,23 @@ router.post('/', requireAuth, async (req, res) => {
         cleanupEntry();
         return res.status(429).json({ error: 'AI usage limit reached' });
       }
+      // Reserve estimated credits upfront to prevent TOCTOU race
+      try {
+        reservationId = await aiUsage.reserveCredits(req.user.userId, 5);
+      } catch (e) {
+        console.error('[Chat API] Failed to reserve credits:', e);
+      }
     }
 
-    // Look up document title if docGuid provided
+    // Look up document title if docGuid provided and user has access
     let docTitle = null;
     if (docGuid) {
       try {
-        const doc = await getDocument(docGuid);
-        docTitle = doc?.title || null;
+        const canAccess = await hasAccess(docGuid, req.user.userId);
+        if (canAccess) {
+          const doc = await getDocument(docGuid);
+          docTitle = doc?.title || null;
+        }
       } catch (e) {
         // Non-critical — proceed without title
       }
@@ -441,14 +468,29 @@ router.post('/', requireAuth, async (req, res) => {
         console.error('[Chat API] Stream error:', error);
       },
       onFinish: async ({ usage }) => {
-        if (!usage) return;
+        if (!usage) {
+          // No usage data — release reservation
+          if (reservationId) {
+            aiUsage.reconcileReservation(reservationId, { failed: true })
+              .catch(err => console.error('[Chat API] Failed to release reservation:', err));
+          }
+          return;
+        }
         const inputTokens = usage.inputTokens ?? 0;
         const outputTokens = usage.outputTokens ?? 0;
         const costCents = aiUsage.computeCostCents(def.key, inputTokens, outputTokens);
-        aiUsage.recordUsage(req.user.userId, {
-          chatId, modelKey: def.key,
-          inputTokens, outputTokens, costCents, isByok,
-        }).catch(err => console.error('[Chat API] Failed to record usage:', err));
+        if (reservationId) {
+          // Reconcile reservation with actual usage
+          aiUsage.reconcileReservation(reservationId, {
+            modelKey: def.key, inputTokens, outputTokens, costCents, isByok,
+          }).catch(err => console.error('[Chat API] Failed to reconcile reservation:', err));
+        } else {
+          // BYOK or reservation failed — record usage directly
+          aiUsage.recordUsage(req.user.userId, {
+            chatId, modelKey: def.key,
+            inputTokens, outputTokens, costCents, isByok,
+          }).catch(err => console.error('[Chat API] Failed to record usage:', err));
+        }
       },
     };
 

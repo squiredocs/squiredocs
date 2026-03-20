@@ -27,37 +27,20 @@ async function findOrCreateUser({ googleId, email, name, picture }) {
     throw new Error('Users module not initialized. Call init(pool) first.');
   }
 
-  // Try to find existing user by Google ID
-  const existingResult = await pool.query(
-    'SELECT * FROM users WHERE google_id = $1',
-    [googleId]
-  );
-
-  if (existingResult.rows.length > 0) {
-    // Update user profile in case it changed
-    const updateResult = await pool.query(
-      `UPDATE users 
-       SET email = $1, name = $2, picture = $3
-       WHERE google_id = $4
-       RETURNING *`,
-      [email, name, picture, googleId]
-    );
-    const existingUser = updateResult.rows[0];
-    existingUser.isNew = false;
-    return existingUser;
-  }
-
-  // Create new user
-  const insertResult = await pool.query(
+  // Atomic upsert: insert or update in a single query to prevent race conditions
+  const result = await pool.query(
     `INSERT INTO users (google_id, email, name, picture, token_version)
      VALUES ($1, $2, $3, $4, 0)
-     RETURNING *`,
+     ON CONFLICT (google_id) DO UPDATE
+     SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
+     RETURNING *, (xmax = 0) AS is_new`,
     [googleId, email, name, picture]
   );
 
-  const newUser = insertResult.rows[0];
-  newUser.isNew = true;
-  return newUser;
+  const user = result.rows[0];
+  user.isNew = user.is_new;
+  delete user.is_new;
+  return user;
 }
 
 /**

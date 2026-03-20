@@ -68,13 +68,9 @@ export function AuthProvider({ children }) {
       const { accessToken: newToken } = response.data;
       setAccessToken(newToken);
 
-      // Broadcast new token to other tabs via BroadcastChannel
+      // Signal other tabs to refresh their own tokens (don't broadcast the raw token)
       if (tokenChannelRef.current) {
-        tokenChannelRef.current.postMessage({
-          type: 'TOKEN_REFRESHED',
-          token: newToken
-        });
-        console.log('[AuthContext] Broadcasted refreshed token to other tabs');
+        tokenChannelRef.current.postMessage({ type: 'TOKEN_REFRESHED' });
       }
 
       return newToken;
@@ -308,12 +304,10 @@ export function AuthProvider({ children }) {
     tokenChannelRef.current = channel;
 
     channel.onmessage = (event) => {
-      if (event.data.type === 'TOKEN_REFRESHED' && event.data.token) {
-        console.log('[AuthContext] Received token from another tab via BroadcastChannel');
-        setAccessToken(event.data.token);
-        // Fetch user profile with the new token
-        fetchUser(event.data.token).catch((e) => {
-          console.warn('[AuthContext] Failed to fetch user after receiving broadcast token:', e.message);
+      if (event.data.type === 'TOKEN_REFRESHED') {
+        // Another tab refreshed — get our own fresh token via cookie
+        refreshAccessToken().catch((e) => {
+          console.warn('[AuthContext] Failed to refresh after broadcast signal:', e.message);
         });
       }
 

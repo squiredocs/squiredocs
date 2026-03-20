@@ -68,7 +68,7 @@ async function handler(args, agentToken) {
   }
 
   // Get or create session (reuses existing WebSocket if available)
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 3600);
+  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 3600, { requiredRole: 'editor' });
 
   if (!session || !session.cursor) {
     throw new Error('Failed to get session');

@@ -18,7 +18,14 @@ vi.mock('y-websocket');
 vi.mock('y-indexeddb');
 
 const TEST_DOC_GUID = 'bug-test-doc-guid';
-const TEST_ACCESS_TOKEN = 'test-token';
+// Create a parseable JWT token (isTokenExpired needs to parse the exp claim)
+const _h = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+const _p = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
+const TEST_ACCESS_TOKEN = `${_h}.${_p}.sig`;
+const makeToken = (extra = 0) => {
+  const p2 = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 + extra })).replace(/=/g, '');
+  return `${_h}.${p2}.sig`;
+};
 
 describe('useYjs Bug Detection', () => {
   let mockProvider;
@@ -152,7 +159,7 @@ describe('useYjs Bug Detection', () => {
 
       // Restore token
       mockProvider.connect.mockClear();
-      rerender({ token: 'new-token' });
+      rerender({ token: makeToken(1) });
 
       await waitFor(() => {
         expect(result.current.authError).toBe(false);
@@ -187,7 +194,7 @@ describe('useYjs Bug Detection', () => {
       await waitFor(() => expect(result.current.connectionState).toBe('disconnected'));
 
       // Token refresh
-      rerender({ token: 'new-refreshed-token' });
+      rerender({ token: makeToken(2) });
 
       await new Promise(r => setTimeout(r, 100));
 
@@ -215,7 +222,7 @@ describe('useYjs Bug Detection', () => {
 
       const firstProvider = result.current.provider;
 
-      rerender({ token: 'token-2' });
+      rerender({ token: makeToken(3) });
 
       await new Promise(r => setTimeout(r, 50));
 
@@ -355,7 +362,7 @@ describe('Sleep/Wake Scenarios', () => {
       await waitFor(() => expect(result.current.connectionState).toBe('disconnected'));
 
       // Token refresh happens
-      rerender({ token: 'refreshed-token' });
+      rerender({ token: makeToken(4) });
 
       // Reconnect
       act(() => {
@@ -387,7 +394,7 @@ describe('Sleep/Wake Scenarios', () => {
 
       // Token refresh
       mockProvider.connect.mockClear();
-      rerender({ token: 'refreshed-token' });
+      rerender({ token: makeToken(4) });
 
       await waitFor(() => {
         expect(result.current.authError).toBe(false);

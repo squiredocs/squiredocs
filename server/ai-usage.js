@@ -193,10 +193,54 @@ async function grantExtraCredits(userId, amountCents, { memo, grantedBy, expires
   return result.rows[0];
 }
 
+/**
+ * Reserve credits upfront before a streaming request.
+ * Inserts a pending usage row with an estimated cost so concurrent requests
+ * see the reservation in their quota check (SUM of ai_usage_log).
+ * @param {string} userId
+ * @param {number} estimatedCostCents
+ * @returns {Promise<string>} reservation ID
+ */
+async function reserveCredits(userId, estimatedCostCents) {
+  if (!pool) throw new Error('ai-usage module not initialized');
+
+  const result = await pool.query(
+    `INSERT INTO ai_usage_log (user_id, model_key, input_tokens, output_tokens, cost_cents, is_byok)
+     VALUES ($1, 'reserved', 0, 0, $2, false)
+     RETURNING id`,
+    [userId, estimatedCostCents]
+  );
+  return result.rows[0].id;
+}
+
+/**
+ * Reconcile a reservation with actual usage.
+ * Updates the pending row with real values, or deletes it if the request failed.
+ * @param {string} reservationId
+ * @param {{modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok: boolean, failed?: boolean}} params
+ */
+async function reconcileReservation(reservationId, { modelKey, inputTokens, outputTokens, costCents, isByok, failed = false }) {
+  if (!pool) throw new Error('ai-usage module not initialized');
+
+  if (failed) {
+    await pool.query('DELETE FROM ai_usage_log WHERE id = $1', [reservationId]);
+    return;
+  }
+
+  await pool.query(
+    `UPDATE ai_usage_log
+     SET model_key = $2, input_tokens = $3, output_tokens = $4, cost_cents = $5, is_byok = $6
+     WHERE id = $1`,
+    [reservationId, modelKey, inputTokens, outputTokens, costCents, !!isByok]
+  );
+}
+
 module.exports = {
   init,
   computeCostCents,
   checkQuota,
   recordUsage,
+  reserveCredits,
+  reconcileReservation,
   grantExtraCredits,
 };

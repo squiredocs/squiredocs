@@ -2,6 +2,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const helmet = require('helmet');
 const WebSocket = require('ws');
 const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
 const path = require('path');
@@ -46,6 +47,23 @@ const PORT = process.env.PORT || 3001;
 // This is needed when behind a reverse proxy/load balancer that terminates SSL
 app.set('trust proxy', true);
 
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
 // Redirect old domains to squiredocs.com
 app.use((req, res, next) => {
   const host = req.get('host');
@@ -59,10 +77,16 @@ app.use((req, res, next) => {
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 // CORS configuration - allow credentials for cookies
+const CORS_ALLOWED_ORIGINS = new Set([
+  CLIENT_URL,
+  'http://localhost:5173',
+  'http://localhost:3001',
+]);
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  // Allow requests from configured client URL
-  if (origin === CLIENT_URL || process.env.NODE_ENV !== 'production') {
+  if (origin === CLIENT_URL
+    || (process.env.NODE_ENV === 'development') // permissive in dev
+    || CORS_ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || CLIENT_URL);
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -1072,7 +1096,12 @@ server.on('upgrade', async (request, socket, head) => {
   const cookies = parseCookies(request.headers.cookie);
 
   // Try cookie first, then query param (for backwards compatibility & MCP agents)
-  const token = cookies.accessToken || url.searchParams.get('token');
+  const cookieToken = cookies.accessToken;
+  const queryToken = url.searchParams.get('token');
+  if (!cookieToken && queryToken) {
+    console.warn(`[WS] Token passed via query parameter for doc ${docId} — prefer cookie auth`);
+  }
+  const token = cookieToken || queryToken;
   const user = await permissions.extractUser({ queryToken: token });
 
   if (!user) {
@@ -1169,12 +1198,12 @@ wss.on('connection', (ws, req) => {
   const userRole = req.userRole;
   const userId = req.user?.userId;
   const docId = req.docId;
-  const canEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
+  let currentCanEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
 
   // Sanitize URL to remove token from logs
   const sanitizedUrl = req.url?.split('?')[0] || req.url;
 
-  logPerf('WS_CONNECT', { connId, url: sanitizedUrl, role: userRole, canEdit });
+  logPerf('WS_CONNECT', { connId, url: sanitizedUrl, role: userRole, canEdit: currentCanEdit });
   console.log(`✓ WebSocket connection established [connId=${connId}]: ${sanitizedUrl} (role: ${userRole}, userId: ${userId})`);
 
   // Store attribution info on ws for the update handler
@@ -1238,7 +1267,7 @@ wss.on('connection', (ws, req) => {
 
 
       // Block edit messages from viewers
-      if (!canEdit && isEditMessage(buffer)) {
+      if (!currentCanEdit && isEditMessage(buffer)) {
         logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
         console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
         return false;
@@ -1255,8 +1284,25 @@ wss.on('connection', (ws, req) => {
     notifyException(error, { source: 'websocket', extra: { connId, docId, userId } });
   });
 
+  // Periodically re-check document role from DB (catches role downgrades)
+  const ROLE_RECHECK_INTERVAL = 60000;
+  const roleCheckInterval = setInterval(async () => {
+    try {
+      const currentRole = await documents.getRole(docId, userId);
+      if (!currentRole) {
+        console.log(`[WS:${connId}] User ${userId} lost access to doc ${docId}, disconnecting`);
+        ws.close(4403, 'Access revoked');
+        return;
+      }
+      currentCanEdit = documents.ROLES[currentRole] >= documents.ROLES['editor'];
+    } catch (err) {
+      console.error(`[WS:${connId}] Role re-check failed:`, err.message);
+    }
+  }, ROLE_RECHECK_INTERVAL);
+
   ws.on('close', () => {
     clearInterval(pingInterval);
+    clearInterval(roleCheckInterval);
     logPerf('WS_CLOSE', { connId, duration: Date.now() - connStart });
     console.log('WebSocket connection closed:', sanitizedUrl);
   });

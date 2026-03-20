@@ -139,6 +139,40 @@ async function createOrUpdateAgent({
   return result.rows[0];
 }
 
+/**
+ * Register a new agent without overwriting existing ones.
+ * Used for unauthenticated dynamic client registration.
+ * Returns the existing agent if one already exists with this ID.
+ */
+async function registerAgent(params) {
+  // Check if agent already exists first
+  const existing = await getRegisteredAgent(params.id);
+  if (existing) {
+    return { agent: existing, created: false };
+  }
+
+  const result = await pool.query(
+    `INSERT INTO registered_agents
+     (id, name, description, icon_url, allowed_scopes, default_scopes, allowed_redirect_uris, is_public_client, is_enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+     ON CONFLICT (id) DO NOTHING
+     RETURNING *`,
+    [params.id, params.name, params.description || null, params.icon_url || null,
+     params.allowed_scopes || ['documents:read', 'documents:write'],
+     params.default_scopes || ['documents:read'],
+     params.allowed_redirect_uris || [],
+     params.is_public_client !== undefined ? params.is_public_client : true]
+  );
+
+  if (result.rows.length === 0) {
+    // Race condition: another request registered it between our check and insert
+    const agent = await getRegisteredAgent(params.id);
+    return { agent, created: false };
+  }
+
+  return { agent: result.rows[0], created: true };
+}
+
 module.exports = {
   init,
   getRegisteredAgent,
@@ -147,4 +181,5 @@ module.exports = {
   isLocalhostUri,
   listRegisteredAgents,
   createOrUpdateAgent,
+  registerAgent,
 };

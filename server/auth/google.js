@@ -33,22 +33,26 @@ function getOAuth2Client() {
  * Generate Google OAuth authorization URL
  * @returns {string} The authorization URL to redirect users to
  */
-function generateAuthUrl() {
+function generateAuthUrl(state) {
   const client = getOAuth2Client();
-  
+
   const scopes = [
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile'
   ];
 
-  const url = client.generateAuthUrl({
+  const opts = {
     access_type: 'offline', // Get refresh token for offline access
     scope: scopes,
     prompt: 'consent', // Force consent screen to ensure we get refresh token
-  });
+  };
 
-  return url;
+  if (state) {
+    opts.state = state;
+  }
+
+  return client.generateAuthUrl(opts);
 }
 
 /**

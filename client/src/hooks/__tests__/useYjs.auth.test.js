@@ -20,7 +20,10 @@ vi.mock('y-indexeddb');
 
 // Test constants
 const TEST_DOC_GUID = 'test-doc-12345678-1234-4123-8123-123456789abc';
-const TEST_ACCESS_TOKEN = 'test-access-token-12345';
+// Create a parseable JWT token (isTokenExpired needs to parse the exp claim)
+const _h = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+const _p = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
+const TEST_ACCESS_TOKEN = `${_h}.${_p}.sig`;
 
 describe('useYjs auth error detection', () => {
   let mockProvider;
@@ -111,7 +114,8 @@ describe('useYjs auth error detection', () => {
       await waitFor(() => expect(result.current.authError).toBe(true));
 
       // Provide a new token
-      rerender({ token: 'new-refreshed-token-xyz' });
+      const newP = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 7200 })).replace(/=/g, '');
+      rerender({ token: `${_h}.${newP}.sig` });
 
       await waitFor(() => {
         expect(result.current.authError).toBe(false);

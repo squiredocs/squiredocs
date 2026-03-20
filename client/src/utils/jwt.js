@@ -15,7 +15,7 @@ export function isTokenExpired(token) {
     const decoded = JSON.parse(atob(base64 + '='.repeat((4 - base64.length % 4) % 4)));
     return decoded.exp ? Date.now() >= decoded.exp * 1000 : false;
   } catch {
-    return false;
+    return true; // Treat unparseable tokens as expired (fail-secure)
   }
 }
 

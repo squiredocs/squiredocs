@@ -89,6 +89,26 @@ function getTool(name) {
   return tools[name] || null;
 }
 
+// Required scopes per tool
+const TOOL_SCOPES = {
+  // Write operations
+  modify: 'documents:write',
+  create_document: 'documents:write',
+  share_document: 'documents:write',
+  set_document_title: 'documents:write',
+  undo: 'documents:write',
+  redo: 'documents:write',
+  set_document_version_name: 'documents:write',
+  restore_document_version: 'documents:write',
+  // Read operations
+  list_documents: 'documents:read',
+  read_document: 'documents:read',
+  get_collaborators: 'documents:read',
+  list_document_versions: 'documents:read',
+  read_document_version: 'documents:read',
+  compare_document_versions: 'documents:read',
+};
+
 /**
  * Execute a tool
  * @param {string} name - Tool name
@@ -101,6 +121,15 @@ async function executeTool(name, args, agentToken) {
 
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
+  }
+
+  // Check scope authorization
+  const requiredScope = TOOL_SCOPES[name];
+  if (requiredScope && agentToken) {
+    const agentScopes = agentToken.scopes || [];
+    if (!agentScopes.includes(requiredScope)) {
+      throw new Error(`Insufficient scope: '${requiredScope}' is required for tool '${name}'. Granted scopes: ${agentScopes.join(', ')}`);
+    }
   }
 
   // Note: Agent presence is managed by individual tool handlers via getOrCreateSession()

@@ -6,6 +6,9 @@
 
 const nodemailer = require('nodemailer');
 
+/** Strip CR/LF to prevent email header injection */
+const sanitizeHeader = (s) => String(s).replace(/[\r\n]/g, '');
+
 const FROM_EMAIL = process.env.SES_FROM_EMAIL;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const SMTP_HOST = process.env.SES_SMTP_HOST || 'email-smtp.us-west-2.amazonaws.com';
@@ -56,7 +59,7 @@ function notifyNewUser({ email, name }) {
   const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
-    subject: `New user registered: ${email}`,
+    subject: `New user registered: ${sanitizeHeader(email)}`,
     html: `
       <h3>New user registration</h3>
       <p><strong>Email:</strong> ${safeEmail}</p>
@@ -74,7 +77,7 @@ function notifyLogin({ email, name }) {
   const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
-    subject: `User logged in: ${email}`,
+    subject: `User logged in: ${sanitizeHeader(email)}`,
     html: `
       <h3>User login</h3>
       <p><strong>Email:</strong> ${safeEmail}</p>
@@ -103,7 +106,7 @@ function notifyCreditLimitReached({ email, name, creditCents, usedCents }) {
   const safeName = escapeHtml(name || '(not provided)');
   sendEmail({
     to: ADMIN_EMAIL,
-    subject: `AI credit limit reached: ${email}`,
+    subject: `AI credit limit reached: ${sanitizeHeader(email)}`,
     html: `
       <h3>AI credit limit reached</h3>
       <p><strong>Email:</strong> ${safeEmail}</p>

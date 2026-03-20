@@ -17,6 +17,9 @@ function getEncryptionKey() {
   if (hex === DEV_KEY && process.env.NODE_ENV === 'production') {
     throw new Error('API_KEY_ENCRYPTION_KEY must be set in production');
   }
+  if (hex === DEV_KEY && process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {
+    console.warn('WARNING: Using default encryption key in non-development environment. Set API_KEY_ENCRYPTION_KEY.');
+  }
   if (hex.length !== 64) {
     throw new Error('API_KEY_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)');
   }

@@ -20,7 +20,14 @@ vi.mock('y-websocket');
 vi.mock('y-indexeddb');
 
 const TEST_DOC_GUID = 'stale-tab-test-doc';
-const TEST_ACCESS_TOKEN = 'test-token';
+// Create a parseable JWT token (isTokenExpired needs to parse the exp claim)
+const _h = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+const _p = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
+const TEST_ACCESS_TOKEN = `${_h}.${_p}.sig`;
+const makeToken = (extra = 0) => {
+  const p2 = btoa(JSON.stringify({ userId: 'test', exp: Math.floor(Date.now() / 1000) + 3600 + extra })).replace(/=/g, '');
+  return `${_h}.${p2}.sig`;
+};
 
 describe('Stale Tab Scenarios', () => {
   let mockProvider;
@@ -173,7 +180,7 @@ describe('Stale Tab Scenarios', () => {
 
       // Restore token (simulating successful token refresh)
       mockProvider.connect.mockClear();
-      rerender({ token: 'new-refreshed-token' });
+      rerender({ token: makeToken(1) });
 
       // Should clear auth error and attempt reconnection
       await waitFor(() => {
@@ -211,7 +218,7 @@ describe('Stale Tab Scenarios', () => {
       await waitFor(() => expect(result.current.authError).toBe(true));
 
       // Restore token - counters reset on new token (effect re-runs with setReconnectCount(0))
-      rerender({ token: 'new-token' });
+      rerender({ token: makeToken(2) });
 
       await waitFor(() => expect(result.current.authError).toBe(false));
 
@@ -251,7 +258,7 @@ describe('Stale Tab Scenarios', () => {
       await waitFor(() => expect(result.current.connectionState).toBe('disconnected'));
 
       // Token refresh triggers provider update
-      rerender({ token: 'refreshed-token' });
+      rerender({ token: makeToken(3) });
 
       await new Promise(r => setTimeout(r, 100));
 

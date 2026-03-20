@@ -7,6 +7,15 @@ const jwt = require('jsonwebtoken');
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'dev-access-secret-change-in-production';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'dev-refresh-secret-change-in-production';
 
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.ACCESS_TOKEN_SECRET || process.env.ACCESS_TOKEN_SECRET === 'dev-access-secret-change-in-production') {
+    throw new Error('FATAL: ACCESS_TOKEN_SECRET must be set to a strong secret in production');
+  }
+  if (!process.env.REFRESH_TOKEN_SECRET || process.env.REFRESH_TOKEN_SECRET === 'dev-refresh-secret-change-in-production') {
+    throw new Error('FATAL: REFRESH_TOKEN_SECRET must be set to a strong secret in production');
+  }
+}
+
 // Test mode for rapid token expiry (useful for testing stale tab scenarios)
 // Usage: AUTH_TEST_MODE=true npm run server
 const AUTH_TEST_MODE = process.env.AUTH_TEST_MODE === 'true';
@@ -57,6 +66,7 @@ function generateAccessToken(user) {
   return jwt.sign(payload, ACCESS_TOKEN_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY,
     issuer: 'collab-app',
+    audience: 'collab-app',
   });
 }
 
@@ -70,10 +80,11 @@ function generateRefreshToken(user) {
     userId: user.id,
     tokenVersion: user.token_version,
   };
-  
+
   return jwt.sign(payload, REFRESH_TOKEN_SECRET, {
     expiresIn: REFRESH_TOKEN_EXPIRY,
     issuer: 'collab-app',
+    audience: 'collab-app',
   });
 }
 
@@ -86,6 +97,8 @@ function generateRefreshToken(user) {
 function verifyAccessToken(token) {
   return jwt.verify(token, ACCESS_TOKEN_SECRET, {
     issuer: 'collab-app',
+    audience: 'collab-app',
+    algorithms: ['HS256'],
   });
 }
 
@@ -98,6 +111,8 @@ function verifyAccessToken(token) {
 function verifyRefreshToken(token) {
   return jwt.verify(token, REFRESH_TOKEN_SECRET, {
     issuer: 'collab-app',
+    audience: 'collab-app',
+    algorithms: ['HS256'],
   });
 }
 

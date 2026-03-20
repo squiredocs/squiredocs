@@ -13,6 +13,11 @@ const ROLES = {
 // Database pool - set by init function
 let pool = null;
 
+/** Escape ILIKE metacharacters */
+function escapeIlike(str) {
+  return str.replace(/[\\%_]/g, '\\$&');
+}
+
 /**
  * Initialize the documents module with a database pool
  * @param {Pool} dbPool - PostgreSQL connection pool
@@ -228,7 +233,7 @@ async function getAccessibleDocuments(userId, options = {}) {
      ${roleCondition}
      ORDER BY ${sortColumn} ${validSortOrder} NULLS LAST
      ${paginationClause}`,
-    [userId, search]
+    [userId, search ? escapeIlike(search) : null]
   );
 
   // Extract total count from first row (or 0 if no results)

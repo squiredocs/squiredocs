@@ -5,6 +5,24 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
 /**
+ * Create a fake but parseable JWT token for testing.
+ * The token is not cryptographically valid but has a valid structure
+ * so isTokenExpired() can parse the exp claim.
+ */
+export function createTestToken(expiresInSeconds = 3600) {
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+  const payload = btoa(JSON.stringify({
+    userId: 'test-user-id',
+    exp: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    iss: 'collab-app',
+  })).replace(/=/g, '');
+  return `${header}.${payload}.fake-signature`;
+}
+
+/** A pre-built test token valid for 1 hour */
+export const TEST_ACCESS_TOKEN = createTestToken(3600);
+
+/**
  * Test utilities for React component testing
  */
 
@@ -245,7 +263,7 @@ export function createControllableMockProvider(options = {}) {
 export function createMockAuthContext(overrides = {}) {
   const defaults = {
     user: { id: 'test-user-id', name: 'Test User', email: 'test@example.com', picture: null },
-    accessToken: 'mock-access-token-12345',
+    accessToken: TEST_ACCESS_TOKEN,
     loading: false,
     error: null,
     isAuthenticated: true,
@@ -261,7 +279,7 @@ export function createMockAuthContext(overrides = {}) {
         response: { use: vi.fn(), eject: vi.fn() }
       }
     },
-    refreshAccessToken: vi.fn(() => Promise.resolve('new-mock-token-12345')),
+    refreshAccessToken: vi.fn(() => Promise.resolve(createTestToken(3600))),
     expireTokenForTesting: vi.fn()
   };
 

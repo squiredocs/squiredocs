@@ -1,6 +1,7 @@
 /**
  * Authentication routes
  */
+const crypto = require('crypto');
 const express = require('express');
 const { generateAuthUrl, exchangeCodeForTokens, verifyIdToken } = require('./google');
 const {
@@ -22,14 +23,17 @@ const router = express.Router();
 const DEFAULT_CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 /**
- * Get the client URL from request origin or referer, falling back to env config
+ * Get the client URL from request origin or referer, falling back to env config.
+ * In production, always returns DEFAULT_CLIENT_URL to prevent open redirect.
  */
 function getClientUrl(req) {
-  // Use origin header if available
+  if (process.env.NODE_ENV === 'production') {
+    return DEFAULT_CLIENT_URL;
+  }
+  // In development, use origin/referer for flexibility
   if (req.headers.origin) {
     return req.headers.origin;
   }
-  // Try referer header
   if (req.headers.referer) {
     try {
       const url = new URL(req.headers.referer);
@@ -38,7 +42,23 @@ function getClientUrl(req) {
       // Invalid referer, fall through
     }
   }
-  // Fall back to env config
+  return DEFAULT_CLIENT_URL;
+}
+
+/**
+ * Validate that a client URL matches the allowed origin.
+ * Returns DEFAULT_CLIENT_URL if validation fails.
+ */
+function validateClientUrl(clientUrl) {
+  try {
+    const parsed = new URL(clientUrl);
+    const allowed = new URL(DEFAULT_CLIENT_URL);
+    if (parsed.origin === allowed.origin) {
+      return clientUrl;
+    }
+  } catch {
+    // Invalid URL
+  }
   return DEFAULT_CLIENT_URL;
 }
 
@@ -48,15 +68,27 @@ function getClientUrl(req) {
  */
 router.get('/google', (req, res) => {
   try {
-    // Store the client URL in a cookie so we can redirect back after OAuth
+    const isProduction = process.env.NODE_ENV === 'production';
     const clientUrl = getClientUrl(req);
-    res.cookie('oauth_redirect', clientUrl, { 
-      httpOnly: true, 
-      maxAge: 5 * 60 * 1000, // 5 minutes
-      sameSite: 'lax'
+
+    // Store the client URL in a cookie so we can redirect back after OAuth
+    res.cookie('oauth_redirect', clientUrl, {
+      httpOnly: true,
+      maxAge: 5 * 60 * 1000,
+      sameSite: 'lax',
+      secure: isProduction,
     });
-    
-    const authUrl = generateAuthUrl();
+
+    // Generate CSRF state parameter and store in httpOnly cookie
+    const state = crypto.randomBytes(32).toString('hex');
+    res.cookie('oauth_state', state, {
+      httpOnly: true,
+      maxAge: 5 * 60 * 1000,
+      sameSite: 'lax',
+      secure: isProduction,
+    });
+
+    const authUrl = generateAuthUrl(state);
     res.redirect(authUrl);
   } catch (error) {
     console.error('Error generating auth URL:', error);
@@ -71,18 +103,27 @@ router.get('/google', (req, res) => {
  * Creates/updates user, generates JWT tokens, redirects to client
  */
 router.get('/google/callback', async (req, res) => {
-  const { code, error } = req.query;
-  
-  // Get the client URL from the cookie we set, or fall back to default
-  const clientUrl = req.cookies?.oauth_redirect || DEFAULT_CLIENT_URL;
-  // Clear the oauth redirect cookie
+  const { code, error, state } = req.query;
+
+  // Get the client URL from the cookie we set, validate it, then clear
+  const rawClientUrl = req.cookies?.oauth_redirect || DEFAULT_CLIENT_URL;
+  const clientUrl = process.env.NODE_ENV === 'production'
+    ? validateClientUrl(rawClientUrl)
+    : rawClientUrl;
   res.clearCookie('oauth_redirect');
-  
+
+  // Verify OAuth state parameter to prevent CSRF
+  const storedState = req.cookies?.oauth_state;
+  res.clearCookie('oauth_state');
+  if (!storedState || storedState !== state) {
+    return res.redirect(`${clientUrl}/login?error=invalid_state`);
+  }
+
   if (error) {
     console.error('Google OAuth error:', error);
     return res.redirect(`${clientUrl}/login?error=${encodeURIComponent(error)}`);
   }
-  
+
   if (!code) {
     return res.redirect(`${clientUrl}/login?error=no_code`);
   }
@@ -154,10 +195,13 @@ router.post('/refresh', async (req, res) => {
       clearAuthCookies(res);
       return res.status(401).json({ error: 'Token revoked' });
     }
-    
-    // Generate new tokens (token rotation)
-    const newAccessToken = generateAccessToken(user);
-    const newRefreshToken = generateRefreshToken(user);
+
+    // Rotate: increment token_version so old refresh tokens become invalid
+    const updatedUser = await incrementTokenVersion(user.id);
+
+    // Generate new tokens with the NEW version
+    const newAccessToken = generateAccessToken(updatedUser);
+    const newRefreshToken = generateRefreshToken(updatedUser);
 
     // Set new token cookies
     res.cookie('accessToken', newAccessToken, getAccessTokenCookieOptions());
@@ -269,49 +313,44 @@ router.post('/logout', requireAuth, async (req, res) => {
  * Development-only endpoint that bypasses OAuth and creates/logs in a test user
  * Only works when NODE_ENV=development
  */
-router.post('/dev-login', async (req, res) => {
-  // Only allow in development mode
-  if (process.env.NODE_ENV !== 'development') {
-    return res.status(403).json({ error: 'Dev login only available in development mode' });
-  }
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/dev-login', async (req, res) => {
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({ error: 'Dev login only available in development mode' });
+    }
 
-  try {
-    // Create or find test user
-    const testUserProfile = {
-      googleId: 'dev-test-user',
-      email: 'dev@test.local',
-      name: 'Dev Test User',
-      picture: null,
-    };
+    try {
+      const testUserProfile = {
+        googleId: 'dev-test-user',
+        email: 'dev@test.local',
+        name: 'Dev Test User',
+        picture: null,
+      };
 
-    const user = await findOrCreateUser(testUserProfile);
+      const user = await findOrCreateUser(testUserProfile);
+      await updateLastLogin(user.id);
 
-    // Record last login timestamp
-    await updateLastLogin(user.id);
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
 
-    // Generate application tokens
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+      res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
+      res.cookie('refreshToken', refreshToken, getCookieOptions());
 
-    // Set tokens as httpOnly cookies
-    res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
-    res.cookie('refreshToken', refreshToken, getCookieOptions());
-
-    // Return access token (for REST API Authorization header)
-    res.json({
-      accessToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        picture: user.picture,
-      }
-    });
-  } catch (error) {
-    console.error('Dev login error:', error);
-    res.status(500).json({ error: 'Dev login failed' });
-  }
-});
+      res.json({
+        accessToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+        }
+      });
+    } catch (error) {
+      console.error('Dev login error:', error);
+      res.status(500).json({ error: 'Dev login failed' });
+    }
+  });
+}
 
 module.exports = router;
 

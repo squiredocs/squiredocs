@@ -72,6 +72,17 @@ describe('OAuth Flow', () => {
       default_scopes: ['documents:read'],
     });
 
+    registeredAgents.registerAgent.mockResolvedValue({
+      agent: {
+        id: 'unknown-agent',
+        name: 'unknown-agent',
+        allowed_redirect_uris: [],
+        allowed_scopes: ['documents:read', 'documents:write'],
+        default_scopes: ['documents:read'],
+      },
+      created: true,
+    });
+
     pkce.validateCodeChallenge.mockReturnValue({ valid: true });
     pkce.generateAuthCode.mockReturnValue('mock-auth-code-123');
     pkce.hashAuthCode.mockReturnValue('mock-code-hash');
@@ -165,8 +176,8 @@ describe('OAuth Flow', () => {
 
       await oauthFlow.handleAuthorize(mockReq, mockRes);
 
-      // Should auto-register the agent instead of returning an error
-      expect(registeredAgents.createOrUpdateAgent).toHaveBeenCalledWith(
+      // Should auto-register the agent via registerAgent (not createOrUpdateAgent)
+      expect(registeredAgents.registerAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'unknown-agent',
           name: 'unknown-agent',
@@ -389,11 +400,21 @@ describe('OAuth Flow', () => {
 
     test('auto-registers unknown agent in approve', async () => {
       registeredAgents.getRegisteredAgent.mockResolvedValue(null);
+      registeredAgents.registerAgent.mockResolvedValue({
+        agent: {
+          id: 'claude-code',
+          name: 'claude-code',
+          allowed_redirect_uris: [],
+          allowed_scopes: ['documents:read', 'documents:write'],
+          default_scopes: ['documents:read'],
+        },
+        created: true,
+      });
 
       await oauthFlow.handleApprove(mockReq, mockRes);
 
-      // Should auto-register the agent instead of returning an error
-      expect(registeredAgents.createOrUpdateAgent).toHaveBeenCalledWith(
+      // Should auto-register the agent via registerAgent (not createOrUpdateAgent)
+      expect(registeredAgents.registerAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'claude-code',
           name: 'claude-code',

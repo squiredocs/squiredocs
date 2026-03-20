@@ -11,6 +11,12 @@ const { extractBearerToken } = require('../../auth/jwt');
 const MCP_JWT_SECRET =
   process.env.MCP_JWT_SECRET || 'dev-mcp-secret-change-in-production';
 
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.MCP_JWT_SECRET || process.env.MCP_JWT_SECRET === 'dev-mcp-secret-change-in-production') {
+    throw new Error('FATAL: MCP_JWT_SECRET must be set to a strong secret in production');
+  }
+}
+
 // Agent token expiration (shorter than user tokens for security)
 const AGENT_TOKEN_EXPIRY = '1h';
 
@@ -49,6 +55,7 @@ function verifyAgentToken(token, options = {}) {
   try {
     return jwt.verify(token, MCP_JWT_SECRET, {
       issuer: 'collab-app-mcp',
+      algorithms: ['HS256'],
     });
   } catch (error) {
     if (throwOnError) {

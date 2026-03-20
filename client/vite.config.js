@@ -26,12 +26,9 @@ function landingPagePlugin() {
 export default defineConfig({
   plugins: [landingPagePlugin(), react()],
   server: {
-    host: '0.0.0.0',
+    host: process.env.VITE_HOST || 'localhost',
     port: 5173,
     strictPort: false,
-    fs: {
-      strict: false
-    },
     // HMR disabled - doesn't work reliably through k8s tunnel
     // Manual refresh required after code changes
     hmr: false,

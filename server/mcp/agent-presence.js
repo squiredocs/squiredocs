@@ -104,8 +104,8 @@ async function _verifyDocumentAccess(docGuid, userId) {
     throw new Error('Document not found or you do not have access');
   }
 
-  const { name: userName, email, picture } = accessResult.rows[0];
-  return { userName, email, picture };
+  const { role, name: userName, email, picture } = accessResult.rows[0];
+  return { role, userName, email, picture };
 }
 
 /**
@@ -539,7 +539,9 @@ function clearUserSessions(userId) {
  * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
  * @returns {Promise<object>} { provider, awareness, sessionId, agentInfo, expiresIn }
  */
-async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION) {
+const ROLES = { viewer: 1, editor: 2, owner: 3 };
+
+async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION, options = {}) {
   if (!persistenceProvider) {
     throw new Error('Agent presence manager not initialized');
   }
@@ -549,7 +551,14 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   const agentId = agentToken.agentId || 'default';
   const sessionKey = `${userId}-${agentId}-${docGuid}`;
 
-  const { userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
+  const { role, userName, email, picture } = await _verifyDocumentAccess(docGuid, userId);
+
+  // Check role if a minimum role is required
+  if (options.requiredRole) {
+    if ((ROLES[role] || 0) < (ROLES[options.requiredRole] || 0)) {
+      throw new Error(`Requires ${options.requiredRole} role, you have ${role}`);
+    }
+  }
   const agentInfo = _buildAgentInfo(agentToken, userName, email, picture, userId);
 
   const session = await _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName);
