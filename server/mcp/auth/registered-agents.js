@@ -62,6 +62,24 @@ function validateRedirectUri(agent, redirectUri) {
 }
 
 /**
+ * Check if a URI is a localhost/loopback address
+ */
+function isLocalhostUri(uri) {
+  try {
+    const parsed = new URL(uri);
+    const hostname = parsed.hostname;
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Match URI against pattern (supports * wildcards)
  */
 function matchUriPattern(pattern, uri) {
@@ -126,6 +144,7 @@ module.exports = {
   getRegisteredAgent,
   validateScopes,
   validateRedirectUri,
+  isLocalhostUri,
   listRegisteredAgents,
   createOrUpdateAgent,
 };

@@ -204,6 +204,20 @@ export default function AuthorizePage() {
             </ul>
           </div>
 
+          {redirectUri && (
+            <div className="redirect-info">
+              <h3>Will redirect to:</h3>
+              <code className="redirect-uri">{redirectUri}</code>
+              {!redirectUri.startsWith('http://localhost') &&
+               !redirectUri.startsWith('http://127.0.0.1') &&
+               !redirectUri.startsWith('http://[::1]') && (
+                <p className="redirect-warning">
+                  This is an external URL. Only approve if you trust this application.
+                </p>
+              )}
+            </div>
+          )}
+
           {existingDelegation && (
             <div className="existing-warning">
               <p>You've previously authorized this application.

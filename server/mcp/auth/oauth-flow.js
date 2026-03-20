@@ -4,7 +4,35 @@
  * Implements authorization code flow with PKCE.
  */
 const crypto = require('crypto');
-const { getRegisteredAgent, validateScopes, validateRedirectUri, createOrUpdateAgent } = require('./registered-agents');
+const { getRegisteredAgent, validateScopes, validateRedirectUri, isLocalhostUri, createOrUpdateAgent } = require('./registered-agents');
+
+/**
+ * Validate redirect URI against agent's allowed patterns.
+ * Auto-registered agents (empty allowed_redirect_uris) are restricted to localhost only.
+ */
+function checkRedirectUri(agent, redirectUri) {
+  const uriValidation = validateRedirectUri(agent, redirectUri);
+  if (uriValidation.valid) {
+    return { allowed: true };
+  }
+
+  // Auto-registered agents (empty allowed list) may only use localhost
+  if (agent.allowed_redirect_uris.length === 0) {
+    if (isLocalhostUri(redirectUri)) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      error: 'Auto-registered agents may only use localhost redirect URIs. Register via POST /mcp/auth/register first.',
+    };
+  }
+
+  // Pre-registered agent, URI didn't match
+  return {
+    allowed: false,
+    error: 'redirect_uri is not allowed for this agent',
+  };
+}
 const { validateCodeChallenge, generateAuthCode, hashAuthCode, validateCodeVerifier } = require('./pkce');
 const { generateAgentToken } = require('./jwt');
 const { createDelegation, getActiveDelegation } = require('./delegation');
@@ -74,7 +102,12 @@ async function handleAuthorize(req, res) {
     console.log(`[MCP OAuth] Auto-registered new agent: ${clientId}`);
   }
 
-  // 4. No redirect URI validation - allow any redirect URI
+  // 4. Validate redirect URI
+  const redirectCheck = checkRedirectUri(agent, redirect_uri);
+  if (!redirectCheck.allowed) {
+    console.log(`[MCP OAuth] REJECTED redirect_uri for ${clientId}: ${redirect_uri} - ${redirectCheck.error}`);
+    return res.status(400).json({ error: 'invalid_request', error_description: redirectCheck.error });
+  }
 
   // 5. Validate scopes
   const requestedScopes = scope || agent.default_scopes.join(' ');
@@ -165,6 +198,13 @@ async function handleApprove(req, res) {
       is_public_client: true,
     });
     console.log(`[MCP OAuth] Auto-registered new agent in approve: ${agent_client_id}`);
+  }
+
+  // Validate redirect URI (defense in depth - also validated in handleAuthorize)
+  const redirectCheck = checkRedirectUri(agent, redirect_uri);
+  if (!redirectCheck.allowed) {
+    console.log(`[MCP OAuth] REJECTED redirect_uri in approve for ${agent_client_id}: ${redirect_uri} - ${redirectCheck.error}`);
+    return res.status(400).json({ error: 'invalid_request', error_description: redirectCheck.error });
   }
 
   const scopeArray = Array.isArray(scopes) ? scopes : scopes.split(' ');
@@ -541,7 +581,7 @@ async function handleRegister(req, res) {
     description: `OAuth registered agent: ${client_name || clientId}`,
     allowed_scopes: allowedScopes,
     default_scopes: allowedScopes,
-    allowed_redirect_uris: redirect_uris || [], // Store but don't enforce
+    allowed_redirect_uris: redirect_uris || [], // Enforced during authorization
     is_public_client: true,
   });
 

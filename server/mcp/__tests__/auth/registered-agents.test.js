@@ -4,6 +4,7 @@
 const {
   validateScopes,
   validateRedirectUri,
+  isLocalhostUri,
   getRegisteredAgent,
 } = require('../../auth/registered-agents');
 
@@ -222,6 +223,48 @@ describe('Registered Agents', () => {
       expect(mockAgent).toHaveProperty('allowed_scopes');
       expect(mockAgent).toHaveProperty('default_scopes');
       expect(mockAgent).toHaveProperty('is_public_client');
+    });
+  });
+
+  describe('isLocalhostUri', () => {
+    test('accepts http://localhost with port', () => {
+      expect(isLocalhostUri('http://localhost:3000/callback')).toBe(true);
+    });
+
+    test('accepts http://localhost without port', () => {
+      expect(isLocalhostUri('http://localhost/callback')).toBe(true);
+    });
+
+    test('accepts http://127.0.0.1 with port', () => {
+      expect(isLocalhostUri('http://127.0.0.1:8080/callback')).toBe(true);
+    });
+
+    test('accepts http://[::1] (IPv6 loopback)', () => {
+      expect(isLocalhostUri('http://[::1]:3000/callback')).toBe(true);
+    });
+
+    test('rejects external URLs', () => {
+      expect(isLocalhostUri('https://evil.com/callback')).toBe(false);
+    });
+
+    test('rejects URLs with localhost as subdomain', () => {
+      expect(isLocalhostUri('https://localhost.evil.com/callback')).toBe(false);
+    });
+
+    test('rejects invalid URIs', () => {
+      expect(isLocalhostUri('not-a-url')).toBe(false);
+    });
+
+    test('rejects empty string', () => {
+      expect(isLocalhostUri('')).toBe(false);
+    });
+
+    test('rejects null', () => {
+      expect(isLocalhostUri(null)).toBe(false);
+    });
+
+    test('rejects custom protocol schemes', () => {
+      expect(isLocalhostUri('vscode://anthropic.claude-code/callback')).toBe(false);
     });
   });
 

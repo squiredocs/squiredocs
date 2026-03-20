@@ -62,6 +62,7 @@ describe('OAuth Flow', () => {
     });
 
     registeredAgents.validateRedirectUri.mockReturnValue({ valid: true });
+    registeredAgents.isLocalhostUri.mockReturnValue(true);
 
     registeredAgents.createOrUpdateAgent.mockResolvedValue({
       id: 'unknown-agent',
@@ -176,11 +177,48 @@ describe('OAuth Flow', () => {
       expect(mockRes.status).not.toHaveBeenCalledWith(400);
     });
 
-    test('allows any redirect_uri (no validation)', async () => {
-      // Redirect URI validation is disabled - any redirect URI is allowed
+    test('rejects non-localhost redirect_uri for auto-registered agent', async () => {
+      registeredAgents.getRegisteredAgent.mockResolvedValue(null);
+      registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
+      registeredAgents.isLocalhostUri.mockReturnValue(false);
+
+      mockReq.query = {
+        agent_client_id: 'unknown-agent',
+        redirect_uri: 'https://evil.com/steal',
+        code_challenge: 'challenge',
+        state: 'state',
+      };
+
+      await oauthFlow.handleAuthorize(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'invalid_request' })
+      );
+    });
+
+    test('allows localhost redirect_uri for auto-registered agent', async () => {
+      registeredAgents.getRegisteredAgent.mockResolvedValue(null);
+      registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
+      registeredAgents.isLocalhostUri.mockReturnValue(true);
+
+      mockReq.query = {
+        agent_client_id: 'unknown-agent',
+        redirect_uri: 'http://localhost:3000/callback',
+        code_challenge: 'challenge',
+        state: 'state',
+      };
+
+      await oauthFlow.handleAuthorize(mockReq, mockRes);
+
+      expect(mockRes.redirect).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalledWith(400);
+    });
+
+    test('rejects redirect_uri not matching pre-registered patterns', async () => {
       registeredAgents.validateRedirectUri.mockReturnValue({
         valid: false,
-        error: 'Invalid redirect URI',
+        error: 'redirect_uri not allowed for this agent',
       });
 
       mockReq.query = {
@@ -192,11 +230,23 @@ describe('OAuth Flow', () => {
 
       await oauthFlow.handleAuthorize(mockReq, mockRes);
 
-      // Should redirect to consent page, not return an error
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(registeredAgents.validateRedirectUri).toHaveBeenCalled();
+    });
+
+    test('allows redirect_uri matching pre-registered patterns', async () => {
+      // validateRedirectUri returns valid (default mock)
+      mockReq.query = {
+        agent_client_id: 'claude-code',
+        redirect_uri: 'http://localhost:8080/callback',
+        code_challenge: 'challenge',
+        state: 'state',
+      };
+
+      await oauthFlow.handleAuthorize(mockReq, mockRes);
+
       expect(mockRes.redirect).toHaveBeenCalled();
       expect(mockRes.status).not.toHaveBeenCalledWith(400);
-      // validateRedirectUri should not be called since validation is disabled
-      expect(registeredAgents.validateRedirectUri).not.toHaveBeenCalled();
     });
 
     test('validates code_challenge format', async () => {
@@ -352,6 +402,21 @@ describe('OAuth Flow', () => {
       // Should continue with approval flow, not return an error
       expect(mockRes.status).not.toHaveBeenCalledWith(400);
       expect(pkce.generateAuthCode).toHaveBeenCalled();
+    });
+
+    test('rejects non-localhost redirect_uri for auto-registered agent in approve', async () => {
+      registeredAgents.getRegisteredAgent.mockResolvedValue(null);
+      registeredAgents.validateRedirectUri.mockReturnValue({ valid: false });
+      registeredAgents.isLocalhostUri.mockReturnValue(false);
+
+      mockReq.body.redirect_uri = 'https://evil.com/steal';
+
+      await oauthFlow.handleApprove(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'invalid_request' })
+      );
     });
 
     test('validates scopes', async () => {
