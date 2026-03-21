@@ -122,6 +122,8 @@ router.post('/', requireAgentAuth, async (req, res) => {
         break;
 
       case 'tools/call':
+        // Add baseUrl to agentToken for tools that need to construct URLs
+        req.agentToken.baseUrl = buildBaseUrl(req);
         result = await handleToolCall(params, req.agentToken);
         break;
 
