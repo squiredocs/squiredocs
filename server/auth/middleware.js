@@ -1,31 +1,29 @@
 /**
  * Authentication middleware
+ *
+ * Uses permissions.extractUser() for unified token extraction — supports
+ * user JWTs, agent JWTs, and API tokens consistently across REST and WebSocket.
  */
-const { verifyAccessToken, extractBearerToken, getJwtErrorResponse } = require('./jwt');
+const { extractUser } = require('../permissions');
 
 /**
  * Middleware to require authentication
- * Verifies Bearer token from Authorization header
+ * Verifies token from Authorization header (user JWT, agent JWT, or API token)
  * Adds decoded user to req.user on success
  */
-function requireAuth(req, res, next) {
-  const token = extractBearerToken(req.headers.authorization);
-
-  if (!token) {
-    return res.status(401).json({ error: 'No authorization header or invalid format' });
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: 'No authorization header' });
   }
 
-  try {
-    const decoded = verifyAccessToken(token);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    const { status, body } = getJwtErrorResponse(error);
-    if (error.name !== 'TokenExpiredError' && error.name !== 'JsonWebTokenError') {
-      console.error('Auth middleware error:', error);
-    }
-    return res.status(status).json(body);
+  const user = await extractUser({ authHeader });
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
+
+  req.user = user;
+  next();
 }
 
 /**
@@ -33,18 +31,15 @@ function requireAuth(req, res, next) {
  * Works with or without auth - adds req.user if valid token present
  * Does not return error if no token or invalid token
  */
-function optionalAuth(req, res, next) {
-  const token = extractBearerToken(req.headers.authorization);
-
-  if (!token) {
+async function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
     return next();
   }
 
-  try {
-    const decoded = verifyAccessToken(token);
-    req.user = decoded;
-  } catch (error) {
-    // Silently ignore auth errors for optional routes
+  const user = await extractUser({ authHeader });
+  if (user) {
+    req.user = user;
   }
 
   next();
@@ -55,9 +50,8 @@ function optionalAuth(req, res, next) {
  * Composes with requireAuth, then verifies admin status against the database
  */
 function requireAdmin(req, res, next) {
-  requireAuth(req, res, (err) => {
-    if (err) return next(err);
-    if (res.headersSent) return; // requireAuth already sent a response
+  requireAuth(req, res, () => {
+    if (res.headersSent) return;
 
     // Fast reject from JWT claim
     if (!req.user || !req.user.isAdmin) {
@@ -85,7 +79,3 @@ module.exports = {
   optionalAuth,
   requireAdmin,
 };
-
-
-
-

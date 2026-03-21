@@ -14,6 +14,14 @@ function init(dbPool) {
 }
 
 /**
+ * Get the initialized pool or throw if not initialized
+ */
+function ensurePool() {
+  if (!pool) throw new Error('Users module not initialized. Call init(pool) first.');
+  return pool;
+}
+
+/**
  * Find or create a user from Google OAuth profile
  * @param {object} profile - User profile from Google
  * @param {string} profile.googleId - Google's unique user ID
@@ -23,12 +31,8 @@ function init(dbPool) {
  * @returns {Promise<object>} User record from database
  */
 async function findOrCreateUser({ googleId, email, name, picture }) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-
   // Atomic upsert: insert or update in a single query to prevent race conditions
-  const result = await pool.query(
+  const result = await ensurePool().query(
     `INSERT INTO users (google_id, email, name, picture, token_version)
      VALUES ($1, $2, $3, $4, 0)
      ON CONFLICT (google_id) DO UPDATE
@@ -49,15 +53,10 @@ async function findOrCreateUser({ googleId, email, name, picture }) {
  * @returns {Promise<object|null>} User record or null
  */
 async function findById(userId) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-
-  const result = await pool.query(
+  const result = await ensurePool().query(
     'SELECT * FROM users WHERE id = $1',
     [userId]
   );
-
   return result.rows[0] || null;
 }
 
@@ -67,12 +66,8 @@ async function findById(userId) {
  * @returns {Promise<object>} Updated user record
  */
 async function incrementTokenVersion(userId) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-
-  const result = await pool.query(
-    `UPDATE users 
+  const result = await ensurePool().query(
+    `UPDATE users
      SET token_version = token_version + 1
      WHERE id = $1
      RETURNING *`,
@@ -92,11 +87,7 @@ async function incrementTokenVersion(userId) {
  * @returns {Promise<number>} Current token version
  */
 async function getTokenVersion(userId) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-
-  const result = await pool.query(
+  const result = await ensurePool().query(
     'SELECT token_version FROM users WHERE id = $1',
     [userId]
   );
@@ -115,11 +106,7 @@ async function getTokenVersion(userId) {
  * @returns {Promise<object>} Updated user record
  */
 async function updateName(userId, name) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-
-  const result = await pool.query(
+  const result = await ensurePool().query(
     `UPDATE users SET name = $1 WHERE id = $2 RETURNING *`,
     [name, userId]
   );
@@ -136,10 +123,7 @@ async function updateName(userId, name) {
  * @param {string} userId - User's UUID
  */
 async function updateLastLogin(userId) {
-  if (!pool) {
-    throw new Error('Users module not initialized. Call init(pool) first.');
-  }
-  await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
+  await ensurePool().query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
 }
 
 module.exports = {
@@ -151,7 +135,3 @@ module.exports = {
   updateName,
   updateLastLogin,
 };
-
-
-
-

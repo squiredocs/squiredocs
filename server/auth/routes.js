@@ -13,7 +13,7 @@ const {
   clearAuthCookies,
   getJwtErrorResponse,
 } = require('./jwt');
-const { findOrCreateUser, findById, incrementTokenVersion, getTokenVersion, updateName, updateLastLogin } = require('./users');
+const { findOrCreateUser, findById, incrementTokenVersion, updateName, updateLastLogin } = require('./users');
 const { requireAuth } = require('./middleware');
 const { notifyNewUser, notifyLogin } = require('../email');
 
@@ -315,10 +315,6 @@ router.post('/logout', requireAuth, async (req, res) => {
  */
 if (process.env.NODE_ENV !== 'production') {
   router.post('/dev-login', async (req, res) => {
-    if (process.env.NODE_ENV !== 'development') {
-      return res.status(403).json({ error: 'Dev login only available in development mode' });
-    }
-
     try {
       const testUserProfile = {
         googleId: 'dev-test-user',

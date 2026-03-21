@@ -91,8 +91,8 @@ app.use((req, res, next) => {
     || (process.env.NODE_ENV === 'development')
     || CORS_ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
@@ -1283,6 +1283,7 @@ wss.on('connection', (ws, req) => {
       currentCanEdit = documents.ROLES[currentRole] >= documents.ROLES['editor'];
     } catch (err) {
       console.error(`[WS:${connId}] Role re-check failed:`, err.message);
+      currentCanEdit = false; // Fail closed — block edits until next successful recheck
     }
   }, ROLE_RECHECK_INTERVAL);
 

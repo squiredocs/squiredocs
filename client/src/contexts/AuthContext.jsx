@@ -60,7 +60,7 @@ export function AuthProvider({ children }) {
   /**
    * Refresh the access token using refresh token cookie
    */
-  const refreshAccessToken = useCallback(async () => {
+  const refreshAccessToken = useCallback(async ({ broadcast = true } = {}) => {
     try {
       const response = await api.post('/auth/refresh', {}, {
         timeout: 5000, // 5 second timeout to prevent hanging
@@ -68,8 +68,10 @@ export function AuthProvider({ children }) {
       const { accessToken: newToken } = response.data;
       setAccessToken(newToken);
 
-      // Signal other tabs to refresh their own tokens (don't broadcast the raw token)
-      if (tokenChannelRef.current) {
+      // Signal other tabs to refresh their own tokens (don't broadcast the raw token).
+      // When broadcast=false, this refresh was triggered BY a broadcast — don't echo it
+      // back or we'd create an infinite ping-pong loop between tabs.
+      if (broadcast && tokenChannelRef.current) {
         tokenChannelRef.current.postMessage({ type: 'TOKEN_REFRESHED' });
       }
 
@@ -305,8 +307,9 @@ export function AuthProvider({ children }) {
 
     channel.onmessage = (event) => {
       if (event.data.type === 'TOKEN_REFRESHED') {
-        // Another tab refreshed — get our own fresh token via cookie
-        refreshAccessToken().catch((e) => {
+        // Another tab refreshed — get our own fresh token via cookie.
+        // Pass broadcast: false to avoid ping-pong loop between tabs.
+        refreshAccessToken({ broadcast: false }).catch((e) => {
           console.warn('[AuthContext] Failed to refresh after broadcast signal:', e.message);
         });
       }
@@ -322,7 +325,7 @@ export function AuthProvider({ children }) {
       channel.close();
       tokenChannelRef.current = null;
     };
-  }, [fetchUser, clearAuthState]);
+  }, [refreshAccessToken, clearAuthState]);
 
   // Note: No visibility-based token refresh needed here.
   // - REST API: 401 interceptor auto-refreshes token and retries

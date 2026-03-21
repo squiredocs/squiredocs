@@ -31,23 +31,18 @@ if (AUTH_TEST_MODE) {
 // Cookie configuration
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Refresh token cookie options (long-lived)
-const COOKIE_OPTIONS = {
+const COOKIE_BASE = {
   httpOnly: true,
   secure: isProduction,  // Only send over HTTPS in production
   sameSite: isProduction ? 'strict' : 'lax',  // Strict in production for CSRF protection
-  maxAge: 7 * 24 * 60 * 60 * 1000,  // 7 days in milliseconds
   path: '/',
 };
 
+// Refresh token cookie options (long-lived)
+const COOKIE_OPTIONS = { ...COOKIE_BASE, maxAge: 7 * 24 * 60 * 60 * 1000 };
+
 // Access token cookie options (short-lived, matches token expiry)
-const ACCESS_TOKEN_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: isProduction,
-  sameSite: isProduction ? 'strict' : 'lax',
-  maxAge: AUTH_TEST_MODE ? 30 * 1000 : 15 * 60 * 1000,  // 30s test mode, 15min normal
-  path: '/',
-};
+const ACCESS_TOKEN_COOKIE_OPTIONS = { ...COOKIE_BASE, maxAge: AUTH_TEST_MODE ? 30 * 1000 : 15 * 60 * 1000 };
 
 /**
  * Generate access token with user claims
