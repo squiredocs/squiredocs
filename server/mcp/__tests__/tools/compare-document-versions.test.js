@@ -309,8 +309,8 @@ describe('executeComparisonScript', () => {
 
     const result = await executeComparisonScript(
       script,
-      doc1.get('default', Y.XmlFragment),
-      doc2.get('default', Y.XmlFragment)
+      Y.encodeStateAsUpdate(doc1),
+      Y.encodeStateAsUpdate(doc2)
     );
 
     expect(result).toEqual({
@@ -332,8 +332,8 @@ describe('executeComparisonScript', () => {
 
     const result = await executeComparisonScript(
       script,
-      doc1.get('default', Y.XmlFragment),
-      doc2.get('default', Y.XmlFragment)
+      Y.encodeStateAsUpdate(doc1),
+      Y.encodeStateAsUpdate(doc2)
     );
 
     expect(result.text1).toContain('Original Title');
@@ -358,8 +358,8 @@ describe('executeComparisonScript', () => {
 
     const result = await executeComparisonScript(
       script,
-      doc1.get('default', Y.XmlFragment),
-      doc2.get('default', Y.XmlFragment)
+      Y.encodeStateAsUpdate(doc1),
+      Y.encodeStateAsUpdate(doc2)
     );
 
     expect(result).toEqual({
@@ -382,8 +382,8 @@ describe('executeComparisonScript', () => {
     await expect(
       executeComparisonScript(
         script,
-        doc1.get('default', Y.XmlFragment),
-        doc2.get('default', Y.XmlFragment)
+        Y.encodeStateAsUpdate(doc1),
+        Y.encodeStateAsUpdate(doc2)
       )
     ).rejects.toThrow('requires a context node');
   });
@@ -401,8 +401,8 @@ describe('executeComparisonScript', () => {
 
     const result = await executeComparisonScript(
       script,
-      doc1.get('default', Y.XmlFragment),
-      doc2.get('default', Y.XmlFragment)
+      Y.encodeStateAsUpdate(doc1),
+      Y.encodeStateAsUpdate(doc2)
     );
 
     // doc1: "Original Title" = 2 words
@@ -424,8 +424,8 @@ describe('executeComparisonScript', () => {
     await expect(
       executeComparisonScript(
         script,
-        doc1.get('default', Y.XmlFragment),
-        doc2.get('default', Y.XmlFragment),
+        Y.encodeStateAsUpdate(doc1),
+        Y.encodeStateAsUpdate(doc2),
         { timeout: 100 }
       )
     ).rejects.toThrow('timed out');

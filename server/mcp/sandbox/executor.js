@@ -205,4 +205,115 @@ function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHi
   }
 }
 
-module.exports = { executeSandboxed };
+/**
+ * Executes a comparison script inside an isolated-vm isolate (no tracking/streaming)
+ * @param {string} jsCode - Compiled JavaScript code
+ * @param {Buffer|Uint8Array} snapshot1 - First Y.Doc snapshot
+ * @param {Buffer|Uint8Array} snapshot2 - Second Y.Doc snapshot
+ * @param {number} timeout - Execution timeout in milliseconds
+ * @returns {any} - Value returned by the comparison function
+ * @throws {Error} - If execution fails or times out
+ */
+function executeComparisonSandboxed(jsCode, snapshot1, snapshot2, timeout = 5000) {
+  const ivm = require('isolated-vm');
+
+  const isolate = new ivm.Isolate({ memoryLimit: 128 });
+  const context = isolate.createContextSync();
+  const jail = context.global;
+
+  try {
+    // 1. Inject polyfills (same as edit mode)
+    jail.setSync('__cryptoGetRandomValues', new ivm.Reference(function(length) {
+      const bytes = require('crypto').randomBytes(length);
+      return JSON.stringify(Array.from(bytes));
+    }));
+
+    isolate.compileScriptSync(`
+      globalThis.crypto = {
+        getRandomValues: function(arr) {
+          var randomStr = __cryptoGetRandomValues.applySync(undefined, [arr.length]);
+          var randomBytes = JSON.parse(randomStr);
+          for (var i = 0; i < arr.length; i++) {
+            arr[i] = randomBytes[i];
+          }
+          return arr;
+        }
+      };
+      var __nextId = 1;
+      globalThis.setTimeout = function(fn, ms) { return __nextId++; };
+      globalThis.clearTimeout = function(id) {};
+      globalThis.setInterval = function(fn, ms) { return __nextId++; };
+      globalThis.clearInterval = function(id) {};
+      globalThis.queueMicrotask = function(fn) { fn(); };
+    `).runSync(context);
+
+    // 2. Load bundle
+    const bundleCode = getBundleCode();
+    isolate.compileScriptSync(bundleCode).runSync(context);
+
+    // 3. Console callback
+    jail.setSync('__console_log', new ivm.Reference(function(msg) {
+      console.log('[ComparisonSandbox]', msg);
+    }));
+
+    // 4. Transfer both snapshots into isolate
+    const snap1Array = new Uint8Array(snapshot1);
+    const snap2Array = new Uint8Array(snapshot2);
+    jail.setSync('__snapshot1',
+      new ivm.ExternalCopy(snap1Array.buffer).copyInto());
+    jail.setSync('__snapshot2',
+      new ivm.ExternalCopy(snap2Array.buffer).copyInto());
+
+    // 5. Setup comparison mode
+    isolate.compileScriptSync('__setupComparison(__snapshot1, __snapshot2)').runSync(context);
+
+    // 6. Compile and run user code
+    const userWrapper = `
+      ${jsCode}
+
+      let compareFunction;
+      if (typeof module.exports === 'object' && typeof module.exports.default === 'function') {
+        compareFunction = module.exports.default;
+      } else if (typeof exports.default === 'function') {
+        compareFunction = exports.default;
+      } else if (typeof module.exports === 'function') {
+        compareFunction = module.exports;
+      } else {
+        throw new Error('Script must export a default function: export default function compare(doc1, doc2) { ... }');
+      }
+
+      var __result = compareFunction(_doc1, _doc2);
+      JSON.stringify(__result !== undefined ? __result : null);
+    `;
+
+    const resultJson = isolate.compileScriptSync(userWrapper, { filename: 'comparison-script.js' })
+      .runSync(context, { timeout });
+
+    return resultJson ? JSON.parse(resultJson) : null;
+  } catch (error) {
+    if (error.message && error.message.includes('Script execution timed out')) {
+      throw new Error(
+        `Script execution timed out after ${timeout}ms.\n` +
+        `Hint: Check for infinite loops or long-running operations.`
+      );
+    }
+
+    let lineInfo = '';
+    if (error.stack) {
+      const stackMatch = error.stack.match(/comparison-script\.js:(\d+):(\d+)/);
+      if (stackMatch) {
+        lineInfo = ` at line ${stackMatch[1]}, column ${stackMatch[2]}`;
+      }
+    }
+
+    throw new Error(
+      `Script execution failed${lineInfo}: ${error.message}\n\n` +
+      `Stack trace:\n${error.stack || 'No stack trace available'}`
+    );
+  } finally {
+    context.release();
+    isolate.dispose();
+  }
+}
+
+module.exports = { executeSandboxed, executeComparisonSandboxed };

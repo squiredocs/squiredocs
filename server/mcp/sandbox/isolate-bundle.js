@@ -25234,4 +25234,58 @@ ${d}`);
       summary: tracker.getOperationSummary()
     });
   };
+  globalThis.__setupComparison = function(snapshot1Bytes, snapshot2Bytes) {
+    const doc1 = new Y.Doc();
+    Y.applyUpdate(doc1, new Uint8Array(snapshot1Bytes));
+    const frag1 = doc1.get("default", Y.XmlFragment);
+    const doc2 = new Y.Doc();
+    Y.applyUpdate(doc2, new Uint8Array(snapshot2Bytes));
+    const frag2 = doc2.get("default", Y.XmlFragment);
+    globalThis._doc1 = frag1;
+    globalThis._doc2 = frag2;
+    globalThis.Y = {
+      XmlFragment: Y.XmlFragment,
+      XmlElement: Y.XmlElement,
+      XmlText: Y.XmlText
+    };
+    globalThis.findTextNode = helpers.findTextNode;
+    globalThis.extractText = helpers.extractText;
+    globalThis.getTextContent = helpers.getTextContent;
+    globalThis.findElements = helpers.findElements;
+    globalThis.findByNodeName = helpers.findByNodeName;
+    globalThis.findByText = helpers.findByText;
+    globalThis.getFormattedContent = helpers.getFormattedContent;
+    globalThis.setFormattedContent = helpers.setFormattedContent;
+    globalThis.getPlainText = helpers.getPlainText;
+    globalThis.getParagraphs = helpers.getParagraphs;
+    globalThis.setParagraphs = helpers.setParagraphs;
+    globalThis.extractPlainText = helpers.extractPlainText;
+    globalThis.getBlockCount = helpers.getBlockCount;
+    globalThis.getWordCount = helpers.getWordCount;
+    globalThis.getCharacterCount = helpers.getCharacterCount;
+    globalThis.getElementByType = helpers.getElementByType;
+    globalThis.extractLinks = helpers.extractLinks;
+    globalThis.getAttributes = helpers.getAttributes;
+    globalThis.hasAttribute = helpers.hasAttribute;
+    globalThis.findAllByText = helpers.findAllByText;
+    globalThis.xpath = (expression, contextNode) => {
+      if (!contextNode) {
+        throw new Error("xpath() requires a context node. Usage: xpath(expression, doc1) or xpath(expression, doc2)");
+      }
+      return xpathQuery(expression, contextNode);
+    };
+    globalThis.xpathFirst = (expression, contextNode) => {
+      if (!contextNode) {
+        throw new Error("xpathFirst() requires a context node. Usage: xpathFirst(expression, doc1) or xpathFirst(expression, doc2)");
+      }
+      return xpathFirstQuery(expression, contextNode);
+    };
+    globalThis.console = {
+      log: logToHost,
+      error: logToHost,
+      warn: logToHost
+    };
+    globalThis.exports = {};
+    globalThis.module = { exports: {} };
+  };
 })();

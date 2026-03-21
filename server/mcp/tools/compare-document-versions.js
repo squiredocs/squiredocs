@@ -5,7 +5,6 @@
  * Scripts can extract exactly the information needed without modifying documents.
  */
 
-const Y = require('yjs');
 const versionHistory = require('../../version-history');
 const { executeComparisonScript } = require('../sandbox');
 const documents = require('../../documents');
@@ -182,17 +181,15 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  // Load both versions
-  let doc1, doc2;
+  // Load both versions (pass raw bytes to sandbox — docs are reconstructed inside the isolate)
+  let snapshot1, snapshot2;
   try {
     const content1 = await versionHistory.getVersionContent(
       persistenceProvider,
       docGuid,
       versionId1
     );
-    // Reconstruct Y.Doc from version content
-    doc1 = new Y.Doc();
-    Y.applyUpdate(doc1, new Uint8Array(content1.content));
+    snapshot1 = content1.content;
   } catch (error) {
     throw new Error(`Version 1 not found: ${versionId1}`);
   }
@@ -203,20 +200,18 @@ async function handler(args, agentToken) {
       docGuid,
       versionId2
     );
-    // Reconstruct Y.Doc from version content
-    doc2 = new Y.Doc();
-    Y.applyUpdate(doc2, new Uint8Array(content2.content));
+    snapshot2 = content2.content;
   } catch (error) {
     throw new Error(`Version 2 not found: ${versionId2}`);
   }
 
-  // Execute comparison script
+  // Execute comparison script in isolated-vm
   const startTime = Date.now();
   try {
     const result = await executeComparisonScript(
       script,
-      doc1.get('default', Y.XmlFragment),
-      doc2.get('default', Y.XmlFragment),
+      snapshot1,
+      snapshot2,
       { timeout }
     );
 
