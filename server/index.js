@@ -15,7 +15,7 @@ const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
 const admin = require('./api/admin');
-const { parseCookies, verifyAccessToken } = require('./auth/jwt');
+const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
@@ -1131,18 +1131,6 @@ server.on('upgrade', async (request, socket, head) => {
   request.userRole = viewPermission.role;
   request.docId = docId;
 
-  // Store token expiry time for per-message validation
-  // This allows us to disconnect clients when their token expires,
-  // even though WebSocket connections don't resend cookies on each message
-  try {
-    const decoded = verifyAccessToken(token);
-    request.tokenExp = decoded.exp; // Unix timestamp in seconds
-  } catch (e) {
-    // Token was valid at extractUser but failed here - race condition or agent token
-    // For agent tokens, we don't have exp, so we'll skip per-message validation
-    request.tokenExp = null;
-  }
-
   wss.handleUpgrade(request, socket, head, (ws) => {
     // Apply connection simulation if enabled
     const wrappedWs = wsSimulator.simulateFlakyConnection(ws);
@@ -1237,9 +1225,6 @@ wss.on('connection', (ws, req) => {
     ws.ping();
   }, PING_INTERVAL);
 
-  // Token expiry time from upgrade request (null for agent tokens which don't expire)
-  const tokenExp = req.tokenExp;
-
   // Track this connection's own clientId (captured from first awareness message it sends)
   // Used to explicitly clean up awareness when connection closes
   let connectionClientId = null;
@@ -1251,13 +1236,11 @@ wss.on('connection', (ws, req) => {
       const data = args[0];
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
-      // Check token expiry on every message (efficient timestamp comparison, no crypto)
-      if (tokenExp && Date.now() / 1000 > tokenExp) {
-        logPerf('WS_TOKEN_EXPIRED', { connId, userId, docId, expiredAt: tokenExp });
-        console.log(`✗ Token expired for connection ${connId}, closing with 4401`);
-        ws.close(4401, 'Token expired');
-        return false;
-      }
+      // Note: per-message token expiry check was removed because the tokenExp is
+      // frozen at connection time and never updates when the client refreshes its
+      // access token. This caused WebSocket disconnects after 15 minutes even though
+      // the user had a valid session. The periodic role re-check (every 60s) handles
+      // access revocation, and the client reconnects with fresh cookies on auth errors.
 
       // Capture this connection's clientId from the first awareness message it sends
       // Capture this connection's clientId for awareness cleanup on disconnect
