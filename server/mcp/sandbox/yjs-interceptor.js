@@ -5,23 +5,6 @@
 
 const Y = require('yjs');
 
-/**
- * Convert values from sandbox context to host context
- * This is necessary because vm.runInNewContext creates arrays/objects with different prototypes
- * that Yjs doesn't recognize. Specifically, sandbox arrays fail Yjs's type checking.
- * @param {*} value - Value to convert
- * @returns {*} - Converted value
- */
-function convertFromSandboxContext(value) {
-  // Arrays from sandbox context need to be recreated in host context
-  // Check using duck-typing rather than instanceof (which fails across contexts)
-  if (value && typeof value === 'object' && typeof value.length === 'number' && typeof value.splice === 'function') {
-    // Convert to host context array
-    return Array.from(value);
-  }
-  return value;
-}
-
 // WeakMap to track which objects have been wrapped for a given tracker
 // Key: tracker, Value: WeakMap<yjsObject, proxy>
 const wrappedObjectsByTracker = new WeakMap();
@@ -55,10 +38,7 @@ function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
       // Handle methods that mutate or read the document
       if (typeof value === 'function') {
         return function(...args) {
-          // Convert args from sandbox context to host context
-          // This fixes the issue where sandbox arrays aren't recognized by Yjs
-          const convertedArgs = args.map(convertFromSandboxContext);
-          const result = value.apply(target, convertedArgs);
+          const result = value.apply(target, args);
 
           // Record mutation operations
           if (isMutationMethod(prop)) {

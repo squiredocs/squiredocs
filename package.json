@@ -21,7 +21,8 @@
     "migrate": "node script/migrate.js",
     "migrate:down": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate down', {stdio: 'inherit'})\"",
     "migrate:create": "node-pg-migrate create",
-    "migrate:redo": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate redo', {stdio: 'inherit'})\""
+    "migrate:redo": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate redo', {stdio: 'inherit'})\"",
+    "build:sandbox-bundle": "node server/mcp/sandbox/build-isolate-bundle.js"
   },
   "keywords": [
     "collaborative",
@@ -45,6 +46,7 @@
     "google-auth-library": "^10.5.0",
     "helmet": "^8.1.0",
     "ioredis": "^5.4.1",
+    "isolated-vm": "^6.1.2",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.1",
     "pg": "^8.16.3",

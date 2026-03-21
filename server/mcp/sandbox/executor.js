@@ -1,296 +1,115 @@
 /**
  * Sandbox executor
- * Executes compiled JavaScript with access to wrapped Yjs objects
+ * Executes compiled JavaScript inside an isolated-vm isolate.
  *
- * Note: This uses a direct execution approach with wrapped Yjs objects.
- * The security model relies on:
- * 1. No access to require() or other Node.js APIs (except Y namespace)
- * 2. Timeout enforcement
- * 3. Operation tracking via Yjs object wrappers
- *
- * Future enhancement: Consider isolated-vm for stronger process isolation
+ * Security model:
+ * 1. isolated-vm creates a true V8 isolate with zero Node.js APIs
+ * 2. No process, require, fs, net — nothing to escape to
+ * 3. Timeout enforcement via isolate
+ * 4. Memory limit via isolate (128MB)
+ * 5. Operation tracking via Yjs object wrappers (inside isolate)
  */
 
-const vm = require('vm');
-const Y = require('yjs');
-const { wrapForTracking } = require('./yjs-interceptor');
-const helpers = require('./helpers');
-const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
-const {
-  createCursorPositionFromPath,
-  getNodePath,
-  getNodeTextLength,
-  createNodeSelection,
-  createExpandingBlockHighlights,
-} = require('../yjs/cursor-operations');
+const fs = require('fs');
+const path = require('path');
+
+const BUNDLE_PATH = path.join(__dirname, 'isolate-bundle.js');
+let cachedBundleCode = null;
+
+function getBundleCode() {
+  if (!cachedBundleCode) {
+    cachedBundleCode = fs.readFileSync(BUNDLE_PATH, 'utf8');
+  }
+  return cachedBundleCode;
+}
 
 /**
- * Executes JavaScript code with access to wrapped Yjs fragment
+ * Executes JavaScript code inside an isolated-vm isolate
  * @param {string} jsCode - Compiled JavaScript code
- * @param {object} wrappedFragment - Wrapped Y.XmlFragment with operation tracking
- * @param {object} tracker - Operation tracker for recording operations
+ * @param {Buffer|Uint8Array} snapshot - Y.Doc snapshot
  * @param {number} timeout - Execution timeout in milliseconds
- * @param {Function} [onOperation] - Optional callback called when an operation is recorded
- * @param {object} [highlightContext] - Optional context for xpath highlighting
- * @param {Y.XmlFragment} [highlightContext.xmlFragment] - Document fragment for cursor position creation
- * @param {Function} [highlightContext.queueHighlights] - Function to queue highlight positions
- * @param {Function} [highlightContext.flushPendingHighlights] - Function to flush pending highlights before queueing new ones
- * @returns {object} - Execution result
+ * @param {Function} onBatch - Callback: (operations, updateBuffer) for streaming batches
+ * @param {Function} onHighlights - Callback: (positions) for highlight sequences
+ * @returns {object} - { operationCount, summary }
  * @throws {Error} - If execution fails or times out
  */
-function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOperation = null, highlightContext = null) {
-  // Create wrapped constructors that automatically track operations
-  // while preserving instanceof checks
-  const createWrappedConstructor = (Constructor) => {
-    // Create a wrapper function that wraps instances
-    const WrappedConstructor = function(...args) {
-      const instance = new Constructor(...args);
-      // Wrap the newly created instance for tracking
-      return wrapForTracking(instance, tracker, [], onOperation);
-    };
+function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHighlights = null) {
+  const ivm = require('isolated-vm');
 
-    // Preserve the prototype so instanceof works
-    // This allows: wrappedInstance instanceof Y.XmlElement to work
-    Object.setPrototypeOf(WrappedConstructor, Constructor);
-    WrappedConstructor.prototype = Constructor.prototype;
-
-    return WrappedConstructor;
-  };
-
-  // Create a sandbox context with limited access
-  const sandbox = {
-    // Expose wrapped fragment
-    _doc: wrappedFragment,
-
-    // Expose Yjs namespace with wrapped constructors
-    // This ensures all new objects created in scripts are tracked
-    Y: {
-      XmlFragment: Y.XmlFragment, // Don't wrap XmlFragment constructor
-      XmlElement: createWrappedConstructor(Y.XmlElement),
-      XmlText: createWrappedConstructor(Y.XmlText),
-      Doc: Y.Doc,
-    },
-
-    // Helper functions to reduce boilerplate
-    // These are common operations that users would otherwise copy-paste
-    findTextNode: helpers.findTextNode,
-    extractText: helpers.extractText,
-    getTextContent: helpers.getTextContent,
-    findElements: helpers.findElements,
-    findByNodeName: helpers.findByNodeName,
-    findByText: helpers.findByText,
-
-    // Formatted content helpers (read/write symmetry)
-    getFormattedContent: helpers.getFormattedContent,
-    setFormattedContent: helpers.setFormattedContent,
-    getPlainText: helpers.getPlainText,
-    getParagraphs: helpers.getParagraphs,
-    setParagraphs: helpers.setParagraphs,
-
-    // XPath query functions for flexible element selection
-    // These allow selecting elements using standard XPath expressions
-    // instead of fragile index-based access
-    xpath: (expression, contextNode = null) => {
-      // Use document root if no context provided
-      const context = contextNode || wrappedFragment;
-      // Query and wrap results for operation tracking
-      const results = xpathQuery(expression, context);
-
-      // Queue highlights for visual feedback if context is available
-      // Note: We query the UNWRAPPED xmlFragment to get correct node references for path finding
-      if (highlightContext && highlightContext.queueHighlights && results.length > 0) {
-        try {
-          // Query the unwrapped fragment to get real Yjs node references
-          const unwrappedResults = xpathQuery(expression, highlightContext.xmlFragment);
-          const positions = [];
-          for (const node of unwrappedResults) {
-            const selection = createNodeSelection(highlightContext.xmlFragment, node);
-            if (selection) positions.push(selection);
-          }
-          if (positions.length > 0) {
-            highlightContext.queueHighlights(positions);
-          }
-        } catch (err) {
-          // Non-fatal: don't interrupt execution if highlighting fails
-          console.warn('[xpath] highlight error:', err.message);
-        }
-      }
-
-      return results.map(node => wrapForTracking(node, tracker, [], onOperation));
-    },
-
-    xpathFirst: (expression, contextNode = null) => {
-      const context = contextNode || wrappedFragment;
-      const result = xpathFirstQuery(expression, context);
-      if (result) {
-        // Queue single highlight for visual feedback if context is available
-        // Note: We query the UNWRAPPED xmlFragment to get correct node reference for path finding
-        if (highlightContext && highlightContext.queueHighlights) {
-          try {
-            const unwrappedResult = xpathFirstQuery(expression, highlightContext.xmlFragment);
-            if (unwrappedResult) {
-              const selection = createNodeSelection(highlightContext.xmlFragment, unwrappedResult);
-              if (selection) {
-                highlightContext.queueHighlights([selection]);
-              }
-            }
-          } catch (err) {
-            // Non-fatal: don't interrupt execution if highlighting fails
-            console.warn('[xpathFirst] highlight error:', err.message);
-          }
-        }
-        return wrapForTracking(result, tracker, [], onOperation);
-      }
-      return null;
-    },
-
-    // createFormattedText needs special handling - it must use the wrapped
-    // Y.XmlText constructor so operations are tracked. We create a closure
-    // that captures the wrapped constructor.
-    createFormattedText: (function(WrappedXmlText) {
-      return function createFormattedText(segments) {
-        if (!Array.isArray(segments) || segments.length === 0) {
-          throw new Error('createFormattedText requires a non-empty array of segments');
-        }
-
-        // Use the wrapped constructor so operations are tracked
-        const xmlText = new WrappedXmlText();
-
-        // First pass: collect all text and track format ranges
-        const formatRanges = [];
-        let fullText = '';
-
-        for (const segment of segments) {
-          if (typeof segment === 'string') {
-            fullText += segment;
-          } else if (segment && typeof segment.text === 'string') {
-            const start = fullText.length;
-            fullText += segment.text;
-            if (segment.attrs && Object.keys(segment.attrs).length > 0) {
-              formatRanges.push({
-                start,
-                length: segment.text.length,
-                attrs: segment.attrs,
-              });
-            }
-          }
-        }
-
-        // Insert all text at once (avoids the reversal bug)
-        xmlText.insert(0, fullText);
-
-        // Apply formatting to each range
-        for (const range of formatRanges) {
-          xmlText.format(range.start, range.length, range.attrs);
-        }
-
-        return xmlText;
-      };
-    })(createWrappedConstructor(Y.XmlText)),
-
-    // appendBlocks needs special handling - it must use wrapped constructors
-    // so all created elements are tracked. We pass the wrapped constructors
-    // and xpathFirst via options.
-    appendBlocks: (function(WrappedXmlElement, WrappedXmlText) {
-      return function appendBlocks(container, blocks, position) {
-        const numBlocks = blocks.length;
-
-        // Calculate insert index before insertion (mirrors logic in helpers.appendBlocks)
-        // We need this to find the inserted elements for highlighting
-        let insertIndex;
-        const unwrappedContainer = highlightContext ? highlightContext.xmlFragment : null;
-
-        if (!position || (position.at && position.at === 'end')) {
-          // Will insert at end - calculate based on current length
-          insertIndex = unwrappedContainer ? unwrappedContainer.length : 0;
-        } else if (position.at === 'start') {
-          insertIndex = 0;
-        } else if (position.before !== undefined || position.after !== undefined) {
-          // For xpath positioning, find the target element's index
-          const targetXpath = position.before || position.after;
-          if (typeof targetXpath === 'string' && unwrappedContainer) {
-            const targetElement = xpathFirstQuery(targetXpath, unwrappedContainer);
-            if (targetElement) {
-              const items = unwrappedContainer.toArray();
-              for (let i = 0; i < items.length; i++) {
-                if (items[i] === targetElement) {
-                  insertIndex = position.before ? i : i + 1;
-                  break;
-                }
-              }
-            }
-          }
-        }
-
-        // Create xpathFirst that wraps results for consistent identity comparison
-        // This ensures elements from xpath match elements from toArray()
-        const sandboxXpathFirst = (expression, contextNode) => {
-          const context = contextNode || wrappedFragment;
-          const result = xpathFirstQuery(expression, context);
-          if (result) {
-            // Wrap so identity comparison works with wrapped elements from toArray()
-            return wrapForTracking(result, tracker, [], onOperation);
-          }
-          return null;
-        };
-
-        // Call the helper with wrapped constructors for operation tracking
-        const elements = helpers.appendBlocks(container, blocks, position, {
-          XmlElement: WrappedXmlElement,
-          XmlText: WrappedXmlText,
-          xpathFirst: sandboxXpathFirst,
-        });
-
-        // Queue expanding highlight that covers all created elements
-        // Uses the shared utility for consistent UX pattern across the codebase
-        if (highlightContext && highlightContext.queueHighlights && numBlocks > 0 && insertIndex !== undefined) {
-          try {
-            // Flush any pending highlights first to avoid them clearing our highlights
-            if (highlightContext.flushPendingHighlights) {
-              highlightContext.flushPendingHighlights();
-            }
-
-            const expandingPositions = createExpandingBlockHighlights(
-              highlightContext.xmlFragment,
-              insertIndex,
-              numBlocks
-            );
-
-            if (expandingPositions.length > 0) {
-              console.log('[appendBlocks] Queueing', expandingPositions.length, 'expanding chunks for', numBlocks, 'blocks');
-              highlightContext.queueHighlights(expandingPositions);
-            }
-          } catch (err) {
-            console.warn('[appendBlocks] highlight error:', err.message);
-          }
-        }
-
-        return elements;
-      };
-    })(
-      createWrappedConstructor(Y.XmlElement),
-      createWrappedConstructor(Y.XmlText)
-    ),
-
-    // Exports object for module pattern
-    exports: {},
-    module: { exports: {} },
-
-    // Console for debugging (optional, can be removed for production)
-    console: {
-      log: (...args) => console.log('[Sandbox]', ...args),
-      error: (...args) => console.error('[Sandbox]', ...args),
-    },
-
-    // No access to require, process, or other Node.js APIs
-  };
+  // 1. Create isolate with memory limit
+  const isolate = new ivm.Isolate({ memoryLimit: 128 });
+  const context = isolate.createContextSync();
+  const jail = context.global;
 
   try {
-    // Compile the script
-    const script = new vm.Script(`
+    // 2. Inject polyfills required by bundled Yjs (lib0)
+    //    The isolate has no Web/Node APIs, so we provide minimal shims.
+    jail.setSync('__cryptoGetRandomValues', new ivm.Reference(function(length) {
+      const bytes = require('crypto').randomBytes(length);
+      return JSON.stringify(Array.from(bytes));
+    }));
+
+    isolate.compileScriptSync(`
+      // crypto.getRandomValues — used by lib0 for client ID generation
+      globalThis.crypto = {
+        getRandomValues: function(arr) {
+          var randomStr = __cryptoGetRandomValues.applySync(undefined, [arr.length]);
+          var randomBytes = JSON.parse(randomStr);
+          for (var i = 0; i < arr.length; i++) {
+            arr[i] = randomBytes[i];
+          }
+          return arr;
+        }
+      };
+
+      // Timer APIs — lib0's eventloop module references these.
+      // No-ops since execution is fully synchronous.
+      var __nextId = 1;
+      globalThis.setTimeout = function(fn, ms) { return __nextId++; };
+      globalThis.clearTimeout = function(id) {};
+      globalThis.setInterval = function(fn, ms) { return __nextId++; };
+      globalThis.clearInterval = function(id) {};
+      globalThis.queueMicrotask = function(fn) { fn(); };
+    `).runSync(context);
+
+    // 3. Load pre-built bundle (defines __setup, __finalize on globalThis)
+    const bundleCode = getBundleCode();
+    isolate.compileScriptSync(bundleCode).runSync(context);
+
+    // 4. Set up Reference callbacks for isolate → worker communication
+    //    Data is serialized as JSON strings inside the isolate for reliable transfer.
+    jail.setSync('__onBatch', new ivm.Reference(function(opsJson, updateJson) {
+      if (onBatch) {
+        const ops = JSON.parse(opsJson);
+        const update = new Uint8Array(JSON.parse(updateJson));
+        onBatch(ops, update);
+      }
+    }));
+
+    jail.setSync('__queueHighlights', new ivm.Reference(function(posJson) {
+      if (onHighlights) {
+        const positions = JSON.parse(posJson);
+        onHighlights(positions);
+      }
+    }));
+
+    jail.setSync('__console_log', new ivm.Reference(function(msg) {
+      console.log('[Sandbox]', msg);
+    }));
+
+    // 5. Transfer snapshot into isolate
+    const snapshotArray = new Uint8Array(snapshot);
+    jail.setSync('__snapshot',
+      new ivm.ExternalCopy(snapshotArray.buffer).copyInto());
+
+    // 6. Run setup (creates Y.Doc, wraps fragment, sets up globals)
+    isolate.compileScriptSync('__setup(__snapshot)').runSync(context);
+
+    // 7. Compile and run user code with timeout
+    const userWrapper = `
       ${jsCode}
 
-      // Call the default export function if it exists
+      // Detect and call the default export function
       // esbuild compiles "export default" to module.exports = { default: fn }
       let editFunction;
       if (typeof module.exports === 'object' && typeof module.exports.default === 'function') {
@@ -303,23 +122,25 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
         throw new Error('Script must export a default function: export default function edit(doc) { ... }');
       }
 
-      // Execute the edit function with the document
       editFunction(_doc);
-    `, {
-      filename: 'sandbox-script.js',
-      timeout,
-    });
+    `;
 
-    // Run the script
-    script.runInNewContext(sandbox, {
-      timeout,
-      displayErrors: true,
-    });
+    isolate.compileScriptSync(userWrapper, { filename: 'sandbox-script.js' })
+      .runSync(context, { timeout });
 
-    return { success: true };
+    // 8. Finalize (flush remaining ops, return stats)
+    const resultJson = isolate.compileScriptSync('__finalize()').runSync(context);
+    return JSON.parse(resultJson);
   } catch (error) {
+    // Try to flush pending ops even on error (host will roll back)
+    try {
+      isolate.compileScriptSync('__finalize()').runSync(context, { timeout: 1000 });
+    } catch (e) {
+      // Ignore finalize errors after user code error
+    }
+
     // Enhanced error handling with better context
-    if (error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+    if (error.message && error.message.includes('Script execution timed out')) {
       throw new Error(
         `Script execution timed out after ${timeout}ms.\n` +
         `Hint: Check for infinite loops or long-running operations.`
@@ -344,7 +165,6 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
                `Available: Y.XmlElement, Y.XmlText, doc, xpath(), xpathFirst(), and helper functions.`;
       }
     } else if (error.message.includes('Cannot read properties of undefined')) {
-      // This commonly happens when findByText/findElements returns empty array and user accesses [0]
       hint = `\nHint: You're trying to access a property on undefined. Common causes:\n` +
              `  - findByText(), findElements(), or xpath() returned an empty array and you accessed [0]\n` +
              `  - findTextNode() returned null because no text node was found\n` +
@@ -376,6 +196,10 @@ function executeSandboxed(jsCode, wrappedFragment, tracker, timeout = 5000, onOp
       `Script execution failed${lineInfo}: ${error.message}${hint}\n\n` +
       `Stack trace:\n${error.stack || 'No stack trace available'}`
     );
+  } finally {
+    // 9. Cleanup
+    context.release();
+    isolate.dispose();
   }
 }
 
