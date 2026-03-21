@@ -2,7 +2,14 @@
  * Tests for XPath integration with sandbox execution
  */
 const Y = require('yjs');
-const { executeScript, executeSandboxed, wrapForTracking, OperationTracker } = require('../mcp/sandbox');
+const { executeScript } = require('../mcp/sandbox');
+const { executeSandboxed } = require('../mcp/sandbox/executor');
+
+// Mock agent-presence to avoid WebSocket dependencies
+jest.mock('../mcp/agent-presence', () => ({
+  queueHighlightSequence: jest.fn(),
+  clearHighlightQueue: jest.fn(() => 0),
+}));
 
 describe('XPath sandbox integration', () => {
   let doc;
@@ -11,7 +18,7 @@ describe('XPath sandbox integration', () => {
 
   beforeEach(() => {
     doc = new Y.Doc();
-    fragment = doc.get('test', Y.XmlFragment);
+    fragment = doc.get('default', Y.XmlFragment);
 
     // Create mock session for executeScript
     const undoManager = new Y.UndoManager(fragment);
@@ -150,15 +157,13 @@ describe('XPath sandbox integration', () => {
 });
 
 describe('XPath low-level sandbox execution', () => {
-  // Test using executeSandboxed directly for more isolated testing
+  // Test using executeSandboxed directly (snapshot-based API)
   let doc;
   let fragment;
-  let tracker;
 
   beforeEach(() => {
     doc = new Y.Doc();
-    fragment = doc.get('test', Y.XmlFragment);
-    tracker = new OperationTracker();
+    fragment = doc.get('default', Y.XmlFragment);
 
     // Set up test document
     const h1 = new Y.XmlElement('heading');
@@ -173,9 +178,7 @@ describe('XPath low-level sandbox execution', () => {
   });
 
   it('should execute xpath queries with low-level API', () => {
-    const wrappedFragment = wrapForTracking(fragment, tracker, []);
-
-    // Use module.exports pattern that executor expects
+    const snapshot = Y.encodeStateAsUpdate(doc);
     const jsCode = `
       module.exports = {
         default: function(doc) {
@@ -188,11 +191,24 @@ describe('XPath low-level sandbox execution', () => {
       };
     `;
 
-    expect(() => {
-      executeSandboxed(jsCode, wrappedFragment, tracker, 5000);
-    }).not.toThrow();
+    const batches = [];
+    const result = executeSandboxed(
+      jsCode,
+      snapshot,
+      5000,
+      (ops, update) => batches.push({ ops, update }),
+      () => {}
+    );
 
-    // Verify modification
-    expect(fragment.get(0).getAttribute('modified')).toBe(true);
+    expect(result.operationCount).toBeGreaterThan(0);
+
+    // Verify modification by applying updates
+    const liveDoc = new Y.Doc();
+    Y.applyUpdate(liveDoc, new Uint8Array(snapshot));
+    for (const batch of batches) {
+      Y.applyUpdate(liveDoc, new Uint8Array(batch.update));
+    }
+    const liveFragment = liveDoc.get('default', Y.XmlFragment);
+    expect(liveFragment.get(0).getAttribute('modified')).toBe(true);
   });
 });

@@ -125,8 +125,10 @@ function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHi
       editFunction(_doc);
     `;
 
+    const runOptions = {};
+    if (timeout != null) runOptions.timeout = timeout;
     isolate.compileScriptSync(userWrapper, { filename: 'sandbox-script.js' })
-      .runSync(context, { timeout });
+      .runSync(context, runOptions);
 
     // 8. Finalize (flush remaining ops, return stats)
     const resultJson = isolate.compileScriptSync('__finalize()').runSync(context);
