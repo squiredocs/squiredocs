@@ -196,12 +196,12 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Token revoked' });
     }
 
-    // Rotate: increment token_version so old refresh tokens become invalid
-    const updatedUser = await incrementTokenVersion(user.id);
-
-    // Generate new tokens with the NEW version
-    const newAccessToken = generateAccessToken(updatedUser);
-    const newRefreshToken = generateRefreshToken(updatedUser);
+    // Generate new tokens (cookie rotation without version increment).
+    // Version increment only happens on logout — incrementing here would
+    // invalidate refresh tokens held by other tabs, causing a race where
+    // the second tab to refresh gets "Token revoked" and logs out all tabs.
+    const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken(user);
 
     // Set new token cookies
     res.cookie('accessToken', newAccessToken, getAccessTokenCookieOptions());
