@@ -47,6 +47,18 @@ const PORT = process.env.PORT || 3001;
 // This is needed when behind a reverse proxy/load balancer that terminates SSL
 app.set('trust proxy', true);
 
+// Reject malformed URLs early (e.g. /%c0 — invalid UTF-8 from scanners)
+// Express's router calls decodeURIComponent on path params, which throws
+// URIError for invalid sequences. Catch it before it reaches the router.
+app.use((req, res, next) => {
+  try {
+    decodeURIComponent(req.path);
+    next();
+  } catch (e) {
+    res.status(400).end();
+  }
+});
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: {
