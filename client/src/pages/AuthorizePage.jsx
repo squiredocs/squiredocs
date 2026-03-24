@@ -5,19 +5,91 @@
  */
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import Logo from '../components/Logo';
+import '../components/LoginPage.css';
 
 const SCOPE_DESCRIPTIONS = {
   'documents:read': {
     label: 'Read your documents',
     description: 'View document titles, content, and metadata',
-    icon: '📖',
   },
   'documents:write': {
     label: 'Edit your documents',
     description: 'Create, modify, and delete documents on your behalf',
-    icon: '✏️',
   },
 };
+
+export function AuthorizePreview() {
+  const preview = {
+    user: { email: 'user@example.com' },
+    agentInfo: { name: 'Claude Desktop', description: 'AI assistant for document editing' },
+    scopes: ['documents:read', 'documents:write'],
+    redirectUri: 'http://localhost:3000/callback',
+    existingDelegation: false,
+    isSubmitting: false,
+  };
+
+  return (
+    <div className="login-page">
+      <div className="login-container authorize-container">
+        <div className="login-branding">
+          <div className="login-logo"><Logo color="currentColor" /></div>
+          <h1 className="login-title">Squire Docs</h1>
+        </div>
+
+        <div className="authorize-agent-header">
+          <div className="authorize-agent-icon authorize-agent-icon-default">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="28" height="28">
+              <rect x="3" y="4" width="18" height="14" rx="3" />
+              <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
+              <path d="M7 2v3M17 2v3" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h3 className="authorize-agent-name">{preview.agentInfo.name}</h3>
+          <p className="authorize-agent-desc">{preview.agentInfo.description}</p>
+        </div>
+
+        <p className="authorize-prompt">
+          <strong>{preview.agentInfo.name}</strong> wants to access your account
+        </p>
+
+        <div className="authorize-permissions">
+          <h4 className="authorize-permissions-heading">This will allow the application to:</h4>
+          <ul className="authorize-permissions-list">
+            {preview.scopes.map(scope => {
+              const info = SCOPE_DESCRIPTIONS[scope] || { label: scope, description: '' };
+              return (
+                <li key={scope} className="authorize-permission-item">
+                  <svg className="authorize-permission-check" viewBox="0 0 20 20" fill="#7c3aed" width="18" height="18">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <strong>{info.label}</strong>
+                    {info.description && <p>{info.description}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="authorize-redirect">
+          <code>{preview.redirectUri}</code>
+        </div>
+
+        <div className="login-footer" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <p className="authorize-signed-in">Signed in as <strong>{preview.user.email}</strong></p>
+        </div>
+
+        <div className="authorize-buttons">
+          <button className="authorize-deny-btn" disabled={preview.isSubmitting}>Deny</button>
+          <button className="login-button authorize-approve-btn" disabled={preview.isSubmitting}>Authorize</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AuthorizePage() {
   const { user, isAuthenticated, loading: authLoading, api } = useAuth();
@@ -126,10 +198,13 @@ export default function AuthorizePage() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="auth-page">
-        <div className="auth-card loading">
-          <div className="spinner" />
-          <p>Loading...</p>
+      <div className="login-page">
+        <div className="login-container authorize-container">
+          <div className="login-branding">
+            <div className="login-logo"><Logo color="currentColor" /></div>
+            <h1 className="login-title">Squire Docs</h1>
+          </div>
+          <p className="authorize-loading-text">Loading...</p>
         </div>
       </div>
     );
@@ -137,11 +212,19 @@ export default function AuthorizePage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="auth-page">
-        <div className="auth-card">
-          <h2>Sign in required</h2>
-          <p>Please sign in to authorize this application.</p>
-          <a href={`/login?returnTo=${encodeURIComponent(window.location.href)}`}>
+      <div className="login-page">
+        <div className="login-container authorize-container">
+          <div className="login-branding">
+            <div className="login-logo"><Logo color="currentColor" /></div>
+            <h1 className="login-title">Squire Docs</h1>
+          </div>
+          <h2 className="login-headline">Sign in required</h2>
+          <p className="authorize-subtitle">Please sign in to authorize this application.</p>
+          <a
+            href={`/login?returnTo=${encodeURIComponent(window.location.href)}`}
+            className="login-button google-button"
+            style={{ textDecoration: 'none' }}
+          >
             Sign in with Google
           </a>
         </div>
@@ -152,94 +235,116 @@ export default function AuthorizePage() {
   if (error) {
     const isSuccess = error === 'success';
     return (
-      <div className="auth-page">
-        <div className={`auth-card ${isSuccess ? 'success' : 'error'}`}>
-          <h2>{isSuccess ? '✅ Success!' : 'Authorization Error'}</h2>
-          <p>{isSuccess ? 'Authorization approved! This window will close automatically.' : error}</p>
-          {!isSuccess && <button onClick={() => window.close()}>Close</button>}
+      <div className="login-page">
+        <div className="login-container authorize-container">
+          <div className="login-branding">
+            <div className="login-logo"><Logo color="currentColor" /></div>
+            <h1 className="login-title">Squire Docs</h1>
+          </div>
+          {isSuccess ? (
+            <>
+              <h2 className="login-headline">Authorized</h2>
+              <p className="authorize-success-text">Authorization approved! This window will close automatically.</p>
+            </>
+          ) : (
+            <>
+              <h2 className="login-headline">Authorization Error</h2>
+              <div className="login-error">{error}</div>
+              <button className="authorize-close-btn" onClick={() => window.close()}>Close</button>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="agent-header">
+    <div className="login-page">
+      <div className="login-container authorize-container">
+        <div className="login-branding">
+          <div className="login-logo"><Logo color="currentColor" /></div>
+          <h1 className="login-title">Squire Docs</h1>
+        </div>
+
+        <div className="authorize-agent-header">
           {agentInfo?.iconUrl ? (
-            <img src={agentInfo.iconUrl} alt="" className="agent-icon" />
+            <img src={agentInfo.iconUrl} alt="" className="authorize-agent-icon" />
           ) : (
-            <div className="agent-icon default">🤖</div>
+            <div className="authorize-agent-icon authorize-agent-icon-default">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="28" height="28">
+                <rect x="3" y="4" width="18" height="14" rx="3" />
+                <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
+                <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
+                <path d="M7 2v3M17 2v3" strokeLinecap="round" />
+              </svg>
+            </div>
           )}
-          <h2>{agentInfo?.name || agentClientId}</h2>
+          <h3 className="authorize-agent-name">{agentInfo?.name || agentClientId}</h3>
           {agentInfo?.description && (
-            <p className="agent-description">{agentInfo.description}</p>
+            <p className="authorize-agent-desc">{agentInfo.description}</p>
           )}
         </div>
 
-        <div className="consent-section">
-          <p className="consent-prompt">
-            <strong>{agentInfo?.name}</strong> wants to access your account
-          </p>
+        <p className="authorize-prompt">
+          <strong>{agentInfo?.name}</strong> wants to access your account
+        </p>
 
-          <div className="permissions-list">
-            <h3>This will allow the application to:</h3>
-            <ul>
-              {scopes.map(scope => {
-                const info = SCOPE_DESCRIPTIONS[scope] || {
-                  label: scope,
-                  description: '',
-                  icon: '🔐'
-                };
-                return (
-                  <li key={scope}>
-                    <span className="scope-icon">{info.icon}</span>
-                    <div className="scope-details">
-                      <strong>{info.label}</strong>
-                      {info.description && <p>{info.description}</p>}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {redirectUri && (
-            <div className="redirect-info">
-              <h3>Will redirect to:</h3>
-              <code className="redirect-uri">{redirectUri}</code>
-              {!redirectUri.startsWith('http://localhost') &&
-               !redirectUri.startsWith('http://127.0.0.1') &&
-               !redirectUri.startsWith('http://[::1]') && (
-                <p className="redirect-warning">
-                  This is an external URL. Only approve if you trust this application.
-                </p>
-              )}
-            </div>
-          )}
-
-          {existingDelegation && (
-            <div className="existing-warning">
-              <p>You've previously authorized this application.
-                 Approving will update the permissions.</p>
-            </div>
-          )}
-
-          <div className="user-info">
-            <p>Signed in as <strong>{user.email}</strong></p>
-          </div>
+        <div className="authorize-permissions">
+          <h4 className="authorize-permissions-heading">This will allow the application to:</h4>
+          <ul className="authorize-permissions-list">
+            {scopes.map(scope => {
+              const info = SCOPE_DESCRIPTIONS[scope] || {
+                label: scope,
+                description: '',
+              };
+              return (
+                <li key={scope} className="authorize-permission-item">
+                  <svg className="authorize-permission-check" viewBox="0 0 20 20" fill="#7c3aed" width="18" height="18">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <strong>{info.label}</strong>
+                    {info.description && <p>{info.description}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
-        <div className="button-group">
+        {redirectUri && (
+          <div className="authorize-redirect">
+            <code>{redirectUri}</code>
+            {!redirectUri.startsWith('http://localhost') &&
+             !redirectUri.startsWith('http://127.0.0.1') &&
+             !redirectUri.startsWith('http://[::1]') && (
+              <p className="authorize-redirect-warning">
+                This is an external URL. Only approve if you trust this application.
+              </p>
+            )}
+          </div>
+        )}
+
+        {existingDelegation && (
+          <div className="authorize-existing-warning">
+            <p>You've previously authorized this application. Approving will update the permissions.</p>
+          </div>
+        )}
+
+        <div className="login-footer" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <p className="authorize-signed-in">Signed in as <strong>{user.email}</strong></p>
+        </div>
+
+        <div className="authorize-buttons">
           <button
-            className="btn-deny"
+            className="authorize-deny-btn"
             onClick={() => handleDecision(false)}
             disabled={isSubmitting}
           >
             Deny
           </button>
           <button
-            className="btn-approve"
+            className="login-button authorize-approve-btn"
             onClick={() => handleDecision(true)}
             disabled={isSubmitting}
           >

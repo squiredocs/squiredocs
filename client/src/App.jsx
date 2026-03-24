@@ -8,7 +8,7 @@ import DocList from './components/DocList';
 import EditorView from './components/EditorView';
 import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
-import AuthorizePage from './pages/AuthorizePage';
+import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
 import './App.css';
@@ -21,6 +21,9 @@ function parseRoute() {
   const path = window.location.pathname;
 
   // Check for /authorize path (OAuth agent authorization)
+  if (path === '/authorize-preview') {
+    return { view: 'authorize-preview', docGuid: null };
+  }
   if (path === '/authorize') {
     return { view: 'authorize', docGuid: null };
   }
@@ -181,6 +184,11 @@ function AppContent() {
       navigateToSignup();
     }
     return null;
+  }
+
+  // Authorization preview - shows the page with fake data
+  if (route.view === 'authorize-preview') {
+    return <AuthorizePreview />;
   }
 
   // Authorization page - for OAuth agent authorization
