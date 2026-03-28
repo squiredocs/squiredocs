@@ -5,6 +5,7 @@
 
 const Y = require('yjs');
 const { createOrigin } = require('./origin');
+const { extractXml } = require('./yjs-utils');
 
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
@@ -258,23 +259,10 @@ function formatTimestamp(timestamp) {
   return date.toLocaleString('en-US', options);
 }
 
-/**
- * Extract plain text from a Y.Doc's default XmlFragment
- * @param {Y.Doc} doc - Yjs document
- * @returns {string} Plain text content
- */
-function extractTextFromDoc(doc) {
-  const fragment = doc.get('default', Y.XmlFragment);
-  let text = '';
-  fragment.forEach(node => {
-    if (node.toString) {
-      // Use full XML representation (includes formatting attributes)
-      // so formatting-only changes like text color are detected
-      text += node.toString() + '\n';
-    }
-  });
-  return text.trim();
-}
+// Re-export extractXml as extractTextFromDoc for backwards compatibility
+// with internal callers in this file. Uses full XML (including formatting
+// attributes) so formatting-only changes like text color are detected.
+const extractTextFromDoc = extractXml;
 
 /**
  * Extract metadata from a Y.Doc

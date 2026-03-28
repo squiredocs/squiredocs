@@ -2,8 +2,7 @@
  * Server-side diff computation service.
  *
  * Computes document diffs by building two Y.Doc instances from scratch
- * (avoiding Y.createDocFromSnapshot issues) and using ProseMirror's
- * recreateTransform to compute changes.
+ * and using markdown-based diffing to produce annotated ProseMirror documents.
  *
  * Benefits:
  * - Consistent CRDT structure (no snapshot view inconsistencies)
@@ -13,13 +12,14 @@
 
 const Y = require('yjs');
 const { yXmlFragmentToProseMirrorRootNode } = require('y-prosemirror');
-const { recreateTransform } = require('@manuscripts/prosemirror-recreate-steps');
-const { ChangeSet } = require('prosemirror-changeset');
 const { diffLines } = require('diff');
 const { schema } = require('../shared/prosemirror-schema');
 const { getRedisClient, isRedisEnabled } = require('./redis');
 const { toMarkdown } = require('./mcp/yjs/serialization');
 const { markdownToPm } = require('./markdown-to-pm');
+const { extractXml, extractText } = require('./yjs-utils');
+
+const CACHE_VERSION = 'v5';
 
 class DiffService {
   constructor(pool) {
@@ -36,7 +36,7 @@ class DiffService {
    */
   async computeDiff(docGuid, previousClock, currentClock) {
     // Check cache first
-    const cacheKey = `diffv5:${docGuid}:${previousClock}:${currentClock}`;
+    const cacheKey = `diff${CACHE_VERSION}:${docGuid}:${previousClock}:${currentClock}`;
     if (isRedisEnabled()) {
       try {
         const cached = await getRedisClient().get(cacheKey);
@@ -72,7 +72,7 @@ class DiffService {
     const textIdentical = prevText === currText;
 
     // Detect formatting-only changes (text identical but XML differs)
-    const formattingOnly = textIdentical && this.extractXml(prevDoc) !== this.extractXml(currDoc);
+    const formattingOnly = textIdentical && extractXml(prevDoc) !== extractXml(currDoc);
 
     // Plain current document (no diff marks) for non-diff viewing
     const currPmDoc = this.yDocToProseMirror(currDoc);
@@ -80,16 +80,10 @@ class DiffService {
 
     // Build diff document using markdown-based approach
     let document;
-    let changes = [];
     try {
       document = this.computeMarkdownDiff(prevDoc, currDoc, textIdentical);
     } catch (err) {
-      console.error('[DiffService] Markdown diff failed, falling back to position-based:', err.message);
-      // Fallback: position-based approach
-      const prevPmDoc = this.yDocToProseMirror(prevDoc);
-      if (!textIdentical && prevPmDoc && currPmDoc) {
-        changes = this.computeChanges(prevPmDoc, currPmDoc);
-      }
+      console.error('[DiffService] Markdown diff failed, using plain document:', err.message);
       document = currentDocument;
     }
 
@@ -100,7 +94,6 @@ class DiffService {
     const result = {
       document,
       currentDocument,
-      changes,
       meta: {
         previousClock,
         currentClock,
@@ -150,39 +143,9 @@ class DiffService {
     return {
       prevDoc,
       currDoc,
-      prevText: this.extractText(prevDoc),
-      currText: this.extractText(currDoc),
+      prevText: extractText(prevDoc),
+      currText: extractText(currDoc),
     };
-  }
-
-  /**
-   * Extract plain text content from a Y.Doc.
-   *
-   * @param {Y.Doc} doc - Yjs document
-   * @returns {string} Plain text content
-   */
-  extractText(doc) {
-    const fragment = doc.get('default', Y.XmlFragment);
-    let text = '';
-    fragment.forEach((node) => {
-      if (node.toString) {
-        const nodeStr = node.toString();
-        text += nodeStr.replace(/<[^>]*>/g, '') + '\n';
-      }
-    });
-    return text.trim();
-  }
-
-  /**
-   * Extract full XML representation from a Y.Doc (includes formatting attributes).
-   */
-  extractXml(doc) {
-    const fragment = doc.get('default', Y.XmlFragment);
-    let xml = '';
-    fragment.forEach((node) => {
-      if (node.toString) xml += node.toString() + '\n';
-    });
-    return xml.trim();
   }
 
   /**
@@ -253,107 +216,6 @@ class DiffService {
   }
 
   /**
-   * Compute changes between two ProseMirror documents.
-   *
-   * Uses position-based comparison to correctly handle documents with
-   * duplicate content (where content-based diffing like recreateTransform fails).
-   *
-   * @param {import('prosemirror-model').Node} oldDoc - Previous document
-   * @param {import('prosemirror-model').Node} newDoc - Current document
-   * @returns {Array<{type: string, fromB: number, toB?: number, deleted?: string}>}
-   */
-  computeChanges(oldDoc, newDoc) {
-    try {
-      // Use position-based comparison instead of recreateTransform
-      // This correctly handles documents with duplicate content
-      return this.computePositionBasedChanges(oldDoc, newDoc);
-    } catch (error) {
-      console.error('[DiffService] Error computing changes:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Compute changes using position-based comparison.
-   *
-   * Compares documents node-by-node to find insertions and deletions.
-   * This handles duplicate content correctly unlike recreateTransform.
-   *
-   * @param {import('prosemirror-model').Node} oldDoc - Previous document
-   * @param {import('prosemirror-model').Node} newDoc - Current document
-   * @returns {Array<{type: string, fromB: number, toB?: number, deleted?: string}>}
-   */
-  computePositionBasedChanges(oldDoc, newDoc) {
-    const changes = [];
-
-    // Get nodes from both documents with their positions
-    const oldNodes = [];
-    const newNodes = [];
-
-    oldDoc.forEach((node, offset) => {
-      oldNodes.push({ node, offset, size: node.nodeSize });
-    });
-
-    newDoc.forEach((node, offset) => {
-      newNodes.push({ node, offset, size: node.nodeSize });
-    });
-
-    // Compare from the start to find the first difference
-    let startDiff = 0;
-    while (startDiff < oldNodes.length && startDiff < newNodes.length) {
-      if (!oldNodes[startDiff].node.eq(newNodes[startDiff].node)) {
-        break;
-      }
-      startDiff++;
-    }
-
-    // Compare from the end to find the last difference
-    let oldEndDiff = oldNodes.length;
-    let newEndDiff = newNodes.length;
-    while (oldEndDiff > startDiff && newEndDiff > startDiff) {
-      if (!oldNodes[oldEndDiff - 1].node.eq(newNodes[newEndDiff - 1].node)) {
-        break;
-      }
-      oldEndDiff--;
-      newEndDiff--;
-    }
-
-    // Calculate the position where changes start
-    const changeStartPos = startDiff < oldNodes.length
-      ? oldNodes[startDiff].offset
-      : (startDiff < newNodes.length ? newNodes[startDiff].offset : oldDoc.content.size);
-
-    // Handle deletions (nodes in old but not in new)
-    if (oldEndDiff > startDiff) {
-      // Extract deleted nodes as JSON for formatted rendering on client
-      const deletedNodes = [];
-      for (let i = startDiff; i < oldEndDiff; i++) {
-        deletedNodes.push(oldNodes[i].node.toJSON());
-      }
-
-      changes.push({
-        type: 'delete',
-        fromB: changeStartPos,
-        deletedContent: deletedNodes,
-      });
-    }
-
-    // Handle insertions (nodes in new but not in old)
-    if (newEndDiff > startDiff) {
-      const insertStart = newNodes[startDiff].offset;
-      const insertEnd = newNodes[newEndDiff - 1].offset + newNodes[newEndDiff - 1].size;
-
-      changes.push({
-        type: 'insert',
-        fromB: insertStart,
-        toB: insertEnd,
-      });
-    }
-
-    return changes;
-  }
-
-  /**
    * Invalidate cached diffs for a document.
    * Call this when new updates are added (though historical diffs remain valid).
    *
@@ -375,3 +237,4 @@ class DiffService {
 }
 
 module.exports = DiffService;
+module.exports.CACHE_VERSION = CACHE_VERSION;

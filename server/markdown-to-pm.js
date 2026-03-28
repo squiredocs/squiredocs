@@ -34,59 +34,25 @@ function parseInline(text, diffMark) {
     }
 
     if (match[1] !== undefined) {
-      // <span style="...">text</span> — parse style into textStyle mark
-      const inner = parseInline(match[2], diffMark);
-      const attrs = parseStyleAttr(match[1]);
-      for (const node of inner) {
-        addMark(node, { type: 'textStyle', attrs });
-      }
-      nodes.push(...inner);
+      // <span style="...">text</span>
+      nodes.push(...parseMarked(match[2], { type: 'textStyle', attrs: parseStyleAttr(match[1]) }, diffMark));
     } else if (match[3] !== undefined) {
-      // <u>underline</u>
-      const inner = parseInline(match[3], diffMark);
-      for (const node of inner) { addMark(node, { type: 'underline' }); }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[3], { type: 'underline' }, diffMark));
     } else if (match[4] !== undefined) {
-      // <mark>highlight</mark>
-      const inner = parseInline(match[4], diffMark);
-      for (const node of inner) { addMark(node, { type: 'highlight' }); }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[4], { type: 'highlight' }, diffMark));
     } else if (match[5] !== undefined) {
-      // <sub>subscript</sub>
-      const inner = parseInline(match[5], diffMark);
-      for (const node of inner) { addMark(node, { type: 'subscript' }); }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[5], { type: 'subscript' }, diffMark));
     } else if (match[6] !== undefined) {
-      // <sup>superscript</sup>
-      const inner = parseInline(match[6], diffMark);
-      for (const node of inner) { addMark(node, { type: 'superscript' }); }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[6], { type: 'superscript' }, diffMark));
     } else if (match[7] !== undefined) {
-      // `code`
       nodes.push(makeTextNode(match[7], [{ type: 'code' }], diffMark));
     } else if (match[8] !== undefined) {
-      // **bold** — recurse for nested formatting
-      const inner = parseInline(match[8], diffMark);
-      for (const node of inner) {
-        addMark(node, { type: 'bold' });
-      }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[8], { type: 'bold' }, diffMark));
     } else if (match[9] !== undefined) {
-      // _italic_
-      const inner = parseInline(match[9], diffMark);
-      for (const node of inner) {
-        addMark(node, { type: 'italic' });
-      }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[9], { type: 'italic' }, diffMark));
     } else if (match[10] !== undefined) {
-      // ~~strikethrough~~
-      const inner = parseInline(match[10], diffMark);
-      for (const node of inner) {
-        addMark(node, { type: 'strike' });
-      }
-      nodes.push(...inner);
+      nodes.push(...parseMarked(match[10], { type: 'strike' }, diffMark));
     } else if (match[11] !== undefined) {
-      // [text](url)
       nodes.push(makeTextNode(match[11], [{ type: 'link', attrs: { href: match[12] } }], diffMark));
     }
 
@@ -133,6 +99,13 @@ function makeTextNode(text, marks, diffMark) {
 function addMark(node, mark) {
   if (!node.marks) node.marks = [];
   node.marks.unshift(mark); // prepend so diff mark stays at end
+}
+
+/** Parse inner content and prepend a mark to every resulting node. */
+function parseMarked(content, mark, diffMark) {
+  const inner = parseInline(content, diffMark);
+  for (const node of inner) addMark(node, mark);
+  return inner;
 }
 
 /**

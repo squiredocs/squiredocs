@@ -2,6 +2,7 @@
  * Tests for diff-service module
  */
 const DiffService = require('../diff-service');
+const { CACHE_VERSION } = require('../diff-service');
 const Y = require('yjs');
 
 // Mock redis module
@@ -60,17 +61,19 @@ describe('DiffService', () => {
     diffService = new DiffService(mockPool);
   });
 
-  describe('extractText', () => {
+  describe('extractText (shared yjs-utils)', () => {
+    const { extractText } = require('../yjs-utils');
+
     test('extracts text from Y.Doc', () => {
       const doc = createDocWithText('Hello world');
-      const text = diffService.extractText(doc);
+      const text = extractText(doc);
       expect(text).toBe('Hello world');
       doc.destroy();
     });
 
     test('extracts text from multiple paragraphs', () => {
       const doc = createDocWithParagraphs(['First paragraph', 'Second paragraph']);
-      const text = diffService.extractText(doc);
+      const text = extractText(doc);
       expect(text).toContain('First paragraph');
       expect(text).toContain('Second paragraph');
       doc.destroy();
@@ -78,7 +81,7 @@ describe('DiffService', () => {
 
     test('handles empty document', () => {
       const doc = new Y.Doc();
-      const text = diffService.extractText(doc);
+      const text = extractText(doc);
       expect(text).toBe('');
       doc.destroy();
     });
@@ -161,58 +164,7 @@ describe('DiffService', () => {
     });
   });
 
-  describe('computeChanges', () => {
-    test('detects insertions', () => {
-      const oldDoc = createDocWithText('Hello');
-      const newDoc = createDocWithText('Hello World');
 
-      const oldPmDoc = diffService.yDocToProseMirror(oldDoc);
-      const newPmDoc = diffService.yDocToProseMirror(newDoc);
-
-      const changes = diffService.computeChanges(oldPmDoc, newPmDoc);
-
-      expect(changes.length).toBeGreaterThan(0);
-      expect(changes.some(c => c.type === 'insert')).toBe(true);
-
-      oldDoc.destroy();
-      newDoc.destroy();
-    });
-
-    test('detects deletions with formatted content', () => {
-      const oldDoc = createDocWithText('Hello World');
-      const newDoc = createDocWithText('Hello');
-
-      const oldPmDoc = diffService.yDocToProseMirror(oldDoc);
-      const newPmDoc = diffService.yDocToProseMirror(newDoc);
-
-      const changes = diffService.computeChanges(oldPmDoc, newPmDoc);
-
-      expect(changes.length).toBeGreaterThan(0);
-      const deleteChange = changes.find(c => c.type === 'delete');
-      expect(deleteChange).toBeDefined();
-      // Deletions now include deletedContent as array of node JSONs
-      expect(deleteChange.deletedContent).toBeDefined();
-      expect(Array.isArray(deleteChange.deletedContent)).toBe(true);
-
-      oldDoc.destroy();
-      newDoc.destroy();
-    });
-
-    test('returns empty array for identical documents', () => {
-      const doc1 = createDocWithText('Same content');
-      const doc2 = createDocWithText('Same content');
-
-      const pmDoc1 = diffService.yDocToProseMirror(doc1);
-      const pmDoc2 = diffService.yDocToProseMirror(doc2);
-
-      const changes = diffService.computeChanges(pmDoc1, pmDoc2);
-
-      expect(changes).toEqual([]);
-
-      doc1.destroy();
-      doc2.destroy();
-    });
-  });
 
   describe('computeDiff', () => {
     test('computes diff for document with changes', async () => {
@@ -235,7 +187,7 @@ describe('DiffService', () => {
       const result = await diffService.computeDiff('test-doc', 0, 1);
 
       expect(result).toHaveProperty('document');
-      expect(result).toHaveProperty('changes');
+      expect(result).toHaveProperty('currentDocument');
       expect(result).toHaveProperty('meta');
       expect(result.meta.previousClock).toBe(0);
       expect(result.meta.currentClock).toBe(1);
@@ -276,10 +228,9 @@ describe('DiffService', () => {
 
       expect(result.meta.previousClock).toBe(-1);
       expect(result.meta.currentClock).toBe(0);
-      // With markdown-based diff, insertions are baked into the document as diffInsert marks
-      // rather than being returned in the changes array
+      // Insertions are baked into the document as diffInsert marks
       const docJson = JSON.stringify(result.document);
-      expect(docJson.includes('diffInsert') || result.changes.some(c => c.type === 'insert')).toBe(true);
+      expect(docJson).toContain('diffInsert');
 
       doc.destroy();
     });
@@ -349,7 +300,7 @@ describe('DiffService', () => {
       await diffService.computeDiff('test-doc', -1, 0);
 
       expect(mockSetex).toHaveBeenCalledWith(
-        'diffv5:test-doc:-1:0',
+        `diff${CACHE_VERSION}:test-doc:-1:0`,
         3600,
         expect.any(String)
       );

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+// Labels for tool badges. Doc-scoped tools (value ends with a preposition
+// or single verb) get a linked document title appended automatically.
 const TOOL_LABELS = {
   read_document: 'Reading',
   modify: 'Editing',
@@ -22,17 +24,18 @@ const TOOL_LABELS = {
   _compacting: 'Compacting conversation',
 };
 
-// Tools that operate on a single document and can show a linked title
-const DOC_TOOLS = new Set([
-  'read_document', 'modify', 'create_document', 'share_document',
-  'set_document_title', 'get_collaborators', 'undo', 'redo',
-  'list_document_versions', 'read_document_version',
-  'set_document_version_name', 'restore_document_version',
-  'compare_document_versions',
-]);
+// Non-doc tools use standalone labels; everything else is a doc-scoped tool
+const NON_DOC_TOOLS = new Set(['list_documents', 'webSearch', 'webFetch', '_compacting']);
+const DOC_TOOLS = new Set(Object.keys(TOOL_LABELS).filter(k => !NON_DOC_TOOLS.has(k)));
 
 function getToolLabel(toolName) {
   return TOOL_LABELS[toolName] || toolName;
+}
+
+/** Push a path to the browser history and trigger SPA navigation. */
+function spaNavigate(path) {
+  window.history.pushState({}, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 function isToolPart(part) {
@@ -213,8 +216,7 @@ function DocTitleLink({ docGuid, title }) {
   const handleClick = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    window.history.pushState({}, '', `/d/${docGuid}`);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    spaNavigate(`/d/${docGuid}`);
   }, [docGuid]);
   return (
     <>{'\u201c'}<a href={`/d/${docGuid}`} className="ai-tool-card-link" onClick={handleClick}>{title}</a>{'\u201d'}</>
@@ -284,9 +286,7 @@ function MarkdownLink({ href, children }) {
   const handleClick = useCallback((e) => {
     if (!isInternal) return;
     e.preventDefault();
-    const path = href.startsWith('/') ? href : new URL(href).pathname;
-    window.history.pushState({}, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    spaNavigate(href.startsWith('/') ? href : new URL(href).pathname);
   }, [href, isInternal]);
   if (isInternal) {
     return <a href={href} onClick={handleClick}>{children}</a>;
