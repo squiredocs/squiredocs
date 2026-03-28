@@ -349,7 +349,7 @@ describe('DiffService', () => {
       await diffService.computeDiff('test-doc', -1, 0);
 
       expect(mockSetex).toHaveBeenCalledWith(
-        'diffv4:test-doc:-1:0',
+        'diffv5:test-doc:-1:0',
         3600,
         expect.any(String)
       );

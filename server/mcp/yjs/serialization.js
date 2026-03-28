@@ -79,12 +79,13 @@ function toMarkdown(xmlFragment) {
       if (a.highlight) seg = `<mark>${seg}</mark>`;
       if (a.subscript) seg = `<sub>${seg}</sub>`;
       if (a.superscript) seg = `<sup>${seg}</sup>`;
-      // textStyle attributes (color, background, font size/family)
+      // textStyle is a mark with attrs: { textStyle: { color, backgroundColor, ... } }
+      const ts = typeof a.textStyle === 'object' && a.textStyle;
       const styles = [];
-      if (a.color) styles.push(`color:${a.color}`);
-      if (a.backgroundColor) styles.push(`background-color:${a.backgroundColor}`);
-      if (a.fontSize) styles.push(`font-size:${a.fontSize}`);
-      if (a.fontFamily) styles.push(`font-family:${a.fontFamily}`);
+      if (ts && ts.color) styles.push(`color:${ts.color}`);
+      if (ts && ts.backgroundColor) styles.push(`background-color:${ts.backgroundColor}`);
+      if (ts && ts.fontSize) styles.push(`font-size:${ts.fontSize}`);
+      if (ts && ts.fontFamily) styles.push(`font-family:${ts.fontFamily}`);
       if (styles.length) seg = `<span style="${styles.join(';')}">${seg}</span>`;
       if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
       out += seg;
