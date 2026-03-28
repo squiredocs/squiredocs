@@ -100,12 +100,4 @@
   border-radius: 2px;
 }
 
-/* When diff highlighting is toggled off, hide marks */
-.version-preview .no-diff ins {
-  background: none;
-}
-
-.version-preview .no-diff del {
-  display: none;
-}
 

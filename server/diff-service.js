@@ -36,7 +36,7 @@ class DiffService {
    */
   async computeDiff(docGuid, previousClock, currentClock) {
     // Check cache first
-    const cacheKey = `diffv2:${docGuid}:${previousClock}:${currentClock}`;
+    const cacheKey = `diffv3:${docGuid}:${previousClock}:${currentClock}`;
     if (isRedisEnabled()) {
       try {
         const cached = await getRedisClient().get(cacheKey);
@@ -71,6 +71,10 @@ class DiffService {
     // Check if text is identical (no visible changes)
     const textIdentical = prevText === currText;
 
+    // Plain current document (no diff marks) for non-diff viewing
+    const currPmDoc = this.yDocToProseMirror(currDoc);
+    const currentDocument = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
+
     // Build diff document using markdown-based approach
     let document;
     let changes = [];
@@ -80,11 +84,10 @@ class DiffService {
       console.error('[DiffService] Markdown diff failed, falling back to position-based:', err.message);
       // Fallback: position-based approach
       const prevPmDoc = this.yDocToProseMirror(prevDoc);
-      const currPmDoc = this.yDocToProseMirror(currDoc);
       if (!textIdentical && prevPmDoc && currPmDoc) {
         changes = this.computeChanges(prevPmDoc, currPmDoc);
       }
-      document = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
+      document = currentDocument;
     }
 
     // Cleanup Yjs docs
@@ -93,6 +96,7 @@ class DiffService {
 
     const result = {
       document,
+      currentDocument,
       changes,
       meta: {
         previousClock,

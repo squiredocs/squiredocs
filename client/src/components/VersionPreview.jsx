@@ -21,12 +21,17 @@ function VersionPreview({
     ...getBaseExtensions({ openLinksOnClick: true }),
   ], []);
 
+  // Show diff-annotated doc or plain current doc based on toggle
+  const content = showDiff
+    ? (diffData?.document || null)
+    : (diffData?.currentDocument || diffData?.document || null);
+
   // Initialize editor with document content from server
   const editor = useEditor({
     extensions,
     editable: false,
-    content: diffData?.document || null,
-  }, [extensions, diffData?.document]);
+    content,
+  }, [extensions, content]);
 
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
@@ -56,7 +61,7 @@ function VersionPreview({
           No visible text changes (sync update only)
         </div>
       )}
-      <div className={`editor-common-container version-preview-content${!showDiff ? ' no-diff' : ''}`}>
+      <div className="editor-common-container version-preview-content">
         {editor ? (
           <EditorContent editor={editor} className="editor-common-content" />
         ) : (
