@@ -6,7 +6,7 @@ const TOOL_LABELS = {
   read_document: 'Reading',
   modify: 'Editing',
   list_documents: 'Listing documents',
-  create_document: 'Creating document',
+  create_document: 'Creating',
   share_document: 'Sharing',
   set_document_title: 'Setting title of',
   get_collaborators: 'Getting collaborators for',
@@ -24,10 +24,11 @@ const TOOL_LABELS = {
 
 // Tools that operate on a single document and can show a linked title
 const DOC_TOOLS = new Set([
-  'read_document', 'modify', 'share_document', 'set_document_title',
-  'get_collaborators', 'undo', 'redo', 'list_document_versions',
-  'read_document_version', 'set_document_version_name',
-  'restore_document_version', 'compare_document_versions',
+  'read_document', 'modify', 'create_document', 'share_document',
+  'set_document_title', 'get_collaborators', 'undo', 'redo',
+  'list_document_versions', 'read_document_version',
+  'set_document_version_name', 'restore_document_version',
+  'compare_document_versions',
 ]);
 
 function getToolLabel(toolName) {
@@ -196,6 +197,10 @@ function DiffView({ diff }) {
   );
 }
 
+// Module-level cache so doc titles resolved from completed tool outputs
+// are immediately available when subsequent tools for the same doc start running.
+const docTitleCache = new Map();
+
 function DocTitleLink({ docGuid, title }) {
   const handleClick = useCallback((e) => {
     e.preventDefault();
@@ -216,10 +221,24 @@ function ToolCard({ part }) {
   const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
   const isDocTool = DOC_TOOLS.has(toolName);
   const isModify = toolName === 'modify';
+  const isCreate = toolName === 'create_document';
 
-  const docTitle = isDocTool && isComplete && part.output?.docTitle;
-  const docGuid = isDocTool && input?.docGuid;
-  const showDetail = hasInput && !isModify;
+  // For create_document, docGuid comes from output; for others it's on input
+  const docGuid = isDocTool && (isCreate ? part.output?.docGuid : input?.docGuid);
+
+  // Resolve title: output enrichment first, then cache, then create_document input
+  const outputTitle = isDocTool && isComplete && part.output?.docTitle;
+  if (outputTitle && docGuid) docTitleCache.set(docGuid, outputTitle);
+  // For create_document the server result includes `title` directly
+  const createTitle = isCreate && isComplete && part.output?.title;
+  if (createTitle && docGuid) docTitleCache.set(docGuid, createTitle);
+
+  const docTitle = outputTitle || createTitle
+    || (isDocTool && docGuid && docTitleCache.get(docGuid))
+    || (isCreate && input?.title)
+    || null;
+
+  const showDetail = hasInput && !isModify && !isCreate;
 
   const diff = (isModify && isComplete && part.output?.diff) || null;
   const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
@@ -233,9 +252,9 @@ function ToolCard({ part }) {
         onClick={showDetail ? () => setExpanded(!expanded) : undefined}
         style={showDetail ? undefined : { cursor: 'default' }}
       >
-        {verb}{isDocTool && ' '}{isDocTool && (docTitle
+        {verb}{isDocTool && ' '}{isDocTool && (docTitle && docGuid
           ? <DocTitleLink docGuid={docGuid} title={docTitle} />
-          : 'document')}
+          : docTitle || 'document')}
         {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
       </button>
       {expanded && showDetail && (
