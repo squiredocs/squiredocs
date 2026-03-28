@@ -23,7 +23,12 @@ export function AiChatProvider({ children }) {
   tokenRef.current = accessToken;
 
   // Chat ID & list state
-  const [currentChatId, setCurrentChatId] = useState(null);
+  const [currentChatId, _setCurrentChatId] = useState(null);
+  const setCurrentChatId = useCallback((id) => {
+    _setCurrentChatId(id);
+    if (id) sessionStorage.setItem('ai_chat_id', id);
+    else sessionStorage.removeItem('ai_chat_id');
+  }, []);
   const [chatList, setChatList] = useState([]);
   const chatListLoadedRef = useRef(false);
   const titleSetRef = useRef(new Set()); // track which chats already have titles
@@ -181,13 +186,17 @@ export function AiChatProvider({ children }) {
     if (!accessToken || chatListLoadedRef.current) return;
     chatListLoadedRef.current = true;
     refreshChatList().then((list) => {
-      // Auto-select the most recent chat if its last activity was within
-      // 5 minutes; otherwise start with a blank new chat.
-      if (list.length > 0) {
-        const msSinceUpdate = Date.now() - new Date(list[0].updatedAt).getTime();
-        if (msSinceUpdate < 5 * 60 * 1000) {
-          setCurrentChatId(list[0].id);
-        }
+      if (list.length === 0) return;
+      // Restore the chat from this tab session (e.g. page refresh)
+      const savedId = sessionStorage.getItem('ai_chat_id');
+      if (savedId && list.some((c) => c.id === savedId)) {
+        setCurrentChatId(savedId);
+        return;
+      }
+      // Otherwise open the most recent chat only if active within 5 minutes
+      const msSinceUpdate = Date.now() - new Date(list[0].updatedAt).getTime();
+      if (msSinceUpdate < 5 * 60 * 1000) {
+        setCurrentChatId(list[0].id);
       }
     });
   }, [accessToken, refreshChatList]);
