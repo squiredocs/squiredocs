@@ -364,15 +364,16 @@
 }
 
 .ai-tool-card-toggle {
-  display: inline-block;
+  display: inline;
   font-size: 12px;
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 6px;
-  white-space: nowrap;
   border: none;
   cursor: pointer;
   background: none;
+  line-height: 1.8;
+  text-align: left;
 }
 
 .ai-tool-card-toggle:hover {
