@@ -270,12 +270,22 @@ function ToolCard({ part }) {
   );
 }
 
-/** Open links from assistant messages in a new tab. */
-const markdownLinkRenderer = {
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-  ),
-};
+/** SPA-navigate internal links; open external links in a new tab. */
+function MarkdownLink({ href, children }) {
+  const isInternal = href && (href.startsWith('/') || href.startsWith(window.location.origin));
+  const handleClick = useCallback((e) => {
+    if (!isInternal) return;
+    e.preventDefault();
+    const path = href.startsWith('/') ? href : new URL(href).pathname;
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [href, isInternal]);
+  if (isInternal) {
+    return <a href={href} onClick={handleClick}>{children}</a>;
+  }
+  return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+}
+const markdownLinkRenderer = { a: MarkdownLink };
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
