@@ -147,39 +147,59 @@ const markdownLinkRenderer = {
   ),
 };
 
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+  return (
+    <button className="ai-chat-copy-btn" onClick={handleCopy} title="Copy message" aria-label="Copy message">
+      {copied ? '\u2713' : '\u2398'}
+    </button>
+  );
+}
+
 function AssistantBubble({ groups, isLoading }) {
   const lastGroup = groups[groups.length - 1];
   const showDots = isLoading && (!lastGroup || lastGroup.type !== 'text');
 
+  const fullText = groups.filter(g => g.type === 'text').map(g => g.text).join('\n\n');
+
   return (
-    <div className="ai-chat-bubble ai-chat-bubble--assistant">
-      {groups.map((group, i) => {
-        if (group.type === 'text') {
-          return (
-            <div key={i} className="ai-chat-markdown">
-              <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
-            </div>
-          );
-        }
-        if (group.type === 'reasoning') {
-          return <ThinkingBlock key={i} text={group.text} />;
-        }
-        if (group.type === 'tools') {
-          return (
-            <div key={i} className="ai-tool-group">
-              {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
-            </div>
-          );
-        }
-        return null;
-      })}
-      {showDots && (
-        <span className="ai-typing-indicator">
-          <span className="ai-typing-dot" />
-          <span className="ai-typing-dot" />
-          <span className="ai-typing-dot" />
-        </span>
-      )}
+    <div className="ai-chat-bubble-wrap ai-chat-bubble-wrap--assistant">
+      <div className="ai-chat-bubble ai-chat-bubble--assistant">
+        {groups.map((group, i) => {
+          if (group.type === 'text') {
+            return (
+              <div key={i} className="ai-chat-markdown">
+                <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
+              </div>
+            );
+          }
+          if (group.type === 'reasoning') {
+            return <ThinkingBlock key={i} text={group.text} />;
+          }
+          if (group.type === 'tools') {
+            return (
+              <div key={i} className="ai-tool-group">
+                {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
+              </div>
+            );
+          }
+          return null;
+        })}
+        {showDots && (
+          <span className="ai-typing-indicator">
+            <span className="ai-typing-dot" />
+            <span className="ai-typing-dot" />
+            <span className="ai-typing-dot" />
+          </span>
+        )}
+      </div>
+      {fullText && <CopyButton text={fullText} />}
     </div>
   );
 }
@@ -223,15 +243,18 @@ function AiChatMessages({ messages, status }) {
         const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
         const fileParts = msg.parts?.filter(p => p.type === 'file') || [];
         return (
-          <div key={msg.id} className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
-            {fileParts.length > 0 && (
-              <div className="ai-chat-images">
-                {fileParts.map((fp, i) => (
-                  <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
-                ))}
-              </div>
-            )}
-            {text}
+          <div key={msg.id} className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
+            <div className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
+              {fileParts.length > 0 && (
+                <div className="ai-chat-images">
+                  {fileParts.map((fp, i) => (
+                    <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+                  ))}
+                </div>
+              )}
+              {text}
+            </div>
+            {text && <CopyButton text={text} />}
           </div>
         );
       })}

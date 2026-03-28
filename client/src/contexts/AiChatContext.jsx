@@ -181,9 +181,13 @@ export function AiChatProvider({ children }) {
     if (!accessToken || chatListLoadedRef.current) return;
     chatListLoadedRef.current = true;
     refreshChatList().then((list) => {
-      // Auto-select the most recent chat, or leave empty
+      // Auto-select the most recent chat if its last activity was within
+      // 5 minutes; otherwise start with a blank new chat.
       if (list.length > 0) {
-        setCurrentChatId(list[0].id);
+        const msSinceUpdate = Date.now() - new Date(list[0].updatedAt).getTime();
+        if (msSinceUpdate < 5 * 60 * 1000) {
+          setCurrentChatId(list[0].id);
+        }
       }
     });
   }, [accessToken, refreshChatList]);

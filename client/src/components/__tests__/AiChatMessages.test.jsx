@@ -25,7 +25,7 @@ describe('AiChatMessages', () => {
 
     const bubble = container.querySelector('.ai-chat-bubble--user');
     expect(bubble).toBeInTheDocument();
-    expect(bubble.textContent).toBe('User text');
+    expect(bubble).toHaveTextContent('User text');
   });
 
   it('renders assistant message with correct class', () => {
@@ -34,7 +34,7 @@ describe('AiChatMessages', () => {
 
     const bubble = container.querySelector('.ai-chat-bubble--assistant');
     expect(bubble).toBeInTheDocument();
-    expect(bubble.textContent).toBe('Bot reply');
+    expect(bubble).toHaveTextContent('Bot reply');
   });
 
   it('renders multiple messages in order', () => {
@@ -47,9 +47,9 @@ describe('AiChatMessages', () => {
 
     const bubbles = container.querySelectorAll('.ai-chat-bubble');
     expect(bubbles).toHaveLength(3);
-    expect(bubbles[0].textContent).toBe('First');
-    expect(bubbles[1].textContent).toBe('Second');
-    expect(bubbles[2].textContent).toBe('Third');
+    expect(bubbles[0]).toHaveTextContent('First');
+    expect(bubbles[1]).toHaveTextContent('Second');
+    expect(bubbles[2]).toHaveTextContent('Third');
   });
 
   it('shows typing indicator when status is submitted', () => {
@@ -215,7 +215,7 @@ describe('AiChatMessages', () => {
 
     expect(container.querySelector('.ai-chat-images')).not.toBeInTheDocument();
     expect(container.querySelector('.ai-chat-image')).not.toBeInTheDocument();
-    expect(container.querySelector('.ai-chat-bubble--user').textContent).toBe('No images here');
+    expect(container.querySelector('.ai-chat-bubble--user')).toHaveTextContent('No images here');
   });
 
   // --------------- Auto-scroll ---------------

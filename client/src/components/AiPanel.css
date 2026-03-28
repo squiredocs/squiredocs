@@ -174,9 +174,49 @@
   margin: 0 auto;
 }
 
+/* Message bubble wrappers (bubble + copy button) */
+.ai-chat-bubble-wrap {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+}
+
+.ai-chat-bubble-wrap--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.ai-chat-bubble-wrap--assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.ai-chat-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.ai-chat-bubble-wrap:hover .ai-chat-copy-btn {
+  opacity: 0.6;
+}
+
+.ai-chat-copy-btn:hover {
+  opacity: 1 !important;
+  background: rgba(0, 0, 0, 0.08);
+}
+
 /* Message bubbles */
 .ai-chat-bubble {
-  max-width: 85%;
+  max-width: 100%;
   padding: 8px 12px;
   border-radius: 12px;
   font-size: 14px;
@@ -185,7 +225,6 @@
 }
 
 .ai-chat-bubble--user {
-  align-self: flex-end;
   background: #7c3aed;
   color: #fff;
   border-bottom-right-radius: 4px;
@@ -193,7 +232,6 @@
 }
 
 .ai-chat-bubble--assistant {
-  align-self: flex-start;
   background: #f3f4f6;
   color: #1f2937;
   border-bottom-left-radius: 4px;
