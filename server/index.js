@@ -271,7 +271,7 @@ const diffService = new DiffService(persistenceProvider.getPool());
 // Mount auth routes
 app.use('/auth', authRouter);
 
-app.use('/api/chat', express.json({ limit: '10mb' }), chat.router);
+app.use('/api/chat', express.json({ limit: '150mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin/users', requireAdmin, admin.router);
 

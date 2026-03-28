@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB
+const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
 
 const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed }, ref) {
@@ -46,7 +46,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     }
     const oversized = images.filter(f => f.size > MAX_FILE_SIZE);
     if (oversized.length > 0) {
-      setFileError('Images must be under 4MB each.');
+      setFileError('Images must be under 15MB each.');
       return;
     }
 

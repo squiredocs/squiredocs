@@ -213,15 +213,15 @@ describe('AiChatInput', () => {
     });
   });
 
-  it('rejects files over 4MB with error message', async () => {
+  it('rejects files over 15MB with error message', async () => {
     const ref = createRef();
     const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
 
-    const file = createMockFile('big.png', 5 * 1024 * 1024, 'image/png');
+    const file = createMockFile('big.png', 16 * 1024 * 1024, 'image/png');
     ref.current.addFiles([file]);
 
     await waitFor(() => {
-      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Images must be under 4MB each.');
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Images must be under 15MB each.');
     });
   });
 
