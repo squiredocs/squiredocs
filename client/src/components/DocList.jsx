@@ -249,13 +249,18 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
         <header className="app-header">
           <div className="app-header-content">
             <div className="app-header-left">
-              <button
+              <a
+                href="/docs"
                 className="back-btn"
-                onClick={fetchDocs}
+                onClick={(e) => {
+                  if (shouldUseBrowserLinkBehavior(e)) return;
+                  e.preventDefault();
+                  fetchDocs();
+                }}
                 title="Refresh documents"
               >
                 <Logo />
-              </button>
+              </a>
               <h1>Documents</h1>
             </div>
             <div className="app-header-right">
@@ -301,13 +306,18 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
       <header className="app-header">
         <div className="app-header-content">
           <div className="app-header-left">
-            <button
+            <a
+              href="/docs"
               className="back-btn"
-              onClick={fetchDocs}
+              onClick={(e) => {
+                if (shouldUseBrowserLinkBehavior(e)) return;
+                e.preventDefault();
+                fetchDocs();
+              }}
               title="Refresh documents"
             >
               <Logo />
-            </button>
+            </a>
             <h1>Documents</h1>
           </div>
           <div className="app-header-right">
