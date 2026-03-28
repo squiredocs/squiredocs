@@ -36,7 +36,7 @@ class DiffService {
    */
   async computeDiff(docGuid, previousClock, currentClock) {
     // Check cache first
-    const cacheKey = `diffv3:${docGuid}:${previousClock}:${currentClock}`;
+    const cacheKey = `diffv4:${docGuid}:${previousClock}:${currentClock}`;
     if (isRedisEnabled()) {
       try {
         const cached = await getRedisClient().get(cacheKey);
@@ -71,6 +71,9 @@ class DiffService {
     // Check if text is identical (no visible changes)
     const textIdentical = prevText === currText;
 
+    // Detect formatting-only changes (text identical but XML differs)
+    const formattingOnly = textIdentical && this.extractXml(prevDoc) !== this.extractXml(currDoc);
+
     // Plain current document (no diff marks) for non-diff viewing
     const currPmDoc = this.yDocToProseMirror(currDoc);
     const currentDocument = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
@@ -102,6 +105,7 @@ class DiffService {
         previousClock,
         currentClock,
         textIdentical,
+        formattingOnly,
       },
     };
 
@@ -167,6 +171,18 @@ class DiffService {
       }
     });
     return text.trim();
+  }
+
+  /**
+   * Extract full XML representation from a Y.Doc (includes formatting attributes).
+   */
+  extractXml(doc) {
+    const fragment = doc.get('default', Y.XmlFragment);
+    let xml = '';
+    fragment.forEach((node) => {
+      if (node.toString) xml += node.toString() + '\n';
+    });
+    return xml.trim();
   }
 
   /**

@@ -35,6 +35,7 @@ function VersionPreview({
 
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
+  const formattingOnly = diffData?.meta?.formattingOnly || false;
 
   if (isLoading) {
     return (
@@ -58,7 +59,7 @@ function VersionPreview({
     <div className="version-preview">
       {textIdentical && (
         <div className="version-preview-notice">
-          No visible text changes (sync update only)
+          {formattingOnly ? 'Formatting changes only' : 'No visible text changes (sync update only)'}
         </div>
       )}
       <div className="editor-common-container version-preview-content">

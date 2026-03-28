@@ -268,10 +268,9 @@ function extractTextFromDoc(doc) {
   let text = '';
   fragment.forEach(node => {
     if (node.toString) {
-      // For XmlElement nodes, get text content
-      const nodeStr = node.toString();
-      // Strip XML tags to get plain text
-      text += nodeStr.replace(/<[^>]*>/g, '') + '\n';
+      // Use full XML representation (includes formatting attributes)
+      // so formatting-only changes like text color are detected
+      text += node.toString() + '\n';
     }
   });
   return text.trim();

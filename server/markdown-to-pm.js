@@ -12,7 +12,8 @@
 /**
  * Parse inline markdown formatting into ProseMirror text nodes.
  *
- * Handles: **bold**, _italic_, ~~strike~~, `code`, [text](url)
+ * Handles: **bold**, _italic_, ~~strike~~, `code`, [text](url),
+ * <u>, <mark>, <sub>, <sup>, <span style="...">
  * @param {string} text - Inline markdown text
  * @param {string|null} diffMark - Optional diff mark to apply ('diffInsert' or 'diffDelete')
  * @returns {Array} Array of ProseMirror text node JSON objects
@@ -21,9 +22,8 @@ function parseInline(text, diffMark) {
   if (!text) return [];
 
   const nodes = [];
-  // Regex matches inline patterns in order of precedence
-  // backtick code first (no nesting), then bold, italic, strikethrough, links
-  const pattern = /`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
+  // HTML tags first (they may contain markdown inside), then markdown patterns
+  const pattern = /<span style="([^"]+)">(.+?)<\/span>|<u>(.+?)<\/u>|<mark>(.+?)<\/mark>|<sub>(.+?)<\/sub>|<sup>(.+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
   let lastIndex = 0;
   let match;
 
@@ -34,32 +34,60 @@ function parseInline(text, diffMark) {
     }
 
     if (match[1] !== undefined) {
-      // `code`
-      nodes.push(makeTextNode(match[1], [{ type: 'code' }], diffMark));
-    } else if (match[2] !== undefined) {
-      // **bold** — recurse for nested formatting
+      // <span style="...">text</span> — parse style into textStyle mark
       const inner = parseInline(match[2], diffMark);
+      const attrs = parseStyleAttr(match[1]);
+      for (const node of inner) {
+        addMark(node, { type: 'textStyle', attrs });
+      }
+      nodes.push(...inner);
+    } else if (match[3] !== undefined) {
+      // <u>underline</u>
+      const inner = parseInline(match[3], diffMark);
+      for (const node of inner) { addMark(node, { type: 'underline' }); }
+      nodes.push(...inner);
+    } else if (match[4] !== undefined) {
+      // <mark>highlight</mark>
+      const inner = parseInline(match[4], diffMark);
+      for (const node of inner) { addMark(node, { type: 'highlight' }); }
+      nodes.push(...inner);
+    } else if (match[5] !== undefined) {
+      // <sub>subscript</sub>
+      const inner = parseInline(match[5], diffMark);
+      for (const node of inner) { addMark(node, { type: 'subscript' }); }
+      nodes.push(...inner);
+    } else if (match[6] !== undefined) {
+      // <sup>superscript</sup>
+      const inner = parseInline(match[6], diffMark);
+      for (const node of inner) { addMark(node, { type: 'superscript' }); }
+      nodes.push(...inner);
+    } else if (match[7] !== undefined) {
+      // `code`
+      nodes.push(makeTextNode(match[7], [{ type: 'code' }], diffMark));
+    } else if (match[8] !== undefined) {
+      // **bold** — recurse for nested formatting
+      const inner = parseInline(match[8], diffMark);
       for (const node of inner) {
         addMark(node, { type: 'bold' });
       }
       nodes.push(...inner);
-    } else if (match[3] !== undefined) {
+    } else if (match[9] !== undefined) {
       // _italic_
-      const inner = parseInline(match[3], diffMark);
+      const inner = parseInline(match[9], diffMark);
       for (const node of inner) {
         addMark(node, { type: 'italic' });
       }
       nodes.push(...inner);
-    } else if (match[4] !== undefined) {
+    } else if (match[10] !== undefined) {
       // ~~strikethrough~~
-      const inner = parseInline(match[4], diffMark);
+      const inner = parseInline(match[10], diffMark);
       for (const node of inner) {
         addMark(node, { type: 'strike' });
       }
       nodes.push(...inner);
-    } else if (match[5] !== undefined) {
+    } else if (match[11] !== undefined) {
       // [text](url)
-      nodes.push(makeTextNode(match[5], [{ type: 'link', attrs: { href: match[6] } }], diffMark));
+      nodes.push(makeTextNode(match[11], [{ type: 'link', attrs: { href: match[12] } }], diffMark));
     }
 
     lastIndex = match.index + match[0].length;
@@ -76,6 +104,22 @@ function parseInline(text, diffMark) {
   }
 
   return nodes;
+}
+
+/** Parse CSS style string into textStyle mark attrs */
+function parseStyleAttr(style) {
+  const attrs = {};
+  for (const decl of style.split(';')) {
+    const [prop, ...rest] = decl.split(':');
+    const val = rest.join(':').trim();
+    if (!prop || !val) continue;
+    const p = prop.trim();
+    if (p === 'color') attrs.color = val;
+    else if (p === 'background-color') attrs.backgroundColor = val;
+    else if (p === 'font-size') attrs.fontSize = val;
+    else if (p === 'font-family') attrs.fontFamily = val;
+  }
+  return attrs;
 }
 
 function makeTextNode(text, marks, diffMark) {
