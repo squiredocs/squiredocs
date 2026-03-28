@@ -19,7 +19,7 @@ const { toMarkdown } = require('./mcp/yjs/serialization');
 const { markdownToPm } = require('./markdown-to-pm');
 const { extractXml, extractText } = require('./yjs-utils');
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 
 class DiffService {
   constructor(pool) {

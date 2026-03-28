@@ -23,8 +23,7 @@ function parseInline(text, diffMark) {
 
   const nodes = [];
   // HTML tags first (they may contain markdown inside), then markdown patterns
-  // Note: HTML tag content uses [\s\S]+? to allow newlines within text nodes
-  const pattern = /<span style="([^"]+)">([\s\S]+?)<\/span>|<u>([\s\S]+?)<\/u>|<mark>([\s\S]+?)<\/mark>|<sub>([\s\S]+?)<\/sub>|<sup>([\s\S]+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
+  const pattern = /<span style="([^"]+)">(.+?)<\/span>|<u>(.+?)<\/u>|<mark>(.+?)<\/mark>|<sub>(.+?)<\/sub>|<sup>(.+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
   let lastIndex = 0;
   let match;
 
@@ -91,7 +90,8 @@ function parseStyleAttr(style) {
 }
 
 function makeTextNode(text, marks, diffMark) {
-  const node = { type: 'text', text };
+  // Restore newlines that were replaced with placeholders during line-joining
+  const node = { type: 'text', text: text.replaceAll(NEWLINE_PLACEHOLDER, '\n') };
   const allMarks = [...marks];
   if (diffMark) allMarks.push({ type: diffMark });
   if (allMarks.length > 0) node.marks = allMarks;
@@ -110,20 +110,26 @@ function parseMarked(content, mark, diffMark) {
   return inner;
 }
 
+// Placeholder for \n inside inline spans so the line-based parser isn't broken.
+// Restored to real \n in makeTextNode().
+const NEWLINE_PLACEHOLDER = '\x00';
+
 /**
  * Join lines that are continuations of the previous line due to
  * newlines inside inline HTML spans (e.g., \n in text nodes).
- * Detects unclosed <span> tags and merges the next line.
+ * Detects unclosed <span>/<u>/<mark>/etc. tags and merges the next line,
+ * replacing the \n with a placeholder so the single-line regex still works.
  */
 function joinContinuationLines(lines) {
   const result = [];
   for (const line of lines) {
     if (result.length > 0) {
       const prev = result[result.length - 1];
-      const opens = (prev.match(/<span\s/g) || []).length;
-      const closes = (prev.match(/<\/span>/g) || []).length;
+      const opens = (prev.match(/<(?:span|u|mark|sub|sup)\b/g) || []).length;
+      const closes = (prev.match(/<\/(?:span|u|mark|sub|sup)>/g) || []).length;
       if (opens > closes) {
-        result[result.length - 1] = prev + '\n' + line;
+        // Replace the line-break with a placeholder so the regex can match
+        result[result.length - 1] = prev + NEWLINE_PLACEHOLDER + line;
         continue;
       }
     }

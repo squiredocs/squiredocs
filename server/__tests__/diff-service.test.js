@@ -269,6 +269,47 @@ describe('DiffService', () => {
       currDoc.destroy();
     });
 
+    test('handles newlines within styled text nodes', () => {
+      const { markdownToPm } = require('../markdown-to-pm');
+      const { toMarkdown } = require('../mcp/yjs/serialization');
+
+      // Create a doc with \n in a styled text node (occurs from MCP edits)
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const list = new Y.XmlElement('bulletList');
+        const li = new Y.XmlElement('listItem');
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'First line.\nSecond line.', {
+          textStyle: { fontSize: '17px' },
+        });
+        p.insert(0, [t]);
+        li.insert(0, [p]);
+        list.insert(0, [li]);
+        fragment.insert(0, [list]);
+      });
+
+      const md = toMarkdown(fragment);
+
+      // The markdown should contain the text (span will cross the newline)
+      expect(md).toContain('First line.');
+      expect(md).toContain('Second line.');
+
+      // Round-trip should produce valid blocks with diffInsert on all text
+      const pmJson = markdownToPm(md, 'diffInsert');
+      const jsonStr = JSON.stringify(pmJson);
+
+      // Should NOT have broken </span> as text content
+      expect(jsonStr).not.toContain('"text":"</span>');
+      // All blocks should have diffInsert
+      expect(jsonStr).toContain('diffInsert');
+      // Newline should be preserved in text
+      expect(jsonStr).toContain('First line.\\nSecond line.');
+
+      doc.destroy();
+    });
+
     test('lineHeight survives markdown round-trip', () => {
       const { markdownToPm } = require('../markdown-to-pm');
       const { toMarkdown } = require('../mcp/yjs/serialization');
