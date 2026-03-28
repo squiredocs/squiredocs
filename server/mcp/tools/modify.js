@@ -1481,7 +1481,6 @@ async function handler(args, agentToken) {
 
   // Capture state before script execution for change detection and diff
   const blockCountBefore = xmlFragment.toArray().length;
-  const textBefore = getTextContent(xmlFragment);
   const mdBefore = toMarkdown(xmlFragment);
   console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
@@ -1495,9 +1494,8 @@ async function handler(args, agentToken) {
 
     // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
-    const textAfter = getTextContent(xmlFragment);
-    const changed = (blockCountBefore !== blockCountAfter) || (textBefore !== textAfter);
-    const mdAfter = changed ? toMarkdown(xmlFragment) : mdBefore;
+    const mdAfter = toMarkdown(xmlFragment);
+    const changed = mdBefore !== mdAfter;
     console.log(`[modify:DIAGNOSTIC] blockCountAfter=${blockCountAfter}`);
     console.log(`[modify:DIAGNOSTIC] blocksAdded=${blockCountAfter - blockCountBefore}`);
     console.log(`[modify:DIAGNOSTIC] changed=${changed}`);
@@ -1514,6 +1512,7 @@ async function handler(args, agentToken) {
             if (h > 0) lines.push('~~~');
             hunkStarts.push({ index: lines.length, oldStart: patch.hunks[h].oldStart, newStart: patch.hunks[h].newStart });
             for (const line of patch.hunks[h].lines) {
+              if (line === '\\ No newline at end of file') continue;
               lines.push(line);
             }
           }

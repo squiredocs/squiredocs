@@ -86,6 +86,7 @@ function toMarkdown(xmlFragment) {
       if (ts && ts.backgroundColor) styles.push(`background-color:${ts.backgroundColor}`);
       if (ts && ts.fontSize) styles.push(`font-size:${ts.fontSize}`);
       if (ts && ts.fontFamily) styles.push(`font-family:${ts.fontFamily}`);
+      if (ts && ts.lineHeight) styles.push(`line-height:${ts.lineHeight}`);
       if (styles.length) seg = `<span style="${styles.join(';')}">${seg}</span>`;
       if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
       out += seg;
@@ -123,22 +124,15 @@ function toMarkdown(xmlFragment) {
       const lang = node.getAttribute('language') || '';
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
-      const inner = [];
+      // Render children into a temporary capture by splicing the shared
+      // `parts` array so the closure-based processNode writes into it.
+      const saved = parts.splice(0);    // save & clear accumulated output
       for (const child of node.toArray()) {
-        const sub = [];
-        const save = parts;
-        // temporarily redirect output
-        parts.length = 0;
-        Object.assign(parts, []);
         processNode(child, indent);
-        sub.push(...parts);
-        parts.length = 0;
-        Object.assign(parts, save);
-        for (const line of sub) {
-          inner.push(line);
-        }
       }
-      for (const line of inner) {
+      const innerLines = parts.splice(0); // capture child output
+      parts.push(...saved);              // restore previous output
+      for (const line of innerLines) {
         parts.push('> ' + line);
       }
     } else if (tag === 'bulletList') {

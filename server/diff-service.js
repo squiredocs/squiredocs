@@ -226,7 +226,7 @@ class DiffService {
 
     try {
       const redis = getRedisClient();
-      const keys = await redis.keys(`diff:${docGuid}:*`);
+      const keys = await redis.keys(`diff*:${docGuid}:*`);
       if (keys.length > 0) {
         await redis.del(...keys);
       }

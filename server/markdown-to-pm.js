@@ -23,7 +23,8 @@ function parseInline(text, diffMark) {
 
   const nodes = [];
   // HTML tags first (they may contain markdown inside), then markdown patterns
-  const pattern = /<span style="([^"]+)">(.+?)<\/span>|<u>(.+?)<\/u>|<mark>(.+?)<\/mark>|<sub>(.+?)<\/sub>|<sup>(.+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
+  // Note: HTML tag content uses [\s\S]+? to allow newlines within text nodes
+  const pattern = /<span style="([^"]+)">([\s\S]+?)<\/span>|<u>([\s\S]+?)<\/u>|<mark>([\s\S]+?)<\/mark>|<sub>([\s\S]+?)<\/sub>|<sup>([\s\S]+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
   let lastIndex = 0;
   let match;
 
@@ -84,6 +85,7 @@ function parseStyleAttr(style) {
     else if (p === 'background-color') attrs.backgroundColor = val;
     else if (p === 'font-size') attrs.fontSize = val;
     else if (p === 'font-family') attrs.fontFamily = val;
+    else if (p === 'line-height') attrs.lineHeight = val;
   }
   return attrs;
 }
@@ -109,6 +111,28 @@ function parseMarked(content, mark, diffMark) {
 }
 
 /**
+ * Join lines that are continuations of the previous line due to
+ * newlines inside inline HTML spans (e.g., \n in text nodes).
+ * Detects unclosed <span> tags and merges the next line.
+ */
+function joinContinuationLines(lines) {
+  const result = [];
+  for (const line of lines) {
+    if (result.length > 0) {
+      const prev = result[result.length - 1];
+      const opens = (prev.match(/<span\s/g) || []).length;
+      const closes = (prev.match(/<\/span>/g) || []).length;
+      if (opens > closes) {
+        result[result.length - 1] = prev + '\n' + line;
+        continue;
+      }
+    }
+    result.push(line);
+  }
+  return result;
+}
+
+/**
  * Parse markdown string into ProseMirror document JSON.
  *
  * @param {string} markdown - Markdown content
@@ -116,7 +140,7 @@ function parseMarked(content, mark, diffMark) {
  * @returns {object} ProseMirror document JSON { type: 'doc', content: [...] }
  */
 function markdownToPm(markdown, diffMark = null) {
-  const lines = markdown.split('\n');
+  const lines = joinContinuationLines(markdown.split('\n'));
   const blocks = [];
   let i = 0;
 

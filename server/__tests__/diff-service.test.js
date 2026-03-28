@@ -166,6 +166,134 @@ describe('DiffService', () => {
 
 
 
+  describe('computeMarkdownDiff — formatting changes', () => {
+    // Helper to create a Y.Doc with a heading, a paragraph, and a blockquote
+    function createFormattedDoc({ headingStyle, paraStyle, paraItalic, blockquoteStyle }) {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        // Heading
+        const heading = new Y.XmlElement('heading');
+        heading.setAttribute('level', '1');
+        const headingText = new Y.XmlText();
+        const headingAttrs = headingStyle ? { textStyle: headingStyle } : {};
+        headingText.insert(0, 'Bug Report', headingAttrs);
+        heading.insert(0, [headingText]);
+
+        // Paragraph
+        const para = new Y.XmlElement('paragraph');
+        const paraText = new Y.XmlText();
+        const paraAttrs = {};
+        if (paraStyle) paraAttrs.textStyle = paraStyle;
+        if (paraItalic) paraAttrs.italic = true;
+        paraText.insert(0, 'This report documents an incident.', paraAttrs);
+        para.insert(0, [paraText]);
+
+        // Blockquote > paragraph
+        const bq = new Y.XmlElement('blockquote');
+        const bqPara = new Y.XmlElement('paragraph');
+        const bqText = new Y.XmlText();
+        const bqAttrs = blockquoteStyle ? { textStyle: blockquoteStyle } : {};
+        bqText.insert(0, 'Overall, this addresses the risk.', bqAttrs);
+        bqPara.insert(0, [bqText]);
+        bq.insert(0, [bqPara]);
+
+        fragment.insert(0, [heading, para, bq]);
+      });
+      return doc;
+    }
+
+    test('detects formatting-only changes and preserves textStyle in diff marks', () => {
+      // Before: plain text
+      const prevDoc = createFormattedDoc({});
+      // After: styled text (font-size, line-height, font-family, color)
+      const currDoc = createFormattedDoc({
+        headingStyle: { color: '#1e293b', fontFamily: 'Georgia', fontSize: '32px' },
+        paraStyle: { fontSize: '17px', lineHeight: '1.6' },
+        paraItalic: true,
+        blockquoteStyle: { fontSize: '17px', lineHeight: '1.6' },
+      });
+
+      const result = diffService.computeMarkdownDiff(prevDoc, currDoc, false);
+
+      // Should produce a valid doc
+      expect(result.type).toBe('doc');
+      expect(result.content.length).toBeGreaterThan(0);
+
+      // Stringify to check for marks
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffDelete');
+      expect(json).toContain('diffInsert');
+
+      // The inserted heading should have textStyle with all attrs preserved
+      const insertedBlocks = result.content.filter(
+        block => JSON.stringify(block).includes('diffInsert')
+      );
+      expect(insertedBlocks.length).toBeGreaterThan(0);
+
+      // Find a text node with textStyle mark containing fontSize
+      const allTextNodes = JSON.stringify(insertedBlocks);
+      expect(allTextNodes).toContain('"fontSize"');
+      expect(allTextNodes).toContain('"fontFamily"');
+      expect(allTextNodes).toContain('"color"');
+      // lineHeight must survive the round-trip
+      expect(allTextNodes).toContain('"lineHeight"');
+
+      prevDoc.destroy();
+      currDoc.destroy();
+    });
+
+    test('formatting-only change detected via formattingOnly flag', async () => {
+      // Same text, different formatting — the text (tags stripped) is identical
+      // but the XML differs, so formattingOnly should be true
+      const prevDoc = createFormattedDoc({});
+      const currDoc = createFormattedDoc({
+        blockquoteStyle: { fontSize: '17px' },
+      });
+
+      const { extractText } = require('../yjs-utils');
+      const textIdentical = extractText(prevDoc) === extractText(currDoc);
+      expect(textIdentical).toBe(true);
+
+      const { extractXml } = require('../yjs-utils');
+      const xmlDiffers = extractXml(prevDoc) !== extractXml(currDoc);
+      expect(xmlDiffers).toBe(true);
+
+      // The diff should still produce diffInsert/diffDelete for the changed blockquote
+      const result = diffService.computeMarkdownDiff(prevDoc, currDoc, textIdentical);
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffInsert');
+      expect(json).toContain('diffDelete');
+
+      prevDoc.destroy();
+      currDoc.destroy();
+    });
+
+    test('lineHeight survives markdown round-trip', () => {
+      const { markdownToPm } = require('../markdown-to-pm');
+      const { toMarkdown } = require('../mcp/yjs/serialization');
+
+      // Create a doc with lineHeight
+      const doc = createFormattedDoc({
+        paraStyle: { fontSize: '17px', lineHeight: '1.6' },
+      });
+
+      const fragment = doc.get('default', Y.XmlFragment);
+      const md = toMarkdown(fragment);
+
+      // Markdown should include line-height
+      expect(md).toContain('line-height:1.6');
+
+      // Round-trip through markdownToPm
+      const pmJson = markdownToPm(md, null);
+      const pmStr = JSON.stringify(pmJson);
+      expect(pmStr).toContain('"lineHeight":"1.6"');
+      expect(pmStr).toContain('"fontSize":"17px"');
+
+      doc.destroy();
+    });
+  });
+
   describe('computeDiff', () => {
     test('computes diff for document with changes', async () => {
       // Create initial document
