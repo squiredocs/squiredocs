@@ -114,6 +114,50 @@ function ToolCardDetail({ toolName, input }) {
   return <pre>{JSON.stringify(input, null, 2)}</pre>;
 }
 
+const DIFF_INITIAL_LINES = 12;
+
+function DiffView({ diff }) {
+  const [expanded, setExpanded] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+
+  if (!diff || !diff.lines || diff.lines.length === 0) return null;
+
+  const { lines } = diff;
+  const needsTruncation = lines.length > DIFF_INITIAL_LINES && !showAll;
+  const visibleLines = needsTruncation ? lines.slice(0, DIFF_INITIAL_LINES) : lines;
+
+  return (
+    <div className="ai-diff-view">
+      <button className="ai-diff-toggle" onClick={() => setExpanded(!expanded)}>
+        Changes {expanded ? '\u25B4' : '\u25BE'}
+      </button>
+      {expanded && (
+        <div className="ai-diff-content">
+          <pre className="ai-diff-pre">
+            {visibleLines.map((line, i) => {
+              if (line === '~~~') {
+                return <div key={i} className="ai-diff-separator">...</div>;
+              }
+              const type = line[0] === '+' ? 'added' : line[0] === '-' ? 'removed' : 'context';
+              return (
+                <div key={i} className={`ai-diff-line ai-diff-line--${type}`}>{line}</div>
+              );
+            })}
+          </pre>
+          {needsTruncation && (
+            <button className="ai-diff-expand" onClick={() => setShowAll(true)}>
+              Show all {lines.length} lines
+            </button>
+          )}
+          {diff.truncatedByServer && (
+            <div className="ai-diff-truncated">Diff truncated (changes too large)</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCard({ part }) {
   const [expanded, setExpanded] = useState(false);
   const toolName = getToolName(part);
@@ -121,6 +165,9 @@ function ToolCard({ part }) {
   const isComplete = part.state === 'output-available' || part.state === 'output-error';
   const input = part.input;
   const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
+
+  const diff = (toolName === 'modify' && isComplete && part.output?.diff) || null;
+  const isFormatOnly = toolName === 'modify' && isComplete && part.output?.changed && !diff;
 
   return (
     <div className="ai-tool-card">
@@ -135,6 +182,10 @@ function ToolCard({ part }) {
         <div className="ai-tool-card-detail">
           <ToolCardDetail toolName={toolName} input={input} />
         </div>
+      )}
+      {diff && <DiffView diff={diff} />}
+      {isFormatOnly && (
+        <div className="ai-diff-format-only">Formatting changes only</div>
       )}
     </div>
   );

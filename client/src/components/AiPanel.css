@@ -421,6 +421,98 @@
   font-size: inherit;
 }
 
+/* ---------- Diff view (modify tool output) ---------- */
+
+.ai-diff-view {
+  margin: 4px 0 2px;
+}
+
+.ai-diff-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.ai-diff-toggle:hover {
+  color: #6b7280;
+}
+
+.ai-diff-content {
+  margin-top: 4px;
+}
+
+.ai-diff-pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.ai-diff-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-diff-line--added {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.ai-diff-line--removed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.ai-diff-line--context {
+  color: #6b7280;
+}
+
+.ai-diff-separator {
+  text-align: center;
+  color: #d1d5db;
+  font-size: 10px;
+  padding: 2px 0;
+}
+
+.ai-diff-expand {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 1px dashed #e5e7eb;
+  border-radius: 4px;
+  padding: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.ai-diff-expand:hover {
+  background: rgba(0, 0, 0, 0.02);
+  color: #374151;
+}
+
+.ai-diff-truncated {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.ai-diff-format-only {
+  font-size: 11px;
+  color: #9ca3af;
+  font-style: italic;
+  padding: 2px 0;
+}
+
 /* ---------- Thinking / reasoning block ---------- */
 
 .ai-thinking-block {

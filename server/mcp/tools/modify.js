@@ -9,6 +9,7 @@ const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
 const { getTextContent } = require('../sandbox/helpers');
+const { structuredPatch } = require('diff');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -1499,11 +1500,36 @@ async function handler(args, agentToken) {
     console.log(`[modify:DIAGNOSTIC] changed=${changed}`);
 
     if (result.success) {
+      // Compute text diff for chat UI
+      let diff = null;
+      if (changed) {
+        try {
+          const patch = structuredPatch('', '', textBefore, textAfter, '', '', { context: 2 });
+          const lines = [];
+          for (let h = 0; h < patch.hunks.length; h++) {
+            if (h > 0) lines.push('~~~');
+            for (const line of patch.hunks[h].lines) {
+              lines.push(line);
+            }
+          }
+          const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
+          if (totalChars > 50000) {
+            diff = { lines: lines.slice(0, 200), truncatedByServer: true };
+          } else {
+            diff = { lines };
+          }
+        } catch (e) {
+          // Diff computation is best-effort; don't fail the tool call
+          console.error('[modify] diff computation failed:', e.message);
+        }
+      }
+
       return {
         success: true,
         changed,
         operationCount: result.operationCount,
         summary: result.summary,
+        diff,
       };
     } else {
       throw new Error(result.error);
