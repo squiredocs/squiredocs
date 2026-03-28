@@ -192,6 +192,21 @@ export function AiChatProvider({ children }) {
     });
   }, [accessToken, refreshChatList]);
 
+  // Poll chat list + refresh on tab visibility (mirrors DocList pattern)
+  useEffect(() => {
+    if (!accessToken) return;
+    const POLL_INTERVAL = 5000;
+    const id = setInterval(() => {
+      if (!document.hidden) refreshChatList();
+    }, POLL_INTERVAL);
+    const onVisibility = () => { if (!document.hidden) refreshChatList(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [accessToken, refreshChatList]);
+
   // ── CRUD operations ──────────────────────────────────────────────────────
 
   // Create a chat row on the server (called lazily on first message).
