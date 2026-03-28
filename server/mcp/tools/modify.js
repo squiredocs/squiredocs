@@ -1509,17 +1509,19 @@ async function handler(args, agentToken) {
         try {
           const patch = structuredPatch('', '', mdBefore, mdAfter, '', '', { context: 2 });
           const lines = [];
+          const hunkStarts = [];
           for (let h = 0; h < patch.hunks.length; h++) {
             if (h > 0) lines.push('~~~');
+            hunkStarts.push({ index: lines.length, oldStart: patch.hunks[h].oldStart, newStart: patch.hunks[h].newStart });
             for (const line of patch.hunks[h].lines) {
               lines.push(line);
             }
           }
           const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
           if (totalChars > 50000) {
-            diff = { lines: lines.slice(0, 200), truncatedByServer: true };
+            diff = { lines: lines.slice(0, 200), hunkStarts, truncatedByServer: true };
           } else {
-            diff = { lines };
+            diff = { lines, hunkStarts };
           }
         } catch (e) {
           // Diff computation is best-effort; don't fail the tool call

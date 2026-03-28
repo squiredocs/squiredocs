@@ -135,12 +135,20 @@ function DiffView({ diff }) {
   const needsTruncation = lines.length > DIFF_VISIBLE_LINES && !showAll;
   const visibleLines = needsTruncation ? lines.slice(0, DIFF_VISIBLE_LINES) : lines;
 
-  // Compute line numbers: show old line num for removed, new line num for added/context
+  // Compute line numbers using hunk start offsets from the server
+  const hunkStarts = diff.hunkStarts || [];
   let oldLine = 0;
   let newLine = 0;
-  const numberedLines = visibleLines.map((line) => {
+  let hunkIdx = 0;
+  const numberedLines = visibleLines.map((line, i) => {
     if (line === '~~~') {
       return { line, type: 'separator', num: null };
+    }
+    // Reset counters at each hunk boundary
+    if (hunkIdx < hunkStarts.length && i === hunkStarts[hunkIdx].index) {
+      oldLine = hunkStarts[hunkIdx].oldStart - 1;
+      newLine = hunkStarts[hunkIdx].newStart - 1;
+      hunkIdx++;
     }
     const prefix = line[0];
     if (prefix === '-') {
