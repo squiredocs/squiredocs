@@ -442,6 +442,7 @@ router.post('/', requireAuth, async (req, res) => {
     const tools = chatTools.buildTools(syntheticAgentToken, {
       providerName: def.provider,
       provider,
+      pool,
     });
 
     // Validate and convert UI messages for streamText

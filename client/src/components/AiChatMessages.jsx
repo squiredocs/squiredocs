@@ -3,24 +3,32 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const TOOL_LABELS = {
-  read_document: 'Reading document',
-  modify: 'Editing document',
+  read_document: 'Reading',
+  modify: 'Editing',
   list_documents: 'Listing documents',
   create_document: 'Creating document',
-  share_document: 'Sharing document',
-  set_document_title: 'Setting title',
-  get_collaborators: 'Getting collaborators',
-  undo: 'Undoing',
-  redo: 'Redoing',
-  list_document_versions: 'Listing versions',
-  read_document_version: 'Reading version',
-  set_document_version_name: 'Naming version',
-  restore_document_version: 'Restoring version',
-  compare_document_versions: 'Comparing versions',
+  share_document: 'Sharing',
+  set_document_title: 'Setting title of',
+  get_collaborators: 'Getting collaborators for',
+  undo: 'Undoing in',
+  redo: 'Redoing in',
+  list_document_versions: 'Listing versions of',
+  read_document_version: 'Reading version of',
+  set_document_version_name: 'Naming version of',
+  restore_document_version: 'Restoring version of',
+  compare_document_versions: 'Comparing versions of',
   webSearch: 'Searching the web',
   webFetch: 'Fetching page',
   _compacting: 'Compacting conversation',
 };
+
+// Tools that operate on a single document and can show a linked title
+const DOC_TOOLS = new Set([
+  'read_document', 'modify', 'share_document', 'set_document_title',
+  'get_collaborators', 'undo', 'redo', 'list_document_versions',
+  'read_document_version', 'set_document_version_name',
+  'restore_document_version', 'compare_document_versions',
+]);
 
 function getToolLabel(toolName) {
   return TOOL_LABELS[toolName] || toolName;
@@ -114,7 +122,7 @@ function ToolCardDetail({ toolName, input }) {
   return <pre>{JSON.stringify(input, null, 2)}</pre>;
 }
 
-const DIFF_INITIAL_LINES = 12;
+const DIFF_VISIBLE_LINES = 80;
 
 function DiffView({ diff }) {
   const [expanded, setExpanded] = useState(true);
@@ -123,8 +131,29 @@ function DiffView({ diff }) {
   if (!diff || !diff.lines || diff.lines.length === 0) return null;
 
   const { lines } = diff;
-  const needsTruncation = lines.length > DIFF_INITIAL_LINES && !showAll;
-  const visibleLines = needsTruncation ? lines.slice(0, DIFF_INITIAL_LINES) : lines;
+  const needsTruncation = lines.length > DIFF_VISIBLE_LINES && !showAll;
+  const visibleLines = needsTruncation ? lines.slice(0, DIFF_VISIBLE_LINES) : lines;
+
+  // Compute line numbers: track old/new line counters across all lines
+  let oldLine = 0;
+  let newLine = 0;
+  const numberedLines = visibleLines.map((line) => {
+    if (line === '~~~') {
+      return { line, type: 'separator' };
+    }
+    const prefix = line[0];
+    if (prefix === '-') {
+      oldLine++;
+      return { line, type: 'removed', oldNum: oldLine, newNum: null };
+    }
+    if (prefix === '+') {
+      newLine++;
+      return { line, type: 'added', oldNum: null, newNum: newLine };
+    }
+    oldLine++;
+    newLine++;
+    return { line, type: 'context', oldNum: oldLine, newNum: newLine };
+  });
 
   return (
     <div className="ai-diff-view">
@@ -133,17 +162,27 @@ function DiffView({ diff }) {
       </button>
       {expanded && (
         <div className="ai-diff-content">
-          <pre className="ai-diff-pre">
-            {visibleLines.map((line, i) => {
-              if (line === '~~~') {
-                return <div key={i} className="ai-diff-separator">...</div>;
-              }
-              const type = line[0] === '+' ? 'added' : line[0] === '-' ? 'removed' : 'context';
-              return (
-                <div key={i} className={`ai-diff-line ai-diff-line--${type}`}>{line}</div>
-              );
-            })}
-          </pre>
+          <table className="ai-diff-table">
+            <tbody>
+              {numberedLines.map((entry, i) => {
+                if (entry.type === 'separator') {
+                  return (
+                    <tr key={i} className="ai-diff-separator-row">
+                      <td className="ai-diff-gutter" colSpan={2}></td>
+                      <td className="ai-diff-separator-text">...</td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={i} className={`ai-diff-row ai-diff-row--${entry.type}`}>
+                    <td className="ai-diff-gutter">{entry.oldNum ?? ''}</td>
+                    <td className="ai-diff-gutter">{entry.newNum ?? ''}</td>
+                    <td className="ai-diff-cell">{entry.line}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
           {needsTruncation && (
             <button className="ai-diff-expand" onClick={() => setShowAll(true)}>
               Show all {lines.length} lines
@@ -158,27 +197,49 @@ function DiffView({ diff }) {
   );
 }
 
+function DocTitleLink({ docGuid, title }) {
+  const handleClick = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.history.pushState({}, '', `/d/${docGuid}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [docGuid]);
+  return (
+    <>{'\u201c'}<a href={`/d/${docGuid}`} className="ai-tool-card-link" onClick={handleClick}>{title}</a>{'\u201d'}</>
+  );
+}
+
 function ToolCard({ part }) {
   const [expanded, setExpanded] = useState(false);
   const toolName = getToolName(part);
-  const label = getToolLabel(toolName);
   const isComplete = part.state === 'output-available' || part.state === 'output-error';
   const input = part.input;
   const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
+  const isDocTool = DOC_TOOLS.has(toolName);
+  const isModify = toolName === 'modify';
 
-  const diff = (toolName === 'modify' && isComplete && part.output?.diff) || null;
-  const isFormatOnly = toolName === 'modify' && isComplete && part.output?.changed && !diff;
+  const docTitle = isDocTool && isComplete && part.output?.docTitle;
+  const docGuid = isDocTool && input?.docGuid;
+  const showDetail = hasInput && !isModify;
+
+  const diff = (isModify && isComplete && part.output?.diff) || null;
+  const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
+
+  const verb = getToolLabel(toolName);
 
   return (
     <div className="ai-tool-card">
       <button
         className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}`}
-        onClick={hasInput ? () => setExpanded(!expanded) : undefined}
-        style={hasInput ? undefined : { cursor: 'default' }}
+        onClick={showDetail ? () => setExpanded(!expanded) : undefined}
+        style={showDetail ? undefined : { cursor: 'default' }}
       >
-        {label}{isComplete ? ' \u2713' : '...'}{hasInput ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
+        {verb}{isDocTool && ' '}{isDocTool && (docTitle
+          ? <DocTitleLink docGuid={docGuid} title={docTitle} />
+          : 'document')}
+        {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
       </button>
-      {expanded && hasInput && (
+      {expanded && showDetail && (
         <div className="ai-tool-card-detail">
           <ToolCardDetail toolName={toolName} input={input} />
         </div>

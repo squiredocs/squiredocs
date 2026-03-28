@@ -133,7 +133,7 @@ function buildWebTools(providerName, provider) {
  * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, { providerName, provider } = {}) {
+function buildTools(syntheticAgentToken, { providerName, provider, pool } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -152,6 +152,13 @@ function buildTools(syntheticAgentToken, { providerName, provider } = {}) {
               + `(limit: ${MAX_RESULT_CHARS.toLocaleString()})`
             );
             return buildOversizedError(name, serialized.length, MAX_RESULT_CHARS, result);
+          }
+          // Enrich doc-scoped tool results with title for chat UI labels
+          if (pool && args.docGuid && result && typeof result === 'object' && !result.error) {
+            try {
+              const titleRow = await pool.query('SELECT title FROM documents WHERE id = $1', [args.docGuid]);
+              result.docTitle = titleRow.rows[0]?.title || null;
+            } catch (_) { /* best-effort */ }
           }
           return result;
         } catch (error) {

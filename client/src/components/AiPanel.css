@@ -385,8 +385,18 @@
 }
 
 .ai-tool-card-toggle.ai-tool-card--complete {
-  background: rgba(16, 185, 129, 0.1);
-  color: #16a34a;
+  background: rgba(100, 116, 139, 0.1);
+  color: #64748b;
+}
+
+.ai-tool-card-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-tool-card-link:hover {
+  text-decoration-thickness: 2px;
 }
 
 .ai-tool-card-detail {
@@ -444,41 +454,68 @@
   margin-top: 4px;
 }
 
-.ai-diff-pre {
-  margin: 0;
-  padding: 6px 8px;
+.ai-diff-table {
+  width: 100%;
+  border-collapse: collapse;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 4px;
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  line-height: 1.6;
   overflow-x: auto;
-  line-height: 1.5;
+  display: block;
 }
 
-.ai-diff-line {
+.ai-diff-table tbody {
+  display: table;
+  width: 100%;
+}
+
+.ai-diff-gutter {
+  width: 1px;
+  white-space: nowrap;
+  padding: 0 6px;
+  text-align: right;
+  color: #d1d5db;
+  user-select: none;
+  vertical-align: top;
+}
+
+.ai-diff-cell {
+  width: 100%;
   white-space: pre-wrap;
   word-break: break-word;
+  padding: 0 8px 0 4px;
 }
 
-.ai-diff-line--added {
+.ai-diff-row--added {
   background: rgba(34, 197, 94, 0.12);
+}
+
+.ai-diff-row--added .ai-diff-cell {
   color: #15803d;
 }
 
-.ai-diff-line--removed {
+.ai-diff-row--removed {
   background: rgba(239, 68, 68, 0.12);
+}
+
+.ai-diff-row--removed .ai-diff-cell {
   color: #dc2626;
 }
 
-.ai-diff-line--context {
+.ai-diff-row--context .ai-diff-cell {
   color: #6b7280;
 }
 
-.ai-diff-separator {
+.ai-diff-separator-row td {
+  padding: 2px 0;
+}
+
+.ai-diff-separator-text {
   text-align: center;
   color: #d1d5db;
   font-size: 10px;
-  padding: 2px 0;
 }
 
 .ai-diff-expand {
