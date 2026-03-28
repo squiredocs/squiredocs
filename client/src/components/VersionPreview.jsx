@@ -1,20 +1,14 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { getBaseExtensions } from '../extensions/editorExtensions';
-import { DiffDecorationExtension, applyDiffDecorations, clearDiffDecorations } from '../extensions/DiffDecorationExtension';
 import './EditorCommon.css';
 import './VersionPreview.css';
 
 /**
  * Read-only preview of a historical version with inline diff visualization.
  *
- * Receives pre-computed diff data from the server:
- * - document: ProseMirror JSON of the document at currentClock
- * - changes: Array of {type, fromB, toB, deleted} for decorations
- * - meta: {previousClock, currentClock, textIdentical}
- *
- * The server handles all Yjs document reconstruction and diff computation,
- * so this component just renders the document and applies decorations.
+ * The server returns a ProseMirror document with diffInsert/diffDelete marks
+ * baked into the content. Diff visibility is toggled purely via CSS.
  */
 function VersionPreview({
   diffData,
@@ -22,16 +16,9 @@ function VersionPreview({
   isLoading = false,
   showDiff = true,
 }) {
-  const [diffApplied, setDiffApplied] = useState(false);
-
-  // Ref for race condition prevention
-  const versionCounterRef = useRef(0);
-
   // Editor extensions (read-only, no collaboration needed)
-  // Use shared base extensions to ensure schema consistency with main editor
   const extensions = useMemo(() => [
-    ...getBaseExtensions({ openLinksOnClick: true }), // Allow default link behavior in preview
-    DiffDecorationExtension,
+    ...getBaseExtensions({ openLinksOnClick: true }),
   ], []);
 
   // Initialize editor with document content from server
@@ -43,40 +30,6 @@ function VersionPreview({
 
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
-
-  // Clear decorations and reset state when selection changes or showDiff is toggled off
-  // This ensures decorations are properly reapplied when switching between items
-  useEffect(() => {
-    if (editor) {
-      clearDiffDecorations(editor);
-    }
-    setDiffApplied(false);
-  }, [selection?.id, editor, showDiff]);
-
-  // Apply diff decorations when editor is ready and we have changes
-  useEffect(() => {
-    if (!editor || !showDiff || diffApplied || textIdentical) {
-      return;
-    }
-
-    // Increment version counter to detect stale callbacks
-    const currentVersion = ++versionCounterRef.current;
-
-    // Small delay to ensure editor is fully initialized
-    const timer = setTimeout(() => {
-      // Skip if version changed while waiting
-      if (currentVersion !== versionCounterRef.current) {
-        return;
-      }
-
-      if (diffData?.changes && diffData.changes.length > 0) {
-        applyDiffDecorations(editor, diffData.changes);
-      }
-      setDiffApplied(true);
-    }, 50);
-
-    return () => clearTimeout(timer);
-  }, [editor, diffData?.changes, showDiff, diffApplied, textIdentical]);
 
   if (isLoading) {
     return (
@@ -103,7 +56,7 @@ function VersionPreview({
           No visible text changes (sync update only)
         </div>
       )}
-      <div className="editor-common-container version-preview-content">
+      <div className={`editor-common-container version-preview-content${!showDiff ? ' no-diff' : ''}`}>
         {editor ? (
           <EditorContent editor={editor} className="editor-common-content" />
         ) : (

@@ -322,6 +322,20 @@ const marks = {
     },
   },
 
+  diffInsert: {
+    parseDOM: [{ tag: 'ins' }],
+    toDOM() {
+      return ['ins', 0];
+    },
+  },
+
+  diffDelete: {
+    parseDOM: [{ tag: 'del' }],
+    toDOM() {
+      return ['del', 0];
+    },
+  },
+
   textStyle: {
     attrs: {
       color: { default: null },

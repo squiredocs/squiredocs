@@ -15,8 +15,11 @@ const Y = require('yjs');
 const { yXmlFragmentToProseMirrorRootNode } = require('y-prosemirror');
 const { recreateTransform } = require('@manuscripts/prosemirror-recreate-steps');
 const { ChangeSet } = require('prosemirror-changeset');
+const { diffLines } = require('diff');
 const { schema } = require('../shared/prosemirror-schema');
 const { getRedisClient, isRedisEnabled } = require('./redis');
+const { toMarkdown } = require('./mcp/yjs/serialization');
+const { markdownToPm } = require('./markdown-to-pm');
 
 class DiffService {
   constructor(pool) {
@@ -68,18 +71,21 @@ class DiffService {
     // Check if text is identical (no visible changes)
     const textIdentical = prevText === currText;
 
-    // Convert to ProseMirror docs
-    const prevPmDoc = this.yDocToProseMirror(prevDoc);
-    const currPmDoc = this.yDocToProseMirror(currDoc);
-
-    // Compute changes
+    // Build diff document using markdown-based approach
+    let document;
     let changes = [];
-    if (!textIdentical && prevPmDoc && currPmDoc) {
-      changes = this.computeChanges(prevPmDoc, currPmDoc);
+    try {
+      document = this.computeMarkdownDiff(prevDoc, currDoc, textIdentical);
+    } catch (err) {
+      console.error('[DiffService] Markdown diff failed, falling back to position-based:', err.message);
+      // Fallback: position-based approach
+      const prevPmDoc = this.yDocToProseMirror(prevDoc);
+      const currPmDoc = this.yDocToProseMirror(currDoc);
+      if (!textIdentical && prevPmDoc && currPmDoc) {
+        changes = this.computeChanges(prevPmDoc, currPmDoc);
+      }
+      document = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
     }
-
-    // Serialize current doc for client rendering
-    const document = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
 
     // Cleanup Yjs docs
     prevDoc.destroy();
@@ -176,6 +182,54 @@ class DiffService {
       console.error('[DiffService] Error converting Yjs to ProseMirror:', error);
       return null;
     }
+  }
+
+  /**
+   * Compute a ProseMirror document JSON with diff marks by diffing markdown.
+   *
+   * @param {Y.Doc} prevDoc - Previous Y.Doc
+   * @param {Y.Doc} currDoc - Current Y.Doc
+   * @param {boolean} textIdentical - Whether plain text is identical
+   * @returns {object} ProseMirror document JSON with diffInsert/diffDelete marks
+   */
+  computeMarkdownDiff(prevDoc, currDoc, textIdentical) {
+    const prevFragment = prevDoc.get('default', Y.XmlFragment);
+    const currFragment = currDoc.get('default', Y.XmlFragment);
+
+    const prevMd = toMarkdown(prevFragment);
+    const currMd = toMarkdown(currFragment);
+
+    // If markdown is identical, return current doc without marks
+    if (prevMd === currMd) {
+      const pmDoc = this.yDocToProseMirror(currDoc);
+      return pmDoc ? pmDoc.toJSON() : { type: 'doc', content: [{ type: 'paragraph' }] };
+    }
+
+    // Diff the markdown line by line
+    const parts = diffLines(prevMd, currMd);
+
+    // Build annotated ProseMirror document from diff parts
+    const allBlocks = [];
+    for (const part of parts) {
+      const md = part.value;
+      if (part.added) {
+        const parsed = markdownToPm(md, 'diffInsert');
+        allBlocks.push(...(parsed.content || []));
+      } else if (part.removed) {
+        const parsed = markdownToPm(md, 'diffDelete');
+        allBlocks.push(...(parsed.content || []));
+      } else {
+        // Unchanged — parse without diff mark
+        const parsed = markdownToPm(md, null);
+        allBlocks.push(...(parsed.content || []));
+      }
+    }
+
+    if (allBlocks.length === 0) {
+      allBlocks.push({ type: 'paragraph' });
+    }
+
+    return { type: 'doc', content: allBlocks };
   }
 
   /**

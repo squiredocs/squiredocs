@@ -276,8 +276,10 @@ describe('DiffService', () => {
 
       expect(result.meta.previousClock).toBe(-1);
       expect(result.meta.currentClock).toBe(0);
-      // Should have insertions since previous is empty
-      expect(result.changes.some(c => c.type === 'insert')).toBe(true);
+      // With markdown-based diff, insertions are baked into the document as diffInsert marks
+      // rather than being returned in the changes array
+      const docJson = JSON.stringify(result.document);
+      expect(docJson.includes('diffInsert') || result.changes.some(c => c.type === 'insert')).toBe(true);
 
       doc.destroy();
     });

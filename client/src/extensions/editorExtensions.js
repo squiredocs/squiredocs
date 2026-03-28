@@ -28,6 +28,7 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
+import { Mark } from '@tiptap/core';
 
 /**
  * Get base extensions shared by all editors
@@ -35,6 +36,18 @@ import { TableHeader } from '@tiptap/extension-table-header';
  * @param {boolean} options.openLinksOnClick - Whether links should open on click (default: false)
  * @returns {Array} Array of TipTap extensions
  */
+const DiffInsert = Mark.create({
+  name: 'diffInsert',
+  parseHTML() { return [{ tag: 'ins' }]; },
+  renderHTML() { return ['ins', 0]; },
+});
+
+const DiffDelete = Mark.create({
+  name: 'diffDelete',
+  parseHTML() { return [{ tag: 'del' }]; },
+  renderHTML() { return ['del', 0]; },
+});
+
 export function getBaseExtensions({ openLinksOnClick = false } = {}) {
   return [
     StarterKit.configure({
@@ -59,5 +72,7 @@ export function getBaseExtensions({ openLinksOnClick = false } = {}) {
     Link.configure({
       openOnClick: openLinksOnClick,
     }),
+    DiffInsert,
+    DiffDelete,
   ];
 }
