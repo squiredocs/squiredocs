@@ -36,7 +36,7 @@ class DiffService {
    */
   async computeDiff(docGuid, previousClock, currentClock) {
     // Check cache first
-    const cacheKey = `diff:${docGuid}:${previousClock}:${currentClock}`;
+    const cacheKey = `diffv2:${docGuid}:${previousClock}:${currentClock}`;
     if (isRedisEnabled()) {
       try {
         const cached = await getRedisClient().get(cacheKey);
