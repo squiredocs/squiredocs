@@ -57,6 +57,154 @@ function toPlainText(xmlFragment) {
 }
 
 /**
+ * Serialize a Yjs XmlFragment to Markdown
+ * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
+ * @returns {string} Markdown content
+ */
+function toMarkdown(xmlFragment) {
+  const parts = [];
+
+  function renderInline(textNode) {
+    const delta = textNode.toDelta();
+    let out = '';
+    for (const op of delta) {
+      if (typeof op.insert !== 'string') continue;
+      let seg = op.insert;
+      const a = op.attributes || {};
+      if (a.code) seg = '`' + seg + '`';
+      if (a.bold) seg = '**' + seg + '**';
+      if (a.italic) seg = '_' + seg + '_';
+      if (a.strikethrough) seg = '~~' + seg + '~~';
+      if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
+      out += seg;
+    }
+    return out;
+  }
+
+  function getChildText(node) {
+    let text = '';
+    for (const child of node.toArray()) {
+      if (child instanceof Y.XmlText) {
+        text += renderInline(child);
+      } else if (child instanceof Y.XmlElement) {
+        text += getChildText(child);
+      }
+    }
+    return text;
+  }
+
+  function processNode(node, indent) {
+    if (node instanceof Y.XmlText) {
+      parts.push(renderInline(node));
+      return;
+    }
+    if (!(node instanceof Y.XmlElement)) return;
+
+    const tag = node.nodeName;
+
+    if (tag === 'paragraph') {
+      parts.push(getChildText(node) + '\n');
+    } else if (tag === 'heading') {
+      const level = parseInt(node.getAttribute('level') || '1', 10);
+      parts.push('#'.repeat(level) + ' ' + getChildText(node) + '\n');
+    } else if (tag === 'codeBlock') {
+      const lang = node.getAttribute('language') || '';
+      parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
+    } else if (tag === 'blockquote') {
+      const inner = [];
+      for (const child of node.toArray()) {
+        const sub = [];
+        const save = parts;
+        // temporarily redirect output
+        parts.length = 0;
+        Object.assign(parts, []);
+        processNode(child, indent);
+        sub.push(...parts);
+        parts.length = 0;
+        Object.assign(parts, save);
+        for (const line of sub) {
+          inner.push(line);
+        }
+      }
+      for (const line of inner) {
+        parts.push('> ' + line);
+      }
+    } else if (tag === 'bulletList') {
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
+          renderListItem(child, indent, '- ');
+        }
+      }
+    } else if (tag === 'orderedList') {
+      let num = 1;
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
+          renderListItem(child, indent, `${num}. `);
+          num++;
+        }
+      }
+    } else if (tag === 'horizontalRule') {
+      parts.push('---\n');
+    } else if (tag === 'table') {
+      renderTable(node);
+    } else {
+      // Fallback: recurse into children
+      for (const child of node.toArray()) {
+        processNode(child, indent);
+      }
+    }
+  }
+
+  function renderListItem(node, indent, marker) {
+    const children = node.toArray();
+    let first = true;
+    for (const child of children) {
+      if (child instanceof Y.XmlElement) {
+        if (['bulletList', 'orderedList'].includes(child.nodeName)) {
+          processNode(child, indent + '  ');
+        } else {
+          const text = getChildText(child);
+          if (first) {
+            parts.push(indent + marker + text + '\n');
+            first = false;
+          } else {
+            parts.push(indent + '  ' + text + '\n');
+          }
+        }
+      }
+    }
+  }
+
+  function renderTable(tableNode) {
+    const rows = [];
+    for (const child of tableNode.toArray()) {
+      if (child instanceof Y.XmlElement && child.nodeName === 'tableRow') {
+        const cells = [];
+        for (const cell of child.toArray()) {
+          if (cell instanceof Y.XmlElement) {
+            cells.push(getChildText(cell).replace(/\|/g, '\\|'));
+          }
+        }
+        rows.push(cells);
+      }
+    }
+    if (rows.length === 0) return;
+    // Header row
+    parts.push('| ' + rows[0].join(' | ') + ' |\n');
+    parts.push('| ' + rows[0].map(() => '---').join(' | ') + ' |\n');
+    for (let i = 1; i < rows.length; i++) {
+      parts.push('| ' + rows[i].join(' | ') + ' |\n');
+    }
+  }
+
+  for (const child of xmlFragment.toArray()) {
+    processNode(child, '');
+  }
+
+  return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
  * Serialize a Yjs XmlFragment to structured JSON format
  * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
  * @returns {Array} Array of structured nodes
@@ -531,6 +679,7 @@ function serializeNodesToText(nodes) {
 module.exports = {
   // Fragment-level serialization (existing)
   toPlainText,
+  toMarkdown,
   toStructured,
   loadYDoc,
   // Node-level serialization (new)

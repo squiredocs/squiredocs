@@ -10,6 +10,7 @@ const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
 const { getTextContent } = require('../sandbox/helpers');
 const { structuredPatch } = require('diff');
+const { toMarkdown } = require('../yjs/serialization');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -1478,9 +1479,10 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  // Capture state before script execution for change detection and diagnostics
+  // Capture state before script execution for change detection and diff
   const blockCountBefore = xmlFragment.toArray().length;
   const textBefore = getTextContent(xmlFragment);
+  const mdBefore = toMarkdown(xmlFragment);
   console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
   console.log(`[modify:DIAGNOSTIC] blockCountBefore=${blockCountBefore}`);
@@ -1491,10 +1493,11 @@ async function handler(args, agentToken) {
       timeout: validatedTimeout,
     });
 
-    // Capture state after script execution for change detection and diagnostics
+    // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
     const textAfter = getTextContent(xmlFragment);
     const changed = (blockCountBefore !== blockCountAfter) || (textBefore !== textAfter);
+    const mdAfter = changed ? toMarkdown(xmlFragment) : mdBefore;
     console.log(`[modify:DIAGNOSTIC] blockCountAfter=${blockCountAfter}`);
     console.log(`[modify:DIAGNOSTIC] blocksAdded=${blockCountAfter - blockCountBefore}`);
     console.log(`[modify:DIAGNOSTIC] changed=${changed}`);
@@ -1504,7 +1507,7 @@ async function handler(args, agentToken) {
       let diff = null;
       if (changed) {
         try {
-          const patch = structuredPatch('', '', textBefore, textAfter, '', '', { context: 2 });
+          const patch = structuredPatch('', '', mdBefore, mdAfter, '', '', { context: 2 });
           const lines = [];
           for (let h = 0; h < patch.hunks.length; h++) {
             if (h > 0) lines.push('~~~');

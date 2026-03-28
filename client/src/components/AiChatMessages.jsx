@@ -134,25 +134,25 @@ function DiffView({ diff }) {
   const needsTruncation = lines.length > DIFF_VISIBLE_LINES && !showAll;
   const visibleLines = needsTruncation ? lines.slice(0, DIFF_VISIBLE_LINES) : lines;
 
-  // Compute line numbers: track old/new line counters across all lines
+  // Compute line numbers: show old line num for removed, new line num for added/context
   let oldLine = 0;
   let newLine = 0;
   const numberedLines = visibleLines.map((line) => {
     if (line === '~~~') {
-      return { line, type: 'separator' };
+      return { line, type: 'separator', num: null };
     }
     const prefix = line[0];
     if (prefix === '-') {
       oldLine++;
-      return { line, type: 'removed', oldNum: oldLine, newNum: null };
+      return { line, type: 'removed', num: oldLine };
     }
     if (prefix === '+') {
       newLine++;
-      return { line, type: 'added', oldNum: null, newNum: newLine };
+      return { line, type: 'added', num: newLine };
     }
     oldLine++;
     newLine++;
-    return { line, type: 'context', oldNum: oldLine, newNum: newLine };
+    return { line, type: 'context', num: newLine };
   });
 
   return (
@@ -168,15 +168,14 @@ function DiffView({ diff }) {
                 if (entry.type === 'separator') {
                   return (
                     <tr key={i} className="ai-diff-separator-row">
-                      <td className="ai-diff-gutter" colSpan={2}></td>
+                      <td className="ai-diff-gutter"></td>
                       <td className="ai-diff-separator-text">...</td>
                     </tr>
                   );
                 }
                 return (
                   <tr key={i} className={`ai-diff-row ai-diff-row--${entry.type}`}>
-                    <td className="ai-diff-gutter">{entry.oldNum ?? ''}</td>
-                    <td className="ai-diff-gutter">{entry.newNum ?? ''}</td>
+                    <td className="ai-diff-gutter">{entry.num ?? ''}</td>
                     <td className="ai-diff-cell">{entry.line}</td>
                   </tr>
                 );
