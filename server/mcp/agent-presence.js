@@ -347,6 +347,13 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
       }
       sessionsByUserId.get(userId).add(sessionId);
 
+      // Shared failure path: clean up resources, remove pending entry, reject
+      const failSetup = (msg) => {
+        cleanup();
+        pendingSessionCreations.delete(sessionKey);
+        reject(new Error(msg));
+      };
+
       // Wait for document to sync before initializing cursor
       // IMPORTANT: y-websocket does NOT await bindState, so the first sync event
       // may fire before the server has finished loading from PostgreSQL.
@@ -413,9 +420,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
 
               resolve(session);
             } catch (error) {
-              cleanup();
-              pendingSessionCreations.delete(sessionKey);
-              reject(new Error(`Failed to set presence: ${error.message}`));
+              failSetup(`Failed to set presence: ${error.message}`);
             }
           }
         }
@@ -424,32 +429,24 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
       // Handle connection errors (only during setup phase)
       provider.on('connection-error', (error) => {
         if (setupComplete) return; // Ignore errors after setup - let y-websocket handle reconnection
-        cleanup();
-        pendingSessionCreations.delete(sessionKey);
-        reject(new Error(`WebSocket connection failed: ${error.message}`));
+        failSetup(`WebSocket connection failed: ${error.message}`);
       });
 
       // Handle connection close (only during setup phase)
       provider.on('connection-close', () => {
         if (setupComplete) return; // Ignore close after setup - let y-websocket handle reconnection
-        cleanup();
-        pendingSessionCreations.delete(sessionKey);
-        reject(new Error('WebSocket connection closed unexpectedly'));
+        failSetup('WebSocket connection closed unexpectedly');
       });
 
       // Set timeout for initial connection
       connectionTimeoutId = setTimeout(() => {
         if (setupComplete) return; // Setup already completed successfully
         if (!provider.wsconnected) {
-          cleanup();
-          pendingSessionCreations.delete(sessionKey);
-          reject(new Error('Connection timeout: Could not establish WebSocket connection'));
+          failSetup('Connection timeout: Could not establish WebSocket connection');
         }
       }, 10000); // 10 second timeout for connection
     } catch (error) {
-      cleanup();
-      pendingSessionCreations.delete(sessionKey);
-      reject(new Error(`Failed to create agent presence: ${error.message}`));
+      failSetup(`Failed to create agent presence: ${error.message}`);
     }
   });
 

@@ -19,6 +19,10 @@ const {
 // Build the inline regex once at module load from the registry
 const { regex: inlineRegex, entries: inlineEntries } = buildInlineRegex();
 
+// Precompiled patterns for joinContinuationLines (depend only on INLINE_HTML_TAGS)
+const continuationOpenRe = new RegExp(`<(?:${INLINE_HTML_TAGS.join('|')})\\b`, 'g');
+const continuationCloseRe = new RegExp(`<\\/(?:${INLINE_HTML_TAGS.join('|')})>`, 'g');
+
 /**
  * Parse inline markdown formatting into ProseMirror text nodes.
  *
@@ -106,15 +110,12 @@ function parseMarked(content, mark, diffMark) {
  * Tags to detect are derived from the format registry (INLINE_HTML_TAGS).
  */
 function joinContinuationLines(lines) {
-  const openPattern = new RegExp(`<(?:${INLINE_HTML_TAGS.join('|')})\\b`, 'g');
-  const closePattern = new RegExp(`<\\/(?:${INLINE_HTML_TAGS.join('|')})>`, 'g');
-
   const result = [];
   for (const line of lines) {
     if (result.length > 0) {
       const prev = result[result.length - 1];
-      const opens = (prev.match(openPattern) || []).length;
-      const closes = (prev.match(closePattern) || []).length;
+      const opens = (prev.match(continuationOpenRe) || []).length;
+      const closes = (prev.match(continuationCloseRe) || []).length;
       if (opens > closes) {
         result[result.length - 1] = prev + INLINE_NEWLINE + line;
         continue;

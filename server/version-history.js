@@ -259,10 +259,6 @@ function formatTimestamp(timestamp) {
   return date.toLocaleString('en-US', options);
 }
 
-// Re-export extractXml as extractTextFromDoc for backwards compatibility
-// with internal callers in this file. Uses full XML (including formatting
-// attributes) so formatting-only changes like text color are detected.
-const extractTextFromDoc = extractXml;
 
 /**
  * Extract metadata from a Y.Doc
@@ -271,7 +267,7 @@ const extractTextFromDoc = extractXml;
  * @returns {Object} Metadata object with character/word/block counts and delta
  */
 function extractMetadata(doc, previousText = '') {
-  const text = extractTextFromDoc(doc);
+  const text = extractXml(doc);
   const fragment = doc.get('default', Y.XmlFragment);
 
   const characterCount = text.length;
@@ -330,7 +326,7 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
           metadataTime = Date.now() - metadataStart;
 
           // Update previousText for next iteration's delta calculation
-          previousText = extractTextFromDoc(doc);
+          previousText = extractXml(doc);
         }
 
         // Calculate editCount - number of meaningful updates in this version's range
@@ -401,7 +397,7 @@ async function filterMeaningfulUpdates(persistence, docGuid, updates) {
   // Filter to only include updates that actually change text content
   // (not just CRDT state like new client IDs from sync)
   const meaningfulUpdates = [];
-  let previousText = extractTextFromDoc(baseDoc);
+  let previousText = extractXml(baseDoc);
 
   for (const update of updates) {
     const updateData = updateDataMap.get(update.clock);
@@ -411,7 +407,7 @@ async function filterMeaningfulUpdates(persistence, docGuid, updates) {
     Y.applyUpdate(baseDoc, updateData);
 
     // Get text after applying update
-    const currentText = extractTextFromDoc(baseDoc);
+    const currentText = extractXml(baseDoc);
 
     // Only include if text content actually changed
     if (currentText !== previousText) {
