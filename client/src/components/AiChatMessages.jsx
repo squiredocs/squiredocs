@@ -126,7 +126,7 @@ function ToolCardDetail({ toolName, input }) {
   return <pre>{JSON.stringify(input, null, 2)}</pre>;
 }
 
-const DIFF_VISIBLE_LINES = 80;
+const DIFF_VISIBLE_LINES = 15;
 
 function DiffView({ diff }) {
   const [expanded, setExpanded] = useState(true);
@@ -206,9 +206,9 @@ function DiffView({ diff }) {
               })}
             </tbody>
           </table>
-          {needsTruncation && (
-            <button className="ai-diff-expand" onClick={() => setShowAll(true)}>
-              Show all {lines.length} lines
+          {lines.length > DIFF_VISIBLE_LINES && (
+            <button className="ai-diff-expand" onClick={() => setShowAll(!showAll)}>
+              {showAll ? 'Show less' : `Show all ${lines.length} lines`}
             </button>
           )}
           {diff.truncatedByServer && (
