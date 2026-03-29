@@ -52,41 +52,7 @@
   text-align: center;
 }
 
-/* y-prosemirror marks content with ychange attribute for diff visualization */
-/* Support both attribute formats: ychange="added" and ychange-type="added" */
-.version-preview [ychange="added"],
-.version-preview [ychange-type="added"] {
-  background-color: rgba(46, 160, 67, 0.3);
-  border-radius: 2px;
-}
-
-.version-preview [ychange="removed"],
-.version-preview [ychange-type="removed"] {
-  text-decoration: line-through;
-  color: #d73a49;
-  background-color: rgba(215, 58, 73, 0.15);
-  border-radius: 2px;
-}
-
-/* Content-based diff styles (prosemirror-changeset — legacy) */
-.version-preview .diff-insert {
-  background-color: rgba(46, 160, 67, 0.3);
-  border-radius: 2px;
-}
-
-.version-preview .diff-delete-container {
-  display: contents;
-}
-
-.version-preview .diff-delete {
-  text-decoration: line-through;
-  color: #d73a49;
-  background-color: rgba(215, 58, 73, 0.15);
-  border-radius: 2px;
-  white-space: pre-wrap;
-}
-
-/* Markdown-based diff marks (diffInsert / diffDelete) */
+/* Diff marks (diffInsert / diffDelete) rendered as <ins> / <del> */
 .version-preview ins {
   background-color: rgba(46, 160, 67, 0.3);
   border-radius: 2px;

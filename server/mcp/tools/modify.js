@@ -11,6 +11,7 @@ const { executeScript } = require('../sandbox');
 const { getTextContent } = require('../sandbox/helpers');
 const { structuredPatch } = require('diff');
 const { toMarkdown } = require('../yjs/serialization');
+const { postProcessDiffLines } = require('../diff-postprocess');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -1516,11 +1517,17 @@ async function handler(args, agentToken) {
               lines.push(line);
             }
           }
-          const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
+          // Post-process: strip <span style> tags, collapse format-only pairs
+          const processed = postProcessDiffLines(lines, hunkStarts);
+
+          const totalChars = processed.lines.reduce((sum, l) => sum + l.length, 0);
           if (totalChars > 50000) {
-            diff = { lines: lines.slice(0, 200), hunkStarts, truncatedByServer: true };
+            const truncatedAnnotations = processed.formatAnnotations
+              ? Object.fromEntries(Object.entries(processed.formatAnnotations).filter(([k]) => Number(k) < 200))
+              : undefined;
+            diff = { lines: processed.lines.slice(0, 200), hunkStarts: processed.hunkStarts, formatAnnotations: truncatedAnnotations, truncatedByServer: true };
           } else {
-            diff = { lines, hunkStarts };
+            diff = { lines: processed.lines, hunkStarts: processed.hunkStarts, formatAnnotations: processed.formatAnnotations };
           }
         } catch (e) {
           // Diff computation is best-effort; don't fail the tool call

@@ -140,6 +140,7 @@ function DiffView({ diff }) {
 
   // Compute line numbers using hunk start offsets from the server
   const hunkStarts = diff.hunkStarts || [];
+  const formatAnnotations = diff.formatAnnotations || {};
   let oldLine = 0;
   let newLine = 0;
   let hunkIdx = 0;
@@ -164,7 +165,13 @@ function DiffView({ diff }) {
     }
     oldLine++;
     newLine++;
-    return { line, type: 'context', num: newLine };
+    const entry = { line, type: 'context', num: newLine };
+    // Formatting-only annotation from server
+    if (formatAnnotations[String(i)]) {
+      entry.type = 'format';
+      entry.formatAnnotation = formatAnnotations[String(i)];
+    }
+    return entry;
   });
 
   return (
@@ -188,7 +195,12 @@ function DiffView({ diff }) {
                 return (
                   <tr key={i} className={`ai-diff-row ai-diff-row--${entry.type}`}>
                     <td className="ai-diff-gutter">{entry.num ?? ''}</td>
-                    <td className="ai-diff-cell">{entry.line}</td>
+                    <td className="ai-diff-cell">
+                      {entry.line}
+                      {entry.formatAnnotation && (
+                        <span className="ai-diff-format-annotation"> ({entry.formatAnnotation})</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

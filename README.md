@@ -9,12 +9,17 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
-- **Version History**: View, name, filter, and restore previous versions of documents
+- **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection
+- **Image Upload in Chat**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; 15 MB per file) via drag-and-drop or file picker
+- **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
+- **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic or Google API keys from the Settings page to use premium models without consuming shared credits
+- **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
 - **Document Management**: Create, share, and delete documents with permission enforcement
-- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login) and granting extra AI credits
+- **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, and email notifications (sign-up, login, credit-limit, exceptions)
 
 ## Technology Stack
 
@@ -24,11 +29,12 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Authentication**: Google OAuth with JWT (access and refresh tokens)
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Flash/Pro); Model Context Protocol (MCP) with OAuth 2.0 for external AI agents
+- **Sandbox**: isolated-vm (true V8 isolate with 128 MB memory limit) for secure script execution in the `modify` tool
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Flash/Pro); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents
 
 ## Prerequisites
 
-- Node.js 18+ (LTS recommended)
+- Node.js 22+ (required by isolated-vm)
 - npm or yarn
 - PostgreSQL 12+ (for server-side persistence)
 
@@ -126,7 +132,7 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 - `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `gemini-3-flash`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3-pro`
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
-- `ADMIN_EMAIL`: Email address to receive new-user signup notifications (optional)
+- `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, and unhandled exception alerts (optional; all notifications skipped if unset)
 - `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
@@ -225,6 +231,14 @@ The version history panel uses a three-level hierarchy:
 
 Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time.
 
+### Diff Highlighting
+
+Version history includes visual diff highlighting to show what changed between versions:
+
+- **Markdown-based diffs**: Both versions are converted to markdown, diffed, then rendered back into the editor with insertion (green) and deletion (red) marks
+- **Formatting-change detection**: When the text content is identical but formatting has changed (e.g., bold, italic, color, font size), the diff displays a "Formatting changes only" notice and highlights the affected spans
+- **Toggle**: Diff highlighting can be toggled off to view the plain document at that version
+
 ### Enhanced Features
 
 **Nested Sub-versions**: Optionally drill down into individual edit groups within a version using the `includeSubversions` parameter. Sub-versions use a 10-second grouping threshold for granular change tracking.
@@ -272,9 +286,15 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **Endpoint**: `POST /api/chat` — streams responses to the client
 - **Tools**: All 14 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
-- **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats
+- **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats; the active chat is preserved across page refreshes via sessionStorage
 - **Thinking display**: Gemini models show collapsible reasoning/thinking blocks so users can see how the model arrived at its answer
 - **Stop generation**: Abort a streaming response at any time with the stop button
+- **Inline diffs**: When the `modify` tool edits a document, a color-coded markdown diff (green additions, red deletions) appears directly in the chat message with expandable sections for large changes
+- **Image upload**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; max 15 MB each) via drag-and-drop or file picker, with thumbnail previews before sending
+- **Copy button**: Each chat message has a copy-to-clipboard button on hover
+- **SPA navigation**: Internal document links in chat messages use client-side navigation instead of full-page reloads
+- **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic or Google API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
+- **Reactive compaction**: When a conversation exceeds the model's token limit, the system automatically compacts earlier messages and retries, with a UI indicator
 
 ### Usage Limits
 
@@ -317,9 +337,10 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 
 ### Features
 
-- **Sandboxed TypeScript execution** - Write scripts with direct Yjs API access for complex edits
+- **Sandboxed TypeScript execution** - Scripts run in an `isolated-vm` V8 isolate (128 MB memory limit) with zero Node.js API access, on a dedicated worker thread
 - **Type-safe editing** - Full TypeScript support with type definitions
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
+- **API token authentication** - Personal access tokens (prefixed `sqd_`) as a simpler alternative to OAuth for programmatic access
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
 - **Atomic operations** - Entire scripts execute as single undo step
@@ -380,6 +401,10 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
    ```
 
 3. **Authenticate and start editing** - The agent will guide you through OAuth authentication, then you can use natural language to edit documents.
+
+**Alternative: API Token Authentication**
+
+For programmatic or headless access, users can create personal API tokens from the Settings page instead of going through the OAuth flow. Tokens are prefixed with `sqd_` and stored as SHA-256 hashes. Pass the token as a Bearer token in the `Authorization` header.
 
 ### Documentation
 
@@ -676,11 +701,15 @@ paragraphs.forEach((node, index) => {
 │   │   ├── chat-models.js    # Model registry (Claude, Gemini) with lazy provider loading
 │   │   └── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
+│   ├── email.js             # Admin email notifications (signup, login, credit limit)
+│   ├── exception-notifier.js # Rate-limited exception email alerts
+│   ├── chat-store.js        # Chat persistence (CRUD with ownership checks)
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
 │       ├── tools/            # MCP tools for document operations
+│       ├── sandbox/          # isolated-vm script executor (worker thread + V8 isolate)
 │       ├── yjs/              # Yjs utilities and serialization
-│       ├── auth/             # MCP OAuth 2.0 and PKCE flow
+│       ├── auth/             # MCP OAuth 2.0, PKCE flow, and API tokens
 │       └── agent-presence.js # Agent session management
 ├── client/
 │   ├── src/
@@ -697,13 +726,18 @@ paragraphs.forEach((node, index) => {
 │   │   │   └── useAiPanel.js # AI panel state (position, size, preferences)
 │   │   ├── contexts/         # React contexts
 │   │   │   ├── AuthContext.jsx    # Authentication state
-│   │   │   └── AiChatContext.jsx  # AI chat provider (AI SDK transport)
+│   │   │   ├── AiChatContext.jsx  # AI chat provider (AI SDK transport)
+│   │   │   └── ByokContext.jsx    # BYOK settings state
+│   │   ├── pages/
+│   │   │   └── SettingsPage.jsx   # Settings: agents, API tokens, BYOK keys
 │   │   └── main.jsx          # Entry point
 │   └── package.json
 ├── migrations/               # Database migrations
 ├── script/                   # Utility scripts
-│   ├── generate-mcp-secrets.sh # Generate MCP OAuth secrets
-│   └── edit-default-doc.js  # Example programmatic editing
+│   ├── generate-mcp-secrets.sh  # Generate MCP OAuth secrets
+│   ├── edit-default-doc.js      # Example programmatic editing
+│   ├── jest-llm-reporter.js     # Compact Jest reporter for LLM contexts
+│   └── vitest-llm-reporter.mjs  # Compact Vitest reporter for LLM contexts
 ├── docs/                     # Documentation
 │   ├── mcp-quickstart.md    # MCP setup guide
 │   ├── mcp-integration-summary.md # Complete MCP documentation
@@ -963,6 +997,8 @@ cd client && npm run test:coverage
 - `client/src/**/__tests__/` - Component and hook tests
 - `__tests__/integration/` - End-to-end collaboration tests
 - `client/src/test/utils.jsx` - Shared test utilities and mocks
+
+**LLM-friendly test reporters:** Custom reporters (`script/jest-llm-reporter.js` for Jest, `script/vitest-llm-reporter.mjs` for Vitest) compress passing-suite output to a single summary line, expanding details only on failure. This reduces output from thousands of lines to a compact summary suitable for LLM context windows.
 
 ## Documentation
 

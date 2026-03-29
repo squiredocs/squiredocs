@@ -185,7 +185,7 @@ kubectl port-forward deployment/app-dev 4567:5173 3001:3001 -n collab
 kubectl port-forward deployment/app-dev --address 0.0.0.0 4567:5173 3001:3001 -n collab
 ```
 
-**Note:** The Vite config is set up to work with port-forward. HMR (Hot Module Reload) is configured to use the forwarded port.
+**Note:** The Vite config is set up to work with port-forward. HMR is disabled (doesn't work reliably through the k8s tunnel), so manual page refresh is required after code changes.
 
 ### Stopping Port-Forwards
 
@@ -265,7 +265,7 @@ mutagen sync terminate app-sync
 
 # Restart sync (useful if things get stuck)
 mutagen sync terminate app-sync
-./scripts/mutagen.sh
+./script/mutagen.sh
 ```
 
 ### Sync Troubleshooting
@@ -583,6 +583,22 @@ curl -s -X POST http://127.0.0.1:3001/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_documents","arguments":{}}}' | jq .
 ```
 
+### Alternative: Using API Tokens
+
+Instead of generating JWT tokens manually, you can create personal API tokens from the Settings page in the app. These `sqd_`-prefixed tokens are simpler for testing:
+
+1. Log in to the app and go to Settings
+2. Under "API Tokens", create a new token
+3. Copy the token (it's only shown once)
+4. Use it as a Bearer token:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sqd_YOUR_TOKEN_HERE" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq .
+```
+
 ### Debugging Tips
 
 1. **Token validation errors**: Ensure the secret and issuer match `server/mcp/auth/jwt.js`
@@ -679,7 +695,7 @@ This bypasses OAuth and automatically logs you in for testing.
 - `crypto.randomUUID()` requires HTTPS, so we fall back to `Math.random()` over HTTP
 
 **Hot Module Reload (HMR)**
-- HMR may not work perfectly from mobile since Vite's HMR is configured for localhost
+- HMR is disabled (doesn't work reliably through the k8s tunnel)
 - Manually refresh the page after making changes
 
 ## Vite Configuration for Port-Forward
@@ -688,21 +704,30 @@ The `client/vite.config.js` is configured to work with kubectl port-forward:
 
 ```javascript
 server: {
-  host: '0.0.0.0',              // Bind to all interfaces
+  host: process.env.VITE_HOST || '0.0.0.0',  // Bind to all interfaces
   port: 5173,                    // Internal port
   strictPort: false,             // Allow fallback if port busy
-  fs: {
-    strict: false                // Allow access to synced files
-  },
-  hmr: {
-    protocol: 'ws',
-    host: 'localhost',
-    port: 4567                   // Match port-forward external port
-  },
+  hmr: false,                    // Disabled — doesn't work through k8s tunnel
   proxy: {
     '^/s($|/)': {                // WebSocket proxy (regex to avoid matching /src)
       target: 'ws://localhost:3001',
       ws: true,
+      changeOrigin: true
+    },
+    '/api': {                    // REST API proxy
+      target: 'http://localhost:3001',
+      changeOrigin: true
+    },
+    '^/auth/': {                 // Auth routes proxy
+      target: 'http://localhost:3001',
+      changeOrigin: true
+    },
+    '/mcp': {                    // MCP endpoint proxy
+      target: 'http://localhost:3001',
+      changeOrigin: true
+    },
+    '/oauth-callback': {         // OAuth callback proxy
+      target: 'http://localhost:3001',
       changeOrigin: true
     }
   }
@@ -711,8 +736,9 @@ server: {
 
 **Key Points:**
 - `host: '0.0.0.0'` - Allows external connections (required for port-forward)
-- `hmr.port: 4567` - HMR uses the port-forward external port
+- `hmr: false` - HMR disabled; manual page refresh required after code changes
 - `'^/s($|/)'` - Regex pattern to proxy only `/s` or `/s/*` (not `/src`)
+- All API, auth, MCP, and OAuth routes are proxied to the Express backend
 
 ## Troubleshooting
 

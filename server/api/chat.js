@@ -352,6 +352,9 @@ router.post('/', requireAuth, async (req, res) => {
     entry = { chunks: [], done: false, userId: req.user.userId };
     activeStreams.set(chatId, entry);
 
+    // Safety net: clean up if the client disconnects mid-stream
+    res.on('close', () => cleanupEntry());
+
     // Load previous messages from DB and append the new user message.
     // Filter out any messages with empty parts — these can occur when a
     // stream is interrupted before any content arrives, and the AI SDK

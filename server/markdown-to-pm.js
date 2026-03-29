@@ -5,55 +5,59 @@
  * ProseMirror-compatible JSON nodes. Supports an optional diff mark
  * that is applied to every text node (for version history diffs).
  *
- * This is NOT a general markdown parser — it handles exactly the
- * output format of server/mcp/yjs/serialization.js:toMarkdown().
+ * Inline mark parsing is driven by the shared format registry
+ * (server/format-registry.js), so adding a new mark requires zero
+ * changes here.
  */
+
+const {
+  INLINE_NEWLINE,
+  INLINE_HTML_TAGS,
+  buildInlineRegex,
+} = require('./format-registry');
+
+// Build the inline regex once at module load from the registry
+const { regex: inlineRegex, entries: inlineEntries } = buildInlineRegex();
 
 /**
  * Parse inline markdown formatting into ProseMirror text nodes.
  *
- * Handles: **bold**, _italic_, ~~strike~~, `code`, [text](url),
- * <u>, <mark>, <sub>, <sup>, <span style="...">
+ * The regex and dispatch table are built from the format registry,
+ * so every mark defined there is automatically supported.
+ *
  * @param {string} text - Inline markdown text
- * @param {string|null} diffMark - Optional diff mark to apply ('diffInsert' or 'diffDelete')
+ * @param {string|null} diffMark - Optional diff mark ('diffInsert' or 'diffDelete')
  * @returns {Array} Array of ProseMirror text node JSON objects
  */
 function parseInline(text, diffMark) {
   if (!text) return [];
 
   const nodes = [];
-  // HTML tags first (they may contain markdown inside), then markdown patterns
-  const pattern = /<span style="([^"]+)">(.+?)<\/span>|<u>(.+?)<\/u>|<mark>(.+?)<\/mark>|<sub>(.+?)<\/sub>|<sup>(.+?)<\/sup>|`([^`]+)`|\*\*(.+?)\*\*|_(.+?)_|~~(.+?)~~|\[([^\]]+)\]\(([^)]+)\)/g;
+  // Fresh regex per call — inlineRegex is global (/g) and parseInline recurses
+  // via parseMarked. Sharing lastIndex across recursive calls causes infinite loops.
+  const re = new RegExp(inlineRegex.source, inlineRegex.flags);
   let lastIndex = 0;
   let match;
 
-  while ((match = pattern.exec(text)) !== null) {
+  while ((match = re.exec(text)) !== null) {
     // Text before this match
     if (match.index > lastIndex) {
       nodes.push(makeTextNode(text.slice(lastIndex, match.index), [], diffMark));
     }
 
-    if (match[1] !== undefined) {
-      // <span style="...">text</span>
-      nodes.push(...parseMarked(match[2], { type: 'textStyle', attrs: parseStyleAttr(match[1]) }, diffMark));
-    } else if (match[3] !== undefined) {
-      nodes.push(...parseMarked(match[3], { type: 'underline' }, diffMark));
-    } else if (match[4] !== undefined) {
-      nodes.push(...parseMarked(match[4], { type: 'highlight' }, diffMark));
-    } else if (match[5] !== undefined) {
-      nodes.push(...parseMarked(match[5], { type: 'subscript' }, diffMark));
-    } else if (match[6] !== undefined) {
-      nodes.push(...parseMarked(match[6], { type: 'superscript' }, diffMark));
-    } else if (match[7] !== undefined) {
-      nodes.push(makeTextNode(match[7], [{ type: 'code' }], diffMark));
-    } else if (match[8] !== undefined) {
-      nodes.push(...parseMarked(match[8], { type: 'bold' }, diffMark));
-    } else if (match[9] !== undefined) {
-      nodes.push(...parseMarked(match[9], { type: 'italic' }, diffMark));
-    } else if (match[10] !== undefined) {
-      nodes.push(...parseMarked(match[10], { type: 'strike' }, diffMark));
-    } else if (match[11] !== undefined) {
-      nodes.push(makeTextNode(match[11], [{ type: 'link', attrs: { href: match[12] } }], diffMark));
+    // Find which registry entry matched by scanning capture groups
+    let groupStart = 1;
+    for (const entry of inlineEntries) {
+      if (match[groupStart] !== undefined) {
+        const { mark, content, nested } = entry.dispatch(match, groupStart);
+        if (nested) {
+          nodes.push(...parseMarked(content, mark, diffMark));
+        } else {
+          nodes.push(makeTextNode(content, [mark], diffMark));
+        }
+        break;
+      }
+      groupStart += entry.groups;
     }
 
     lastIndex = match.index + match[0].length;
@@ -72,26 +76,9 @@ function parseInline(text, diffMark) {
   return nodes;
 }
 
-/** Parse CSS style string into textStyle mark attrs */
-function parseStyleAttr(style) {
-  const attrs = {};
-  for (const decl of style.split(';')) {
-    const [prop, ...rest] = decl.split(':');
-    const val = rest.join(':').trim();
-    if (!prop || !val) continue;
-    const p = prop.trim();
-    if (p === 'color') attrs.color = val;
-    else if (p === 'background-color') attrs.backgroundColor = val;
-    else if (p === 'font-size') attrs.fontSize = val;
-    else if (p === 'font-family') attrs.fontFamily = val;
-    else if (p === 'line-height') attrs.lineHeight = val;
-  }
-  return attrs;
-}
-
 function makeTextNode(text, marks, diffMark) {
   // Restore newlines that were replaced with placeholders during line-joining
-  const node = { type: 'text', text: text.replaceAll(NEWLINE_PLACEHOLDER, '\n') };
+  const node = { type: 'text', text: text.replaceAll(INLINE_NEWLINE, '\n') };
   const allMarks = [...marks];
   if (diffMark) allMarks.push({ type: diffMark });
   if (allMarks.length > 0) node.marks = allMarks;
@@ -110,26 +97,26 @@ function parseMarked(content, mark, diffMark) {
   return inner;
 }
 
-// Placeholder for \n inside inline spans so the line-based parser isn't broken.
-// Restored to real \n in makeTextNode().
-const NEWLINE_PLACEHOLDER = '\x00';
-
 /**
  * Join lines that are continuations of the previous line due to
  * newlines inside inline HTML spans (e.g., \n in text nodes).
- * Detects unclosed <span>/<u>/<mark>/etc. tags and merges the next line,
- * replacing the \n with a placeholder so the single-line regex still works.
+ * Detects unclosed HTML tags and merges the next line, replacing
+ * the \n with INLINE_NEWLINE so the single-line regex still works.
+ *
+ * Tags to detect are derived from the format registry (INLINE_HTML_TAGS).
  */
 function joinContinuationLines(lines) {
+  const openPattern = new RegExp(`<(?:${INLINE_HTML_TAGS.join('|')})\\b`, 'g');
+  const closePattern = new RegExp(`<\\/(?:${INLINE_HTML_TAGS.join('|')})>`, 'g');
+
   const result = [];
   for (const line of lines) {
     if (result.length > 0) {
       const prev = result[result.length - 1];
-      const opens = (prev.match(/<(?:span|u|mark|sub|sup)\b/g) || []).length;
-      const closes = (prev.match(/<\/(?:span|u|mark|sub|sup)>/g) || []).length;
+      const opens = (prev.match(openPattern) || []).length;
+      const closes = (prev.match(closePattern) || []).length;
       if (opens > closes) {
-        // Replace the line-break with a placeholder so the regex can match
-        result[result.length - 1] = prev + NEWLINE_PLACEHOLDER + line;
+        result[result.length - 1] = prev + INLINE_NEWLINE + line;
         continue;
       }
     }

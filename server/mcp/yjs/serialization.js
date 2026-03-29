@@ -6,6 +6,7 @@
  */
 const Y = require('yjs');
 const { getNodeTextLength } = require('./cursor-operations');
+const { INLINE_MARKS, attrsToCSS } = require('../../format-registry');
 
 /**
  * Serialize a Yjs XmlFragment to plain text
@@ -71,23 +72,19 @@ function toMarkdown(xmlFragment) {
       if (typeof op.insert !== 'string') continue;
       let seg = op.insert;
       const a = op.attributes || {};
-      if (a.code) seg = '`' + seg + '`';
-      if (a.bold) seg = '**' + seg + '**';
-      if (a.italic) seg = '_' + seg + '_';
-      if (a.strikethrough) seg = '~~' + seg + '~~';
-      if (a.underline) seg = `<u>${seg}</u>`;
-      if (a.highlight) seg = `<mark>${seg}</mark>`;
-      if (a.subscript) seg = `<sub>${seg}</sub>`;
-      if (a.superscript) seg = `<sup>${seg}</sup>`;
-      // textStyle is a mark with attrs: { textStyle: { color, backgroundColor, ... } }
+      // Apply marks from registry (innermost first)
+      for (const m of INLINE_MARKS) {
+        if (!a[m.yjsAttr]) continue;
+        if (m.wrap) seg = m.wrap[0] + seg + m.wrap[1];
+        else seg = `<${m.htmlTag}>${seg}</${m.htmlTag}>`;
+      }
+      // textStyle: CSS from registry-derived STYLE_PROPS
       const ts = typeof a.textStyle === 'object' && a.textStyle;
-      const styles = [];
-      if (ts && ts.color) styles.push(`color:${ts.color}`);
-      if (ts && ts.backgroundColor) styles.push(`background-color:${ts.backgroundColor}`);
-      if (ts && ts.fontSize) styles.push(`font-size:${ts.fontSize}`);
-      if (ts && ts.fontFamily) styles.push(`font-family:${ts.fontFamily}`);
-      if (ts && ts.lineHeight) styles.push(`line-height:${ts.lineHeight}`);
-      if (styles.length) seg = `<span style="${styles.join(';')}">${seg}</span>`;
+      if (ts) {
+        const css = attrsToCSS(ts);
+        if (css) seg = `<span style="${css}">${seg}</span>`;
+      }
+      // link (custom — not a simple wrap/tag)
       if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
       out += seg;
     }

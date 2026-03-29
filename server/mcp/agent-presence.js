@@ -414,6 +414,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
               resolve(session);
             } catch (error) {
               cleanup();
+              pendingSessionCreations.delete(sessionKey);
               reject(new Error(`Failed to set presence: ${error.message}`));
             }
           }
@@ -424,6 +425,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
       provider.on('connection-error', (error) => {
         if (setupComplete) return; // Ignore errors after setup - let y-websocket handle reconnection
         cleanup();
+        pendingSessionCreations.delete(sessionKey);
         reject(new Error(`WebSocket connection failed: ${error.message}`));
       });
 
@@ -431,6 +433,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
       provider.on('connection-close', () => {
         if (setupComplete) return; // Ignore close after setup - let y-websocket handle reconnection
         cleanup();
+        pendingSessionCreations.delete(sessionKey);
         reject(new Error('WebSocket connection closed unexpectedly'));
       });
 
@@ -439,11 +442,13 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         if (setupComplete) return; // Setup already completed successfully
         if (!provider.wsconnected) {
           cleanup();
+          pendingSessionCreations.delete(sessionKey);
           reject(new Error('Connection timeout: Could not establish WebSocket connection'));
         }
       }, 10000); // 10 second timeout for connection
     } catch (error) {
       cleanup();
+      pendingSessionCreations.delete(sessionKey);
       reject(new Error(`Failed to create agent presence: ${error.message}`));
     }
   });
