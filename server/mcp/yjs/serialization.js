@@ -396,12 +396,12 @@ function toStructuredNode(node) {
 
   // Simplify content for table cells — collect recursively from nested children
   if (['tableCell', 'tableHeader'].includes(tagName)) {
+    const flatContent = [];
     if (children.length > 0) {
-      const flatContent = [];
       collectContent(children, flatContent, () => {});
-      const simplified = simplifyContent(flatContent);
-      if (simplified !== undefined) result.content = simplified;
     }
+    result.content = simplifyContent(flatContent) ?? '';
+
   } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
     // Simplify content for leaf blocks
     const allText = children.every((c) => c.type === 'text');
