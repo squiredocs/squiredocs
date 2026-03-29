@@ -510,6 +510,4 @@ module.exports = {
   // Helper functions (new)
   countCharacters,
   countBlocks,
-  serializeNodesToStructured,
-  serializeNodesToText,
 };
