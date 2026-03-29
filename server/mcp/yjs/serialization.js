@@ -215,194 +215,8 @@ function toMarkdown(xmlFragment) {
 function toStructured(xmlFragment) {
   const nodes = [];
 
-  /**
-   * Extract text content with marks from a Y.XmlText node
-   * @param {Y.XmlText} textNode - Yjs text node
-   * @returns {Array} Array of text content items (strings and formatted objects)
-   */
-  function extractTextWithMarks(textNode) {
-    const delta = textNode.toDelta();
-    const result = [];
-
-    for (const op of delta) {
-      if (typeof op.insert === 'string') {
-        const text = op.insert;
-        const attrs = op.attributes || {};
-
-        // Extract all marks from attributes
-        const marks = [];
-
-        for (const [key, value] of Object.entries(attrs)) {
-          if (value === true) {
-            // Boolean marks (bold, italic, etc.)
-            marks.push(key);
-          } else if (typeof value === 'object' && value !== null) {
-            // Object marks (link, textStyle, etc.)
-            if (key === 'link') {
-              marks.push({ type: 'link', href: value.href || value });
-            } else {
-              marks.push({ type: key, ...value });
-            }
-          }
-          // Skip false/null/undefined values
-        }
-
-        if (marks.length > 0) {
-          result.push({ text, marks });
-        } else {
-          result.push(text);
-        }
-      }
-    }
-
-    return result;
-  }
-
-  function processNode(node) {
-    if (node instanceof Y.XmlText) {
-      // For text nodes, extract with marks
-      const textContent = extractTextWithMarks(node);
-
-      // If it's just a single plain string, simplify
-      if (textContent.length === 1 && typeof textContent[0] === 'string') {
-        return {
-          type: 'text',
-          content: textContent[0],
-        };
-      }
-
-      // Return content array for formatted text
-      return {
-        type: 'text',
-        content: textContent,
-      };
-    } else if (node instanceof Y.XmlElement) {
-      const tagName = node.nodeName;
-      const attrs = {};
-
-      // Get all attributes generically from the element
-      const allAttrs = node.getAttributes();
-      for (const [key, value] of Object.entries(allAttrs)) {
-        if (value !== undefined && value !== null) {
-          // Parse numeric attributes
-          if (['colspan', 'rowspan', 'level'].includes(key)) {
-            attrs[key] = parseInt(value, 10);
-          } else {
-            attrs[key] = value;
-          }
-        }
-      }
-
-      // Process children
-      const children = [];
-      for (const child of node.toArray()) {
-        const processed = processNode(child);
-        if (processed) {
-          children.push(processed);
-        }
-      }
-
-      const result = {
-        type: tagName,
-        ...attrs, // Include all attributes generically
-      };
-
-      // Void elements (self-closing, no content) - return without children
-      if (tagName === 'horizontalRule') {
-        return result;
-      }
-
-      // For table cells - extract content from nested paragraphs
-      if (['tableCell', 'tableHeader'].includes(tagName)) {
-        if (children.length > 0) {
-          // Table cells contain paragraphs, extract their content
-          const flatContent = [];
-          let hasMarks = false;
-
-          for (const child of children) {
-            if (child.type === 'paragraph' && child.content) {
-              if (Array.isArray(child.content)) {
-                flatContent.push(...child.content);
-                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-                  hasMarks = true;
-                }
-              } else if (typeof child.content === 'string') {
-                flatContent.push(child.content);
-              }
-            } else if (child.type === 'text' && child.content) {
-              // Direct text children
-              if (Array.isArray(child.content)) {
-                flatContent.push(...child.content);
-                if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-                  hasMarks = true;
-                }
-              } else if (typeof child.content === 'string') {
-                flatContent.push(child.content);
-              }
-            }
-          }
-
-          // Simplify to string if no marks
-          if (!hasMarks && flatContent.every((c) => typeof c === 'string')) {
-            result.content = flatContent.join('');
-          } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
-            result.content = flatContent[0];
-          } else if (flatContent.length > 0) {
-            result.content = flatContent;
-          }
-        }
-      } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
-        // For content nodes (paragraph, heading, listItem, codeBlock)
-        // Check if all children are text nodes
-        const allText = children.every((c) => c.type === 'text');
-
-        if (allText && children.length > 0) {
-          // Flatten text content
-          const flatContent = [];
-          let hasMarks = false;
-
-          for (const child of children) {
-            if (Array.isArray(child.content)) {
-              flatContent.push(...child.content);
-              // Check if any item has marks
-              if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-                hasMarks = true;
-              }
-            } else if (typeof child.content === 'string') {
-              flatContent.push(child.content);
-            }
-          }
-
-          // For code blocks or simple text without marks, use plain string
-          if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
-            result.content = flatContent.join('');
-          } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
-            // Single plain string
-            result.content = flatContent[0];
-          } else {
-            // Array with formatted content
-            result.content = flatContent;
-          }
-        } else if (children.length > 0) {
-          // Complex children (shouldn't happen for these node types, but handle it)
-          result.children = children;
-        }
-      } else if (['bulletList', 'orderedList'].includes(tagName)) {
-        // Lists have listItem children
-        result.children = children;
-      } else if (children.length > 0) {
-        // Other nodes with children
-        result.children = children;
-      }
-
-      return result;
-    }
-
-    return null;
-  }
-
   for (const child of xmlFragment.toArray()) {
-    const processed = processNode(child);
+    const processed = toStructuredNode(child);
     if (processed) {
       nodes.push(processed);
     }
@@ -487,6 +301,29 @@ function extractTextWithMarks(textNode) {
 }
 
 /**
+ * Collapse a flat content array into the simplest representation:
+ * - All plain strings with no marks → joined string
+ * - Single plain string → the string itself
+ * - Mixed/marked content → the array as-is
+ * - Empty → undefined
+ *
+ * @param {Array} flatContent - Array of strings and {text, marks} objects
+ * @param {{ forceString?: boolean }} options - forceString: always join (e.g. codeBlock)
+ * @returns {string|Array|undefined}
+ */
+function simplifyContent(flatContent, { forceString = false } = {}) {
+  if (flatContent.length === 0) return undefined;
+  const hasMarks = flatContent.some(item => typeof item === 'object' && item.marks);
+  if (forceString || (!hasMarks && flatContent.every(c => typeof c === 'string'))) {
+    return flatContent.join('');
+  }
+  if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
+    return flatContent[0];
+  }
+  return flatContent;
+}
+
+/**
  * Recursively collect text content from structured node children.
  * Walks into content, children, and nested structures so that
  * container elements like tableCell always get a content string
@@ -557,43 +394,24 @@ function toStructuredNode(node) {
     return result;
   }
 
-  // Simplify content for table cells - extract text from nested children
+  // Simplify content for table cells — collect recursively from nested children
   if (['tableCell', 'tableHeader'].includes(tagName)) {
     if (children.length > 0) {
       const flatContent = [];
-      let hasMarks = false;
-      collectContent(children, flatContent, (m) => { hasMarks = hasMarks || m; });
-      // Collapse to string if no marks
-      if (!hasMarks && flatContent.every((c) => typeof c === 'string')) {
-        result.content = flatContent.join('');
-      } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
-        result.content = flatContent[0];
-      } else if (flatContent.length > 0) {
-        result.content = flatContent;
-      }
+      collectContent(children, flatContent, () => {});
+      const simplified = simplifyContent(flatContent);
+      if (simplified !== undefined) result.content = simplified;
     }
   } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
     // Simplify content for leaf blocks
     const allText = children.every((c) => c.type === 'text');
     if (allText && children.length > 0) {
       const flatContent = [];
-      let hasMarks = false;
       for (const child of children) {
-        if (Array.isArray(child.content)) {
-          flatContent.push(...child.content);
-          if (child.content.some((item) => typeof item === 'object' && item.marks)) {
-            hasMarks = true;
-          }
-        }
+        if (Array.isArray(child.content)) flatContent.push(...child.content);
       }
-      // Collapse to string if no marks
-      if (tagName === 'codeBlock' || (!hasMarks && flatContent.every((c) => typeof c === 'string'))) {
-        result.content = flatContent.join('');
-      } else if (flatContent.length === 1 && typeof flatContent[0] === 'string') {
-        result.content = flatContent[0];
-      } else {
-        result.content = flatContent;
-      }
+      const simplified = simplifyContent(flatContent, { forceString: tagName === 'codeBlock' });
+      if (simplified !== undefined) result.content = simplified;
     } else if (children.length > 0) {
       result.children = children;
     }

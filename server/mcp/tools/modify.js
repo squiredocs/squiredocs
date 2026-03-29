@@ -8,10 +8,8 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
-const { getTextContent } = require('../sandbox/helpers');
-const { structuredPatch } = require('diff');
 const { toMarkdown } = require('../yjs/serialization');
-const { postProcessDiffLines } = require('../diff-postprocess');
+const { computeChatDiff } = require('../diff-utils');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -1502,35 +1500,12 @@ async function handler(args, agentToken) {
     console.log(`[modify:DIAGNOSTIC] changed=${changed}`);
 
     if (result.success) {
-      // Compute text diff for chat UI
+      // Compute text diff for chat UI (best-effort)
       let diff = null;
       if (changed) {
         try {
-          const patch = structuredPatch('', '', mdBefore, mdAfter, '', '', { context: 2 });
-          const lines = [];
-          const hunkStarts = [];
-          for (let h = 0; h < patch.hunks.length; h++) {
-            if (h > 0) lines.push('~~~');
-            hunkStarts.push({ index: lines.length, oldStart: patch.hunks[h].oldStart, newStart: patch.hunks[h].newStart });
-            for (const line of patch.hunks[h].lines) {
-              if (line === '\\ No newline at end of file') continue;
-              lines.push(line);
-            }
-          }
-          // Post-process: strip <span style> tags, collapse format-only pairs
-          const processed = postProcessDiffLines(lines, hunkStarts);
-
-          const totalChars = processed.lines.reduce((sum, l) => sum + l.length, 0);
-          if (totalChars > 50000) {
-            const truncatedAnnotations = processed.formatAnnotations
-              ? Object.fromEntries(Object.entries(processed.formatAnnotations).filter(([k]) => Number(k) < 200))
-              : undefined;
-            diff = { lines: processed.lines.slice(0, 200), hunkStarts: processed.hunkStarts.filter(hs => hs.index < 200), formatAnnotations: truncatedAnnotations, truncatedByServer: true };
-          } else {
-            diff = { lines: processed.lines, hunkStarts: processed.hunkStarts, formatAnnotations: processed.formatAnnotations };
-          }
+          diff = computeChatDiff(mdBefore, mdAfter);
         } catch (e) {
-          // Diff computation is best-effort; don't fail the tool call
           console.error('[modify] diff computation failed:', e.message);
         }
       }
