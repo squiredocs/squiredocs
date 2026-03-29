@@ -122,27 +122,55 @@ function postProcessDiffLines(lines, hunkStarts) {
       continue;
     }
 
-    // Check for a formatting-only -/+ pair
-    if (line[0] === '-' && i + 1 < lines.length && lines[i + 1][0] === '+') {
-      const plainOld = extractPlainText(line);
-      const plainNew = extractPlainText(lines[i + 1]);
+    // Collect a block of consecutive '-' lines followed by consecutive '+' lines
+    // and match them pairwise for formatting-only detection.
+    if (line[0] === '-') {
+      const delStart = i;
+      while (i < lines.length && lines[i][0] === '-') i++;
+      const addStart = i;
+      while (i < lines.length && lines[i][0] === '+') i++;
+      const delLines = lines.slice(delStart, addStart);
+      const addLines = lines.slice(addStart, i);
 
-      if (plainOld === plainNew && plainOld.trim() !== '') {
-        // Formatting-only change — keep red/green pair, annotate with what changed
-        const annotation = describeFormattingDiff(line.slice(1), lines[i + 1].slice(1));
-        const delIdx = result.length;
-        result.push('-' + stripSpanTags(line.slice(1)));
-        const addIdx = result.length;
-        result.push('+' + stripSpanTags(lines[i + 1].slice(1)));
-        formatAnnotations[addIdx] = annotation;
-        indexMap[i] = delIdx;
-        indexMap[i + 1] = addIdx;
-        i += 2;
-        continue;
+      // Try pairwise format-only matching when block sizes are equal
+      if (delLines.length === addLines.length && delLines.length > 0) {
+        let allFormatOnly = true;
+        for (let j = 0; j < delLines.length; j++) {
+          const plainOld = extractPlainText(delLines[j]);
+          const plainNew = extractPlainText(addLines[j]);
+          if (plainOld !== plainNew || plainOld.trim() === '') {
+            allFormatOnly = false;
+            break;
+          }
+        }
+        if (allFormatOnly) {
+          for (let j = 0; j < delLines.length; j++) {
+            const annotation = describeFormattingDiff(delLines[j].slice(1), addLines[j].slice(1));
+            const delIdx = result.length;
+            result.push('-' + stripSpanTags(delLines[j].slice(1)));
+            indexMap[delStart + j] = delIdx;
+            const addIdx = result.length;
+            result.push('+' + stripSpanTags(addLines[j].slice(1)));
+            indexMap[addStart + j] = addIdx;
+            if (annotation) formatAnnotations[addIdx] = annotation;
+          }
+          continue;
+        }
       }
+
+      // Not format-only — emit all lines normally
+      for (let j = delStart; j < addStart; j++) {
+        indexMap[j] = result.length;
+        result.push(lines[j][0] + stripSpanTags(lines[j].slice(1)));
+      }
+      for (let j = addStart; j < i; j++) {
+        indexMap[j] = result.length;
+        result.push(lines[j][0] + stripSpanTags(lines[j].slice(1)));
+      }
+      continue;
     }
 
-    // Regular line — strip span tags, keep prefix
+    // Context line — strip span tags, keep prefix
     indexMap[i] = result.length;
     result.push(line[0] + stripSpanTags(line.slice(1)));
     i++;

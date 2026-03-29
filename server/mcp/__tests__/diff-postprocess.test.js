@@ -230,4 +230,60 @@ describe('postProcessDiffLines', () => {
     expect(result.formatAnnotations[1]).toContain('underline');
     expect(result.formatAnnotations[1]).toContain('\u2192'); // arrow
   });
+
+  test('detects format-only in multi-line blocks (del block then add block)', () => {
+    const lines = [
+      '-**line one**',
+      '-**line two**',
+      '+_line one_',
+      '+_line two_',
+    ];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.lines).toHaveLength(4);
+    expect(result.formatAnnotations).toBeDefined();
+    expect(result.formatAnnotations[1]).toMatch(/bold.*italic|italic.*bold/);
+    expect(result.formatAnnotations[3]).toMatch(/bold.*italic|italic.*bold/);
+  });
+
+  test('multi-line block with mismatched sizes falls through (no annotation)', () => {
+    const lines = [
+      '-**line one**',
+      '-**line two**',
+      '+_line one_',
+    ];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.lines).toHaveLength(3);
+    expect(result.formatAnnotations).toBeUndefined();
+  });
+
+  test('multi-line block with any text change falls through (no annotation)', () => {
+    const lines = [
+      '-**hello**',
+      '-**world**',
+      '+_hello_',
+      '+_CHANGED_',
+    ];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.lines).toHaveLength(4);
+    expect(result.formatAnnotations).toBeUndefined();
+  });
+
+  test('multi-line format-only block remaps hunkStarts correctly', () => {
+    const lines = [
+      ' context',
+      '-**a**',
+      '-**b**',
+      '+_a_',
+      '+_b_',
+      ' more context',
+    ];
+    const hunkStarts = [{ index: 0, oldStart: 1, newStart: 1 }];
+    const result = postProcessDiffLines(lines, hunkStarts);
+    expect(result.hunkStarts[0].index).toBe(0);
+    // 1 context + 4 diff lines + 1 context = 6 lines
+    expect(result.lines).toHaveLength(6);
+    // Annotations on the + lines (indices 2 and 4)
+    expect(result.formatAnnotations[2]).toBeDefined();
+    expect(result.formatAnnotations[4]).toBeDefined();
+  });
 });
