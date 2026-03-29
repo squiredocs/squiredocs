@@ -1472,14 +1472,28 @@ wss.on('error', (error) => {
 });
 
 // Graceful shutdown
+let shuttingDown = false;
 process.on('SIGINT', async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log('Shutting down...');
-  await redisPubSub.cleanup();
-  await persistenceProvider.destroy();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+  try {
+    await redisPubSub.cleanup();
+    // Close all WebSocket connections so server.close() can complete
+    for (const client of wss.clients) {
+      client.close();
+    }
+    await persistenceProvider.destroy();
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+    // Force exit if server.close() hasn't resolved after 5 seconds
+    setTimeout(() => process.exit(0), 5000).unref();
+  } catch (err) {
+    console.error('Shutdown error:', err.message);
+    process.exit(1);
+  }
 });
 
 // Export for internal use (MCP tools, tests)

@@ -48,13 +48,13 @@ class DiffService {
       }
     }
 
-    // Fetch all updates from database
+    // Fetch updates up to the later clock (no need to load future updates)
     const client = await this.pool.connect();
     let updates;
     try {
       const result = await client.query(
-        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
-        [docGuid]
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
+        [docGuid, currentClock]
       );
       updates = result.rows;
     } finally {
@@ -80,11 +80,13 @@ class DiffService {
 
     // Build diff document using markdown-based approach
     let document;
+    let diffFailed = false;
     try {
       document = this.computeMarkdownDiff(prevDoc, currDoc, textIdentical);
     } catch (err) {
       console.error('[DiffService] Markdown diff failed, using plain document:', err.message);
       document = currentDocument;
+      diffFailed = true;
     }
 
     // Cleanup Yjs docs
@@ -99,6 +101,7 @@ class DiffService {
         currentClock,
         textIdentical,
         formattingOnly,
+        diffFailed,
       },
     };
 
@@ -226,10 +229,13 @@ class DiffService {
 
     try {
       const redis = getRedisClient();
-      const keys = await redis.keys(`diff*:${docGuid}:*`);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
+      const pattern = `diff*:${docGuid}:*`;
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = nextCursor;
+        if (keys.length > 0) await redis.del(...keys);
+      } while (cursor !== '0');
     } catch (err) {
       console.error('[DiffService] Cache invalidation error:', err.message);
     }

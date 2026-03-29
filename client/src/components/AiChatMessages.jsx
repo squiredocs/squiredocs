@@ -155,20 +155,20 @@ function DiffView({ diff }) {
       hunkIdx++;
     }
     const prefix = line[0];
+    let entry;
     if (prefix === '-') {
       oldLine++;
-      return { line, type: 'removed', num: oldLine };
-    }
-    if (prefix === '+') {
+      entry = { line, type: 'removed', num: oldLine };
+    } else if (prefix === '+') {
       newLine++;
-      return { line, type: 'added', num: newLine };
+      entry = { line, type: 'added', num: newLine };
+    } else {
+      oldLine++;
+      newLine++;
+      entry = { line, type: 'context', num: newLine };
     }
-    oldLine++;
-    newLine++;
-    const entry = { line, type: 'context', num: newLine };
-    // Formatting-only annotation from server
+    // Formatting-only annotation from server (shown on the + line)
     if (formatAnnotations[String(i)]) {
-      entry.type = 'format';
       entry.formatAnnotation = formatAnnotations[String(i)];
     }
     return entry;

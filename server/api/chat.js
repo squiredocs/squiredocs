@@ -271,6 +271,11 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
         continue;
       }
 
+      // Log error events from the AI provider so failures aren't silent
+      if (value?.type === 'error') {
+        console.error('[Chat API] Provider error in stream:', value.errorText || JSON.stringify(value));
+      }
+
       const sseChunk = `data: ${JSON.stringify(value)}\n\n`;
       entry.chunks.push(sseChunk);
       res.write(sseChunk);

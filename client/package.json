@@ -12,7 +12,7 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@ai-sdk/react": "^3.0.100",
+    "@ai-sdk/react": "^3.0.143",
     "@floating-ui/dom": "^1.7.5",
     "@tiptap/extension-collaboration": "^3.15.0",
     "@tiptap/extension-collaboration-caret": "^3.15.0",

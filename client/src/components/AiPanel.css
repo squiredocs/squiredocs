@@ -551,18 +551,11 @@
   padding: 2px 0;
 }
 
-.ai-diff-row--format {
-  background: rgba(139, 92, 246, 0.08);
-}
-
-.ai-diff-row--format .ai-diff-cell {
-  color: #6b7280;
-}
-
 .ai-diff-format-annotation {
-  color: #7c3aed;
+  color: #9ca3af;
   font-style: italic;
   font-size: 10px;
+  margin-left: 0.5em;
 }
 
 /* ---------- Thinking / reasoning block ---------- */

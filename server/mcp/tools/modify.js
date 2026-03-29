@@ -1525,7 +1525,7 @@ async function handler(args, agentToken) {
             const truncatedAnnotations = processed.formatAnnotations
               ? Object.fromEntries(Object.entries(processed.formatAnnotations).filter(([k]) => Number(k) < 200))
               : undefined;
-            diff = { lines: processed.lines.slice(0, 200), hunkStarts: processed.hunkStarts, formatAnnotations: truncatedAnnotations, truncatedByServer: true };
+            diff = { lines: processed.lines.slice(0, 200), hunkStarts: processed.hunkStarts.filter(hs => hs.index < 200), formatAnnotations: truncatedAnnotations, truncatedByServer: true };
           } else {
             diff = { lines: processed.lines, hunkStarts: processed.hunkStarts, formatAnnotations: processed.formatAnnotations };
           }

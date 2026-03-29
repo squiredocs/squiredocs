@@ -36,6 +36,7 @@ function VersionPreview({
   // Check if text is identical (skip diff visualization)
   const textIdentical = diffData?.meta?.textIdentical || false;
   const formattingOnly = diffData?.meta?.formattingOnly || false;
+  const diffFailed = diffData?.meta?.diffFailed || false;
 
   if (isLoading) {
     return (
@@ -57,7 +58,12 @@ function VersionPreview({
 
   return (
     <div className="version-preview">
-      {textIdentical && (
+      {diffFailed && (
+        <div className="version-preview-notice">
+          Diff highlighting unavailable for this version
+        </div>
+      )}
+      {textIdentical && !diffFailed && (
         <div className="version-preview-notice">
           {formattingOnly ? 'Formatting changes only' : 'No visible text changes (sync update only)'}
         </div>

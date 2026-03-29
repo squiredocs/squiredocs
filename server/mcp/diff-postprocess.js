@@ -128,13 +128,15 @@ function postProcessDiffLines(lines, hunkStarts) {
       const plainNew = extractPlainText(lines[i + 1]);
 
       if (plainOld === plainNew && plainOld.trim() !== '') {
-        // Formatting-only change — collapse to annotated context line
+        // Formatting-only change — keep red/green pair, annotate with what changed
         const annotation = describeFormattingDiff(line.slice(1), lines[i + 1].slice(1));
-        const newIdx = result.length;
-        result.push(' ' + stripSpanTags(lines[i + 1].slice(1)));
-        formatAnnotations[newIdx] = annotation;
-        indexMap[i] = newIdx;
-        indexMap[i + 1] = newIdx;
+        const delIdx = result.length;
+        result.push('-' + stripSpanTags(line.slice(1)));
+        const addIdx = result.length;
+        result.push('+' + stripSpanTags(lines[i + 1].slice(1)));
+        formatAnnotations[addIdx] = annotation;
+        indexMap[i] = delIdx;
+        indexMap[i + 1] = addIdx;
         i += 2;
         continue;
       }
