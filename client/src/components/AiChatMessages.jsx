@@ -131,7 +131,7 @@ function ToolCardDetail({ toolName, input }) {
   return <pre>{JSON.stringify(input, null, 2)}</pre>;
 }
 
-const DIFF_VISIBLE_LINES = 15;
+const DIFF_VISIBLE_LINES = 50;
 
 function DiffView({ diff }) {
   const [expanded, setExpanded] = useState(true);
