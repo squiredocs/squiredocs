@@ -40,15 +40,23 @@ vi.mock('@ai-sdk/react', () => ({
   }),
 }));
 
-// Mock auth — provide a stable token + refreshAccessToken
+// Mock axios api instance — chat CRUD calls use api.get/post/patch/delete
+const mockApi = {
+  get: vi.fn(),
+  post: vi.fn(),
+  patch: vi.fn(),
+  delete: vi.fn(),
+};
+
+// Mock auth — provide a stable token, refreshAccessToken, and axios api instance
 const refreshAccessTokenSpy = vi.fn().mockResolvedValue('refreshed-token');
 vi.mock('../AuthContext', () => ({
-  useAuth: () => ({ accessToken: 'test-token', refreshAccessToken: refreshAccessTokenSpy }),
+  useAuth: () => ({
+    accessToken: 'test-token',
+    refreshAccessToken: refreshAccessTokenSpy,
+    api: mockApi,
+  }),
 }));
-
-// Mock global fetch for apiFetch calls
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 // Import after mocks are established
 const { AiChatProvider, useAiChat } = await import('../AiChatContext');
@@ -63,14 +71,6 @@ function renderAiChat() {
   return renderHook(() => useAiChat(), { wrapper });
 }
 
-// Mock a fetch response
-function mockFetchResponse(body, ok = true) {
-  mockFetch.mockResolvedValueOnce({
-    ok,
-    json: () => Promise.resolve(body),
-  });
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AiChatContext', () => {
@@ -82,10 +82,13 @@ describe('AiChatContext', () => {
     setMessagesSpy.mockClear();
     resumeStreamSpy.mockClear();
     sendMessageSpy.mockClear();
-    mockFetch.mockReset();
+    mockApi.get.mockReset();
+    mockApi.post.mockReset();
+    mockApi.patch.mockReset();
+    mockApi.delete.mockReset();
     refreshAccessTokenSpy.mockClear().mockResolvedValue('refreshed-token');
     // Default: chat list returns empty (called on mount)
-    mockFetchResponse([]);
+    mockApi.get.mockResolvedValueOnce({ data: [] });
   });
 
   afterEach(() => {
@@ -96,18 +99,18 @@ describe('AiChatContext', () => {
     const { result } = renderAiChat();
 
     // Wait for initial mount effects
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
     stopSpy.mockClear();
 
     // Switch to chat A
-    mockFetchResponse({ messages: [] }); // fetchChatMessages
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } }); // fetchChatMessages
     act(() => { result.current.selectChat('chat-a'); });
 
     await waitFor(() => expect(stopSpy).toHaveBeenCalled());
     stopSpy.mockClear();
 
     // Switch to chat B — should stop again
-    mockFetchResponse({ messages: [] }); // fetchChatMessages
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } }); // fetchChatMessages
     act(() => { result.current.selectChat('chat-b'); });
 
     await waitFor(() => expect(stopSpy).toHaveBeenCalled());
@@ -115,10 +118,10 @@ describe('AiChatContext', () => {
 
   it('calls resumeStream() when last loaded message is from user', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const userMsg = { role: 'user', parts: [{ type: 'text', text: 'hi' }] };
-    mockFetchResponse({ messages: [userMsg] });
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
 
     act(() => { result.current.selectChat('chat-resume'); });
 
@@ -127,11 +130,11 @@ describe('AiChatContext', () => {
 
   it('does NOT call resumeStream() when last message is from assistant', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const userMsg = { role: 'user', parts: [{ type: 'text', text: 'hi' }] };
     const assistantMsg = { role: 'assistant', parts: [{ type: 'text', text: 'hello' }] };
-    mockFetchResponse({ messages: [userMsg, assistantMsg] });
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg, assistantMsg] } });
 
     act(() => { result.current.selectChat('chat-no-resume'); });
 
@@ -143,9 +146,9 @@ describe('AiChatContext', () => {
 
   it('does NOT call resumeStream() for empty chat', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-    mockFetchResponse({ messages: [] });
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
 
     act(() => { result.current.selectChat('chat-empty'); });
 
@@ -168,37 +171,35 @@ describe('AiChatContext', () => {
 
   it('sets chat title immediately on first sendMessage', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     // Create a chat — returns { id }
-    mockFetchResponse({ id: 'new-chat-1' }); // createChat POST
-    mockFetchResponse([]); // refreshChatList after create
-    mockFetchResponse({ ok: true }); // PATCH title
-    mockFetchResponse([]); // refreshChatList after title
+    mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-1' } }); // createChat POST
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
     await act(async () => { await result.current.sendMessage('Hello world'); });
 
-    // Find the PATCH call that sets the title
-    const patchCall = mockFetch.mock.calls.find(
-      ([url, opts]) => url.includes('/api/chat/chats/new-chat-1') && opts?.method === 'PATCH'
+    // Verify PATCH was called with the title
+    expect(mockApi.patch).toHaveBeenCalledWith(
+      '/api/chat/chats/new-chat-1',
+      { title: 'Hello world' },
     );
-    expect(patchCall).toBeDefined();
-    const body = JSON.parse(patchCall[1].body);
-    expect(body.title).toBe('Hello world');
   });
 
   // --------------- Image file forwarding ---------------
 
   it('forwards files to chat.sendMessage', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockFetchResponse({ id: 'chat-img' }); // createChat
-    mockFetchResponse([]); // refreshChatList
-    mockFetchResponse({ ok: true }); // PATCH title
-    mockFetchResponse([]); // refreshChatList
+    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img' } }); // createChat
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
     await act(async () => { await result.current.sendMessage('Look at this', files); });
 
@@ -207,35 +208,33 @@ describe('AiChatContext', () => {
 
   it('uses fallback title for image-only messages', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockFetchResponse({ id: 'chat-img2' }); // createChat
-    mockFetchResponse([]); // refreshChatList
-    mockFetchResponse({ ok: true }); // PATCH title
-    mockFetchResponse([]); // refreshChatList
+    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img2' } }); // createChat
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
     await act(async () => { await result.current.sendMessage('', files); });
 
-    const patchCall = mockFetch.mock.calls.find(
-      ([url, opts]) => url.includes('/api/chat/chats/chat-img2') && opts?.method === 'PATCH'
+    expect(mockApi.patch).toHaveBeenCalledWith(
+      '/api/chat/chats/chat-img2',
+      { title: 'Image' },
     );
-    expect(patchCall).toBeDefined();
-    const body = JSON.parse(patchCall[1].body);
-    expect(body.title).toBe('Image');
   });
 
   it('sends text as space for image-only messages', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockFetchResponse({ id: 'chat-img3' }); // createChat
-    mockFetchResponse([]); // refreshChatList
-    mockFetchResponse({ ok: true }); // PATCH title
-    mockFetchResponse([]); // refreshChatList
+    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img3' } }); // createChat
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
     await act(async () => { await result.current.sendMessage('', files); });
 
@@ -244,12 +243,12 @@ describe('AiChatContext', () => {
 
   it('does not pass files when none provided', async () => {
     const { result } = renderAiChat();
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-    mockFetchResponse({ id: 'chat-nf' }); // createChat
-    mockFetchResponse([]); // refreshChatList
-    mockFetchResponse({ ok: true }); // PATCH title
-    mockFetchResponse([]); // refreshChatList
+    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-nf' } }); // createChat
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
     await act(async () => { await result.current.sendMessage('No files'); });
 
@@ -273,16 +272,16 @@ describe('AiChatContext', () => {
   describe('new chat first message', () => {
     it('does not call stop() when creating a new chat', async () => {
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
       // Clear any calls from initial mount
       stopSpy.mockClear();
       setMessagesSpy.mockClear();
 
-      mockFetchResponse({ id: 'new-chat-a' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList after create
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList after title
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-a' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
       await act(async () => { await result.current.sendMessage('First message'); });
 
@@ -292,15 +291,15 @@ describe('AiChatContext', () => {
 
     it('does not clear messages when creating a new chat', async () => {
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
       stopSpy.mockClear();
       setMessagesSpy.mockClear();
 
-      mockFetchResponse({ id: 'new-chat-b' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList after create
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList after title
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-b' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
       await act(async () => { await result.current.sendMessage('First message'); });
 
@@ -310,12 +309,12 @@ describe('AiChatContext', () => {
 
     it('transport gets the new chat ID, not null', async () => {
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockFetchResponse({ id: 'fresh-42' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList after create
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList after title
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'fresh-42' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
       await act(async () => { await result.current.sendMessage('Hello'); });
 
@@ -328,12 +327,12 @@ describe('AiChatContext', () => {
 
     it('reconnect URL uses the new chat ID', async () => {
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockFetchResponse({ id: 'reconnect-99' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList after create
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList after title
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'reconnect-99' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
       await act(async () => { await result.current.sendMessage('Test'); });
 
@@ -343,13 +342,13 @@ describe('AiChatContext', () => {
 
     it('sends the message to chat.sendMessage', async () => {
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
       sendMessageSpy.mockClear();
 
-      mockFetchResponse({ id: 'new-chat-c' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList after create
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList after title
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-c' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
 
       await act(async () => { await result.current.sendMessage('My first msg'); });
 
@@ -357,76 +356,18 @@ describe('AiChatContext', () => {
     });
   });
 
-  // ── Token refresh on 401 ──────────────────────────────────────────────────
-
-  describe('apiFetch 401 retry', () => {
-    it('retries with refreshed token when fetch returns 401', async () => {
-      const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-
-      // First call to refreshChatList will use apiFetch → returns 401
-      // then apiFetch should call refreshAccessToken and retry
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'expired' }) });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([{ id: 'c1', title: 'Chat', updatedAt: new Date().toISOString() }]) });
-
-      await act(async () => { await result.current.refreshChatList(); });
-
-      expect(refreshAccessTokenSpy).toHaveBeenCalledTimes(1);
-      // The retry fetch should use the refreshed token
-      const retryCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
-      expect(retryCall[1].headers.Authorization).toBe('Bearer refreshed-token');
-    });
-
-    it('does not retry when fetch returns a non-401 error', async () => {
-      const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ error: 'server error' }) });
-
-      await act(async () => { await result.current.refreshChatList(); });
-
-      expect(refreshAccessTokenSpy).not.toHaveBeenCalled();
-    });
-
-    it('returns original 401 response when refresh fails', async () => {
-      const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-
-      refreshAccessTokenSpy.mockRejectedValueOnce(new Error('refresh failed'));
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'expired' }) });
-
-      await act(async () => {
-        const list = await result.current.refreshChatList();
-        expect(list).toEqual([]); // non-ok response → returns empty
-      });
-    });
-  });
-
   // ── Proactive token refresh before streaming ──────────────────────────────
 
   describe('proactive token refresh before sendMessage', () => {
-    // Helper: build a JWT-shaped token with a given exp (seconds since epoch)
-    function fakeJwt(exp) {
-      const header = btoa(JSON.stringify({ alg: 'HS256' }));
-      const payload = btoa(JSON.stringify({ exp }));
-      return `${header}.${payload}.sig`;
-    }
-
     it('refreshes token before sending when token is expiring soon', async () => {
-      // Override the mock to return a nearly-expired token
-      const almostExpired = fakeJwt(Math.floor(Date.now() / 1000) + 10); // 10s left
-      const { useAuth: _u } = await import('../AuthContext');
-      // We can't change the mock return dynamically with vi.mock, so we
-      // set tokenRef.current via the accessToken that flows through the ref.
-      // Instead, test via the module-level mock: the existing 'test-token'
-      // is not a valid JWT, so isTokenExpiringSoon returns true (fail-secure).
+      // 'test-token' is not a valid JWT, so isTokenExpiringSoon returns true (fail-secure)
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockFetchResponse({ id: 'chat-refresh' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-refresh' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
       await act(async () => { await result.current.sendMessage('Hello'); });
 
@@ -440,12 +381,12 @@ describe('AiChatContext', () => {
       refreshAccessTokenSpy.mockRejectedValueOnce(new Error('network error'));
 
       const { result } = renderAiChat();
-      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockFetchResponse({ id: 'chat-fail-refresh' }); // createChat POST
-      mockFetchResponse([]); // refreshChatList
-      mockFetchResponse({ ok: true }); // PATCH title
-      mockFetchResponse([]); // refreshChatList
+      mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-fail-refresh' } }); // createChat POST
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
 
       await act(async () => { await result.current.sendMessage('Still sends'); });
 

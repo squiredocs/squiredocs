@@ -19,7 +19,7 @@ function generateTitle(text) {
 }
 
 export function AiChatProvider({ children }) {
-  const { accessToken, refreshAccessToken } = useAuth();
+  const { accessToken, refreshAccessToken, api } = useAuth();
   const tokenRef = useRef(accessToken);
   tokenRef.current = accessToken;
 
@@ -35,45 +35,19 @@ export function AiChatProvider({ children }) {
   const titleSetRef = useRef(new Set()); // track which chats already have titles
   const creatingChatRef = useRef(false); // skip load-messages effect after new-chat creation
 
-  // Helper for authed API calls — retries once on 401 after refreshing the token
-  const apiFetch = useCallback(async (path, opts = {}) => {
-    const doFetch = (token) => fetch(path, {
-      ...opts,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...opts.headers,
-      },
-    });
-
-    const res = await doFetch(tokenRef.current);
-    if (res.status === 401) {
-      try {
-        const newToken = await refreshAccessToken();
-        return doFetch(newToken);
-      } catch {
-        return res;
-      }
-    }
-    return res;
-  }, [refreshAccessToken]);
-
   // ── Chat list ────────────────────────────────────────────────────────────
 
   const refreshChatList = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/chat/chats');
-      if (res.ok) {
-        const list = await res.json();
-        list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
-        setChatList(list);
-        return list;
-      }
+      const { data: list } = await api.get('/api/chat/chats');
+      list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
+      setChatList(list);
+      return list;
     } catch (e) {
       console.error('[AiChat] Failed to refresh chat list:', e);
     }
     return [];
-  }, [apiFetch]);
+  }, [api]);
 
   // ── Transport (sends single message + chat ID) ──────────────────────────
 
@@ -112,11 +86,9 @@ export function AiChatProvider({ children }) {
 
   // Shared helper: fetch a chat's messages from the server
   const fetchChatMessages = useCallback(async (id) => {
-    const res = await apiFetch(`/api/chat/chats/${id}`);
-    if (!res.ok) throw new Error('Failed to load messages');
-    const data = await res.json();
+    const { data } = await api.get(`/api/chat/chats/${id}`);
     return data.messages || [];
-  }, [apiFetch]);
+  }, [api]);
 
   // Message loading state
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -239,17 +211,14 @@ export function AiChatProvider({ children }) {
   // Does NOT set currentChatId — the caller does that after sending.
   const createChatOnServer = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/chat/chats', { method: 'POST' });
-      if (res.ok) {
-        const { id } = await res.json();
-        await refreshChatList();
-        return id;
-      }
+      const { data } = await api.post('/api/chat/chats');
+      await refreshChatList();
+      return data.id;
     } catch (e) {
       console.error('[AiChat] Failed to create chat:', e);
     }
     return null;
-  }, [apiFetch, refreshChatList]);
+  }, [api, refreshChatList]);
 
   // Reset UI to a blank chat (no server call — persisted on first message)
   const createChat = useCallback(async () => {
@@ -264,34 +233,29 @@ export function AiChatProvider({ children }) {
 
   const deleteChat = useCallback(async (id) => {
     try {
-      const res = await apiFetch(`/api/chat/chats/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        const newList = await refreshChatList();
-        // If we deleted the active chat, switch to the most recent or clear
-        if (id === currentChatId) {
-          if (newList.length > 0) {
-            setCurrentChatId(newList[0].id);
-          } else {
-            setCurrentChatId(null);
-          }
+      await api.delete(`/api/chat/chats/${id}`);
+      const newList = await refreshChatList();
+      // If we deleted the active chat, switch to the most recent or clear
+      if (id === currentChatId) {
+        if (newList.length > 0) {
+          setCurrentChatId(newList[0].id);
+        } else {
+          setCurrentChatId(null);
         }
       }
     } catch (e) {
       console.error('[AiChat] Failed to delete chat:', e);
     }
-  }, [apiFetch, refreshChatList, currentChatId]);
+  }, [api, refreshChatList, currentChatId]);
 
   const renameChat = useCallback(async (id, title) => {
     try {
-      await apiFetch(`/api/chat/chats/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ title }),
-      });
+      await api.patch(`/api/chat/chats/${id}`, { title });
       await refreshChatList();
     } catch (e) {
       console.error('[AiChat] Failed to rename chat:', e);
     }
-  }, [apiFetch, refreshChatList]);
+  }, [api, refreshChatList]);
 
   // Stable wrapper so callers can pass a plain string instead of { text }
   // Auto-creates a chat if none is selected
