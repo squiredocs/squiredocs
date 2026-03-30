@@ -13,7 +13,7 @@
 }
 
 .user-profile-trigger:hover {
-  border-color: #667eea;
+  border-color: #7c3aed;
 }
 
 .user-avatar-small {
@@ -28,7 +28,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #7c3aed;
   color: white;
   display: flex;
   align-items: center;
@@ -58,24 +58,24 @@
 
 .user-menu-header {
   padding: 16px;
-  background: #f7fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .user-menu-name {
   font-weight: 600;
-  color: #1a202c;
+  color: #1f2937;
   margin-bottom: 2px;
 }
 
 .user-menu-email {
   font-size: 13px;
-  color: #718096;
+  color: #6b7280;
 }
 
 .user-menu-divider {
   height: 1px;
-  background: #e2e8f0;
+  background: #e5e7eb;
 }
 
 .user-menu-item {
@@ -86,12 +86,12 @@
   text-align: left;
   font-size: 14px;
   cursor: pointer;
-  color: #4a5568;
+  color: #374151;
   transition: background 0.15s ease;
 }
 
 .user-menu-item:hover {
-  background: #f7fafc;
+  background: #f9fafb;
 }
 
 /* Mobile responsive styles */

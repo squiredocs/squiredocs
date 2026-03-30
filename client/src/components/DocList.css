@@ -35,7 +35,7 @@
   align-items: center;
   gap: 8px;
   background: #f8f9fa;
-  border: 1px solid #dadce0;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 8px 12px;
   min-width: 200px;
@@ -59,13 +59,13 @@
   border: none;
   background: transparent;
   font-size: 16px;
-  color: #202124;
+  color: #1f2937;
   outline: none;
   min-width: 120px;
 }
 
 .doc-list-search input::placeholder {
-  color: #80868b;
+  color: #9ca3af;
 }
 
 .doc-list-search-clear {
@@ -84,7 +84,7 @@
 }
 
 .doc-list-search-clear:hover {
-  background: #e8eaed;
+  background: #e5e7eb;
 }
 
 .doc-list-search-clear svg {
@@ -95,10 +95,10 @@
 .doc-list-filter {
   padding: 8px 32px 8px 12px;
   font-size: 14px;
-  border: 1px solid #dadce0;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: white;
-  color: #202124;
+  color: #1f2937;
   cursor: pointer;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235f6368' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -123,8 +123,8 @@
   gap: 8px;
   padding: 10px 20px;
   background: white;
-  color: #202124;
-  border: 1px solid #dadce0;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
@@ -139,7 +139,7 @@
 }
 
 .new-doc-btn:active:not(:disabled) {
-  background: #f1f3f4;
+  background: #f3f4f6;
 }
 
 .new-doc-btn:disabled {
@@ -163,7 +163,7 @@
 .doc-list-item {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #e8eaed;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .doc-list-item:last-child {
@@ -183,7 +183,7 @@
 }
 
 .doc-link:hover {
-  background-color: #f1f3f4;
+  background-color: #f3f4f6;
 }
 
 .doc-icon-wrapper {
@@ -244,7 +244,7 @@
 .doc-title {
   font-size: 14px;
   font-weight: 500;
-  color: #202124;
+  color: #1f2937;
   line-height: 1.4;
   overflow-wrap: break-word;
   word-wrap: break-word;
@@ -286,7 +286,7 @@
 }
 
 .doc-menu-btn:hover {
-  background-color: #e8eaed;
+  background-color: #e5e7eb;
 }
 
 .doc-menu-btn svg {
@@ -316,13 +316,13 @@
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  color: #202124;
+  color: #1f2937;
   text-align: left;
   transition: background-color 0.15s ease;
 }
 
 .doc-menu-item:hover:not(.disabled) {
-  background-color: #f1f3f4;
+  background-color: #f3f4f6;
 }
 
 .doc-menu-item svg {
@@ -352,7 +352,7 @@
 
 .doc-list-empty p:first-child {
   font-size: 16px;
-  color: #202124;
+  color: #1f2937;
 }
 
 .doc-list-loading,
@@ -395,7 +395,7 @@
 .doc-list-loading .loading-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #e8eaed;
+  border: 3px solid #e5e7eb;
   border-top-color: #7c3aed;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;

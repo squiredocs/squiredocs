@@ -346,8 +346,8 @@ app.get('/oauth-callback', (req, res) => {
           .success { background: #e8f5e9; color: #2e7d32; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
           .code-box { background: #f5f5f5; padding: 20px; border-radius: 8px; }
           code { background: #fff; padding: 10px; display: block; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; word-break: break-all; }
-          button { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 10px; }
-          button:hover { background: #5568d3; }
+          button { background: #7c3aed; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+          button:hover { background: #6d28d9; }
         </style>
       </head>
       <body>

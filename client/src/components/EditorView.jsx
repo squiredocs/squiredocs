@@ -522,7 +522,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         borderRadius: '50%',
                         marginLeft: i === 0 ? 0 : -8,
                         overflow: u.isAgent ? 'visible' : 'hidden',
-                        boxShadow: `0 0 0 2px ${u.color || '#667eea'}`,
+                        boxShadow: `0 0 0 2px ${u.color || '#7c3aed'}`,
                         zIndex: 5 - i,
                         position: 'relative',
                         flexShrink: 0,
@@ -556,7 +556,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                             width: 16,
                             height: 16,
                             borderRadius: '50%',
-                            border: `2px solid ${u.color || '#667eea'}`,
+                            border: `2px solid ${u.color || '#7c3aed'}`,
                             overflow: 'hidden',
                             background: '#fff',
                             boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
@@ -584,7 +584,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                                 fontSize: 7,
                                 fontWeight: 600,
                                 color: '#fff',
-                                background: u.color || '#667eea'
+                                background: u.color || '#7c3aed'
                               }}>
                                 {u.name?.charAt(0).toUpperCase() || '?'}
                               </div>
@@ -608,7 +608,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                           color: '#fff',
                           fontSize: 14,
                           fontWeight: 600,
-                          background: u.color || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                          background: u.color || '#7c3aed'
                         }}>
                           {u.name?.charAt(0).toUpperCase() || '?'}
                         </div>

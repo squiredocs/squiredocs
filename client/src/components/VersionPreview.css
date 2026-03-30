@@ -28,7 +28,7 @@
 
 .version-preview-authors {
   padding: 12px 20px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #e5e7eb;
   font-size: 13px;
   color: #6b7280;
   background: #f8f9fa;
@@ -46,7 +46,7 @@
 .version-preview-notice {
   padding: 8px 16px;
   background: #f0f4f8;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
   font-size: 13px;
   text-align: center;

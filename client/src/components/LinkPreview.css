@@ -4,7 +4,7 @@
   align-items: center;
   gap: 8px;
   background: white;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 8px 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
@@ -19,7 +19,7 @@
 }
 
 .link-preview-url {
-  color: #1a73e8;
+  color: #7c3aed;
   text-decoration: none;
   font-size: 14px;
   overflow: hidden;
@@ -37,7 +37,7 @@
   align-items: center;
   gap: 4px;
   margin-left: 8px;
-  border-left: 1px solid #e0e0e0;
+  border-left: 1px solid #e5e7eb;
   padding-left: 8px;
 }
 
@@ -56,7 +56,7 @@
 }
 
 .link-preview-btn:hover {
-  background: #f1f3f4;
+  background: #f3f4f6;
 }
 
 .link-preview-btn svg {
@@ -90,15 +90,15 @@
 
 .link-edit-input {
   padding: 8px 10px;
-  border: 1px solid #dadce0;
+  border: 1px solid #e5e7eb;
   border-radius: 4px;
   font-size: 16px;
   outline: none;
 }
 
 .link-edit-input:focus {
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
 }
 
 .link-edit-actions {
@@ -138,31 +138,31 @@
 /* Cancel button - consistent styling with !important to override parent styles */
 .link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--cancel {
   background: transparent !important;
-  border: 1px solid #dadce0 !important;
+  border: 1px solid #e5e7eb !important;
   color: #6b7280 !important;
 }
 
 .link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--cancel:hover {
-  background: #f1f3f4 !important;
-  border-color: #dadce0 !important;
+  background: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
   color: #6b7280 !important;
 }
 
 /* Save button - consistent styling with !important to override parent styles */
 .link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save {
-  background: #1a73e8 !important;
+  background: #7c3aed !important;
   border: none !important;
   color: white !important;
 }
 
 .link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save:hover:not(:disabled) {
-  background: #1557b0 !important;
+  background: #6d28d9 !important;
   color: white !important;
 }
 
 .link-preview.link-preview--editing .link-edit-actions button.link-edit-btn.link-edit-btn--save:disabled {
-  background: #dadce0 !important;
-  color: #9aa0a6 !important;
+  background: #e5e7eb !important;
+  color: #9ca3af !important;
   cursor: not-allowed !important;
   opacity: 1 !important;
 }

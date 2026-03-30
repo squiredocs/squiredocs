@@ -52,27 +52,28 @@ Purple is the brand color. It signals interactivity and distinguishes Squire Doc
 
 | Role | Hex | Usage |
 |------|-----|-------|
-| Text primary | `#1f2937`, `#333` | Headings, body text, titles |
+| Text primary | `#1f2937` | Headings, body text, titles |
+| Text primary alt | `#333` | Editor body text |
 | Text secondary | `#6b7280` | Descriptions, timestamps, placeholders |
 | Text tertiary | `#9ca3af` | Copyright, helper text |
-| Border | `#e0e0e0`, `#e5e7eb`, `#dadce0` | Dividers, card borders, input borders |
+| Text menu | `#374151` | Menu items, dropdown text |
+| Border | `#e5e7eb` | Dividers, card borders, input borders |
+| Border light | `#f0f0f0` | Internal section dividers |
+| Border mid | `#d1d5db` | Input borders, secondary borders |
 | Surface | `#ffffff` | Primary background |
-| Surface raised | `#f8f9fa`, `#f9fafb` | Section backgrounds, list hovers |
-| Surface muted | `#f1f3f4`, `#f5f5f5` | Toolbar backgrounds, disabled areas |
+| Surface raised | `#f9fafb` | Section backgrounds |
+| Surface hover | `#f3f4f6` | Hover states, hover backgrounds |
+| Surface muted | `#f5f5f5` | Toolbar backgrounds, disabled areas |
 
 #### Semantic
 
 | Role | Hex | Usage |
 |------|-----|-------|
-| Success/Connected | `#4caf50`, `#16a34a` | Connection status, shared indicators |
+| Success/Connected | `#059669`, `#16a34a` | Connection status, shared indicators |
 | Danger | `#dc2626` | Delete actions, stop button, errors |
 | Warning | `#ffc107` | Connecting state, caution |
 | Link | `#2563eb` | Inline links in document content |
-| Active/Selected | `#1a73e8` | Toolbar active buttons |
-
-#### Gradients
-
-- **Brand gradient**: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)` — used for avatar fallbacks and decorative elements
+| Active/Selected | `#7c3aed` | Active toolbar buttons, selected states |
 - **Hero gradient**: `linear-gradient(180deg, #ffffff 0%, #f9fafb 100%)` — subtle page section transitions
 
 ### Typography
@@ -151,7 +152,7 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 ### Toolbar
 
 - Horizontal bar of icon buttons below the header on editor pages
-- Active/selected button gets blue background (`#1a73e8`) with white icon
+- Active/selected button gets purple background (`#7c3aed`) with white icon
 - Grouped by function with subtle dividers
 - Includes: text formatting, font family, font size, text/highlight color, headings, lists, blockquote, code, link, table
 

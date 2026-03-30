@@ -18,14 +18,14 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: #202124;
+  color: #1f2937;
   text-align: left;
   font-size: 14px;
   transition: background-color 0.1s ease;
 }
 
 .table-context-menu-item:hover {
-  background-color: #f1f3f4;
+  background-color: #f3f4f6;
 }
 
 .table-context-menu-item svg {
@@ -45,6 +45,6 @@
 
 .table-context-menu-divider {
   height: 1px;
-  background: #e0e0e0;
+  background: #e5e7eb;
   margin: 8px 0;
 }
