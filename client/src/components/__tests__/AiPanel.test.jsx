@@ -39,7 +39,7 @@ vi.mock('../AiChatHistory', () => ({
 function makeAiPanel(overrides = {}) {
   return {
     isOpen: true,
-    setIsOpen: vi.fn(),
+    open: vi.fn(),
     close: vi.fn(),
     position: 'right',
     setPosition: vi.fn(),

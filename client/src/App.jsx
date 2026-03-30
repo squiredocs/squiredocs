@@ -172,10 +172,8 @@ function AppContent() {
     setRoute({ view: 'admin', docGuid: null });
   };
 
-  // Navigate to chat page (optionally pre-open a doc in the side pane)
-  const navigateToChat = (docGuid) => {
-    const url = docGuid ? `/chat?doc=${docGuid}` : '/chat';
-    window.history.pushState({}, '', url);
+  const navigateToChat = () => {
+    window.history.pushState({}, '', '/chat');
     setRoute({ view: 'chat', docGuid: null });
   };
 
@@ -261,11 +259,20 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const aiChat = useAiChat();
   const isMobile = useMobile();
   const lastDocGuidRef = useRef(null);
+  const prevViewRef = useRef(route.view);
 
   // Track most recently viewed document for chat↔editor toggle
   if (route.view === 'editor' && route.docGuid) {
     lastDocGuidRef.current = route.docGuid;
   }
+
+  // When returning from chat to editor, auto-open the AI panel so the conversation stays visible
+  useEffect(() => {
+    if (prevViewRef.current === 'chat' && route.view === 'editor') {
+      aiPanel.open();
+    }
+    prevViewRef.current = route.view;
+  }, [route.view, aiPanel.open]);
 
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';
@@ -280,7 +287,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
-        onNavigateToChat={() => navigateToChat(route.docGuid)}
+        onNavigateToChat={navigateToChat}
         showVersionHistory={false}
         user={user}
         aiPanel={aiPanel}
@@ -295,20 +302,20 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
-        onNavigateToChat={() => navigateToChat(route.docGuid)}
+        onNavigateToChat={navigateToChat}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}
       />
     );
   } else if (route.view === 'settings') {
-    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={() => navigateToChat()} user={user} />;
+    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'admin') {
-    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToChat={() => navigateToChat()} user={user} />;
+    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'chat') {
-    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} onNavigateBack={() => { const doc = lastDocGuidRef.current; doc ? navigateToDoc(doc) : navigateToDocs(); }} />;
+    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} onNavigateBack={(docGuid) => { docGuid ? navigateToDoc(docGuid) : navigateToDocs(); }} initialDocGuid={prevViewRef.current === 'editor' ? lastDocGuidRef.current : null} />;
   } else {
-    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={() => navigateToChat()} user={user} />;
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   }
 
   const isChatPage = route.view === 'chat';

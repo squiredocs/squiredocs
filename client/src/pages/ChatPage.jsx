@@ -13,7 +13,7 @@ import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { getGreeting } from '../utils/greeting';
 import './ChatPage.css';
 
-function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc, onNavigateBack }) {
+function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc, onNavigateBack, initialDocGuid }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
   const { accentColor } = useByok();
@@ -29,15 +29,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
   const isStreaming = status === 'submitted' || status === 'streaming';
   const isEmpty = messages.length === 0;
 
-  // Side pane state — initialize from ?doc= query param (e.g. navigating from editor)
-  const [sidePaneDocGuid, setSidePaneDocGuid] = useState(() => {
-    const doc = new URLSearchParams(window.location.search).get('doc');
-    if (doc) {
-      // Clean the query param from the URL so it doesn't persist on refresh
-      window.history.replaceState({}, '', '/chat');
-    }
-    return doc || null;
-  });
+  // Side pane state — initialized from prop (e.g. the last-viewed doc when toggling from editor)
+  const [sidePaneDocGuid, setSidePaneDocGuid] = useState(initialDocGuid || null);
 
   // Keep the AI context aware of which doc is in the side pane
   useEffect(() => {
@@ -76,7 +69,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
             <h1>Squire Docs</h1>
           </div>
           <div className="app-header-right">
-            <ViewToggleButton onClick={onNavigateBack} />
+            <ViewToggleButton onClick={() => onNavigateBack(sidePaneDocGuid)} />
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
           </div>
         </div>

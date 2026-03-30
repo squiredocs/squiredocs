@@ -43,6 +43,11 @@ export function useAiPanel() {
     return next;
   }), [persistPref]);
 
+  const open = useCallback(() => {
+    setIsOpen(true);
+    persistPref('isOpen', true);
+  }, [persistPref]);
+
   const close = useCallback(() => {
     setIsOpen(false);
     persistPref('isOpen', false);
@@ -65,7 +70,7 @@ export function useAiPanel() {
 
   return {
     isOpen,
-    setIsOpen,
+    open,
     toggle,
     close,
     position,

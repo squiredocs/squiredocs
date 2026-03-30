@@ -219,7 +219,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
                     {onNavigateToChat && (
                       <button
                         className="icon-btn"
-                        onClick={() => onNavigateToChat(docGuid || null)}
+                        onClick={onNavigateToChat}
                         aria-label="Open chat view"
                         title="Open chat view"
                       >

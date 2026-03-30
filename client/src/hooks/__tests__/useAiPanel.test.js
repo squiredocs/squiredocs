@@ -30,13 +30,13 @@ describe('useAiPanel', () => {
     expect(result.current.isOpen).toBe(false);
   });
 
-  it('setIsOpen controls open state directly', () => {
+  it('open and close control panel state', () => {
     const { result } = renderHook(() => useAiPanel());
 
-    act(() => result.current.setIsOpen(true));
+    act(() => result.current.open());
     expect(result.current.isOpen).toBe(true);
 
-    act(() => result.current.setIsOpen(false));
+    act(() => result.current.close());
     expect(result.current.isOpen).toBe(false);
   });
 
