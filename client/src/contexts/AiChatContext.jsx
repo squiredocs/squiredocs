@@ -73,6 +73,12 @@ export function AiChatProvider({ children }) {
     chatIdRef.current = currentChatId;
   }
 
+  // Allow pages (e.g. /chat) to override the docGuid sent with messages
+  const docGuidOverrideRef = useRef(null);
+  const setDocGuidOverride = useCallback((guid) => {
+    docGuidOverrideRef.current = guid;
+  }, []);
+
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
     headers: () => {
@@ -84,7 +90,7 @@ export function AiChatProvider({ children }) {
         body: {
           message: messages[messages.length - 1],
           id: chatIdRef.current,
-          docGuid: getActiveDocGuid(),
+          docGuid: docGuidOverrideRef.current || getActiveDocGuid(),
         },
       };
     },
@@ -324,8 +330,9 @@ export function AiChatProvider({ children }) {
       clearDraft: () => setDraftText(''),
       draftFiles,
       clearDraftFiles: () => setDraftFiles(null),
+      setDocGuidOverride,
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
   );
 
   return (

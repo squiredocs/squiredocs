@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext, createContext } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -37,6 +37,11 @@ function spaNavigate(path) {
   window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
+
+// Context for intercepting doc link clicks (used by /chat page to open side pane)
+const DocLinkContext = createContext(null);
+
+const UUID_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
 
 function isToolPart(part) {
   return part.type?.startsWith('tool-') || part.type === 'dynamic-tool';
@@ -225,11 +230,16 @@ function DiffView({ diff }) {
 const docTitleCache = new Map();
 
 function DocTitleLink({ docGuid, title }) {
+  const onDocLinkClick = useContext(DocLinkContext);
   const handleClick = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    spaNavigate(`/d/${docGuid}`);
-  }, [docGuid]);
+    if (onDocLinkClick) {
+      onDocLinkClick(docGuid);
+    } else {
+      spaNavigate(`/d/${docGuid}`);
+    }
+  }, [docGuid, onDocLinkClick]);
   return (
     <>{'\u201c'}<a href={`/d/${docGuid}`} className="ai-tool-card-link" onClick={handleClick}>{title}</a>{'\u201d'}</>
   );
@@ -294,12 +304,19 @@ function ToolCard({ part }) {
 
 /** SPA-navigate internal links; open external links in a new tab. */
 function MarkdownLink({ href, children }) {
+  const onDocLinkClick = useContext(DocLinkContext);
   const isInternal = href && (href.startsWith('/') || href.startsWith(window.location.origin));
   const handleClick = useCallback((e) => {
     if (!isInternal) return;
     e.preventDefault();
-    spaNavigate(href.startsWith('/') ? href : new URL(href).pathname);
-  }, [href, isInternal]);
+    const pathname = href.startsWith('/') ? href : new URL(href).pathname;
+    // If a doc link handler is registered and this is a doc URL, use it
+    if (onDocLinkClick) {
+      const m = pathname.match(UUID_RE);
+      if (m) { onDocLinkClick(m[1].toLowerCase()); return; }
+    }
+    spaNavigate(pathname);
+  }, [href, isInternal, onDocLinkClick]);
   if (isInternal) {
     return <a href={href} onClick={handleClick}>{children}</a>;
   }
@@ -369,7 +386,7 @@ function AssistantBubble({ groups, isLoading }) {
   );
 }
 
-function AiChatMessages({ messages, status }) {
+function AiChatMessages({ messages, status, onDocLinkClick }) {
   const scrollRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -398,33 +415,35 @@ function AiChatMessages({ messages, status }) {
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
   return (
-    <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
-      {messages.map((msg) => {
-        if (msg.role === 'assistant') {
-          const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
-          if (groups.length === 0 && !isLoading) return null;
-          return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} />;
-        }
-        const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
-        const fileParts = msg.parts?.filter(p => p.type === 'file') || [];
-        return (
-          <div key={msg.id} className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
-            <div className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
-              {fileParts.length > 0 && (
-                <div className="ai-chat-images">
-                  {fileParts.map((fp, i) => (
-                    <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
-                  ))}
-                </div>
-              )}
-              {text}
+    <DocLinkContext.Provider value={onDocLinkClick || null}>
+      <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
+        {messages.map((msg) => {
+          if (msg.role === 'assistant') {
+            const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
+            if (groups.length === 0 && !isLoading) return null;
+            return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} />;
+          }
+          const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
+          const fileParts = msg.parts?.filter(p => p.type === 'file') || [];
+          return (
+            <div key={msg.id} className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
+              <div className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
+                {fileParts.length > 0 && (
+                  <div className="ai-chat-images">
+                    {fileParts.map((fp, i) => (
+                      <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+                    ))}
+                  </div>
+                )}
+                {text}
+              </div>
+              {text && <CopyButton text={text} />}
             </div>
-            {text && <CopyButton text={text} />}
-          </div>
-        );
-      })}
-      {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
-    </div>
+          );
+        })}
+        {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
+      </div>
+    </DocLinkContext.Provider>
   );
 }
 
