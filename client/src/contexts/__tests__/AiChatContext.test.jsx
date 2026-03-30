@@ -71,6 +71,14 @@ function renderAiChat() {
   return renderHook(() => useAiChat(), { wrapper });
 }
 
+// Mock the full create-chat → refresh → title → refresh sequence
+function mockNewChatFlow(chatId) {
+  mockApi.post.mockResolvedValueOnce({ data: { id: chatId } });
+  mockApi.get.mockResolvedValueOnce({ data: [] });
+  mockApi.patch.mockResolvedValueOnce({ data: {} });
+  mockApi.get.mockResolvedValueOnce({ data: [] });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AiChatContext', () => {
@@ -174,10 +182,7 @@ describe('AiChatContext', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     // Create a chat — returns { id }
-    mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-1' } }); // createChat POST
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+    mockNewChatFlow('new-chat-1');
 
     await act(async () => { await result.current.sendMessage('Hello world'); });
 
@@ -196,10 +201,7 @@ describe('AiChatContext', () => {
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img' } }); // createChat
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockNewChatFlow('chat-img');
 
     await act(async () => { await result.current.sendMessage('Look at this', files); });
 
@@ -212,10 +214,7 @@ describe('AiChatContext', () => {
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img2' } }); // createChat
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockNewChatFlow('chat-img2');
 
     await act(async () => { await result.current.sendMessage('', files); });
 
@@ -231,10 +230,7 @@ describe('AiChatContext', () => {
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
 
-    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-img3' } }); // createChat
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockNewChatFlow('chat-img3');
 
     await act(async () => { await result.current.sendMessage('', files); });
 
@@ -245,10 +241,7 @@ describe('AiChatContext', () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-    mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-nf' } }); // createChat
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-    mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-    mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+    mockNewChatFlow('chat-nf');
 
     await act(async () => { await result.current.sendMessage('No files'); });
 
@@ -278,10 +271,7 @@ describe('AiChatContext', () => {
       stopSpy.mockClear();
       setMessagesSpy.mockClear();
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-a' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+      mockNewChatFlow('new-chat-a');
 
       await act(async () => { await result.current.sendMessage('First message'); });
 
@@ -296,10 +286,7 @@ describe('AiChatContext', () => {
       stopSpy.mockClear();
       setMessagesSpy.mockClear();
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-b' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+      mockNewChatFlow('new-chat-b');
 
       await act(async () => { await result.current.sendMessage('First message'); });
 
@@ -311,10 +298,7 @@ describe('AiChatContext', () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'fresh-42' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+      mockNewChatFlow('fresh-42');
 
       await act(async () => { await result.current.sendMessage('Hello'); });
 
@@ -329,10 +313,7 @@ describe('AiChatContext', () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'reconnect-99' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+      mockNewChatFlow('reconnect-99');
 
       await act(async () => { await result.current.sendMessage('Test'); });
 
@@ -345,10 +326,7 @@ describe('AiChatContext', () => {
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
       sendMessageSpy.mockClear();
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'new-chat-c' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after create
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList after title
+      mockNewChatFlow('new-chat-c');
 
       await act(async () => { await result.current.sendMessage('My first msg'); });
 
@@ -364,10 +342,7 @@ describe('AiChatContext', () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-refresh' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+      mockNewChatFlow('chat-refresh');
 
       await act(async () => { await result.current.sendMessage('Hello'); });
 
@@ -383,10 +358,7 @@ describe('AiChatContext', () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      mockApi.post.mockResolvedValueOnce({ data: { id: 'chat-fail-refresh' } }); // createChat POST
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
-      mockApi.patch.mockResolvedValueOnce({ data: {} }); // PATCH title
-      mockApi.get.mockResolvedValueOnce({ data: [] }); // refreshChatList
+      mockNewChatFlow('chat-fail-refresh');
 
       await act(async () => { await result.current.sendMessage('Still sends'); });
 
