@@ -158,13 +158,15 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 
 ### AI Chat Panel
 
-- Dockable panel: right side (380px), bottom (300px), or pop-out
+- **Document-centric mode**: Dockable panel — right side (380px), bottom (300px), or pop-out
+- **Chat-centric mode** (`/chat`): Full-page layout with 260px history sidebar, main chat area, and optional document side pane
 - White background, same border/shadow treatment as other panels
 - User messages: purple background, white text
 - AI messages: light gray background (`#f3f4f6`), dark text
 - AI renders rich markdown: headings, bold, italic, lists, code blocks
 - Send button: purple circle, white arrow icon
 - Typing indicator: pulsing dots animation
+- Shared `AiChatContext` ensures the same conversation is visible in both modes
 
 ### Document List
 
@@ -200,10 +202,11 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 └──────────────────────────┴──────────────────┘
 ```
 
-- **Header**: Fixed. Logo (purple doc icon + "Squire Docs"), editable title input, collaborator avatars, tools menu, AI toggle.
+- **Header**: Consistent across all pages. Logo (purple doc icon), page title, view-toggle button (swap arrows), tools menu, user profile badge.
 - **Toolbar**: Sticky below header on editor pages. Formatting tools, disappears on non-editor pages.
 - **Content area**: Centered, max-width 816px, generous horizontal padding.
 - **AI Panel**: Toggled via floating action button (bottom-right, purple). Can dock right, bottom, or pop out.
+- **View Toggle**: Swap-arrows icon button in the header switches between document-centric and chat-centric layouts. Context is preserved across toggles — the active document and chat conversation carry over in both directions.
 
 ### Responsive Behavior
 
@@ -272,4 +275,5 @@ Shadows are restrained — used to lift interactive elements, not for decoration
 | Documents (`/docs`) | Document list | Clean list, search + filter, "New document" button |
 | Editor (`/d/:id`) | Core product | Full editor with toolbar, AI panel, real-time collab |
 | Version History (`/d/:id/versions`) | Audit trail | Editor + right panel with grouped version entries and diff highlighting |
+| Chat (`/chat`) | Chat-centric mode | Full-page chat with history sidebar, optional document side pane |
 | Settings (`/settings`) | User prefs | Profile editing, display name, MCP configuration |

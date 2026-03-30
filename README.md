@@ -6,6 +6,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
 - **In-App AI Assistant**: Built-in chat panel powered by Claude for editing, searching, and managing documents via natural language
+- **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
@@ -310,10 +311,19 @@ Each user has a monthly AI credit allowance (default: $5.00). Usage is tracked p
 
 - **Right-docked** (default): Sidebar panel with adjustable width (280–600px)
 - **Bottom-docked**: Horizontal panel with adjustable height
-- **Pop-out**: Opens in a separate browser window
+- **Chat-centric mode** (`/chat`): Full-page chat with conversation history sidebar and optional document side pane
 - **Mobile**: Full-screen overlay with keyboard-aware layout
 
 Panel position and size preferences are persisted to localStorage.
+
+### View Toggle
+
+A swap-arrows button in the header switches between document-centric and chat-centric layouts. Context is preserved across toggles:
+
+- **Editor → Chat**: The current document opens in the chat's side pane (passed as a prop, not a URL param)
+- **Chat → Editor**: The AI panel auto-opens so the conversation stays visible; if a document was open in the chat side pane, the editor navigates to it
+- **Other pages → Chat**: No document context — chat opens clean
+- The active document is tracked declaratively via a ref that reflects the current view, not a historical "last visited" value
 
 ### Architecture
 
@@ -325,8 +335,12 @@ AiChatContext.jsx                   server/api/chat.js
        │                              ├─ Model registry (chat-models.js)
        ▼                              ├─ MCP tools via chat-tools.js
                                       └─ Agent presence (cursor/highlights)
-AiPanel.jsx ── AiChatMessages.jsx
+AiPanel.jsx ── AiChatMessages.jsx     (document-centric)
             └─ AiChatInput.jsx
+ChatPage.jsx ── AiChatHistory.jsx     (chat-centric)
+             ├─ AiChatBody.jsx
+             ├─ AiChatInput.jsx
+             └─ DocSidePane.jsx (optional)
 ```
 
 The chat endpoint builds a synthetic agent token from the user's session, so tool calls execute with the user's permissions and show up as agent activity in the editor (cursors, highlights).
