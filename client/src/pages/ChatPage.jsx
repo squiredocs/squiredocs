@@ -9,10 +9,9 @@ import DocSidePane from '../components/DocSidePane';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Logo from '../components/Logo';
 import { getGreeting } from '../utils/greeting';
-import { spaNavigate } from '../utils/navigation';
 import './ChatPage.css';
 
-function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
+function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
   const { accentColor } = useByok();
@@ -22,8 +21,11 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
     messages, sendMessage, status, stop, error,
     usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles,
     messagesLoading, messagesError, retryLoadMessages,
-    setDocGuidOverride, isStreaming, isEmpty,
+    setDocGuidOverride,
   } = aiChat;
+
+  const isStreaming = status === 'submitted' || status === 'streaming';
+  const isEmpty = messages.length === 0;
 
   // Side pane state — initialize from ?doc= query param (e.g. navigating from editor)
   const [sidePaneDocGuid, setSidePaneDocGuid] = useState(() => {
@@ -52,8 +54,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
   }, []);
 
   const handleOpenFull = useCallback((docGuid) => {
-    spaNavigate(`/d/${docGuid}`);
-  }, []);
+    onNavigateToDoc(docGuid);
+  }, [onNavigateToDoc]);
 
   return (
     <div className={`chat-page${sidePaneDocGuid ? ' chat-page--with-doc' : ''}`}>

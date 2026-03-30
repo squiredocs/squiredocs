@@ -2,13 +2,12 @@ import { createContext, useContext, useRef, useEffect, useMemo, useCallback, use
 import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useAuth } from './AuthContext';
-import { DOC_URL_RE } from '../utils/patterns';
 
 const AiChatContext = createContext(null);
 
 // Extract docGuid from the current URL (e.g., /d/{uuid} or /doc/{uuid})
 function getActiveDocGuid() {
-  const match = window.location.pathname.match(DOC_URL_RE);
+  const match = window.location.pathname.match(/^\/d(?:oc)?\/([0-9a-f-]+)/i);
   return match ? match[1].toLowerCase() : null;
 }
 
@@ -312,15 +311,10 @@ export function AiChatProvider({ children }) {
     [chat.sendMessage, currentChatId, createChatOnServer, renameChat],
   );
 
-  const isStreaming = chat.status === 'streaming' || chat.status === 'submitted';
-  const isEmpty = !chat.messages || chat.messages.length === 0;
-
   const value = useMemo(
     () => ({
       ...chat,
       sendMessage,
-      isStreaming,
-      isEmpty,
       currentChatId,
       chatList,
       createChat,
@@ -338,7 +332,7 @@ export function AiChatProvider({ children }) {
       clearDraftFiles: () => setDraftFiles(null),
       setDocGuidOverride,
     }),
-    [chat, sendMessage, isStreaming, isEmpty, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
   );
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
@@ -12,8 +12,10 @@ import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
 import ChatPage from './pages/ChatPage';
-import { UUID_REGEX } from './utils/patterns';
 import './App.css';
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Parse the current URL to determine the view
 function parseRoute() {
@@ -170,9 +172,10 @@ function AppContent() {
     setRoute({ view: 'admin', docGuid: null });
   };
 
-  // Navigate to chat page
-  const navigateToChat = () => {
-    window.history.pushState({}, '', '/chat');
+  // Navigate to chat page (optionally pre-open a doc in the side pane)
+  const navigateToChat = (docGuid) => {
+    const url = docGuid ? `/chat?doc=${docGuid}` : '/chat';
+    window.history.pushState({}, '', url);
     setRoute({ view: 'chat', docGuid: null });
   };
 
@@ -261,11 +264,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';
 
-  const handleNavigateToChat = useCallback((docGuid) => {
-    const url = docGuid ? `/chat?doc=${docGuid}` : '/chat';
-    window.history.pushState({}, '', url);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, []);
 
   let page;
   if (route.view === 'editor' && route.docGuid) {
@@ -301,7 +299,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   } else if (route.view === 'admin') {
     page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} user={user} />;
   } else if (route.view === 'chat') {
-    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} />;
+    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} />;
   } else {
     page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} user={user} />;
   }
@@ -317,7 +315,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         <div className="app-content">
           {page}
         </div>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} onNavigateToChat={handleNavigateToChat} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} onNavigateToChat={navigateToChat} docGuid={route.docGuid} />
       </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button

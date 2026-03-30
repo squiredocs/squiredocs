@@ -15,9 +15,7 @@ const MIN_HEIGHT = 200;
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
 
-import { DOC_URL_RE } from '../utils/patterns';
-
-function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
+function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
   const { accentColor } = byok;
@@ -29,7 +27,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
     heightPx, updateHeight,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, isStreaming, isEmpty } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -76,6 +74,9 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
     }
   }, []);
 
+  // Streaming state: disable send when AI is responding
+  const isStreaming = status === 'streaming' || status === 'submitted';
+  const isEmpty = !messages || messages.length === 0;
 
   // Mobile: shrink panel to the visual viewport height so content stays above
   // the on-screen keyboard.  A CSS ::before pseudo-element keeps a full-screen
@@ -218,10 +219,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
                     {onNavigateToChat && (
                       <button
                         className="icon-btn"
-                        onClick={() => {
-                          const m = window.location.pathname.match(DOC_URL_RE);
-                          onNavigateToChat(m ? m[1].toLowerCase() : null);
-                        }}
+                        onClick={() => onNavigateToChat(docGuid || null)}
                         aria-label="Open chat view"
                         title="Open chat view"
                       >
