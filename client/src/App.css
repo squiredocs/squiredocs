@@ -31,6 +31,11 @@
   color: #111827;
 }
 
+.icon-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
 /* =============================================================================
    App shell
    ============================================================================= */
@@ -132,6 +137,11 @@
 
 .back-btn:hover {
   background: #f3f0ff;
+}
+
+.back-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
 }
 
 .app-header-right {
@@ -1399,6 +1409,12 @@ body[data-mobile] .app-header {
 
 .ai-fab:active {
   transform: scale(0.95);
+}
+
+.ai-fab:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #7c3aed, 0 2px 8px rgba(124, 58, 237, 0.35);
 }
 
 .ai-fab--active {

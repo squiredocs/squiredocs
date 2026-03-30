@@ -722,6 +722,12 @@
   cursor: default;
 }
 
+.ai-chat-send-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #7c3aed;
+}
+
 .ai-chat-stop-btn {
   background: #dc2626;
 }

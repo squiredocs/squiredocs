@@ -117,21 +117,41 @@
   color: #6b7280;
 }
 
-/* Action buttons (rename, delete) — visible on hover */
+/* Action buttons (rename, delete) — hidden by default, shown on hover/focus/touch */
 .ai-chat-history-item-actions {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
 
+/* Show on hover (pointer devices) */
 .ai-chat-history-item:hover .ai-chat-history-item-actions {
-  display: flex;
+  opacity: 1;
+}
+
+/* Show when any action button is focused (keyboard navigation) */
+.ai-chat-history-item:focus-within .ai-chat-history-item-actions {
+  opacity: 1;
+}
+
+/* Always visible on touch devices (no hover capability) */
+@media (hover: none) {
+  .ai-chat-history-item-actions {
+    opacity: 1;
+  }
+}
+
+/* Always visible when in confirm-delete state */
+.ai-chat-history-item-actions:has(.ai-chat-history-action-btn--danger) {
+  opacity: 1;
 }
 
 .ai-chat-history-action-btn {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
   border-radius: 4px;
@@ -149,6 +169,11 @@
   color: #111827;
 }
 
+.ai-chat-history-action-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
 .ai-chat-history-action-btn--danger {
   color: #dc2626;
 }
@@ -156,6 +181,14 @@
 .ai-chat-history-action-btn--danger:hover {
   background: #fef2f2;
   color: #dc2626;
+}
+
+/* Larger touch targets on touch devices */
+@media (hover: none) {
+  .ai-chat-history-action-btn {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 /* Inline rename input */

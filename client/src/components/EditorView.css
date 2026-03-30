@@ -125,6 +125,11 @@
   background-color: #ede9fe;
 }
 
+.ai-toggle-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
 .ai-toggle-btn--active {
   background-color: #f3e8ff;
   color: #7c3aed;
@@ -163,6 +168,11 @@
 
 .tools-menu-btn:active {
   background-color: #e5e7eb;
+}
+
+.tools-menu-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
 }
 
 .tools-menu-btn svg {

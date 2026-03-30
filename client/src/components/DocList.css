@@ -147,6 +147,11 @@
   cursor: not-allowed;
 }
 
+.new-doc-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
 .new-doc-btn svg {
   width: 18px;
   height: 18px;
@@ -184,6 +189,11 @@
 
 .doc-link:hover {
   background-color: #f3f4f6;
+}
+
+.doc-link:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
 }
 
 .doc-icon-wrapper {
@@ -287,6 +297,11 @@
 
 .doc-menu-btn:hover {
   background-color: #e5e7eb;
+}
+
+.doc-menu-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
 }
 
 .doc-menu-btn svg {

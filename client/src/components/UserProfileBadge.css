@@ -16,6 +16,11 @@
   border-color: #7c3aed;
 }
 
+.user-profile-trigger:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
 .user-avatar-small {
   width: 40px;
   height: 40px;

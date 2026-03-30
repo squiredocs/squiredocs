@@ -93,6 +93,7 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
       <button
         className="hierarchy-menu-btn"
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onMenuOpen();
@@ -401,7 +402,7 @@ function HierarchicalVersionList({
                     onToggle={() => toggleVersion(version)}
                     menuOpen={menuOpen === version.id}
                     menuRef={menuRef}
-                    onMenuOpen={() => setMenuOpen(version.id)}
+                    onMenuOpen={() => setMenuOpen(prev => prev === version.id ? null : version.id)}
                     onNameVersion={() => handleNameItem(version)}
                     onRestoreVersion={() => handleRestoreItem(version)}
                     onDeleteVersion={() => handleDeleteVersion(version)}
@@ -415,7 +416,7 @@ function HierarchicalVersionList({
                           <>
                             {updates.slice(0, MAX_VISIBLE_UPDATES).map((subVersion) => {
                               const subVersionItem = subVersionToItem(subVersion);
-                              const menuKey = subVersion.id;
+                              const menuKey = `sub-${subVersion.id}`;
                               return (
                                 <HistoryItem
                                   key={subVersion.id}
@@ -424,7 +425,7 @@ function HierarchicalVersionList({
                                   onClick={() => onSelectUpdate(subVersion)}
                                   menuOpen={menuOpen === menuKey}
                                   menuRef={menuRef}
-                                  onMenuOpen={() => setMenuOpen(menuKey)}
+                                  onMenuOpen={() => setMenuOpen(prev => prev === menuKey ? null : menuKey)}
                                   onNameVersion={() => handleNameItem(subVersionItem)}
                                   onRestoreVersion={() => handleRestoreItem(subVersionItem)}
                                   userRole={userRole}

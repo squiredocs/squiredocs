@@ -55,6 +55,11 @@
   background-color: #f3f4f6;
 }
 
+.share-dialog-close:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: -2px;
+}
+
 .share-dialog-close svg {
   width: 20px;
   height: 20px;
@@ -109,6 +114,11 @@
 .share-submit-btn:disabled {
   background: #e5e7eb;
   cursor: not-allowed;
+}
+
+.share-submit-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
 }
 
 .share-message {
