@@ -18,3 +18,5 @@ k8s/s3cmd-configmap.yaml
 k8s/auth.env
 k8s/auth.production.env
 .vscode
+.claude
+skills-lock.json
