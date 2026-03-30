@@ -6,7 +6,7 @@
   min-width: 200px;
   z-index: 1000;
   padding: 8px 0;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .table-context-menu-item {
@@ -20,7 +20,7 @@
   cursor: pointer;
   color: #1f2937;
   text-align: left;
-  font-size: 14px;
+  font-size: var(--text-md);
   transition: background-color 0.1s ease;
 }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from './UserProfileBadge';
+import ViewToggleButton from './ViewToggleButton';
 import ShareDialog from './ShareDialog';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
@@ -26,7 +27,7 @@ export function generateUUID() {
   });
 }
 
-function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) {
+function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNavigateToChat, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -264,6 +265,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
               <h1>Documents</h1>
             </div>
             <div className="app-header-right">
+              <ViewToggleButton onClick={onNavigateToChat} />
               <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
             </div>
           </div>
@@ -287,6 +289,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
               <h1>Documents</h1>
             </div>
             <div className="app-header-right">
+              <ViewToggleButton onClick={onNavigateToChat} />
               <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
             </div>
           </div>
@@ -321,6 +324,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, user }) 
             <h1>Documents</h1>
           </div>
           <div className="app-header-right">
+            <ViewToggleButton onClick={onNavigateToChat} />
             <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
           </div>
         </div>

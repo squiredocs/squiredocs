@@ -32,8 +32,8 @@
 
 .share-dialog-header h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
   color: #1f2937;
 }
 
@@ -79,7 +79,7 @@
   padding: 12px 16px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: var(--text-lg);
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -100,8 +100,8 @@
   color: white;
   border: none;
   border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   cursor: pointer;
   transition: background-color 0.15s ease;
   white-space: nowrap;
@@ -125,7 +125,7 @@
   margin: 0 24px 16px;
   padding: 12px 16px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .share-error {
@@ -145,8 +145,8 @@
 }
 
 .share-list-section h3 {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   color: #6b7280;
   margin: 0 0 12px 0;
 }
@@ -189,8 +189,8 @@
 
 .share-user-avatar span {
   color: white;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
 }
 
 .share-user-info {
@@ -200,8 +200,8 @@
 
 .share-user-name {
   display: block;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   color: #1f2937;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -210,7 +210,7 @@
 
 .share-user-email {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -245,13 +245,13 @@
 
 .share-list-loading,
 .share-list-empty {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #6b7280;
   padding: 16px 0;
 }
 
 .share-role-badge {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
   padding: 4px 10px;
   background: #f3f4f6;
@@ -273,7 +273,7 @@
 }
 
 .share-role-select {
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: 6px 10px;
   border: 1px solid #e5e7eb;
   border-radius: 4px;

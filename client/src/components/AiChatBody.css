@@ -15,7 +15,7 @@
 
 .ai-chat-body-welcome-text {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-lg);
   color: #9ca3af;
 }
 
@@ -25,14 +25,14 @@
   margin: 0 12px 4px;
   background: #fef2f2;
   color: #991b1b;
-  font-size: 13px;
+  font-size: var(--text-base);
   border-radius: 6px;
   text-align: center;
 }
 
 .ai-chat-body-usage-limit a {
   color: #991b1b;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   text-decoration: underline;
 }
 
@@ -42,7 +42,7 @@
   margin: 0 12px 4px;
   background: #fef3c7;
   color: #92400e;
-  font-size: 13px;
+  font-size: var(--text-base);
   border-radius: 6px;
   text-align: center;
 }
@@ -51,7 +51,7 @@
 .ai-chat-body-retry-btn {
   margin-top: 8px;
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #7c3aed;
   background: transparent;
   border: 1px solid #7c3aed;

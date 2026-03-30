@@ -16,6 +16,7 @@ import { usePreventPageScroll } from '../hooks/usePreventPageScroll';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
 import Logo from './Logo';
+import ViewToggleButton from './ViewToggleButton';
 import './EditorView.css';
 import './MenuCommon.css';
 
@@ -34,7 +35,7 @@ function formatVersionTimestamp(timestamp) {
   return date.toLocaleString(undefined, options);
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToAdmin, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -726,6 +727,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 )}
               </div>
             )}
+            <ViewToggleButton onClick={onNavigateToChat} />
             {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />}
           </div>
         </div>

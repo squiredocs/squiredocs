@@ -38,8 +38,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 16px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-lg);
 }
 
 .user-menu-backdrop {
@@ -68,13 +68,13 @@
 }
 
 .user-menu-name {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   color: #1f2937;
   margin-bottom: 2px;
 }
 
 .user-menu-email {
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #6b7280;
 }
 
@@ -89,7 +89,7 @@
   background: none;
   border: none;
   text-align: left;
-  font-size: 14px;
+  font-size: var(--text-md);
   cursor: pointer;
   color: #374151;
   transition: background 0.15s ease;
@@ -105,7 +105,7 @@
   .user-avatar-placeholder-small {
     width: 36px;
     height: 36px;
-    font-size: 14px;
+    font-size: var(--text-md);
   }
 
   .user-menu {
@@ -118,15 +118,15 @@
   }
 
   .user-menu-name {
-    font-size: 14px;
+    font-size: var(--text-md);
   }
 
   .user-menu-email {
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .user-menu-item {
     padding: 10px 12px;
-    font-size: 13px;
+    font-size: var(--text-base);
   }
 }

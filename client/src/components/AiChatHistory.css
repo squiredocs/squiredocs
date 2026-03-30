@@ -21,8 +21,8 @@
   border-radius: 8px;
   background: #fff;
   color: #7c3aed;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
   flex-shrink: 0;
@@ -43,7 +43,7 @@
   padding: 6px 10px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--text-base);
   outline: none;
   transition: border-color 0.15s ease;
   box-sizing: border-box;
@@ -70,7 +70,7 @@
 .ai-chat-history-empty {
   text-align: center;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: 24px 0;
   margin: 0;
 }
@@ -105,7 +105,7 @@
 }
 
 .ai-chat-history-item-title {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #111827;
   white-space: nowrap;
   overflow: hidden;
@@ -113,7 +113,7 @@
 }
 
 .ai-chat-history-item-time {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
 }
 
@@ -197,7 +197,7 @@
   padding: 4px 8px;
   border: 1px solid #7c3aed;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: var(--text-md);
   outline: none;
   min-width: 0;
 }

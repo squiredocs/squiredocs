@@ -74,13 +74,13 @@
 }
 
 .ai-panel-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   color: #111827;
 }
 
 .ai-panel-chat-title {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -160,8 +160,8 @@
   max-width: 100%;
   padding: 8px 12px;
   border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
   word-wrap: break-word;
 }
 
@@ -189,7 +189,7 @@
 }
 
 .ai-chat-markdown strong {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .ai-chat-markdown a {
@@ -249,7 +249,7 @@
 
 .ai-chat-markdown th {
   background: rgba(0, 0, 0, 0.06);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 /* ---------- Tool card groups ---------- */
@@ -303,8 +303,8 @@
 
 .ai-tool-card-toggle {
   display: inline;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   padding: 2px 8px;
   border-radius: 6px;
   border: none;
@@ -339,7 +339,7 @@
 }
 
 .ai-tool-card-detail {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
   line-height: 1.5;
   padding: 4px 0 4px 8px;
@@ -358,7 +358,7 @@
   padding: 6px 8px;
   background: rgba(0, 0, 0, 0.04);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -380,7 +380,7 @@
   background: none;
   border: none;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #9ca3af;
   cursor: pointer;
 }
@@ -398,9 +398,9 @@
   border-collapse: collapse;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 4px;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-  line-height: 1.6;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  line-height: var(--leading-relaxed);
   overflow-x: auto;
   display: block;
 }
@@ -454,7 +454,7 @@
 .ai-diff-separator-text {
   text-align: center;
   color: #d1d5db;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .ai-diff-expand {
@@ -465,7 +465,7 @@
   border-radius: 4px;
   padding: 4px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #6b7280;
   cursor: pointer;
 }
@@ -476,14 +476,14 @@
 }
 
 .ai-diff-truncated {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #9ca3af;
   font-style: italic;
   padding: 4px 0;
 }
 
 .ai-diff-format-only {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #9ca3af;
   font-style: italic;
   padding: 2px 0;
@@ -492,7 +492,7 @@
 .ai-diff-format-annotation {
   color: #9ca3af;
   font-style: italic;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   margin-left: 0.5em;
 }
 
@@ -506,7 +506,7 @@
   background: none;
   border: none;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #9ca3af;
   cursor: pointer;
 }
@@ -516,7 +516,7 @@
 }
 
 .ai-thinking-content {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #9ca3af;
   line-height: 1.5;
   padding: 4px 0 4px 8px;
@@ -551,8 +551,8 @@
   border: 2px dashed #7c3aed;
   border-radius: 8px;
   color: #7c3aed;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: var(--text-lg);
+  font-weight: var(--font-medium);
   pointer-events: none;
 }
 
@@ -602,7 +602,7 @@
   border: none;
   background: #6b7280;
   color: #fff;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -618,7 +618,7 @@
 /* ---------- File error ---------- */
 
 .ai-chat-file-error {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #dc2626;
   padding: 0 2px;
 }
@@ -678,9 +678,9 @@
   border: 1px solid #d1d5db;
   border-radius: 12px;
   padding: 8px 12px;
-  font-size: 16px; /* >=16px prevents iOS Safari auto-zoom on focus */
+  font-size: var(--text-lg); /* >=16px prevents iOS Safari auto-zoom on focus */
   font-family: inherit;
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   min-height: calc(2 * 1.5em + 16px + 2px); /* 2 lines + padding + border */
   max-height: 120px;
   overflow-y: auto;

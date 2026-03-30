@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
@@ -260,6 +260,12 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
+  const lastDocGuidRef = useRef(null);
+
+  // Track most recently viewed document for chat↔editor toggle
+  if (route.view === 'editor' && route.docGuid) {
+    lastDocGuidRef.current = route.docGuid;
+  }
 
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';
@@ -274,6 +280,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
+        onNavigateToChat={() => navigateToChat(route.docGuid)}
         showVersionHistory={false}
         user={user}
         aiPanel={aiPanel}
@@ -288,19 +295,20 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
+        onNavigateToChat={() => navigateToChat(route.docGuid)}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}
       />
     );
   } else if (route.view === 'settings') {
-    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} user={user} />;
+    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={() => navigateToChat()} user={user} />;
   } else if (route.view === 'admin') {
-    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} user={user} />;
+    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToChat={() => navigateToChat()} user={user} />;
   } else if (route.view === 'chat') {
-    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} />;
+    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} onNavigateBack={() => { const doc = lastDocGuidRef.current; doc ? navigateToDoc(doc) : navigateToDocs(); }} />;
   } else {
-    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} user={user} />;
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={() => navigateToChat()} user={user} />;
   }
 
   const isChatPage = route.view === 'chat';

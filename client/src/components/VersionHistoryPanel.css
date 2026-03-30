@@ -22,8 +22,8 @@
 
 .version-history-header h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
   color: #1f2937;
 }
 
@@ -72,7 +72,7 @@
   padding: 8px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #1f2937;
   background: #fff;
   cursor: pointer;
@@ -87,7 +87,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #6b7280;
   cursor: pointer;
   user-select: none;
@@ -147,7 +147,7 @@
 }
 
 .version-history-empty-hint {
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #9ca3af;
   margin-top: 8px;
 }
@@ -168,11 +168,11 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 20px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   color: #6b7280;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--tracking-wide);
   cursor: pointer;
   user-select: none;
 }
@@ -227,22 +227,22 @@
 }
 
 .version-item-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   color: #7c3aed;
   margin-bottom: 2px;
 }
 
 .version-item-time {
-  font-size: 13px;
-  font-weight: 400;
+  font-size: var(--text-base);
+  font-weight: var(--font-normal);
   color: #6b7280;
   margin-bottom: 4px;
 }
 
 .version-item-badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #6b7280;
   margin-bottom: 6px;
 }
@@ -267,12 +267,12 @@
 }
 
 .version-author-name {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
 }
 
 .version-author-more {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #9ca3af;
 }
 
@@ -326,7 +326,7 @@
   text-align: left;
   background: none;
   border: none;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #1f2937;
   cursor: pointer;
   transition: background-color 0.15s;
@@ -344,7 +344,7 @@
   text-align: left;
   background: none;
   border: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #7c3aed;
   cursor: pointer;
   transition: background-color 0.15s;
@@ -358,7 +358,7 @@
 .version-history-footer {
   padding: 12px 20px;
   border-top: 1px solid #e5e7eb;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #6b7280;
   text-align: center;
 }
@@ -388,8 +388,8 @@
 
 .version-dialog h3 {
   margin: 0 0 16px;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
   color: #1f2937;
 }
 
@@ -398,7 +398,7 @@
   padding: 10px 12px;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  font-size: 16px;
+  font-size: var(--text-lg);
   margin-bottom: 16px;
   box-sizing: border-box;
 }
@@ -417,7 +417,7 @@
 .version-dialog-actions button {
   padding: 8px 16px;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: var(--text-md);
   cursor: pointer;
   transition: background-color 0.15s;
 }

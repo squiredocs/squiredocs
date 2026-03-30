@@ -1,3 +1,46 @@
+/* =============================================================================
+   Typography tokens
+   ============================================================================= */
+
+:root {
+  /* Type scale (rem, assuming 16px root) */
+  --text-2xs: 0.625rem;   /* 10px — diff gutters, tiny badges */
+  --text-xs: 0.6875rem;   /* 11px — small labels, tool-card text */
+  --text-sm: 0.75rem;     /* 12px — metadata, timestamps, captions */
+  --text-base: 0.8125rem; /* 13px — default app-UI text */
+  --text-md: 0.875rem;    /* 14px — primary interactive text, buttons */
+  --text-lg: 1rem;        /* 16px — inputs, editor body */
+  --text-xl: 1.125rem;    /* 18px — panel/section headings */
+  --text-2xl: 1.25rem;    /* 20px — page titles, h3 */
+  --text-3xl: 1.5rem;     /* 24px — h2 */
+  --text-4xl: 2rem;       /* 32px — h1 */
+
+  /* Font weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Line heights */
+  --leading-tight: 1.2;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* Letter spacing */
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  /* Font stacks */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* =============================================================================
+   Reset & base
+   ============================================================================= */
+
 * {
   margin: 0;
   padding: 0;
@@ -9,17 +52,15 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-sans);
+  font-kerning: normal;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #f5f5f5;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: var(--font-mono);
 }
 
 /* Respect reduced-motion preference globally */

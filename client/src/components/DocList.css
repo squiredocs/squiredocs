@@ -58,7 +58,7 @@
   flex: 1;
   border: none;
   background: transparent;
-  font-size: 16px;
+  font-size: var(--text-lg);
   color: #1f2937;
   outline: none;
   min-width: 120px;
@@ -94,7 +94,7 @@
 
 .doc-list-filter {
   padding: 8px 32px 8px 12px;
-  font-size: 14px;
+  font-size: var(--text-md);
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: white;
@@ -126,8 +126,8 @@
   color: #1f2937;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   cursor: pointer;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
   flex-shrink: 0;
@@ -228,7 +228,7 @@
   transform: translateX(-50%);
   background: #1f2937;
   color: white;
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 4px 8px;
   border-radius: 4px;
   white-space: nowrap;
@@ -252,8 +252,8 @@
 }
 
 .doc-title {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
   color: #1f2937;
   line-height: 1.4;
   overflow-wrap: break-word;
@@ -261,7 +261,7 @@
 }
 
 .doc-meta {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #6b7280;
   margin-top: 2px;
 }
@@ -272,7 +272,7 @@
 
 .shared-by {
   color: #16a34a;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .doc-menu-wrapper {
@@ -330,7 +330,7 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #1f2937;
   text-align: left;
   transition: background-color 0.15s ease;
@@ -362,11 +362,11 @@
 .doc-list-empty p {
   margin: 8px 0;
   color: #6b7280;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .doc-list-empty p:first-child {
-  font-size: 16px;
+  font-size: var(--text-lg);
   color: #1f2937;
 }
 
@@ -374,7 +374,7 @@
 .doc-list-error {
   text-align: center;
   padding: 60px 20px;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #6b7280;
 }
 
@@ -390,8 +390,8 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-weight: 500;
-  font-size: 14px;
+  font-weight: var(--font-medium);
+  font-size: var(--text-md);
 }
 
 .doc-list-error button:hover {

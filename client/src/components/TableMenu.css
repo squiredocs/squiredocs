@@ -12,8 +12,8 @@
 }
 
 .table-menu-header {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   margin-bottom: 8px;
   text-align: center;
   color: #333;

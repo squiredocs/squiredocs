@@ -8,10 +8,12 @@ import AiChatHistory from '../components/AiChatHistory';
 import DocSidePane from '../components/DocSidePane';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Logo from '../components/Logo';
+import ViewToggleButton from '../components/ViewToggleButton';
+import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { getGreeting } from '../utils/greeting';
 import './ChatPage.css';
 
-function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc }) {
+function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc, onNavigateBack }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
   const { accentColor } = useByok();
@@ -57,17 +59,26 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc 
     onNavigateToDoc(docGuid);
   }, [onNavigateToDoc]);
 
+  const handleHomeClick = (e) => {
+    if (shouldUseBrowserLinkBehavior(e)) return;
+    e.preventDefault();
+    onNavigateHome();
+  };
+
   return (
     <div className={`chat-page${sidePaneDocGuid ? ' chat-page--with-doc' : ''}`}>
-      <header className="panel-header chat-page-header">
-        <div className="chat-page-header-left">
-          <a href="/docs" className="chat-page-logo" onClick={(e) => { e.preventDefault(); onNavigateHome(); }}>
-            <Logo size={24} color={accentColor} />
-            <span className="chat-page-logo-text">Squire</span>
-          </a>
-        </div>
-        <div className="chat-page-header-right">
-          <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
+      <header className="app-header">
+        <div className="app-header-content">
+          <div className="app-header-left">
+            <a href="/docs" className="back-btn" onClick={handleHomeClick}>
+              <Logo />
+            </a>
+            <h1>Squire Docs</h1>
+          </div>
+          <div className="app-header-right">
+            <ViewToggleButton onClick={onNavigateBack} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
+          </div>
         </div>
       </header>
 

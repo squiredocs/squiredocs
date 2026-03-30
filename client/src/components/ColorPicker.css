@@ -17,14 +17,14 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-md);
 }
 
 .color-picker-close {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: var(--text-3xl);
   line-height: 1;
   cursor: pointer;
   color: #6b7280;
@@ -77,8 +77,8 @@
   padding: 6px 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-family: monospace;
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
 }
 
 .color-picker-hex input:focus {
@@ -93,7 +93,7 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .color-picker-hex button:hover {
@@ -111,7 +111,7 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #6b7280;
 }
 

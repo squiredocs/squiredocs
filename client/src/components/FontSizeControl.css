@@ -10,7 +10,7 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   text-align: center;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .font-size-input:focus {
@@ -38,7 +38,7 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--text-lg);
   display: flex;
   align-items: center;
   justify-content: center;

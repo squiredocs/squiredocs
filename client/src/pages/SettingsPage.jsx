@@ -8,6 +8,7 @@ import AgentDelegationList from '../components/AgentDelegationList';
 import ApiTokenList from '../components/ApiTokenList';
 import Logo from '../components/Logo';
 import UserProfileBadge from '../components/UserProfileBadge';
+import ViewToggleButton from '../components/ViewToggleButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useByok } from '../contexts/ByokContext';
 
@@ -63,7 +64,7 @@ function ByokKeyField({ label, provider, mask, placeholder, byok, onError }) {
   );
 }
 
-export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, user }) {
+export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, onNavigateToChat, user }) {
   const { updateUser, api, logout } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
@@ -117,6 +118,7 @@ export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, user }
             <h1>Settings</h1>
           </div>
           <div className="app-header-right">
+            <ViewToggleButton onClick={onNavigateToChat} />
             <UserProfileBadge user={user} onLogout={logout} onNavigateToAdmin={onNavigateToAdmin} />
           </div>
         </div>

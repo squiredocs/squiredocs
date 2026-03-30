@@ -24,7 +24,7 @@
   border-radius: 4px;
   padding: 6px 12px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: #333;
   transition: all 0.2s;
   min-width: 36px;
@@ -55,7 +55,7 @@
 }
 
 .toolbar-button strong {
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 .toolbar-button em {
@@ -73,5 +73,5 @@
 .toolbar-button-small {
   min-width: auto;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }

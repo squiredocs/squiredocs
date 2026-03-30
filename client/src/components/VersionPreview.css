@@ -14,7 +14,7 @@
   justify-content: center;
   flex: 1;
   color: #6b7280;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .version-preview-empty {
@@ -23,13 +23,13 @@
   justify-content: center;
   flex: 1;
   color: #6b7280;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .version-preview-authors {
   padding: 12px 20px;
   border-top: 1px solid #e5e7eb;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: #6b7280;
   background: #f8f9fa;
 }
@@ -39,7 +39,7 @@
 }
 
 .version-preview-author {
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 /* Notice for when text is identical (sync-only updates) */
@@ -48,7 +48,7 @@
   background: #f0f4f8;
   border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--text-base);
   text-align: center;
 }
 

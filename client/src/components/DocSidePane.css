@@ -18,8 +18,8 @@
 }
 
 .doc-side-pane-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   color: #1f2937;
   overflow: hidden;
   text-overflow: ellipsis;

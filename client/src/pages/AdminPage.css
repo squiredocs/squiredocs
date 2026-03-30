@@ -42,16 +42,16 @@
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .admin-table th {
   text-align: left;
   padding: 10px 14px;
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
   color: #6b7280;
   background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
@@ -79,7 +79,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .admin-avatar {
@@ -91,10 +91,10 @@
 
 .admin-badge {
   display: inline-block;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
   background: #ede9fe;
   color: #7c3aed;
   padding: 2px 6px;
@@ -110,13 +110,13 @@
 
 .admin-extra-tag {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #059669;
   background: #ecfdf5;
   padding: 1px 5px;
   border-radius: 4px;
   margin-left: 6px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 /* ─── Inline editable monthly limit ────────────────────── */
@@ -139,7 +139,7 @@
 
 .admin-credit-input {
   width: 65px;
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: 3px 6px;
   border: 1px solid #d1d5db;
   border-radius: 4px;
@@ -148,7 +148,7 @@
 /* ─── Shared button styles ─────────────────────────────── */
 
 .admin-btn-sm {
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 4px 10px;
   border: 1px solid #d1d5db;
   border-radius: 5px;
@@ -211,8 +211,8 @@
 
 .admin-detail-header h4 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   color: #374151;
 }
 
@@ -220,7 +220,7 @@
 .admin-detail-empty {
   padding: 12px 0;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 /* ─── Extra credits sub-table ──────────────────────────── */
@@ -228,16 +228,16 @@
 .admin-credits-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .admin-credits-table th {
   text-align: left;
   padding: 6px 10px;
-  font-weight: 600;
-  font-size: 11px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
   color: #9ca3af;
   border-bottom: 1px solid #f3f4f6;
 }
@@ -260,12 +260,12 @@
 
 .admin-status-badge {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   padding: 2px 7px;
   border-radius: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-wide);
 }
 
 .admin-status-active {
@@ -293,7 +293,7 @@
 }
 
 .admin-grant-form input {
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: 4px 8px;
   border: 1px solid #d1d5db;
   border-radius: 4px;
@@ -313,6 +313,6 @@
 
 .admin-grant-error {
   color: #991b1b;
-  font-size: 12px;
+  font-size: var(--text-sm);
   width: 100%;
 }

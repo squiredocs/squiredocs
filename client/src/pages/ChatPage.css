@@ -16,39 +16,12 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Header
+   Header — uses shared .app-header from App.css
    --------------------------------------------------------------------------- */
 
-.chat-page-header {
+.chat-page > .app-header {
   grid-column: 1 / -1;
   grid-row: 1;
-  padding: 8px 16px;
-  height: 48px;
-  background: #fff;
-}
-
-.chat-page-header-left {
-  display: flex;
-  align-items: center;
-}
-
-.chat-page-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  color: #1f2937;
-}
-
-.chat-page-logo-text {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.chat-page-header-right {
-  display: flex;
-  align-items: center;
 }
 
 /* ---------------------------------------------------------------------------
@@ -94,4 +67,3 @@
   margin: 0 auto;
   box-sizing: border-box;
 }
-

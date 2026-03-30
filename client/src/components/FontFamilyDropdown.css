@@ -7,7 +7,7 @@
   min-width: 120px;
   text-align: left;
   padding: 4px 8px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .dropdown-menu {
@@ -28,7 +28,7 @@
 .dropdown-item {
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .dropdown-item:hover {

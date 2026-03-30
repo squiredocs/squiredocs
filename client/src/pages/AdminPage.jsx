@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Logo from '../components/Logo';
+import ViewToggleButton from '../components/ViewToggleButton';
 import './AdminPage.css';
 
-export default function AdminPage({ onNavigateHome, onNavigateToSettings, user }) {
+export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavigateToChat, user }) {
   const { api, logout } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +171,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, user }
             <h1>Admin</h1>
           </div>
           <div className="app-header-right">
+            <ViewToggleButton onClick={onNavigateToChat} />
             <UserProfileBadge
               user={user}
               onLogout={logout}

@@ -79,8 +79,8 @@
   border-radius: 6px;
   background: transparent;
   color: #374151;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: var(--text-lg);
+  font-weight: var(--font-medium);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -99,7 +99,7 @@
 }
 
 .mobile-format-btn strong {
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 .mobile-format-btn em {
