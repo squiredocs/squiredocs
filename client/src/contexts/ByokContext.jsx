@@ -53,8 +53,10 @@ export function ByokProvider({ children }) {
     await saveSettings(updates);
   }, [saveSettings]);
 
+  const accentColor = settings?.enabled ? '#312e81' : '#7c3aed';
+
   return (
-    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey }}>
+    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey, accentColor }}>
       {children}
     </ByokContext.Provider>
   );

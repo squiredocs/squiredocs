@@ -87,42 +87,6 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Welcome / empty state
-   --------------------------------------------------------------------------- */
-
-.chat-page-welcome {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 32px;
-  color: #6b7280;
-}
-
-.chat-page-welcome-text {
-  margin: 0;
-  font-size: 18px;
-  color: #9ca3af;
-}
-
-.chat-page-retry-btn {
-  padding: 6px 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.chat-page-retry-btn:hover {
-  background: #f9fafb;
-}
-
-/* ---------------------------------------------------------------------------
    Input area
    --------------------------------------------------------------------------- */
 
@@ -135,28 +99,3 @@
   box-sizing: border-box;
 }
 
-/* ---------------------------------------------------------------------------
-   Error / usage-limit banners
-   --------------------------------------------------------------------------- */
-
-.chat-page-error,
-.chat-page-usage-limit {
-  padding: 8px 16px;
-  text-align: center;
-  font-size: 13px;
-}
-
-.chat-page-error {
-  color: #dc2626;
-  background: #fef2f2;
-}
-
-.chat-page-usage-limit {
-  color: #92400e;
-  background: #fffbeb;
-}
-
-.chat-page-usage-limit a {
-  color: #92400e;
-  font-weight: 500;
-}

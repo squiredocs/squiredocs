@@ -972,23 +972,29 @@ See `server/mcp/yjs/cursor-operations.js` (getAllText function) and `server/mcp/
 
 ## Testing
 
-Comprehensive test suite with Jest (backend) and Vitest (frontend):
+Comprehensive test suite with Jest (backend) and Vitest (frontend).
+
+**Running tests in the dev pod** (recommended — matches the CI environment; see [docs/dev.md](docs/dev.md) for full setup):
 
 ```bash
 # Backend tests
-npm test
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm test"
 
 # Frontend tests
-npm run test:client
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev/client && npm test"
 
 # All tests
-npm run test:all
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run test:all"
+```
 
-# Watch mode
-npm run test:watch
+**Running tests locally** (if you have Node 22+ and PostgreSQL):
 
-# Coverage
-npm run test:coverage
+```bash
+npm test              # Backend tests
+npm run test:client   # Frontend tests
+npm run test:all      # All tests
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage
 cd client && npm run test:coverage
 ```
 

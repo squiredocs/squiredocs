@@ -137,27 +137,6 @@
 }
 
 /* =============================================================================
-   Welcome State (empty panel)
-   ============================================================================= */
-
-.ai-panel-welcome {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  gap: 8px;
-}
-
-.ai-chat-welcome-text {
-  margin: 0;
-  font-size: 15px;
-  color: #9ca3af;
-}
-
-/* =============================================================================
    Chat Messages
    ============================================================================= */
 
@@ -837,56 +816,8 @@
   padding: 8px 16px 12px;
 }
 
-.ai-panel-mobile .ai-panel-welcome {
+.ai-panel-mobile .ai-chat-body-welcome {
   padding: 24px 16px;
-}
-
-/* =============================================================================
-   Print
-   ============================================================================= */
-
-/* Usage limit banner */
-.ai-panel-usage-limit {
-  padding: 8px 16px;
-  margin: 0 12px 4px;
-  background: #fef2f2;
-  color: #991b1b;
-  font-size: 13px;
-  border-radius: 6px;
-  text-align: center;
-}
-
-.ai-panel-usage-limit-link {
-  color: #991b1b;
-  font-weight: 600;
-  text-decoration: underline;
-}
-
-/* Generic error banner */
-.ai-panel-error {
-  padding: 8px 16px;
-  margin: 0 12px 4px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 13px;
-  border-radius: 6px;
-  text-align: center;
-}
-
-/* Retry button (used in message load error state) */
-.ai-panel-retry-btn {
-  margin-top: 8px;
-  padding: 6px 16px;
-  font-size: 13px;
-  color: #7c3aed;
-  background: transparent;
-  border: 1px solid #7c3aed;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.ai-panel-retry-btn:hover {
-  background: #f5f3ff;
 }
 
 /* =============================================================================
@@ -922,15 +853,6 @@
 
 .ai-panel--byok .ai-chat-send-btn {
   background: #312e81;
-}
-
-.ai-panel--byok .ai-panel-retry-btn {
-  color: #312e81;
-  border-color: #312e81;
-}
-
-.ai-panel--byok .ai-panel-retry-btn:hover {
-  background: #eeedf5;
 }
 
 @media print {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAiChat } from '../contexts/AiChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useByok } from '../contexts/ByokContext';
-import AiChatMessages from '../components/AiChatMessages';
+import AiChatBody from '../components/AiChatBody';
 import AiChatInput from '../components/AiChatInput';
 import AiChatHistory from '../components/AiChatHistory';
 import DocSidePane from '../components/DocSidePane';
@@ -13,8 +13,7 @@ import './ChatPage.css';
 function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
-  const byok = useByok();
-  const isByok = !!byok.settings?.enabled;
+  const { accentColor } = useByok();
   const chatInputRef = useRef(null);
 
   const {
@@ -56,7 +55,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
       <header className="chat-page-header">
         <div className="chat-page-header-left">
           <a href="/docs" className="chat-page-logo" onClick={(e) => { e.preventDefault(); onNavigateHome(); }}>
-            <Logo size={24} color={isByok ? '#312e81' : '#7c3aed'} />
+            <Logo size={24} color={accentColor} />
             <span className="chat-page-logo-text">Squire</span>
           </a>
         </div>
@@ -70,38 +69,14 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
       </aside>
 
       <main className="chat-page-main">
-        {messagesLoading ? (
-          <div className="chat-page-welcome">
-            <div className="ai-typing-indicator">
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-            </div>
-          </div>
-        ) : messagesError ? (
-          <div className="chat-page-welcome">
-            <p className="chat-page-welcome-text">{messagesError}</p>
-            <button className="chat-page-retry-btn" onClick={retryLoadMessages}>Retry</button>
-          </div>
-        ) : isEmpty ? (
-          <div className="chat-page-welcome">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={isByok ? '#312e81' : '#7c3aed'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
-              <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
-            </svg>
-            <p className="chat-page-welcome-text">How can I help you?</p>
-          </div>
-        ) : (
-          <AiChatMessages messages={messages} status={status} onDocLinkClick={handleDocLinkClick} />
-        )}
-        {usageLimitReached ? (
-          <div className="chat-page-usage-limit">
-            You've reached your AI usage limit for this month. <a href="/settings">View Usage</a>
-          </div>
-        ) : status === 'error' && error && (
-          <div className="chat-page-error">
-            Something went wrong. Please try again.
-          </div>
-        )}
+        <AiChatBody
+          messages={messages} status={status}
+          messagesLoading={messagesLoading} messagesError={messagesError}
+          retryLoadMessages={retryLoadMessages}
+          usageLimitReached={usageLimitReached} error={error}
+          greeting="How can I help you?" accentColor={accentColor}
+          iconSize={48} onDocLinkClick={handleDocLinkClick}
+        />
         <div className="chat-page-input-wrap">
           <AiChatInput
             ref={chatInputRef}

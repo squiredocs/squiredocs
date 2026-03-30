@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useByok } from '../contexts/ByokContext';
 import { useMobile } from '../hooks/useMobile';
 import { useResizeHandle } from '../hooks/useResizeHandle';
-import AiChatMessages from './AiChatMessages';
+import AiChatBody from './AiChatBody';
 import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
 import WindowPortal from './WindowPortal';
@@ -16,14 +16,6 @@ function getGreeting(name) {
   return firstName ? `${timeOfDay}, ${firstName}` : timeOfDay;
 }
 
-const TypingDots = () => (
-  <div className="ai-typing-indicator">
-    <span className="ai-typing-dot" />
-    <span className="ai-typing-dot" />
-    <span className="ai-typing-dot" />
-  </div>
-);
-
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
@@ -33,6 +25,7 @@ const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
 function AiPanel({ aiPanel, aiChat }) {
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
+  const { accentColor } = byok;
   const byokProvider = byok.settings?.models?.find(m => m.key === byok.settings?.modelKey)?.provider;
   const {
     isOpen, close,
@@ -287,34 +280,14 @@ function AiPanel({ aiPanel, aiChat }) {
         <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />
       ) : (
         <>
-          {messagesLoading ? (
-            <div className="ai-panel-welcome">
-              <TypingDots />
-            </div>
-          ) : messagesError ? (
-            <div className="ai-panel-welcome">
-              <p className="ai-chat-welcome-text">{messagesError}</p>
-              <button className="ai-panel-retry-btn" onClick={retryLoadMessages}>Retry</button>
-            </div>
-          ) : isEmpty ? (
-            <div className="ai-panel-welcome">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={isByok ? '#312e81' : '#7c3aed'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
-                <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
-              </svg>
-              <p className="ai-chat-welcome-text">{getGreeting(user?.name)}</p>
-            </div>
-          ) : (
-            <AiChatMessages messages={messages} status={status} />
-          )}
-          {usageLimitReached ? (
-            <div className="ai-panel-usage-limit">
-              You've reached your AI usage limit for this month. <a href="/settings" className="ai-panel-usage-limit-link">View Usage</a>
-            </div>
-          ) : status === 'error' && error && (
-            <div className="ai-panel-error">
-              {errorWasByok && error.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : 'Something went wrong. Please try again.'}
-            </div>
-          )}
+          <AiChatBody
+            messages={messages} status={status}
+            messagesLoading={messagesLoading} messagesError={messagesError}
+            retryLoadMessages={retryLoadMessages}
+            usageLimitReached={usageLimitReached} error={error}
+            errorMessage={errorWasByok && error?.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : undefined}
+            greeting={getGreeting(user?.name)} accentColor={accentColor}
+          />
           <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} />
         </>
       )}
