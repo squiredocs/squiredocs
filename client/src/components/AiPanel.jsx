@@ -15,7 +15,7 @@ const MIN_HEIGHT = 200;
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
 
-const DOC_URL_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
+import { DOC_URL_RE } from '../utils/patterns';
 
 function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
   const byok = useByok();
@@ -29,7 +29,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
     heightPx, updateHeight,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, isStreaming, isEmpty } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -76,9 +76,6 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
     }
   }, []);
 
-  // Streaming state: disable send when AI is responding
-  const isStreaming = status === 'streaming' || status === 'submitted';
-  const isEmpty = !messages || messages.length === 0;
 
   // Mobile: shrink panel to the visual viewport height so content stays above
   // the on-screen keyboard.  A CSS ::before pseudo-element keeps a full-screen

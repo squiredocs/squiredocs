@@ -9,6 +9,7 @@ import DocSidePane from '../components/DocSidePane';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Logo from '../components/Logo';
 import { getGreeting } from '../utils/greeting';
+import { spaNavigate } from '../utils/navigation';
 import './ChatPage.css';
 
 function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
@@ -21,11 +22,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
     messages, sendMessage, status, stop, error,
     usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles,
     messagesLoading, messagesError, retryLoadMessages,
-    setDocGuidOverride,
+    setDocGuidOverride, isStreaming, isEmpty,
   } = aiChat;
-
-  const isStreaming = status === 'submitted' || status === 'streaming';
-  const isEmpty = messages.length === 0;
 
   // Side pane state — initialize from ?doc= query param (e.g. navigating from editor)
   const [sidePaneDocGuid, setSidePaneDocGuid] = useState(() => {
@@ -54,8 +52,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
   }, []);
 
   const handleOpenFull = useCallback((docGuid) => {
-    window.history.pushState({}, '', `/d/${docGuid}`);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    spaNavigate(`/d/${docGuid}`);
   }, []);
 
   return (

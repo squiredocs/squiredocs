@@ -32,16 +32,11 @@ function getToolLabel(toolName) {
   return TOOL_LABELS[toolName] || toolName;
 }
 
-/** Push a path to the browser history and trigger SPA navigation. */
-function spaNavigate(path) {
-  window.history.pushState({}, '', path);
-  window.dispatchEvent(new PopStateEvent('popstate'));
-}
+import { spaNavigate } from '../utils/navigation';
+import { DOC_URL_RE } from '../utils/patterns';
 
 // Context for intercepting doc link clicks (used by /chat page to open side pane)
 const DocLinkContext = createContext(null);
-
-const UUID_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
 
 function isToolPart(part) {
   return part.type?.startsWith('tool-') || part.type === 'dynamic-tool';
@@ -312,7 +307,7 @@ function MarkdownLink({ href, children }) {
     const pathname = href.startsWith('/') ? href : new URL(href).pathname;
     // If a doc link handler is registered and this is a doc URL, use it
     if (onDocLinkClick) {
-      const m = pathname.match(UUID_RE);
+      const m = pathname.match(DOC_URL_RE);
       if (m) { onDocLinkClick(m[1].toLowerCase()); return; }
     }
     spaNavigate(pathname);

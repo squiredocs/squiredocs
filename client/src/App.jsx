@@ -12,10 +12,8 @@ import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
 import ChatPage from './pages/ChatPage';
+import { UUID_REGEX } from './utils/patterns';
 import './App.css';
-
-// UUID validation regex
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Parse the current URL to determine the view
 function parseRoute() {

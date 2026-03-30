@@ -479,23 +479,6 @@ function countBlocks(xmlFragment) {
   return xmlFragment.toArray().length;
 }
 
-/**
- * Serialize an array of nodes to structured format
- * @param {Array<Y.XmlElement>} nodes - Nodes to serialize
- * @returns {Array} Array of structured objects
- */
-function serializeNodesToStructured(nodes) {
-  return nodes.map(toStructuredNode).filter(Boolean);
-}
-
-/**
- * Serialize an array of nodes to plain text
- * @param {Array<Y.XmlElement>} nodes - Nodes to serialize
- * @returns {string} Plain text representation
- */
-function serializeNodesToText(nodes) {
-  return nodes.map(toTextNode).join('').trim();
-}
 
 module.exports = {
   // Fragment-level serialization (existing)
