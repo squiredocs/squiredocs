@@ -264,7 +264,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';
 
-
   let page;
   if (route.view === 'editor' && route.docGuid) {
     page = (
