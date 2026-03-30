@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useEffect, useMemo, useCallback, use
 import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useAuth } from './AuthContext';
+import { isTokenExpiringSoon } from '../utils/jwt';
 
 const AiChatContext = createContext(null);
 
@@ -18,7 +19,7 @@ function generateTitle(text) {
 }
 
 export function AiChatProvider({ children }) {
-  const { accessToken } = useAuth();
+  const { accessToken, refreshAccessToken } = useAuth();
   const tokenRef = useRef(accessToken);
   tokenRef.current = accessToken;
 
@@ -34,10 +35,9 @@ export function AiChatProvider({ children }) {
   const titleSetRef = useRef(new Set()); // track which chats already have titles
   const creatingChatRef = useRef(false); // skip load-messages effect after new-chat creation
 
-  // Helper for authed API calls
-  const apiFetch = useCallback((path, opts = {}) => {
-    const token = tokenRef.current;
-    return fetch(path, {
+  // Helper for authed API calls — retries once on 401 after refreshing the token
+  const apiFetch = useCallback(async (path, opts = {}) => {
+    const doFetch = (token) => fetch(path, {
       ...opts,
       headers: {
         'Content-Type': 'application/json',
@@ -45,7 +45,18 @@ export function AiChatProvider({ children }) {
         ...opts.headers,
       },
     });
-  }, []);
+
+    const res = await doFetch(tokenRef.current);
+    if (res.status === 401) {
+      try {
+        const newToken = await refreshAccessToken();
+        return doFetch(newToken);
+      } catch {
+        return res;
+      }
+    }
+    return res;
+  }, [refreshAccessToken]);
 
   // ── Chat list ────────────────────────────────────────────────────────────
 
@@ -304,11 +315,17 @@ export function AiChatProvider({ children }) {
         renameChat(chatId, generateTitle(text || 'Image'));
       }
 
+      // Proactively refresh the token if it's expired or expiring soon so the
+      // streaming transport sends a valid Authorization header on the first try.
+      if (isTokenExpiringSoon(tokenRef.current)) {
+        try { await refreshAccessToken(); } catch { /* transport will surface the auth error */ }
+      }
+
       lastSentTextRef.current = text;
       lastSentFilesRef.current = files || null;
       chat.sendMessage({ text: text || ' ', files: files?.length ? files : undefined });
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, refreshAccessToken],
   );
 
   const value = useMemo(

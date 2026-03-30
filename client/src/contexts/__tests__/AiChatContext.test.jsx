@@ -40,9 +40,10 @@ vi.mock('@ai-sdk/react', () => ({
   }),
 }));
 
-// Mock auth — provide a stable token
+// Mock auth — provide a stable token + refreshAccessToken
+const refreshAccessTokenSpy = vi.fn().mockResolvedValue('refreshed-token');
 vi.mock('../AuthContext', () => ({
-  useAuth: () => ({ accessToken: 'test-token' }),
+  useAuth: () => ({ accessToken: 'test-token', refreshAccessToken: refreshAccessTokenSpy }),
 }));
 
 // Mock global fetch for apiFetch calls
@@ -82,6 +83,7 @@ describe('AiChatContext', () => {
     resumeStreamSpy.mockClear();
     sendMessageSpy.mockClear();
     mockFetch.mockReset();
+    refreshAccessTokenSpy.mockClear().mockResolvedValue('refreshed-token');
     // Default: chat list returns empty (called on mount)
     mockFetchResponse([]);
   });
@@ -352,6 +354,102 @@ describe('AiChatContext', () => {
       await act(async () => { await result.current.sendMessage('My first msg'); });
 
       expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'My first msg', files: undefined });
+    });
+  });
+
+  // ── Token refresh on 401 ──────────────────────────────────────────────────
+
+  describe('apiFetch 401 retry', () => {
+    it('retries with refreshed token when fetch returns 401', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      // First call to refreshChatList will use apiFetch → returns 401
+      // then apiFetch should call refreshAccessToken and retry
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'expired' }) });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([{ id: 'c1', title: 'Chat', updatedAt: new Date().toISOString() }]) });
+
+      await act(async () => { await result.current.refreshChatList(); });
+
+      expect(refreshAccessTokenSpy).toHaveBeenCalledTimes(1);
+      // The retry fetch should use the refreshed token
+      const retryCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      expect(retryCall[1].headers.Authorization).toBe('Bearer refreshed-token');
+    });
+
+    it('does not retry when fetch returns a non-401 error', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ error: 'server error' }) });
+
+      await act(async () => { await result.current.refreshChatList(); });
+
+      expect(refreshAccessTokenSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns original 401 response when refresh fails', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      refreshAccessTokenSpy.mockRejectedValueOnce(new Error('refresh failed'));
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'expired' }) });
+
+      await act(async () => {
+        const list = await result.current.refreshChatList();
+        expect(list).toEqual([]); // non-ok response → returns empty
+      });
+    });
+  });
+
+  // ── Proactive token refresh before streaming ──────────────────────────────
+
+  describe('proactive token refresh before sendMessage', () => {
+    // Helper: build a JWT-shaped token with a given exp (seconds since epoch)
+    function fakeJwt(exp) {
+      const header = btoa(JSON.stringify({ alg: 'HS256' }));
+      const payload = btoa(JSON.stringify({ exp }));
+      return `${header}.${payload}.sig`;
+    }
+
+    it('refreshes token before sending when token is expiring soon', async () => {
+      // Override the mock to return a nearly-expired token
+      const almostExpired = fakeJwt(Math.floor(Date.now() / 1000) + 10); // 10s left
+      const { useAuth: _u } = await import('../AuthContext');
+      // We can't change the mock return dynamically with vi.mock, so we
+      // set tokenRef.current via the accessToken that flows through the ref.
+      // Instead, test via the module-level mock: the existing 'test-token'
+      // is not a valid JWT, so isTokenExpiringSoon returns true (fail-secure).
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      mockFetchResponse({ id: 'chat-refresh' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList
+
+      await act(async () => { await result.current.sendMessage('Hello'); });
+
+      // 'test-token' is not a valid JWT → isTokenExpiringSoon returns true →
+      // refreshAccessToken should be called before sendMessage
+      expect(refreshAccessTokenSpy).toHaveBeenCalled();
+      expect(sendMessageSpy).toHaveBeenCalled();
+    });
+
+    it('still sends the message even if proactive refresh fails', async () => {
+      refreshAccessTokenSpy.mockRejectedValueOnce(new Error('network error'));
+
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+      mockFetchResponse({ id: 'chat-fail-refresh' }); // createChat POST
+      mockFetchResponse([]); // refreshChatList
+      mockFetchResponse({ ok: true }); // PATCH title
+      mockFetchResponse([]); // refreshChatList
+
+      await act(async () => { await result.current.sendMessage('Still sends'); });
+
+      expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'Still sends', files: undefined });
     });
   });
 });
