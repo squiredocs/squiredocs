@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
@@ -260,8 +260,14 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const aiChat = useAiChat();
   const isMobile = useMobile();
 
-  const aiPanelClass = aiPanel.isOpen && !isMobile && !aiPanel.isPoppedOut
+  const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';
+
+  const handleNavigateToChat = useCallback((docGuid) => {
+    const url = docGuid ? `/chat?doc=${docGuid}` : '/chat';
+    window.history.pushState({}, '', url);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, []);
 
   let page;
   if (route.view === 'editor' && route.docGuid) {
@@ -313,12 +319,12 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         <div className="app-content">
           {page}
         </div>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} onNavigateToChat={handleNavigateToChat} />
       </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button
         className={`ai-fab${aiPanel.isOpen ? ' ai-fab--active' : ''}`}
-        onClick={aiPanel.isPoppedOut ? aiPanel.focusPopup : aiPanel.toggle}
+        onClick={aiPanel.toggle}
         aria-label="AI Assistant"
         title="AI Assistant"
       >

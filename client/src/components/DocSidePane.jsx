@@ -29,17 +29,17 @@ function DocSidePane({ docGuid, user, onClose, onOpenFull }) {
 
   return (
     <aside className="doc-side-pane">
-      <div className="doc-side-pane-header">
+      <div className="panel-header doc-side-pane-header">
         <span className="doc-side-pane-title">{docTitle || 'Untitled'}</span>
         <div className="doc-side-pane-actions">
-          <a href={`/d/${docGuid}`} className="doc-side-pane-open-full" onClick={handleOpenFull} title="Open in full editor">
+          <a href={`/d/${docGuid}`} className="icon-btn" onClick={handleOpenFull} title="Open in full editor">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
               <polyline points="15 3 21 3 21 9" />
               <line x1="10" y1="14" x2="21" y2="3" />
             </svg>
           </a>
-          <button className="doc-side-pane-close" onClick={onClose} title="Close document" aria-label="Close document">
+          <button className="icon-btn" onClick={onClose} title="Close document" aria-label="Close document">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />

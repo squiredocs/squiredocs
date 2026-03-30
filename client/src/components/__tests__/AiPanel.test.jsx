@@ -16,7 +16,7 @@ vi.mock('../../hooks/useMobile', () => ({
 
 // Mock useByok
 vi.mock('../../contexts/ByokContext', () => ({
-  useByok: () => ({ settings: null, loading: false, saving: false, error: null, saveSettings: vi.fn(), clearKey: vi.fn() }),
+  useByok: () => ({ settings: null, loading: false, saving: false, error: null, saveSettings: vi.fn(), clearKey: vi.fn(), accentColor: '#7c3aed' }),
 }));
 
 // Mock useResizeHandle
@@ -25,11 +25,6 @@ const mockHeightResize = { handleMouseDown: vi.fn(), handleTouchStart: vi.fn(), 
 vi.mock('../../hooks/useResizeHandle', () => ({
   useResizeHandle: (direction) =>
     direction === 'horizontal' ? mockWidthResize : mockHeightResize,
-}));
-
-// Mock WindowPortal to render children inline (jsdom has no window.open)
-vi.mock('../WindowPortal', () => ({
-  default: ({ children }) => <div data-testid="window-portal">{children}</div>,
 }));
 
 // Mock AiChatHistory (tested separately)
@@ -52,11 +47,6 @@ function makeAiPanel(overrides = {}) {
     updateWidth: vi.fn(),
     heightPx: 300,
     updateHeight: vi.fn(),
-    isPoppedOut: false,
-    popOut: vi.fn(),
-    popIn: vi.fn(),
-    setPopupWindow: vi.fn(),
-    focusPopup: vi.fn(),
     ...overrides,
   };
 }
@@ -194,51 +184,25 @@ describe('AiPanel', () => {
     expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
   });
 
-  // --------------- Pop-out ---------------
+  // --------------- Chat view toggle ---------------
 
-  it('renders pop-out button on desktop', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
-    expect(screen.getByRole('button', { name: 'Pop out' })).toBeInTheDocument();
+  it('renders chat view button on desktop when onNavigateToChat is provided', () => {
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} onNavigateToChat={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Open chat view' })).toBeInTheDocument();
   });
 
-  it('pop-out button is hidden on mobile', () => {
+  it('hides chat view button on mobile', () => {
     mockIsMobile = true;
-    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
-    expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} onNavigateToChat={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Open chat view' })).not.toBeInTheDocument();
   });
 
-  it('pop-out button calls popOut', () => {
-    const popOut = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ popOut })} aiChat={makeAiChat()} />);
+  it('chat view button calls onNavigateToChat', () => {
+    const onNavigateToChat = vi.fn();
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} onNavigateToChat={onNavigateToChat} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pop out' }));
-    expect(popOut).toHaveBeenCalled();
-  });
-
-  it('shows dock button instead of pop-out and position toggle when popped out', () => {
-    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
-
-    expect(screen.getByRole('button', { name: 'Dock panel' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Pop out' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Move to/i })).not.toBeInTheDocument();
-  });
-
-  it('dock button calls popIn', () => {
-    const popIn = vi.fn();
-    render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true, popIn })} aiChat={makeAiChat()} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Dock panel' }));
-    expect(popIn).toHaveBeenCalled();
-  });
-
-  it('hides resize handle when popped out', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
-    expect(container.querySelector('.ai-panel-resize-handle')).not.toBeInTheDocument();
-  });
-
-  it('uses popup class when popped out', () => {
-    const { container } = render(<AiPanel aiPanel={makeAiPanel({ isPoppedOut: true })} aiChat={makeAiChat()} />);
-    expect(container.querySelector('.ai-panel--popup')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat view' }));
+    expect(onNavigateToChat).toHaveBeenCalled();
   });
 
   // --------------- Chat History ---------------

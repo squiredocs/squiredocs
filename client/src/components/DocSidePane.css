@@ -12,11 +12,7 @@
 }
 
 .doc-side-pane-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #e5e7eb;
   min-height: 44px;
   gap: 8px;
 }
@@ -39,41 +35,7 @@
   flex-shrink: 0;
 }
 
-.doc-side-pane-open-full {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  color: #6b7280;
-  text-decoration: none;
-  transition: background 0.15s, color 0.15s;
-}
-
-.doc-side-pane-open-full:hover {
-  background: #f3f4f6;
-  color: #1f2937;
-}
-
-.doc-side-pane-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: #6b7280;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.doc-side-pane-close:hover {
-  background: #f3f4f6;
-  color: #1f2937;
-}
+/* icon-btn base styles live in App.css */
 
 .doc-side-pane-editor {
   flex: 1;

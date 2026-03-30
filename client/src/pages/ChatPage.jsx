@@ -8,6 +8,7 @@ import AiChatHistory from '../components/AiChatHistory';
 import DocSidePane from '../components/DocSidePane';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Logo from '../components/Logo';
+import { getGreeting } from '../utils/greeting';
 import './ChatPage.css';
 
 function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
@@ -26,8 +27,15 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
   const isStreaming = status === 'submitted' || status === 'streaming';
   const isEmpty = messages.length === 0;
 
-  // Side pane state
-  const [sidePaneDocGuid, setSidePaneDocGuid] = useState(null);
+  // Side pane state — initialize from ?doc= query param (e.g. navigating from editor)
+  const [sidePaneDocGuid, setSidePaneDocGuid] = useState(() => {
+    const doc = new URLSearchParams(window.location.search).get('doc');
+    if (doc) {
+      // Clean the query param from the URL so it doesn't persist on refresh
+      window.history.replaceState({}, '', '/chat');
+    }
+    return doc || null;
+  });
 
   // Keep the AI context aware of which doc is in the side pane
   useEffect(() => {
@@ -52,7 +60,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
 
   return (
     <div className={`chat-page${sidePaneDocGuid ? ' chat-page--with-doc' : ''}`}>
-      <header className="chat-page-header">
+      <header className="panel-header chat-page-header">
         <div className="chat-page-header-left">
           <a href="/docs" className="chat-page-logo" onClick={(e) => { e.preventDefault(); onNavigateHome(); }}>
             <Logo size={24} color={accentColor} />
@@ -74,7 +82,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings }) {
           messagesLoading={messagesLoading} messagesError={messagesError}
           retryLoadMessages={retryLoadMessages}
           usageLimitReached={usageLimitReached} error={error}
-          greeting="How can I help you?" accentColor={accentColor}
+          greeting={getGreeting(user?.name)} accentColor={accentColor}
           iconSize={48} onDocLinkClick={handleDocLinkClick}
         />
         <div className="chat-page-input-wrap">

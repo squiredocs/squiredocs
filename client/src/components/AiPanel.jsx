@@ -6,15 +6,8 @@ import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatBody from './AiChatBody';
 import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
-import WindowPortal from './WindowPortal';
+import { getGreeting } from '../utils/greeting';
 import './AiPanel.css';
-
-function getGreeting(name) {
-  const h = new Date().getHours();
-  const timeOfDay = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = name?.split(' ')[0];
-  return firstName ? `${timeOfDay}, ${firstName}` : timeOfDay;
-}
 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
@@ -22,7 +15,9 @@ const MIN_HEIGHT = 200;
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
 
-function AiPanel({ aiPanel, aiChat }) {
+const DOC_URL_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
+
+function AiPanel({ aiPanel, aiChat, onNavigateToChat }) {
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
   const { accentColor } = byok;
@@ -32,7 +27,6 @@ function AiPanel({ aiPanel, aiChat }) {
     position, setPosition,
     widthPx, updateWidth,
     heightPx, updateHeight,
-    isPoppedOut, popOut, popIn, setPopupWindow,
   } = aiPanel;
 
   const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages } = aiChat || {};
@@ -140,18 +134,16 @@ function AiPanel({ aiPanel, aiChat }) {
   const WrapperTag = isMobile ? 'div' : 'aside';
   const wrapperProps = isMobile
     ? { className: `ai-panel-mobile${byokClass}` }
-    : isPoppedOut
-      ? { className: `ai-panel ai-panel--popup${byokClass}` }
-      : {
-          className: `ai-panel ai-panel--${position}${byokClass}`,
-          style: isRight
-            ? { '--ai-panel-width': `${widthPx}px` }
-            : { '--ai-panel-height': `${heightPx}px` },
-        };
+    : {
+        className: `ai-panel ai-panel--${position}${byokClass}`,
+        style: isRight
+          ? { '--ai-panel-width': `${widthPx}px` }
+          : { '--ai-panel-height': `${heightPx}px` },
+      };
 
   const closeSize = isMobile ? 18 : 16;
   const closeButton = (
-    <button className="ai-panel-close-btn" onClick={close} aria-label="Close">
+    <button className="icon-btn" onClick={close} aria-label="Close">
       <svg width={closeSize} height={closeSize} viewBox="0 0 24 24" fill="currentColor">
         <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
       </svg>
@@ -161,8 +153,8 @@ function AiPanel({ aiPanel, aiChat }) {
   const panelJsx = (
     <WrapperTag ref={panelRef} {...wrapperProps} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {isDragOver && <div className="ai-panel-drop-overlay">Drop image here</div>}
-      {/* Resize handle (desktop only, not when popped out) */}
-      {!isMobile && !isPoppedOut && (
+      {/* Resize handle (desktop only) */}
+      {!isMobile && (
         <div
           className={`ai-panel-resize-handle ai-panel-resize-handle--${isRight ? 'left' : 'top'}`}
           onMouseDown={(e) => isRight
@@ -175,7 +167,7 @@ function AiPanel({ aiPanel, aiChat }) {
           }
         />
       )}
-      <div className="ai-panel-header">
+      <div className="panel-header ai-panel-header">
         <div className="ai-panel-title-group">
           <span className="ai-panel-title">{isByok ? 'Squire Docs Assistant (BYOK)' : 'Squire Docs Assistant'}</span>
           {currentChatTitle && (
@@ -187,7 +179,7 @@ function AiPanel({ aiPanel, aiChat }) {
             const iconSize = isMobile ? 18 : 16;
             return showHistory ? (
               <button
-                className="ai-panel-position-btn"
+                className="icon-btn"
                 onClick={() => setShowHistory(false)}
                 aria-label="Back to chat"
                 title="Back to chat"
@@ -199,7 +191,7 @@ function AiPanel({ aiPanel, aiChat }) {
             ) : (
               <>
                 <button
-                  className="ai-panel-position-btn"
+                  className="icon-btn"
                   onClick={() => { aiChat.createChat(); chatInputRef.current?.focus(); }}
                   aria-label="New chat"
                   title="New chat"
@@ -210,7 +202,7 @@ function AiPanel({ aiPanel, aiChat }) {
                   </svg>
                 </button>
                 <button
-                  className="ai-panel-position-btn"
+                  className="icon-btn"
                   onClick={() => setShowHistory(true)}
                   aria-label="Chat history"
                   title="Chat history"
@@ -224,34 +216,25 @@ function AiPanel({ aiPanel, aiChat }) {
                     <line x1="3" y1="18" x2="3.01" y2="18" />
                   </svg>
                 </button>
-                {!isMobile && (isPoppedOut ? (
-                  <button
-                    className="ai-panel-position-btn"
-                    onClick={popIn}
-                    aria-label="Dock panel"
-                    title="Dock panel"
-                  >
-                    <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 10 4 15 9 20" />
-                      <path d="M20 4v7a4 4 0 01-4 4H4" />
-                    </svg>
-                  </button>
-                ) : (
+                {!isMobile && (
                   <>
+                    {onNavigateToChat && (
+                      <button
+                        className="icon-btn"
+                        onClick={() => {
+                          const m = window.location.pathname.match(DOC_URL_RE);
+                          onNavigateToChat(m ? m[1].toLowerCase() : null);
+                        }}
+                        aria-label="Open chat view"
+                        title="Open chat view"
+                      >
+                        <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                        </svg>
+                      </button>
+                    )}
                     <button
-                      className="ai-panel-popout-btn"
-                      onClick={popOut}
-                      aria-label="Pop out"
-                      title="Pop out to window"
-                    >
-                      <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    </button>
-                    <button
-                      className="ai-panel-position-btn"
+                      className="icon-btn"
                       onClick={handlePositionToggle}
                       aria-label={isRight ? 'Move to bottom' : 'Move to right'}
                       title={isRight ? 'Move to bottom' : 'Move to right'}
@@ -269,7 +252,7 @@ function AiPanel({ aiPanel, aiChat }) {
                       )}
                     </button>
                   </>
-                ))}
+                )}
               </>
             );
           })()}
@@ -293,14 +276,6 @@ function AiPanel({ aiPanel, aiChat }) {
       )}
     </WrapperTag>
   );
-
-  if (isPoppedOut) {
-    return (
-      <WindowPortal onOpen={setPopupWindow} onClose={close}>
-        {panelJsx}
-      </WindowPortal>
-    );
-  }
 
   return panelJsx;
 }

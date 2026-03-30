@@ -1,3 +1,40 @@
+/* =============================================================================
+   Shared utility classes
+   ============================================================================= */
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+  text-decoration: none;
+}
+
+.icon-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* =============================================================================
+   App shell
+   ============================================================================= */
+
 .app-shell {
   display: flex;
   flex-direction: column;

@@ -15,7 +15,6 @@ describe('useAiPanel', () => {
     const { result } = renderHook(() => useAiPanel());
 
     expect(result.current.isOpen).toBe(false);
-    expect(result.current.isPoppedOut).toBe(false);
     expect(result.current.position).toBe('right');
     expect(result.current.widthPx).toBe(380);
     expect(result.current.heightPx).toBe(300);
@@ -97,47 +96,11 @@ describe('useAiPanel', () => {
     expect(result.current.widthPx).toBe(380);
   });
 
-  // --------------- Pop-out ---------------
-
-  it('popOut sets isPoppedOut and isOpen', () => {
+  it('close sets isOpen to false', () => {
     const { result } = renderHook(() => useAiPanel());
 
-    act(() => result.current.popOut());
-    expect(result.current.isPoppedOut).toBe(true);
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it('popIn sets isPoppedOut to false but keeps panel open', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.popOut());
-    act(() => result.current.popIn());
-    expect(result.current.isPoppedOut).toBe(false);
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it('close sets isOpen and isPoppedOut to false', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    act(() => result.current.popOut());
+    act(() => result.current.toggle());
     act(() => result.current.close());
     expect(result.current.isOpen).toBe(false);
-    expect(result.current.isPoppedOut).toBe(false);
-  });
-
-  it('focusPopup calls focus on the popup window ref', () => {
-    const { result } = renderHook(() => useAiPanel());
-
-    const mockWindow = { focus: vi.fn(), closed: false };
-    act(() => result.current.setPopupWindow(mockWindow));
-    act(() => result.current.focusPopup());
-
-    expect(mockWindow.focus).toHaveBeenCalled();
-  });
-
-  it('focusPopup is a no-op when no popup window exists', () => {
-    const { result } = renderHook(() => useAiPanel());
-    // Should not throw
-    act(() => result.current.focusPopup());
   });
 });
