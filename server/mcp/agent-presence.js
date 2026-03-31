@@ -187,6 +187,73 @@ function _setSessionTimeout(session, duration) {
 }
 
 /**
+ * Wait for document content to arrive after y-websocket sync.
+ *
+ * y-websocket does NOT await bindState, so the first sync event may fire
+ * before the server has finished loading content from PostgreSQL. This
+ * function decides whether to wait (content still loading) or resolve
+ * immediately (truly empty document) by checking the database.
+ *
+ * @private
+ * @param {Y.Doc} ydoc - The Yjs document to watch for updates
+ * @param {string} docGuid - Document UUID (for logging / DB lookup)
+ * @returns {Promise<void>} Resolves when content has arrived or the document
+ *   is confirmed empty.
+ */
+function _waitForDocumentContent(ydoc, docGuid) {
+  return new Promise((resolve) => {
+    let timeoutId = null;
+    let settled = false;
+
+    const onUpdate = () => {
+      settle(`Content arrived for ${docGuid}`);
+    };
+
+    const settle = (reason) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      ydoc.off('update', onUpdate);
+      console.log(`[agent-presence] ${reason}`);
+      resolve();
+    };
+
+    // Listen for the first content update immediately (before async DB
+    // check) so we don't miss updates that arrive while the query runs.
+    ydoc.once('update', onUpdate);
+
+    if (!persistenceProvider) {
+      // No persistence provider — fall back to 2s timeout
+      timeoutId = setTimeout(() => {
+        settle(`No content arrived for ${docGuid}, proceeding as empty`);
+      }, 2000);
+      return;
+    }
+
+    persistenceProvider.getUpdateCount(docGuid).then((updateCount) => {
+      if (settled) return; // content arrived while we were checking
+
+      if (updateCount === 0) {
+        settle(`Document ${docGuid} confirmed empty (0 updates in DB)`);
+      } else {
+        // Content exists but hasn't arrived yet — wait for bindState to finish
+        console.log(`[agent-presence] Document ${docGuid} has ${updateCount} updates in DB, waiting up to 10s...`);
+        timeoutId = setTimeout(() => {
+          settle(`Timeout waiting for ${updateCount} persisted updates to sync for ${docGuid}`);
+        }, 10000);
+      }
+    }).catch((err) => {
+      if (settled) return;
+      console.warn(`[agent-presence] Could not check update count for ${docGuid}:`, err.message);
+      // Fall back to original 2s timeout on DB error
+      timeoutId = setTimeout(() => {
+        settle(`Fallback timeout for ${docGuid} (DB check failed)`);
+      }, 2000);
+    });
+  });
+}
+
+/**
  * Internal core function for creating/reusing WebSocket sessions
  * Handles race conditions, session reuse, and WebSocket setup
  * @private
@@ -366,30 +433,16 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             // Document has content - proceed immediately
             finalizeSession();
           } else {
-            // Document appears empty - wait for update event from bindState
-            console.log(`[agent-presence] Document ${docGuid} appears empty, waiting for content...`);
-
-            // Declare timeout variable first so onUpdate can reference it
-            let emptyDocTimeoutId = null;
-
-            const onUpdate = () => {
-              clearTimeout(emptyDocTimeoutId);
-              console.log(`[agent-presence] Content arrived for ${docGuid}`);
-              finalizeSession();
-            };
-
-            // Listen for first update (fires when bindState applies persisted content)
-            ydoc.once('update', onUpdate);
-
-            // Timeout fallback for truly empty documents
-            emptyDocTimeoutId = setTimeout(() => {
-              ydoc.off('update', onUpdate);
-              console.log(`[agent-presence] No content arrived for ${docGuid}, proceeding as empty`);
-              finalizeSession();
-            }, 2000);
+            // Document appears empty — wait for content or confirm truly empty
+            console.log(`[agent-presence] Document ${docGuid} appears empty, checking database...`);
+            _waitForDocumentContent(ydoc, docGuid).then(finalizeSession);
           }
 
           function finalizeSession() {
+            // Guard: if the provider was already destroyed by cleanup (e.g.,
+            // connection error during the content wait), skip finalization.
+            if (!provider) return;
+
             // Clear connection timeout since we connected successfully
             if (connectionTimeoutId) {
               clearTimeout(connectionTimeoutId);
