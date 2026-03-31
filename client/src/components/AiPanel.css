@@ -496,6 +496,42 @@
   margin-left: 0.5em;
 }
 
+/* ---------- Document list view (list_documents tool output) ---------- */
+
+.ai-doc-list-view {
+  margin: 4px 0 2px;
+}
+
+.ai-doc-list-content {
+  margin-top: 4px;
+}
+
+.ai-doc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-sm);
+  line-height: 1.8;
+}
+
+.ai-doc-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ai-doc-list-role {
+  font-size: var(--text-xs);
+  color: #9ca3af;
+}
+
+.ai-doc-list-pagination {
+  font-size: var(--text-xs);
+  color: #9ca3af;
+  font-style: italic;
+  padding: 4px 0;
+}
+
 /* ---------- Thinking / reasoning block ---------- */
 
 .ai-thinking-block {

@@ -218,6 +218,98 @@ describe('AiChatMessages', () => {
     expect(container.querySelector('.ai-chat-bubble--user')).toHaveTextContent('No images here');
   });
 
+  // --------------- Document list (list_documents) ---------------
+
+  it('renders document list with links when list_documents completes', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-list_documents',
+        toolName: 'list_documents',
+        state: 'output-available',
+        input: {},
+        output: {
+          documents: [
+            { id: 'aaa', title: 'Alpha Doc', role: 'owner' },
+            { id: 'bbb', title: 'Beta Doc', role: 'editor' },
+          ],
+          pagination: { total: 2, limit: 50, offset: 0, hasMore: false },
+        },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const listView = container.querySelector('.ai-doc-list-view');
+    expect(listView).toBeInTheDocument();
+    const items = listView.querySelectorAll('.ai-doc-list-item');
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain('Alpha Doc');
+    expect(items[1].textContent).toContain('Beta Doc');
+    // Non-owner role badge shown
+    expect(items[1].querySelector('.ai-doc-list-role')).toHaveTextContent('editor');
+    // Owner role badge not shown
+    expect(items[0].querySelector('.ai-doc-list-role')).toBeNull();
+  });
+
+  it('does not render document list when list_documents is still running', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-list_documents',
+        toolName: 'list_documents',
+        state: 'call',
+        input: {},
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="streaming" />);
+
+    expect(container.querySelector('.ai-doc-list-view')).not.toBeInTheDocument();
+  });
+
+  it('shows pagination info when hasMore is true', () => {
+    const docs = Array.from({ length: 10 }, (_, i) => ({
+      id: `doc-${i}`, title: `Doc ${i}`, role: 'owner',
+    }));
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-list_documents',
+        toolName: 'list_documents',
+        state: 'output-available',
+        input: {},
+        output: {
+          documents: docs,
+          pagination: { total: 25, limit: 10, offset: 0, hasMore: true },
+        },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const pagination = container.querySelector('.ai-doc-list-pagination');
+    expect(pagination).toBeInTheDocument();
+    expect(pagination.textContent).toBe('Showing 10 of 25 documents');
+  });
+
+  it('does not render document list for empty documents array', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-list_documents',
+        toolName: 'list_documents',
+        state: 'output-available',
+        input: {},
+        output: { documents: [], pagination: { total: 0, limit: 50, offset: 0, hasMore: false } },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    expect(container.querySelector('.ai-doc-list-view')).not.toBeInTheDocument();
+  });
+
   // --------------- Auto-scroll ---------------
 
   it('auto-scrolls to bottom when messages change', () => {

@@ -225,6 +225,37 @@ function DiffView({ diff }) {
   );
 }
 
+function DocumentListView({ documents, pagination }) {
+  const [expanded, setExpanded] = useState(true);
+  if (!documents || documents.length === 0) return null;
+  return (
+    <div className="ai-doc-list-view">
+      <button className="ai-diff-toggle" onClick={() => setExpanded(!expanded)}>
+        Documents {expanded ? '\u25B4' : '\u25BE'}
+      </button>
+      {expanded && (
+        <div className="ai-doc-list-content">
+          <ul className="ai-doc-list">
+            {documents.map((doc) => (
+              <li key={doc.id} className="ai-doc-list-item">
+                <DocTitleLink docGuid={doc.id} title={doc.title || 'Untitled'} />
+                {doc.role && doc.role !== 'owner' && (
+                  <span className="ai-doc-list-role">{doc.role}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {pagination && pagination.hasMore && (
+            <div className="ai-doc-list-pagination">
+              Showing {documents.length} of {pagination.total} documents
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Module-level cache so doc titles resolved from completed tool outputs
 // are immediately available when subsequent tools for the same doc start running.
 const docTitleCache = new Map();
@@ -254,6 +285,7 @@ function ToolCard({ part }) {
   const isDocTool = DOC_TOOLS.has(toolName);
   const isModify = toolName === 'modify';
   const isCreate = toolName === 'create_document';
+  const isListDocs = toolName === 'list_documents';
 
   // For create_document, docGuid comes from output; for others it's on input
   const docGuid = isDocTool && (isCreate ? part.output?.docGuid : input?.docGuid);
@@ -271,6 +303,15 @@ function ToolCard({ part }) {
     || null;
 
   const showDetail = hasInput && !isModify && !isCreate;
+
+  // Cache titles from list_documents results for subsequent tool calls
+  const docList = (isListDocs && isComplete && part.output?.documents) || null;
+  const docListPagination = (isListDocs && isComplete && part.output?.pagination) || null;
+  if (docList) {
+    for (const doc of docList) {
+      if (doc.id && doc.title) docTitleCache.set(doc.id, doc.title);
+    }
+  }
 
   const diff = (isModify && isComplete && part.output?.diff) || null;
   const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
@@ -295,6 +336,7 @@ function ToolCard({ part }) {
         </div>
       )}
       {diff && <DiffView diff={diff} />}
+      {docList && <DocumentListView documents={docList} pagination={docListPagination} />}
       {isFormatOnly && (
         <div className="ai-diff-format-only">Formatting changes only</div>
       )}
