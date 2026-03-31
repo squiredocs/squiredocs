@@ -50,9 +50,10 @@ const mockApi = {
 
 // Mock auth — provide a stable token, refreshAccessToken, and axios api instance
 const refreshAccessTokenSpy = vi.fn().mockResolvedValue('refreshed-token');
+let mockAccessToken = 'test-token';
 vi.mock('../AuthContext', () => ({
   useAuth: () => ({
-    accessToken: 'test-token',
+    get accessToken() { return mockAccessToken; },
     refreshAccessToken: refreshAccessTokenSpy,
     api: mockApi,
   }),
@@ -86,6 +87,7 @@ describe('AiChatContext', () => {
     capturedTransportArgs = null;
     mockMessages = [];
     mockStatus = 'ready';
+    mockAccessToken = 'test-token';
     stopSpy.mockClear();
     setMessagesSpy.mockClear();
     resumeStreamSpy.mockClear();
@@ -95,6 +97,7 @@ describe('AiChatContext', () => {
     mockApi.patch.mockReset();
     mockApi.delete.mockReset();
     refreshAccessTokenSpy.mockClear().mockResolvedValue('refreshed-token');
+    sessionStorage.clear();
     // Default: chat list returns empty (called on mount)
     mockApi.get.mockResolvedValueOnce({ data: [] });
   });
@@ -363,6 +366,72 @@ describe('AiChatContext', () => {
       await act(async () => { await result.current.sendMessage('Still sends'); });
 
       expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'Still sends', files: undefined });
+    });
+  });
+
+  // ── Session restore & token handling on refresh ───────────────────────────
+
+  describe('session restore on refresh', () => {
+    it('initializes currentChatId from sessionStorage', async () => {
+      sessionStorage.setItem('ai_chat_id', 'saved-chat-99');
+      // Chat list returns the saved chat so it isn't cleared
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: [{ id: 'saved-chat-99', title: 'Old chat', updatedAt: new Date().toISOString() }] });
+      // fetchChatMessages for the eagerly restored chat
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'assistant', parts: [{ type: 'text', text: 'hi' }] }] } });
+
+      const { result } = renderAiChat();
+
+      await waitFor(() => expect(result.current.currentChatId).toBe('saved-chat-99'));
+    });
+
+    it('clears saved chat ID if chat no longer exists in list', async () => {
+      sessionStorage.setItem('ai_chat_id', 'deleted-chat');
+      // Chat list doesn't contain the saved ID
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: [{ id: 'other-chat', title: 'Other', updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() }] });
+
+      const { result } = renderAiChat();
+
+      await waitFor(() => expect(result.current.currentChatId).toBeNull());
+      expect(sessionStorage.getItem('ai_chat_id')).toBeNull();
+    });
+
+    it('does not fetch messages when accessToken is null', async () => {
+      sessionStorage.setItem('ai_chat_id', 'saved-chat');
+      mockAccessToken = null;
+      // No chat list call expected since token is null
+      mockApi.get.mockReset();
+
+      renderAiChat();
+
+      // Give effects time to fire
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+      // No API calls should have been made
+      expect(mockApi.get).not.toHaveBeenCalled();
+    });
+
+    it('passes token directly in refreshChatList headers', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      // The initial mount call should include the Authorization header
+      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats', {
+        headers: { Authorization: 'Bearer test-token' },
+      });
+    });
+
+    it('passes token directly in fetchChatMessages headers', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
+      act(() => { result.current.selectChat('chat-x'); });
+
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats/chat-x', {
+        headers: { Authorization: 'Bearer test-token' },
+      }));
     });
   });
 });
