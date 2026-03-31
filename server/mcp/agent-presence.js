@@ -222,14 +222,6 @@ function _waitForDocumentContent(ydoc, docGuid) {
     // check) so we don't miss updates that arrive while the query runs.
     ydoc.once('update', onUpdate);
 
-    if (!persistenceProvider) {
-      // No persistence provider — fall back to 2s timeout
-      timeoutId = setTimeout(() => {
-        settle(`No content arrived for ${docGuid}, proceeding as empty`);
-      }, 2000);
-      return;
-    }
-
     persistenceProvider.getUpdateCount(docGuid).then((updateCount) => {
       if (settled) return; // content arrived while we were checking
 
