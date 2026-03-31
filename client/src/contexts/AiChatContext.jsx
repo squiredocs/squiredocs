@@ -24,7 +24,7 @@ export function AiChatProvider({ children }) {
   tokenRef.current = accessToken;
 
   // Chat ID & list state
-  const [currentChatId, _setCurrentChatId] = useState(null);
+  const [currentChatId, _setCurrentChatId] = useState(() => sessionStorage.getItem('ai_chat_id'));
   const setCurrentChatId = useCallback((id) => {
     _setCurrentChatId(id);
     if (id) sessionStorage.setItem('ai_chat_id', id);
@@ -39,7 +39,10 @@ export function AiChatProvider({ children }) {
 
   const refreshChatList = useCallback(async () => {
     try {
-      const { data: list } = await api.get('/api/chat/chats');
+      const token = tokenRef.current;
+      const { data: list } = await api.get('/api/chat/chats', token ? {
+        headers: { Authorization: `Bearer ${token}` },
+      } : undefined);
       list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
       setChatList(list);
       return list;
@@ -86,7 +89,10 @@ export function AiChatProvider({ children }) {
 
   // Shared helper: fetch a chat's messages from the server
   const fetchChatMessages = useCallback(async (id) => {
-    const { data } = await api.get(`/api/chat/chats/${id}`);
+    const token = tokenRef.current;
+    const { data } = await api.get(`/api/chat/chats/${id}`, token ? {
+      headers: { Authorization: `Bearer ${token}` },
+    } : undefined);
     return data.messages || [];
   }, [api]);
 
@@ -142,10 +148,12 @@ export function AiChatProvider({ children }) {
     // the response is still saved even after the client disconnects.
     chat.stop();
 
-    if (!currentChatId) {
-      chat.setMessages([]);
-      setMessagesLoading(false);
-      setMessagesError(null);
+    if (!currentChatId || !accessToken) {
+      if (!currentChatId) {
+        chat.setMessages([]);
+        setMessagesLoading(false);
+        setMessagesError(null);
+      }
       return;
     }
     let cancelled = false;
@@ -168,21 +176,22 @@ export function AiChatProvider({ children }) {
       if (!cancelled) setMessagesLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentChatId, loadMessagesTick, fetchChatMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentChatId, accessToken, loadMessagesTick, fetchChatMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load chat list on mount (once we have a token)
   useEffect(() => {
     if (!accessToken || chatListLoadedRef.current) return;
     chatListLoadedRef.current = true;
     refreshChatList().then((list) => {
-      if (list.length === 0) return;
-      // Restore the chat from this tab session (e.g. page refresh)
+      // If we eagerly restored a chat ID from sessionStorage, validate it
       const savedId = sessionStorage.getItem('ai_chat_id');
-      if (savedId && list.some((c) => c.id === savedId)) {
-        setCurrentChatId(savedId);
-        return;
+      if (savedId) {
+        if (list.some((c) => c.id === savedId)) return; // already set, valid
+        // Saved chat no longer exists — clear it
+        setCurrentChatId(null);
       }
-      // Otherwise open the most recent chat only if active within 5 minutes
+      if (list.length === 0) return;
+      // Open the most recent chat only if active within 5 minutes
       const msSinceUpdate = Date.now() - new Date(list[0].updatedAt).getTime();
       if (msSinceUpdate < 5 * 60 * 1000) {
         setCurrentChatId(list[0].id);

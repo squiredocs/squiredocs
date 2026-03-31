@@ -4,7 +4,7 @@
 
 .chat-page {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
   height: 100vh;
   overflow: hidden;
@@ -12,7 +12,7 @@
 }
 
 .chat-page--with-doc {
-  grid-template-columns: 260px 1fr auto;
+  grid-template-columns: 1fr auto;
 }
 
 /* ---------------------------------------------------------------------------
@@ -25,15 +25,15 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Sidebar (chat history)
+   Chat toolbar (new chat + history buttons)
    --------------------------------------------------------------------------- */
 
-.chat-page-sidebar {
-  grid-column: 1;
-  grid-row: 2;
-  border-right: 1px solid #e5e7eb;
-  overflow-y: auto;
-  background: #fafafa;
+.chat-page-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 /* ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@
    --------------------------------------------------------------------------- */
 
 .chat-page-main {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 2;
   display: flex;
   flex-direction: column;
