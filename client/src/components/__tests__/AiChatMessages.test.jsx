@@ -240,9 +240,9 @@ describe('AiChatMessages', () => {
     })];
     const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
-    const listView = container.querySelector('.ai-doc-list-view');
+    const listView = container.querySelector('.ai-doc-list');
     expect(listView).toBeInTheDocument();
-    const items = listView.querySelectorAll('.ai-doc-list-item');
+    const items = listView.querySelectorAll('li');
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain('Alpha Doc');
     expect(items[1].textContent).toContain('Beta Doc');
@@ -250,6 +250,28 @@ describe('AiChatMessages', () => {
     expect(items[1].querySelector('.ai-doc-list-role')).toHaveTextContent('editor');
     // Owner role badge not shown
     expect(items[0].querySelector('.ai-doc-list-role')).toBeNull();
+  });
+
+  it('shows search query inline in list_documents badge', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-list_documents',
+        toolName: 'list_documents',
+        state: 'output-available',
+        input: { search: 'Cheryl' },
+        output: {
+          documents: [{ id: 'ccc', title: '1:1 Cheryl : Sam', role: 'owner' }],
+          pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
+        },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const toggle = container.querySelector('.ai-tool-card-toggle');
+    expect(toggle.textContent).toContain('Cheryl');
+    expect(toggle.textContent).toContain('\u2014');
   });
 
   it('does not render document list when list_documents is still running', () => {
@@ -265,7 +287,7 @@ describe('AiChatMessages', () => {
     })];
     const { container } = render(<AiChatMessages messages={messages} status="streaming" />);
 
-    expect(container.querySelector('.ai-doc-list-view')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-doc-list')).not.toBeInTheDocument();
   });
 
   it('shows pagination info when hasMore is true', () => {
@@ -288,9 +310,9 @@ describe('AiChatMessages', () => {
     })];
     const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
-    const pagination = container.querySelector('.ai-doc-list-pagination');
-    expect(pagination).toBeInTheDocument();
-    expect(pagination.textContent).toBe('Showing 10 of 25 documents');
+    const more = container.querySelector('.ai-doc-list-more');
+    expect(more).toBeInTheDocument();
+    expect(more.textContent).toBe('+ 15 more');
   });
 
   it('does not render document list for empty documents array', () => {
@@ -307,7 +329,7 @@ describe('AiChatMessages', () => {
     })];
     const { container } = render(<AiChatMessages messages={messages} status="ready" />);
 
-    expect(container.querySelector('.ai-doc-list-view')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-doc-list')).not.toBeInTheDocument();
   });
 
   // --------------- Auto-scroll ---------------

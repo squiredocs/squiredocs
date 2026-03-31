@@ -226,33 +226,21 @@ function DiffView({ diff }) {
 }
 
 function DocumentListView({ documents, pagination }) {
-  const [expanded, setExpanded] = useState(true);
   if (!documents || documents.length === 0) return null;
   return (
-    <div className="ai-doc-list-view">
-      <button className="ai-diff-toggle" onClick={() => setExpanded(!expanded)}>
-        Documents {expanded ? '\u25B4' : '\u25BE'}
-      </button>
-      {expanded && (
-        <div className="ai-doc-list-content">
-          <ul className="ai-doc-list">
-            {documents.map((doc) => (
-              <li key={doc.id} className="ai-doc-list-item">
-                <DocTitleLink docGuid={doc.id} title={doc.title || 'Untitled'} />
-                {doc.role && doc.role !== 'owner' && (
-                  <span className="ai-doc-list-role">{doc.role}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          {pagination && pagination.hasMore && (
-            <div className="ai-doc-list-pagination">
-              Showing {documents.length} of {pagination.total} documents
-            </div>
+    <ul className="ai-doc-list">
+      {documents.map((doc) => (
+        <li key={doc.id}>
+          <DocTitleLink docGuid={doc.id} title={doc.title || 'Untitled'} />
+          {doc.role && doc.role !== 'owner' && (
+            <span className="ai-doc-list-role"> {doc.role}</span>
           )}
-        </div>
+        </li>
+      ))}
+      {pagination && pagination.hasMore && (
+        <li className="ai-doc-list-more">+ {pagination.total - documents.length} more</li>
       )}
-    </div>
+    </ul>
   );
 }
 
@@ -302,7 +290,7 @@ function ToolCard({ part }) {
     || (isCreate && input?.title)
     || null;
 
-  const showDetail = hasInput && !isModify && !isCreate;
+  const showDetail = hasInput && !isModify && !isCreate && !isListDocs;
 
   // Cache titles from list_documents results for subsequent tool calls
   const docList = (isListDocs && isComplete && part.output?.documents) || null;
@@ -318,25 +306,35 @@ function ToolCard({ part }) {
 
   const verb = getToolLabel(toolName);
 
+  // Build inline summary for list_documents (e.g. "— search "Cheryl"")
+  const listDocsSuffix = isListDocs && input
+    ? [input.search && `search \u201c${input.search}\u201d`, input.filter && input.filter !== 'all' && input.filter]
+        .filter(Boolean).join(', ')
+    : '';
+
   return (
     <div className="ai-tool-card">
-      <button
-        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}`}
+      <div
+        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}${docList ? ' ai-tool-card--has-list' : ''}`}
         onClick={showDetail ? () => setExpanded(!expanded) : undefined}
         style={showDetail ? undefined : { cursor: 'default' }}
+        role={showDetail ? 'button' : undefined}
       >
-        {verb}{isDocTool && ' '}{isDocTool && (docTitle && docGuid
-          ? <DocTitleLink docGuid={docGuid} title={docTitle} />
-          : docTitle || 'document')}
-        {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
-      </button>
+        <span>
+          {verb}{isDocTool && ' '}{isDocTool && (docTitle && docGuid
+            ? <DocTitleLink docGuid={docGuid} title={docTitle} />
+            : docTitle || 'document')}
+          {listDocsSuffix && ` \u2014 ${listDocsSuffix}`}
+          {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
+        </span>
+        {docList && <DocumentListView documents={docList} pagination={docListPagination} />}
+      </div>
       {expanded && showDetail && (
         <div className="ai-tool-card-detail">
           <ToolCardDetail toolName={toolName} input={input} />
         </div>
       )}
       {diff && <DiffView diff={diff} />}
-      {docList && <DocumentListView documents={docList} pagination={docListPagination} />}
       {isFormatOnly && (
         <div className="ai-diff-format-only">Formatting changes only</div>
       )}
