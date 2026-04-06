@@ -5,6 +5,8 @@
  * vector/semantic search (pgvector) using Reciprocal Rank Fusion (RRF).
  */
 
+const sanitizeHtml = require('sanitize-html');
+
 let pool = null;
 
 function init(p) {
@@ -266,6 +268,14 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
 }
 
 /**
+ * Sanitize a ts_headline snippet: allow only <mark> tags from ts_headline output.
+ */
+function sanitizeSnippet(snippet) {
+  if (!snippet) return snippet;
+  return sanitizeHtml(snippet, { allowedTags: ['mark'], allowedAttributes: {} });
+}
+
+/**
  * Format query results into a consistent response shape.
  */
 function formatResults(rows, limit, offset) {
@@ -279,7 +289,7 @@ function formatResults(rows, limit, offset) {
       role: row.role,
       owner_name: row.owner_name,
       owner_email: row.owner_email,
-      snippet: row.snippet,
+      snippet: sanitizeSnippet(row.snippet),
       score: parseFloat(row.score) || 0,
     })),
     pagination: {
