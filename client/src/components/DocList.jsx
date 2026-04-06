@@ -107,6 +107,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
       const params = new URLSearchParams();
       if (searchQuery.trim()) {
         params.set('search', searchQuery.trim());
+        params.set('searchMode', 'content');
       }
       if (filter !== 'all') {
         params.set('filter', filter);
@@ -426,6 +427,12 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
                     <span className="doc-title">
                       {doc.title || 'Untitled document'}
                     </span>
+                    {doc.snippet && (
+                      <span
+                        className="doc-snippet"
+                        dangerouslySetInnerHTML={{ __html: doc.snippet }}
+                      />
+                    )}
                     <span className="doc-meta">
                       <span className="doc-date">Opened {formatDateTime(doc.updatedAt)}</span>
                     </span>

@@ -19,6 +19,9 @@ const redo = require('./redo');
 // Document modification
 const modify = require('./modify');
 
+// Content search
+const searchDocuments = require('./search-documents');
+
 // Version history tools
 const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
@@ -41,6 +44,9 @@ const tools = {
   get_collaborators: getCollaborators,
   undo: undo,
   redo: redo,
+
+  // Content search
+  search_documents: searchDocuments,
 
   // Document modification (replaces 15 deprecated editing tools)
   modify: modify,
@@ -101,6 +107,7 @@ const TOOL_SCOPES = {
   set_document_version_name: 'documents:write',
   restore_document_version: 'documents:write',
   // Read operations
+  search_documents: 'documents:read',
   list_documents: 'documents:read',
   read_document: 'documents:read',
   get_collaborators: 'documents:read',

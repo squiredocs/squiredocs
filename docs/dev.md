@@ -16,6 +16,7 @@ The development setup consists of:
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) configured
 - [Mutagen](https://mutagen.io/documentation/introduction/installation) installed
 - Docker (used by Minikube)
+- [pgvector](https://github.com/pgvector/pgvector) PostgreSQL extension (for content search embeddings). Install locally with `brew install pgvector` on macOS. In Kubernetes, the `pgvector/pgvector:pg16` image is used automatically.
 
 ## Setup
 

@@ -184,6 +184,8 @@ describe('Tool Registry Integration', () => {
       'create_document',
       'share_document',
       'set_document_title',
+      // Content search
+      'search_documents',
       // Session and reading tools
       'read_document',
       'get_collaborators',

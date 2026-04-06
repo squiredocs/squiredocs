@@ -25,9 +25,11 @@ const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
+const search = require('./search');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
+const searchIndexer = require('./search-indexer');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 setupProcessHandlers();
 
@@ -203,6 +205,9 @@ setPersistence({
             // Log but don't fail if title update fails after retries
             console.warn(`Failed to sync title for ${docGuid} after retries:`, err.message);
           });
+
+          // Mark document for search re-indexing (debounced)
+          searchIndexer.markDirty(docGuid);
         })
         .catch((err) => {
           // Log failed persistence with high severity - this is data loss risk
@@ -264,6 +269,11 @@ admin.init(persistenceProvider.getPool());
 
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
+
+// Initialize search modules
+search.init(persistenceProvider.getPool());
+searchIndexer.init(persistenceProvider);
+setTimeout(() => searchIndexer.reindexStale(), 10_000);
 
 // Initialize diff service for version history
 const diffService = new DiffService(persistenceProvider.getPool());
@@ -422,11 +432,33 @@ app.get('/api/usage', requireAuth, async (req, res) => {
 app.get('/api/docs', requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { search, filter, sortBy, sortOrder, limit, offset } = req.query;
+    const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode } = req.query;
 
-    // Get documents with optional filtering, search, and pagination
+    // Content search: delegate to the search module for hybrid FTS + vector search
+    if (searchQuery && searchMode === 'content') {
+      const results = await search.searchDocuments(userId, searchQuery, {
+        mode: mode || 'hybrid',
+        limit: limit ? parseInt(limit, 10) : 10,
+        offset: offset ? parseInt(offset, 10) : 0,
+      });
+
+      const docs = results.rows.map((doc) => ({
+        docGuid: doc.doc_id,
+        title: doc.title || null,
+        updatedAt: doc.updated_at,
+        role: doc.role,
+        ownerName: doc.owner_name,
+        ownerEmail: doc.owner_email,
+        snippet: doc.snippet,
+        score: doc.score,
+      }));
+
+      return res.json({ docs, pagination: results.pagination });
+    }
+
+    // Default: title-based search
     const { rows: accessibleDocs, total } = await documents.getAccessibleDocuments(userId, {
-      search: search || null,
+      search: searchQuery || null,
       filter: filter || 'all',
       sortBy: sortBy || 'updatedAt',
       sortOrder: sortOrder || 'desc',
