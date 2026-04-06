@@ -281,6 +281,9 @@ const diffService = new DiffService(persistenceProvider.getPool());
 // Mount auth routes
 app.use('/auth', authRouter);
 
+// 150mb: per-file limit is 15MB (enforced client-side), but the JSON body
+// carries base64-encoded images (~33% overhead) across up to 5 files, plus
+// full conversation history, so the body parser limit must be well above 75MB.
 app.use('/api/chat', express.json({ limit: '150mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin/users', requireAdmin, admin.router);
