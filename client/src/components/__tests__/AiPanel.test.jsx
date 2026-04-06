@@ -64,6 +64,8 @@ function makeAiChat(overrides = {}) {
     deleteChat: vi.fn(),
     renameChat: vi.fn(),
     refreshChatList: vi.fn(),
+    loadMoreChats: vi.fn(),
+    hasMoreChats: false,
     ...overrides,
   };
 }

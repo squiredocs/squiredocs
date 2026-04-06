@@ -35,19 +35,36 @@ export function AiChatProvider({ children }) {
   const titleSetRef = useRef(new Set()); // track which chats already have titles
   const creatingChatRef = useRef(false); // skip load-messages effect after new-chat creation
 
+  const [hasMoreChats, setHasMoreChats] = useState(false);
+  const CHAT_PAGE_SIZE = 50;
+
   // ── Chat list ────────────────────────────────────────────────────────────
 
   const refreshChatList = useCallback(async () => {
     try {
-      const { data: list } = await api.get('/api/chat/chats');
+      const { data: list } = await api.get(`/api/chat/chats?limit=${CHAT_PAGE_SIZE}`);
       list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
       setChatList(list);
+      setHasMoreChats(list.length >= CHAT_PAGE_SIZE);
       return list;
     } catch (e) {
       console.error('[AiChat] Failed to refresh chat list:', e);
     }
     return [];
   }, [api]);
+
+  const loadMoreChats = useCallback(async () => {
+    try {
+      const last = chatList[chatList.length - 1];
+      if (!last) return;
+      const { data: older } = await api.get(`/api/chat/chats?limit=${CHAT_PAGE_SIZE}&before=${encodeURIComponent(last.updatedAt)}`);
+      older.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
+      setChatList(prev => [...prev, ...older]);
+      setHasMoreChats(older.length >= CHAT_PAGE_SIZE);
+    } catch (e) {
+      console.error('[AiChat] Failed to load more chats:', e);
+    }
+  }, [api, chatList]);
 
   // ── Transport (sends single message + chat ID) ──────────────────────────
 
@@ -334,6 +351,8 @@ export function AiChatProvider({ children }) {
       deleteChat,
       renameChat,
       refreshChatList,
+      loadMoreChats,
+      hasMoreChats,
       messagesLoading,
       messagesError,
       retryLoadMessages,
@@ -345,7 +364,7 @@ export function AiChatProvider({ children }) {
       clearDraftFiles: () => setDraftFiles(null),
       setDocGuidOverride,
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
   );
 
   return (

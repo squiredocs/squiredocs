@@ -629,10 +629,12 @@ router.post('/chats', requireAuth, async (req, res) => {
   }
 });
 
-// List user's chats
+// List user's chats (paginated)
 router.get('/chats', requireAuth, async (req, res) => {
   try {
-    const chats = await chatStore.getChatsForUser(req.user.userId);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const before = req.query.before || undefined;
+    const chats = await chatStore.getChatsForUser(req.user.userId, { limit, before });
     res.json(chats);
   } catch (error) {
     console.error('[Chat API] Error listing chats:', error);

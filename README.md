@@ -173,7 +173,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first
 - For minikube, the app image is `collab:latest` (built locally); for GKE it uses Artifact Registry
 - `deploy.sh` supports `--skip-migrations` and `--wait` flags
-- See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.)
+- See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.). Mutagen sync is almost always running and reliable — you can generally trust local changes are synced to the pod without verification.
 
 ## Configuration
 

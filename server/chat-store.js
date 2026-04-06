@@ -59,15 +59,25 @@ async function saveChat(chatId, userId, messages) {
 }
 
 /**
- * Get all chats for a user (metadata only)
+ * Get chats for a user (metadata only), with cursor-based pagination.
  * @param {string} userId - User UUID
+ * @param {object} [opts]
+ * @param {number} [opts.limit=50] - Max rows to return
+ * @param {string} [opts.before] - ISO timestamp cursor — return chats updated before this value
  * @returns {Promise<Array<{id: string, title: string, createdAt: string, updatedAt: string}>>}
  */
-async function getChatsForUser(userId) {
+async function getChatsForUser(userId, { limit = 50, before } = {}) {
   if (!pool) throw new Error('Chat store not initialized');
+  if (before) {
+    const result = await pool.query(
+      'SELECT id, title, created_at AS "createdAt", updated_at AS "updatedAt" FROM chats WHERE user_id = $1 AND updated_at < $2 ORDER BY updated_at DESC LIMIT $3',
+      [userId, before, limit]
+    );
+    return result.rows;
+  }
   const result = await pool.query(
-    'SELECT id, title, created_at AS "createdAt", updated_at AS "updatedAt" FROM chats WHERE user_id = $1 ORDER BY updated_at DESC',
-    [userId]
+    'SELECT id, title, created_at AS "createdAt", updated_at AS "updatedAt" FROM chats WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2',
+    [userId, limit]
   );
   return result.rows;
 }

@@ -191,6 +191,22 @@
   }
 }
 
+/* Load more button */
+.ai-chat-history-load-more {
+  padding: 8px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: var(--text-base);
+  cursor: pointer;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.ai-chat-history-load-more:hover {
+  color: #7c3aed;
+}
+
 /* Inline rename input */
 .ai-chat-history-rename-input {
   flex: 1;

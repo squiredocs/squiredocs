@@ -418,7 +418,7 @@ describe('AiChatContext', () => {
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
       // Auth is handled by the axios interceptor, so no explicit headers
-      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats');
+      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats?limit=50');
     });
 
     it('fetchChatMessages calls api without manual auth headers', async () => {

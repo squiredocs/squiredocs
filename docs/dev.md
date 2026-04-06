@@ -246,6 +246,8 @@ mutagen sync create . "docker://$CONTAINER_ID/local-dev" \
 - Changes in container → sync to local machine
 - Conflicts are detected and require manual resolution
 
+**Reliability:** In practice, Mutagen sync is almost always running and up to date. You can generally trust that local file changes are already synced to the pod without needing to verify. Only troubleshoot sync if you observe concrete evidence of stale files in the pod.
+
 ### Managing Sync
 
 ```bash

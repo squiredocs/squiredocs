@@ -25,6 +25,8 @@ function AiChatHistory({ aiChat, onBack }) {
     selectChat,
     deleteChat,
     renameChat,
+    loadMoreChats,
+    hasMoreChats,
   } = aiChat;
 
   const [search, setSearch] = useState('');
@@ -194,6 +196,11 @@ function AiChatHistory({ aiChat, onBack }) {
             )}
           </div>
         ))}
+        {!search && hasMoreChats && (
+          <button className="ai-chat-history-load-more" onClick={loadMoreChats}>
+            Load older chats
+          </button>
+        )}
       </div>
     </div>
   );

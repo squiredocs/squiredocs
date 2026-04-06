@@ -11,6 +11,8 @@ function makeAiChat(overrides = {}) {
     selectChat: vi.fn(),
     deleteChat: vi.fn().mockResolvedValue(),
     renameChat: vi.fn().mockResolvedValue(),
+    loadMoreChats: vi.fn().mockResolvedValue(),
+    hasMoreChats: false,
     ...overrides,
   };
 }
