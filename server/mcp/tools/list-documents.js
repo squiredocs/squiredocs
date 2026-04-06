@@ -32,8 +32,8 @@ PARAMETERS:
 - search: Search query — keywords or natural language. Searches document content, not just titles.
 - searchMode: "hybrid" (default, keyword + semantic), "fulltext" (keyword only), "semantic" (meaning-based only). Only applies when search is provided.
 - filter: "owned" | "shared_with_me" | "all" (default: "all")
-- sortBy: "title" | "updatedAt" | "createdAt" (default: "updatedAt"). Only applies without search.
-- sortOrder: "asc" | "desc" (default: "desc"). Only applies without search.
+- sortBy: "relevance" (default when searching) | "updatedAt" (default when listing) | "createdAt"
+- sortOrder: "asc" | "desc" (default: "desc")
 - limit: 1-100 (default: 50 for listing, 10 for search)
 - offset: pagination offset (default: 0)
 
@@ -53,8 +53,8 @@ list_documents({ search: "authentication login flow" })
 // Keyword-only search
 list_documents({ search: "TODO refactor", searchMode: "fulltext" })
 
-// List owned documents, sorted by title
-list_documents({ filter: "owned", sortBy: "title", sortOrder: "asc" })
+// List owned documents, oldest first
+list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })
 
 // Paginate through results
 list_documents({ limit: 10, offset: 0 })`;
@@ -88,7 +88,7 @@ const inputSchema = {
       type: 'string',
       enum: ['asc', 'desc'],
       default: 'desc',
-      description: 'Sort direction (only applies without search)',
+      description: 'Sort direction',
     },
     limit: {
       type: 'integer',
@@ -112,17 +112,19 @@ async function handler(args, agentToken) {
   const userId = agentToken.userId;
   const baseUrl = agentToken.baseUrl || '';
 
+  const filter = args.filter || 'all';
+  const sortOrder = args.sortOrder || 'desc';
+  const offset = Math.max(0, parseInt(args.offset, 10) || 0);
+
   // Content search path: when a search query is provided
   if (args.search && args.search.trim()) {
-    const mode = args.searchMode || 'hybrid';
     const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 10));
-    const offset = Math.max(0, parseInt(args.offset, 10) || 0);
 
     const { rows, pagination } = await search.searchDocuments(userId, args.search, {
-      mode,
-      filter: args.filter || 'all',
+      mode: args.searchMode || 'hybrid',
+      filter,
       sortBy: args.sortBy || 'relevance',
-      sortOrder: args.sortOrder || 'desc',
+      sortOrder,
       limit,
       offset,
     });
@@ -142,25 +144,16 @@ async function handler(args, agentToken) {
   }
 
   // List path: no search query
-  const {
-    filter = 'all',
-    sortBy = 'updatedAt',
-    sortOrder = 'desc',
-    limit = 50,
-    offset = 0,
-  } = args;
+  const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 50));
+  const sortBy = args.sortBy || 'updatedAt';
 
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
-    search: null,
     filter,
     sortBy,
     sortOrder,
     limit,
     offset,
   });
-
-  const validLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 50));
-  const validOffset = Math.max(0, parseInt(offset, 10) || 0);
 
   return {
     documents: rows.map((row) => ({
@@ -174,9 +167,9 @@ async function handler(args, agentToken) {
     })),
     pagination: {
       total,
-      limit: validLimit,
-      offset: validOffset,
-      hasMore: validOffset + rows.length < total,
+      limit,
+      offset,
+      hasMore: offset + rows.length < total,
     },
   };
 }
