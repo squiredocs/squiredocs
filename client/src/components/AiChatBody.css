@@ -45,6 +45,10 @@
   font-size: var(--text-base);
   border-radius: 6px;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 /* Retry button */

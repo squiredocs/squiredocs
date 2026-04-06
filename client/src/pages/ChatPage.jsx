@@ -23,7 +23,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
   const {
     messages, sendMessage, status, stop, error,
     usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles,
-    messagesLoading, messagesError, retryLoadMessages,
+    messagesLoading, messagesError, retryLoadMessages, retryLastMessage,
     setDocGuidOverride,
   } = aiChat;
 
@@ -121,6 +121,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
               messagesLoading={messagesLoading} messagesError={messagesError}
               retryLoadMessages={retryLoadMessages}
               usageLimitReached={usageLimitReached} error={error}
+              onRetry={retryLastMessage}
               greeting={getGreeting(user?.name)} accentColor={accentColor}
               iconSize={48} onDocLinkClick={handleDocLinkClick}
             />

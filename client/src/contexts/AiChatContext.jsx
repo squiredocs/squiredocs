@@ -108,20 +108,41 @@ export function AiChatProvider({ children }) {
   const [draftText, setDraftText] = useState('');
   const [draftFiles, setDraftFiles] = useState(null);
 
+  // Guard: auto-retry on 401 at most once per send attempt
+  const authRetryRef = useRef(false);
+
   // Single Chat instance — never pass `id` so useChat doesn't recreate it
   const chat = useChat({
     transport,
     onError: (error) => {
-      // Restore the user's message and files to the input
-      if (lastSentTextRef.current || lastSentFilesRef.current) {
-        if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-        if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
-        lastSentTextRef.current = '';
-        lastSentFilesRef.current = null;
-      }
       // DefaultChatTransport throws Error(responseBody) on non-200.
+      const msg = (error?.message || '').toLowerCase();
+
+      // Auto-retry once on auth errors: refresh the token and resend
+      const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
+      if (isAuth && !authRetryRef.current) {
+        authRetryRef.current = true;
+        refreshAccessToken()
+          .then(() => {
+            chat.sendMessage({
+              text: lastSentTextRef.current || ' ',
+              files: lastSentFilesRef.current?.length ? lastSentFilesRef.current : undefined,
+            });
+          })
+          .catch(() => {
+            // Refresh failed — restore draft for manual retry
+            if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+            if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+          });
+        return;
+      }
+
+      // Non-auth error (or auth retry exhausted) — restore draft
+      if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+      if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+
       // Our 429 returns JSON: {"error":"AI usage limit reached"}
-      if (error?.message?.includes('usage limit')) {
+      if (msg.includes('usage limit')) {
         setUsageLimitReached(true);
       }
     },
@@ -285,15 +306,22 @@ export function AiChatProvider({ children }) {
       // Proactively refresh the token if it's expired or expiring soon so the
       // streaming transport sends a valid Authorization header on the first try.
       if (isTokenExpiringSoon(tokenRef.current)) {
-        try { await refreshAccessToken(); } catch { /* transport will surface the auth error */ }
+        try { await refreshAccessToken(); } catch { /* onError will auto-retry on 401 */ }
       }
 
+      authRetryRef.current = false;
       lastSentTextRef.current = text;
       lastSentFilesRef.current = files || null;
       chat.sendMessage({ text: text || ' ', files: files?.length ? files : undefined });
     },
     [chat.sendMessage, currentChatId, createChatOnServer, renameChat, refreshAccessToken],
   );
+
+  // Retry the last failed message (for the error-banner retry button)
+  const retryLastMessage = useCallback(() => {
+    if (!lastSentTextRef.current && !lastSentFilesRef.current) return;
+    sendMessage(lastSentTextRef.current, lastSentFilesRef.current);
+  }, [sendMessage]);
 
   const value = useMemo(
     () => ({
@@ -309,6 +337,7 @@ export function AiChatProvider({ children }) {
       messagesLoading,
       messagesError,
       retryLoadMessages,
+      retryLastMessage,
       usageLimitReached,
       draftText,
       clearDraft: () => setDraftText(''),
@@ -316,7 +345,7 @@ export function AiChatProvider({ children }) {
       clearDraftFiles: () => setDraftFiles(null),
       setDocGuidOverride,
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
+    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
   );
 
   return (

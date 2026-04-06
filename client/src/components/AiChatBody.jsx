@@ -10,7 +10,7 @@ import './AiChatBody.css';
  */
 function AiChatBody({
   messages, status, messagesLoading, messagesError, retryLoadMessages,
-  usageLimitReached, error, errorMessage,
+  usageLimitReached, error, errorMessage, onRetry,
   greeting, accentColor, iconSize = 40, onDocLinkClick,
 }) {
   const isEmpty = messages.length === 0;
@@ -47,6 +47,7 @@ function AiChatBody({
       ) : status === 'error' && error && (
         <div className="ai-chat-body-error">
           {errorMessage || 'Something went wrong. Please try again.'}
+          {onRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}
         </div>
       )}
     </>
