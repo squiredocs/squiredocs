@@ -435,7 +435,7 @@ app.get('/api/usage', requireAuth, async (req, res) => {
 app.get('/api/docs', requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode } = req.query;
+    const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode, distanceThreshold } = req.query;
 
     // Content search: delegate to the search module for hybrid FTS + vector search
     if (searchQuery && searchMode === 'content') {
@@ -446,6 +446,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         sortOrder: sortOrder || 'desc',
         limit: limit ? parseInt(limit, 10) : 10,
         offset: offset ? parseInt(offset, 10) : 0,
+        distanceThreshold: distanceThreshold ? parseFloat(distanceThreshold) : undefined,
       });
 
       const docs = results.rows.map((doc) => ({

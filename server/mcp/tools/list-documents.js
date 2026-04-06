@@ -35,6 +35,7 @@ PARAMETERS:
 - sortOrder: "asc" | "desc" (default: "desc")
 - limit: 1-100 (default: 50 for listing, 10 for search)
 - offset: pagination offset (default: 0)
+- distanceThreshold: max cosine distance for vector results (default: 0.5). Lower = stricter. Only for semantic/hybrid search.
 
 RETURNS:
 - documents: Array of { id, title, url, role, updatedAt, ... }
@@ -102,6 +103,14 @@ const inputSchema = {
       default: 0,
       description: 'Number of documents to skip for pagination',
     },
+    distanceThreshold: {
+      type: 'number',
+      minimum: 0.1,
+      maximum: 1.5,
+      description:
+        'Max cosine distance for vector search results (0=identical, 1=orthogonal). ' +
+        'Lower values return fewer, more relevant results. Default: 0.5. Only applies to semantic/hybrid search.',
+    },
   },
 };
 
@@ -120,6 +129,7 @@ async function handler(args, agentToken) {
       sortOrder: args.sortOrder,
       limit: args.limit,
       offset: args.offset,
+      distanceThreshold: args.distanceThreshold,
     });
 
     return {

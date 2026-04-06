@@ -8,6 +8,15 @@
 const sanitizeHtml = require('sanitize-html');
 const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./search-indexer');
 
+// Max cosine distance for vector search results (0 = identical, 1 = orthogonal).
+// 0.5 ≈ cosine similarity ≥ 0.5. Agents can override via the distanceThreshold option.
+const DEFAULT_DISTANCE_THRESHOLD = 0.5;
+
+// Safety cap on the HNSW iterative scan. This is not a relevance filter — the
+// distance threshold is the primary relevance gate. At typical corpus sizes
+// (< 5K chunks) this cap is never hit. With 1-3 chunks/doc it covers 300-1000 docs.
+const VECTOR_CANDIDATE_LIMIT = 1000;
+
 let pool = null;
 
 function init(p) {
@@ -65,6 +74,7 @@ async function searchDocuments(userId, query, options = {}) {
   const sortOrder = options.sortOrder || 'desc';
   const limit = Math.max(1, Math.min(100, parseInt(options.limit, 10) || 10));
   const offset = Math.max(0, parseInt(options.offset, 10) || 0);
+  const distanceThreshold = parseFloat(options.distanceThreshold) || DEFAULT_DISTANCE_THRESHOLD;
 
   // Determine effective mode: fall back to fulltext if no embeddings or no API key
   let effectiveMode = mode;
@@ -79,9 +89,9 @@ async function searchDocuments(userId, query, options = {}) {
   if (effectiveMode === 'fulltext') {
     return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
   } else if (effectiveMode === 'semantic') {
-    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
+    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold);
   } else {
-    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
+    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold);
   }
 }
 
@@ -177,21 +187,29 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Semantic (vector) search only.
  */
-async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
+async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
 
   return runSearchQuery(
-    `WITH cte AS (
-       SELECT DISTINCT ON (de.doc_id)
-         de.doc_id,
-         LEFT(de.chunk_text, 300) AS snippet,
-         (1.0 - (de.embedding <=> $2::vector)) AS score
+    `WITH top_chunks AS (
+       SELECT de.doc_id, de.chunk_text,
+              (de.embedding <=> $2::vector) AS distance
        FROM document_embeddings de
        JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       ORDER BY de.doc_id, (de.embedding <=> $2::vector) ASC
+       WHERE (de.embedding <=> $2::vector) < $3
+       ORDER BY de.embedding <=> $2::vector
+       LIMIT ${VECTOR_CANDIDATE_LIMIT}
+     ),
+     cte AS (
+       SELECT DISTINCT ON (doc_id)
+         doc_id,
+         LEFT(chunk_text, 300) AS snippet,
+         (1.0 - distance) AS score
+       FROM top_chunks
+       ORDER BY doc_id, distance ASC
      )`,
-    [userId, JSON.stringify(queryEmbedding), limit, offset],
+    [userId, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
     { filter, sortBy, sortOrder }
   );
 }
@@ -199,7 +217,7 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Hybrid search using Reciprocal Rank Fusion (RRF).
  */
-async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
+async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
 
@@ -214,14 +232,19 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      ),
-     vec AS (
-       SELECT DISTINCT ON (de.doc_id)
-         de.doc_id,
-         de.chunk_text AS chunk_snippet,
-         (de.embedding <=> $3::vector) AS distance
+     top_chunks AS (
+       SELECT de.doc_id, de.chunk_text AS chunk_snippet,
+              (de.embedding <=> $3::vector) AS distance
        FROM document_embeddings de
        JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       ORDER BY de.doc_id, distance ASC
+       WHERE (de.embedding <=> $3::vector) < $4
+       ORDER BY de.embedding <=> $3::vector
+       LIMIT ${VECTOR_CANDIDATE_LIMIT}
+     ),
+     vec AS (
+       SELECT DISTINCT ON (doc_id) doc_id, chunk_snippet, distance
+       FROM top_chunks
+       ORDER BY doc_id, distance ASC
      ),
      vec_ranked AS (
        SELECT v.doc_id, v.chunk_snippet,
@@ -236,7 +259,7 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        FROM fts f
        FULL OUTER JOIN vec_ranked vr ON f.doc_id = vr.doc_id
      )`,
-    [userId, query, JSON.stringify(queryEmbedding), limit, offset],
+    [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
     { filter, sortBy, sortOrder }
   );
 }
