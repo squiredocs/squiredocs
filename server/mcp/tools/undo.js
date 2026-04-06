@@ -4,9 +4,7 @@
  * Undo the last operation made by this agent.
  */
 
-const Y = require('yjs');
-const agentPresence = require('../agent-presence');
-const { createCursorPosition, resolveCursorPosition, getCursorContext } = require('../yjs/cursor-operations');
+const { handleUndoRedo } = require('./undo-redo-handler');
 
 let persistenceProvider = null;
 
@@ -47,83 +45,12 @@ const inputSchema = {
 };
 
 async function handler(args, agentToken) {
-  if (!persistenceProvider) throw new Error('undo tool not initialized');
-
-  const { docGuid } = args;
-  const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
-
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  if (accessResult.rows[0].role === 'viewer') {
-    throw new Error('Permission denied: viewers cannot edit documents');
-  }
-
-  // Get or create session (reuses existing WebSocket if available)
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 3600, { requiredRole: 'editor' });
-
-  if (!session || !session.cursor) {
-    throw new Error('Failed to get session');
-  }
-
-  const undoManager = session.undoManager;
-
-  if (!undoManager || !undoManager.canUndo()) {
-    return {
-      success: true,
-      undone: false,
-      message: 'Nothing to undo',
-      cursor: null,
-    };
-  }
-
-  // Perform undo
-  undoManager.undo();
-
-  // Re-resolve cursor positions (they may have changed)
-  const ydoc = session.provider.doc;
-  const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-  let currentHead = session.cursor.head;
-  let resolved = resolveCursorPosition(xmlFragment, currentHead);
-  let warning = null;
-
-  if (!resolved) {
-    // Cursor position became invalid, reset to document start
-    const safePos = createCursorPosition(xmlFragment, 0, 0);
-    agentPresence.updateSessionCursor(session.sessionId, safePos, safePos);
-    currentHead = safePos;
-    resolved = resolveCursorPosition(xmlFragment, currentHead);
-    warning = 'Cursor position became invalid after undo, reset to document start';
-  }
-
-  const context = getCursorContext(xmlFragment, currentHead, 50, 50);
-
-  const result = {
-    success: true,
-    undone: true,
-    cursor: {
-      block: resolved.blockIndex,
-      offset: resolved.offset,
-      blockType: resolved.blockType,
-      context: context ? `${context.before}|${context.after}` : '',
-    },
-  };
-
-  if (warning) {
-    result.warning = warning;
-  }
-
-  return result;
+  return handleUndoRedo(args, agentToken, persistenceProvider, {
+    operationName: 'undo',
+    resultKey: 'undone',
+    canPerform: (um) => um.canUndo(),
+    perform: (um) => um.undo(),
+  });
 }
 
 module.exports = { init, name, description, inputSchema, handler };

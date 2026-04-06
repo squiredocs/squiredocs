@@ -6,14 +6,9 @@
  */
 
 const Y = require('yjs');
+const documents = require('../../documents');
 const versionHistory = require('../../version-history');
-const { xpath } = require('../sandbox/xpath');
-const {
-  toStructuredNode,
-  toTextNode,
-  countCharacters,
-  countBlocks,
-} = require('../yjs/serialization');
+const { queryAndSerialize } = require('./read-helpers');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -134,18 +129,9 @@ async function handler(args, agentToken) {
 
   const { docGuid, versionId, xpath: xpathExpr, format = 'structured' } = args;
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
 
   // Check document access
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
+  if (!await documents.hasAccess(docGuid, userId)) {
     throw new Error('Document not found or you do not have access');
   }
 
@@ -161,31 +147,7 @@ async function handler(args, agentToken) {
   Y.applyUpdate(ydoc, new Uint8Array(versionData.content));
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  const allBlocks = xmlFragment.toArray();
-  const blockCount = countBlocks(xmlFragment);
-
-  // Get nodes to serialize (either xpath results or all blocks)
-  let nodes;
-  if (xpathExpr) {
-    try {
-      nodes = xpath(xpathExpr, xmlFragment);
-    } catch (err) {
-      throw new Error(`Invalid XPath expression: ${err.message}`);
-    }
-  } else {
-    nodes = allBlocks;
-  }
-
-  // Serialize based on format
-  let content;
-  if (format === 'text') {
-    content = nodes.map(toTextNode).join('').trim();
-  } else {
-    content = nodes.map(toStructuredNode).filter(Boolean);
-  }
-
-  // Count characters in results
-  const characterCount = countCharacters(nodes);
+  const { content, blockCount, characterCount, matchCount } = queryAndSerialize(xmlFragment, xpathExpr, format);
 
   const result = {
     content,
@@ -194,8 +156,8 @@ async function handler(args, agentToken) {
     version: versionData.version,
   };
 
-  if (xpathExpr) {
-    result.matchCount = nodes.length;
+  if (matchCount !== undefined) {
+    result.matchCount = matchCount;
   }
 
   // Cleanup

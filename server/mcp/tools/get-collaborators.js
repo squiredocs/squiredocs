@@ -94,23 +94,8 @@ async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('get_collaborators tool not initialized');
 
   const { docGuid } = args;
-  const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
 
-  // Check if user has access to the document
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  // Get or create session
+  // Get or create session (verifies access internally)
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
   const awareness = session.provider.awareness;
   const ydoc = session.provider.doc;

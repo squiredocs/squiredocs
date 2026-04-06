@@ -104,30 +104,8 @@ async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('restore_document_version tool not initialized');
 
   const { docGuid, versionId } = args;
-  const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
 
-  // Check document access and role
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  const { role } = accessResult.rows[0];
-
-  // Check permissions - only editor or owner can restore versions
-  if (role === 'viewer') {
-    throw new Error('Permission denied: viewers cannot restore document versions');
-  }
-
-  // Get or create agent session to get the shared document
+  // Get or create agent session (verifies access and editor role internally)
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60, { requiredRole: 'editor' });
 
   // Get function to access shared document for broadcasting

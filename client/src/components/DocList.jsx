@@ -245,30 +245,38 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
     );
   };
 
+  const headerLeft = (
+    <div className="app-header-left">
+      <a
+        href="/docs"
+        className="back-btn"
+        onClick={(e) => {
+          if (shouldUseBrowserLinkBehavior(e)) return;
+          e.preventDefault();
+          fetchDocs();
+        }}
+        title="Refresh documents"
+      >
+        <Logo />
+      </a>
+      <h1>Documents</h1>
+    </div>
+  );
+
+  const headerRight = (
+    <div className="app-header-right">
+      <ViewToggleButton onClick={onNavigateToChat} />
+      <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
+    </div>
+  );
+
   if (loading) {
     return (
       <>
         <header className="app-header">
           <div className="app-header-content">
-            <div className="app-header-left">
-              <a
-                href="/docs"
-                className="back-btn"
-                onClick={(e) => {
-                  if (shouldUseBrowserLinkBehavior(e)) return;
-                  e.preventDefault();
-                  fetchDocs();
-                }}
-                title="Refresh documents"
-              >
-                <Logo />
-              </a>
-              <h1>Documents</h1>
-            </div>
-            <div className="app-header-right">
-              <ViewToggleButton onClick={onNavigateToChat} />
-              <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
-            </div>
+            {headerLeft}
+            {headerRight}
           </div>
         </header>
         <div className="doc-list-container">
@@ -286,13 +294,8 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
       <>
         <header className="app-header">
           <div className="app-header-content">
-            <div className="app-header-left">
-              <h1>Documents</h1>
-            </div>
-            <div className="app-header-right">
-              <ViewToggleButton onClick={onNavigateToChat} />
-              <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
-            </div>
+            {headerLeft}
+            {headerRight}
           </div>
         </header>
         <div className="doc-list-container">
@@ -309,25 +312,8 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
     <>
       <header className="app-header">
         <div className="app-header-content">
-          <div className="app-header-left">
-            <a
-              href="/docs"
-              className="back-btn"
-              onClick={(e) => {
-                if (shouldUseBrowserLinkBehavior(e)) return;
-                e.preventDefault();
-                fetchDocs();
-              }}
-              title="Refresh documents"
-            >
-              <Logo />
-            </a>
-            <h1>Documents</h1>
-          </div>
-          <div className="app-header-right">
-            <ViewToggleButton onClick={onNavigateToChat} />
-            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
-          </div>
+          {headerLeft}
+          {headerRight}
         </div>
       </header>
 

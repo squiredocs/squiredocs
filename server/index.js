@@ -457,6 +457,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         ownerEmail: doc.owner_email,
         snippet: doc.snippet,
         score: doc.score,
+        shareCount: doc.share_count,
       }));
 
       return res.json({ docs, pagination: results.pagination });

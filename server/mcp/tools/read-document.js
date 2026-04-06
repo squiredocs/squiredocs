@@ -6,17 +6,11 @@
 
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
-const { xpath } = require('../sandbox/xpath');
 const {
   createNodeSelection,
   createExpandingBlockHighlights,
 } = require('../yjs/cursor-operations');
-const {
-  toStructuredNode,
-  toTextNode,
-  countCharacters,
-  countBlocks,
-} = require('../yjs/serialization');
+const { queryAndSerialize } = require('./read-helpers');
 const versionHistory = require('../../version-history');
 
 // Persistence provider - set by init function
@@ -135,41 +129,13 @@ async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('read_document tool not initialized');
 
   const { docGuid, xpath: xpathExpr, format = 'structured' } = args;
-  const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
 
-  // Check document access
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  // Get document
+  // Get document (verifies access internally)
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
-  const allBlocks = xmlFragment.toArray();
-  const blockCount = countBlocks(xmlFragment);
-
-  // Get nodes to serialize (either xpath results or all blocks)
-  let nodes;
-  if (xpathExpr) {
-    try {
-      nodes = xpath(xpathExpr, xmlFragment);
-    } catch (err) {
-      throw new Error(`Invalid XPath expression: ${err.message}`);
-    }
-  } else {
-    nodes = allBlocks;
-  }
+  const { nodes, content, blockCount, characterCount, matchCount } = queryAndSerialize(xmlFragment, xpathExpr, format);
 
   // Highlight the nodes being read
   if (nodes.length > 0) {
@@ -177,13 +143,11 @@ async function handler(args, agentToken) {
       let positions = [];
 
       if (xpathExpr) {
-        // XPath query: cycle through each matched element
         for (const node of nodes) {
           const selection = createNodeSelection(xmlFragment, node);
           if (selection) positions.push(selection);
         }
       } else {
-        // Full document read: expanding selection from start toward end
         positions = createExpandingBlockHighlights(xmlFragment, 0, nodes.length);
       }
 
@@ -191,21 +155,9 @@ async function handler(args, agentToken) {
         agentPresence.queueHighlightSequence(session.sessionId, positions);
       }
     } catch (err) {
-      // Non-fatal: log but don't fail the read
       console.warn('[read-document] Could not highlight selection:', err.message);
     }
   }
-
-  // Serialize based on format
-  let content;
-  if (format === 'text') {
-    content = nodes.map(toTextNode).join('').trim();
-  } else {
-    content = nodes.map(toStructuredNode).filter(Boolean);
-  }
-
-  // Count characters in results
-  const characterCount = countCharacters(nodes);
 
   // Fetch version metadata
   const recentUpdates = await persistenceProvider.getRecentUpdatesWithUsers(docGuid, 100);
@@ -235,8 +187,8 @@ async function handler(args, agentToken) {
     recentAuthors,
   };
 
-  if (xpathExpr) {
-    result.matchCount = nodes.length;
+  if (matchCount !== undefined) {
+    result.matchCount = matchCount;
   }
 
   return result;

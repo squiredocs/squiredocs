@@ -1461,7 +1461,7 @@ async function handler(args, agentToken) {
   const { docGuid, script, timeout = 5000 } = args;
 
   // Validate script before execution
-  const warnings = validateScript(script);
+  validateScript(script);
 
   // Validate timeout
   const validatedTimeout = Math.max(100, Math.min(30000, timeout));

@@ -288,11 +288,6 @@
   color: inherit;
 }
 
-.shared-by {
-  color: #16a34a;
-  font-weight: var(--font-medium);
-}
-
 .doc-menu-wrapper {
   position: relative;
   flex-shrink: 0;

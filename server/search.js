@@ -137,6 +137,7 @@ async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
        owner_user.email AS owner_email,
        cte.snippet,
        cte.score,
+       (SELECT COUNT(*) FROM document_shares WHERE doc_id = cte.doc_id) AS share_count,
        COUNT(*) OVER() AS total_count
      FROM cte
      JOIN documents d ON d.id = cte.doc_id
@@ -264,6 +265,7 @@ function formatResults(rows, limit, offset) {
       owner_email: row.owner_email,
       snippet: sanitizeSnippet(row.snippet),
       score: parseFloat(row.score) || 0,
+      share_count: parseInt(row.share_count, 10) || 0,
     })),
     pagination: {
       total,
