@@ -12,12 +12,42 @@ function init(p) {
 }
 
 /**
+ * Build a SQL fragment for filtering by document ownership role.
+ * @param {string} filter - 'all', 'owned', or 'shared_with_me'
+ * @param {string} alias - The document_shares table alias (e.g. 'ds', 'ds2')
+ * @returns {string} SQL fragment (empty string or ' AND ...')
+ */
+function buildRoleCondition(filter, alias = 'ds') {
+  if (filter === 'owned') return ` AND ${alias}.role = 'owner'`;
+  if (filter === 'shared_with_me') return ` AND ${alias}.role != 'owner'`;
+  return '';
+}
+
+/**
+ * Build the ORDER BY clause for search results.
+ * @param {string} sortBy - 'relevance', 'updatedAt', or 'createdAt'
+ * @param {string} sortOrder - 'asc' or 'desc'
+ * @param {string} scoreExpr - The SQL expression for relevance score (varies by search mode)
+ * @returns {string} SQL ORDER BY clause
+ */
+function buildSearchOrderClause(sortBy, sortOrder, scoreExpr) {
+  const dir = sortOrder === 'asc' ? 'ASC' : 'DESC';
+  if (sortBy === 'updatedAt') return `ORDER BY d.updated_at ${dir} NULLS LAST`;
+  if (sortBy === 'createdAt') return `ORDER BY d.created_at ${dir} NULLS LAST`;
+  // Default: relevance
+  return `ORDER BY ${scoreExpr}`;
+}
+
+/**
  * Search documents by content using hybrid FTS + vector search.
  *
  * @param {string} userId - The user performing the search
  * @param {string} query - Search query (keywords or natural language)
  * @param {object} options
  * @param {string} options.mode - 'hybrid' (default), 'fulltext', or 'semantic'
+ * @param {string} options.filter - 'all' (default), 'owned', or 'shared_with_me'
+ * @param {string} options.sortBy - 'relevance' (default), 'updatedAt', or 'createdAt'
+ * @param {string} options.sortOrder - 'asc' or 'desc' (default: 'desc')
  * @param {number} options.limit - Max results (default 10, max 50)
  * @param {number} options.offset - Pagination offset (default 0)
  * @returns {Promise<{rows: Array, pagination: object}>}
@@ -27,6 +57,9 @@ async function searchDocuments(userId, query, options = {}) {
   if (!query || !query.trim()) return { rows: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
 
   const mode = options.mode || 'hybrid';
+  const filter = options.filter || 'all';
+  const sortBy = options.sortBy || 'relevance';
+  const sortOrder = options.sortOrder || 'desc';
   const limit = Math.max(1, Math.min(50, parseInt(options.limit, 10) || 10));
   const offset = Math.max(0, parseInt(options.offset, 10) || 0);
 
@@ -41,11 +74,11 @@ async function searchDocuments(userId, query, options = {}) {
   }
 
   if (effectiveMode === 'fulltext') {
-    return fulltextSearch(userId, query, limit, offset);
+    return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
   } else if (effectiveMode === 'semantic') {
-    return semanticSearch(userId, query, limit, offset);
+    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
   } else {
-    return hybridSearch(userId, query, limit, offset);
+    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
   }
 }
 
@@ -82,7 +115,11 @@ async function getQueryEmbedding(query) {
 /**
  * Full-text search only.
  */
-async function fulltextSearch(userId, query, limit, offset) {
+async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
+  const roleCondition = buildRoleCondition(filter);
+  const roleCondition2 = buildRoleCondition(filter, 'ds2');
+  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'f.rank DESC');
+
   const result = await pool.query(
     `WITH fts AS (
        SELECT
@@ -91,7 +128,7 @@ async function fulltextSearch(userId, query, limit, offset) {
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
        FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      )
      SELECT
@@ -106,10 +143,10 @@ async function fulltextSearch(userId, query, limit, offset) {
        COUNT(*) OVER() AS total_count
      FROM fts f
      JOIN documents d ON d.id = f.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = f.doc_id AND ds2.user_id = $1
+     JOIN document_shares ds2 ON ds2.doc_id = f.doc_id AND ds2.user_id = $1${roleCondition2}
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ORDER BY f.rank DESC
+     ${orderClause}
      LIMIT $3 OFFSET $4`,
     [userId, query, limit, offset]
   );
@@ -120,8 +157,11 @@ async function fulltextSearch(userId, query, limit, offset) {
 /**
  * Semantic (vector) search only.
  */
-async function semanticSearch(userId, query, limit, offset) {
+async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
   const queryEmbedding = await getQueryEmbedding(query);
+  const roleCondition = buildRoleCondition(filter);
+  const roleCondition2 = buildRoleCondition(filter, 'ds2');
+  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'v.distance ASC');
 
   const result = await pool.query(
     `WITH vec AS (
@@ -130,7 +170,7 @@ async function semanticSearch(userId, query, limit, offset) {
          de.chunk_text AS snippet,
          (de.embedding <=> $2::vector) AS distance
        FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
        ORDER BY de.doc_id, distance ASC
      )
      SELECT
@@ -145,10 +185,10 @@ async function semanticSearch(userId, query, limit, offset) {
        COUNT(*) OVER() AS total_count
      FROM vec v
      JOIN documents d ON d.id = v.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = v.doc_id AND ds2.user_id = $1
+     JOIN document_shares ds2 ON ds2.doc_id = v.doc_id AND ds2.user_id = $1${roleCondition2}
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ORDER BY v.distance ASC
+     ${orderClause}
      LIMIT $3 OFFSET $4`,
     [userId, JSON.stringify(queryEmbedding), limit, offset]
   );
@@ -159,8 +199,11 @@ async function semanticSearch(userId, query, limit, offset) {
 /**
  * Hybrid search using Reciprocal Rank Fusion (RRF).
  */
-async function hybridSearch(userId, query, limit, offset) {
+async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
   const queryEmbedding = await getQueryEmbedding(query);
+  const roleCondition = buildRoleCondition(filter);
+  const roleCondition2 = buildRoleCondition(filter, 'ds2');
+  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'r.rrf_score DESC');
 
   const result = await pool.query(
     `WITH fts AS (
@@ -170,7 +213,7 @@ async function hybridSearch(userId, query, limit, offset) {
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
        FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      ),
      vec AS (
@@ -178,7 +221,7 @@ async function hybridSearch(userId, query, limit, offset) {
          de.doc_id,
          de.chunk_text AS chunk_snippet
        FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
        ORDER BY de.doc_id, (de.embedding <=> $3::vector) ASC
      ),
      vec_ranked AS (
@@ -211,10 +254,10 @@ async function hybridSearch(userId, query, limit, offset) {
        COUNT(*) OVER() AS total_count
      FROM rrf r
      JOIN documents d ON d.id = r.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = r.doc_id AND ds2.user_id = $1
+     JOIN document_shares ds2 ON ds2.doc_id = r.doc_id AND ds2.user_id = $1${roleCondition2}
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ORDER BY r.rrf_score DESC
+     ${orderClause}
      LIMIT $4 OFFSET $5`,
     [userId, query, JSON.stringify(queryEmbedding), limit, offset]
   );

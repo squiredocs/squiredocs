@@ -189,14 +189,13 @@ async function getAccessibleDocuments(userId, options = {}) {
   } = options;
 
   // Validate and sanitize inputs
-  const validSortBy = ['title', 'updatedAt', 'createdAt'].includes(sortBy) ? sortBy : 'updatedAt';
+  const validSortBy = ['updatedAt', 'createdAt'].includes(sortBy) ? sortBy : 'updatedAt';
   const validSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
   const validLimit = limit ? Math.max(1, Math.min(100, parseInt(limit, 10) || 100)) : null;
   const validOffset = Math.max(0, parseInt(offset, 10) || 0);
 
   // Map sortBy to SQL column names
   const sortColumnMap = {
-    title: 'd.title',
     updatedAt: 'd.updated_at',
     createdAt: 'd.created_at',
   };

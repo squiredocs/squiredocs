@@ -2,66 +2,75 @@
  * list_documents MCP Tool
  *
  * Lists all documents accessible to the authenticated agent/user.
- * Supports search, filtering, pagination, and sorting.
- * Uses the shared documents.getAccessibleDocuments function.
+ * Supports content search (hybrid FTS + vector), filtering, pagination, and sorting.
+ * When a search query is provided, uses hybrid content search with snippets.
+ * Without a query, lists documents with filter/sort options.
  */
 
 const documents = require('../../documents');
+const search = require('../../search');
 
-// Persistence provider - set by init function (needed for pool access in documents module)
 let persistenceProvider = null;
 
-/**
- * Initialize the tool with a persistence provider
- * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
- */
 function init(persistence) {
   persistenceProvider = persistence;
-  // Ensure documents module is initialized with the pool
   if (persistence && persistence.getPool) {
     documents.init(persistence.getPool());
+    search.init(persistence.getPool());
   }
 }
 
-/**
- * Tool definition for MCP discovery
- */
 const name = 'list_documents';
 
-const description = `List documents accessible to you with search, filtering, and pagination.
+const description = `List and search documents accessible to you.
+
+When "search" is provided, performs hybrid content search (keyword + semantic) across document bodies and returns results ranked by relevance with snippets. Use "searchMode" to control search behavior.
+
+Without "search", lists documents with optional filtering and sorting.
 
 PARAMETERS:
-- search: Search by title (case-insensitive partial match)
+- search: Search query — keywords or natural language. Searches document content, not just titles.
+- searchMode: "hybrid" (default, keyword + semantic), "fulltext" (keyword only), "semantic" (meaning-based only). Only applies when search is provided.
 - filter: "owned" | "shared_with_me" | "all" (default: "all")
-- sortBy: "title" | "updatedAt" | "createdAt" (default: "updatedAt")
-- sortOrder: "asc" | "desc" (default: "desc")
-- limit: 1-100 (default: 50)
+- sortBy: "title" | "updatedAt" | "createdAt" (default: "updatedAt"). Only applies without search.
+- sortOrder: "asc" | "desc" (default: "desc"). Only applies without search.
+- limit: 1-100 (default: 50 for listing, 10 for search)
 - offset: pagination offset (default: 0)
 
 RETURNS:
-- documents: Array of { id, title, url, role, createdAt, updatedAt, shareCount }
+- documents: Array of { id, title, url, role, updatedAt, ... }
+  - When searching: includes snippet and score
+  - When listing: includes createdAt and shareCount
 - pagination: { total, limit, offset, hasMore }
 
 EXAMPLES:
 // List all documents
 list_documents()
 
-// Search by title
-list_documents({ search: "project" })
+// Search document content
+list_documents({ search: "authentication login flow" })
+
+// Keyword-only search
+list_documents({ search: "TODO refactor", searchMode: "fulltext" })
 
 // List owned documents, sorted by title
 list_documents({ filter: "owned", sortBy: "title", sortOrder: "asc" })
 
 // Paginate through results
-list_documents({ limit: 10, offset: 0 })   // Page 1
-list_documents({ limit: 10, offset: 10 })  // Page 2`;
+list_documents({ limit: 10, offset: 0 })`;
 
 const inputSchema = {
   type: 'object',
   properties: {
     search: {
       type: 'string',
-      description: 'Search documents by title (case-insensitive partial match)',
+      description: 'Search query — keywords or natural language. Searches document content.',
+    },
+    searchMode: {
+      type: 'string',
+      enum: ['hybrid', 'fulltext', 'semantic'],
+      default: 'hybrid',
+      description: 'Search mode (only applies when search is provided): "hybrid" (keyword + semantic), "fulltext" (keyword only), or "semantic" (meaning-based)',
     },
     filter: {
       type: 'string',
@@ -71,15 +80,15 @@ const inputSchema = {
     },
     sortBy: {
       type: 'string',
-      enum: ['title', 'updatedAt', 'createdAt'],
+      enum: ['relevance', 'updatedAt', 'createdAt'],
       default: 'updatedAt',
-      description: 'Field to sort by',
+      description: 'Sort by: "relevance" (default when searching), "updatedAt" (default when listing), or "createdAt"',
     },
     sortOrder: {
       type: 'string',
       enum: ['asc', 'desc'],
       default: 'desc',
-      description: 'Sort direction',
+      description: 'Sort direction (only applies without search)',
     },
     limit: {
       type: 'integer',
@@ -97,17 +106,43 @@ const inputSchema = {
   },
 };
 
-/**
- * Handler function for the tool
- * @param {object} args - Tool arguments
- * @param {object} agentToken - Decoded agent JWT token (includes baseUrl)
- * @returns {Promise<object>} { documents: Array, pagination: object }
- */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('list_documents tool not initialized');
 
+  const userId = agentToken.userId;
+  const baseUrl = agentToken.baseUrl || '';
+
+  // Content search path: when a search query is provided
+  if (args.search && args.search.trim()) {
+    const mode = args.searchMode || 'hybrid';
+    const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 10));
+    const offset = Math.max(0, parseInt(args.offset, 10) || 0);
+
+    const { rows, pagination } = await search.searchDocuments(userId, args.search, {
+      mode,
+      filter: args.filter || 'all',
+      sortBy: args.sortBy || 'relevance',
+      sortOrder: args.sortOrder || 'desc',
+      limit,
+      offset,
+    });
+
+    return {
+      documents: rows.map((row) => ({
+        id: row.doc_id,
+        title: row.title || null,
+        url: `${baseUrl}/d/${row.doc_id}`,
+        role: row.role,
+        updatedAt: row.updated_at,
+        snippet: row.snippet,
+        score: row.score,
+      })),
+      pagination,
+    };
+  }
+
+  // List path: no search query
   const {
-    search = null,
     filter = 'all',
     sortBy = 'updatedAt',
     sortOrder = 'desc',
@@ -115,12 +150,8 @@ async function handler(args, agentToken) {
     offset = 0,
   } = args;
 
-  const userId = agentToken.userId;
-  const baseUrl = agentToken.baseUrl || '';
-
-  // Use shared function from documents module
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
-    search,
+    search: null,
     filter,
     sortBy,
     sortOrder,
@@ -128,28 +159,24 @@ async function handler(args, agentToken) {
     offset,
   });
 
-  // Validate limit for pagination response
   const validLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 50));
   const validOffset = Math.max(0, parseInt(offset, 10) || 0);
 
-  // Map results to response format
-  const documentList = rows.map((row) => ({
-    id: row.doc_id,
-    title: row.title || null,
-    url: `${baseUrl}/d/${row.doc_id}`,
-    role: row.role,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    shareCount: parseInt(row.share_count, 10),
-  }));
-
   return {
-    documents: documentList,
+    documents: rows.map((row) => ({
+      id: row.doc_id,
+      title: row.title || null,
+      url: `${baseUrl}/d/${row.doc_id}`,
+      role: row.role,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      shareCount: parseInt(row.share_count, 10),
+    })),
     pagination: {
       total,
       limit: validLimit,
       offset: validOffset,
-      hasMore: validOffset + documentList.length < total,
+      hasMore: validOffset + rows.length < total,
     },
   };
 }

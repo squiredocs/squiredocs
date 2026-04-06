@@ -438,6 +438,9 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     if (searchQuery && searchMode === 'content') {
       const results = await search.searchDocuments(userId, searchQuery, {
         mode: mode || 'hybrid',
+        filter: filter || 'all',
+        sortBy: sortBy || 'relevance',
+        sortOrder: sortOrder || 'desc',
         limit: limit ? parseInt(limit, 10) : 10,
         offset: offset ? parseInt(offset, 10) : 0,
       });

@@ -38,10 +38,11 @@ describe('search module', () => {
     );
     docId3 = doc3.rows[0].id;
 
-    // Grant access: user1 owns doc1 and doc2, user2 owns doc3
+    // Grant access: user1 owns doc1 and doc2, user2 owns doc3, doc3 shared with user1 as editor
     await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId1, userId1]);
     await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId2, userId1]);
     await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId3, userId2]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'editor')`, [docId3, userId1]);
 
     // Insert search index entries
     await pool.query(
@@ -84,20 +85,22 @@ describe('search module', () => {
   test('fulltext search returns matching documents with snippets', async () => {
     const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext' });
 
-    expect(results.rows.length).toBe(1);
-    expect(results.rows[0].doc_id).toBe(docId1);
-    expect(results.rows[0].title).toBe('Authentication Guide');
+    // user1 can see doc1 (owned) and doc3 (shared as editor) — both contain "authentication"
+    expect(results.rows.length).toBe(2);
+    const docIds = results.rows.map((r) => r.doc_id);
+    expect(docIds).toContain(docId1);
+    expect(docIds).toContain(docId3);
     expect(results.rows[0].snippet).toBeDefined();
     expect(results.rows[0].snippet).toContain('<mark>');
     expect(results.rows[0].score).toBeGreaterThan(0);
   });
 
   test('fulltext search respects permissions', async () => {
-    // user1 searches for 'authentication' — should find doc1 but NOT doc3 (user2 private)
-    const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext' });
+    // user2 searches for 'authentication' — should find doc3 (owned) but NOT doc1 (not shared with user2)
+    const results = await search.searchDocuments(userId2, 'authentication', { mode: 'fulltext' });
     const docIds = results.rows.map((r) => r.doc_id);
-    expect(docIds).toContain(docId1);
-    expect(docIds).not.toContain(docId3);
+    expect(docIds).toContain(docId3);
+    expect(docIds).not.toContain(docId1);
   });
 
   test('user2 can find their own private document', async () => {
@@ -124,19 +127,23 @@ describe('search module', () => {
   });
 
   test('pagination works correctly', async () => {
-    // Insert extra docs so we can paginate
     const results1 = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', limit: 1, offset: 0 });
     expect(results1.rows.length).toBe(1);
-    expect(results1.pagination.total).toBe(1);
-    expect(results1.pagination.hasMore).toBe(false);
+    expect(results1.pagination.total).toBe(2);
+    expect(results1.pagination.hasMore).toBe(true);
+
+    const results2 = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', limit: 1, offset: 1 });
+    expect(results2.rows.length).toBe(1);
+    expect(results2.pagination.hasMore).toBe(false);
   });
 
   test('hybrid mode falls back to fulltext when no embeddings exist', async () => {
     // No embeddings inserted — hybrid should auto-fall back to fulltext
     search._resetCache();
     const results = await search.searchDocuments(userId1, 'authentication', { mode: 'hybrid' });
-    expect(results.rows.length).toBe(1);
-    expect(results.rows[0].doc_id).toBe(docId1);
+    expect(results.rows.length).toBe(2);
+    const docIds = results.rows.map((r) => r.doc_id);
+    expect(docIds).toContain(docId1);
   });
 
   test('result includes expected fields', async () => {
@@ -154,5 +161,39 @@ describe('search module', () => {
     expect(results.pagination).toHaveProperty('limit');
     expect(results.pagination).toHaveProperty('offset');
     expect(results.pagination).toHaveProperty('hasMore');
+  });
+
+  test('filter: owned returns only owned docs', async () => {
+    // user1 searches for "authentication" with filter=owned
+    // doc1 (owned) matches, doc3 (shared as editor) also matches but should be excluded
+    const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', filter: 'owned' });
+    const docIds = results.rows.map((r) => r.doc_id);
+    expect(docIds).toContain(docId1);
+    expect(docIds).not.toContain(docId3);
+  });
+
+  test('filter: shared_with_me returns only shared docs', async () => {
+    // user1 searches for "authentication" with filter=shared_with_me
+    // doc3 (shared as editor) matches, doc1 (owned) should be excluded
+    const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', filter: 'shared_with_me' });
+    const docIds = results.rows.map((r) => r.doc_id);
+    expect(docIds).toContain(docId3);
+    expect(docIds).not.toContain(docId1);
+  });
+
+  test('sortBy: updatedAt sorts by date instead of relevance', async () => {
+    // Both doc1 and doc3 match "authentication" for user1
+    const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', sortBy: 'updatedAt', sortOrder: 'desc' });
+    expect(results.rows.length).toBe(2);
+    // Verify sorted by updated_at descending
+    const dates = results.rows.map((r) => new Date(r.updated_at).getTime());
+    expect(dates[0]).toBeGreaterThanOrEqual(dates[1]);
+  });
+
+  test('sortBy: updatedAt with asc order', async () => {
+    const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext', sortBy: 'updatedAt', sortOrder: 'asc' });
+    expect(results.rows.length).toBe(2);
+    const dates = results.rows.map((r) => new Date(r.updated_at).getTime());
+    expect(dates[0]).toBeLessThanOrEqual(dates[1]);
   });
 });
