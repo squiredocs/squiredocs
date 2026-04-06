@@ -6,6 +6,7 @@ import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatBody from './AiChatBody';
 import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
+import { PlusIcon, ListIcon, ChevronLeftIcon, ChatBubbleIcon, CloseIcon, LayoutBottomIcon, LayoutRightIcon } from './icons';
 import { getGreeting } from '../utils/greeting';
 import './AiPanel.css';
 
@@ -139,14 +140,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
           : { '--ai-panel-height': `${heightPx}px` },
       };
 
-  const closeSize = isMobile ? 18 : 16;
-  const closeButton = (
-    <button className="icon-btn" onClick={close} aria-label="Close">
-      <svg width={closeSize} height={closeSize} viewBox="0 0 24 24" fill="currentColor">
-        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-      </svg>
-    </button>
-  );
+  const iconSize = isMobile ? 18 : 16;
 
   const panelJsx = (
     <WrapperTag ref={panelRef} {...wrapperProps} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
@@ -173,85 +167,33 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
           )}
         </div>
         <div className="ai-panel-header-actions">
-          {(() => {
-            const iconSize = isMobile ? 18 : 16;
-            return showHistory ? (
-              <button
-                className="icon-btn"
-                onClick={() => setShowHistory(false)}
-                aria-label="Back to chat"
-                title="Back to chat"
-              >
-                <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="15 18 9 12 15 6" />
-                </svg>
+          {showHistory ? (
+            <button className="icon-btn" onClick={() => setShowHistory(false)} aria-label="Back to chat" title="Back to chat">
+              <ChevronLeftIcon size={iconSize} />
+            </button>
+          ) : (
+            <>
+              <button className="icon-btn" onClick={() => { aiChat.createChat(); chatInputRef.current?.focus(); }} aria-label="New chat" title="New chat">
+                <PlusIcon size={iconSize} />
               </button>
-            ) : (
-              <>
-                <button
-                  className="icon-btn"
-                  onClick={() => { aiChat.createChat(); chatInputRef.current?.focus(); }}
-                  aria-label="New chat"
-                  title="New chat"
-                >
-                  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
+              <button className="icon-btn" onClick={() => setShowHistory(true)} aria-label="Chat history" title="Chat history">
+                <ListIcon size={iconSize} />
+              </button>
+              {!isMobile && onNavigateToChat && (
+                <button className="icon-btn" onClick={onNavigateToChat} aria-label="Open chat view" title="Open chat view">
+                  <ChatBubbleIcon size={iconSize} />
                 </button>
-                <button
-                  className="icon-btn"
-                  onClick={() => setShowHistory(true)}
-                  aria-label="Chat history"
-                  title="Chat history"
-                >
-                  <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="8" y1="6" x2="21" y2="6" />
-                    <line x1="8" y1="12" x2="21" y2="12" />
-                    <line x1="8" y1="18" x2="21" y2="18" />
-                    <line x1="3" y1="6" x2="3.01" y2="6" />
-                    <line x1="3" y1="12" x2="3.01" y2="12" />
-                    <line x1="3" y1="18" x2="3.01" y2="18" />
-                  </svg>
+              )}
+              {!isMobile && (
+                <button className="icon-btn" onClick={handlePositionToggle} aria-label={isRight ? 'Move to bottom' : 'Move to right'} title={isRight ? 'Move to bottom' : 'Move to right'}>
+                  {isRight ? <LayoutBottomIcon size={iconSize} /> : <LayoutRightIcon size={iconSize} />}
                 </button>
-                {!isMobile && (
-                  <>
-                    {onNavigateToChat && (
-                      <button
-                        className="icon-btn"
-                        onClick={onNavigateToChat}
-                        aria-label="Open chat view"
-                        title="Open chat view"
-                      >
-                        <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                        </svg>
-                      </button>
-                    )}
-                    <button
-                      className="icon-btn"
-                      onClick={handlePositionToggle}
-                      aria-label={isRight ? 'Move to bottom' : 'Move to right'}
-                      title={isRight ? 'Move to bottom' : 'Move to right'}
-                    >
-                      {isRight ? (
-                        <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <line x1="3" y1="15" x2="21" y2="15" />
-                        </svg>
-                      ) : (
-                        <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <line x1="15" y1="3" x2="15" y2="21" />
-                        </svg>
-                      )}
-                    </button>
-                  </>
-                )}
-              </>
-            );
-          })()}
-          {closeButton}
+              )}
+            </>
+          )}
+          <button className="icon-btn" onClick={close} aria-label="Close">
+            <CloseIcon size={iconSize} />
+          </button>
         </div>
       </div>
       {showHistory ? (
