@@ -25,6 +25,8 @@ spec:
       - name: app
         image: collab:latest
         imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsUser: 0
         command: ["sleep", "infinity"]
         workingDir: /local-dev
         ports:
