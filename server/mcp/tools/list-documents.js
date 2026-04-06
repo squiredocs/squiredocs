@@ -137,15 +137,12 @@ async function handler(args, agentToken) {
   }
 
   // List path: no search query
-  const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 50));
-  const offset = Math.max(0, parseInt(args.offset, 10) || 0);
-
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
     filter: args.filter,
     sortBy: args.sortBy || 'updatedAt',
     sortOrder: args.sortOrder,
-    limit,
-    offset,
+    limit: args.limit || 50,
+    offset: args.offset || 0,
   });
 
   return {
@@ -160,9 +157,9 @@ async function handler(args, agentToken) {
     })),
     pagination: {
       total,
-      limit,
-      offset,
-      hasMore: offset + rows.length < total,
+      limit: args.limit || 50,
+      offset: args.offset || 0,
+      hasMore: (args.offset || 0) + rows.length < total,
     },
   };
 }

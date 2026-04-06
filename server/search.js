@@ -116,45 +116,61 @@ async function getQueryEmbedding(query) {
 }
 
 /**
- * Full-text search only.
+ * Run a search CTE with standard detail joins for document metadata.
+ * The CTE SQL must end with a CTE alias `cte` that outputs: doc_id, snippet, score.
+ * Params array must have userId as $1, limit and offset as the last two.
  */
-async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
-  const roleCondition = buildRoleCondition(filter);
-  const roleCondition2 = buildRoleCondition(filter, 'ds2');
-  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'f.rank DESC');
+async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
+  const roleCondition = buildRoleCondition(filter, 'ds2');
+  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'cte.score DESC');
+  const limitIdx = params.length - 1;
+  const offsetIdx = params.length;
 
   const result = await pool.query(
-    `WITH fts AS (
-       SELECT
-         si.doc_id,
-         ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) AS rank,
-         ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
-           'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
-       FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
-       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
-     )
+    `${cteSql}
      SELECT
-       f.doc_id,
+       cte.doc_id,
        d.title,
        d.updated_at,
        ds2.role,
        owner_user.name AS owner_name,
        owner_user.email AS owner_email,
-       f.snippet,
-       f.rank AS score,
+       cte.snippet,
+       cte.score,
        COUNT(*) OVER() AS total_count
-     FROM fts f
-     JOIN documents d ON d.id = f.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = f.doc_id AND ds2.user_id = $1${roleCondition2}
+     FROM cte
+     JOIN documents d ON d.id = cte.doc_id
+     JOIN document_shares ds2 ON ds2.doc_id = cte.doc_id AND ds2.user_id = $1${roleCondition}
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
      ${orderClause}
-     LIMIT $3 OFFSET $4`,
-    [userId, query, limit, offset]
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    params
   );
 
-  return formatResults(result.rows, limit, offset);
+  return formatResults(result.rows, params[limitIdx - 1], params[offsetIdx - 1]);
+}
+
+/**
+ * Full-text search only.
+ */
+async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
+  const roleCondition = buildRoleCondition(filter);
+
+  return runSearchQuery(
+    `WITH cte AS (
+       SELECT
+         si.doc_id,
+         ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
+           'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet,
+         ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) AS score
+       FROM document_search_index si
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
+       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
+     )`,
+    [userId, query, limit, offset],
+    { filter, sortBy, sortOrder }
+  );
 }
 
 /**
@@ -163,40 +179,20 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
 async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
-  const roleCondition2 = buildRoleCondition(filter, 'ds2');
-  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'v.distance ASC');
 
-  const result = await pool.query(
-    `WITH vec AS (
+  return runSearchQuery(
+    `WITH cte AS (
        SELECT DISTINCT ON (de.doc_id)
          de.doc_id,
-         de.chunk_text AS snippet,
-         (de.embedding <=> $2::vector) AS distance
+         LEFT(de.chunk_text, 300) AS snippet,
+         (1.0 - (de.embedding <=> $2::vector)) AS score
        FROM document_embeddings de
        JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       ORDER BY de.doc_id, distance ASC
-     )
-     SELECT
-       v.doc_id,
-       d.title,
-       d.updated_at,
-       ds2.role,
-       owner_user.name AS owner_name,
-       owner_user.email AS owner_email,
-       LEFT(v.snippet, 300) AS snippet,
-       (1.0 - v.distance) AS score,
-       COUNT(*) OVER() AS total_count
-     FROM vec v
-     JOIN documents d ON d.id = v.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = v.doc_id AND ds2.user_id = $1${roleCondition2}
-     LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
-     LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ${orderClause}
-     LIMIT $3 OFFSET $4`,
-    [userId, JSON.stringify(queryEmbedding), limit, offset]
+       ORDER BY de.doc_id, (de.embedding <=> $2::vector) ASC
+     )`,
+    [userId, JSON.stringify(queryEmbedding), limit, offset],
+    { filter, sortBy, sortOrder }
   );
-
-  return formatResults(result.rows, limit, offset);
 }
 
 /**
@@ -205,10 +201,8 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
 async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
-  const roleCondition2 = buildRoleCondition(filter, 'ds2');
-  const orderClause = buildSearchOrderClause(sortBy, sortOrder, 'r.rrf_score DESC');
 
-  const result = await pool.query(
+  return runSearchQuery(
     `WITH fts AS (
        SELECT
          si.doc_id,
@@ -222,50 +216,28 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
      vec AS (
        SELECT DISTINCT ON (de.doc_id)
          de.doc_id,
-         de.chunk_text AS chunk_snippet
+         de.chunk_text AS chunk_snippet,
+         (de.embedding <=> $3::vector) AS distance
        FROM document_embeddings de
        JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       ORDER BY de.doc_id, (de.embedding <=> $3::vector) ASC
+       ORDER BY de.doc_id, distance ASC
      ),
      vec_ranked AS (
-       SELECT
-         v.doc_id,
-         v.chunk_snippet,
-         ROW_NUMBER() OVER (
-           ORDER BY (SELECT MIN(de2.embedding <=> $3::vector)
-                     FROM document_embeddings de2 WHERE de2.doc_id = v.doc_id)
-         ) AS rank
+       SELECT v.doc_id, v.chunk_snippet,
+         ROW_NUMBER() OVER (ORDER BY v.distance ASC) AS rank
        FROM vec v
      ),
-     rrf AS (
+     cte AS (
        SELECT
          COALESCE(f.doc_id, vr.doc_id) AS doc_id,
          COALESCE(f.snippet, LEFT(vr.chunk_snippet, 300)) AS snippet,
-         COALESCE(1.0 / (60 + f.rank), 0) + COALESCE(1.0 / (60 + vr.rank), 0) AS rrf_score
+         COALESCE(1.0 / (60 + f.rank), 0) + COALESCE(1.0 / (60 + vr.rank), 0) AS score
        FROM fts f
        FULL OUTER JOIN vec_ranked vr ON f.doc_id = vr.doc_id
-     )
-     SELECT
-       r.doc_id,
-       d.title,
-       d.updated_at,
-       ds2.role,
-       owner_user.name AS owner_name,
-       owner_user.email AS owner_email,
-       r.snippet,
-       r.rrf_score AS score,
-       COUNT(*) OVER() AS total_count
-     FROM rrf r
-     JOIN documents d ON d.id = r.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = r.doc_id AND ds2.user_id = $1${roleCondition2}
-     LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
-     LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
-     ${orderClause}
-     LIMIT $4 OFFSET $5`,
-    [userId, query, JSON.stringify(queryEmbedding), limit, offset]
+     )`,
+    [userId, query, JSON.stringify(queryEmbedding), limit, offset],
+    { filter, sortBy, sortOrder }
   );
-
-  return formatResults(result.rows, limit, offset);
 }
 
 /**
