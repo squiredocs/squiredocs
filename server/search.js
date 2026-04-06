@@ -60,7 +60,7 @@ function buildSearchOrderClause(sortBy, sortOrder, scoreExpr) {
  * @param {string} options.filter - 'all' (default), 'owned', or 'shared_with_me'
  * @param {string} options.sortBy - 'relevance' (default), 'updatedAt', or 'createdAt'
  * @param {string} options.sortOrder - 'asc' or 'desc' (default: 'desc')
- * @param {number} options.limit - Max results (default 10, max 50)
+ * @param {number} options.limit - Max results (default 10, max 100)
  * @param {number} options.offset - Pagination offset (default 0)
  * @returns {Promise<{rows: Array, pagination: object}>}
  */
@@ -123,6 +123,22 @@ async function getQueryEmbedding(query) {
     providerOptions: { google: { outputDimensionality: EMBEDDING_DIMENSIONS } },
   });
   return embedding;
+}
+
+/**
+ * Build the top_chunks CTE for HNSW-accelerated vector search.
+ * Returns the nearest chunks filtered by distance threshold, capped at VECTOR_CANDIDATE_LIMIT.
+ */
+function buildVectorCTE(embeddingParam, thresholdParam, roleCondition) {
+  return `top_chunks AS (
+       SELECT de.doc_id, de.chunk_text,
+              (de.embedding <=> $${embeddingParam}::vector) AS distance
+       FROM document_embeddings de
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
+       WHERE (de.embedding <=> $${embeddingParam}::vector) < $${thresholdParam}
+       ORDER BY de.embedding <=> $${embeddingParam}::vector
+       LIMIT ${VECTOR_CANDIDATE_LIMIT}
+     )`;
 }
 
 /**
@@ -192,15 +208,7 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
   const roleCondition = buildRoleCondition(filter);
 
   return runSearchQuery(
-    `WITH top_chunks AS (
-       SELECT de.doc_id, de.chunk_text,
-              (de.embedding <=> $2::vector) AS distance
-       FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       WHERE (de.embedding <=> $2::vector) < $3
-       ORDER BY de.embedding <=> $2::vector
-       LIMIT ${VECTOR_CANDIDATE_LIMIT}
-     ),
+    `WITH ${buildVectorCTE(2, 3, roleCondition)},
      cte AS (
        SELECT DISTINCT ON (doc_id)
          doc_id,
@@ -232,17 +240,9 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      ),
-     top_chunks AS (
-       SELECT de.doc_id, de.chunk_text AS chunk_snippet,
-              (de.embedding <=> $3::vector) AS distance
-       FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
-       WHERE (de.embedding <=> $3::vector) < $4
-       ORDER BY de.embedding <=> $3::vector
-       LIMIT ${VECTOR_CANDIDATE_LIMIT}
-     ),
+     ${buildVectorCTE(3, 4, roleCondition)},
      vec AS (
-       SELECT DISTINCT ON (doc_id) doc_id, chunk_snippet, distance
+       SELECT DISTINCT ON (doc_id) doc_id, chunk_text AS chunk_snippet, distance
        FROM top_chunks
        ORDER BY doc_id, distance ASC
      ),
