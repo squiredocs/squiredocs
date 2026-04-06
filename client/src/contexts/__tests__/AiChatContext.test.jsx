@@ -413,26 +413,22 @@ describe('AiChatContext', () => {
       expect(mockApi.get).not.toHaveBeenCalled();
     });
 
-    it('passes token directly in refreshChatList headers', async () => {
+    it('refreshChatList calls api without manual auth headers', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      // The initial mount call should include the Authorization header
-      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats', {
-        headers: { Authorization: 'Bearer test-token' },
-      });
+      // Auth is handled by the axios interceptor, so no explicit headers
+      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats');
     });
 
-    it('passes token directly in fetchChatMessages headers', async () => {
+    it('fetchChatMessages calls api without manual auth headers', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
       mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
       act(() => { result.current.selectChat('chat-x'); });
 
-      await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats/chat-x', {
-        headers: { Authorization: 'Bearer test-token' },
-      }));
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats/chat-x'));
     });
   });
 });

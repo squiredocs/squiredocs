@@ -39,10 +39,7 @@ export function AiChatProvider({ children }) {
 
   const refreshChatList = useCallback(async () => {
     try {
-      const token = tokenRef.current;
-      const { data: list } = await api.get('/api/chat/chats', token ? {
-        headers: { Authorization: `Bearer ${token}` },
-      } : undefined);
+      const { data: list } = await api.get('/api/chat/chats');
       list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
       setChatList(list);
       return list;
@@ -89,10 +86,7 @@ export function AiChatProvider({ children }) {
 
   // Shared helper: fetch a chat's messages from the server
   const fetchChatMessages = useCallback(async (id) => {
-    const token = tokenRef.current;
-    const { data } = await api.get(`/api/chat/chats/${id}`, token ? {
-      headers: { Authorization: `Bearer ${token}` },
-    } : undefined);
+    const { data } = await api.get(`/api/chat/chats/${id}`);
     return data.messages || [];
   }, [api]);
 

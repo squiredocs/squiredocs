@@ -7,6 +7,7 @@
 const WebSocket = require('ws');
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
+const { ROLES } = require('../documents');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -586,8 +587,6 @@ function clearUserSessions(userId) {
  * @param {number} [durationSeconds=60] - How long to maintain presence (1-300 seconds)
  * @returns {Promise<object>} { provider, awareness, sessionId, agentInfo, expiresIn }
  */
-const ROLES = { viewer: 1, editor: 2, owner: 3 };
-
 async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT_PRESENCE_DURATION, options = {}) {
   if (!persistenceProvider) {
     throw new Error('Agent presence manager not initialized');
