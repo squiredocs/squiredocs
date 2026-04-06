@@ -295,7 +295,9 @@ describe('read_document tool', () => {
 
   describe('access control', () => {
     test('throws error when user has no access', async () => {
-      mockPool.query.mockResolvedValue({ rows: [] });
+      agentPresence.getOrCreateSession.mockRejectedValueOnce(
+        new Error('Document not found or you do not have access')
+      );
 
       await expect(
         readDocument.handler({ docGuid: 'test-doc-id' }, { userId: 'unauthorized-user' })

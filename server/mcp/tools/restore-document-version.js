@@ -104,6 +104,7 @@ async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('restore_document_version tool not initialized');
 
   const { docGuid, versionId } = args;
+  const userId = agentToken.userId;
 
   // Get or create agent session (verifies access and editor role internally)
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60, { requiredRole: 'editor' });

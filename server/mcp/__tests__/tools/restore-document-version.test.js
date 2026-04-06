@@ -97,9 +97,19 @@ describe('restore_document_version tool', () => {
     createDocument.init(persistenceProvider);
 
     // Mock getOrCreateSession to avoid WebSocket connections in tests
+    // but still enforce access control like the real implementation
     originalGetOrCreateSession = agentPresence.getOrCreateSession;
-    agentPresence.getOrCreateSession = async (docGuid, agentToken, timeout) => {
-      // Return a mock session with access to the real Yjs document
+    agentPresence.getOrCreateSession = async (docGuid, agentToken, timeout, options = {}) => {
+      const role = await documents.getRole(docGuid, agentToken.userId);
+      if (!role) {
+        throw new Error('Document not found or you do not have access');
+      }
+      if (options.requiredRole) {
+        const ROLES = { viewer: 1, editor: 2, owner: 3 };
+        if ((ROLES[role] || 0) < (ROLES[options.requiredRole] || 0)) {
+          throw new Error(`Requires ${options.requiredRole} role, you have ${role}`);
+        }
+      }
       return {
         provider: { doc: getYDoc(docGuid) },
         sessionId: `test-session-${docGuid}`,
@@ -324,7 +334,7 @@ describe('restore_document_version tool', () => {
           { docGuid: testDocGuid, versionId: oldVersionId },
           agentToken
         )
-      ).rejects.toThrow('viewers cannot restore document versions');
+      ).rejects.toThrow('Requires editor role, you have viewer');
 
       await pool.query('DELETE FROM users WHERE id = $1', [viewerUserId]);
     });
