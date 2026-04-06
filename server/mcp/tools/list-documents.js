@@ -16,7 +16,6 @@ function init(persistence) {
   persistenceProvider = persistence;
   if (persistence && persistence.getPool) {
     documents.init(persistence.getPool());
-    search.init(persistence.getPool());
   }
 }
 
@@ -112,21 +111,15 @@ async function handler(args, agentToken) {
   const userId = agentToken.userId;
   const baseUrl = agentToken.baseUrl || '';
 
-  const filter = args.filter || 'all';
-  const sortOrder = args.sortOrder || 'desc';
-  const offset = Math.max(0, parseInt(args.offset, 10) || 0);
-
   // Content search path: when a search query is provided
   if (args.search && args.search.trim()) {
-    const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 10));
-
     const { rows, pagination } = await search.searchDocuments(userId, args.search, {
-      mode: args.searchMode || 'hybrid',
-      filter,
+      mode: args.searchMode,
+      filter: args.filter,
       sortBy: args.sortBy || 'relevance',
-      sortOrder,
-      limit,
-      offset,
+      sortOrder: args.sortOrder,
+      limit: args.limit,
+      offset: args.offset,
     });
 
     return {
@@ -145,12 +138,12 @@ async function handler(args, agentToken) {
 
   // List path: no search query
   const limit = Math.max(1, Math.min(100, parseInt(args.limit, 10) || 50));
-  const sortBy = args.sortBy || 'updatedAt';
+  const offset = Math.max(0, parseInt(args.offset, 10) || 0);
 
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
-    filter,
-    sortBy,
-    sortOrder,
+    filter: args.filter,
+    sortBy: args.sortBy || 'updatedAt',
+    sortOrder: args.sortOrder,
     limit,
     offset,
   });

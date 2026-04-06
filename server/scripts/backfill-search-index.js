@@ -15,23 +15,10 @@ require('dotenv').config();
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../postgres-persistence');
 const { toPlainText } = require('../mcp/yjs/serialization');
-const { embedMany } = require('ai');
-const { google } = require('@ai-sdk/google');
+const searchIndexer = require('../search-indexer');
+const { chunkText } = searchIndexer;
 
-const CHUNK_SIZE = 6000;
-const CHUNK_OVERLAP = 500;
-const MIN_CHUNK_LENGTH = 100;
 const DELAY_MS = 200;
-
-function chunkText(text, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP) {
-  if (!text || text.length <= chunkSize) return text ? [text] : [];
-  const chunks = [];
-  for (let i = 0; i < text.length; i += chunkSize - overlap) {
-    const chunk = text.slice(i, i + chunkSize);
-    if (chunk.trim().length >= MIN_CHUNK_LENGTH) chunks.push(chunk);
-  }
-  return chunks;
-}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,6 +40,7 @@ async function main() {
 
   const pool = new Pool(typeof dbConfig === 'string' ? { connectionString: dbConfig } : dbConfig);
   const persistence = new PostgresPersistence(dbConfig);
+  searchIndexer.init(persistence);
 
   try {
     // Find documents that need embedding backfill:
@@ -93,42 +81,10 @@ async function main() {
           continue;
         }
 
-        // Chunk and batch-embed (Gemini API limit: 100 texts per batch)
         const chunks = chunkText(contentText);
-        const BATCH_SIZE = 100;
-        const allEmbeddings = [];
-        for (let b = 0; b < chunks.length; b += BATCH_SIZE) {
-          const batch = chunks.slice(b, b + BATCH_SIZE);
-          const { embeddings } = await embedMany({
-            model: google.textEmbeddingModel('gemini-embedding-001'),
-            values: batch,
-            providerOptions: { google: { outputDimensionality: 1536 } },
-          });
-          allEmbeddings.push(...embeddings);
-        }
-
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-          await client.query('DELETE FROM document_embeddings WHERE doc_id = $1', [doc.doc_id]);
-
-          for (let j = 0; j < chunks.length; j++) {
-            await client.query(
-              `INSERT INTO document_embeddings (doc_id, chunk_index, chunk_text, embedding)
-               VALUES ($1, $2, $3, $4)`,
-              [doc.doc_id, j, chunks[j], JSON.stringify(allEmbeddings[j])]
-            );
-          }
-
-          await client.query('COMMIT');
-          successCount++;
-          console.log(`${progress} ✓ ${doc.doc_id}: "${doc.title || '(no title)'}" — ${chunks.length} chunk(s), ${contentText.length} chars`);
-        } catch (err) {
-          await client.query('ROLLBACK');
-          throw err;
-        } finally {
-          client.release();
-        }
+        await searchIndexer.generateAndStoreEmbeddings(doc.doc_id, contentText);
+        successCount++;
+        console.log(`${progress} ✓ ${doc.doc_id}: "${doc.title || '(no title)'}" — ${chunks.length} chunk(s), ${contentText.length} chars`);
 
         // Rate limit between documents
         await sleep(DELAY_MS);

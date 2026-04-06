@@ -22,6 +22,11 @@ const CHUNK_OVERLAP = 500;
 const MIN_CHUNK_LENGTH = 100;
 const EMBEDDING_CONCURRENCY = 5;
 
+// Shared embedding config — search.js imports these for query embeddings
+// so document and query embeddings always use the same model/dimensions.
+const EMBEDDING_MODEL = 'gemini-embedding-001';
+const EMBEDDING_DIMENSIONS = 1536;
+
 /**
  * Initialize the search indexer with the persistence provider.
  */
@@ -124,9 +129,9 @@ async function generateAndStoreEmbeddings(docGuid, contentText) {
   for (let b = 0; b < chunks.length; b += BATCH_SIZE) {
     const batch = chunks.slice(b, b + BATCH_SIZE);
     const { embeddings } = await embedMany({
-      model: google.textEmbeddingModel('gemini-embedding-001'),
+      model: google.textEmbeddingModel(EMBEDDING_MODEL),
       values: batch,
-      providerOptions: { google: { outputDimensionality: 1536 } },
+      providerOptions: { google: { outputDimensionality: EMBEDDING_DIMENSIONS } },
     });
     allEmbeddings.push(...embeddings);
   }
@@ -201,4 +206,4 @@ async function flushDirty() {
   await Promise.allSettled(pending.map((docGuid) => indexDocument(docGuid)));
 }
 
-module.exports = { init, markDirty, indexDocument, reindexStale, flushDirty, chunkText };
+module.exports = { init, markDirty, indexDocument, reindexStale, flushDirty, chunkText, generateAndStoreEmbeddings, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS };

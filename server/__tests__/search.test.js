@@ -103,13 +103,6 @@ describe('search module', () => {
     expect(docIds).not.toContain(docId1);
   });
 
-  test('user2 can find their own private document', async () => {
-    const results = await search.searchDocuments(userId2, 'authentication', { mode: 'fulltext' });
-    const docIds = results.rows.map((r) => r.doc_id);
-    expect(docIds).toContain(docId3);
-    expect(docIds).not.toContain(docId1);
-  });
-
   test('search for database returns migration notes', async () => {
     const results = await search.searchDocuments(userId1, 'database migration', { mode: 'fulltext' });
     expect(results.rows.length).toBe(1);

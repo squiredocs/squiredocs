@@ -6,6 +6,7 @@
  */
 
 const sanitizeHtml = require('sanitize-html');
+const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./search-indexer');
 
 let pool = null;
 
@@ -62,7 +63,7 @@ async function searchDocuments(userId, query, options = {}) {
   const filter = options.filter || 'all';
   const sortBy = options.sortBy || 'relevance';
   const sortOrder = options.sortOrder || 'desc';
-  const limit = Math.max(1, Math.min(50, parseInt(options.limit, 10) || 10));
+  const limit = Math.max(1, Math.min(100, parseInt(options.limit, 10) || 10));
   const offset = Math.max(0, parseInt(options.offset, 10) || 0);
 
   // Determine effective mode: fall back to fulltext if no embeddings or no API key
@@ -107,9 +108,9 @@ async function getQueryEmbedding(query) {
   const { embed } = require('ai');
   const { google } = require('@ai-sdk/google');
   const { embedding } = await embed({
-    model: google.textEmbeddingModel('gemini-embedding-001'),
+    model: google.textEmbeddingModel(EMBEDDING_MODEL),
     value: query,
-    providerOptions: { google: { outputDimensionality: 1536 } },
+    providerOptions: { google: { outputDimensionality: EMBEDDING_DIMENSIONS } },
   });
   return embedding;
 }
