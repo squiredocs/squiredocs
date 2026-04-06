@@ -119,6 +119,62 @@ npm start
 
 The server will serve the built frontend from `client/dist` and handle WebSocket connections.
 
+## Kubernetes Deployment
+
+The application can be deployed to a local Minikube cluster or a GKE cluster. All Kubernetes manifests live in `k8s/`.
+
+### Minikube Setup
+
+```bash
+# 1. Start minikube with sufficient resources
+minikube start --cpus=10 --memory=12288 --disk-size=40g --driver=docker
+
+# 2. Create storage classes and label nodes
+./script/setup-minikube.sh
+
+# 3. Deploy PostgreSQL
+./script/postgres-deploy.sh
+
+# 4. Build the app image in minikube's Docker context
+./script/builddockerdev.sh
+
+# 5. Deploy the application (Redis, secrets, app, etc.)
+./script/deploy.sh
+```
+
+### Seeding from a Production Backup
+
+Daily backups are stored in S3 (`s3://earthquaketracksql/`). To restore the latest collab backup:
+
+```bash
+# Download the latest backup
+aws s3 cp s3://earthquaketracksql/<latest-collab-backup>.sql.gz /tmp/collab-backup.sql.gz
+
+# Copy into the Postgres pod
+kubectl cp /tmp/collab-backup.sql.gz collab/<postgres-pod>:/tmp/collab-backup.sql.gz
+
+# Restore
+kubectl exec -n collab <postgres-pod> -- \
+  bash -c "gunzip -c /tmp/collab-backup.sql.gz | psql -U postgres -d collab_db"
+```
+
+### Deploy Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `script/setup-minikube.sh` | Creates storage classes and labels minikube nodes |
+| `script/postgres-deploy.sh` | Deploys PostgreSQL (secret, PVC, deployment, service) |
+| `script/builddockerdev.sh` | Builds the Docker image in minikube's Docker context |
+| `script/deploy.sh` | Main deploy: Redis, secrets, migrations, app, ingress, backup cronjob |
+| `script/backup-postgres.sh` | pg_dump backup script used by the CronJob |
+
+### Notes
+
+- `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first
+- For minikube, the app image is `collab:latest` (built locally); for GKE it uses Artifact Registry
+- `deploy.sh` supports `--skip-migrations` and `--wait` flags
+- See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.)
+
 ## Configuration
 
 ### Environment Variables
