@@ -373,62 +373,114 @@ describe('AiChatContext', () => {
   // ── Session restore & token handling on refresh ───────────────────────────
 
   describe('session restore on refresh', () => {
-    it('initializes currentChatId from sessionStorage', async () => {
+    it('restores chat ID from sessionStorage and loads its messages', async () => {
       sessionStorage.setItem('ai_chat_id', 'saved-chat-99');
-      // Chat list returns the saved chat so it isn't cleared
+      const savedMessages = [
+        { role: 'user', parts: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', parts: [{ type: 'text', text: 'hi back' }] },
+      ];
+      // Messages effect fires before chat-list effect (declaration order),
+      // so fetchChatMessages mock must come first.
       mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: { messages: savedMessages } });
       mockApi.get.mockResolvedValueOnce({ data: [{ id: 'saved-chat-99', title: 'Old chat', updatedAt: new Date().toISOString() }] });
-      // fetchChatMessages for the eagerly restored chat
-      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'assistant', parts: [{ type: 'text', text: 'hi' }] }] } });
 
       const { result } = renderAiChat();
 
       await waitFor(() => expect(result.current.currentChatId).toBe('saved-chat-99'));
+      await waitFor(() => expect(setMessagesSpy).toHaveBeenCalledWith(savedMessages));
     });
 
-    it('clears saved chat ID if chat no longer exists in list', async () => {
-      sessionStorage.setItem('ai_chat_id', 'deleted-chat');
-      // Chat list doesn't contain the saved ID
+    it('preserves saved chat ID even if not in first page of chat list', async () => {
+      sessionStorage.setItem('ai_chat_id', 'older-chat');
+      // Messages effect fires first, then chat list effect
       mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'assistant', parts: [{ type: 'text', text: 'hi' }] }] } });
       mockApi.get.mockResolvedValueOnce({ data: [{ id: 'other-chat', title: 'Other', updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() }] });
 
       const { result } = renderAiChat();
 
-      await waitFor(() => expect(result.current.currentChatId).toBeNull());
-      expect(sessionStorage.getItem('ai_chat_id')).toBeNull();
+      await waitFor(() => expect(result.current.currentChatId).toBe('older-chat'));
+      expect(sessionStorage.getItem('ai_chat_id')).toBe('older-chat');
+    });
+
+    it('preserves saved chat ID when chat list fetch fails', async () => {
+      sessionStorage.setItem('ai_chat_id', 'my-chat');
+      const savedMessages = [{ role: 'user', parts: [{ type: 'text', text: 'hey' }] }];
+      // Messages effect fires first, then chat list effect
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: { messages: savedMessages } });
+      // Chat list fetch fails (e.g. 401 during interceptor race)
+      mockApi.get.mockRejectedValueOnce(new Error('401 Unauthorized'));
+
+      const { result } = renderAiChat();
+
+      await waitFor(() => expect(result.current.currentChatId).toBe('my-chat'));
+      await waitFor(() => expect(setMessagesSpy).toHaveBeenCalledWith(savedMessages));
+      expect(sessionStorage.getItem('ai_chat_id')).toBe('my-chat');
+    });
+
+    it('auto-selects most recent chat when no saved ID and recently active', async () => {
+      // No saved chat in sessionStorage
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: [
+        { id: 'recent-chat', title: 'Recent', updatedAt: new Date().toISOString() },
+      ] });
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }] } });
+
+      const { result } = renderAiChat();
+
+      await waitFor(() => expect(result.current.currentChatId).toBe('recent-chat'));
+    });
+
+    it('does not auto-select most recent chat when it is stale', async () => {
+      // No saved chat in sessionStorage
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: [
+        { id: 'stale-chat', title: 'Stale', updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
+      ] });
+
+      const { result } = renderAiChat();
+
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      // Give the .then() handler time to run
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+      expect(result.current.currentChatId).toBeNull();
     });
 
     it('does not fetch messages when accessToken is null', async () => {
       sessionStorage.setItem('ai_chat_id', 'saved-chat');
       mockAccessToken = null;
-      // No chat list call expected since token is null
       mockApi.get.mockReset();
 
       renderAiChat();
 
-      // Give effects time to fire
       await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
-      // No API calls should have been made
       expect(mockApi.get).not.toHaveBeenCalled();
     });
 
-    it('refreshChatList calls api without manual auth headers', async () => {
+    it('refreshChatList passes explicit auth headers to avoid interceptor race', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      // Auth is handled by the axios interceptor, so no explicit headers
-      expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats?limit=50');
+      expect(mockApi.get).toHaveBeenCalledWith(
+        '/api/chat/chats?limit=50',
+        { headers: { Authorization: 'Bearer test-token' } },
+      );
     });
 
-    it('fetchChatMessages calls api without manual auth headers', async () => {
+    it('fetchChatMessages passes explicit auth headers to avoid interceptor race', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
       mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
       act(() => { result.current.selectChat('chat-x'); });
 
-      await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/chat/chats/chat-x'));
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith(
+        '/api/chat/chats/chat-x',
+        { headers: { Authorization: 'Bearer test-token' } },
+      ));
     });
   });
 });

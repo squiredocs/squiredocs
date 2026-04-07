@@ -42,7 +42,11 @@ export function AiChatProvider({ children }) {
 
   const refreshChatList = useCallback(async () => {
     try {
-      const { data: list } = await api.get(`/api/chat/chats?limit=${CHAT_PAGE_SIZE}`);
+      // Pass token explicitly so the request succeeds even before the
+      // AuthContext interceptor effect has run (React fires child effects
+      // before parent effects, creating a brief window with no interceptors).
+      const headers = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {};
+      const { data: list } = await api.get(`/api/chat/chats?limit=${CHAT_PAGE_SIZE}`, { headers });
       list.forEach(c => { if (c.title) titleSetRef.current.add(c.id); });
       setChatList(list);
       setHasMoreChats(list.length >= CHAT_PAGE_SIZE);
@@ -103,7 +107,8 @@ export function AiChatProvider({ children }) {
 
   // Shared helper: fetch a chat's messages from the server
   const fetchChatMessages = useCallback(async (id) => {
-    const { data } = await api.get(`/api/chat/chats/${id}`);
+    const headers = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {};
+    const { data } = await api.get(`/api/chat/chats/${id}`, { headers });
     return data.messages || [];
   }, [api]);
 
@@ -215,13 +220,9 @@ export function AiChatProvider({ children }) {
     if (!accessToken || chatListLoadedRef.current) return;
     chatListLoadedRef.current = true;
     refreshChatList().then((list) => {
-      // If we eagerly restored a chat ID from sessionStorage, validate it
-      const savedId = sessionStorage.getItem('ai_chat_id');
-      if (savedId) {
-        if (list.some((c) => c.id === savedId)) return; // already set, valid
-        // Saved chat no longer exists — clear it
-        setCurrentChatId(null);
-      }
+      // If we already have a chat restored from sessionStorage, keep it —
+      // the messages-loading effect handles errors if the chat no longer exists.
+      if (sessionStorage.getItem('ai_chat_id')) return;
       if (list.length === 0) return;
       // Open the most recent chat only if active within 5 minutes
       const msSinceUpdate = Date.now() - new Date(list[0].updatedAt).getTime();
