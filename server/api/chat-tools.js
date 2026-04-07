@@ -93,7 +93,28 @@ function buildWebTools(providerName, provider) {
           tools: { googleSearch: provider.tools.googleSearch({}) },
           prompt: `Search the web and summarize what you find for: ${query}`,
         });
-        return searchResult.text || 'No results found.';
+
+        const text = searchResult.text || 'No results found.';
+        const sources = searchResult.sources || [];
+        if (sources.length === 0) return text;
+
+        // Build structured result with citation data from groundingMetadata
+        const result = { text, citations: {} };
+        result.citations.sources = sources.map((s, i) => ({
+          index: i,
+          url: s.url,
+          title: s.title || undefined,
+        }));
+
+        const gm = searchResult.providerMetadata?.google?.groundingMetadata;
+        if (gm?.groundingSupports) {
+          result.citations.supports = gm.groundingSupports.map(sup => ({
+            text: sup.segment?.text || sup.segment_text || undefined,
+            sourceIndices: sup.groundingChunkIndices || sup.supportChunkIndices || [],
+          }));
+        }
+
+        return result;
       },
     });
   }

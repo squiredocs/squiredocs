@@ -530,6 +530,88 @@
   font-size: var(--text-xs);
 }
 
+/* ---------- Sources panel (web search citations) ---------- */
+
+.ai-sources-panel {
+  margin-top: 4px;
+  padding: 0 12px;
+}
+
+.ai-sources-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: var(--text-sm);
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.ai-sources-toggle:hover {
+  color: #6b7280;
+}
+
+.ai-sources-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.ai-sources-list li {
+  line-height: 1.8;
+}
+
+.ai-source-link {
+  color: #7c3aed;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+}
+
+.ai-source-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-source-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ai-source-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-source-index {
+  font-size: var(--text-xs);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Inline citation badges */
+.ai-citation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: #ede9fe;
+  color: #7c3aed;
+  cursor: default;
+  vertical-align: super;
+  line-height: 1;
+}
+
 /* ---------- Thinking / reasoning block ---------- */
 
 .ai-thinking-block {
@@ -852,6 +934,15 @@
 
 .ai-panel--byok .ai-chat-send-btn {
   background: #312e81;
+}
+
+.ai-panel--byok .ai-source-link {
+  color: #312e81;
+}
+
+.ai-panel--byok .ai-citation-badge {
+  background: #e0e7ff;
+  color: #312e81;
 }
 
 @media print {

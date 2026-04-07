@@ -64,6 +64,8 @@ function groupParts(parts) {
   let currentReasoningText = '';
 
   for (const part of parts) {
+    // source-url parts are handled by extractCitations, not rendered as groups
+    if (part.type === 'source-url') continue;
     if (isToolPart(part)) {
       if (currentReasoningText) {
         groups.push({ type: 'reasoning', text: currentReasoningText });
@@ -384,11 +386,131 @@ function CopyButton({ text }) {
   );
 }
 
-function AssistantBubble({ groups, isLoading }) {
+/**
+ * Extract citation data from an assistant message's parts.
+ * Handles both Google (citations in webSearch tool output) and
+ * Anthropic (source-url parts from native webSearch) paths.
+ */
+function extractCitations(parts) {
+  const seen = new Set();
+  const allSources = [];
+
+  // Google path: citations embedded in webSearch tool results
+  for (const part of parts) {
+    if (isToolPart(part) && getToolName(part) === 'webSearch'
+        && part.state === 'output-available' && part.output?.citations?.sources) {
+      for (const src of part.output.citations.sources) {
+        if (src.url && !seen.has(src.url)) {
+          seen.add(src.url);
+          allSources.push({ url: src.url, title: src.title });
+        }
+      }
+    }
+  }
+
+  // Anthropic path: source-url parts from sendSources
+  for (const part of parts) {
+    if (part.type === 'source-url' && part.url && !seen.has(part.url)) {
+      seen.add(part.url);
+      allSources.push({ url: part.url, title: part.title });
+    }
+  }
+
+  return allSources.length > 0 ? { sources: allSources } : null;
+}
+
+function SourcesPanel({ citations }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!citations || citations.sources.length === 0) return null;
+
+  const { sources } = citations;
+
+  return (
+    <div className="ai-sources-panel">
+      <button className="ai-sources-toggle" onClick={() => setExpanded(!expanded)}>
+        {sources.length} source{sources.length !== 1 ? 's' : ''} {expanded ? '\u25B4' : '\u25BE'}
+      </button>
+      {expanded && (
+        <ol className="ai-sources-list">
+          {sources.map((src, i) => {
+            let hostname = '';
+            try { hostname = new URL(src.url).hostname; } catch (_) {}
+            return (
+              <li key={src.url}>
+                <a href={src.url} target="_blank" rel="noopener noreferrer" className="ai-source-link">
+                  {hostname && <img src={`https://www.google.com/s2/favicons?sz=16&domain=${hostname}`} alt="" className="ai-source-favicon" />}
+                  <span className="ai-source-title">{src.title || hostname || src.url}</span>
+                  <span className="ai-source-index">[{i + 1}]</span>
+                </a>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/** Render [N] citation references as styled superscript badges. */
+function CitationBadge({ index, onClick }) {
+  return (
+    <sup className="ai-citation-badge" onClick={onClick} role="button" tabIndex={0}>
+      {index}
+    </sup>
+  );
+}
+
+/**
+ * Build markdown components with citation badge support.
+ * Matches [N] patterns in text nodes and renders them as superscript badges.
+ */
+function buildMarkdownComponents(citations) {
+  const CITE_RE = /\[(\d+)\]/g;
+
+  function processTextNode(text) {
+    if (!citations || !CITE_RE.test(text)) return text;
+    CITE_RE.lastIndex = 0;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    while ((match = CITE_RE.exec(text)) !== null) {
+      const num = parseInt(match[1], 10);
+      if (num < 1 || num > citations.sources.length) continue;
+      if (match.index > lastIndex) {
+        parts.push(text.slice(lastIndex, match.index));
+      }
+      parts.push(<CitationBadge key={match.index} index={num} />);
+      lastIndex = match.index + match[0].length;
+    }
+    if (parts.length === 0) return text;
+    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+    return parts;
+  }
+
+  return {
+    a: MarkdownLink,
+    p: ({ children, ...props }) => {
+      const processed = React.Children.map(children, child =>
+        typeof child === 'string' ? processTextNode(child) : child
+      );
+      return <p {...props}>{processed}</p>;
+    },
+    li: ({ children, ...props }) => {
+      const processed = React.Children.map(children, child =>
+        typeof child === 'string' ? processTextNode(child) : child
+      );
+      return <li {...props}>{processed}</li>;
+    },
+  };
+}
+
+function AssistantBubble({ groups, isLoading, citations }) {
   const lastGroup = groups[groups.length - 1];
   const showDots = isLoading && (!lastGroup || lastGroup.type !== 'text');
 
   const fullText = groups.filter(g => g.type === 'text').map(g => g.text).join('\n\n');
+
+  const mdComponents = citations ? buildMarkdownComponents(citations) : markdownLinkRenderer;
 
   return (
     <div className="ai-chat-bubble-wrap ai-chat-bubble-wrap--assistant">
@@ -397,7 +519,7 @@ function AssistantBubble({ groups, isLoading }) {
           if (group.type === 'text') {
             return (
               <div key={i} className="ai-chat-markdown">
-                <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{group.text}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>{group.text}</Markdown>
               </div>
             );
           }
@@ -421,6 +543,7 @@ function AssistantBubble({ groups, isLoading }) {
           </span>
         )}
       </div>
+      {citations && <SourcesPanel citations={citations} />}
       {fullText && <CopyButton text={fullText} />}
     </div>
   );
@@ -460,8 +583,9 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
         {messages.map((msg) => {
           if (msg.role === 'assistant') {
             const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
+            const citations = extractCitations(msg.parts || []);
             if (groups.length === 0 && !isLoading) return null;
-            return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} />;
+            return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} citations={citations} />;
           }
           const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
           const fileParts = msg.parts?.filter(p => p.type === 'file') || [];

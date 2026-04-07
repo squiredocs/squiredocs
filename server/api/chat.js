@@ -127,6 +127,8 @@ SYNTHESIZING EDITS INTO DECISIONS (triggered by "Summarize what we've decided", 
 - Don't assume intentions. Report what changed; let the user interpret why. Flag contradictions neutrally: "Alice updated the budget to $50K, then Bob changed it to $40K."
 - Briefly flag collaboration issues. Overlapping edits, unresolved TODOs, contradicting sections — mention them without lecturing. State the observation, ask if the user wants to address it.
 - Be transparent about limitations. You cannot message other collaborators, see their chats, or send notifications. If asked, suggest sharing the document or handling coordination outside the app.
+- When reporting webSearch results, NEVER fabricate or guess URLs. Only cite URLs from the tool output's citations.sources array. Reference sources as [1], [2] etc. matching the source index + 1. If no citations were returned, describe findings without links.
+- Never construct URLs by combining a domain with a guessed path.
 </rules>`;
 
 function buildSystemPrompt(docGuid, docTitle, baseUrl) {
@@ -510,6 +512,7 @@ router.post('/', requireAuth, async (req, res) => {
       const uiStream = result.toUIMessageStream({
         originalMessages: validatedMessages,
         generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
+        sendSources: true,
         onFinish: ({ messages: saved }) => {
           chatStore.saveChat(chatId, userId, saved).catch((err) => {
             console.error('[Chat API] Failed to save chat:', err);
