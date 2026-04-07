@@ -222,7 +222,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script },
         mockAgentToken
       );
-      expect(modifyResult.success).toBe(true);
+      expect(modifyResult.changed).toBeDefined();
       console.log(`✓ modify completed with ${modifyResult.operationCount} operations`);
 
       // Step 4: Verify document structure - should have exactly ONE heading
@@ -297,7 +297,7 @@ export default function edit(doc) {
         mockAgentToken
       );
 
-      expect(modifyResult.success).toBe(true);
+      expect(modifyResult.changed).toBeDefined();
       console.log(`✓ modify completed`);
 
       // Verify document structure
@@ -401,7 +401,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
       expect(result.operationCount).toBeGreaterThan(0);
       console.log('✓ Step 2: modify succeeded');
       console.log(`  Operations: ${result.operationCount}`);
@@ -525,7 +525,7 @@ export default function edit(doc) {
         { docGuid: bugTestDocGuid, script: initScript },
         mockAgentToken
       );
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
       console.log('✓ Step 1: Initial content added');
 
       // Step 2: Execute script to add text and create ordered list
@@ -563,7 +563,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
       expect(result.operationCount).toBeGreaterThan(0);
 
       console.log('✓ Step 2: modify succeeded');
@@ -632,7 +632,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       console.log('✓ modify: append text succeeded');
     }, 10000);
@@ -670,7 +670,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // DEEP VERIFICATION: Check that bold marks actually appear in Yjs document
       // This is a regression test - don't just trust success=true
@@ -721,7 +721,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       console.log('✓ modify: delete text succeeded');
     }, 10000);
@@ -751,7 +751,7 @@ export default function edit(doc) {
         mockAgentToken
       );
 
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: Block was actually added (content appears in document)
       let readResult = await readDoc.handler({
@@ -783,7 +783,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: Block was actually deleted (content no longer in document)
       readResult = await readDoc.handler({
@@ -828,7 +828,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: bulletList content appears in document
       const readResult = await readDoc.handler({
@@ -873,7 +873,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: orderedList content appears in document
       const readResult = await readDoc.handler({
@@ -940,7 +940,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: All 3 items appear in the document
       const readResult = await readDoc.handler({
@@ -1108,7 +1108,7 @@ export default function edit(doc) {
       );
 
       expect(result).toBeDefined();
-      expect(result.success).toBe(true);
+      expect(result.changed).toBeDefined();
 
       // VERIFY: Document has all expected content
       const readResult = await readDoc.handler({

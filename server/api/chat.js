@@ -13,6 +13,7 @@ const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
+const { deduplicateReadResults } = require('./chat-dedup');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
 const { getDocument, hasAccess } = require('../documents');
 const chatStore = require('../chat-store');
@@ -129,6 +130,8 @@ SYNTHESIZING EDITS INTO DECISIONS (triggered by "Summarize what we've decided", 
 - Be transparent about limitations. You cannot message other collaborators, see their chats, or send notifications. If asked, suggest sharing the document or handling coordination outside the app.
 - When reporting webSearch results, NEVER fabricate or guess URLs. Only cite URLs from the tool output's citations.sources array. Reference sources as [1], [2] etc. matching the source index + 1. If no citations were returned, describe findings without links.
 - Never construct URLs by combining a domain with a guessed path.
+- If modify returns changed: false, treat it as a targeting failure — your XPath or element selection likely didn't match. Re-read the document with format: "structured" to understand the current structure before retrying.
+- NEVER use positional indexing (doc.get(n), element.get(n)) to target elements in modify scripts. Positional indices shift when content is added, removed, or reordered — especially in collaborative documents. Always use XPath (e.g., xpath('//heading[contains(., "Title")]')) to find elements reliably.
 </rules>`;
 
 function buildSystemPrompt(docGuid, docTitle, baseUrl) {
@@ -460,6 +463,9 @@ router.post('/', requireAuth, async (req, res) => {
     const modelMessages = await convertToModelMessages(validatedMessages);
     inlineDataUrls(modelMessages);
 
+    // Deduplicate repeated document reads to save context window space
+    const dedupedMessages = deduplicateReadResults(modelMessages);
+
     // Build streamText options (reusable for compaction/retry)
     const useThinking = def.provider === 'google';
     const streamTextOpts = {
@@ -523,7 +529,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     try {
-      await runStream(modelMessages);
+      await runStream(dedupedMessages);
       cleanupEntry(30_000);
       res.end();
     } catch (streamError) {
@@ -541,7 +547,7 @@ router.post('/', requireAuth, async (req, res) => {
           input: {},
         });
 
-        const compacted = await compactMessages(modelMessages);
+        const compacted = await compactMessages(dedupedMessages);
 
         writeSSEEvent(res, entry, {
           type: 'tool-output-available',
@@ -560,7 +566,7 @@ router.post('/', requireAuth, async (req, res) => {
         console.warn(
           '[Chat API] INVALID_ARGUMENT with thinking enabled — retrying without thinkingConfig'
         );
-        await runStream(modelMessages, {
+        await runStream(dedupedMessages, {
           providerOptions: {},
           writeHeaders: !res.headersSent,
         });

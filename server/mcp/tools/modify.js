@@ -76,6 +76,8 @@ ANTI-PATTERNS TO AVOID:
 ❌ Writing entire document in one massive script
 ❌ Deleting everything and recreating from scratch
 ❌ Scripts longer than ~50 lines (break them up!)
+❌ Using positional indexing (doc.get(n), element.get(n)) to target elements
+  → Positions shift in collaborative docs. Always use XPath instead.
 
 ⚠️ WHY "DELETE ALL + RECREATE" IS BAD:
   - Breaks real-time collaboration (other users see flickering)
@@ -465,8 +467,8 @@ PARAMETERS
 RETURNS
 ═══════════════════════════════════════════════════════════════════════════
 
-- success: true if script executed successfully
-- changed: true if the document content actually changed (detects silent no-ops)
+- changed: true if the document content actually changed (false = targeting missed, re-read the doc)
+- message: Diagnostic guidance when changed is false (explains likely cause and next steps)
 - operationCount: Number of Yjs operations performed
 - summary: Object mapping operation types to counts
 - error: Error message if execution failed
@@ -1088,8 +1090,8 @@ WHEN CLONING IS NOT REQUIRED:
 
 ❌ WRONG - Moving element between parents without proper handling:
   export default function edit(doc) {
-    const blocks = doc.toArray();
-    const firstPara = blocks[0]; // Get existing paragraph
+    const firstPara = xpathFirst('//paragraph');
+    if (!firstPara) return;
 
     // Try to move it to a list (this won't work as expected)
     const list = new Y.XmlElement('bulletList');
@@ -1101,14 +1103,15 @@ WHEN CLONING IS NOT REQUIRED:
 
 ✅ CORRECT - Delete from old location, create new structure:
   export default function edit(doc) {
-    const blocks = doc.toArray();
-    const firstPara = blocks[0];
+    const firstPara = xpathFirst('//paragraph');
+    if (!firstPara) return;
 
     // Clone the element to preserve its content
     const clonedPara = firstPara.clone();
 
     // Delete from original location
-    doc.delete(0, 1);
+    const idx = doc.toArray().indexOf(firstPara);
+    if (idx >= 0) doc.delete(idx, 1);
 
     // Create new structure with cloned content
     const list = new Y.XmlElement('bulletList');
@@ -1116,22 +1119,20 @@ WHEN CLONING IS NOT REQUIRED:
     item.insert(0, [clonedPara]);
     list.insert(0, [item]);
 
-    doc.insert(0, [list]);
+    doc.insert(idx >= 0 ? idx : 0, [list]);
   }
 
 ✅ ALSO CORRECT - Extract content and rebuild:
   export default function edit(doc) {
-    const blocks = doc.toArray();
-    const firstPara = blocks[0];
+    const firstPara = xpathFirst('//paragraph');
+    if (!firstPara) return;
 
     // Extract text content
-    const textNode = firstPara.get(0);
-    const textContent = textNode instanceof Y.XmlText
-      ? textNode.toDelta().map(op => typeof op.insert === 'string' ? op.insert : '').join('')
-      : '';
+    const textContent = getTextContent(firstPara);
 
     // Delete original
-    doc.delete(0, 1);
+    const idx = doc.toArray().indexOf(firstPara);
+    if (idx >= 0) doc.delete(idx, 1);
 
     // Create new structure with same content
     const list = new Y.XmlElement('bulletList');
@@ -1143,7 +1144,7 @@ WHEN CLONING IS NOT REQUIRED:
     item.insert(0, [newPara]);
     list.insert(0, [item]);
 
-    doc.insert(0, [list]);
+    doc.insert(idx >= 0 ? idx : 0, [list]);
   }
 
 ⚠️ PITFALL 2: Using Empty Object {} to Remove Formatting
@@ -1154,7 +1155,8 @@ to null.
 
 ❌ WRONG - empty object has no effect:
   export default function edit(doc) {
-    const text = findTextNode(doc.get(0));
+    const para = xpathFirst('//paragraph');
+    const text = findTextNode(para);
     const content = extractText(text);
     // This does NOTHING - bold text stays bold
     text.format(0, content.length, {});
@@ -1162,7 +1164,8 @@ to null.
 
 ✅ CORRECT - set attribute to null:
   export default function edit(doc) {
-    const text = findTextNode(doc.get(0));
+    const para = xpathFirst('//paragraph');
+    const text = findTextNode(para);
     const content = extractText(text);
     // This removes bold formatting
     text.format(0, content.length, { bold: null });
@@ -1170,7 +1173,8 @@ to null.
 
 ✅ CORRECT - remove multiple attributes:
   export default function edit(doc) {
-    const text = findTextNode(doc.get(0));
+    const para = xpathFirst('//paragraph');
+    const text = findTextNode(para);
     const content = extractText(text);
     // Remove all common formatting
     text.format(0, content.length, {
@@ -1307,71 +1311,49 @@ have proper context for ordering operations with different attributes.
 RECOMMENDATION: Use createFormattedText() for mixed formatting — it's the simplest
 and most reliable approach. No position counting, no reversal bugs, self-documenting.
 
-⚠️ PITFALL 6: Modifying Without Understanding Document Structure
+⚠️ PITFALL 6: Using Positional Indexing or Modifying Without Understanding Structure
 
-PROBLEM: Jumping directly into editing without first understanding the document
-hierarchy leads to errors, misplaced content, or accessing non-existent elements.
+PROBLEM: Using doc.get(n) or element.get(n) to target elements is fragile.
+Positions shift when content is added, removed, or reordered — especially in
+collaborative documents where multiple users edit simultaneously.
 
-WHEN THIS HAPPENS:
-- Assuming a listItem has a nested bulletList at index 1 (it might not)
-- Assuming blocks are paragraphs when they might be headings or lists
-- Guessing at nesting levels without verification
+NEVER use positional indexing to target elements. Always use XPath.
 
-❌ WRONG - Assuming structure without verification:
+❌ WRONG - Positional indexing:
   export default function edit(doc) {
-    const blocks = doc.toArray();
-    const item = blocks[0];  // Assume it's a listItem
-    const bulletList = item.get(1);  // Assume there's a nested list at index 1
-    bulletList.insert(0, [newItem]);  // ❌ May error - bulletList might not exist!
+    const list = doc.get(0);          // ❌ fragile — what if content was reordered?
+    const item = list.get(0);         // ❌ fragile
+    const bulletList = item.get(1);   // ❌ fragile — might not exist!
+    bulletList.insert(0, [newItem]);
   }
 
-✅ CORRECT - Use read_document first to understand structure:
+✅ CORRECT - Use XPath to find elements reliably:
+  export default function edit(doc) {
+    const list = xpathFirst('//orderedList');
+    if (!list) return;  // graceful no-op if not found
+
+    const item = xpathFirst('//orderedList/listItem[1]');
+    if (!item) return;
+
+    const bulletList = xpathFirst('.//bulletList', item);
+    if (!bulletList) return;
+
+    bulletList.insert(0, [newItem]);
+  }
+
+✅ ALSO CORRECT - Use read_document first for complex structures:
   // Step 1: Read document structure BEFORE writing your modify script
   await read_document({
     docGuid: "abc-123",
     format: "structured"
   });
 
-  // Step 2: Study the returned structure:
-  // [
-  //   { type: "orderedList", children: [
-  //     { type: "listItem", children: [
-  //       { type: "paragraph", content: "Travel Item" },
-  //       { type: "bulletList", children: [...] }  // <-- NOW you know index 1 is bulletList
-  //     ]}
-  //   ]}
-  // ]
-
-  // Step 3: Write your modify script with confidence
-  await modify({
-    docGuid: "abc-123",
-    script: \`
-      export default function edit(doc) {
-        const list = doc.get(0);  // orderedList
-        const item = list.get(0);  // listItem
-        const bulletList = item.get(1);  // bulletList - verified!
-        // Safe to proceed...
-      }
-    \`
-  });
-
-✅ ALSO CORRECT - Verify structure within the script:
-  export default function edit(doc) {
-    const blocks = doc.toArray();
-    const item = blocks[0];
-
-    if (item instanceof Y.XmlElement && item.nodeName === 'listItem') {
-      const maybeList = item.get(1);
-      if (maybeList instanceof Y.XmlElement && maybeList.nodeName === 'bulletList') {
-        // Safe to proceed
-        maybeList.insert(0, [newItem]);
-      }
-    }
-  }
+  // Step 2: Study the returned structure to understand the tree
+  // Step 3: Write your modify script using XPath to target elements
 
 RECOMMENDATION: Always use read_document with format: "structured" before writing
 complex modify scripts. Understanding the document tree prevents wasted effort
-and runtime errors.
+and runtime errors. Always use XPath for targeting — never positional indexing.
 `;
 
 const inputSchema = {
@@ -1510,13 +1492,18 @@ async function handler(args, agentToken) {
         }
       }
 
-      return {
-        success: true,
+      const response = {
         changed,
         operationCount: result.operationCount,
         summary: result.summary,
         diff,
       };
+      if (!changed) {
+        response.message = 'No changes were made \u2014 your script ran but didn\'t modify the document. '
+          + 'This usually means your XPath or element targeting didn\'t match. '
+          + 'Re-read the document with format: "structured" to verify the structure before retrying.';
+      }
+      return response;
     } else {
       throw new Error(result.error);
     }
