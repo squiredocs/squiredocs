@@ -214,29 +214,259 @@
   }
 }
 
-/* Print styles for editor content */
+/* ==========================================================================
+   Print styles — single consolidated block for the entire app.
+   All other @media print blocks have been removed from EditorView.css,
+   AiPanel.css, and App.css.
+   ========================================================================== */
 @media print {
-  .editor-common-container {
+
+  /* -----------------------------------------------------------------------
+     1. Page setup
+     ----------------------------------------------------------------------- */
+  @page {
+    margin: 0.75in;
+  }
+
+  /* -----------------------------------------------------------------------
+     2. Layout flow reset — from root down to the content area.
+     Every ancestor of .ProseMirror must flow naturally so the browser
+     can paginate freely.
+     ----------------------------------------------------------------------- */
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    width: auto !important;
+  }
+
+  body {
+    background-color: #fff !important;
+  }
+
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .app-shell {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .app-body {
+    display: block !important;
     overflow: visible !important;
     height: auto !important;
   }
 
+  .app-main {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-width: none !important;
+  }
+
+  /* -----------------------------------------------------------------------
+     3. Hide ALL non-content UI elements.
+     ----------------------------------------------------------------------- */
+
+  /* Header, toolbar, banners */
+  .app-header,
+  .editor-toolbar,
+  .view-only-banner,
+  .sync-banner,
+
+  /* Menus and dropdowns */
+  .tools-menu-wrapper,
+  .tools-menu-dropdown,
+  .dropdown-menu,
+  .color-picker,
+  .table-menu,
+
+  /* Header buttons and indicators */
+  .share-btn,
+  .ai-toggle-btn,
+  .connection-status,
+  .user-profile-badge,
+  .user-menu,
+  .user-menu-backdrop,
+
+  /* AI panel (desktop + mobile + FAB + resize handle) */
+  .ai-panel,
+  .ai-panel-mobile,
+  .ai-fab,
+  .ai-panel-resize-handle,
+
+  /* AI chat history sidebar */
+  .ai-chat-history,
+
+  /* Version history panel and its dialogs */
+  .version-history-panel,
+  .version-dialog-overlay,
+  .version-dialog,
+
+  /* Share dialog */
+  .share-dialog-overlay,
+  .share-dialog,
+
+  /* Document side pane */
+  .doc-side-pane,
+
+  /* Mobile action bar */
+  .mobile-action-bar,
+
+  /* Floating overlays */
+  .link-preview,
+  .table-context-menu {
+    display: none !important;
+  }
+
+  /* -----------------------------------------------------------------------
+     4. Remove collaboration cursors, selection overlays, and
+     interactive artifacts that should not appear on paper.
+     ----------------------------------------------------------------------- */
+  .collaboration-cursor__caret,
+  .collaboration-cursor__label {
+    display: none !important;
+  }
+
+  .collaboration-cursor__selection {
+    background: transparent !important;
+  }
+
+  .editor-common-content .ProseMirror .selectedCell:after {
+    display: none !important;
+  }
+
+  .ProseMirror-gapcursor {
+    display: none !important;
+  }
+
+  /* -----------------------------------------------------------------------
+     5. Editor content area — remove screen-specific constraints.
+     ----------------------------------------------------------------------- */
+  .editor-common-container {
+    overflow: visible !important;
+    height: auto !important;
+    display: block !important;
+  }
+
   .editor-common-content {
     padding: 0 !important;
+    display: block !important;
   }
 
   .editor-common-content .ProseMirror {
     max-width: 100% !important;
     padding: 0 !important;
+    overflow: visible !important;
   }
 
-  /* Clean page breaks */
+  /* -----------------------------------------------------------------------
+     6. Typography optimized for print.
+     ----------------------------------------------------------------------- */
+  .editor-common-content .ProseMirror {
+    font-size: 12pt;
+    line-height: 1.5;
+    color: #000;
+  }
+
+  .editor-common-content .ProseMirror h1 {
+    font-size: 24pt;
+    line-height: 1.2;
+  }
+
+  .editor-common-content .ProseMirror h2 {
+    font-size: 18pt;
+    line-height: 1.25;
+  }
+
+  .editor-common-content .ProseMirror h3 {
+    font-size: 14pt;
+    line-height: 1.3;
+  }
+
+  /* Links: show URL after link text */
+  .editor-common-content .ProseMirror a {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  .editor-common-content .ProseMirror a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #555;
+    word-break: break-all;
+  }
+
+  .editor-common-content .ProseMirror a[href^="#"]:after,
+  .editor-common-content .ProseMirror a[href^="javascript:"]:after {
+    content: "";
+  }
+
+  /* Blockquotes — darken for print (screen gray is too faint on paper) */
+  .editor-common-content .ProseMirror blockquote {
+    color: #333;
+    border-left-color: #999;
+  }
+
+  /* Preserve backgrounds on code blocks and table headers */
+  .editor-common-content .ProseMirror code,
+  .editor-common-content .ProseMirror pre,
+  .editor-common-content .ProseMirror th {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Code blocks: wrap long lines instead of overflowing */
+  .editor-common-content .ProseMirror pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow: visible;
+  }
+
+  /* Table borders: darken for crisp printing */
+  .editor-common-content .ProseMirror td,
+  .editor-common-content .ProseMirror th {
+    border-color: #999;
+  }
+
+  /* -----------------------------------------------------------------------
+     7. Page break control.
+     ----------------------------------------------------------------------- */
+
+  /* Avoid breaks inside complex block elements */
   .editor-common-content .ProseMirror table,
   .editor-common-content .ProseMirror pre,
   .editor-common-content .ProseMirror blockquote,
+  .editor-common-content .ProseMirror img {
+    break-inside: avoid;
+  }
+
+  /* Headings must stay with the content that follows them */
   .editor-common-content .ProseMirror h1,
   .editor-common-content .ProseMirror h2,
-  .editor-common-content .ProseMirror h3 {
+  .editor-common-content .ProseMirror h3,
+  .editor-common-content .ProseMirror h4,
+  .editor-common-content .ProseMirror h5,
+  .editor-common-content .ProseMirror h6 {
     break-inside: avoid;
+    break-after: avoid;
+  }
+
+  /* Prevent orphans and widows */
+  .editor-common-content .ProseMirror p,
+  .editor-common-content .ProseMirror li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Images should not exceed page width */
+  .editor-common-content .ProseMirror img {
+    max-width: 100% !important;
+    height: auto !important;
   }
 }

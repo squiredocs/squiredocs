@@ -370,33 +370,3 @@
     opacity: 1;
   }
 }
-
-/* Print styles */
-@media print {
-  /* Hide all UI chrome */
-  .app-header,
-  .editor-toolbar,
-  .view-only-banner,
-  .sync-banner,
-  .tools-menu-dropdown,
-  .ai-toggle-btn {
-    display: none !important;
-  }
-
-  /* Remove layout constraints so full content prints */
-  .app-body {
-    display: block !important;
-    overflow: visible !important;
-    height: auto !important;
-  }
-
-  .app-main {
-    overflow: visible !important;
-    height: auto !important;
-  }
-
-  /* Page margins */
-  @page {
-    margin: 0.75in;
-  }
-}

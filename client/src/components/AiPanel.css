@@ -748,6 +748,30 @@
   background: #374151;
 }
 
+.ai-chat-preview-file {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #6b7280;
+}
+
+.ai-chat-preview-filename {
+  font-size: 8px;
+  line-height: 1;
+  max-width: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
 /* ---------- File error ---------- */
 
 .ai-chat-file-error {
@@ -803,6 +827,23 @@
 
 .ai-chat-bubble--user .ai-chat-image {
   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ai-chat-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  max-width: 200px;
+}
+
+.ai-chat-file-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-chat-textarea {
@@ -960,12 +1001,4 @@
 .ai-panel--byok .ai-citation-badge {
   background: #e0e7ff;
   color: #312e81;
-}
-
-@media print {
-  .ai-panel,
-  .ai-panel-mobile,
-  .ai-toggle-btn {
-    display: none !important;
-  }
 }
