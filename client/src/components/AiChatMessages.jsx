@@ -246,6 +246,26 @@ function DocumentListView({ documents, pagination }) {
   );
 }
 
+function WebSearchResultsView({ sources }) {
+  if (!sources || sources.length === 0) return null;
+  return (
+    <ul className="ai-web-results-list">
+      {sources.map((src) => {
+        let hostname = '';
+        try { hostname = new URL(src.url).hostname; } catch (_) {}
+        return (
+          <li key={src.url}>
+            <a href={src.url} target="_blank" rel="noopener noreferrer" className="ai-source-link">
+              {hostname && <img src={`https://www.google.com/s2/favicons?sz=16&domain=${hostname}`} alt="" className="ai-source-favicon" />}
+              <span className="ai-source-title">{src.title || hostname || src.url}</span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 // Module-level cache so doc titles resolved from completed tool outputs
 // are immediately available when subsequent tools for the same doc start running.
 const docTitleCache = new Map();
@@ -266,7 +286,7 @@ function DocTitleLink({ docGuid, title }) {
   );
 }
 
-function ToolCard({ part }) {
+function ToolCard({ part, citations }) {
   const [expanded, setExpanded] = useState(false);
   const toolName = getToolName(part);
   const isComplete = part.state === 'output-available' || part.state === 'output-error';
@@ -276,6 +296,7 @@ function ToolCard({ part }) {
   const isModify = toolName === 'modify';
   const isCreate = toolName === 'create_document';
   const isListDocs = toolName === 'list_documents';
+  const isWebSearch = toolName === 'webSearch';
 
   // For create_document, docGuid comes from output; for others it's on input
   const docGuid = isDocTool && (isCreate ? part.output?.docGuid : input?.docGuid);
@@ -292,7 +313,7 @@ function ToolCard({ part }) {
     || (isCreate && input?.title)
     || null;
 
-  const showDetail = hasInput && !isModify && !isCreate && !isListDocs;
+  const showDetail = hasInput && !isModify && !isCreate && !isListDocs && !isWebSearch;
 
   // Cache titles from list_documents results for subsequent tool calls
   const docList = (isListDocs && isComplete && part.output?.documents) || null;
@@ -302,6 +323,9 @@ function ToolCard({ part }) {
       if (doc.id && doc.title) docTitleCache.set(doc.id, doc.title);
     }
   }
+
+  const webSearchSources = (isWebSearch && isComplete
+    && (part.output?.citations?.sources || citations?.sources)) || null;
 
   const diff = (isModify && isComplete && part.output?.diff) || null;
   const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
@@ -313,11 +337,12 @@ function ToolCard({ part }) {
     ? [input.search && `search \u201c${input.search}\u201d`, input.filter && input.filter !== 'all' && input.filter]
         .filter(Boolean).join(', ')
     : '';
+  const webSearchSuffix = isWebSearch && input?.query ? `\u201c${input.query}\u201d` : '';
 
   return (
     <div className="ai-tool-card">
       <div
-        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}${docList ? ' ai-tool-card--has-list' : ''}`}
+        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}${docList || webSearchSources ? ' ai-tool-card--has-list' : ''}`}
         onClick={showDetail ? () => setExpanded(!expanded) : undefined}
         style={showDetail ? undefined : { cursor: 'default' }}
         role={showDetail ? 'button' : undefined}
@@ -327,9 +352,11 @@ function ToolCard({ part }) {
             ? <DocTitleLink docGuid={docGuid} title={docTitle} />
             : docTitle || 'document')}
           {listDocsSuffix && ` \u2014 ${listDocsSuffix}`}
+          {webSearchSuffix && ` \u2014 ${webSearchSuffix}`}
           {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
         </span>
         {docList && <DocumentListView documents={docList} pagination={docListPagination} />}
+        {webSearchSources && <WebSearchResultsView sources={webSearchSources} />}
       </div>
       {expanded && showDetail && (
         <div className="ai-tool-card-detail">
@@ -529,7 +556,7 @@ function AssistantBubble({ groups, isLoading, citations }) {
           if (group.type === 'tools') {
             return (
               <div key={i} className="ai-tool-group">
-                {group.parts.map((part, j) => <ToolCard key={j} part={part} />)}
+                {group.parts.map((part, j) => <ToolCard key={j} part={part} citations={citations} />)}
               </div>
             );
           }

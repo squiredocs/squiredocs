@@ -155,6 +155,118 @@ describe('AiChatMessages', () => {
     expect(toolGroup.querySelectorAll('.ai-tool-card')).toHaveLength(2);
   });
 
+  // --------------- Web search tool card ---------------
+
+  it('shows search query inline in webSearch badge', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-webSearch',
+        toolName: 'webSearch',
+        state: 'output-available',
+        input: { query: 'quantum computing' },
+        output: { text: 'Results here' },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const toggle = container.querySelector('.ai-tool-card-toggle');
+    expect(toggle.textContent).toContain('quantum computing');
+    expect(toggle.textContent).toContain('\u2014');
+  });
+
+  it('renders web search results when citations present', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-webSearch',
+        toolName: 'webSearch',
+        state: 'output-available',
+        input: { query: 'quantum computing' },
+        output: {
+          text: 'Summary',
+          citations: {
+            sources: [
+              { index: 0, url: 'https://example.com/page1', title: 'Quantum Basics' },
+              { index: 1, url: 'https://other.org/article', title: 'Advanced Quantum' },
+            ],
+          },
+        },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const resultsList = container.querySelector('.ai-web-results-list');
+    expect(resultsList).toBeInTheDocument();
+    const items = resultsList.querySelectorAll('li');
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain('Quantum Basics');
+    expect(items[1].textContent).toContain('Advanced Quantum');
+    const link = items[0].querySelector('a');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('href')).toBe('https://example.com/page1');
+  });
+
+  it('renders web search results from source-url parts (Anthropic path)', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-webSearch',
+          toolName: 'webSearch',
+          state: 'output-available',
+          input: { query: 'quantum computing' },
+          output: { text: 'Summary' },
+        },
+        { type: 'source-url', url: 'https://example.com/page1', title: 'Quantum Basics' },
+        { type: 'source-url', url: 'https://other.org/article', title: 'Advanced Quantum' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const resultsList = container.querySelector('.ai-web-results-list');
+    expect(resultsList).toBeInTheDocument();
+    const items = resultsList.querySelectorAll('li');
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain('Quantum Basics');
+  });
+
+  it('does not render web search results when no citations', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-webSearch',
+        toolName: 'webSearch',
+        state: 'output-available',
+        input: { query: 'something' },
+        output: { text: 'No results found.' },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    expect(container.querySelector('.ai-web-results-list')).not.toBeInTheDocument();
+  });
+
+  it('does not render web search results while still running', () => {
+    const messages = [makeMsg({
+      id: '1',
+      role: 'assistant',
+      parts: [{
+        type: 'tool-webSearch',
+        toolName: 'webSearch',
+        state: 'call',
+        input: { query: 'something' },
+      }],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="streaming" />);
+
+    expect(container.querySelector('.ai-web-results-list')).not.toBeInTheDocument();
+  });
+
   // --------------- Image rendering ---------------
 
   it('renders images in user message bubbles', () => {

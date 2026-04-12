@@ -89,13 +89,17 @@ function buildWebTools(providerName, provider) {
         console.log('[Chat API] webSearch query:', query);
         const searchResult = await generateText({
           model: searchModel,
-          maxTokens: 1024,
+          maxTokens: 4096,
           tools: { googleSearch: provider.tools.googleSearch({}) },
-          prompt: `Search the web and summarize what you find for: ${query}`,
+          system: 'You are a web research assistant. Answer questions using only information found in Google Search results. Always include specific details such as names, locations, and descriptions. For every fact you include, cite the exact source URL from the search results.',
+          prompt: query,
         });
 
-        const text = searchResult.text || 'No results found.';
+        const text = searchResult.text || '';
         const sources = searchResult.sources || [];
+        console.log('[Chat API] webSearch result: text=%d chars, sources=%d, finishReason=%s',
+          text.length, sources.length, searchResult.finishReason);
+        if (!text && sources.length === 0) return 'No results found.';
         if (sources.length === 0) return text;
 
         // Build structured result with citation data from groundingMetadata
