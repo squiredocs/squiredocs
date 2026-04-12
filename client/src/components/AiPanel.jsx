@@ -144,7 +144,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
 
   const panelJsx = (
     <WrapperTag ref={panelRef} {...wrapperProps} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-      {isDragOver && <div className="ai-panel-drop-overlay">Drop image here</div>}
+      {isDragOver && <div className="ai-panel-drop-overlay">Drop files here</div>}
       {/* Resize handle (desktop only) */}
       {!isMobile && (
         <div

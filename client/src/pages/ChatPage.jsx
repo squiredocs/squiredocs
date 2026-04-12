@@ -20,6 +20,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
   const { accentColor } = useByok();
   const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const {
     messages, sendMessage, status, stop, error,
@@ -61,6 +63,31 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
     onNavigateToDoc(docGuid);
   }, [onNavigateToDoc]);
 
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) {
+      chatInputRef.current?.addFiles(e.dataTransfer.files);
+    }
+  }, []);
+
   const handleHomeClick = (e) => {
     if (shouldUseBrowserLinkBehavior(e)) return;
     e.preventDefault();
@@ -84,7 +111,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
         </div>
       </header>
 
-      <main className="chat-page-main">
+      <main className="chat-page-main" onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+        {isDragOver && <div className="chat-page-drop-overlay">Drop files here</div>}
         <div className="chat-page-toolbar">
           <button
             className="icon-btn"

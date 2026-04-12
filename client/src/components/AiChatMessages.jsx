@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useContext, createCont
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const isImageType = (t) => t?.startsWith('image/');
+
 // Labels for tool badges. Doc-scoped tools (value ends with a preposition
 // or single verb) get a linked document title appended automatically.
 const TOOL_LABELS = {
@@ -621,9 +623,19 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
               <div className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
                 {fileParts.length > 0 && (
                   <div className="ai-chat-images">
-                    {fileParts.map((fp, i) => (
-                      <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
-                    ))}
+                    {fileParts.map((fp, i) =>
+                      isImageType(fp.mediaType) ? (
+                        <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+                      ) : (
+                        <div key={i} className="ai-chat-file-badge">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                          </svg>
+                          <span>{fp.filename || 'Attachment'}</span>
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
                 {text}

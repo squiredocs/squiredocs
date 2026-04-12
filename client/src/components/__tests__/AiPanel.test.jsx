@@ -298,10 +298,10 @@ describe('AiPanel', () => {
 
     const panel = container.querySelector('.ai-panel');
     fireEvent.dragEnter(panel);
-    expect(screen.getByText('Drop image here')).toBeInTheDocument();
+    expect(screen.getByText('Drop files here')).toBeInTheDocument();
 
     fireEvent.dragLeave(panel);
-    expect(screen.queryByText('Drop image here')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drop files here')).not.toBeInTheDocument();
   });
 
   it('hides drop overlay on drop', () => {
@@ -309,10 +309,10 @@ describe('AiPanel', () => {
 
     const panel = container.querySelector('.ai-panel');
     fireEvent.dragEnter(panel);
-    expect(screen.getByText('Drop image here')).toBeInTheDocument();
+    expect(screen.getByText('Drop files here')).toBeInTheDocument();
 
     fireEvent.drop(panel, { dataTransfer: { files: [] } });
-    expect(screen.queryByText('Drop image here')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drop files here')).not.toBeInTheDocument();
   });
 
   // --------------- Usage limit (continued) ---------------

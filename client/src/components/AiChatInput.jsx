@@ -1,8 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const ACCEPTED_TYPES = [
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'application/pdf', 'text/plain', 'text/csv',
+];
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
+const isImageType = (t) => t?.startsWith('image/');
 
 const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed }, ref) {
   const [value, setValue] = useState('');
@@ -39,24 +43,24 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
   const processFiles = useCallback((fileList) => {
     setFileError(null);
     const files = Array.from(fileList);
-    const images = files.filter(f => ACCEPTED_TYPES.includes(f.type));
-    if (images.length === 0 && files.length > 0) {
-      setFileError('Only images (PNG, JPEG, GIF, WebP) are supported.');
+    const accepted = files.filter(f => ACCEPTED_TYPES.includes(f.type));
+    if (accepted.length === 0 && files.length > 0) {
+      setFileError('Unsupported file type. Supported: images, PDF, TXT, CSV.');
       return;
     }
-    const oversized = images.filter(f => f.size > MAX_FILE_SIZE);
+    const oversized = accepted.filter(f => f.size > MAX_FILE_SIZE);
     if (oversized.length > 0) {
-      setFileError('Images must be under 15MB each.');
+      setFileError('Files must be under 15MB each.');
       return;
     }
 
-    const toAdd = images.slice(0, MAX_FILES - pendingFiles.length);
+    const toAdd = accepted.slice(0, MAX_FILES - pendingFiles.length);
     if (toAdd.length <= 0) {
-      setFileError(`Maximum ${MAX_FILES} images per message.`);
+      setFileError(`Maximum ${MAX_FILES} files per message.`);
       return;
     }
-    if (toAdd.length < images.length) {
-      setFileError(`Maximum ${MAX_FILES} images per message.`);
+    if (toAdd.length < accepted.length) {
+      setFileError(`Maximum ${MAX_FILES} files per message.`);
     }
 
     // Read each file as data URL, then add to state
@@ -81,8 +85,8 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
   const handlePaste = useCallback((e) => {
     const files = e.clipboardData?.files;
     if (files?.length) {
-      const hasImages = Array.from(files).some(f => ACCEPTED_TYPES.includes(f.type));
-      if (hasImages) {
+      const hasAccepted = Array.from(files).some(f => ACCEPTED_TYPES.includes(f.type));
+      if (hasAccepted) {
         e.preventDefault();
         processFiles(files);
       }
@@ -132,8 +136,18 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
           <div className="ai-chat-preview-strip">
             {pendingFiles.map((file, i) => (
               <div key={i} className="ai-chat-preview-item">
-                <img src={file.url} alt={file.filename || 'preview'} className="ai-chat-preview-thumb" />
-                <button className="ai-chat-preview-remove" onClick={() => removeFile(i)} aria-label="Remove image">&times;</button>
+                {isImageType(file.mediaType) ? (
+                  <img src={file.url} alt={file.filename || 'preview'} className="ai-chat-preview-thumb" />
+                ) : (
+                  <div className="ai-chat-preview-file">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span className="ai-chat-preview-filename">{file.filename || 'file'}</span>
+                  </div>
+                )}
+                <button className="ai-chat-preview-remove" onClick={() => removeFile(i)} aria-label="Remove file">&times;</button>
               </div>
             ))}
           </div>
@@ -143,7 +157,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
           <button
             className="ai-chat-attach-btn"
             onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach image"
+            aria-label="Attach file"
             type="button"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -153,7 +167,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,.txt,.csv"
             multiple
             className="ai-chat-file-input"
             onChange={(e) => { processFiles(e.target.files); e.target.value = ''; }}

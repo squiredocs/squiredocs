@@ -330,6 +330,21 @@ describe('AiChatMessages', () => {
     expect(container.querySelector('.ai-chat-bubble--user')).toHaveTextContent('No images here');
   });
 
+  it('renders non-image file parts as file badges', () => {
+    const messages = [makeMsg({
+      role: 'user',
+      parts: [
+        { type: 'file', mediaType: 'application/pdf', url: 'data:application/pdf;base64,abc', filename: 'report.pdf' },
+        { type: 'text', text: 'Here is the PDF' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    expect(container.querySelector('.ai-chat-file-badge')).toBeInTheDocument();
+    expect(container.querySelector('.ai-chat-file-badge span')).toHaveTextContent('report.pdf');
+    expect(container.querySelector('.ai-chat-image')).not.toBeInTheDocument();
+  });
+
   // --------------- Document list (list_documents) ---------------
 
   it('renders document list with links when list_documents completes', () => {

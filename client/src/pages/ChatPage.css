@@ -47,12 +47,35 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 /* Messages fill the available space */
 .chat-page-main .ai-chat-messages {
   flex: 1;
   min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Input area
+   --------------------------------------------------------------------------- */
+
+/* ---------- Drop overlay ---------- */
+
+.chat-page-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(124, 58, 237, 0.08);
+  border: 2px dashed #7c3aed;
+  border-radius: 8px;
+  color: #7c3aed;
+  font-size: var(--text-lg);
+  font-weight: var(--font-medium);
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------------------

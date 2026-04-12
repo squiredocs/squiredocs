@@ -29,7 +29,7 @@ describe('AiChatInput', () => {
   it('renders attach button', () => {
     render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
 
-    expect(screen.getByRole('button', { name: 'Attach image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument();
   });
 
   it('send button is disabled when input is empty', () => {
@@ -149,7 +149,7 @@ describe('AiChatInput', () => {
     await waitFor(() => {
       expect(screen.getByAltText('test.png')).toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: 'Remove image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove file' })).toBeInTheDocument();
   });
 
   it('enables send button when files are attached even with empty text', async () => {
@@ -195,22 +195,35 @@ describe('AiChatInput', () => {
       expect(screen.getByAltText('test.png')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove file' }));
     expect(screen.queryByAltText('test.png')).not.toBeInTheDocument();
     // Send should be disabled again
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
-  it('rejects non-image files with error message', async () => {
+  it('rejects unsupported file types with error message', async () => {
     const ref = createRef();
     const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
 
-    const file = createMockFile('doc.pdf', 1024, 'application/pdf');
+    const file = createMockFile('archive.zip', 1024, 'application/zip');
     ref.current.addFiles([file]);
 
     await waitFor(() => {
-      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Only images (PNG, JPEG, GIF, WebP) are supported.');
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Unsupported file type. Supported: images, PDF, TXT, CSV.');
     });
+  });
+
+  it('accepts PDF files and shows file preview', async () => {
+    const ref = createRef();
+    const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    const file = createMockFile('report.pdf', 1024, 'application/pdf');
+    ref.current.addFiles([file]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-preview-file')).toBeInTheDocument();
+    });
+    expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('report.pdf');
   });
 
   it('rejects files over 15MB with error message', async () => {
@@ -221,7 +234,7 @@ describe('AiChatInput', () => {
     ref.current.addFiles([file]);
 
     await waitFor(() => {
-      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Images must be under 15MB each.');
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Files must be under 15MB each.');
     });
   });
 
