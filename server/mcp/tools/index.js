@@ -26,6 +26,11 @@ const setDocumentVersionName = require('./set-document-version-name');
 const restoreDocumentVersion = require('./restore-document-version');
 const compareDocumentVersions = require('./compare-document-versions');
 
+// Google Docs sync tools
+const exportToGoogleDocs = require('./export-to-google-docs');
+const importFromGoogleDocs = require('./import-from-google-docs');
+const listGoogleDocs = require('./list-google-docs');
+
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
 // All available tools
@@ -51,6 +56,11 @@ const tools = {
   set_document_version_name: setDocumentVersionName,
   restore_document_version: restoreDocumentVersion,
   compare_document_versions: compareDocumentVersions,
+
+  // Google Docs sync tools
+  export_to_google_docs: exportToGoogleDocs,
+  import_from_google_docs: importFromGoogleDocs,
+  list_google_docs: listGoogleDocs,
 };
 
 /**
@@ -107,6 +117,10 @@ const TOOL_SCOPES = {
   list_document_versions: 'documents:read',
   read_document_version: 'documents:read',
   compare_document_versions: 'documents:read',
+  // Google Docs sync
+  export_to_google_docs: 'documents:read',
+  import_from_google_docs: 'documents:write',
+  list_google_docs: 'documents:read',
 };
 
 /**

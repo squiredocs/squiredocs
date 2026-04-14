@@ -197,6 +197,10 @@ describe('Tool Registry Integration', () => {
       'set_document_version_name',
       'restore_document_version',
       'compare_document_versions',
+      // Google Docs sync tools
+      'export_to_google_docs',
+      'import_from_google_docs',
+      'list_google_docs',
     ];
 
     // Check each tool is registered

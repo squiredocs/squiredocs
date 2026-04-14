@@ -867,6 +867,127 @@ body[data-mobile] .app-header {
   margin: 0 0 10px;
 }
 
+/* Drive Connection */
+.drive-connection-description {
+  font-size: var(--text-sm);
+  color: #6b7280;
+  margin: 0 0 12px;
+  line-height: var(--leading-normal);
+}
+
+.drive-connection-btn.connect {
+  background: #7c3aed;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.drive-connection-btn.connect:hover {
+  background: #6d28d9;
+}
+
+.drive-connection-btn.disconnect {
+  background: white;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.drive-connection-btn.disconnect:hover {
+  background: #fef2f2;
+}
+
+.drive-connection-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drive-connection-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.drive-connection-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drive-connection-email {
+  font-size: var(--text-sm);
+  color: #333;
+  font-weight: var(--font-medium);
+}
+
+.drive-connection-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: var(--font-medium);
+}
+
+.drive-connection-badge.active {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.drive-connection-badge.error,
+.drive-connection-badge.expired {
+  background: #fef2f2;
+  color: #dc3545;
+}
+
+.drive-connection-badge.expiring {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.drive-connection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.drive-connection-error {
+  background: #fef2f2;
+  color: #dc3545;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  margin-bottom: 12px;
+}
+
+.drive-connection-success {
+  background: #ecfdf5;
+  color: #059669;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  margin-bottom: 12px;
+}
+
+.drive-connection-error-detail {
+  font-size: var(--text-sm);
+  color: #dc3545;
+  margin: 8px 0 0;
+}
+
+.drive-connection-loading {
+  font-size: var(--text-sm);
+  color: #9ca3af;
+}
+
 .mcp-server-row {
   display: flex;
   align-items: center;
