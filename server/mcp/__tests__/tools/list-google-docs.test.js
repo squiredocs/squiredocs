@@ -118,12 +118,12 @@ describe('list_google_docs tool', () => {
       const result = await listGoogleDocs.handler({}, agentToken());
 
       expect(result.documents).toHaveLength(2);
-      // Verify parallel-to-Squire field names (title, url, updatedAt)
+      // Verify parallel-to-Squire field names (id, title, url, updatedAt)
       expect(result.documents[0]).toMatchObject({
+        id: 'gdoc-1',
         title: 'First Doc',
         url: 'https://docs.google.com/document/d/gdoc-1',
         updatedAt: '2026-04-14T10:00:00Z',
-        googleDocId: 'gdoc-1',
         linkedSquireDocGuid: null,
       });
       expect(result.message).toContain('Found 2 Google Docs');
@@ -172,8 +172,8 @@ describe('list_google_docs tool', () => {
 
       const result = await listGoogleDocs.handler({}, agentToken());
 
-      const linked = result.documents.find((d) => d.googleDocId === 'gdoc-linked');
-      const unlinked = result.documents.find((d) => d.googleDocId === 'gdoc-unlinked');
+      const linked = result.documents.find((d) => d.id === 'gdoc-linked');
+      const unlinked = result.documents.find((d) => d.id === 'gdoc-unlinked');
 
       expect(linked.linkedSquireDocGuid).toBe(testDocId);
       expect(linked.linkedSquireDocUrl).toBe(`https://squiredocs.com/d/${testDocId}`);
@@ -206,7 +206,7 @@ describe('list_google_docs tool', () => {
       );
     });
 
-    test('passes through nextPageToken for pagination', async () => {
+    test('returns pagination with nextPageToken and hasMore', async () => {
       googleAuth.getValidToken.mockResolvedValue('access-token');
       driveApi.listGoogleDocs.mockResolvedValue({
         files: [{ id: '1', name: 'A', webViewLink: 'url' }],
@@ -214,7 +214,18 @@ describe('list_google_docs tool', () => {
       });
 
       const result = await listGoogleDocs.handler({}, agentToken());
-      expect(result.nextPageToken).toBe('next-page');
+      expect(result.pagination.nextPageToken).toBe('next-page');
+      expect(result.pagination.hasMore).toBe(true);
+    });
+
+    test('pagination.hasMore is false when no next page', async () => {
+      googleAuth.getValidToken.mockResolvedValue('access-token');
+      driveApi.listGoogleDocs.mockResolvedValue({
+        files: [{ id: '1', name: 'A', webViewLink: 'url' }],
+      });
+
+      const result = await listGoogleDocs.handler({}, agentToken());
+      expect(result.pagination.hasMore).toBe(false);
     });
 
     test('only cross-references links owned by the current user', async () => {
@@ -239,6 +250,7 @@ describe('list_google_docs tool', () => {
       const result = await listGoogleDocs.handler({}, agentToken());
 
       // The calling user hasn't linked this doc — should show as unlinked
+      expect(result.documents[0].id).toBe('gdoc-shared-id');
       expect(result.documents[0].linkedSquireDocGuid).toBeNull();
 
       // Cleanup

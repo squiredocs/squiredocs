@@ -23,7 +23,21 @@ Optionally filter by name with a search query.
 
 Each result indicates whether it's already linked to a Squire document.
 
-Requires the user to have connected their Google Drive in Settings.`;
+Requires the user to have connected their Google Drive in Settings.
+
+PARAMETERS:
+- query: optional name-based search query
+- limit: 1-50, default 20
+
+RETURNS:
+- documents: Array of { id, title, url, updatedAt, linkedSquireDocGuid, linkedSquireDocUrl }
+  - id: the Google Doc ID (use with import_from_google_docs or export_to_google_docs)
+  - url: direct link to open the doc in Google Docs
+  - linkedSquireDocGuid: present if already imported/exported to Squire
+- summary: human-readable multi-line list (one entry per doc, title + url)
+- pagination: { nextPageToken, hasMore }
+
+When presenting results to the user, include each doc's title as a link to its URL.`;
 
 const inputSchema = {
   type: 'object',
@@ -92,11 +106,11 @@ async function handler(args, agentToken) {
     const linkedDocGuid = linkMap.get(f.id);
     return {
       // Primary fields — parallel to Squire list_documents output
+      id: f.id,
       title: f.name,
       url: f.webViewLink,
       updatedAt: f.modifiedTime,
-      // Google-specific identifiers and linking info
-      googleDocId: f.id,
+      // Squire linking info
       linkedSquireDocGuid: linkedDocGuid || null,
       linkedSquireDocUrl: linkedDocGuid ? `${baseUrl}/d/${linkedDocGuid}` : null,
     };
@@ -112,8 +126,11 @@ async function handler(args, agentToken) {
 
   return {
     documents,
-    nextPageToken: result.nextPageToken || null,
     summary,
+    pagination: {
+      nextPageToken: result.nextPageToken || null,
+      hasMore: Boolean(result.nextPageToken),
+    },
     message: `Found ${documents.length} Google Doc${documents.length === 1 ? '' : 's'}${query ? ` matching "${query}"` : ''}`,
   };
 }

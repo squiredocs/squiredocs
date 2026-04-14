@@ -35,7 +35,22 @@ If omitted, a new Google Doc is created.
 The link between the Squire doc and Google Doc is stored persistently,
 so future exports can target the same Google Doc without re-specifying the ID.
 
-Requires the user to have connected their Google Drive in Settings.`;
+Requires the user to have connected their Google Drive in Settings.
+
+PARAMETERS:
+- docGuid (required): the Squire document UUID to export
+- title: title for the Google Doc (defaults to Squire doc title)
+- googleDocId: existing Google Doc ID to update (omit to create new)
+
+RETURNS:
+- title: the doc's title
+- url: link to the Google Doc (use this when reporting success to the user)
+- googleDocId: the Google Doc ID
+- squireDocGuid / squireDocUrl: the source Squire doc
+- action: "created" or "updated"
+- warning: present if the Google Doc was modified externally since last sync
+
+When reporting success to the user, include the title as a link to the url.`;
 
 const inputSchema = {
   type: 'object',

@@ -39,7 +39,22 @@ Provide a googleDocId (from list_google_docs or a Google Docs URL).
 Optionally provide a docGuid to import into an existing Squire document
 (this replaces its content).
 
-Requires the user to have connected their Google Drive in Settings.`;
+Requires the user to have connected their Google Drive in Settings.
+
+PARAMETERS:
+- googleDocId (required): Google Doc ID to import
+- docGuid: existing Squire doc to import into (replaces content); omit to create new
+- title: title for the new Squire doc (defaults to the Google Doc title)
+
+RETURNS:
+- title: the doc's title
+- url: link to the Squire document (use this when reporting success to the user)
+- docGuid: the Squire document UUID (usable with read_document, modify)
+- googleDocId / googleDocUrl: the source Google Doc
+- action: "created" or "updated"
+- blockCount: number of blocks imported
+
+When reporting success to the user, include the title as a link to the url.`;
 
 const inputSchema = {
   type: 'object',
