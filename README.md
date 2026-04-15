@@ -121,7 +121,9 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 
 ## Kubernetes Deployment
 
-The application can be deployed to a local Minikube cluster or a GKE cluster. All Kubernetes manifests live in `k8s/`.
+The application runs in production on a single AWS k3s cluster (the `wft-public` EC2 instance, kubectl context `k3s-wft-aws`), in the `collab` namespace alongside the wildfiretrackers.com workload in the `wft` namespace. CloudFront `<cloudfront-distribution-id>` (origin: `app.squiredocs.com` → `<old-node-ip>`) terminates SSL for `squiredocs.com`. Kubernetes manifests live in `k8s/` (shared with minikube/GKE) and `k8s/aws/` (k3s-only resources).
+
+Local development uses Minikube. The legacy GKE path (`script/deploy.sh`) is retained for the rollback window after the initial cutover; it can be removed once the GKE collab namespace is fully decommissioned.
 
 ### Minikube Setup
 
@@ -163,16 +165,36 @@ kubectl exec -n collab <postgres-pod> -- \
 | Script | Purpose |
 |--------|---------|
 | `script/setup-minikube.sh` | Creates storage classes and labels minikube nodes |
-| `script/postgres-deploy.sh` | Deploys PostgreSQL (secret, PVC, deployment, service) |
+| `script/postgres-deploy.sh` | Deploys PostgreSQL (secret, PVC, deployment, service) for minikube |
 | `script/builddockerdev.sh` | Builds the Docker image in minikube's Docker context |
-| `script/deploy.sh` | Main deploy: Redis, secrets, migrations, app, ingress, backup cronjob |
+| `script/deploy.sh` | Legacy GKE deploy (kept for rollback window): Redis, secrets, migrations, app, ingress, backup cronjob |
 | `script/backup-postgres.sh` | pg_dump backup script used by the CronJob |
+| **`script/deploy-aws.sh`** | **Production deploy to k3s-wft-aws (collab namespace)** — pulls image from ECR, applies postgres + redis + app + ingress, runs db-migrate-job |
+| **`script/bootstrap-collab-aws-secrets.sh`** | One-shot copy of `auth-secret`, `postgres-secret`, `mcp-auth-secret`, `ses-secret` from GKE collab namespace into k3s collab namespace (run before first `deploy-aws.sh`) |
+| **`script/sync-collab-data.sh`** | One-shot `pg_dump | psql` cutover: dumps GKE Postgres and restores into k3s. Used during the GKE → k3s cutover only. |
+
+### AWS k3s Deployment (production)
+
+```bash
+# First-time setup:
+./script/bootstrap-collab-aws-secrets.sh                 # copy 4 secrets GKE -> k3s
+docker build -t collab:$(git rev-parse HEAD) .           # build arm64 image (run on ARM Mac)
+docker tag collab:$(git rev-parse HEAD) <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab:$(git rev-parse HEAD)
+docker push <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab:$(git rev-parse HEAD)
+kubectl config use-context k3s-wft-aws
+./script/deploy-aws.sh
+
+# Subsequent deploys (after CI rebuilds the image):
+./script/deploy-aws.sh --apps-only
+```
 
 ### Notes
 
-- `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first
-- For minikube, the app image is `collab:latest` (built locally); for GKE it uses Artifact Registry
-- `deploy.sh` supports `--skip-migrations` and `--wait` flags
+- `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first (minikube only)
+- For minikube, the app image is `collab:latest` (built locally); for k3s production it pulls from ECR (`<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab`), arm64 only
+- For GKE (legacy), it pulls from GCP Artifact Registry
+- `deploy-aws.sh` and `deploy.sh` support `--skip-migrations` and `--wait` flags
+- The k3s collab namespace shares no infrastructure with the wft namespace — collab has its own postgres + redis pods
 - See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.). Mutagen sync is almost always running and reliable — you can generally trust local changes are synced to the pod without verification.
 
 ## Configuration
