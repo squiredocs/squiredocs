@@ -10,6 +10,14 @@ const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
 const { toMarkdown } = require('../yjs/serialization');
 const { computeChatDiff } = require('../diff-utils');
+const { queryAndSerialize } = require('./read-helpers');
+
+// Upper bound on the echoed post-edit content (serialized chars). A modify
+// always succeeds in changing the live document; the content echo is a
+// convenience so the agent does not have to re-read. If the document is large,
+// we omit the echo rather than risk tripping the chat layer's result-size cap
+// (which would turn a successful edit into a misleading "too large" error).
+const MAX_ECHO_CONTENT_CHARS = 60_000;
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -471,6 +479,8 @@ RETURNS
 - message: Diagnostic guidance when changed is false (explains likely cause and next steps)
 - operationCount: Number of Yjs operations performed
 - summary: Object mapping operation types to counts
+- content: The full updated document (structured format, same as read_document) when changed is true. This reflects the document AFTER your edit, so you do not need to re-read it before the next modify.
+- blockCount / characterCount: Size of the updated document
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1484,11 +1494,25 @@ async function handler(args, agentToken) {
     if (result.success) {
       // Compute text diff for chat UI (best-effort)
       let diff = null;
+      // Echo the updated document so the agent's view stays current without a
+      // re-read. Only when the content actually changed; the chat layer's
+      // dedup keeps just the most recent full-doc snapshot in context.
+      let content = null;
+      let characterCount;
+      let updatedBlockCount = blockCountAfter;
       if (changed) {
         try {
           diff = computeChatDiff(mdBefore, mdAfter);
         } catch (e) {
           console.error('[modify] diff computation failed:', e.message);
+        }
+        try {
+          const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
+          content = serialized.content;
+          characterCount = serialized.characterCount;
+          updatedBlockCount = serialized.blockCount;
+        } catch (e) {
+          console.error('[modify] content serialization failed:', e.message);
         }
       }
 
@@ -1498,6 +1522,18 @@ async function handler(args, agentToken) {
         summary: result.summary,
         diff,
       };
+      if (changed && content !== null) {
+        response.blockCount = updatedBlockCount;
+        response.characterCount = characterCount;
+        if (JSON.stringify(content).length <= MAX_ECHO_CONTENT_CHARS) {
+          response.content = content;
+        } else {
+          response.contentOmitted = true;
+          response.message = `Document updated (${characterCount} characters). `
+            + 'The updated content was not echoed because the document is large. '
+            + 'Use read_document with an xpath to view specific sections if you need the current content.';
+        }
+      }
       if (!changed) {
         response.message = 'No changes were made \u2014 your script ran but didn\'t modify the document. '
           + 'This usually means your XPath or element targeting didn\'t match. '

@@ -458,7 +458,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
   - Find and replace patterns
   - All changes atomic (single undo)
   - Real-time sync to all users
-  - Returns change detection (`changed`, `operationCount`, `summary`)
+  - Returns change detection (`changed`, `operationCount`, `summary`) plus the updated document `content` so the agent's view stays current without re-reading (omitted for very large documents)
 
 **History:**
 - `list_document_versions` - List version history with optional nested subversions and time-based filtering
