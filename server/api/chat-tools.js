@@ -158,7 +158,7 @@ function buildWebTools(providerName, provider) {
  * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, { providerName, provider, pool } = {}) {
+function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -169,6 +169,13 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool } = {}) 
       inputSchema: jsonSchema(inputSchema),
       execute: async (args) => {
         try {
+          // Tell modify the clock the agent last observed for this doc so it can
+          // detect concurrent edits. Read lazily: the holder is populated after
+          // the message history is parsed, before streaming begins.
+          if (name === 'modify' && args?.docGuid && observedClockHolder?.byDoc) {
+            const baseClock = observedClockHolder.byDoc.get(args.docGuid);
+            if (typeof baseClock === 'number') args = { ...args, _baseClock: baseClock };
+          }
           const result = await toolRegistry.executeTool(name, args, syntheticAgentToken);
           const serialized = JSON.stringify(result);
           if (serialized.length > MAX_RESULT_CHARS) {

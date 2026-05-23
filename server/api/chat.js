@@ -14,6 +14,7 @@ const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { deduplicateReadResults } = require('./chat-dedup');
+const { getObservedClocks, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
 const { getDocument, hasAccess } = require('../documents');
 const chatStore = require('../chat-store');
@@ -33,9 +34,11 @@ const SSE_HEADERS = {
 };
 
 let pool = null;
+let persistence = null;
 
-function init(dbPool) {
-  pool = dbPool;
+function init(persistenceProvider) {
+  persistence = persistenceProvider;
+  pool = persistenceProvider.getPool();
 }
 
 // Map<chatId, { chunks: string[], done: boolean, userId: string }>
@@ -51,6 +54,10 @@ function getAI() {
   if (!_ai) _ai = require('ai');
   return _ai;
 }
+
+// Agent name attributed to the in-app chat assistant's edits in version
+// history. Used to tell the agent's own edits apart from concurrent ones.
+const CHAT_AGENT_NAME = 'Squire Docs Assistant';
 
 const BASE_SYSTEM_PROMPT = `<identity>
 You are the Squire Docs assistant. Refer to yourself as the "Squire Docs assistant". Don't refer to yourself as a squire, since you are not a squire. You are the steward of the writing process and a hands-on writing partner. Someone has to keep the work organized and moving, and that is you. You bridge the gap between high-level thinking and the meticulous operational work (formatting, restructuring, filling in boilerplate) so the writer can focus on the big picture.
@@ -124,6 +131,7 @@ WRITING STYLE (the most important rules. They apply both to your chat replies AN
 - When reporting webSearch results, NEVER fabricate or guess URLs. Only cite URLs from the tool output's citations.sources array. Reference sources as [1], [2] etc. matching the source index + 1. If no citations were returned, describe findings without links.
 - Never construct URLs by combining a domain with a guessed path.
 - If modify returns changed: false, treat it as a targeting failure. Your XPath or element selection likely didn't match, so re-read the document with format: "structured" to understand the current structure before retrying.
+- If modify returns conflict: true, someone else changed the document since you last read it. Do not blindly retry. Read the returned content, fold in their changes, then modify again. Use force only to deliberately override their edit, and tell the user when you do.
 - NEVER use positional indexing (doc.get(n), element.get(n)) to target elements in modify scripts. Positional indices shift when content is added, removed, or reordered, which silently targets the wrong element. The modify sandbox exposes global helper functions that make reliable targeting straightforward, so reach for them instead of walking the tree by index: xpathFirst() and xpath() for structural queries (e.g., xpathFirst('//heading[contains(., "Title")]')), findByText() to locate elements by the text they contain, findByNodeName() to get every element of a type, and findTextNode() or getTextContent() to reach the text inside an element.
 </rules>`;
 
@@ -414,7 +422,7 @@ router.post('/', requireAuth, async (req, res) => {
     const { token: syntheticAgentToken } = createAgentTokenPair({
       userId: req.user.userId,
       agentId: 'in-app-chat',
-      agentName: 'Squire Docs Assistant',
+      agentName: CHAT_AGENT_NAME,
       scopes: ['documents:read', 'documents:write'],
       baseUrl,
     });
@@ -444,11 +452,17 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
+    // Per-doc baseline clock the agent has observed, populated below once the
+    // message history is parsed. Passed by reference so modify's conflict guard
+    // can read the latest value when tool calls execute during streaming.
+    const observedClockHolder = { byDoc: new Map() };
+
     // Build tool set: MCP tools + provider-specific web search + universal webFetch
     const tools = chatTools.buildTools(syntheticAgentToken, {
       providerName: def.provider,
       provider,
       pool,
+      observedClockHolder,
     });
 
     // Validate and convert UI messages for streamText
@@ -458,6 +472,34 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Deduplicate repeated document reads to save context window space
     const dedupedMessages = deduplicateReadResults(modelMessages);
+
+    // Track the agent's last-seen clock per document and warn it about edits
+    // made by anyone else since then.
+    observedClockHolder.byDoc = getObservedClocks(modelMessages);
+    if (persistence && observedClockHolder.byDoc.size > 0) {
+      const staleEntries = [];
+      for (const [staleDocGuid, baseClock] of observedClockHolder.byDoc) {
+        try {
+          const updates = await persistence.getRecentUpdatesWithUsers(staleDocGuid, 100);
+          const editors = foreignEditsSince(updates, baseClock, {
+            userId: req.user.userId,
+            agentName: CHAT_AGENT_NAME,
+          });
+          if (editors.length === 0) continue;
+          let title = staleDocGuid === docGuid ? docTitle : null;
+          if (!title) {
+            try { title = (await getDocument(staleDocGuid))?.title || null; } catch (_) { /* best-effort */ }
+          }
+          staleEntries.push({ docGuid: staleDocGuid, editors, title });
+        } catch (e) {
+          console.warn('[Chat API] staleness check failed for', staleDocGuid, e.message);
+        }
+      }
+      const note = buildStalenessNote(staleEntries);
+      if (note) {
+        dedupedMessages.push({ role: 'user', content: [{ type: 'text', text: note }] });
+      }
+    }
 
     // Build streamText options (reusable for compaction/retry)
     const useThinking = def.provider === 'google';

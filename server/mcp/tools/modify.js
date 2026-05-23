@@ -481,6 +481,8 @@ RETURNS
 - summary: Object mapping operation types to counts
 - content: The full updated document (structured format, same as read_document) when changed is true. This reflects the document AFTER your edit, so you do not need to re-read it before the next modify.
 - blockCount / characterCount: Size of the updated document
+- clock: The document's update counter, so you can track its version
+- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Reconcile and retry, or pass force: true to override.
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1385,6 +1387,12 @@ const inputSchema = {
       default: 5000,
       description: 'Execution timeout in milliseconds',
     },
+    force: {
+      type: 'boolean',
+      description: 'Apply the edit even if the document was changed by someone else since you last read it. '
+        + 'By default such an edit is refused and the current content is returned so you can reconcile. '
+        + 'Set true only to deliberately override a concurrent edit.',
+    },
   },
   required: ['docGuid', 'script'],
 };
@@ -1470,6 +1478,58 @@ async function handler(args, agentToken) {
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
 
+  // Concurrent-edit guard. The chat layer injects _baseClock (the highest clock
+  // the agent has observed for this doc); when another author has edited since
+  // then, refuse softly and return the current content so the agent reconciles.
+  // External callers omit _baseClock, so the guard is a no-op for them, and
+  // force: true bypasses it.
+  const baseClock = typeof args._baseClock === 'number' ? args._baseClock : null;
+  let recentUpdates = [];
+  try {
+    recentUpdates = await persistenceProvider.getRecentUpdatesWithUsers(docGuid, 100);
+  } catch (e) {
+    console.warn('[modify] could not load recent updates for staleness check:', e.message);
+  }
+  const currentClock = recentUpdates.length
+    ? recentUpdates[recentUpdates.length - 1].clock
+    : null;
+
+  if (baseClock !== null && args.force !== true) {
+    const foreign = recentUpdates.filter(u =>
+      typeof u.clock === 'number'
+      && u.clock > baseClock
+      && !(u.agentName === agentToken.agentName && u.userId === agentToken.userId)
+    );
+    if (foreign.length > 0) {
+      const editedBy = [...new Set(
+        foreign.map(u => u.userName || u.agentName || 'another collaborator')
+      )];
+      const conflict = {
+        changed: false,
+        conflict: true,
+        editedBy,
+        clock: currentClock,
+        message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
+          + 'Your change was NOT applied, to avoid overwriting their edits. The current document '
+          + 'content is included below. Review it, then either retry your modify incorporating '
+          + 'their changes, or call modify again with force: true to apply your edit as-is.',
+      };
+      try {
+        const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
+        if (JSON.stringify(serialized.content).length <= MAX_ECHO_CONTENT_CHARS) {
+          conflict.content = serialized.content;
+          conflict.blockCount = serialized.blockCount;
+          conflict.characterCount = serialized.characterCount;
+        } else {
+          conflict.contentOmitted = true;
+        }
+      } catch (e) {
+        console.error('[modify] conflict content serialization failed:', e.message);
+      }
+      return conflict;
+    }
+  }
+
   // Capture state before script execution for change detection and diff
   const blockCountBefore = xmlFragment.toArray().length;
   const mdBefore = toMarkdown(xmlFragment);
@@ -1521,6 +1581,7 @@ async function handler(args, agentToken) {
         operationCount: result.operationCount,
         summary: result.summary,
         diff,
+        clock: currentClock,
       };
       if (changed && content !== null) {
         response.blockCount = updatedBlockCount;

@@ -260,8 +260,9 @@ chatStore.init(persistenceProvider.getPool());
 // Initialize AI usage metering with shared database pool
 aiUsage.init(persistenceProvider.getPool());
 
-// Initialize chat module with shared database pool (for BYOK lookups)
-chat.init(persistenceProvider.getPool());
+// Initialize chat module with the persistence provider (BYOK lookups + the
+// document update log used for concurrent-edit awareness)
+chat.init(persistenceProvider);
 
 // Initialize BYOK settings with shared database pool
 byokSettings.init(persistenceProvider.getPool());
