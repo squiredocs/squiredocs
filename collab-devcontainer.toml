@@ -26,6 +26,13 @@ name = "collab-dev:latest"
 # Reuse the sync name collab's script/mutagen.sh creates.
 sync_name = "app-sync"
 
+[mounts]
+# Comma-separated host dirs bound into the pod (read-only) at the SAME absolute
+# path, via `minikube mount` + hostPath — so a dragged file path (e.g. a
+# screenshot) resolves inside the pod. Tilde-expanded. The macOS screenshot
+# thumbnail temp dir is auto-added when present. Leave empty to disable.
+host_paths = "~/Desktop,~/Downloads"
+
 [claude]
 # Where Claude Code writes per-project sessions inside the pod (cwd=/local-dev,
 # running as root). Derived automatically if omitted.
