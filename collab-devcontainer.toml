@@ -1,0 +1,32 @@
+# Config for the collab-devcontainer CLI (sibling repo). Tracked here so any
+# checkout of collab "just works" with `collab-devcontainer up`. See the
+# collab-devcontainer repo's README for the full pattern.
+schema_version = 1
+
+[target]
+name = "collab"
+# Path the repo is synced/mounted to inside the sandbox pod. Matches the
+# existing Minikube + Mutagen flow (docs/dev.md) so scripts and habits carry over.
+workspace_mount = "/local-dev"
+
+[minikube]
+context = "minikube"
+namespace = "collab"
+deployment = "app-dev"            # same name collab's mutagen.sh / port-forward.sh target
+postgres_service = "collab-postgres"
+postgres_port = 5432
+redis_service = "collab-redis"
+redis_port = 6379
+
+[image]
+# Built into Minikube's Docker daemon by `collab-devcontainer build`.
+name = "collab-dev:latest"
+
+[mutagen]
+# Reuse the sync name collab's script/mutagen.sh creates.
+sync_name = "app-sync"
+
+[claude]
+# Where Claude Code writes per-project sessions inside the pod (cwd=/local-dev,
+# running as root). Derived automatically if omitted.
+session_dir = "~/.claude/projects/-local-dev"

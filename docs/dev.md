@@ -2,6 +2,15 @@
 
 This guide explains how to work with the Kubernetes-based development environment using Minikube and Mutagen for file synchronization.
 
+## Two ways to drive this environment
+
+The steps in this guide work by hand, and they're also wrapped by a one-command CLI:
+
+- **Manual (this guide):** `kubectl apply -f k8s/app-dev.yaml`, `./script/mutagen.sh`, `./script/port-forward.sh`, then `kubectl exec` in. Full control, nothing hidden.
+- **`collab-devcontainer` CLI (optional):** a sibling tool repo ([samg/collab-devcontainer](https://github.com/samg/collab-devcontainer)) that automates the same lifecycle — `collab-devcontainer up` builds a hardened dev image (Node 22 + Claude Code + `gh` + the isolated-vm build toolchain), applies an enhanced `app-dev` pod, sets up the Mutagen sync, installs deps, starts the port-forwards, and drops you into a shell. `collab-devcontainer doctor` validates the whole setup.
+
+The CLI is a convenience front-end, **not a different substrate** — it deploys the same `app-dev` deployment (same name/labels/ports), produces the same `app-sync` sync to the same `/local-dev`, and reaches the same in-cluster `collab-postgres`/`collab-redis`. So the two flows are interchangeable: anything below works regardless of which you used to bring the pod up. Two differences worth knowing: the enhanced pod adds a second, secret-free `installer` container so `npm ci` runs without the DB/SES creds in scope, and because that makes the pod multi-container, the CLI **creates the `app-sync` sync itself** rather than calling `script/mutagen.sh` (the script still works for this stock single-container pod). The CLI pins `--context minikube` and refuses to run otherwise, so it can't touch a prod cluster. See the collab-devcontainer README for setup; everything in this guide remains the source of truth for what it does under the hood.
+
 ## Architecture Overview
 
 The development setup consists of:
