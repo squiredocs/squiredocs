@@ -377,7 +377,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic or Google API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
 - **Reactive compaction**: When a conversation exceeds the model's token limit, the system automatically compacts earlier messages and retries, with a UI indicator
 - **Fresh document context**: After a `modify`, the result echoes the updated document so the assistant's view stays current without re-reading. Repeated full-document snapshots (from reads and modifies) are deduplicated in context so only the latest is kept
-- **Concurrent-edit awareness**: The assistant tracks the document version (clock) it has seen. If someone else (or you, editing directly) changes a document since it last read it, the assistant is told who changed it, and a `modify` that would overwrite those edits is refused and returns the current content so it can reconcile (overridable with `force`)
+- **Concurrent-edit awareness**: The assistant tracks the document version (clock) it has seen. If someone else (or you, editing directly) changes a document since it last read it, the assistant is told who changed it, and a `modify` that would overwrite those edits is refused and returns the current content so it can reconcile
 
 ### Usage Limits
 

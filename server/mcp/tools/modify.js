@@ -482,7 +482,7 @@ RETURNS
 - content: The full updated document (structured format, same as read_document) when changed is true. This reflects the document AFTER your edit, so you do not need to re-read it before the next modify.
 - blockCount / characterCount: Size of the updated document
 - clock: The document's update counter, so you can track its version
-- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Reconcile and retry, or pass force: true to override.
+- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1387,12 +1387,6 @@ const inputSchema = {
       default: 5000,
       description: 'Execution timeout in milliseconds',
     },
-    force: {
-      type: 'boolean',
-      description: 'Apply the edit even if the document was changed by someone else since you last read it. '
-        + 'By default such an edit is refused and the current content is returned so you can reconcile. '
-        + 'Set true only to deliberately override a concurrent edit.',
-    },
   },
   required: ['docGuid', 'script'],
 };
@@ -1480,9 +1474,8 @@ async function handler(args, agentToken) {
 
   // Concurrent-edit guard. The chat layer injects _baseClock (the highest clock
   // the agent has observed for this doc); when another author has edited since
-  // then, refuse softly and return the current content so the agent reconciles.
-  // External callers omit _baseClock, so the guard is a no-op for them, and
-  // force: true bypasses it.
+  // then, refuse and return the current content so the agent reconciles.
+  // External callers omit _baseClock, so the guard is a no-op for them.
   const baseClock = typeof args._baseClock === 'number' ? args._baseClock : null;
   let recentUpdates = [];
   try {
@@ -1494,7 +1487,7 @@ async function handler(args, agentToken) {
     ? recentUpdates[recentUpdates.length - 1].clock
     : null;
 
-  if (baseClock !== null && args.force !== true) {
+  if (baseClock !== null) {
     const foreign = recentUpdates.filter(u =>
       typeof u.clock === 'number'
       && u.clock > baseClock
@@ -1511,8 +1504,7 @@ async function handler(args, agentToken) {
         clock: currentClock,
         message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
           + 'Your change was NOT applied, to avoid overwriting their edits. The current document '
-          + 'content is included below. Review it, then either retry your modify incorporating '
-          + 'their changes, or call modify again with force: true to apply your edit as-is.',
+          + 'content is included below. Read it, fold in their changes, then retry your modify.',
       };
       try {
         const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
