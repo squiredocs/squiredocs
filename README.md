@@ -8,6 +8,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **In-App AI Assistant**: Built-in chat panel powered by Claude for editing, searching, and managing documents via natural language
 - **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
+- **Google Docs Sync**: Connect a Google account to import documents from Google Docs and export Squire documents back to Google Docs (managed on the Settings page under Connected Services)
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection
@@ -20,6 +21,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
+- **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
 - **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, and email notifications (sign-up, login, credit-limit, exceptions)
 
 ## Technology Stack
@@ -31,7 +33,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
 - **Sandbox**: isolated-vm (true V8 isolate with 128 MB memory limit) for secure script execution in the `modify` tool
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Gemini 2.5 Flash/Pro, Gemini 3 Flash/Pro); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5; Gemini 2.5 Flash/Pro; Gemini 3 Flash and Gemini 3.1 Pro; Claude Sonnet 4.6 / Opus 4.7 via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents
 
 ## Prerequisites
 
@@ -210,7 +212,14 @@ kubectl config use-context k3s-wft-aws
 - `DB_NAME`: Database name (default: `collab_db`)
 - `DB_USER`: Database user (default: `postgres`)
 - `DB_PASSWORD`: Database password (default: `postgres`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `gemini-3-flash`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3-pro`
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`: Google OAuth credentials for user sign-in (required)
+- `GOOGLE_REDIRECT_URI`: OAuth callback URL for Google sign-in
+- `GOOGLE_DRIVE_REDIRECT_URI`: OAuth callback URL for the Google Docs/Drive integration
+- `JWT_SECRET`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`: Secrets for signing user session JWTs
+- `API_KEY_ENCRYPTION_KEY`: Key used to encrypt stored BYOK API keys at rest
+- `CLIENT_URL`: Base URL of the frontend (used to build absolute links in emails and redirects)
+- `REDIS_HOST` / `REDIS_PORT`: Redis connection (defaults: `localhost` / `6379`)
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `gemini-3-flash`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`. (The BYOK-only models `claude-sonnet` and `claude-opus` require a user-supplied key and are not valid as a shared server default.)
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, and unhandled exception alerts (optional; all notifications skipped if unset)
@@ -361,11 +370,12 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
-  - `gemini-3-flash` — Gemini 3 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
-  - `gemini-3-pro` — Gemini 3 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-3-flash` — Gemini 3 Flash (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `gemini-3.1-pro` — Gemini 3.1 Pro (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+  - `claude-sonnet` / `claude-opus` — Claude Sonnet 4.6 and Opus 4.7, selectable only when the user supplies their own Anthropic key (BYOK)
 - **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
 - **Endpoint**: `POST /api/chat` — streams responses to the client
-- **Tools**: All 14 MCP document tools plus web search and web fetch (web tools are Anthropic-only)
+- **Tools**: All 17 MCP document tools plus web search and web fetch (web tools work with both Anthropic and Google models — Gemini wraps Google Search as a function tool)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
 - **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats; the active chat is preserved across page refreshes via sessionStorage
 - **Thinking display**: Gemini models show collapsible reasoning/thinking blocks so users can see how the model arrived at its answer
@@ -472,6 +482,11 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - `compare_document_versions` - Compare two versions using custom TypeScript scripts
 - `undo` - Undo last operation
 - `redo` - Redo previously undone operation
+
+**Google Docs Sync:** (require a connected Google account — see Settings → Connected Services)
+- `list_google_docs` - List the user's Google Docs
+- `import_from_google_docs` - Import a Google Doc into a new Squire document
+- `export_to_google_docs` - Export a Squire document to Google Docs
 
 ### Quick Start
 
@@ -790,16 +805,23 @@ paragraphs.forEach((node, index) => {
 │   ├── postgres-persistence.js  # PostgreSQL persistence adapter
 │   ├── permissions.js        # Centralized permission checks
 │   ├── documents.js          # Document and share management
+│   ├── search.js             # Hybrid full-text + semantic document search (RRF)
+│   ├── search-indexer.js     # Maintains the FTS + embedding search index
 │   ├── redis.js              # Redis caching layer
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
 │   ├── api/
 │   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + configurable model)
 │   │   ├── chat-models.js    # Model registry (Claude, Gemini) with lazy provider loading
-│   │   └── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
+│   │   ├── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
+│   │   ├── byok-settings.js  # Bring-your-own-key (BYOK) API key management
+│   │   ├── connected-services.js # External service connections (Google Drive)
+│   │   ├── web-fetch.js      # Web fetch tool used by the AI assistant
+│   │   └── admin.js          # Admin dashboard endpoints
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
 │   ├── email.js             # Admin email notifications (signup, login, credit limit)
 │   ├── exception-notifier.js # Rate-limited exception email alerts
 │   ├── chat-store.js        # Chat persistence (CRUD with ownership checks)
+│   ├── google-docs/          # Google Docs/Drive sync (OAuth, import/export)
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
 │       ├── tools/            # MCP tools for document operations
@@ -851,6 +873,7 @@ paragraphs.forEach((node, index) => {
   - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
   - **AI usage**: `ai_usage_log` table (per-request token usage and cost tracking)
   - **AI extra credits**: `ai_extra_credits` table (one-off credit grants with optional expiration)
+  - **Search index**: per-document full-text (`tsvector`) and vector embedding columns (`pgvector`, `gemini-embedding-001`, 1536-dim) powering hybrid content search; refreshed by a background indexer as documents change
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 
