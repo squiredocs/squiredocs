@@ -173,6 +173,7 @@ kubectl exec -n collab <postgres-pod> -- \
 | `script/builddockerdev.sh` | Builds the Docker image in minikube's Docker context |
 | `script/deploy.sh` | Legacy GKE deploy (kept for rollback window): Redis, secrets, migrations, app, ingress, backup cronjob |
 | `script/backup-postgres.sh` | pg_dump backup script used by the CronJob |
+| **`script/build-and-deploy-aws.sh`** | **One-command production build + deploy** — ECR login, builds & pushes the arm64 image for HEAD, switches context, then runs `deploy-aws.sh` (passes through its flags) |
 | **`script/deploy-aws.sh`** | **Production deploy to k3s-wft-aws (collab namespace)** — pulls image from ECR, applies postgres + redis + app + ingress, runs db-migrate-job |
 | **`script/bootstrap-collab-aws-secrets.sh`** | One-shot copy of `auth-secret`, `postgres-secret`, `mcp-auth-secret`, `ses-secret` from GKE collab namespace into k3s collab namespace (run before first `deploy-aws.sh`) |
 | **`script/sync-collab-data.sh`** | One-shot `pg_dump | psql` cutover: dumps GKE Postgres and restores into k3s. Used during the GKE → k3s cutover only. |
@@ -180,17 +181,16 @@ kubectl exec -n collab <postgres-pod> -- \
 ### AWS k3s Deployment (production)
 
 ```bash
-# First-time setup:
-./script/bootstrap-collab-aws-secrets.sh                 # copy 4 secrets GKE -> k3s
-docker build -t collab:$(git rev-parse HEAD) .           # build arm64 image (run on ARM Mac)
-docker tag collab:$(git rev-parse HEAD) <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab:$(git rev-parse HEAD)
-docker push <aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab:$(git rev-parse HEAD)
-kubectl config use-context k3s-wft-aws
-./script/deploy-aws.sh
+# First-time setup (one-time): copy the 4 secrets from GKE -> k3s
+./script/bootstrap-collab-aws-secrets.sh
 
-# Subsequent deploys (after CI rebuilds the image):
-./script/deploy-aws.sh --apps-only
+# Build + deploy in one command (run on an ARM Mac — the k3s image is arm64).
+# Builds the image for the current HEAD, pushes to ECR, switches context, deploys:
+./script/build-and-deploy-aws.sh                # full deploy (infra + migrate + app)
+./script/build-and-deploy-aws.sh --apps-only    # typical: migrate, then roll the app
 ```
+
+> **Note:** CI (`.github/workflows/build.yml`) builds the **amd64** image to GCP Artifact Registry for the legacy GKE path — it does **not** build the **arm64** ECR image that k3s production runs. So a production deploy always needs a local build+push, which is why `build-and-deploy-aws.sh` exists. To build/push and deploy as separate steps, do the build+push manually and then run `./script/deploy-aws.sh` (it pulls the HEAD-tagged image from ECR and errors if it's missing).
 
 ### Notes
 
