@@ -12,6 +12,7 @@
  */
 const toolRegistry = require('../mcp/tools');
 const { webFetch } = require('./web-fetch');
+const { SNAPSHOT_TOOLS } = require('./chat-staleness');
 
 // Static cap for any single tool result. Documents larger than this should
 // be read in chunks via xpath. Reactive compaction handles overall context.
@@ -177,6 +178,24 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
             if (typeof baseClock === 'number') args = { ...args, _baseClock: baseClock };
           }
           const result = await toolRegistry.executeTool(name, args, syntheticAgentToken);
+
+          // Advance the observed-clock baseline as the agent sees fresh document
+          // state. read_document and modify (success OR conflict) echo content at
+          // result.clock, so after either the agent has "seen" that clock. Without
+          // this, the baseline stays frozen at request start and a modify conflict
+          // can never clear mid-turn: every retry resends the same stale _baseClock
+          // and re-trips the same conflict. (Cross-turn, getObservedClocks recovers
+          // it from history; this makes reconciliation work within a turn too.)
+          if (observedClockHolder?.byDoc && args?.docGuid && SNAPSHOT_TOOLS.has(name)) {
+            const clk = result?.clock;
+            if (typeof clk === 'number') {
+              const prev = observedClockHolder.byDoc.get(args.docGuid);
+              if (prev === undefined || clk > prev) {
+                observedClockHolder.byDoc.set(args.docGuid, clk);
+              }
+            }
+          }
+
           const serialized = JSON.stringify(result);
           if (serialized.length > MAX_RESULT_CHARS) {
             console.warn(

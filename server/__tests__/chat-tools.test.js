@@ -132,4 +132,73 @@ describe('chat-tools', () => {
       expect(XPATH_TOOLS.has('list_documents')).toBe(false);
     });
   });
+
+  describe('observed-clock baseline advancement', () => {
+    // Mid-turn, the agent re-reads / receives modify conflicts that carry newer
+    // clocks. The holder must advance live so a conflict can clear within the
+    // same turn instead of every retry resending a frozen _baseClock.
+    const DOC = 'doc-1';
+    const findExecute = (description) =>
+      mockTool.mock.calls.find(c => c[0].description === description)[0].execute;
+
+    beforeEach(() => {
+      mockGetToolList.mockReturnValue([
+        { name: 'read_document', description: 'Read a doc', inputSchema: { type: 'object' } },
+        { name: 'modify', description: 'Modify a doc', inputSchema: { type: 'object' } },
+        { name: 'list_documents', description: 'List docs', inputSchema: { type: 'object' } },
+      ]);
+    });
+
+    it('advances the holder from a read_document result clock', async () => {
+      mockExecuteTool.mockResolvedValue({ content: 'x', clock: 54 });
+      const holder = { byDoc: new Map() };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      await findExecute('Read a doc')({ docGuid: DOC });
+      expect(holder.byDoc.get(DOC)).toBe(54);
+    });
+
+    it('advances the holder from a modify conflict result clock', async () => {
+      mockExecuteTool.mockResolvedValue({ changed: false, conflict: true, clock: 54 });
+      const holder = { byDoc: new Map([[DOC, 50]]) };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      await findExecute('Modify a doc')({ docGuid: DOC });
+      expect(holder.byDoc.get(DOC)).toBe(54);
+    });
+
+    it('uses the advanced baseline as _baseClock on the next modify', async () => {
+      const holder = { byDoc: new Map() };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      // First a read advances the baseline to 54...
+      mockExecuteTool.mockResolvedValueOnce({ content: 'x', clock: 54 });
+      await findExecute('Read a doc')({ docGuid: DOC });
+
+      // ...then a modify should send _baseClock: 54.
+      mockExecuteTool.mockResolvedValueOnce({ changed: true, clock: 54 });
+      await findExecute('Modify a doc')({ docGuid: DOC });
+
+      const modifyArgs = mockExecuteTool.mock.calls.find(c => c[0] === 'modify')[1];
+      expect(modifyArgs._baseClock).toBe(54);
+    });
+
+    it('does not regress the baseline when a result reports a lower clock', async () => {
+      const holder = { byDoc: new Map([[DOC, 60]]) };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      mockExecuteTool.mockResolvedValue({ content: 'x', clock: 54 });
+      await findExecute('Read a doc')({ docGuid: DOC });
+      expect(holder.byDoc.get(DOC)).toBe(60);
+    });
+
+    it('does not advance the baseline for non-snapshot tools', async () => {
+      const holder = { byDoc: new Map() };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      mockExecuteTool.mockResolvedValue({ documents: [], clock: 54 });
+      await findExecute('List docs')({ docGuid: DOC });
+      expect(holder.byDoc.has(DOC)).toBe(false);
+    });
+  });
 });
