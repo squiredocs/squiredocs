@@ -1494,31 +1494,61 @@ async function handler(args, agentToken) {
       && !(u.agentName === agentToken.agentName && u.userId === agentToken.userId)
     );
     if (foreign.length > 0) {
-      const editedBy = [...new Set(
-        foreign.map(u => u.userName || u.agentName || 'another collaborator')
-      )];
-      const conflict = {
-        changed: false,
-        conflict: true,
-        editedBy,
-        clock: currentClock,
-        message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
-          + 'Your change was NOT applied, to avoid overwriting their edits. The current document '
-          + 'content is included below. Read it, fold in their changes, then retry your modify.',
-      };
+      // `yjs_updates` rows include non-content writes — `meta` map (title sync),
+      // schema normalization by prosemirror on first render, IndexedDB replays
+      // on reconnect — all attributed to whichever WebSocket connection applied
+      // them. Only refuse the edit if the user-visible content (the `'default'`
+      // XmlFragment) actually differs from what the agent expects: i.e. the doc
+      // at baseClock replayed with the agent's own subsequent updates. Anything
+      // else in the gap is a foreign edit; if those did not change the content
+      // tree, the agent's modify is safe.
+      let contentDiverged = true;
       try {
-        const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
-        if (JSON.stringify(serialized.content).length <= MAX_ECHO_CONTENT_CHARS) {
-          conflict.content = serialized.content;
-          conflict.blockCount = serialized.blockCount;
-          conflict.characterCount = serialized.characterCount;
-        } else {
-          conflict.contentOmitted = true;
+        const expectedDoc = await persistenceProvider.getYDocAtClock(docGuid, baseClock);
+        // Postgres `clock` is int4 → max 2147483647; safe upper bound for "all rows after baseClock".
+        const updatesSince = await persistenceProvider.getUpdatesInRange(
+          docGuid, baseClock + 1, 2147483647
+        );
+        for (const u of updatesSince) {
+          const isSelf = u.agentName === agentToken.agentName && u.userId === agentToken.userId;
+          if (isSelf && u.updateData) {
+            Y.applyUpdate(expectedDoc, u.updateData);
+          }
         }
+        const expectedMd = toMarkdown(expectedDoc.get('default', Y.XmlFragment));
+        const currentMd = toMarkdown(xmlFragment);
+        contentDiverged = expectedMd !== currentMd;
       } catch (e) {
-        console.error('[modify] conflict content serialization failed:', e.message);
+        console.warn('[modify] could not gate conflict on content equality; treating as conflict:', e.message);
       }
-      return conflict;
+
+      if (contentDiverged) {
+        const editedBy = [...new Set(
+          foreign.map(u => u.userName || u.agentName || 'another collaborator')
+        )];
+        const conflict = {
+          changed: false,
+          conflict: true,
+          editedBy,
+          clock: currentClock,
+          message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
+            + 'Your change was NOT applied, to avoid overwriting their edits. The current document '
+            + 'content is included below. Read it, fold in their changes, then retry your modify.',
+        };
+        try {
+          const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
+          if (JSON.stringify(serialized.content).length <= MAX_ECHO_CONTENT_CHARS) {
+            conflict.content = serialized.content;
+            conflict.blockCount = serialized.blockCount;
+            conflict.characterCount = serialized.characterCount;
+          } else {
+            conflict.contentOmitted = true;
+          }
+        } catch (e) {
+          console.error('[modify] conflict content serialization failed:', e.message);
+        }
+        return conflict;
+      }
     }
   }
 
