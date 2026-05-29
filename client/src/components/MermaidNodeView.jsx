@@ -106,9 +106,11 @@ export default function MermaidNodeView({ editor, node, getPos, selected }) {
     if (previewRef.current) previewRef.current.innerHTML = svg;
   }, [svg]);
 
-  const hasRenderedSvg = !editing && Boolean(svg) && !error;
-  const showPreview = !editing && (hasRenderedSvg || (loading && !error));
-  const showSource = editing || !hasRenderedSvg;
+  // Always-rendered preview (when svg or loading) keeps the wrapper height
+  // stable across the edit/blur toggle — CSS grid stacks preview and source
+  // in the same cell, so the box sizes to max(preview, source).
+  const renderPreview = Boolean(svg) && !error;
+  const renderLoading = !renderPreview && loading && !error;
 
   const focusSource = () => {
     if (readOnly) return;
@@ -117,29 +119,29 @@ export default function MermaidNodeView({ editor, node, getPos, selected }) {
     editor.chain().focus().setTextSelection(pos + 1).run();
   };
 
+  const hasOverlay = renderPreview || renderLoading;
+
   return (
     <NodeViewWrapper
       className={`mermaid-node${editing ? ' is-editing' : ''}${readOnly ? ' is-readonly' : ''}${error ? ' is-error' : ''}`}
       data-type="mermaid"
     >
-      {showPreview && hasRenderedSvg && (
-        <div
-          className="mermaid-preview"
-          ref={previewRef}
-          contentEditable={false}
-          onClick={focusSource}
-        />
-      )}
-      {showPreview && !hasRenderedSvg && loading && (
-        <div className="mermaid-preview mermaid-loading" contentEditable={false}>
-          Rendering diagram…
-        </div>
-      )}
-      <NodeViewContent
-        as="pre"
-        className="mermaid-source"
-        style={showSource ? undefined : { display: 'none' }}
-      />
+      <div className={`mermaid-content-box${hasOverlay ? ' has-overlay' : ''}`}>
+        {renderPreview && (
+          <div
+            className="mermaid-preview"
+            ref={previewRef}
+            contentEditable={false}
+            onClick={focusSource}
+          />
+        )}
+        {renderLoading && (
+          <div className="mermaid-preview mermaid-loading" contentEditable={false}>
+            Rendering diagram…
+          </div>
+        )}
+        <NodeViewContent as="pre" className="mermaid-source" />
+      </div>
       {error && !editing && (
         <div
           className="mermaid-error"

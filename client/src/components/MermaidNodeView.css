@@ -15,6 +15,32 @@
   border-color: #f59e0b;
 }
 
+/* When a preview/loading overlay exists, stack it with the source in the same
+ * grid cell. The wrapper then sizes to max(preview, source), so flipping
+ * visibility between them doesn't change the box height.
+ * When there's no overlay (initial empty state), the source flows normally. */
+.mermaid-content-box.has-overlay {
+  display: grid;
+  grid-template-areas: 'stack';
+  align-items: start;
+}
+.mermaid-content-box.has-overlay > * {
+  grid-area: stack;
+  min-width: 0;
+}
+.mermaid-content-box.has-overlay > .mermaid-source {
+  visibility: hidden;
+  pointer-events: none;
+}
+.mermaid-node.is-editing .mermaid-content-box.has-overlay > .mermaid-source {
+  visibility: visible;
+  pointer-events: auto;
+}
+.mermaid-node.is-editing .mermaid-content-box.has-overlay > .mermaid-preview {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .mermaid-preview {
   padding: 20px 16px;
   text-align: center;
