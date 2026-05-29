@@ -76,10 +76,14 @@ function isCursorInside(editor, getPos, nodeSize) {
   const pos = getPos();
   if (typeof pos !== 'number') return false;
   const { from, to } = editor.state.selection;
-  return from >= pos && to <= pos + nodeSize;
+  // Strict containment: selection lives entirely inside the node's text
+  // content (pos+1 .. pos+nodeSize-1). A selection that *covers* the node
+  // (e.g. Select All) does not count — we don't want to flip into edit
+  // mode just because the user selected the whole document.
+  return from > pos && to < pos + nodeSize;
 }
 
-export default function MermaidNodeView({ editor, node, getPos, selected }) {
+export default function MermaidNodeView({ editor, node, getPos }) {
   const source = useMemo(() => getSourceText(node), [node]);
   const previewRef = useRef(null);
   const renderIdRef = useRef(0);
@@ -96,7 +100,7 @@ export default function MermaidNodeView({ editor, node, getPos, selected }) {
       return undefined;
     }
     const update = () => {
-      setEditing(isCursorInside(editor, getPos, node.nodeSize) || selected);
+      setEditing(isCursorInside(editor, getPos, node.nodeSize));
     };
     update();
     editor.on('selectionUpdate', update);
@@ -107,7 +111,7 @@ export default function MermaidNodeView({ editor, node, getPos, selected }) {
       editor.off('focus', update);
       editor.off('blur', update);
     };
-  }, [editor, getPos, node.nodeSize, selected, readOnly]);
+  }, [editor, getPos, node.nodeSize, readOnly]);
 
   useEffect(() => {
     if (editing) return;
