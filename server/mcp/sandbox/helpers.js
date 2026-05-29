@@ -103,7 +103,7 @@ function getTextContent(node) {
 
     // Check if this is a block-level element
     const blockElements = [
-      'paragraph', 'heading', 'codeBlock', 'blockquote',
+      'paragraph', 'heading', 'codeBlock', 'mermaid', 'blockquote',
       'listItem', 'orderedList', 'bulletList', 'horizontalRule'
     ];
 

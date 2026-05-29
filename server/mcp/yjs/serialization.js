@@ -40,7 +40,7 @@ function toPlainText(xmlFragment) {
       }
 
       // Add appropriate ending based on node type
-      if (['paragraph', 'heading', 'codeBlock'].includes(tagName)) {
+      if (['paragraph', 'heading', 'codeBlock', 'mermaid'].includes(tagName)) {
         parts.push('\n');
       } else if (tagName === 'listItem') {
         parts.push('\n');
@@ -120,6 +120,8 @@ function toMarkdown(xmlFragment) {
     } else if (tag === 'codeBlock') {
       const lang = node.getAttribute('language') || '';
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
+    } else if (tag === 'mermaid') {
+      parts.push('```mermaid\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.
@@ -402,7 +404,7 @@ function toStructuredNode(node) {
     }
     result.content = simplifyContent(flatContent) ?? '';
 
-  } else if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+  } else if (['paragraph', 'heading', 'codeBlock', 'mermaid', 'listItem'].includes(tagName)) {
     // Simplify content for leaf blocks
     const allText = children.every((c) => c.type === 'text');
     if (allText && children.length > 0) {
@@ -410,7 +412,8 @@ function toStructuredNode(node) {
       for (const child of children) {
         if (Array.isArray(child.content)) flatContent.push(...child.content);
       }
-      const simplified = simplifyContent(flatContent, { forceString: tagName === 'codeBlock' });
+      const forceString = tagName === 'codeBlock' || tagName === 'mermaid';
+      const simplified = simplifyContent(flatContent, { forceString });
       if (simplified !== undefined) result.content = simplified;
     } else if (children.length > 0) {
       result.children = children;
@@ -446,7 +449,7 @@ function toTextNode(node) {
   }
 
   // Add appropriate newlines
-  if (['paragraph', 'heading', 'codeBlock', 'listItem'].includes(tagName)) {
+  if (['paragraph', 'heading', 'codeBlock', 'mermaid', 'listItem'].includes(tagName)) {
     text += '\n';
   } else if (['bulletList', 'orderedList'].includes(tagName)) {
     text += '\n';

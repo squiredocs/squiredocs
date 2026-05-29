@@ -278,6 +278,14 @@ export default function MobileActionBar({ editor }) {
         >
           🔗
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertMermaid().run()}
+          className={`mobile-format-btn ${editor.isActive('mermaid') ? 'is-active' : ''}`}
+          title="Insert Mermaid diagram"
+          aria-label="Insert Mermaid diagram"
+        >
+          ◇
+        </button>
       </div>
     </div>
   );

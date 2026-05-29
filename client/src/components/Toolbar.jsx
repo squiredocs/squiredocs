@@ -260,6 +260,13 @@ export default function Toolbar({ editor }) {
             />
           )}
         </DropdownWrapper>
+        <button
+          onClick={() => editor.chain().focus().insertMermaid().run()}
+          className={`toolbar-button ${editor.isActive('mermaid') ? 'is-active' : ''}`}
+          title="Insert Mermaid diagram"
+        >
+          ◇
+        </button>
       </div>
 
       {linkPreview && (

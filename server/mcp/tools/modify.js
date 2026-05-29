@@ -416,6 +416,7 @@ TipTap Block Types:
   - 'paragraph', 'heading' (with level: 1-6)
   - 'bulletList', 'orderedList', 'listItem'
   - 'codeBlock', 'blockquote', 'horizontalRule'
+  - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
   - 'table', 'tableRow', 'tableCell', 'tableHeader'
 
 Table Structure:

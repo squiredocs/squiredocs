@@ -105,6 +105,19 @@ const nodes = {
     },
   },
 
+  mermaid: {
+    content: 'text*',
+    marks: '',
+    group: 'block',
+    code: true,
+    defining: true,
+    isolating: true,
+    parseDOM: [{ tag: 'pre[data-type="mermaid"]', preserveWhitespace: 'full' }],
+    toDOM() {
+      return ['pre', { 'data-type': 'mermaid' }, ['code', 0]];
+    },
+  },
+
   hardBreak: {
     inline: true,
     group: 'inline',

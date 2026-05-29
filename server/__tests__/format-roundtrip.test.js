@@ -146,6 +146,35 @@ describe('Format round-trip', () => {
       expect(pmStr).toContain('const x = 1;');
     });
 
+    test('mermaid round-trips', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const m = new Y.XmlElement('mermaid');
+        const t = new Y.XmlText();
+        t.insert(0, 'graph TD\n  A --> B');
+        m.insert(0, [t]);
+        fragment.insert(0, [m]);
+      });
+      const { md, pmStr } = roundTrip(doc);
+      expect(md).toContain('```mermaid');
+      expect(md).toContain('graph TD');
+      expect(pmStr).toContain('"type":"mermaid"');
+      expect(pmStr).not.toContain('"type":"codeBlock"');
+      expect(pmStr).toContain('graph TD');
+    });
+
+    test('codeBlock with language=mermaid is treated as mermaid', () => {
+      // Documents authored by AI agents may emit a ```mermaid fence; parser
+      // should route that to the mermaid node, not a generic codeBlock.
+      const { markdownToPm } = require('../markdown-to-pm');
+      const pm = markdownToPm('```mermaid\nflowchart LR; A-->B\n```');
+      const str = JSON.stringify(pm);
+      expect(str).toContain('"type":"mermaid"');
+      expect(str).not.toContain('"language":"mermaid"');
+      expect(str).toContain('flowchart LR');
+    });
+
     test('bulletList round-trips', () => {
       const doc = new Y.Doc();
       const fragment = doc.getXmlFragment('default');

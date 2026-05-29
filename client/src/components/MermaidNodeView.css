@@ -1,0 +1,97 @@
+.mermaid-node {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin: 16px 0;
+  background-color: #fafafa;
+  overflow: hidden;
+}
+
+.mermaid-node.is-editing {
+  border-color: #7c3aed;
+  background-color: #ffffff;
+}
+
+.mermaid-node.is-error {
+  border-color: #f59e0b;
+}
+
+.mermaid-preview {
+  padding: 20px 16px;
+  text-align: center;
+  cursor: text;
+  user-select: none;
+}
+
+.mermaid-node.is-readonly .mermaid-preview {
+  cursor: default;
+}
+
+.mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-loading {
+  color: #6b7280;
+  font-size: var(--text-base);
+  font-style: italic;
+}
+
+.mermaid-source {
+  margin: 0;
+  padding: 12px 16px;
+  background-color: #f5f5f5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: #1f2937;
+  white-space: pre-wrap;
+  border-top: 1px solid #e5e7eb;
+  outline: none;
+}
+
+.mermaid-node.is-editing .mermaid-source {
+  border-top: none;
+}
+
+.mermaid-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 16px;
+  background-color: #fef3c7;
+  color: #92400e;
+  font-size: var(--text-sm);
+  border-top: 1px solid #fde68a;
+  cursor: text;
+  user-select: none;
+}
+
+.mermaid-node.is-readonly .mermaid-error {
+  cursor: default;
+}
+
+.mermaid-error-label {
+  font-weight: var(--font-semibold);
+}
+
+.mermaid-error-message {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media print {
+  .mermaid-node {
+    border: none;
+    background: transparent;
+    page-break-inside: avoid;
+  }
+  .mermaid-source,
+  .mermaid-error {
+    display: none !important;
+  }
+  .mermaid-preview {
+    padding: 0;
+  }
+}

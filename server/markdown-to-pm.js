@@ -158,8 +158,9 @@ function markdownToPm(markdown, diffMark = null) {
       }
       i++; // skip closing ```
       const codeText = codeLines.join('\n');
-      const node = { type: 'codeBlock' };
-      if (lang) node.attrs = { language: lang };
+      const isMermaid = lang.toLowerCase() === 'mermaid';
+      const node = { type: isMermaid ? 'mermaid' : 'codeBlock' };
+      if (!isMermaid && lang) node.attrs = { language: lang };
       if (codeText) {
         const textNode = { type: 'text', text: codeText };
         if (diffMark) textNode.marks = [{ type: diffMark }];
