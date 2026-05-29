@@ -3,6 +3,7 @@ import { ReactNodeViewRenderer } from '@tiptap/react';
 import { Plugin } from '@tiptap/pm/state';
 import { Fragment } from '@tiptap/pm/model';
 import MermaidNodeView from '../components/MermaidNodeView.jsx';
+import { PREVIEW_DATASET, prepareSvgForExport } from './mermaidShared';
 
 const PLACEHOLDER = 'graph TD\n  A[Start] --> B[End]';
 
@@ -56,7 +57,7 @@ function buildEnrichedClipboardOutput(view, from, to) {
     const source = node.textContent || '';
 
     const encodedAlt = encodeMermaidSourceForAlt(source);
-    const pngUrl = preview.dataset.pngUrl;
+    const pngUrl = preview.dataset[PREVIEW_DATASET.pngUrl];
     if (pngUrl) {
       const img = document.createElement('img');
       img.src = pngUrl;
@@ -64,8 +65,8 @@ function buildEnrichedClipboardOutput(view, from, to) {
       // (Google Docs etc.) that strip data-* attributes.
       img.alt = encodedAlt;
       img.setAttribute('data-mermaid-source', source);
-      const w = preview.dataset.svgWidth;
-      const h = preview.dataset.svgHeight;
+      const w = preview.dataset[PREVIEW_DATASET.svgWidth];
+      const h = preview.dataset[PREVIEW_DATASET.svgHeight];
       if (w) img.setAttribute('width', w);
       if (h) img.setAttribute('height', h);
       target.replaceWith(img);
@@ -74,12 +75,7 @@ function buildEnrichedClipboardOutput(view, from, to) {
     const svg = preview.querySelector('svg');
     if (svg) {
       const clone = svg.cloneNode(true);
-      const vb = clone.viewBox && clone.viewBox.baseVal;
-      if (vb && vb.width && !clone.getAttribute('width')) {
-        clone.setAttribute('width', String(vb.width));
-        clone.setAttribute('height', String(vb.height));
-      }
-      clone.removeAttribute('style');
+      prepareSvgForExport(clone);
       clone.setAttribute('data-mermaid-source', source);
       clone.setAttribute('aria-label', encodedAlt);
       target.replaceWith(clone);

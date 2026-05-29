@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react';
+import { PREVIEW_DATASET, cx, prepareSvgForExport } from '../extensions/mermaidShared';
 import './MermaidNodeView.css';
 
 let mermaidPromise = null;
@@ -25,28 +26,9 @@ function loadMermaid() {
   return mermaidPromise;
 }
 
-function getSourceText(node) {
-  let text = '';
-  node.descendants((child) => {
-    if (child.isText) text += child.text;
-  });
-  return text;
-}
-
 async function rasterizeSvg(svgEl) {
   const clone = svgEl.cloneNode(true);
-  // Make sure the standalone SVG has its namespace declared — XMLSerializer
-  // doesn't always re-emit it when the element was attached to an HTML doc,
-  // and an <img> loading SVG without xmlns will reject decode().
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-
-  const viewBox = clone.viewBox && clone.viewBox.baseVal;
-  const w = (viewBox && viewBox.width) || parseFloat(clone.getAttribute('width')) || 800;
-  const h = (viewBox && viewBox.height) || parseFloat(clone.getAttribute('height')) || 600;
-  clone.setAttribute('width', String(w));
-  clone.setAttribute('height', String(h));
-  clone.removeAttribute('style');
+  const { width, height } = prepareSvgForExport(clone);
 
   const xml = new XMLSerializer().serializeToString(clone);
   // Base64 data URL (more portable than blob: URLs — some browsers refuse to
@@ -60,14 +42,14 @@ async function rasterizeSvg(svgEl) {
 
   const scale = 2;
   const canvas = document.createElement('canvas');
-  canvas.width = w * scale;
-  canvas.height = h * scale;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
   const ctx = canvas.getContext('2d');
   ctx.scale(scale, scale);
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
-  return { pngUrl: canvas.toDataURL('image/png'), width: w, height: h };
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(img, 0, 0, width, height);
+  return { pngUrl: canvas.toDataURL('image/png'), width, height };
 }
 
 function isCursorInside(editor, getPos, nodeSize) {
@@ -84,7 +66,7 @@ function isCursorInside(editor, getPos, nodeSize) {
 }
 
 export default function MermaidNodeView({ editor, node, getPos }) {
-  const source = useMemo(() => getSourceText(node), [node]);
+  const source = useMemo(() => node.textContent || '', [node]);
   const previewRef = useRef(null);
   const renderIdRef = useRef(0);
   const [editing, setEditing] = useState(false);
@@ -153,9 +135,9 @@ export default function MermaidNodeView({ editor, node, getPos }) {
     const el = previewRef.current;
     if (!el) return undefined;
     el.innerHTML = svg;
-    delete el.dataset.pngUrl;
-    delete el.dataset.svgWidth;
-    delete el.dataset.svgHeight;
+    delete el.dataset[PREVIEW_DATASET.pngUrl];
+    delete el.dataset[PREVIEW_DATASET.svgWidth];
+    delete el.dataset[PREVIEW_DATASET.svgHeight];
     if (!svg) return undefined;
     const svgEl = el.querySelector('svg');
     if (!svgEl) return undefined;
@@ -163,19 +145,20 @@ export default function MermaidNodeView({ editor, node, getPos }) {
     rasterizeSvg(svgEl)
       .then(({ pngUrl, width, height }) => {
         if (cancelled || !previewRef.current) return;
-        previewRef.current.dataset.pngUrl = pngUrl;
-        previewRef.current.dataset.svgWidth = String(width);
-        previewRef.current.dataset.svgHeight = String(height);
-        delete previewRef.current.dataset.rasterError;
+        const ds = previewRef.current.dataset;
+        ds[PREVIEW_DATASET.pngUrl] = pngUrl;
+        ds[PREVIEW_DATASET.svgWidth] = String(width);
+        ds[PREVIEW_DATASET.svgHeight] = String(height);
+        delete ds[PREVIEW_DATASET.rasterError];
       })
       .catch((err) => {
         // Leave SVG fallback in place but surface why rasterization failed.
         // Common culprit: canvas tainting from SVG features the browser
         // refuses to draw cleanly.
-        const message = err?.message || String(err);
         console.warn('Mermaid PNG rasterization failed:', err);
         if (previewRef.current) {
-          previewRef.current.dataset.rasterError = message;
+          previewRef.current.dataset[PREVIEW_DATASET.rasterError] =
+            err?.message || String(err);
         }
       });
     return () => {
@@ -200,10 +183,15 @@ export default function MermaidNodeView({ editor, node, getPos }) {
 
   return (
     <NodeViewWrapper
-      className={`mermaid-node${editing ? ' is-editing' : ''}${readOnly ? ' is-readonly' : ''}${error ? ' is-error' : ''}`}
+      className={cx(
+        'mermaid-node',
+        editing && 'is-editing',
+        readOnly && 'is-readonly',
+        error && 'is-error',
+      )}
       data-type="mermaid"
     >
-      <div className={`mermaid-content-box${hasOverlay ? ' has-overlay' : ''}`}>
+      <div className={cx('mermaid-content-box', hasOverlay && 'has-overlay')}>
         {renderPreview && (
           <div
             className="mermaid-preview"
