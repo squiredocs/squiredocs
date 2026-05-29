@@ -1,12 +1,9 @@
-name: Build and Push
+name: Test
 
 on:
   push:
     branches:
       - '*'
-
-env:
-  IMAGE_PATH: us-west1-docker.pkg.dev/eqtgke/eqt/collab
 
 jobs:
   test:
@@ -62,34 +59,4 @@ jobs:
 
       - name: Run client tests
         run: npm run test:client
-
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.EQTGKE_JSON }}
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.IMAGE_PATH }}:${{ github.sha }}
-            ${{ env.IMAGE_PATH }}:latest
-          cache-from: type=registry,ref=${{ env.IMAGE_PATH }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_PATH }}:buildcache,mode=max
 

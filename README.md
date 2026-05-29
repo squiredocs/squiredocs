@@ -191,7 +191,7 @@ kubectl exec -n collab <postgres-pod> -- \
 ./script/build-and-deploy-aws.sh --apps-only    # typical: migrate, then roll the app
 ```
 
-> **Note:** CI (`.github/workflows/build.yml`) builds the **amd64** image to GCP Artifact Registry for the legacy GKE path — it does **not** build the **arm64** ECR image that k3s production runs. So a production deploy always needs a local build+push, which is why `build-and-deploy-aws.sh` exists. To build/push and deploy as separate steps, do the build+push manually and then run `./script/deploy-aws.sh` (it pulls the HEAD-tagged image from ECR and errors if it's missing).
+> **Note:** CI (`.github/workflows/test.yml`) only runs the server and client tests — it does **not** build or push any image. So a production deploy always needs a local build+push, which is why `build-and-deploy-aws.sh` exists. To build/push and deploy as separate steps, do the build+push manually and then run `./script/deploy-aws.sh` (it pulls the HEAD-tagged image from ECR and errors if it's missing).
 
 ### Notes
 
