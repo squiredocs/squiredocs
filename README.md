@@ -9,6 +9,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
 - **Google Docs Sync**: Connect a Google account to import documents from Google Docs and export Squire documents back to Google Docs (managed on the Settings page under Connected Services)
+- **Markdown Export**: Export any document you can view as a Markdown (`.md`) file from the editor's tools menu (uses the same Yjs→Markdown serializer that powers version-history diffs)
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection

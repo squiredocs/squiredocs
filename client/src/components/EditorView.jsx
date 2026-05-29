@@ -214,6 +214,25 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     callback();
   };
 
+  const handleExportMarkdown = async () => {
+    try {
+      const res = await api.get(`/api/docs/${docGuid}/export?format=markdown`, {
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${docTitle || 'Untitled'}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exporting document:', err);
+      alert(err.response?.data?.error || 'Failed to export document');
+    }
+  };
+
   const handleDelete = async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -693,6 +712,16 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         <path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/>
                       </svg>
                       <span>Print</span>
+                    </button>
+                    <button
+                      className="tools-menu-item"
+                      onClick={(e) => handleMenuItemClick(e, handleExportMarkdown)}
+                      title="Export as Markdown"
+                    >
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                      </svg>
+                      <span>Export as Markdown</span>
                     </button>
                     <button
                       className="tools-menu-item"
