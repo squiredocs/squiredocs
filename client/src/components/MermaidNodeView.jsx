@@ -12,6 +12,12 @@ function loadMermaid() {
         securityLevel: 'strict',
         theme: 'neutral',
         fontFamily: 'inherit',
+        // Render labels as SVG <text> instead of <foreignObject> so the
+        // rendered diagram can be drawn into a <canvas> without tainting
+        // it (foreignObject SVGs throw SecurityError on toDataURL).
+        flowchart: { htmlLabels: false },
+        class: { htmlLabels: false },
+        state: { htmlLabels: false },
       });
       return mermaid;
     });
@@ -25,6 +31,43 @@ function getSourceText(node) {
     if (child.isText) text += child.text;
   });
   return text;
+}
+
+async function rasterizeSvg(svgEl) {
+  const clone = svgEl.cloneNode(true);
+  // Make sure the standalone SVG has its namespace declared — XMLSerializer
+  // doesn't always re-emit it when the element was attached to an HTML doc,
+  // and an <img> loading SVG without xmlns will reject decode().
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+  const viewBox = clone.viewBox && clone.viewBox.baseVal;
+  const w = (viewBox && viewBox.width) || parseFloat(clone.getAttribute('width')) || 800;
+  const h = (viewBox && viewBox.height) || parseFloat(clone.getAttribute('height')) || 600;
+  clone.setAttribute('width', String(w));
+  clone.setAttribute('height', String(h));
+  clone.removeAttribute('style');
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  // Base64 data URL (more portable than blob: URLs — some browsers refuse to
+  // draw blob:-sourced SVGs onto a canvas).
+  const dataUrl =
+    'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  return { pngUrl: canvas.toDataURL('image/png'), width: w, height: h };
 }
 
 function isCursorInside(editor, getPos, nodeSize) {
@@ -103,7 +146,37 @@ export default function MermaidNodeView({ editor, node, getPos, selected }) {
   }, [editing, source]);
 
   useEffect(() => {
-    if (previewRef.current) previewRef.current.innerHTML = svg;
+    const el = previewRef.current;
+    if (!el) return undefined;
+    el.innerHTML = svg;
+    delete el.dataset.pngUrl;
+    delete el.dataset.svgWidth;
+    delete el.dataset.svgHeight;
+    if (!svg) return undefined;
+    const svgEl = el.querySelector('svg');
+    if (!svgEl) return undefined;
+    let cancelled = false;
+    rasterizeSvg(svgEl)
+      .then(({ pngUrl, width, height }) => {
+        if (cancelled || !previewRef.current) return;
+        previewRef.current.dataset.pngUrl = pngUrl;
+        previewRef.current.dataset.svgWidth = String(width);
+        previewRef.current.dataset.svgHeight = String(height);
+        delete previewRef.current.dataset.rasterError;
+      })
+      .catch((err) => {
+        // Leave SVG fallback in place but surface why rasterization failed.
+        // Common culprit: canvas tainting from SVG features the browser
+        // refuses to draw cleanly.
+        const message = err?.message || String(err);
+        console.warn('Mermaid PNG rasterization failed:', err);
+        if (previewRef.current) {
+          previewRef.current.dataset.rasterError = message;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [svg]);
 
   // Always-rendered preview (when svg or loading) keeps the wrapper height
