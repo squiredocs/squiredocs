@@ -130,10 +130,11 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     ]);
   });
 
-  it('drops the embedded source when it is too large for an alt attribute', () => {
+  it('shortens the alt for a large source but KEEPS data-source for paste-back', () => {
     // Google Docs rejects the sync when an image alt is too long, so an
-    // oversized source is not embedded — the image still pastes, just without
-    // round-trip metadata.
+    // oversized source falls back to a short alt. data-<name>-source is still
+    // set (Google Docs strips it anyway) so Squire→Squire / →Notion paste-back
+    // continues to work for large diagrams.
     const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
     const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
     const view = makeView(blocks);
@@ -143,8 +144,8 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     div.innerHTML = out.html;
     const img = div.querySelector('img');
     expect(img.getAttribute('src')).toBe('data:img-big');
-    expect(img.getAttribute('data-graphviz-source')).toBe(null);
-    expect(img.alt).toBe('graphviz diagram'); // short, sync-safe alt
+    expect(img.alt).toBe('graphviz diagram'); // short, gdocs-sync-safe alt
+    expect(img.getAttribute('data-graphviz-source')).toBe(big); // round-trip intact
   });
 
   it('stamps the matching source onto each image (alt + data-attr)', () => {

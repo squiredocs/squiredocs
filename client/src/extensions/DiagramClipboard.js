@@ -23,8 +23,8 @@ import {
 
 // Max length of the encoded source we'll embed in an image's alt attribute.
 // Google Docs rejects the sync mutation when an image's alt/description is too
-// long; keep well under that. Beyond this, the diagram still pastes as an image
-// but without the embedded source needed to reconstruct it on paste-back.
+// long; keep well under that. Beyond this we use a short alt (the source still
+// rides on data-<name>-source for non-Google-Docs paste-back).
 const MAX_ROUNDTRIP_ALT = 1000;
 
 function diagramNamesFromEditor(editor) {
@@ -81,23 +81,26 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     const source = node.textContent || '';
     const encodedAlt = encodeSourceForAlt(name, source);
 
-    // Google Docs caps an image's alt/description length and rejects the whole
-    // sync mutation ("Can't sync your changes…") when it's exceeded — which a
-    // large diagram's encoded source blows past. When the round-trip payload is
-    // too big to embed safely, drop it: the diagram still pastes as an image
-    // everywhere; only paste-*back* into Squire (which needs the source) is
-    // forfeited for that oversized block. Small diagrams are unaffected.
-    const embedSource = encodedAlt.length <= MAX_ROUNDTRIP_ALT;
-    const altText = embedSource ? encodedAlt : `${name} diagram`;
+    // The source rides along two independent round-trip channels:
+    //   - data-<name>-source: survives HTML-preserving targets (Squire→Squire,
+    //     Notion). Google Docs strips data-* attributes, so this never reaches
+    //     its sync — keep it ALWAYS; it's what same-app paste-back parses.
+    //   - the alt prefix: the only channel that survives Google Docs' sanitizer.
+    //     But Google Docs also caps an image's alt/description length and
+    //     rejects the whole sync mutation ("Can't sync your changes…") when a
+    //     large diagram's encoded source exceeds it. So embed the source in alt
+    //     only when it's small enough; otherwise fall back to a short alt.
+    // Net effect: Squire↔Squire and Squire↔Notion round-trip every size; only
+    // paste-back through Google Docs is forfeited for an oversized diagram.
+    const altFitsGoogleDocs = encodedAlt.length <= MAX_ROUNDTRIP_ALT;
+    const altText = altFitsGoogleDocs ? encodedAlt : `${name} diagram`;
 
     const pngUrl = preview.dataset[PREVIEW_DATASET.pngUrl];
     if (pngUrl) {
       const img = document.createElement('img');
       img.src = pngUrl;
-      // alt carries the source for round-trips through HTML sanitizers
-      // (Google Docs etc.) that strip data-* attributes.
       img.alt = altText;
-      if (embedSource) img.setAttribute(`data-${name}-source`, source);
+      img.setAttribute(`data-${name}-source`, source);
       const w = preview.dataset[PREVIEW_DATASET.svgWidth];
       const h = preview.dataset[PREVIEW_DATASET.svgHeight];
       if (w) img.setAttribute('width', w);
@@ -111,7 +114,7 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     if (svg) {
       const clone = svg.cloneNode(true);
       prepareSvgForExport(clone);
-      if (embedSource) clone.setAttribute(`data-${name}-source`, source);
+      clone.setAttribute(`data-${name}-source`, source);
       clone.setAttribute('aria-label', altText);
       target.replaceWith(clone);
       replaced++;
