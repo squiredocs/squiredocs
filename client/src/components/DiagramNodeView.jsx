@@ -86,12 +86,25 @@ function isCursorInside(editor, getPos, nodeSize) {
   return from > pos && to < pos + nodeSize;
 }
 
+// True when a (non-empty) selection fully covers this node — a range selection
+// or Select All sweeping across the block. The hidden source text can't show
+// the native highlight under the rendered preview, so we mark the block instead.
+function isNodeWithinSelection(editor, getPos, nodeSize) {
+  if (!editor) return false;
+  const { from, to, empty } = editor.state.selection;
+  if (empty) return false;
+  const pos = getPos();
+  if (typeof pos !== 'number') return false;
+  return from <= pos && to >= pos + nodeSize;
+}
+
 export default function DiagramNodeView({ editor, node, getPos, extension }) {
   const config = extension.options.diagramConfig;
   const source = useMemo(() => node.textContent || '', [node]);
   const previewRef = useRef(null);
   const renderIdRef = useRef(0);
   const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState(false);
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -102,12 +115,12 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
   const readOnly = !editor.isEditable;
 
   useEffect(() => {
-    if (readOnly) {
-      setEditing(false);
-      return undefined;
-    }
+    // editing (caret inside the source) requires an editable doc; selected
+    // (a range/Select-All sweeping across the block) is tracked either way so
+    // the block reads as selected when copying from a read-only doc too.
     const update = () => {
       setEditing(isCursorInside(editor, getPos, node.nodeSize));
+      setSelected(isNodeWithinSelection(editor, getPos, node.nodeSize));
     };
     update();
     editor.on('selectionUpdate', update);
@@ -118,7 +131,7 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
       editor.off('focus', update);
       editor.off('blur', update);
     };
-  }, [editor, getPos, node.nodeSize, readOnly]);
+  }, [editor, getPos, node.nodeSize]);
 
   useEffect(() => {
     if (editing) return;
@@ -302,6 +315,7 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
       className={cx(
         'diagram-node',
         editing && 'is-editing',
+        selected && 'is-selected',
         readOnly && 'is-readonly',
         error && 'is-error',
       )}

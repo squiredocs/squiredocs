@@ -94,6 +94,21 @@
   border-color: #f59e0b;
 }
 
+/* When a range/Select-All selection covers the block, overlay the same kind of
+ * blue wash the surrounding selected text shows. The overlay sits above the
+ * static preview/source but below the controls (z-index:1), and is clipped to
+ * the rounded border by the wrapper's overflow:hidden. */
+.diagram-node.is-selected {
+  border-color: #7aa7ff;
+}
+.diagram-node.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: rgba(122, 167, 255, 0.3);
+  pointer-events: none;
+}
+
 /* When a preview/loading overlay exists, stack it with the source in the same
  * grid cell. The wrapper then sizes to max(preview, source), so flipping
  * visibility between them doesn't change the box height.
