@@ -71,8 +71,8 @@ export function prepareSvgForExport(svgClone) {
 // past that, so cap both the pixel dimension and the encoded byte size; small
 // diagrams (the common case, including Mermaid) are unaffected and still render
 // at full `scale`.
-const RASTER_MAX_DIMENSION = 2000; // px — cap on the longest side
-const RASTER_MAX_BYTES = 1_000_000; // ~1 MB of PNG before base64 expansion
+const RASTER_MAX_DIMENSION = 1200; // px — cap on the longest side
+const RASTER_MAX_BYTES = 300_000; // ~300 KB of PNG before base64 expansion
 
 // Largest scale that keeps the longest side within maxDimension, never
 // upscaling past the requested scale. Pure (no DOM) so it's unit-testable.
@@ -118,10 +118,10 @@ export async function rasterizeSvg(
   // so we measure the result rather than estimate it; the floor keeps text
   // legible even for a very large graph.
   const PREFIX = 'data:image/png;base64,';
-  const MIN_SCALE = 0.4;
+  const MIN_SCALE = 0.15;
   let s = fitRasterScale(width, height, scale, maxDimension);
   let pngUrl;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(width * s));
     canvas.height = Math.max(1, Math.round(height * s));
