@@ -52,6 +52,20 @@ function jsonRpcResponse(id, result) {
   };
 }
 
+/**
+ * Build the MCP tool-result `content` array from a tool's return value.
+ * By default the result is JSON-stringified into a single text block. A tool
+ * that needs to return richer content (e.g. an image block the agent can see)
+ * returns `{ __mcpContent: [ ...blocks ] }` and those blocks are passed through
+ * verbatim.
+ */
+function toToolResultContent(result) {
+  if (result && Array.isArray(result.__mcpContent)) {
+    return result.__mcpContent;
+  }
+  return [{ type: 'text', text: JSON.stringify(result, null, 2) }];
+}
+
 function jsonRpcError(id, code, message, data) {
   return {
     jsonrpc: '2.0',
@@ -209,12 +223,7 @@ async function handleToolCall(params, agentToken) {
     const result = await toolRegistry.executeTool(name, args || {}, agentToken);
 
     return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
+      content: toToolResultContent(result),
     };
   } catch (error) {
     // Return error in MCP tool result format with is_error: true
@@ -280,7 +289,7 @@ router.post('/tools/call', requireAgentAuth, async (req, res) => {
 
     const result = await toolRegistry.executeTool(name, args || {}, req.agentToken);
     res.json({
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      content: toToolResultContent(result),
     });
   } catch (error) {
     console.error('Tool execution error:', error);

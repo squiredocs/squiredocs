@@ -19,6 +19,9 @@ const redo = require('./redo');
 // Document modification
 const modify = require('./modify');
 
+// Diagram rendering
+const renderDiagram = require('./render-diagram');
+
 // Version history tools
 const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
@@ -49,6 +52,9 @@ const tools = {
 
   // Document modification (replaces 15 deprecated editing tools)
   modify: modify,
+
+  // Diagram rendering (server-side render so agents can see the output)
+  render_diagram: renderDiagram,
 
   // Version history tools
   list_document_versions: listDocumentVersions,
@@ -113,6 +119,7 @@ const TOOL_SCOPES = {
   // Read operations
   list_documents: 'documents:read',
   read_document: 'documents:read',
+  render_diagram: 'documents:read',
   get_collaborators: 'documents:read',
   list_document_versions: 'documents:read',
   read_document_version: 'documents:read',
