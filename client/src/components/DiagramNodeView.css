@@ -7,12 +7,26 @@
   overflow: hidden;
 }
 
-/* Explicit edit/preview toggle. Subtle by default, emphasized while editing. */
-.diagram-edit-toggle {
+/* Per-block controls (Expand / Edit). Hidden until the block is hovered,
+ * focused, selected, or being edited. */
+.diagram-controls {
   position: absolute;
   top: 6px;
   right: 6px;
   z-index: 1;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.diagram-node:hover .diagram-controls,
+.diagram-node.ProseMirror-selectednode .diagram-controls,
+.diagram-node.is-editing .diagram-controls,
+.diagram-controls:focus-within {
+  opacity: 1;
+}
+
+.diagram-control-btn {
   padding: 2px 10px;
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -22,24 +36,16 @@
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
-  /* Hidden until the block is hovered, focused, selected, or being edited. */
-  opacity: 0;
   transition:
-    opacity 0.12s ease,
     color 0.12s ease,
     border-color 0.12s ease;
 }
-.diagram-node:hover .diagram-edit-toggle,
-.diagram-node.ProseMirror-selectednode .diagram-edit-toggle,
-.diagram-edit-toggle:focus-visible {
-  opacity: 1;
-}
-.diagram-edit-toggle:hover {
+.diagram-control-btn:hover {
   color: #1f2937;
   border-color: #d1d5db;
 }
+/* Edit toggle turns purple while editing, matching the active block border. */
 .diagram-node.is-editing .diagram-edit-toggle {
-  opacity: 1;
   color: #7c3aed;
   border-color: #c4b5fd;
 }
@@ -146,6 +152,60 @@
   word-break: break-word;
 }
 
+/* Fullscreen overlay (portaled to <body>). Backdrop click or the close button
+ * dismisses it; the diagram is scaled to the viewport via its own viewBox. */
+.diagram-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background-color: rgba(17, 24, 39, 0.82);
+  cursor: zoom-out;
+}
+
+.diagram-fullscreen-canvas {
+  cursor: default;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+.diagram-fullscreen-canvas svg {
+  display: block;
+  /* viewBox + default preserveAspectRatio scales the diagram to fit this box,
+   * centered and undistorted, regardless of its intrinsic (pt) size.
+   * !important overrides Mermaid's inline max-width, which would otherwise cap
+   * the fullscreen size. */
+  width: min(92vw, 1600px) !important;
+  height: 84vh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.diagram-fullscreen-close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-lg);
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.diagram-fullscreen-close:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
 @media print {
   .diagram-node {
     border: none;
@@ -154,7 +214,7 @@
   }
   .diagram-source,
   .diagram-error,
-  .diagram-edit-toggle {
+  .diagram-controls {
     display: none !important;
   }
   .diagram-preview {

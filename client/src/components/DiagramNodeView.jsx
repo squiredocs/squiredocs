@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react';
 import {
   PREVIEW_CLASS,
@@ -30,6 +31,7 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const readOnly = !editor.isEditable;
 
@@ -168,7 +170,19 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
     editor.chain().focus().setNodeSelection(pos).run();
   };
 
+  // A rendered diagram can be opened fullscreen. Close on Escape; the listener
+  // only exists while expanded.
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setExpanded(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
   const hasOverlay = renderPreview || renderLoading;
+  const canExpand = renderPreview; // something rendered and not in an error state
 
   return (
     <NodeViewWrapper
@@ -180,18 +194,32 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
       )}
       data-type={config.name}
     >
-      {!readOnly && (
-        <button
-          type="button"
-          className="diagram-edit-toggle"
-          contentEditable={false}
-          // Keep the editor's selection intact until our own handler runs.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={toggleEdit}
-          aria-label={editing ? 'Finish editing diagram' : 'Edit diagram source'}
-        >
-          {editing ? 'Done' : 'Edit'}
-        </button>
+      {(canExpand || !readOnly) && (
+        <div className="diagram-controls" contentEditable={false}>
+          {canExpand && (
+            <button
+              type="button"
+              className="diagram-control-btn"
+              // Keep the editor's selection intact until our own handler runs.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setExpanded(true)}
+              aria-label="Expand diagram to fullscreen"
+            >
+              Expand
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              className="diagram-control-btn diagram-edit-toggle"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleEdit}
+              aria-label={editing ? 'Finish editing diagram' : 'Edit diagram source'}
+            >
+              {editing ? 'Done' : 'Edit'}
+            </button>
+          )}
+        </div>
       )}
       <div className={cx('diagram-content-box', hasOverlay && 'has-overlay')}>
         {renderPreview && (
@@ -217,6 +245,34 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
           <span className="diagram-error-message">{error}</span>
         </div>
       )}
+      {expanded &&
+        svg &&
+        createPortal(
+          <div
+            className="diagram-fullscreen"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Expanded diagram"
+            onClick={() => setExpanded(false)}
+          >
+            <button
+              type="button"
+              className="diagram-fullscreen-close"
+              onClick={() => setExpanded(false)}
+              aria-label="Close expanded diagram"
+            >
+              ✕
+            </button>
+            {/* Reuse the already-rendered SVG string; stop backdrop clicks on it.
+                CSS sizes it to the viewport via its viewBox. */}
+            <div
+              className="diagram-fullscreen-canvas"
+              onClick={(e) => e.stopPropagation()}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </div>,
+          document.body,
+        )}
     </NodeViewWrapper>
   );
 }
