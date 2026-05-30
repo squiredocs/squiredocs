@@ -9,6 +9,70 @@ import {
 } from '../extensions/diagramShared';
 import './DiagramNodeView.css';
 
+const ICON_PROPS = {
+  width: 16,
+  height: 16,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+};
+
+// Outward arrows (fullscreen / expand).
+function ExpandIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
+// Pencil (edit).
+function PencilIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+// Check (done editing).
+function CheckIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+// Download (tray + down arrow).
+function DownloadIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+// Trigger a browser download of an href (data: or object URL) as `filename`.
+function triggerDownload(href, filename) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function isCursorInside(editor, getPos, nodeSize) {
   if (!editor || !editor.isEditable) return false;
   if (!editor.isFocused) return false;
@@ -32,6 +96,8 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const downloadRef = useRef(null);
 
   const readOnly = !editor.isEditable;
 
@@ -181,6 +247,53 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [expanded]);
 
+  // Close the download menu on Escape or an outside click.
+  useEffect(() => {
+    if (!downloadOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setDownloadOpen(false);
+    };
+    const onDown = (e) => {
+      if (downloadRef.current && !downloadRef.current.contains(e.target)) {
+        setDownloadOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [downloadOpen]);
+
+  const downloadSvg = () => {
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `${config.name}.svg`);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const downloadPng = async () => {
+    // Prefer the PNG already rasterized for the clipboard; otherwise rasterize
+    // the live SVG fresh (uncapped — this is a file, not a sync payload).
+    let pngUrl = previewRef.current?.dataset?.[PREVIEW_DATASET.pngUrl];
+    if (!pngUrl) {
+      const svgEl = previewRef.current?.querySelector('svg');
+      if (!svgEl) return;
+      try {
+        ({ pngUrl } = await rasterizeSvg(svgEl, {
+          scale: config.exportScale || 2,
+          maxBytes: Infinity,
+          maxDimension: 4000,
+        }));
+      } catch {
+        return;
+      }
+    }
+    triggerDownload(pngUrl, `${config.name}.png`);
+  };
+
   const hasOverlay = renderPreview || renderLoading;
   const canExpand = renderPreview; // something rendered and not in an error state
 
@@ -204,9 +317,52 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setExpanded(true)}
               aria-label="Expand diagram to fullscreen"
+              title="Expand to fullscreen"
             >
-              Expand
+              <ExpandIcon />
             </button>
+          )}
+          {canExpand && (
+            <div className="diagram-download" ref={downloadRef}>
+              <button
+                type="button"
+                className="diagram-control-btn"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setDownloadOpen((o) => !o)}
+                aria-label="Download diagram"
+                title="Download"
+                aria-haspopup="menu"
+                aria-expanded={downloadOpen}
+              >
+                <DownloadIcon />
+              </button>
+              {downloadOpen && (
+                <div className="diagram-download-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      downloadSvg();
+                      setDownloadOpen(false);
+                    }}
+                  >
+                    SVG
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      downloadPng();
+                      setDownloadOpen(false);
+                    }}
+                  >
+                    PNG
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {!readOnly && (
             <button
@@ -215,8 +371,9 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
               onMouseDown={(e) => e.preventDefault()}
               onClick={toggleEdit}
               aria-label={editing ? 'Finish editing diagram' : 'Edit diagram source'}
+              title={editing ? 'Done' : 'Edit source'}
             >
-              {editing ? 'Done' : 'Edit'}
+              {editing ? <CheckIcon /> : <PencilIcon />}
             </button>
           )}
         </div>
