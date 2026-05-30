@@ -21,6 +21,12 @@ import {
 // node. Squire→Squire paste in the same session uses PM's slice metadata and
 // bypasses parseHTML entirely.
 
+// Max length of the encoded source we'll embed in an image's alt attribute.
+// Google Docs rejects the sync mutation when an image's alt/description is too
+// long; keep well under that. Beyond this, the diagram still pastes as an image
+// but without the embedded source needed to reconstruct it on paste-back.
+const MAX_ROUNDTRIP_ALT = 1000;
+
 function diagramNamesFromEditor(editor) {
   const names = new Set();
   for (const ext of editor.extensionManager.extensions) {
@@ -75,14 +81,23 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     const source = node.textContent || '';
     const encodedAlt = encodeSourceForAlt(name, source);
 
+    // Google Docs caps an image's alt/description length and rejects the whole
+    // sync mutation ("Can't sync your changes…") when it's exceeded — which a
+    // large diagram's encoded source blows past. When the round-trip payload is
+    // too big to embed safely, drop it: the diagram still pastes as an image
+    // everywhere; only paste-*back* into Squire (which needs the source) is
+    // forfeited for that oversized block. Small diagrams are unaffected.
+    const embedSource = encodedAlt.length <= MAX_ROUNDTRIP_ALT;
+    const altText = embedSource ? encodedAlt : `${name} diagram`;
+
     const pngUrl = preview.dataset[PREVIEW_DATASET.pngUrl];
     if (pngUrl) {
       const img = document.createElement('img');
       img.src = pngUrl;
       // alt carries the source for round-trips through HTML sanitizers
       // (Google Docs etc.) that strip data-* attributes.
-      img.alt = encodedAlt;
-      img.setAttribute(`data-${name}-source`, source);
+      img.alt = altText;
+      if (embedSource) img.setAttribute(`data-${name}-source`, source);
       const w = preview.dataset[PREVIEW_DATASET.svgWidth];
       const h = preview.dataset[PREVIEW_DATASET.svgHeight];
       if (w) img.setAttribute('width', w);
@@ -96,8 +111,8 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     if (svg) {
       const clone = svg.cloneNode(true);
       prepareSvgForExport(clone);
-      clone.setAttribute(`data-${name}-source`, source);
-      clone.setAttribute('aria-label', encodedAlt);
+      if (embedSource) clone.setAttribute(`data-${name}-source`, source);
+      clone.setAttribute('aria-label', altText);
       target.replaceWith(clone);
       replaced++;
     }

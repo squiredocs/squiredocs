@@ -130,6 +130,23 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     ]);
   });
 
+  it('drops the embedded source when it is too large for an alt attribute', () => {
+    // Google Docs rejects the sync when an image alt is too long, so an
+    // oversized source is not embedded — the image still pastes, just without
+    // round-trip metadata.
+    const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
+    const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
+    const view = makeView(blocks);
+    const out = buildEnrichedClipboardOutput(view, 0, 1, new Set(['graphviz']));
+
+    const div = document.createElement('div');
+    div.innerHTML = out.html;
+    const img = div.querySelector('img');
+    expect(img.getAttribute('src')).toBe('data:img-big');
+    expect(img.getAttribute('data-graphviz-source')).toBe(null);
+    expect(img.alt).toBe('graphviz diagram'); // short, sync-safe alt
+  });
+
   it('stamps the matching source onto each image (alt + data-attr)', () => {
     const blocks = [
       { name: 'graphviz', source: 'digraph{A->B}', png: 'data:img-A' },
