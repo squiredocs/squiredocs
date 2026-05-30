@@ -31,10 +31,24 @@ function diagramNamesFromEditor(editor) {
   return names;
 }
 
-function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
+export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
   const slice = view.state.doc.slice(from, to);
   const serialized = view.serializeForClipboard(slice);
   const root = serialized.dom;
+
+  // Snapshot the <pre> list for each diagram type ONCE, up front. We replace
+  // <pre> elements with <img>/<svg> as we walk, which detaches them from the
+  // tree — re-querying inside the loop would make the positional index drift
+  // as the list shrinks, pairing later diagrams with the wrong <pre> (or none).
+  // A static array captured before any replacement keeps the Nth diagram node
+  // of a type aligned with the Nth <pre> of that type.
+  const presByName = new Map();
+  for (const name of diagramNames) {
+    presByName.set(
+      name,
+      Array.from(root.querySelectorAll(`pre[data-type="${name}"]`)),
+    );
+  }
 
   // Per-type counter so each pre[data-type=X] pairs with the Nth live node of
   // that same type — robust for selections mixing multiple diagram types.
@@ -48,7 +62,7 @@ function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     const index = counters.get(name) || 0;
     counters.set(name, index + 1);
 
-    const target = root.querySelectorAll(`pre[data-type="${name}"]`)[index];
+    const target = presByName.get(name)[index];
     if (!target) return;
 
     const dom = view.nodeDOM(pos);
