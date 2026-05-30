@@ -33,6 +33,17 @@ export const GraphvizNode = createDiagramNode({
   placeholder: 'digraph {\n  A -> B -> C\n}',
   loadRenderer: loadGraphviz,
   render: (source, graphviz) => toInlineSvg(graphviz.dot(source)),
+  // Shown when a diagram is pasted back from Google Docs but its source was too
+  // large to survive the round-trip (Google Docs strips data-* and caps alt
+  // length). Valid DOT so it renders as a visible box rather than a bare image.
+  droppedPlaceholder:
+    'digraph {\n' +
+    '  node [shape=box style="filled,dashed" fillcolor="#fef3c7" ' +
+    'color="#b45309" fontcolor="#92400e"];\n' +
+    '  dropped [label="⚠  Graphviz diagram source not preserved\\n' +
+    'It was too large to survive a Google Docs round-trip.\\n' +
+    'Re-create it from the original."];\n' +
+    '}',
 });
 
 export default GraphvizNode;

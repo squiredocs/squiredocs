@@ -40,6 +40,13 @@ export const MermaidNode = createDiagramNode({
     const { svg } = await mermaid.render(id, source);
     return svg;
   },
+  // Shown when a diagram is pasted back from Google Docs but its source was too
+  // large to survive the round-trip. Valid Mermaid so it renders as a visible
+  // node rather than a bare image.
+  droppedPlaceholder:
+    'graph TD\n' +
+    '  dropped["⚠ Mermaid diagram source not preserved — too large for a Google Docs round-trip; re-create from the original"]\n' +
+    '  style dropped fill:#fef3c7,stroke:#b45309,color:#92400e',
 });
 
 export default MermaidNode;

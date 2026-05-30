@@ -1,6 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { buildEnrichedClipboardOutput } from '../DiagramClipboard';
-import { PREVIEW_CLASS, PREVIEW_DATASET, altSourcePrefix } from '../diagramShared';
+import {
+  PREVIEW_CLASS,
+  PREVIEW_DATASET,
+  altSourcePrefix,
+  decodeSourceFromAlt,
+} from '../diagramShared';
+
+// Build the name→config map buildEnrichedClipboardOutput expects. Pass extras
+// per type, e.g. cfgs({ graphviz: { droppedPlaceholder: 'digraph{x}' } }).
+function cfgs(spec) {
+  const m = new Map();
+  for (const [name, extra] of Object.entries(spec)) {
+    m.set(name, { name, ...(extra || {}) });
+  }
+  return m;
+}
 
 // Build a fake ProseMirror `view` over an ordered list of blocks. Each block is
 // either { text } (plain text node) or { name, source, png } (a diagram node
@@ -78,7 +93,7 @@ describe('buildEnrichedClipboardOutput pairing', () => {
       { name: 'graphviz', source: 'D', png: 'data:img-D' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 4, new Set(['graphviz']));
+    const out = buildEnrichedClipboardOutput(view, 0, 4, cfgs({ graphviz: {} }));
     const seq = imagesInOrder(out.html);
 
     expect(seq).toEqual([
@@ -96,7 +111,7 @@ describe('buildEnrichedClipboardOutput pairing', () => {
       { name: 'graphviz', source: 'C', png: 'data:img-C' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 3, new Set(['graphviz']));
+    const out = buildEnrichedClipboardOutput(view, 0, 3, cfgs({ graphviz: {} }));
     const seq = imagesInOrder(out.html);
 
     expect(seq).toEqual([
@@ -118,7 +133,7 @@ describe('buildEnrichedClipboardOutput pairing', () => {
       view,
       0,
       4,
-      new Set(['graphviz', 'mermaid']),
+      cfgs({ graphviz: {}, mermaid: {} }),
     );
     const seq = imagesInOrder(out.html);
 
@@ -130,15 +145,14 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     ]);
   });
 
-  it('shortens the alt for a large source but KEEPS data-source for paste-back', () => {
-    // Google Docs rejects the sync when an image alt is too long, so an
-    // oversized source falls back to a short alt. data-<name>-source is still
-    // set (Google Docs strips it anyway) so Squire→Squire / →Notion paste-back
-    // continues to work for large diagrams.
+  it('uses a short alt for a large source when no placeholder is configured', () => {
+    // Without a placeholder, an oversized source falls back to a short,
+    // gdocs-sync-safe alt. data-<name>-source is still set (Google Docs strips
+    // it anyway) so Squire→Squire / →Notion paste-back still works.
     const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
     const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 1, new Set(['graphviz']));
+    const out = buildEnrichedClipboardOutput(view, 0, 1, cfgs({ graphviz: {} }));
 
     const div = document.createElement('div');
     div.innerHTML = out.html;
@@ -148,13 +162,39 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     expect(img.getAttribute('data-graphviz-source')).toBe(big); // round-trip intact
   });
 
+  it('embeds the placeholder source in alt for a large diagram (gdocs paste-back)', () => {
+    // With a placeholder configured, an oversized source puts the *placeholder*
+    // into the alt (small enough for gdocs). On paste-back from Google Docs —
+    // where data-* is stripped — the alt rule decodes it into a visible
+    // "source not preserved" diagram instead of a bare image. The full source
+    // still rides on data-source for non-gdocs targets.
+    const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
+    const placeholder = 'digraph { dropped [label="source not preserved"] }';
+    const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
+    const view = makeView(blocks);
+    const out = buildEnrichedClipboardOutput(
+      view,
+      0,
+      1,
+      cfgs({ graphviz: { droppedPlaceholder: placeholder } }),
+    );
+
+    const div = document.createElement('div');
+    div.innerHTML = out.html;
+    const img = div.querySelector('img');
+    // alt decodes (via the same [graphviz-src] rule) to the placeholder source
+    expect(decodeSourceFromAlt('graphviz', img.alt)).toBe(placeholder);
+    expect(img.alt.length).toBeLessThanOrEqual(1000); // safely under the gdocs cap
+    expect(img.getAttribute('data-graphviz-source')).toBe(big); // full source intact
+  });
+
   it('stamps the matching source onto each image (alt + data-attr)', () => {
     const blocks = [
       { name: 'graphviz', source: 'digraph{A->B}', png: 'data:img-A' },
       { name: 'graphviz', source: 'digraph{C->D}', png: 'data:img-C' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 2, new Set(['graphviz']));
+    const out = buildEnrichedClipboardOutput(view, 0, 2, cfgs({ graphviz: {} }));
 
     const div = document.createElement('div');
     div.innerHTML = out.html;

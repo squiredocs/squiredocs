@@ -27,17 +27,17 @@ import {
 // rides on data-<name>-source for non-Google-Docs paste-back).
 const MAX_ROUNDTRIP_ALT = 1000;
 
-function diagramNamesFromEditor(editor) {
-  const names = new Set();
+function diagramConfigsFromEditor(editor) {
+  const configs = new Map();
   for (const ext of editor.extensionManager.extensions) {
     if (ext.options && ext.options.diagramConfig) {
-      names.add(ext.options.diagramConfig.name);
+      configs.set(ext.options.diagramConfig.name, ext.options.diagramConfig);
     }
   }
-  return names;
+  return configs;
 }
 
-export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
+export function buildEnrichedClipboardOutput(view, from, to, configs) {
   const slice = view.state.doc.slice(from, to);
   const serialized = view.serializeForClipboard(slice);
   const root = serialized.dom;
@@ -49,7 +49,7 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
   // A static array captured before any replacement keeps the Nth diagram node
   // of a type aligned with the Nth <pre> of that type.
   const presByName = new Map();
-  for (const name of diagramNames) {
+  for (const name of configs.keys()) {
     presByName.set(
       name,
       Array.from(root.querySelectorAll(`pre[data-type="${name}"]`)),
@@ -63,7 +63,7 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
 
   view.state.doc.nodesBetween(from, to, (node, pos) => {
     const name = node.type.name;
-    if (!diagramNames.has(name)) return;
+    if (!configs.has(name)) return;
 
     const index = counters.get(name) || 0;
     counters.set(name, index + 1);
@@ -88,12 +88,26 @@ export function buildEnrichedClipboardOutput(view, from, to, diagramNames) {
     //   - the alt prefix: the only channel that survives Google Docs' sanitizer.
     //     But Google Docs also caps an image's alt/description length and
     //     rejects the whole sync mutation ("Can't sync your changes…") when a
-    //     large diagram's encoded source exceeds it. So embed the source in alt
-    //     only when it's small enough; otherwise fall back to a short alt.
-    // Net effect: Squire↔Squire and Squire↔Notion round-trip every size; only
-    // paste-back through Google Docs is forfeited for an oversized diagram.
-    const altFitsGoogleDocs = encodedAlt.length <= MAX_ROUNDTRIP_ALT;
-    const altText = altFitsGoogleDocs ? encodedAlt : `${name} diagram`;
+    //     large diagram's encoded source exceeds it. So embed the real source in
+    //     alt only when it's small enough; otherwise embed a short *placeholder*
+    //     source. On paste-back from Google Docs (where data-* is gone) that
+    //     placeholder is decoded by the same alt rule and reconstructs a visible
+    //     "source not preserved" diagram instead of a bare, unlabeled image.
+    // Net effect: Squire↔Squire and Squire↔Notion round-trip every size (the
+    // data-* source wins by parse-rule order); only paste-back through Google
+    // Docs degrades to the placeholder for an oversized diagram.
+    const placeholder = configs.get(name).droppedPlaceholder;
+    const encodedPlaceholder = placeholder
+      ? encodeSourceForAlt(name, placeholder)
+      : null;
+    let altText;
+    if (encodedAlt.length <= MAX_ROUNDTRIP_ALT) {
+      altText = encodedAlt; // real source fits — full round-trip everywhere
+    } else if (encodedPlaceholder && encodedPlaceholder.length <= MAX_ROUNDTRIP_ALT) {
+      altText = encodedPlaceholder; // too big for Google Docs — visible placeholder
+    } else {
+      altText = `${name} diagram`; // last resort: short, sync-safe, no round-trip
+    }
 
     const pngUrl = preview.dataset[PREVIEW_DATASET.pngUrl];
     if (pngUrl) {
@@ -134,9 +148,9 @@ export const DiagramClipboard = Extension.create({
       if (!event.clipboardData) return false;
       const { from, to, empty } = view.state.selection;
       if (empty) return false;
-      const diagramNames = diagramNamesFromEditor(editor);
-      if (diagramNames.size === 0) return false;
-      const output = buildEnrichedClipboardOutput(view, from, to, diagramNames);
+      const configs = diagramConfigsFromEditor(editor);
+      if (configs.size === 0) return false;
+      const output = buildEnrichedClipboardOutput(view, from, to, configs);
       if (output === null) return false; // no diagram in selection — default behavior
       event.clipboardData.setData('text/html', output.html);
       event.clipboardData.setData('text/plain', output.text);
