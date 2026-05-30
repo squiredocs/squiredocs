@@ -64,12 +64,42 @@ export function prepareSvgForExport(svgClone) {
   return { width, height };
 }
 
+// A pasted image is inlined into the clipboard HTML as a base64 PNG data URL,
+// and Google Docs' realtime sync rejects an edit whose payload is too large
+// ("Can't sync your changes. Copy your recent edits, then revert your
+// changes."). A big diagram (e.g. a wide Graphviz graph) rasterized at 2× blows
+// past that, so cap both the pixel dimension and the encoded byte size; small
+// diagrams (the common case, including Mermaid) are unaffected and still render
+// at full `scale`.
+const RASTER_MAX_DIMENSION = 2000; // px — cap on the longest side
+const RASTER_MAX_BYTES = 1_000_000; // ~1 MB of PNG before base64 expansion
+
+// Largest scale that keeps the longest side within maxDimension, never
+// upscaling past the requested scale. Pure (no DOM) so it's unit-testable.
+export function fitRasterScale(
+  width,
+  height,
+  scale,
+  maxDimension = RASTER_MAX_DIMENSION,
+) {
+  const longest = Math.max(width, height) || 1;
+  return Math.min(scale, maxDimension / longest);
+}
+
 // Rasterize a live <svg> element to a PNG data URL by drawing it onto a canvas
-// at `scale`× with a white background. Returns { pngUrl, width, height }.
-// Throws (SecurityError) if the SVG taints the canvas — callers fall back to
-// inline SVG. Mermaid (with htmlLabels:false) and Graphviz emit plain <text>,
-// which does not taint.
-export async function rasterizeSvg(svgEl, { scale = 2 } = {}) {
+// with a white background. Returns { pngUrl, width, height } where width/height
+// are the diagram's natural (display) size — independent of the raster
+// resolution. Throws (SecurityError) if the SVG taints the canvas — callers
+// fall back to inline SVG. Mermaid (with htmlLabels:false) and Graphviz emit
+// plain <text>, which does not taint.
+export async function rasterizeSvg(
+  svgEl,
+  {
+    scale = 2,
+    maxBytes = RASTER_MAX_BYTES,
+    maxDimension = RASTER_MAX_DIMENSION,
+  } = {},
+) {
   const clone = svgEl.cloneNode(true);
   const { width, height } = prepareSvgForExport(clone);
 
@@ -83,15 +113,30 @@ export async function rasterizeSvg(svgEl, { scale = 2 } = {}) {
   img.src = dataUrl;
   await img.decode();
 
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(img, 0, 0, width, height);
-  return { pngUrl: canvas.toDataURL('image/png'), width, height };
+  // Start at a scale that respects the pixel-dimension cap, then step down
+  // until the encoded PNG fits the byte budget. PNG size is content-dependent,
+  // so we measure the result rather than estimate it; the floor keeps text
+  // legible even for a very large graph.
+  const PREFIX = 'data:image/png;base64,';
+  const MIN_SCALE = 0.4;
+  let s = fitRasterScale(width, height, scale, maxDimension);
+  let pngUrl;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * s));
+    canvas.height = Math.max(1, Math.round(height * s));
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    pngUrl = canvas.toDataURL('image/png');
+    // base64 encodes 3 bytes per 4 chars.
+    const approxBytes = (pngUrl.length - PREFIX.length) * 0.75;
+    if (approxBytes <= maxBytes || s <= MIN_SCALE) break;
+    s *= 0.75;
+  }
+  return { pngUrl, width, height };
 }
 
 // Join a list of class names, dropping falsy entries. Lets callers write
