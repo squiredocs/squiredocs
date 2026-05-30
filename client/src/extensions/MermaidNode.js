@@ -31,7 +31,6 @@ let renderSeq = 0;
 // ([mermaid-src], data-mermaid-source) is unchanged from the original.
 export const MermaidNode = createDiagramNode({
   name: 'mermaid',
-  fence: 'mermaid',
   placeholder: 'graph TD\n  A[Start] --> B[End]',
   loadRenderer: loadMermaid,
   render: async (source, mermaid) => {

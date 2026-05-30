@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildEnrichedClipboardOutput } from '../DiagramClipboard';
+import {
+  buildEnrichedClipboardOutput,
+  chooseAltText,
+} from '../DiagramClipboard';
 import {
   PREVIEW_CLASS,
   PREVIEW_DATASET,
@@ -80,6 +83,26 @@ function imagesInOrder(html) {
       : { kind: 'pre', source: el.textContent },
   );
 }
+
+describe('chooseAltText', () => {
+  const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
+
+  it('returns the encoded real source when it fits the cap', () => {
+    const alt = chooseAltText('graphviz', 'digraph{A->B}', {});
+    expect(decodeSourceFromAlt('graphviz', alt)).toBe('digraph{A->B}');
+  });
+
+  it('falls back to the placeholder source when the real source is too big', () => {
+    const placeholder = 'digraph { dropped [label="lost"] }';
+    const alt = chooseAltText('graphviz', big, { droppedPlaceholder: placeholder });
+    expect(decodeSourceFromAlt('graphviz', alt)).toBe(placeholder);
+    expect(alt.length).toBeLessThanOrEqual(1000);
+  });
+
+  it('uses a short label when too big and no placeholder is configured', () => {
+    expect(chooseAltText('graphviz', big, {})).toBe('graphviz diagram');
+  });
+});
 
 describe('buildEnrichedClipboardOutput pairing', () => {
   it('pairs each diagram with its OWN image (regression: no index drift)', () => {

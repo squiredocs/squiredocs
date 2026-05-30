@@ -28,8 +28,6 @@ function toInlineSvg(out) {
 
 export const GraphvizNode = createDiagramNode({
   name: 'graphviz',
-  fence: 'graphviz',
-  acceptFences: ['graphviz', 'dot'],
   placeholder: 'digraph {\n  A -> B -> C\n}',
   loadRenderer: loadGraphviz,
   render: (source, graphviz) => toInlineSvg(graphviz.dot(source)),

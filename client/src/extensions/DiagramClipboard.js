@@ -27,6 +27,36 @@ import {
 // rides on data-<name>-source for non-Google-Docs paste-back).
 const MAX_ROUNDTRIP_ALT = 1000;
 
+// Decide what to put in a diagram image's alt attribute. The alt is the only
+// round-trip channel that survives Google Docs' sanitizer (it strips data-*),
+// but Google Docs also caps alt/description length and rejects the whole sync
+// mutation ("Can't sync your changes…") when a large source exceeds it. So:
+//   - the real encoded source if it fits the cap (full round-trip everywhere);
+//   - else a small placeholder source, if the config supplies one — paste-back
+//     from Google Docs then reconstructs a visible "source not preserved"
+//     diagram (via the same [<name>-src] parse rule) instead of a bare image;
+//   - else a short, sync-safe label with no round-trip.
+// The full source still rides on data-<name>-source for HTML-preserving targets
+// (Squire↔Squire, Notion), which wins by parse-rule order; so the placeholder
+// only ever surfaces coming back through Google Docs.
+export function chooseAltText(name, source, config) {
+  const encoded = encodeSourceForAlt(name, source);
+  if (encoded.length <= MAX_ROUNDTRIP_ALT) return encoded;
+  const placeholder = config.droppedPlaceholder
+    ? encodeSourceForAlt(name, config.droppedPlaceholder)
+    : null;
+  if (placeholder && placeholder.length <= MAX_ROUNDTRIP_ALT) return placeholder;
+  return `${name} diagram`;
+}
+
+// Stamp the diagram source onto a clipboard element via both round-trip
+// channels: data-<name>-source (HTML-preserving targets) and the alt/aria-label
+// prefix (the Google-Docs-surviving channel; see chooseAltText).
+function stampSource(el, { name, source, altAttr, altText }) {
+  el.setAttribute(`data-${name}-source`, source);
+  el.setAttribute(altAttr, altText);
+}
+
 function diagramConfigsFromEditor(editor) {
   const configs = new Map();
   for (const ext of editor.extensionManager.extensions) {
@@ -79,42 +109,13 @@ export function buildEnrichedClipboardOutput(view, from, to, configs) {
     // Read the source from the live PM node (more reliable than the serialized
     // text content).
     const source = node.textContent || '';
-    const encodedAlt = encodeSourceForAlt(name, source);
-
-    // The source rides along two independent round-trip channels:
-    //   - data-<name>-source: survives HTML-preserving targets (Squire→Squire,
-    //     Notion). Google Docs strips data-* attributes, so this never reaches
-    //     its sync — keep it ALWAYS; it's what same-app paste-back parses.
-    //   - the alt prefix: the only channel that survives Google Docs' sanitizer.
-    //     But Google Docs also caps an image's alt/description length and
-    //     rejects the whole sync mutation ("Can't sync your changes…") when a
-    //     large diagram's encoded source exceeds it. So embed the real source in
-    //     alt only when it's small enough; otherwise embed a short *placeholder*
-    //     source. On paste-back from Google Docs (where data-* is gone) that
-    //     placeholder is decoded by the same alt rule and reconstructs a visible
-    //     "source not preserved" diagram instead of a bare, unlabeled image.
-    // Net effect: Squire↔Squire and Squire↔Notion round-trip every size (the
-    // data-* source wins by parse-rule order); only paste-back through Google
-    // Docs degrades to the placeholder for an oversized diagram.
-    const placeholder = configs.get(name).droppedPlaceholder;
-    const encodedPlaceholder = placeholder
-      ? encodeSourceForAlt(name, placeholder)
-      : null;
-    let altText;
-    if (encodedAlt.length <= MAX_ROUNDTRIP_ALT) {
-      altText = encodedAlt; // real source fits — full round-trip everywhere
-    } else if (encodedPlaceholder && encodedPlaceholder.length <= MAX_ROUNDTRIP_ALT) {
-      altText = encodedPlaceholder; // too big for Google Docs — visible placeholder
-    } else {
-      altText = `${name} diagram`; // last resort: short, sync-safe, no round-trip
-    }
+    const altText = chooseAltText(name, source, configs.get(name));
 
     const pngUrl = preview.dataset[PREVIEW_DATASET.pngUrl];
     if (pngUrl) {
       const img = document.createElement('img');
       img.src = pngUrl;
-      img.alt = altText;
-      img.setAttribute(`data-${name}-source`, source);
+      stampSource(img, { name, source, altAttr: 'alt', altText });
       const w = preview.dataset[PREVIEW_DATASET.svgWidth];
       const h = preview.dataset[PREVIEW_DATASET.svgHeight];
       if (w) img.setAttribute('width', w);
@@ -128,8 +129,7 @@ export function buildEnrichedClipboardOutput(view, from, to, configs) {
     if (svg) {
       const clone = svg.cloneNode(true);
       prepareSvgForExport(clone);
-      clone.setAttribute(`data-${name}-source`, source);
-      clone.setAttribute('aria-label', altText);
+      stampSource(clone, { name, source, altAttr: 'aria-label', altText });
       target.replaceWith(clone);
       replaced++;
     }

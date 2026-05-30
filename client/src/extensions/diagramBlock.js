@@ -8,14 +8,18 @@ import { altSourcePrefix, decodeSourceFromAlt } from './diagramShared';
 // thin config; the rendering shell (DiagramNodeView), rasterization, and the
 // copy/cut clipboard handling (DiagramClipboard) are shared.
 //
+// (Markdown fence labels — `mermaid`, `graphviz`, the `dot` alias — are owned
+// server-side in markdown-to-pm.js / yjs/serialization.js, not by this config.)
+//
 // config:
-//   name          node name + data-type + capitalized into the insert command
-//   fence         markdown fence label this block serializes to (server-side)
-//   placeholder   default source inserted by the command
-//   loadRenderer  () => Promise<instance>   (singleton-promise per format)
-//   render        (source, instance) => Promise<svgString> | svgString  (throws on error)
-//   formatError   (err) => string           optional error-panel formatter
-//   exportScale   number                    optional rasterization DPI multiplier
+//   name               node name + data-type + capitalized into the insert command
+//   placeholder        default source inserted by the command
+//   loadRenderer       () => Promise<instance>   (singleton-promise per format)
+//   render             (source, instance) => Promise<svgString> | svgString  (throws on error)
+//   formatError        (err) => string           optional error-panel formatter
+//   exportScale        number                    optional rasterization DPI multiplier
+//   droppedPlaceholder source rendered on paste-back when the real source was
+//                      dropped on a Google Docs round-trip (see DiagramClipboard)
 export function createDiagramNode(config) {
   const { name, placeholder = '' } = config;
   const insertCommand = `insert${name.charAt(0).toUpperCase()}${name.slice(1)}`;
