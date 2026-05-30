@@ -12,6 +12,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Markdown Export**: Export any document you can view as a Markdown (`.md`) file from the editor's tools menu (uses the same Yjs→Markdown serializer that powers version-history diffs)
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
+- **Diagram Blocks**: Insert diagram-as-code blocks from the toolbar — **Mermaid** (`◇`) and **Graphviz/DOT** (`⬡`) — that render to SVG live as you type. Copying a diagram places a rasterized PNG on the clipboard so it pastes as an image into Google Docs/Notion, and the source round-trips back into an editable block on paste. Both serialize to fenced code blocks (` ```mermaid ` / ` ```graphviz `) for Markdown export and AI-agent editing.
 - **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection
 - **Image Upload in Chat**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; 15 MB per file) via drag-and-drop or file picker
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages

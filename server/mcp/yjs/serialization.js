@@ -7,6 +7,11 @@
 const Y = require('yjs');
 const { getNodeTextLength } = require('./cursor-operations');
 const { INLINE_MARKS, attrsToCSS } = require('../../format-registry');
+const {
+  isInlineContentBlock,
+  isCodeLikeBlock,
+  isListContainer,
+} = require('./block-types');
 
 /**
  * Serialize a Yjs XmlFragment to plain text
@@ -40,11 +45,7 @@ function toPlainText(xmlFragment) {
       }
 
       // Add appropriate ending based on node type
-      if (['paragraph', 'heading', 'codeBlock', 'mermaid'].includes(tagName)) {
-        parts.push('\n');
-      } else if (tagName === 'listItem') {
-        parts.push('\n');
-      } else if (['bulletList', 'orderedList'].includes(tagName)) {
+      if (isInlineContentBlock(tagName) || isListContainer(tagName)) {
         parts.push('\n');
       }
     }
@@ -122,6 +123,8 @@ function toMarkdown(xmlFragment) {
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'mermaid') {
       parts.push('```mermaid\n' + getChildText(node) + '\n```\n');
+    } else if (tag === 'graphviz') {
+      parts.push('```graphviz\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.
@@ -404,7 +407,7 @@ function toStructuredNode(node) {
     }
     result.content = simplifyContent(flatContent) ?? '';
 
-  } else if (['paragraph', 'heading', 'codeBlock', 'mermaid', 'listItem'].includes(tagName)) {
+  } else if (isInlineContentBlock(tagName)) {
     // Simplify content for leaf blocks
     const allText = children.every((c) => c.type === 'text');
     if (allText && children.length > 0) {
@@ -412,8 +415,9 @@ function toStructuredNode(node) {
       for (const child of children) {
         if (Array.isArray(child.content)) flatContent.push(...child.content);
       }
-      const forceString = tagName === 'codeBlock' || tagName === 'mermaid';
-      const simplified = simplifyContent(flatContent, { forceString });
+      const simplified = simplifyContent(flatContent, {
+        forceString: isCodeLikeBlock(tagName),
+      });
       if (simplified !== undefined) result.content = simplified;
     } else if (children.length > 0) {
       result.children = children;
@@ -449,9 +453,7 @@ function toTextNode(node) {
   }
 
   // Add appropriate newlines
-  if (['paragraph', 'heading', 'codeBlock', 'mermaid', 'listItem'].includes(tagName)) {
-    text += '\n';
-  } else if (['bulletList', 'orderedList'].includes(tagName)) {
+  if (isInlineContentBlock(tagName) || isListContainer(tagName)) {
     text += '\n';
   }
 

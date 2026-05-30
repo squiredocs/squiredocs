@@ -7,6 +7,7 @@
  */
 
 const Y = require('yjs');
+const { isBlockElement } = require('../yjs/block-types');
 
 /**
  * Find the first Y.XmlText node within an element (traverses recursively)
@@ -102,12 +103,7 @@ function getTextContent(node) {
     }
 
     // Check if this is a block-level element
-    const blockElements = [
-      'paragraph', 'heading', 'codeBlock', 'mermaid', 'blockquote',
-      'listItem', 'orderedList', 'bulletList', 'horizontalRule'
-    ];
-
-    if (node instanceof Y.XmlElement && blockElements.includes(node.nodeName)) {
+    if (node instanceof Y.XmlElement && isBlockElement(node.nodeName)) {
       // For lists, join items with newlines
       return parts.join('\n');
     }
@@ -381,6 +377,14 @@ function validateTextStyleAttrs(attrs) {
  *   ]);
  *
  * @example
+ *   // Create diagram-as-code blocks (rendered to SVG in the editor).
+ *   // content is the diagram source string; type is 'mermaid' or 'graphviz'.
+ *   appendBlocks(doc, [
+ *     { type: 'mermaid', content: 'graph TD\n  A --> B' },
+ *     { type: 'graphviz', content: 'digraph { A -> B -> C }' }
+ *   ]);
+ *
+ * @example
  *   // Insert at specific position
  *   appendBlocks(doc, blocks, { at: 'start' });
  *   appendBlocks(doc, blocks, { after: '//heading[contains(., "Introduction")]' });
@@ -488,6 +492,22 @@ function appendBlocks(container, blocks, position = null, options = {}) {
     text.insert(0, content);
     codeBlock.insert(0, [text]);
     return codeBlock;
+  }
+
+  /**
+   * Create a diagram-as-code block (mermaid | graphviz). Same shape as a code
+   * block — a single Y.XmlText child holding the diagram source — but tagged so
+   * the editor renders it to a diagram instead of showing source.
+   */
+  function createDiagramBlock(type, content) {
+    if (typeof content !== 'string') {
+      throw new Error(`appendBlocks: ${type} content must be a string`);
+    }
+    const block = new XmlElement(type);
+    const text = new XmlText();
+    text.insert(0, content);
+    block.insert(0, [text]);
+    return block;
   }
 
   /**
@@ -642,6 +662,13 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         }
         return createCodeBlock(blockDef.content);
 
+      case 'mermaid':
+      case 'graphviz':
+        if (blockDef.content === undefined) {
+          throw new Error(`appendBlocks: ${blockDef.type} requires content`);
+        }
+        return createDiagramBlock(blockDef.type, blockDef.content);
+
       case 'bulletList':
         if (!blockDef.items) {
           throw new Error('appendBlocks: bulletList requires items');
@@ -670,7 +697,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, blockquote, horizontalRule, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, graphviz, blockquote, horizontalRule, table`);
     }
   }
 

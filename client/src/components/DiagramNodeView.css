@@ -1,4 +1,4 @@
-.mermaid-node {
+.diagram-node {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   margin: 16px 0;
@@ -6,12 +6,12 @@
   overflow: hidden;
 }
 
-.mermaid-node.is-editing {
+.diagram-node.is-editing {
   border-color: #7c3aed;
   background-color: #ffffff;
 }
 
-.mermaid-node.is-error {
+.diagram-node.is-error {
   border-color: #f59e0b;
 }
 
@@ -19,51 +19,56 @@
  * grid cell. The wrapper then sizes to max(preview, source), so flipping
  * visibility between them doesn't change the box height.
  * When there's no overlay (initial empty state), the source flows normally. */
-.mermaid-content-box.has-overlay {
+.diagram-content-box.has-overlay {
   display: grid;
   grid-template-areas: 'stack';
   align-items: start;
 }
-.mermaid-content-box.has-overlay > * {
+.diagram-content-box.has-overlay > * {
   grid-area: stack;
   min-width: 0;
 }
-.mermaid-content-box.has-overlay > .mermaid-source {
+.diagram-content-box.has-overlay > .diagram-source {
   visibility: hidden;
   pointer-events: none;
+  /* Cap the source to the rendered diagram's height (set from JS) so a source
+   * taller than the graph scrolls instead of growing the box and padding out
+   * the diagram. Falls back to no cap until the height is published. */
+  max-height: var(--diagram-preview-h, none);
+  overflow-y: auto;
 }
-.mermaid-node.is-editing .mermaid-content-box.has-overlay > .mermaid-source {
+.diagram-node.is-editing .diagram-content-box.has-overlay > .diagram-source {
   visibility: visible;
   pointer-events: auto;
 }
-.mermaid-node.is-editing .mermaid-content-box.has-overlay > .mermaid-preview {
+.diagram-node.is-editing .diagram-content-box.has-overlay > .diagram-preview {
   visibility: hidden;
   pointer-events: none;
 }
 
-.mermaid-preview {
+.diagram-preview {
   padding: 20px 16px;
   text-align: center;
   cursor: text;
   user-select: none;
 }
 
-.mermaid-node.is-readonly .mermaid-preview {
+.diagram-node.is-readonly .diagram-preview {
   cursor: default;
 }
 
-.mermaid-preview svg {
+.diagram-preview svg {
   max-width: 100%;
   height: auto;
 }
 
-.mermaid-loading {
+.diagram-loading {
   color: #6b7280;
   font-size: var(--text-base);
   font-style: italic;
 }
 
-.mermaid-source {
+.diagram-source {
   margin: 0;
   padding: 12px 16px;
   background-color: #f5f5f5;
@@ -76,11 +81,11 @@
   outline: none;
 }
 
-.mermaid-node.is-editing .mermaid-source {
+.diagram-node.is-editing .diagram-source {
   border-top: none;
 }
 
-.mermaid-error {
+.diagram-error {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -93,31 +98,31 @@
   user-select: none;
 }
 
-.mermaid-node.is-readonly .mermaid-error {
+.diagram-node.is-readonly .diagram-error {
   cursor: default;
 }
 
-.mermaid-error-label {
+.diagram-error-label {
   font-weight: var(--font-semibold);
 }
 
-.mermaid-error-message {
+.diagram-error-message {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 @media print {
-  .mermaid-node {
+  .diagram-node {
     border: none;
     background: transparent;
     page-break-inside: avoid;
   }
-  .mermaid-source,
-  .mermaid-error {
+  .diagram-source,
+  .diagram-error {
     display: none !important;
   }
-  .mermaid-preview {
+  .diagram-preview {
     padding: 0;
   }
 }

@@ -1,56 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react';
-import { PREVIEW_DATASET, cx, prepareSvgForExport } from '../extensions/mermaidShared';
-import './MermaidNodeView.css';
-
-let mermaidPromise = null;
-
-function loadMermaid() {
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        theme: 'neutral',
-        fontFamily: 'inherit',
-        // Render labels as SVG <text> instead of <foreignObject> so the
-        // rendered diagram can be drawn into a <canvas> without tainting
-        // it (foreignObject SVGs throw SecurityError on toDataURL).
-        flowchart: { htmlLabels: false },
-        class: { htmlLabels: false },
-        state: { htmlLabels: false },
-      });
-      return mermaid;
-    });
-  }
-  return mermaidPromise;
-}
-
-async function rasterizeSvg(svgEl) {
-  const clone = svgEl.cloneNode(true);
-  const { width, height } = prepareSvgForExport(clone);
-
-  const xml = new XMLSerializer().serializeToString(clone);
-  // Base64 data URL (more portable than blob: URLs — some browsers refuse to
-  // draw blob:-sourced SVGs onto a canvas).
-  const dataUrl =
-    'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-
-  const img = new Image();
-  img.src = dataUrl;
-  await img.decode();
-
-  const scale = 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(img, 0, 0, width, height);
-  return { pngUrl: canvas.toDataURL('image/png'), width, height };
-}
+import {
+  PREVIEW_CLASS,
+  PREVIEW_DATASET,
+  cx,
+  rasterizeSvg,
+} from '../extensions/diagramShared';
+import './DiagramNodeView.css';
 
 function isCursorInside(editor, getPos, nodeSize) {
   if (!editor || !editor.isEditable) return false;
@@ -65,7 +21,8 @@ function isCursorInside(editor, getPos, nodeSize) {
   return from > pos && to < pos + nodeSize;
 }
 
-export default function MermaidNodeView({ editor, node, getPos }) {
+export default function DiagramNodeView({ editor, node, getPos, extension }) {
+  const config = extension.options.diagramConfig;
   const source = useMemo(() => node.textContent || '', [node]);
   const previewRef = useRef(null);
   const renderIdRef = useRef(0);
@@ -107,20 +64,17 @@ export default function MermaidNodeView({ editor, node, getPos }) {
     setLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const mermaid = await loadMermaid();
+        const instance = await config.loadRenderer();
         if (cancelled || renderId !== renderIdRef.current) return;
-        await mermaid.parse(source);
-        const { svg: rendered } = await mermaid.render(
-          `mermaid-${renderId}-${Math.random().toString(36).slice(2, 8)}`,
-          source,
-        );
+        const rendered = await config.render(source, instance);
         if (cancelled || renderId !== renderIdRef.current) return;
         setSvg(rendered);
         setError(null);
       } catch (err) {
         if (cancelled || renderId !== renderIdRef.current) return;
         setSvg('');
-        setError(err?.message || String(err));
+        const format = config.formatError || ((e) => e?.message || String(e));
+        setError(format(err));
       } finally {
         if (!cancelled && renderId === renderIdRef.current) setLoading(false);
       }
@@ -129,7 +83,7 @@ export default function MermaidNodeView({ editor, node, getPos }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [editing, source]);
+  }, [editing, source, config]);
 
   useEffect(() => {
     const el = previewRef.current;
@@ -138,11 +92,30 @@ export default function MermaidNodeView({ editor, node, getPos }) {
     delete el.dataset[PREVIEW_DATASET.pngUrl];
     delete el.dataset[PREVIEW_DATASET.svgWidth];
     delete el.dataset[PREVIEW_DATASET.svgHeight];
-    if (!svg) return undefined;
+    const box = el.parentElement;
+    if (!svg) {
+      // No diagram yet: let the source editor flow at its natural height.
+      if (box) box.style.removeProperty('--diagram-preview-h');
+      return undefined;
+    }
     const svgEl = el.querySelector('svg');
     if (!svgEl) return undefined;
+
+    // Cap the source editor to the rendered diagram's height: a source taller
+    // than the graph should scroll inside the box, not pad the diagram out to
+    // match it. The preview reflows with the editor width, so keep the
+    // published height in sync via ResizeObserver. (No feedback loop: changing
+    // the source's max-height affects row height, not the preview's width.)
+    const syncHeight = () => {
+      if (box) box.style.setProperty('--diagram-preview-h', `${el.offsetHeight}px`);
+    };
+    syncHeight();
+    const ro =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncHeight) : null;
+    if (ro) ro.observe(el);
+
     let cancelled = false;
-    rasterizeSvg(svgEl)
+    rasterizeSvg(svgEl, { scale: config.exportScale || 2 })
       .then(({ pngUrl, width, height }) => {
         if (cancelled || !previewRef.current) return;
         const ds = previewRef.current.dataset;
@@ -155,7 +128,7 @@ export default function MermaidNodeView({ editor, node, getPos }) {
         // Leave SVG fallback in place but surface why rasterization failed.
         // Common culprit: canvas tainting from SVG features the browser
         // refuses to draw cleanly.
-        console.warn('Mermaid PNG rasterization failed:', err);
+        console.warn('Diagram PNG rasterization failed:', err);
         if (previewRef.current) {
           previewRef.current.dataset[PREVIEW_DATASET.rasterError] =
             err?.message || String(err);
@@ -163,8 +136,9 @@ export default function MermaidNodeView({ editor, node, getPos }) {
       });
     return () => {
       cancelled = true;
+      if (ro) ro.disconnect();
     };
-  }, [svg]);
+  }, [svg, config]);
 
   // Always-rendered preview (when svg or loading) keeps the wrapper height
   // stable across the edit/blur toggle — CSS grid stacks preview and source
@@ -184,37 +158,40 @@ export default function MermaidNodeView({ editor, node, getPos }) {
   return (
     <NodeViewWrapper
       className={cx(
-        'mermaid-node',
+        'diagram-node',
         editing && 'is-editing',
         readOnly && 'is-readonly',
         error && 'is-error',
       )}
-      data-type="mermaid"
+      data-type={config.name}
     >
-      <div className={cx('mermaid-content-box', hasOverlay && 'has-overlay')}>
+      <div className={cx('diagram-content-box', hasOverlay && 'has-overlay')}>
         {renderPreview && (
           <div
-            className="mermaid-preview"
+            className={PREVIEW_CLASS}
             ref={previewRef}
             contentEditable={false}
             onClick={focusSource}
           />
         )}
         {renderLoading && (
-          <div className="mermaid-preview mermaid-loading" contentEditable={false}>
+          <div
+            className={cx(PREVIEW_CLASS, 'diagram-loading')}
+            contentEditable={false}
+          >
             Rendering diagram…
           </div>
         )}
-        <NodeViewContent as="pre" className="mermaid-source" />
+        <NodeViewContent as="pre" className="diagram-source" />
       </div>
       {error && !editing && (
         <div
-          className="mermaid-error"
+          className="diagram-error"
           contentEditable={false}
           onClick={focusSource}
         >
-          <span className="mermaid-error-label">Diagram error</span>
-          <span className="mermaid-error-message">{error}</span>
+          <span className="diagram-error-label">Diagram error</span>
+          <span className="diagram-error-message">{error}</span>
         </div>
       )}
     </NodeViewWrapper>

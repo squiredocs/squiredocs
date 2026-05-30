@@ -267,6 +267,13 @@ export default function Toolbar({ editor }) {
         >
           ◇
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertGraphviz().run()}
+          className={`toolbar-button ${editor.isActive('graphviz') ? 'is-active' : ''}`}
+          title="Insert Graphviz diagram"
+        >
+          ⬡
+        </button>
       </div>
 
       {linkPreview && (

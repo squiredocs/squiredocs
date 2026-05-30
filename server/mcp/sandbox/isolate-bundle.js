@@ -4973,7 +4973,7 @@ ${err.toString()}`);
             const left = dels[j - 1];
             const right = dels[i];
             if (left.clock + left.len >= right.clock) {
-              left.len = math__namespace.max(left.len, right.clock + right.len - left.clock);
+              dels[j - 1] = new DeleteItem(left.clock, math__namespace.max(left.len, right.clock + right.len - left.clock));
             } else {
               if (j < i) {
                 dels[j] = right;
@@ -12543,10 +12543,47 @@ ${err.toString()}`);
     }
   });
 
+  // server/mcp/yjs/block-types.js
+  var require_block_types = __commonJS({
+    "server/mcp/yjs/block-types.js"(exports, module) {
+      var INLINE_CONTENT_BLOCKS = [
+        "paragraph",
+        "heading",
+        "codeBlock",
+        "mermaid",
+        "graphviz",
+        "listItem"
+      ];
+      var CODE_LIKE_BLOCKS = ["codeBlock", "mermaid", "graphviz"];
+      var LIST_CONTAINERS = ["bulletList", "orderedList"];
+      var BLOCK_ELEMENTS = [
+        ...INLINE_CONTENT_BLOCKS,
+        ...LIST_CONTAINERS,
+        "blockquote",
+        "horizontalRule"
+      ];
+      var isInlineContentBlock = (name) => INLINE_CONTENT_BLOCKS.includes(name);
+      var isCodeLikeBlock = (name) => CODE_LIKE_BLOCKS.includes(name);
+      var isListContainer = (name) => LIST_CONTAINERS.includes(name);
+      var isBlockElement = (name) => BLOCK_ELEMENTS.includes(name);
+      module.exports = {
+        INLINE_CONTENT_BLOCKS,
+        CODE_LIKE_BLOCKS,
+        LIST_CONTAINERS,
+        BLOCK_ELEMENTS,
+        isInlineContentBlock,
+        isCodeLikeBlock,
+        isListContainer,
+        isBlockElement
+      };
+    }
+  });
+
   // server/mcp/sandbox/helpers.js
   var require_helpers = __commonJS({
     "server/mcp/sandbox/helpers.js"(exports, module) {
       var Y2 = require_yjs();
+      var { isBlockElement } = require_block_types();
       function findTextNode(element) {
         if (!(element instanceof Y2.XmlElement)) {
           return null;
@@ -12584,17 +12621,7 @@ ${err.toString()}`);
           if (node instanceof Y2.XmlFragment) {
             return parts.join("\n");
           }
-          const blockElements = [
-            "paragraph",
-            "heading",
-            "codeBlock",
-            "blockquote",
-            "listItem",
-            "orderedList",
-            "bulletList",
-            "horizontalRule"
-          ];
-          if (node instanceof Y2.XmlElement && blockElements.includes(node.nodeName)) {
+          if (node instanceof Y2.XmlElement && isBlockElement(node.nodeName)) {
             return parts.join("\n");
           }
           return parts.join("");
@@ -12740,6 +12767,16 @@ ${err.toString()}`);
           codeBlock.insert(0, [text]);
           return codeBlock;
         }
+        function createDiagramBlock(type, content) {
+          if (typeof content !== "string") {
+            throw new Error(`appendBlocks: ${type} content must be a string`);
+          }
+          const block = new XmlElement(type);
+          const text = new XmlText();
+          text.insert(0, content);
+          block.insert(0, [text]);
+          return block;
+        }
         function createListItem(itemDef, parentListType) {
           const listItem = new XmlElement("listItem");
           if (itemDef && typeof itemDef === "object" && !Array.isArray(itemDef) && "content" in itemDef) {
@@ -12836,6 +12873,12 @@ ${err.toString()}`);
                 throw new Error("appendBlocks: codeBlock requires content");
               }
               return createCodeBlock(blockDef.content);
+            case "mermaid":
+            case "graphviz":
+              if (blockDef.content === void 0) {
+                throw new Error(`appendBlocks: ${blockDef.type} requires content`);
+              }
+              return createDiagramBlock(blockDef.type, blockDef.content);
             case "bulletList":
               if (!blockDef.items) {
                 throw new Error("appendBlocks: bulletList requires items");
@@ -12859,7 +12902,7 @@ ${err.toString()}`);
               }
               return createTable(blockDef.headers, blockDef.rows);
             default:
-              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, blockquote, horizontalRule, table`);
+              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, graphviz, blockquote, horizontalRule, table`);
           }
         }
         const elements = blocks.map(createBlock);

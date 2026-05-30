@@ -175,6 +175,35 @@ describe('Format round-trip', () => {
       expect(str).toContain('flowchart LR');
     });
 
+    test('graphviz round-trips', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const g = new Y.XmlElement('graphviz');
+        const t = new Y.XmlText();
+        t.insert(0, 'digraph { A -> B }');
+        g.insert(0, [t]);
+        fragment.insert(0, [g]);
+      });
+      const { md, pmStr } = roundTrip(doc);
+      expect(md).toContain('```graphviz');
+      expect(md).toContain('digraph { A -> B }');
+      expect(pmStr).toContain('"type":"graphviz"');
+      expect(pmStr).not.toContain('"type":"codeBlock"');
+      expect(pmStr).toContain('digraph { A -> B }');
+    });
+
+    test('codeBlock with language=graphviz or dot is treated as graphviz', () => {
+      const { markdownToPm } = require('../markdown-to-pm');
+      for (const fence of ['graphviz', 'dot']) {
+        const pm = markdownToPm('```' + fence + '\ndigraph { X -> Y }\n```');
+        const str = JSON.stringify(pm);
+        expect(str).toContain('"type":"graphviz"');
+        expect(str).not.toContain('"language":"' + fence + '"');
+        expect(str).toContain('digraph { X -> Y }');
+      }
+    });
+
     test('bulletList round-trips', () => {
       const doc = new Y.Doc();
       const fragment = doc.getXmlFragment('default');

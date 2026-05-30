@@ -286,6 +286,14 @@ export default function MobileActionBar({ editor }) {
         >
           ◇
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertGraphviz().run()}
+          className={`mobile-format-btn ${editor.isActive('graphviz') ? 'is-active' : ''}`}
+          title="Insert Graphviz diagram"
+          aria-label="Insert Graphviz diagram"
+        >
+          ⬡
+        </button>
       </div>
     </div>
   );
