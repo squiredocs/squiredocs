@@ -191,6 +191,8 @@ describe('Tool Registry Integration', () => {
       'redo',
       // Document modification
       'modify',
+      // Diagram rendering
+      'render_diagram',
       // Version history tools
       'list_document_versions',
       'read_document_version',

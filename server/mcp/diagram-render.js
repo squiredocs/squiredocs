@@ -8,18 +8,24 @@
  * supported here — it needs a real DOM (headless Chromium) to lay out text.
  */
 
-const { Resvg } = require('@resvg/resvg-js');
-// @hpcc-js/wasm-graphviz is ESM-only but has no top-level await, so Node's
-// require(esm) (Node 22+) loads it synchronously. Cache the initialized
-// instance (one-time WASM init), mirroring the client.
-const { Graphviz } = require('@hpcc-js/wasm-graphviz');
+// The renderer deps are required lazily (inside the functions below), not at
+// module load. @hpcc-js/wasm-graphviz is ESM-only — Node's require(esm) loads
+// it fine at call time, but requiring it at module top would drag the WASM
+// package into anything that merely loads this module (e.g. the tool registry),
+// which Jest's VM can't parse. Lazy require keeps `require('./diagram-render')`
+// cheap and parseable, and defers the one-time WASM/native init to first use.
 
 let graphvizPromise = null;
 function loadGraphviz() {
   if (!graphvizPromise) {
+    const { Graphviz } = require('@hpcc-js/wasm-graphviz');
     graphvizPromise = Graphviz.load();
   }
   return graphvizPromise;
+}
+
+function getResvg() {
+  return require('@resvg/resvg-js').Resvg;
 }
 
 // Graphviz returns a full XML document (<?xml?> + <!DOCTYPE>) before <svg>;
@@ -49,6 +55,7 @@ async function renderGraphviz(source, opts = {}) {
     e.code = 'DIAGRAM_SYNTAX';
     throw e;
   }
+  const Resvg = getResvg();
   const resvg = new Resvg(svg, {
     font: { loadSystemFonts: true },
     fitTo: { mode: 'width', value: opts.width || DEFAULT_PNG_WIDTH },
