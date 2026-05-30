@@ -1,9 +1,47 @@
 .diagram-node {
+  position: relative;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   margin: 16px 0;
   background-color: #fafafa;
   overflow: hidden;
+}
+
+/* Explicit edit/preview toggle. Subtle by default, emphasized while editing. */
+.diagram-edit-toggle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  padding: 2px 10px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: #6b7280;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  /* Hidden until the block is hovered, focused, selected, or being edited. */
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+.diagram-node:hover .diagram-edit-toggle,
+.diagram-node.ProseMirror-selectednode .diagram-edit-toggle,
+.diagram-edit-toggle:focus-visible {
+  opacity: 1;
+}
+.diagram-edit-toggle:hover {
+  color: #1f2937;
+  border-color: #d1d5db;
+}
+.diagram-node.is-editing .diagram-edit-toggle {
+  opacity: 1;
+  color: #7c3aed;
+  border-color: #c4b5fd;
 }
 
 .diagram-node.is-editing {
@@ -49,12 +87,8 @@
 .diagram-preview {
   padding: 20px 16px;
   text-align: center;
-  cursor: text;
-  user-select: none;
-}
-
-.diagram-node.is-readonly .diagram-preview {
   cursor: default;
+  user-select: none;
 }
 
 .diagram-preview svg {
@@ -119,7 +153,8 @@
     page-break-inside: avoid;
   }
   .diagram-source,
-  .diagram-error {
+  .diagram-error,
+  .diagram-edit-toggle {
     display: none !important;
   }
   .diagram-preview {

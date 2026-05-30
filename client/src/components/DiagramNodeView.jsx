@@ -153,6 +153,21 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
     editor.chain().focus().setTextSelection(pos + 1).run();
   };
 
+  // The Edit/Done button drives the same selection-based edit state the cursor
+  // does: "Edit" drops the caret into the source (→ editing), "Done" selects the
+  // whole node as a block (caret no longer inside → preview), keeping focus in
+  // the editor rather than jumping the cursor elsewhere.
+  const toggleEdit = () => {
+    if (readOnly) return;
+    if (!editing) {
+      focusSource();
+      return;
+    }
+    const pos = getPos();
+    if (typeof pos !== 'number') return;
+    editor.chain().focus().setNodeSelection(pos).run();
+  };
+
   const hasOverlay = renderPreview || renderLoading;
 
   return (
@@ -165,14 +180,22 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
       )}
       data-type={config.name}
     >
+      {!readOnly && (
+        <button
+          type="button"
+          className="diagram-edit-toggle"
+          contentEditable={false}
+          // Keep the editor's selection intact until our own handler runs.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleEdit}
+          aria-label={editing ? 'Finish editing diagram' : 'Edit diagram source'}
+        >
+          {editing ? 'Done' : 'Edit'}
+        </button>
+      )}
       <div className={cx('diagram-content-box', hasOverlay && 'has-overlay')}>
         {renderPreview && (
-          <div
-            className={PREVIEW_CLASS}
-            ref={previewRef}
-            contentEditable={false}
-            onClick={focusSource}
-          />
+          <div className={PREVIEW_CLASS} ref={previewRef} contentEditable={false} />
         )}
         {renderLoading && (
           <div
