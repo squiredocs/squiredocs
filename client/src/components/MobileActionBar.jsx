@@ -294,6 +294,14 @@ export default function MobileActionBar({ editor }) {
         >
           ⬡
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertD2().run()}
+          className={`mobile-format-btn ${editor.isActive('d2') ? 'is-active' : ''}`}
+          title="Insert D2 diagram"
+          aria-label="Insert D2 diagram"
+        >
+          ◈
+        </button>
       </div>
     </div>
   );

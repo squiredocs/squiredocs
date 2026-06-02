@@ -274,6 +274,13 @@ export default function Toolbar({ editor }) {
         >
           ⬡
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertD2().run()}
+          className={`toolbar-button ${editor.isActive('d2') ? 'is-active' : ''}`}
+          title="Insert D2 diagram"
+        >
+          ◈
+        </button>
       </div>
 
       {linkPreview && (

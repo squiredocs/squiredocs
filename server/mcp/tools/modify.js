@@ -11,6 +11,7 @@ const { executeScript } = require('../sandbox');
 const { toMarkdown } = require('../yjs/serialization');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
+const { SUPPORTED_TYPES, validateDiagram } = require('../diagram-render');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
 // always succeeds in changing the live document; the content echo is a
@@ -18,6 +19,32 @@ const { queryAndSerialize } = require('./read-helpers');
 // we omit the echo rather than risk tripping the chat layer's result-size cap
 // (which would turn a successful edit into a misleading "too large" error).
 const MAX_ECHO_CONTENT_CHARS = 60_000;
+
+// Cap on how many newly-created/changed diagram blocks a single modify will
+// validate, to bound latency on a bulk edit that inserts many diagrams.
+const MAX_DIAGRAM_VALIDATIONS = 10;
+
+// Collect (type, source) for every server-renderable diagram block (graphviz,
+// d2) anywhere in the fragment. Used to detect which diagrams a modify created
+// or changed so they can be compiled for syntax errors. Mirrors the collector
+// in render-diagram.js.
+function collectRenderableDiagrams(xmlFragment) {
+  const out = [];
+  const visit = (node) => {
+    if (!(node instanceof Y.XmlElement)) return;
+    if (SUPPORTED_TYPES.includes(node.nodeName)) {
+      const source = node
+        .toArray()
+        .map((c) => (c && typeof c.toString === 'function' ? c.toString() : ''))
+        .join('');
+      out.push({ type: node.nodeName, source });
+      return; // diagram nodes don't nest other diagrams
+    }
+    for (const child of node.toArray()) visit(child);
+  };
+  for (const child of xmlFragment.toArray()) visit(child);
+  return out;
+}
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -485,6 +512,7 @@ RETURNS
 - blockCount / characterCount: Size of the updated document
 - clock: The document's update counter, so you can track its version
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
+- diagramErrors: present only if a graphviz/d2 diagram block you created or changed has a syntax error. An array of { type, error }; the broken block will not render. Fix the diagram source and modify again. (Mermaid is not validated server-side.)
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1557,6 +1585,11 @@ async function handler(args, agentToken) {
   // Capture state before script execution for change detection and diff
   const blockCountBefore = xmlFragment.toArray().length;
   const mdBefore = toMarkdown(xmlFragment);
+  // Snapshot existing diagram sources so we can validate only the ones this
+  // modify creates or changes (not pre-existing, untouched diagrams).
+  const diagramKeysBefore = new Set(
+    collectRenderableDiagrams(xmlFragment).map((d) => d.type + '\n' + d.source),
+  );
   console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
   console.log(`[modify:DIAGNOSTIC] blockCountBefore=${blockCountBefore}`);
@@ -1624,6 +1657,34 @@ async function handler(args, agentToken) {
           + 'This usually means your XPath or element targeting didn\'t match. '
           + 'Re-read the document with format: "structured" to verify the structure before retrying.';
       }
+
+      // Validate any diagram blocks this modify created or changed (graphviz,
+      // d2) by compiling them server-side, so the agent learns of syntax errors
+      // in the same turn instead of needing a separate render_diagram call.
+      // Mermaid can't be validated here. Best-effort: never fails the modify.
+      if (changed) {
+        try {
+          const fresh = collectRenderableDiagrams(xmlFragment).filter(
+            (d) => d.source.trim() && !diagramKeysBefore.has(d.type + '\n' + d.source),
+          );
+          const diagramErrors = [];
+          for (const d of fresh.slice(0, MAX_DIAGRAM_VALIDATIONS)) {
+            const v = await validateDiagram(d.type, d.source);
+            if (!v.ok) diagramErrors.push({ type: d.type, error: v.error });
+          }
+          if (diagramErrors.length) {
+            response.diagramErrors = diagramErrors;
+            const note =
+              `\u26a0 ${diagramErrors.length} diagram block(s) have errors and will not render: `
+              + diagramErrors.map((e) => `[${e.type}] ${e.error}`).join(' | ')
+              + '. Fix the diagram source and modify again.';
+            response.message = response.message ? `${response.message} ${note}` : note;
+          }
+        } catch (e) {
+          console.error('[modify] diagram validation failed:', e.message);
+        }
+      }
+
       return response;
     } else {
       throw new Error(result.error);

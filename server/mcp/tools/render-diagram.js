@@ -21,7 +21,7 @@ const name = 'render_diagram';
 
 const description = `Render a diagram-as-code block to an image you can see.
 
-Diagram blocks (graphviz, mermaid) are stored as source text and only rendered
+Diagram blocks (graphviz, mermaid, d2) are stored as source text and only rendered
 visually in the editor. Use this tool to see what a block actually renders to —
 e.g. to verify a diagram you just inserted or edited.
 
@@ -65,7 +65,7 @@ const inputSchema = {
 };
 
 // Diagram node types that exist in the schema (renderable or not).
-const DIAGRAM_NODE_TYPES = ['graphviz', 'mermaid'];
+const DIAGRAM_NODE_TYPES = ['graphviz', 'mermaid', 'd2'];
 const MAX_DIAGRAMS = 10;
 
 // Collect diagram nodes (depth-first) with their source text.
@@ -147,7 +147,7 @@ async function handler(args, agentToken) {
     }
     selected = [{ d: diagrams[index], label: `diagram #${index}` }];
   } else {
-    // Default: all graphviz blocks (skip mermaid, which we can't render here).
+    // Default: all server-renderable blocks (skip mermaid, which we can't render here).
     selected = diagrams
       .map((d, i) => ({ d, label: `diagram #${i}` }))
       .filter(({ d }) => SUPPORTED_TYPES.includes(d.type));

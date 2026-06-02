@@ -8,15 +8,15 @@
  */
 
 jest.mock('../../diagram-render', () => ({
-  SUPPORTED_TYPES: ['graphviz'],
+  SUPPORTED_TYPES: ['graphviz', 'd2'],
   renderDiagram: jest.fn(async (type, source) => {
-    if (type !== 'graphviz') {
+    if (type !== 'graphviz' && type !== 'd2') {
       const e = new Error(`unsupported ${type}`);
       e.code = 'DIAGRAM_UNSUPPORTED';
       throw e;
     }
     if (source.includes('BAD')) {
-      const e = new Error('Graphviz syntax error');
+      const e = new Error(`${type} syntax error`);
       e.code = 'DIAGRAM_SYNTAX';
       throw e;
     }
@@ -59,6 +59,14 @@ describe('render_diagram tool (direct source)', () => {
     const r = await tool.handler({ source: 'digraph { A -> BAD }' });
     expect(r.__mcpContent[0].text).toMatch(/render failed.*Graphviz syntax error/i);
     expect(r.__mcpContent.some((b) => b.type === 'image')).toBe(false);
+  });
+
+  test('returns a PNG image block for valid d2 source', async () => {
+    const r = await tool.handler({ source: 'x -> y -> z', type: 'd2', format: 'both' });
+    const img = r.__mcpContent.find((b) => b.type === 'image');
+    expect(img).toBeDefined();
+    expect(img.mimeType).toBe('image/png');
+    expect(r.__mcpContent[0].text).toMatch(/d2, rendered 120×60px/);
   });
 
   test('notes that mermaid is not server-renderable', async () => {

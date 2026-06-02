@@ -37,6 +37,7 @@
     "@ai-sdk/google": "^3.0.51",
     "@hpcc-js/wasm-graphviz": "^1.22.0",
     "@resvg/resvg-js": "^2.6.2",
+    "@terrastruct/d2": "^0.1.33",
     "ai": "^6.0.116",
     "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",

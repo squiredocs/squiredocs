@@ -495,7 +495,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
-   * Create a diagram-as-code block (mermaid | graphviz). Same shape as a code
+   * Create a diagram-as-code block (mermaid | graphviz | d2). Same shape as a code
    * block — a single Y.XmlText child holding the diagram source — but tagged so
    * the editor renders it to a diagram instead of showing source.
    */
@@ -664,6 +664,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
 
       case 'mermaid':
       case 'graphviz':
+      case 'd2':
         if (blockDef.content === undefined) {
           throw new Error(`appendBlocks: ${blockDef.type} requires content`);
         }
@@ -697,7 +698,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, graphviz, blockquote, horizontalRule, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, graphviz, d2, blockquote, horizontalRule, table`);
     }
   }
 

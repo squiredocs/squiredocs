@@ -204,6 +204,33 @@ describe('Format round-trip', () => {
       }
     });
 
+    test('d2 round-trips', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const d = new Y.XmlElement('d2');
+        const t = new Y.XmlText();
+        t.insert(0, 'x -> y -> z');
+        d.insert(0, [t]);
+        fragment.insert(0, [d]);
+      });
+      const { md, pmStr } = roundTrip(doc);
+      expect(md).toContain('```d2');
+      expect(md).toContain('x -> y -> z');
+      expect(pmStr).toContain('"type":"d2"');
+      expect(pmStr).not.toContain('"type":"codeBlock"');
+      expect(pmStr).toContain('x -> y -> z');
+    });
+
+    test('codeBlock with language=d2 is treated as d2', () => {
+      const { markdownToPm } = require('../markdown-to-pm');
+      const pm = markdownToPm('```d2\nx -> y\n```');
+      const str = JSON.stringify(pm);
+      expect(str).toContain('"type":"d2"');
+      expect(str).not.toContain('"language":"d2"');
+      expect(str).toContain('x -> y');
+    });
+
     test('bulletList round-trips', () => {
       const doc = new Y.Doc();
       const fragment = doc.getXmlFragment('default');
