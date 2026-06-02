@@ -78,7 +78,9 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.google.com", "https://googleads.g.doubleclick.net"],
-      fontSrc: ["'self'"],
+      // D2 embeds its fonts in the rendered SVG as data:application/font-woff
+      // URLs, so data: must be allowed or the diagram text fails to render.
+      fontSrc: ["'self'", "data:"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
     },
