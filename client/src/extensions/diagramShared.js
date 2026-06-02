@@ -39,6 +39,15 @@ export function decodeSourceFromAlt(name, altText) {
   }
 }
 
+// Trim a rendered SVG string to its opening `<svg` tag, dropping any XML prolog
+// / `<!DOCTYPE>` a renderer emits ahead of it. Graphviz always emits the prolog;
+// the HTML parser behind the node view's `innerHTML = svg` drops those nodes and
+// the diagram never renders. Harmless for renderers that emit no prolog.
+export function toInlineSvg(out) {
+  const start = out.indexOf('<svg');
+  return start === -1 ? out : out.slice(start);
+}
+
 // Normalize a cloned <svg> so it can render correctly as a standalone document
 // (canvas drawImage, clipboard SVG fallback, …). Mermaid emits `width="100%"` +
 // viewBox + an inherited max-width style; Graphviz emits `width="62pt"` + a

@@ -178,9 +178,32 @@ function getBlockDetails(xmlFragment, elementIndex) {
   };
 }
 
+/**
+ * Collect diagram-as-code blocks (mermaid, graphviz, d2, …) anywhere in the
+ * fragment, returning each block's type and source text. Diagram nodes never
+ * nest other diagrams, so traversal stops descending once one is matched.
+ * @param {Y.XmlFragment} xmlFragment
+ * @param {string[]} types - diagram node names to collect
+ * @returns {Array<{type: string, source: string}>}
+ */
+function collectDiagrams(xmlFragment, types) {
+  const out = [];
+  const visit = (node) => {
+    if (!(node instanceof Y.XmlElement)) return;
+    if (types.includes(node.nodeName)) {
+      out.push({ type: node.nodeName, source: getTextContent(node) });
+      return; // diagram nodes don't nest other diagrams
+    }
+    for (const child of node.toArray()) visit(child);
+  };
+  for (const child of xmlFragment.toArray()) visit(child);
+  return out;
+}
+
 module.exports = {
   formatDocumentStructure,
   getBlockDetails,
   getTextContent,
-  getNodeAttributes
+  getNodeAttributes,
+  collectDiagrams
 };

@@ -12,6 +12,7 @@ const { toMarkdown } = require('../yjs/serialization');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { SUPPORTED_TYPES, validateDiagram } = require('../diagram-render');
+const { collectDiagrams } = require('../yjs/block-structure');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
 // always succeeds in changing the live document; the content echo is a
@@ -23,28 +24,6 @@ const MAX_ECHO_CONTENT_CHARS = 60_000;
 // Cap on how many newly-created/changed diagram blocks a single modify will
 // validate, to bound latency on a bulk edit that inserts many diagrams.
 const MAX_DIAGRAM_VALIDATIONS = 10;
-
-// Collect (type, source) for every server-renderable diagram block (graphviz,
-// d2) anywhere in the fragment. Used to detect which diagrams a modify created
-// or changed so they can be compiled for syntax errors. Mirrors the collector
-// in render-diagram.js.
-function collectRenderableDiagrams(xmlFragment) {
-  const out = [];
-  const visit = (node) => {
-    if (!(node instanceof Y.XmlElement)) return;
-    if (SUPPORTED_TYPES.includes(node.nodeName)) {
-      const source = node
-        .toArray()
-        .map((c) => (c && typeof c.toString === 'function' ? c.toString() : ''))
-        .join('');
-      out.push({ type: node.nodeName, source });
-      return; // diagram nodes don't nest other diagrams
-    }
-    for (const child of node.toArray()) visit(child);
-  };
-  for (const child of xmlFragment.toArray()) visit(child);
-  return out;
-}
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -1588,7 +1567,7 @@ async function handler(args, agentToken) {
   // Snapshot existing diagram sources so we can validate only the ones this
   // modify creates or changes (not pre-existing, untouched diagrams).
   const diagramKeysBefore = new Set(
-    collectRenderableDiagrams(xmlFragment).map((d) => d.type + '\n' + d.source),
+    collectDiagrams(xmlFragment, SUPPORTED_TYPES).map((d) => d.type + '\n' + d.source),
   );
   console.log(`[modify:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
@@ -1664,7 +1643,7 @@ async function handler(args, agentToken) {
       // Mermaid can't be validated here. Best-effort: never fails the modify.
       if (changed) {
         try {
-          const fresh = collectRenderableDiagrams(xmlFragment).filter(
+          const fresh = collectDiagrams(xmlFragment, SUPPORTED_TYPES).filter(
             (d) => d.source.trim() && !diagramKeysBefore.has(d.type + '\n' + d.source),
           );
           const diagramErrors = [];

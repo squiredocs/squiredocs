@@ -1,4 +1,5 @@
 import { createDiagramNode } from './diagramBlock';
+import { toInlineSvg } from './diagramShared';
 
 let d2Promise = null;
 
@@ -40,13 +41,9 @@ function loadD2() {
   return d2Promise;
 }
 
-// D2 is asked for `noXMLTag`, but trim to the opening `<svg` defensively (as
-// GraphvizNode does) so `innerHTML = svg` in the node view always renders.
-function toInlineSvg(out) {
-  const start = out.indexOf('<svg');
-  return start === -1 ? out : out.slice(start);
-}
-
+// D2 is asked for `noXMLTag`, but render() still goes through the shared
+// toInlineSvg defensively so `innerHTML = svg` in the node view always renders.
+//
 // Thin config over the shared diagram core (see diagramBlock.js). D2 uses the
 // ELK layout engine. The compile step throws (with a verbose JSON-ish message)
 // on invalid D2; the node view surfaces it in the error panel.

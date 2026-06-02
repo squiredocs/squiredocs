@@ -70,6 +70,11 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.googleadservices.com"],
+      // D2 diagrams render in a Web Worker spun up from a blob: URL (the
+      // @terrastruct/d2 WASM bundle). Without an explicit worker-src, workers
+      // fall back to script-src, which has no blob: — so the worker is blocked
+      // and D2 blocks never render in production.
+      workerSrc: ["'self'", "blob:"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.google.com", "https://googleads.g.doubleclick.net"],

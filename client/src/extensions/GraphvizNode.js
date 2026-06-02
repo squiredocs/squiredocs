@@ -1,4 +1,5 @@
 import { createDiagramNode } from './diagramBlock';
+import { toInlineSvg } from './diagramShared';
 
 let graphvizPromise = null;
 
@@ -14,18 +15,9 @@ function loadGraphviz() {
 }
 
 // Graphviz emits plain SVG <text> (no <foreignObject>), so rasterization needs
-// no special casing. dot() is synchronous, returns an SVG string, and throws a
-// (verbose) Error on invalid DOT.
-//
-// Unlike Mermaid, Graphviz returns a full XML document — an `<?xml ?>` prolog
-// and a `<!DOCTYPE svg>` ahead of the `<svg>` element. Those break the node
-// view's `innerHTML = svg` (the HTML parser drops them and the diagram never
-// renders), so strip everything before the opening `<svg` tag.
-function toInlineSvg(out) {
-  const start = out.indexOf('<svg');
-  return start === -1 ? out : out.slice(start);
-}
-
+// no special casing. dot() is synchronous, returns a full XML document (prolog +
+// DOCTYPE ahead of <svg>; trimmed via toInlineSvg), and throws a (verbose) Error
+// on invalid DOT.
 export const GraphvizNode = createDiagramNode({
   name: 'graphviz',
   placeholder: 'digraph {\n  A -> B -> C\n}',

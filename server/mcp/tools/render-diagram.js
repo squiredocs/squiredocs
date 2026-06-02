@@ -11,6 +11,7 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { renderDiagram, SUPPORTED_TYPES } = require('../diagram-render');
+const { collectDiagrams } = require('../yjs/block-structure');
 
 let persistenceProvider = null;
 function init(persistence) {
@@ -68,25 +69,6 @@ const inputSchema = {
 const DIAGRAM_NODE_TYPES = ['graphviz', 'mermaid', 'd2'];
 const MAX_DIAGRAMS = 10;
 
-// Collect diagram nodes (depth-first) with their source text.
-function collectDiagrams(xmlFragment) {
-  const out = [];
-  const visit = (node) => {
-    if (!(node instanceof Y.XmlElement)) return;
-    if (DIAGRAM_NODE_TYPES.includes(node.nodeName)) {
-      const source = node
-        .toArray()
-        .map((c) => (c && typeof c.toString === 'function' ? c.toString() : ''))
-        .join('');
-      out.push({ type: node.nodeName, source });
-      return; // diagram nodes don't nest other diagrams
-    }
-    for (const child of node.toArray()) visit(child);
-  };
-  for (const child of xmlFragment.toArray()) visit(child);
-  return out;
-}
-
 function imageBlock(pngBase64) {
   return { type: 'image', data: pngBase64, mimeType: 'image/png' };
 }
@@ -134,7 +116,7 @@ async function handler(args, agentToken) {
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
   const ydoc = session.provider.doc;
   const xmlFragment = ydoc.get('default', Y.XmlFragment);
-  const diagrams = collectDiagrams(xmlFragment);
+  const diagrams = collectDiagrams(xmlFragment, DIAGRAM_NODE_TYPES);
 
   if (diagrams.length === 0) {
     return { __mcpContent: [textBlock('No diagram blocks found in this document.')] };
