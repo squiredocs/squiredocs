@@ -63,6 +63,26 @@ function usage() {
 const inputRateByModel = Object.fromEntries(
   MODEL_DEFS.map((d) => [d.key, d.pricing.input]) // cents per 1M input tokens
 );
+const outputRateByModel = Object.fromEntries(
+  MODEL_DEFS.map((d) => [d.key, d.pricing.output]) // cents per 1M output tokens
+);
+
+// Output cost in fractional cents (output is never cached — flat rate).
+function outputCents(modelKey, output) {
+  const rate = outputRateByModel[modelKey];
+  return rate ? (rate / 1_000_000) * output : 0;
+}
+
+// Actual (cache-discounted) input cost in fractional cents — the input half of
+// the recorded cost. regular tokens at the base rate, reads/writes at their
+// multipliers.
+function actualInputCents(modelKey, input, cacheRead, cacheWrite) {
+  const rate = inputRateByModel[modelKey];
+  if (!rate) return 0;
+  const regular = Math.max(0, input - cacheRead - cacheWrite);
+  return (rate / 1_000_000) *
+    (regular + cacheRead * CACHE_READ_MULTIPLIER + cacheWrite * CACHE_WRITE_MULTIPLIER);
+}
 
 // Estimated cents saved vs. an uncached request, in fractional cents.
 // Uncached would price every input token at the base rate; caching prices reads
@@ -85,7 +105,7 @@ const padr = (s, w) => String(s).padEnd(w);
 function header() {
   return padr('time', 8) + ' ' + padr('model', 14) + ' ' + padr('key', 4) + ' ' +
     pad('input', 9) + ' ' + pad('output', 8) + ' ' + pad('cacheR', 9) + ' ' + pad('cacheW', 9) + ' ' +
-    pad('hit%', 6) + ' ' + pad('cost¢', 7) + ' ' + pad('saved¢', 9);
+    pad('hit%', 6) + ' ' + pad('cost¢', 7) + ' ' + pad('out¢', 7) + ' ' + pad('saved¢', 9);
 }
 
 function rowLine(r) {
@@ -98,11 +118,12 @@ function rowLine(r) {
   return padr(time, 8) + ' ' + padr(r.model_key, 14) + ' ' +
     padr(r.is_byok ? 'byok' : 'shrd', 4) + ' ' +
     pad(n(input), 9) + ' ' + pad(n(r.output_tokens), 8) + ' ' + pad(n(cR), 9) + ' ' + pad(n(cW), 9) + ' ' +
-    pad(hit, 6) + ' ' + pad(n(r.cost_cents), 7) + ' ' + pad(saved.toFixed(2), 9);
+    pad(hit, 6) + ' ' + pad(n(r.cost_cents), 7) + ' ' +
+    pad(outputCents(r.model_key, r.output_tokens).toFixed(2), 7) + ' ' + pad(saved.toFixed(2), 9);
 }
 
 // ── totals ───────────────────────────────────────────────────────────────────
-const totals = { rows: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, saved: 0, uncached: 0 };
+const totals = { rows: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, saved: 0, uncached: 0, inputCost: 0, outputCost: 0 };
 
 function accumulate(r) {
   totals.rows += 1;
@@ -112,6 +133,8 @@ function accumulate(r) {
   totals.cacheWrite += r.cache_creation_input_tokens;
   totals.cost += r.cost_cents;
   totals.saved += savedCents(r.model_key, r.cache_read_input_tokens, r.cache_creation_input_tokens);
+  totals.inputCost += actualInputCents(r.model_key, r.input_tokens, r.cache_read_input_tokens, r.cache_creation_input_tokens);
+  totals.outputCost += outputCents(r.model_key, r.output_tokens);
   const rate = inputRateByModel[r.model_key] || 0;
   totals.uncached += (rate / 1_000_000) * r.input_tokens; // input-only, fractional cents
 }
@@ -128,8 +151,12 @@ function printSummary() {
   console.log(`requests: ${totals.rows}   input: ${n(totals.input)}   output: ${n(totals.output)}   ` +
     `cache reads: ${n(totals.cacheRead)}   writes: ${n(totals.cacheWrite)}`);
   console.log(`overall cache hit rate: ${hit}% of input tokens`);
+  const breakdown = totals.inputCost + totals.outputCost;
   console.log(`total recorded cost: ${totals.cost}¢ (${dollars(totals.cost)})   ` +
-    `est. uncached input cost: ${totals.uncached.toFixed(2)}¢   ` +
+    `[sum of per-request costs, each rounded up]`);
+  console.log(`cost breakdown (unrounded): input(cached) ${totals.inputCost.toFixed(2)}¢ + ` +
+    `output ${totals.outputCost.toFixed(2)}¢ ≈ ${breakdown.toFixed(2)}¢`);
+  console.log(`est. uncached input cost: ${totals.uncached.toFixed(2)}¢   ` +
     `est. saved: ${totals.saved.toFixed(2)}¢ (${dollars(totals.saved)}, ${pctSaved}% of input cost)`);
   console.log('note: savings are estimates from MODEL_DEFS rates; for BYOK rows the dollars are the user\'s own Anthropic bill.');
 }
