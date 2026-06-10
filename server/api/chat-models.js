@@ -77,6 +77,59 @@ function resolveModelWithKey(key, apiKey) {
 }
 
 /**
+ * Build the provider-specific `providerOptions` for a streamText call.
+ *
+ * - anthropic: ephemeral prompt caching (5-minute TTL). Caching the large,
+ *   stable tools+system prefix is the main cost lever for the agentic loop,
+ *   where every step re-sends that prefix.
+ * - google: surface thinking/reasoning blocks to the client.
+ *
+ * Returns undefined for providers that need no options. Pure + exported so the
+ * provider-gating logic is unit-testable without spinning up a model.
+ *
+ * NOTE: the '5m' TTL is deliberate — it keeps the cheaper 1.25x cache-write
+ * multiplier (a 1h TTL would be 2x). If this TTL ever changes, the
+ * CACHE_WRITE_MULTIPLIER in ai-usage.js must change to match.
+ */
+function buildProviderOptions(def) {
+  if (!def) return undefined;
+  if (def.provider === 'anthropic') {
+    return { anthropic: { cacheControl: { type: 'ephemeral', ttl: '5m' } } };
+  }
+  if (def.provider === 'google') {
+    return { google: { thinkingConfig: { includeThoughts: true } } };
+  }
+  return undefined;
+}
+
+/**
+ * Return a copy of `messages` whose LAST message carries an ephemeral Anthropic
+ * cache breakpoint, so the conversation-history prefix is cached (on top of the
+ * tools+system prefix cached via buildProviderOptions). Anthropic reads the
+ * longest matching cached prefix, so re-tagging the current last message on each
+ * call effectively moves the breakpoint forward as the conversation grows.
+ *
+ * The last message is CLONED (not mutated) so callers can pass an array that is
+ * also persisted/streamed elsewhere without leaking providerOptions into it.
+ * Returns the input unchanged when empty.
+ */
+function tagLastMessageWithCache(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  const tagged = {
+    ...last,
+    providerOptions: {
+      ...(last.providerOptions || {}),
+      anthropic: {
+        ...(last.providerOptions?.anthropic || {}),
+        cacheControl: { type: 'ephemeral', ttl: '5m' },
+      },
+    },
+  };
+  return [...messages.slice(0, -1), tagged];
+}
+
+/**
  * Get the list of available models for the settings UI.
  * @param {boolean} hasAnthropicKey - Whether the user has an Anthropic API key
  * @param {boolean} hasGoogleKey - Whether the user has a Google API key
@@ -103,4 +156,4 @@ function getCompactionModel() {
   return getProvider('google')('gemini-2.5-flash');
 }
 
-module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, DEFAULT_MODEL_KEY, MODEL_DEFS };

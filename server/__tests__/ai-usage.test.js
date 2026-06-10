@@ -77,6 +77,55 @@ describe('AI Usage', () => {
       const pro = aiUsage.computeCostCents('gemini-2.5-pro', tokens, tokens);
       expect(pro).toBeGreaterThan(haiku);
     });
+
+    // ── cache-aware pricing ───────────────────────────────────────────────
+    // claude-sonnet: input 300 cents/1M, output 1500 cents/1M.
+
+    test('prices cache reads at 0.1x base input', () => {
+      // 1M total input, all served from cache, no output.
+      // 1M/1M * 300 * 0.1 = 30 cents
+      const cost = aiUsage.computeCostCents('claude-sonnet', 1_000_000, 0, {
+        cacheReadTokens: 1_000_000,
+      });
+      expect(cost).toBe(30);
+    });
+
+    test('prices cache writes at 1.25x base input', () => {
+      // 1M total input, all written to cache, no output.
+      // 1M/1M * 300 * 1.25 = 375 cents
+      const cost = aiUsage.computeCostCents('claude-sonnet', 1_000_000, 0, {
+        cacheWriteTokens: 1_000_000,
+      });
+      expect(cost).toBe(375);
+    });
+
+    test('splits input into regular / cache-read / cache-write buckets', () => {
+      // 1M total input = 100k regular + 800k read + 100k write, no output.
+      // regular:    100k/1M * 300        = 30
+      // cacheRead:  800k/1M * 300 * 0.1  = 24
+      // cacheWrite: 100k/1M * 300 * 1.25 = 37.5
+      // total 91.5 → ceil → 92
+      const cost = aiUsage.computeCostCents('claude-sonnet', 1_000_000, 0, {
+        cacheReadTokens: 800_000,
+        cacheWriteTokens: 100_000,
+      });
+      expect(cost).toBe(92);
+    });
+
+    test('cache args never increase cost vs. full-price input (no double count)', () => {
+      const full = aiUsage.computeCostCents('claude-sonnet', 1_000_000, 0);
+      const cached = aiUsage.computeCostCents('claude-sonnet', 1_000_000, 0, {
+        cacheReadTokens: 1_000_000,
+      });
+      expect(full).toBe(300);
+      expect(cached).toBeLessThan(full);
+    });
+
+    test('omitting the cache arg matches the pre-caching result', () => {
+      // Backward compatibility: positional call is unchanged.
+      expect(aiUsage.computeCostCents('claude-haiku', 1000, 1000)).toBe(1);
+      expect(aiUsage.computeCostCents('claude-haiku', 1000, 1000, {})).toBe(1);
+    });
   });
 
   // ── recordUsage ───────────────────────────────────────────────────────────
@@ -101,6 +150,38 @@ describe('AI Usage', () => {
       expect(result.rows[0].output_tokens).toBe(100);
       expect(result.rows[0].cost_cents).toBe(1);
       expect(result.rows[0].chat_id).toBe('test-chat-1');
+    });
+
+    test('records cache token columns', async () => {
+      await aiUsage.recordUsage(testUserId, {
+        chatId: 'test-chat-cache',
+        modelKey: 'claude-sonnet',
+        inputTokens: 1000,
+        outputTokens: 100,
+        costCents: 1,
+        cacheReadTokens: 700,
+        cacheWriteTokens: 200,
+      });
+
+      const result = await pool.query(
+        'SELECT * FROM ai_usage_log WHERE user_id = $1',
+        [testUserId]
+      );
+      expect(result.rows[0].cache_read_input_tokens).toBe(700);
+      expect(result.rows[0].cache_creation_input_tokens).toBe(200);
+    });
+
+    test('defaults cache token columns to 0 when omitted', async () => {
+      await aiUsage.recordUsage(testUserId, {
+        modelKey: 'claude-haiku', inputTokens: 100, outputTokens: 50, costCents: 1,
+      });
+
+      const result = await pool.query(
+        'SELECT cache_read_input_tokens, cache_creation_input_tokens FROM ai_usage_log WHERE user_id = $1',
+        [testUserId]
+      );
+      expect(result.rows[0].cache_read_input_tokens).toBe(0);
+      expect(result.rows[0].cache_creation_input_tokens).toBe(0);
     });
 
     test('allows null chatId', async () => {

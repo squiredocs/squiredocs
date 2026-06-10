@@ -501,6 +501,11 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Build streamText options (reusable for compaction/retry)
     const useThinking = def.provider === 'google';
+    // Anthropic prompt caching: top-level cacheControl caches the large, static
+    // tools+system prefix (re-sent on every agentic step). runStream additionally
+    // tags the last message to extend the cache over the conversation history.
+    const useAnthropicCache = def.provider === 'anthropic';
+    const providerOptions = chatModels.buildProviderOptions(def);
     const streamTextOpts = {
       model,
       system: buildSystemPrompt(docGuid, docTitle, baseUrl),
@@ -509,11 +514,7 @@ router.post('/', requireAuth, async (req, res) => {
       prepareStep: async ({ stepNumber }) => {
         if (stepNumber >= 95) return { toolChoice: 'none' };
       },
-      ...(useThinking && {
-        providerOptions: {
-          google: { thinkingConfig: { includeThoughts: true } },
-        },
-      }),
+      ...(providerOptions && { providerOptions }),
       onError: ({ error }) => {
         console.error('[Chat API] Stream error:', error);
       },
@@ -528,17 +529,31 @@ router.post('/', requireAuth, async (req, res) => {
         }
         const inputTokens = usage.inputTokens ?? 0;
         const outputTokens = usage.outputTokens ?? 0;
-        const costCents = aiUsage.computeCostCents(def.key, inputTokens, outputTokens);
+        // Cache reads/writes are a subset of inputTokens (AI SDK reports them in
+        // inputTokenDetails). Naturally 0 for non-caching providers (e.g. Gemini).
+        const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+        const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+        if (useAnthropicCache) {
+          console.log(
+            `[Chat API] Anthropic cache — read=${cacheReadTokens} write=${cacheWriteTokens} `
+            + `noCache=${usage.inputTokenDetails?.noCacheTokens ?? 0} totalIn=${inputTokens}`
+          );
+        }
+        const costCents = aiUsage.computeCostCents(def.key, inputTokens, outputTokens, {
+          cacheReadTokens, cacheWriteTokens,
+        });
         if (reservationId) {
           // Reconcile reservation with actual usage
           aiUsage.reconcileReservation(reservationId, {
             modelKey: def.key, inputTokens, outputTokens, costCents, isByok,
+            cacheReadTokens, cacheWriteTokens,
           }).catch(err => console.error('[Chat API] Failed to reconcile reservation:', err));
         } else {
           // BYOK or reservation failed — record usage directly
           aiUsage.recordUsage(req.user.userId, {
             chatId, modelKey: def.key,
             inputTokens, outputTokens, costCents, isByok,
+            cacheReadTokens, cacheWriteTokens,
           }).catch(err => console.error('[Chat API] Failed to record usage:', err));
         }
       },
@@ -546,7 +561,14 @@ router.post('/', requireAuth, async (req, res) => {
 
     /** Run streamText and pipe the resulting UI stream as SSE to the response. */
     async function runStream(messages, opts = {}) {
-      const finalOpts = { ...streamTextOpts, ...opts, messages };
+      // For Anthropic, tag a CLONE of the last message with an ephemeral cache
+      // breakpoint so the conversation-history prefix is cached too (the top-level
+      // providerOptions already caches tools+system). Cloning avoids leaking
+      // providerOptions into the array that toUIMessageStream persists via saveChat.
+      const streamMessages = useAnthropicCache
+        ? chatModels.tagLastMessageWithCache(messages)
+        : messages;
+      const finalOpts = { ...streamTextOpts, ...opts, messages: streamMessages };
       const result = streamText(finalOpts);
       const uiStream = result.toUIMessageStream({
         originalMessages: validatedMessages,
@@ -599,6 +621,9 @@ router.post('/', requireAuth, async (req, res) => {
         console.warn(
           '[Chat API] INVALID_ARGUMENT with thinking enabled — retrying without thinkingConfig'
         );
+        // This retry is gated behind useThinking (Google only), so clobbering
+        // providerOptions here never disables Anthropic caching. Keep that gate
+        // if this branch is ever generalized.
         await runStream(dedupedMessages, {
           providerOptions: {},
           writeHeaders: !res.headersSent,

@@ -12,6 +12,13 @@
 
 const { MODEL_DEFS } = require('./api/chat-models');
 
+// Anthropic prompt-caching price multipliers, relative to the base input rate.
+// Cache reads cost 10% of base input; 5-minute-TTL cache writes cost 125%.
+// These are correct for the '5m' cache TTL set in chat-models.buildProviderOptions;
+// a 1-hour TTL would make the write multiplier 2.0 (keep the two in sync).
+const CACHE_READ_MULTIPLIER = 0.1;
+const CACHE_WRITE_MULTIPLIER = 1.25;
+
 let pool = null;
 
 function init(dbPool) {
@@ -21,21 +28,36 @@ function init(dbPool) {
 /**
  * Compute cost in cents for a request.
  * Uses Math.ceil so we never under-count.
+ *
+ * `inputTokens` is the TOTAL prompt tokens (the AI SDK reports cache reads and
+ * writes as a subset of inputTokens, not in addition to it). When cache tokens
+ * are supplied we split inputTokens into three buckets and price each at its own
+ * rate. The subtraction is what prevents double-counting; with no cache arg the
+ * buckets collapse and the result is identical to the pre-caching behavior.
+ *
  * @param {string} modelKey
- * @param {number} inputTokens
+ * @param {number} inputTokens   Total input tokens (incl. cache read + write)
  * @param {number} outputTokens
+ * @param {{cacheReadTokens?: number, cacheWriteTokens?: number}} [cache]
  * @returns {number} cost in cents
  */
-function computeCostCents(modelKey, inputTokens, outputTokens) {
+function computeCostCents(modelKey, inputTokens, outputTokens, cache = {}) {
   const def = MODEL_DEFS.find((d) => d.key === modelKey);
   if (!def) {
     console.warn(`[ai-usage] Unknown model key "${modelKey}", defaulting to claude-haiku pricing`);
-    return computeCostCents('claude-haiku', inputTokens, outputTokens);
+    return computeCostCents('claude-haiku', inputTokens, outputTokens, cache);
   }
   const pricing = def.pricing;
-  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  const cacheReadTokens = cache.cacheReadTokens || 0;
+  const cacheWriteTokens = cache.cacheWriteTokens || 0;
+  // Non-cached portion is whatever isn't a cache read or write.
+  const regularInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+
+  const inputCost = (regularInput / 1_000_000) * pricing.input;
+  const cacheReadCost = (cacheReadTokens / 1_000_000) * pricing.input * CACHE_READ_MULTIPLIER;
+  const cacheWriteCost = (cacheWriteTokens / 1_000_000) * pricing.input * CACHE_WRITE_MULTIPLIER;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
-  return Math.ceil(inputCost + outputCost);
+  return Math.ceil(inputCost + cacheReadCost + cacheWriteCost + outputCost);
 }
 
 /**
@@ -138,15 +160,15 @@ async function debitExtraCredits(userId, overflowCents) {
  * Record a usage entry in the log.
  * If the user is now over their monthly limit, debits extra credits.
  * @param {string} userId
- * @param {{chatId?: string, modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok?: boolean}} entry
+ * @param {{chatId?: string, modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok?: boolean, cacheReadTokens?: number, cacheWriteTokens?: number}} entry
  */
-async function recordUsage(userId, { chatId, modelKey, inputTokens, outputTokens, costCents, isByok }) {
+async function recordUsage(userId, { chatId, modelKey, inputTokens, outputTokens, costCents, isByok, cacheReadTokens = 0, cacheWriteTokens = 0 }) {
   if (!pool) throw new Error('ai-usage module not initialized');
 
   await pool.query(
-    `INSERT INTO ai_usage_log (user_id, chat_id, model_key, input_tokens, output_tokens, cost_cents, is_byok)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [userId, chatId || null, modelKey, inputTokens, outputTokens, costCents, !!isByok]
+    `INSERT INTO ai_usage_log (user_id, chat_id, model_key, input_tokens, output_tokens, cost_cents, is_byok, cache_read_input_tokens, cache_creation_input_tokens)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [userId, chatId || null, modelKey, inputTokens, outputTokens, costCents, !!isByok, cacheReadTokens, cacheWriteTokens]
   );
 
   // Debit extra credits if this non-BYOK request pushes past the monthly limit
@@ -217,9 +239,9 @@ async function reserveCredits(userId, estimatedCostCents) {
  * Reconcile a reservation with actual usage.
  * Updates the pending row with real values, or deletes it if the request failed.
  * @param {string} reservationId
- * @param {{modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok: boolean, failed?: boolean}} params
+ * @param {{modelKey: string, inputTokens: number, outputTokens: number, costCents: number, isByok: boolean, failed?: boolean, cacheReadTokens?: number, cacheWriteTokens?: number}} params
  */
-async function reconcileReservation(reservationId, { modelKey, inputTokens, outputTokens, costCents, isByok, failed = false }) {
+async function reconcileReservation(reservationId, { modelKey, inputTokens, outputTokens, costCents, isByok, failed = false, cacheReadTokens = 0, cacheWriteTokens = 0 }) {
   if (!pool) throw new Error('ai-usage module not initialized');
 
   if (failed) {
@@ -229,9 +251,10 @@ async function reconcileReservation(reservationId, { modelKey, inputTokens, outp
 
   await pool.query(
     `UPDATE ai_usage_log
-     SET model_key = $2, input_tokens = $3, output_tokens = $4, cost_cents = $5, is_byok = $6
+     SET model_key = $2, input_tokens = $3, output_tokens = $4, cost_cents = $5, is_byok = $6,
+         cache_read_input_tokens = $7, cache_creation_input_tokens = $8
      WHERE id = $1`,
-    [reservationId, modelKey, inputTokens, outputTokens, costCents, !!isByok]
+    [reservationId, modelKey, inputTokens, outputTokens, costCents, !!isByok, cacheReadTokens, cacheWriteTokens]
   );
 }
 
