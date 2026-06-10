@@ -145,7 +145,9 @@ function printSummary() {
     return;
   }
   const hit = totals.input > 0 ? ((totals.cacheRead / totals.input) * 100).toFixed(1) : '0';
-  const pctSaved = totals.uncached > 0 ? ((totals.saved / totals.uncached) * 100).toFixed(1) : '0';
+  const uncachedTotal = totals.uncached + totals.outputCost; // output isn't cached
+  const pctOfInput = totals.uncached > 0 ? ((totals.saved / totals.uncached) * 100).toFixed(1) : '0';
+  const pctOfTotal = uncachedTotal > 0 ? ((totals.saved / uncachedTotal) * 100).toFixed(1) : '0';
   const dollars = (cents) => '$' + (cents / 100).toFixed(2);
   console.log('\n' + '─'.repeat(72));
   console.log(`requests: ${totals.rows}   input: ${n(totals.input)}   output: ${n(totals.output)}   ` +
@@ -156,8 +158,10 @@ function printSummary() {
     `[sum of per-request costs, each rounded up]`);
   console.log(`cost breakdown (unrounded): input(cached) ${totals.inputCost.toFixed(2)}¢ + ` +
     `output ${totals.outputCost.toFixed(2)}¢ ≈ ${breakdown.toFixed(2)}¢`);
-  console.log(`est. uncached input cost: ${totals.uncached.toFixed(2)}¢   ` +
-    `est. saved: ${totals.saved.toFixed(2)}¢ (${dollars(totals.saved)}, ${pctSaved}% of input cost)`);
+  console.log(`est. uncached total cost: ${uncachedTotal.toFixed(2)}¢ (${dollars(uncachedTotal)})   ` +
+    `(input ${totals.uncached.toFixed(2)}¢ + output ${totals.outputCost.toFixed(2)}¢)`);
+  console.log(`est. saved: ${totals.saved.toFixed(2)}¢ (${dollars(totals.saved)})   ` +
+    `${pctOfInput}% of input cost, ${pctOfTotal}% of total cost`);
   console.log('note: savings are estimates from MODEL_DEFS rates; for BYOK rows the dollars are the user\'s own Anthropic bill.');
 }
 
