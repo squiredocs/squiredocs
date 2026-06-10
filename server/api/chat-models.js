@@ -76,25 +76,27 @@ function resolveModelWithKey(key, apiKey) {
   return { model, def, provider };
 }
 
+// Ephemeral prompt-caching breakpoint applied to Anthropic requests. The '5m'
+// TTL is deliberate — it keeps the cheaper 1.25x cache-write multiplier (a 1h
+// TTL would be 2x). If this TTL ever changes, CACHE_WRITE_MULTIPLIER in
+// ai-usage.js must change to match.
+const ANTHROPIC_CACHE_CONTROL = { type: 'ephemeral', ttl: '5m' };
+
 /**
  * Build the provider-specific `providerOptions` for a streamText call.
  *
- * - anthropic: ephemeral prompt caching (5-minute TTL). Caching the large,
- *   stable tools+system prefix is the main cost lever for the agentic loop,
- *   where every step re-sends that prefix.
+ * - anthropic: ephemeral prompt caching. Caching the large, stable tools+system
+ *   prefix is the main cost lever for the agentic loop, where every step
+ *   re-sends that prefix.
  * - google: surface thinking/reasoning blocks to the client.
  *
  * Returns undefined for providers that need no options. Pure + exported so the
  * provider-gating logic is unit-testable without spinning up a model.
- *
- * NOTE: the '5m' TTL is deliberate — it keeps the cheaper 1.25x cache-write
- * multiplier (a 1h TTL would be 2x). If this TTL ever changes, the
- * CACHE_WRITE_MULTIPLIER in ai-usage.js must change to match.
  */
 function buildProviderOptions(def) {
   if (!def) return undefined;
   if (def.provider === 'anthropic') {
-    return { anthropic: { cacheControl: { type: 'ephemeral', ttl: '5m' } } };
+    return { anthropic: { cacheControl: ANTHROPIC_CACHE_CONTROL } };
   }
   if (def.provider === 'google') {
     return { google: { thinkingConfig: { includeThoughts: true } } };
@@ -122,7 +124,7 @@ function tagLastMessageWithCache(messages) {
       ...(last.providerOptions || {}),
       anthropic: {
         ...(last.providerOptions?.anthropic || {}),
-        cacheControl: { type: 'ephemeral', ttl: '5m' },
+        cacheControl: ANTHROPIC_CACHE_CONTROL,
       },
     },
   };
