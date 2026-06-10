@@ -266,4 +266,6 @@ module.exports = {
   reserveCredits,
   reconcileReservation,
   grantExtraCredits,
+  CACHE_READ_MULTIPLIER,
+  CACHE_WRITE_MULTIPLIER,
 };
