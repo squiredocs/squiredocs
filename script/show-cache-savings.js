@@ -84,7 +84,7 @@ const padr = (s, w) => String(s).padEnd(w);
 
 function header() {
   return padr('time', 8) + ' ' + padr('model', 14) + ' ' + padr('key', 4) + ' ' +
-    pad('input', 9) + ' ' + pad('cacheR', 9) + ' ' + pad('cacheW', 9) + ' ' +
+    pad('input', 9) + ' ' + pad('output', 8) + ' ' + pad('cacheR', 9) + ' ' + pad('cacheW', 9) + ' ' +
     pad('hit%', 6) + ' ' + pad('cost¢', 7) + ' ' + pad('saved¢', 9);
 }
 
@@ -97,16 +97,17 @@ function rowLine(r) {
   const time = new Date(r.created_at).toISOString().slice(11, 19);
   return padr(time, 8) + ' ' + padr(r.model_key, 14) + ' ' +
     padr(r.is_byok ? 'byok' : 'shrd', 4) + ' ' +
-    pad(n(input), 9) + ' ' + pad(n(cR), 9) + ' ' + pad(n(cW), 9) + ' ' +
+    pad(n(input), 9) + ' ' + pad(n(r.output_tokens), 8) + ' ' + pad(n(cR), 9) + ' ' + pad(n(cW), 9) + ' ' +
     pad(hit, 6) + ' ' + pad(n(r.cost_cents), 7) + ' ' + pad(saved.toFixed(2), 9);
 }
 
 // ── totals ───────────────────────────────────────────────────────────────────
-const totals = { rows: 0, input: 0, cacheRead: 0, cacheWrite: 0, cost: 0, saved: 0, uncached: 0 };
+const totals = { rows: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, saved: 0, uncached: 0 };
 
 function accumulate(r) {
   totals.rows += 1;
   totals.input += r.input_tokens;
+  totals.output += r.output_tokens;
   totals.cacheRead += r.cache_read_input_tokens;
   totals.cacheWrite += r.cache_creation_input_tokens;
   totals.cost += r.cost_cents;
@@ -122,12 +123,14 @@ function printSummary() {
   }
   const hit = totals.input > 0 ? ((totals.cacheRead / totals.input) * 100).toFixed(1) : '0';
   const pctSaved = totals.uncached > 0 ? ((totals.saved / totals.uncached) * 100).toFixed(1) : '0';
+  const dollars = (cents) => '$' + (cents / 100).toFixed(2);
   console.log('\n' + '─'.repeat(72));
-  console.log(`requests: ${totals.rows}   input tokens: ${n(totals.input)}   ` +
+  console.log(`requests: ${totals.rows}   input: ${n(totals.input)}   output: ${n(totals.output)}   ` +
     `cache reads: ${n(totals.cacheRead)}   writes: ${n(totals.cacheWrite)}`);
   console.log(`overall cache hit rate: ${hit}% of input tokens`);
-  console.log(`recorded cost: ${totals.cost}¢   est. uncached input cost: ${totals.uncached.toFixed(2)}¢   ` +
-    `est. saved: ${totals.saved.toFixed(2)}¢ (${pctSaved}% of input cost)`);
+  console.log(`total recorded cost: ${totals.cost}¢ (${dollars(totals.cost)})   ` +
+    `est. uncached input cost: ${totals.uncached.toFixed(2)}¢   ` +
+    `est. saved: ${totals.saved.toFixed(2)}¢ (${dollars(totals.saved)}, ${pctSaved}% of input cost)`);
   console.log('note: savings are estimates from MODEL_DEFS rates; for BYOK rows the dollars are the user\'s own Anthropic bill.');
 }
 
