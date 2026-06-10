@@ -145,6 +145,37 @@ function buildWhere(opts, idClause) {
 const COLS = `id, created_at, model_key, is_byok, input_tokens, output_tokens,
               cost_cents, cache_read_input_tokens, cache_creation_input_tokens, chat_id`;
 
+// Human-readable connection target (host:port/db, no credentials) so it's
+// obvious which database you're actually looking at.
+function describeTarget() {
+  try {
+    const u = new URL(process.env.DATABASE_URL);
+    return `${u.hostname}:${u.port || '5432'}${u.pathname}`;
+  } catch {
+    return process.env.DATABASE_URL || '(DATABASE_URL unset)';
+  }
+}
+
+// Verify the cache columns exist before querying, so a missing migration gives
+// an actionable message instead of a raw "column does not exist" stack trace.
+async function ensureColumns(pool) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'ai_usage_log' AND column_name = 'cache_read_input_tokens'`
+  );
+  if (rows.length === 0) {
+    console.error(
+      `\nThis database is missing the prompt-cache columns on ai_usage_log — the\n` +
+      `migration 1780000000000_add-cache-token-columns has not been applied here.\n\n` +
+      `  Connected to: ${describeTarget()}\n\n` +
+      `Either run \`npm run migrate\` against this database, or point DATABASE_URL /\n` +
+      `the DB_* vars at the database your chats actually write to (e.g. production).`
+    );
+    return false;
+  }
+  return true;
+}
+
 async function fetchRows(pool, opts, afterId) {
   const { where, params } = buildWhere(opts, afterId);
   const { rows } = await pool.query(
@@ -159,6 +190,9 @@ async function main() {
   if (opts.help) { usage(); return; }
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  console.log(`DB: ${describeTarget()}`);
+
+  if (!(await ensureColumns(pool))) { await pool.end(); process.exitCode = 1; return; }
 
   const initial = await fetchRows(pool, opts);
   console.log(header());
