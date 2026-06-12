@@ -221,8 +221,8 @@ kubectl exec -n collab <postgres-pod> -- \
 - `API_KEY_ENCRYPTION_KEY`: Key used to encrypt stored BYOK API keys at rest
 - `CLIENT_URL`: Base URL of the frontend (used to build absolute links in emails and redirects)
 - `REDIS_HOST` / `REDIS_PORT`: Redis connection (defaults: `localhost` / `6379`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `gemini-3-flash`). Supported values: `claude-haiku`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The BYOK-only models `claude-sonnet` and `claude-opus` require a user-supplied key and are not valid as a shared server default.)
-- `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku` model)
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-sonnet`). Supported values: `claude-haiku`, `claude-sonnet`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The BYOK-only model `claude-opus` requires a user-supplied key and is not valid as a shared server default.)
+- `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-sonnet` or `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, and unhandled exception alerts (optional; all notifications skipped if unset)
 - `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
@@ -368,14 +368,15 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Gemini 3 Flash). Supported models:
+- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Sonnet 4.6). Supported models:
+  - `claude-sonnet` — Claude Sonnet 4.6 (requires `ANTHROPIC_API_KEY`)
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3-flash` — Gemini 3 Flash (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.1-pro` — Gemini 3.1 Pro (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.5-flash` — Gemini 3.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
-  - `claude-sonnet` / `claude-opus` — Claude Sonnet 4.6 and Opus 4.8, selectable only when the user supplies their own Anthropic key (BYOK)
+  - `claude-opus` — Claude Opus 4.8, selectable only when the user supplies their own Anthropic key (BYOK); `claude-sonnet` is also selectable via BYOK with a user-supplied key
 - **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
 - **Endpoint**: `POST /api/chat` — streams responses to the client
 - **Tools**: All 17 MCP document tools plus web search and web fetch (web tools work with both Anthropic and Google models — Gemini wraps Google Search as a function tool)
