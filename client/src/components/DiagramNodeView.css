@@ -240,6 +240,7 @@
   position: fixed;
   top: 16px;
   right: 20px;
+  z-index: 1;
   width: 36px;
   height: 36px;
   display: flex;
