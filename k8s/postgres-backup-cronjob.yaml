@@ -21,6 +21,11 @@ spec:
             - name: postgresbackup
               image: ${IMG}
               imagePullPolicy: IfNotPresent
+              # The app image runs as non-root (USER appuser), but this script
+              # installs packages with `apk add` and writes /root/.s3cfg, so the
+              # backup container must run as root.
+              securityContext:
+                runAsUser: 0
               command: ["/bin/sh"]
               args: ["/app/script/backup-postgres.sh"]
               env:

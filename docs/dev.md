@@ -897,12 +897,25 @@ data:
 
 ### Deployment
 
-The backup cronjob is automatically deployed by `script/deploy.sh` when the s3cmd configmap exists. You can also deploy it manually:
+The backup cronjob is automatically deployed by `script/deploy-aws.sh` (and
+therefore `script/build-and-deploy-aws.sh`) as part of `deploy_infrastructure`,
+when `k8s/s3cmd-configmap.yaml` exists. The legacy `script/deploy.sh` (GKE) also
+deployed it.
+
+To deploy it manually (the cronjob image is the app image, so `${IMG}` must
+resolve to an image present in ECR):
 
 ```bash
 kubectl apply -f k8s/s3cmd-configmap.yaml -n collab
-kubectl apply -f k8s/postgres-backup-cronjob.yaml -n collab
+export IMG=$(kubectl get deployment collab-app -n collab \
+  -o jsonpath='{.spec.template.spec.containers[0].image}')
+envsubst < k8s/postgres-backup-cronjob.yaml | kubectl apply -f - -n collab
 ```
+
+> **Runs as root.** `script/backup-postgres.sh` installs `postgresql-client` and
+> `s3cmd` via `apk add` and writes `/root/.s3cfg`, so the cronjob sets
+> `securityContext.runAsUser: 0`. The app image otherwise runs as the non-root
+> `appuser`; without this the backup fails with `apk: Permission denied`.
 
 ### Monitoring
 
