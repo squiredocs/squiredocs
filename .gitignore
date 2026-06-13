@@ -21,3 +21,6 @@ k8s/auth.production.env
 .claude/*
 !.claude/skills/
 skills-lock.json
+
+# Local DB backups / scratch
+tmp/

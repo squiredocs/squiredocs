@@ -5,3 +5,6 @@ It is the core source of documentation about the app.
 Review docs/dev.md for information about local development.  You should run
 commands in Minikube in the app dev pod.  It is generally all set up and ready
 to go.
+
+IMPORTANT: If you find that these docs are out of date based on your analysis
+of the codebase, update them so they are always accurate.
