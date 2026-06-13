@@ -463,9 +463,19 @@ router.post('/', requireAuth, async (req, res) => {
       observedClockHolder,
     });
 
-    // Validate and convert UI messages for streamText
+    // Validate and convert UI messages for streamText.
     const validatedMessages = await validateUIMessages({ messages: allMessages, tools });
-    const modelMessages = await convertToModelMessages(validatedMessages);
+    // Anthropic rejects history where a provider-executed web-search result was
+    // interleaved with a client tool call in the same assistant turn (the client
+    // tool_use blocks stop being trailing, violating Anthropic's tool_use/tool_result
+    // adjacency rule → 400, surfaced as a silently-swallowed message). Strip those
+    // blocks from what we SEND while keeping validatedMessages (and thus the persisted
+    // history + UI citations) intact. No-op on the Google path (its web search is a
+    // client tool, not provider-executed).
+    const modelInputMessages = def.provider === 'anthropic'
+      ? chatModels.stripProviderExecutedTools(validatedMessages)
+      : validatedMessages;
+    const modelMessages = await convertToModelMessages(modelInputMessages);
     inlineDataUrls(modelMessages);
 
     // Deduplicate repeated document reads to save context window space
@@ -516,7 +526,11 @@ router.post('/', requireAuth, async (req, res) => {
       },
       ...(providerOptions && { providerOptions }),
       onError: ({ error }) => {
-        console.error('[Chat API] Stream error:', error);
+        // Log the provider's status + body explicitly so silent round-trip
+        // rejections (e.g. Anthropic 400 invalid_request) aren't invisible.
+        console.error('[Chat API] Stream error:',
+          error?.statusCode, error?.data?.error?.type,
+          error?.responseBody || error?.message || error);
       },
       onFinish: async ({ usage }) => {
         if (!usage) {

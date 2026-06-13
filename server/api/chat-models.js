@@ -132,6 +132,45 @@ function tagLastMessageWithCache(messages) {
 }
 
 /**
+ * Return a copy of UI `messages` with provider-executed tool parts (e.g.
+ * Anthropic's server-side `webSearch`) removed from assistant turns.
+ *
+ * Why: when a provider-executed web search ran in the SAME assistant step as a
+ * client tool call, persisting and replaying that turn makes the AI SDK emit an
+ * assistant message where the client `tool_use` blocks are no longer the trailing
+ * blocks (the inline `web_search_tool_result` sits after them). Anthropic requires
+ * each `tool_use` to be immediately resolvable by the next message and rejects the
+ * whole request with a 400 (`tool_use ids ... without tool_result blocks`), which
+ * the UI surfaces as a dead spinner / "swallowed" message. The assistant's own
+ * text already summarized the search, so dropping these blocks from what we SEND
+ * costs no real context. Gemini's web search is a normal client tool (not
+ * provider-executed), so this is a no-op on that path.
+ *
+ * The input array and its parts are not mutated; assistant turns left empty by the
+ * strip are dropped (the AI SDK requires every message to have at least one part).
+ */
+function stripProviderExecutedTools(messages) {
+  if (!Array.isArray(messages)) return messages;
+  const out = [];
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.parts)) {
+      out.push(m);
+      continue;
+    }
+    const parts = m.parts.filter(
+      (p) => !(typeof p?.type === 'string' && p.type.startsWith('tool-') && p.providerExecuted),
+    );
+    if (parts.length === m.parts.length) {
+      out.push(m);
+    } else if (parts.length > 0) {
+      out.push({ ...m, parts });
+    }
+    // else: assistant turn is now empty — drop it
+  }
+  return out;
+}
+
+/**
  * Get the list of available models for the settings UI.
  * @param {boolean} hasAnthropicKey - Whether the user has an Anthropic API key
  * @param {boolean} hasGoogleKey - Whether the user has a Google API key
@@ -158,4 +197,4 @@ function getCompactionModel() {
   return getProvider('google')('gemini-2.5-flash');
 }
 
-module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };
