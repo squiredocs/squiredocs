@@ -99,6 +99,10 @@ Open `http://localhost:5173` in your browser to use the editor.
 
 > **Sandbox option:** the Minikube + Mutagen dev environment can be driven by a one-command CLI, [samg/collab-devcontainer](https://github.com/samg/collab-devcontainer), which runs the `app-dev` pod from a hardened dev image (Node 22 + Claude Code + `gh` + build tools). It's a convenience front-end over the same substrate documented in [docs/dev.md](docs/dev.md), not a replacement.
 
+### Project Status & Workflow
+
+This is a **single-developer personal project**, so it deliberately skips the ceremony of a team workflow. There is **no pull-request or code-review process** — ordinary changes are committed straight to `main` and deployed to prod from there (see [Deploy Scripts](#deploy-scripts)). Branches are used only when they earn it: exploratory spikes, larger multi-step efforts, or work risky enough to want isolated until it's ready. **Default path for a normal change: run the tests, commit to `main`, deploy.**
+
 ### Running Separately
 
 **Backend only:**
