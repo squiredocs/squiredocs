@@ -47,6 +47,27 @@ const activeStreams = new Map();
 const MAX_STREAMS_PER_USER = 10;
 const MAX_CHUNKS_PER_STREAM = 5000;
 
+/** True while the client response can still accept writes. */
+const isWritable = (res) => !res.writableEnded && !res.destroyed;
+
+/** Format a value as a single SSE data event. */
+const sseEvent = (value) => `data: ${JSON.stringify(value)}\n\n`;
+
+/**
+ * Append a formatted SSE chunk to the replay buffer and write it to the client.
+ *
+ * The buffer is capped (MAX_CHUNKS_PER_STREAM) so a runaway stream can't grow it
+ * without bound, and the write is skipped once the client response is no longer
+ * writable — so generation that outlives a disconnected client keeps filling the
+ * buffer for a reconnecting client without write-after-destroy errors. Every SSE
+ * emission (live stream + compaction events) goes through here so both
+ * invariants hold uniformly.
+ */
+function pushChunk(res, entry, chunk) {
+  if (entry.chunks.length < MAX_CHUNKS_PER_STREAM) entry.chunks.push(chunk);
+  if (isWritable(res)) res.write(chunk);
+}
+
 // Lazy-loaded AI SDK core (heavy import — pulls in OpenTelemetry, zod, etc.)
 let _ai = null;
 
@@ -247,20 +268,14 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   const pending = [];
   let headersWritten = !writeHeaders;
 
-  // The client response may go away mid-stream while generation continues. Keep
-  // buffering into entry.chunks regardless, but only touch `res` while it can
-  // still accept writes (avoids write-after-destroy errors that would abort the
-  // loop and stop the buffer from filling for a reconnecting client).
-  const canWrite = () => !res.writableEnded && !res.destroyed;
-
+  // The client response may go away mid-stream while generation continues.
+  // pushChunk keeps buffering into entry.chunks regardless and only writes to
+  // `res` while it can still accept writes, so the buffer keeps filling for a
+  // reconnecting client without write-after-destroy errors aborting the loop.
   function commitHeaders() {
-    if (canWrite()) res.writeHead(200, SSE_HEADERS);
+    if (isWritable(res)) res.writeHead(200, SSE_HEADERS);
     headersWritten = true;
-    for (const p of pending) {
-      const c = `data: ${JSON.stringify(p)}\n\n`;
-      entry.chunks.push(c);
-      if (canWrite()) res.write(c);
-    }
+    for (const p of pending) pushChunk(res, entry, sseEvent(p));
     pending.length = 0;
   }
 
@@ -294,9 +309,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
         console.error('[Chat API] Provider error in stream:', value.errorText || JSON.stringify(value));
       }
 
-      const sseChunk = `data: ${JSON.stringify(value)}\n\n`;
-      entry.chunks.push(sseChunk);
-      if (canWrite()) res.write(sseChunk);
+      pushChunk(res, entry, sseEvent(value));
     }
 
     // Edge case: stream contained only buffered metadata (no content)
@@ -304,9 +317,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
 
     // Signal end-of-stream (matches JsonToSseTransformStream behaviour)
     if (headersWritten) {
-      const doneChunk = 'data: [DONE]\n\n';
-      entry.chunks.push(doneChunk);
-      if (canWrite()) res.write(doneChunk);
+      pushChunk(res, entry, 'data: [DONE]\n\n');
     }
   } catch (err) {
     reader.releaseLock();
@@ -333,11 +344,7 @@ function inlineDataUrls(modelMessages) {
 
 /** Write a single SSE event to both the response and the replay buffer. */
 function writeSSEEvent(res, entry, data) {
-  const chunk = `data: ${JSON.stringify(data)}\n\n`;
-  if (entry.chunks.length < MAX_CHUNKS_PER_STREAM) {
-    entry.chunks.push(chunk);
-  }
-  res.write(chunk);
+  pushChunk(res, entry, sseEvent(data));
 }
 
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
@@ -619,8 +626,6 @@ router.post('/', requireAuth, async (req, res) => {
 
     try {
       await runStream(dedupedMessages);
-      cleanupEntry(30_000);
-      res.end();
     } catch (streamError) {
       if (isTokenLimitError(streamError)) {
         console.log('[Chat API] Token limit hit, compacting conversation…');
@@ -646,8 +651,6 @@ router.post('/', requireAuth, async (req, res) => {
 
         // Retry with compacted messages (headers already sent)
         await runStream(compacted, { writeHeaders: false });
-        cleanupEntry(30_000);
-        res.end();
       } else if (useThinking && isInvalidArgumentError(streamError)) {
         // Gemini 3 models can fail with INVALID_ARGUMENT when thought
         // signatures from earlier turns are lost during DB persistence.
@@ -662,12 +665,14 @@ router.post('/', requireAuth, async (req, res) => {
           providerOptions: {},
           writeHeaders: !res.headersSent,
         });
-        cleanupEntry(30_000);
-        res.end();
       } else {
         throw streamError; // re-throw for outer catch
       }
     }
+    // Common epilogue for the initial run OR a successful retry. A retry that
+    // itself throws (or an unhandled error type) propagates to the outer catch.
+    cleanupEntry(30_000);
+    res.end();
   } catch (error) {
     console.error('[Chat API] Error:', error);
     notifyException(error, { req, source: 'chat-api' });
