@@ -128,6 +128,32 @@ describe('AiChatContext', () => {
     await waitFor(() => expect(stopSpy).toHaveBeenCalled());
   });
 
+  it('does NOT stop/reload an in-flight stream when the access token refreshes mid-chat', async () => {
+    const { result, rerender } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    // Open a chat
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
+    act(() => { result.current.selectChat('chat-stream'); });
+    await waitFor(() => expect(stopSpy).toHaveBeenCalled());
+
+    // Simulate an active stream + a mid-session token refresh (e.g. the 5s
+    // chat-list poll hit a 401 and the interceptor rotated the token).
+    stopSpy.mockClear();
+    setMessagesSpy.mockClear();
+    mockStatus = 'streaming';
+    mockAccessToken = 'refreshed-token';
+    rerender();
+
+    // Give any effects a chance to fire.
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+
+    // The same chat is loaded — a token-only change must not abort the stream
+    // or wipe the messages.
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(setMessagesSpy).not.toHaveBeenCalledWith([]);
+  });
+
   it('calls resumeStream() when last loaded message is from user', async () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());

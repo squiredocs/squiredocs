@@ -192,3 +192,80 @@ describe('activeStreams lifecycle', () => {
     expect(activeStreams.has('key')).toBe(false);
   });
 });
+
+// ── pipeAsSSE buffering after client disconnect ──────────────────────────────
+// The replay buffer must keep filling even after the client response goes away,
+// so a reconnecting client can replay what it missed and tail the rest. The
+// generation runs to completion regardless of the client connection.
+
+describe('pipeAsSSE', () => {
+  const { pipeAsSSE } = require('../api/chat');
+
+  function streamOf(values) {
+    return new ReadableStream({
+      start(controller) {
+        for (const v of values) controller.enqueue(v);
+        controller.close();
+      },
+    });
+  }
+
+  // Fake Express response that goes "dark" (destroyed) after N successful writes,
+  // simulating a client that disconnects mid-stream.
+  function makeRes({ destroyAfter = Infinity } = {}) {
+    return {
+      writableEnded: false,
+      destroyed: false,
+      headers: null,
+      statusCode: null,
+      written: [],
+      writeHead(code, headers) { this.statusCode = code; this.headers = headers; },
+      write(chunk) {
+        this.written.push(chunk);
+        if (this.written.length >= destroyAfter) this.destroyed = true;
+        return true;
+      },
+    };
+  }
+
+  test('buffers every chunk into entry.chunks even after the client disconnects', async () => {
+    const values = [
+      { type: 'start' },
+      { type: 'text-delta', text: 'a' },
+      { type: 'text-delta', text: 'b' },
+      { type: 'text-delta', text: 'c' },
+    ];
+    const res = makeRes({ destroyAfter: 2 }); // disconnect after start + first delta
+    const entry = { chunks: [], done: false, userId: 'u' };
+
+    await pipeAsSSE(streamOf(values), res, entry);
+
+    // The full transcript (4 events + the [DONE] sentinel) is in the buffer,
+    // ready for a reconnecting client to replay/tail.
+    expect(entry.chunks).toHaveLength(5);
+    expect(entry.chunks[entry.chunks.length - 1]).toBe('data: [DONE]\n\n');
+    expect(entry.chunks.some((c) => c.includes('"text":"c"'))).toBe(true);
+
+    // Only the chunks written before the disconnect reached the client.
+    expect(res.written).toHaveLength(2);
+
+    // pipeAsSSE never marks the stream done — that's the caller's job on actual
+    // generation completion, not on client disconnect.
+    expect(entry.done).toBe(false);
+  });
+
+  test('writes the full stream to a client that stays connected', async () => {
+    const values = [
+      { type: 'start' },
+      { type: 'text-delta', text: 'hello' },
+    ];
+    const res = makeRes();
+    const entry = { chunks: [], done: false, userId: 'u' };
+
+    await pipeAsSSE(streamOf(values), res, entry);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.written).toEqual(entry.chunks);
+    expect(res.written[res.written.length - 1]).toBe('data: [DONE]\n\n');
+  });
+});

@@ -172,27 +172,55 @@ export function AiChatProvider({ children }) {
 
   // ── Load messages when chat changes ──────────────────────────────────────
 
+  // Identifies the (chat, retry-tick) we last tore down + loaded for. `accessToken`
+  // is a dependency of the load effect below (we need a token before fetching and
+  // must react when one first arrives), but it also changes on every mid-session
+  // token refresh — the 5s chat-list poll hitting a 401, a cross-tab broadcast, or
+  // the proactive pre-send refresh. Without this guard, such a refresh re-runs the
+  // effect and calls chat.stop() on an in-flight stream, aborting the client's view
+  // of it. The server keeps streaming via its response tee, so the turn still
+  // completes and persists, but the spinner vanishes and nothing renders until a
+  // manual page refresh. Keying off this ref means a token refresh (same chat, same
+  // tick) is a no-op and leaves any active stream untouched.
+  const loadedKeyRef = useRef(null);
+
   useEffect(() => {
     // After new-chat creation the stream is already running and messages
     // are in the correct state — skip the stop/clear/reload cycle.
     if (creatingChatRef.current) {
       creatingChatRef.current = false;
+      loadedKeyRef.current = `${currentChatId}:${loadMessagesTick}`;
       return;
     }
+
+    // No chat selected → reset to a blank slate (once).
+    if (!currentChatId) {
+      if (loadedKeyRef.current !== null) {
+        chat.stop();
+        chat.setMessages([]);
+        setMessagesLoading(false);
+        setMessagesError(null);
+        loadedKeyRef.current = null;
+      }
+      return;
+    }
+
+    // Need a token before we can fetch. The effect re-runs when accessToken
+    // transitions from null to a value, at which point we proceed.
+    if (!accessToken) return;
+
+    // Only tear down + reload when the chat actually changed (or an explicit
+    // retry bumped the tick). A re-run caused solely by a token refresh keeps
+    // the same key and must leave any in-flight stream untouched.
+    const key = `${currentChatId}:${loadMessagesTick}`;
+    if (key === loadedKeyRef.current) return;
+    loadedKeyRef.current = key;
 
     // Disconnect any active stream from the previous chat so its tokens
     // don't spill into the new chat's view. The server-side tee ensures
     // the response is still saved even after the client disconnects.
     chat.stop();
 
-    if (!currentChatId || !accessToken) {
-      if (!currentChatId) {
-        chat.setMessages([]);
-        setMessagesLoading(false);
-        setMessagesError(null);
-      }
-      return;
-    }
     let cancelled = false;
     setMessagesLoading(true);
     setMessagesError(null);

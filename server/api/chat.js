@@ -230,6 +230,14 @@ async function compactMessages(messages) {
  * HTTP headers once a content-bearing chunk arrives.  If an error chunk
  * arrives before any content (e.g. a token-limit error), it throws so the
  * caller can intercept and retry with compacted messages.
+ *
+ * Every chunk is appended to `entry.chunks` (the replay buffer) BEFORE it is
+ * written to `res`, and writes to `res` are skipped once the client response is
+ * no longer writable. So if the client disconnects mid-stream (page refresh,
+ * navigation, dropped connection), the generation keeps running via the tee and
+ * the buffer keeps filling — a reconnecting client (GET /:id/stream) can replay
+ * what it missed and tail the rest. Generation completion (not client
+ * disconnect) is what ends the stream; see cleanupEntry.
  */
 async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   const [httpStream, saveStream] = uiStream.tee();
@@ -239,13 +247,19 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   const pending = [];
   let headersWritten = !writeHeaders;
 
+  // The client response may go away mid-stream while generation continues. Keep
+  // buffering into entry.chunks regardless, but only touch `res` while it can
+  // still accept writes (avoids write-after-destroy errors that would abort the
+  // loop and stop the buffer from filling for a reconnecting client).
+  const canWrite = () => !res.writableEnded && !res.destroyed;
+
   function commitHeaders() {
-    res.writeHead(200, SSE_HEADERS);
+    if (canWrite()) res.writeHead(200, SSE_HEADERS);
     headersWritten = true;
     for (const p of pending) {
       const c = `data: ${JSON.stringify(p)}\n\n`;
       entry.chunks.push(c);
-      res.write(c);
+      if (canWrite()) res.write(c);
     }
     pending.length = 0;
   }
@@ -282,7 +296,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
 
       const sseChunk = `data: ${JSON.stringify(value)}\n\n`;
       entry.chunks.push(sseChunk);
-      res.write(sseChunk);
+      if (canWrite()) res.write(sseChunk);
     }
 
     // Edge case: stream contained only buffered metadata (no content)
@@ -292,7 +306,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
     if (headersWritten) {
       const doneChunk = 'data: [DONE]\n\n';
       entry.chunks.push(doneChunk);
-      res.write(doneChunk);
+      if (canWrite()) res.write(doneChunk);
     }
   } catch (err) {
     reader.releaseLock();
@@ -361,8 +375,14 @@ router.post('/', requireAuth, async (req, res) => {
     entry = { chunks: [], done: false, userId: req.user.userId };
     activeStreams.set(chatId, entry);
 
-    // Safety net: clean up if the client disconnects mid-stream
-    res.on('close', () => cleanupEntry());
+    // NOTE: deliberately no cleanup on client disconnect. The generation keeps
+    // running via the response tee, and a reconnecting client (GET /:id/stream)
+    // needs the entry to stay alive with its buffer filling so it can replay +
+    // tail the rest. Marking the stream done here (as this used to) made a
+    // mid-stream page refresh reconnect to an already-"done" entry that ended
+    // immediately instead of tailing. The entry is cleaned up when generation
+    // actually finishes — see the cleanupEntry calls after runStream and in the
+    // error paths, all of which are reached regardless of the client connection.
 
     // Load previous messages from DB and append the new user message.
     // Filter out any messages with empty parts — these can occur when a
@@ -770,4 +790,4 @@ router.patch('/chats/:id', requireAuth, async (req, res) => {
   }
 });
 
-module.exports = { router, activeStreams, init };
+module.exports = { router, activeStreams, init, pipeAsSSE };
