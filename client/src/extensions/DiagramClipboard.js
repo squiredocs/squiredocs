@@ -155,6 +155,20 @@ export const DiagramClipboard = Extension.create({
       event.clipboardData.setData('text/html', output.html);
       event.clipboardData.setData('text/plain', output.text);
       event.preventDefault();
+      // Returning true here tells ProseMirror the event is fully handled, which
+      // preempts its built-in cut handler. That built-in handler is what removes
+      // the selected content after writing it to the clipboard — so for a cut we
+      // must perform the deletion ourselves, or Cmd-X copies the content but
+      // leaves the document untouched (the diagram-selection cut "does nothing"
+      // bug). Mirror PM's own cut: deleteSelection + scrollIntoView + uiEvent.
+      if (event.type === 'cut') {
+        view.dispatch(
+          view.state.tr
+            .deleteSelection()
+            .scrollIntoView()
+            .setMeta('uiEvent', 'cut'),
+        );
+      }
       return true;
     };
 
