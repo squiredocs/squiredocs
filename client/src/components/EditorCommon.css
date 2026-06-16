@@ -62,6 +62,14 @@
   line-height: 1.4;
 }
 
+/* Heading 4 */
+.editor-common-content .ProseMirror h4 {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  margin: 14px 0 8px 0;
+  line-height: 1.4;
+}
+
 /* Lists */
 .editor-common-content .ProseMirror ul,
 .editor-common-content .ProseMirror ol {

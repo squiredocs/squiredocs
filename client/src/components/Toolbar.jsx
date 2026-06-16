@@ -202,6 +202,13 @@ export default function Toolbar({ editor }) {
         >
           H3
         </button>
+        <button
+          onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
+          className={`toolbar-button ${editor.isActive('heading', { level: 4 }) ? 'is-active' : ''}`}
+          title="Heading 4"
+        >
+          H4
+        </button>
       </div>
 
       <div className="toolbar-group">

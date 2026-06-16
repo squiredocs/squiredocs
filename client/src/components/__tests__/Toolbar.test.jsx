@@ -21,6 +21,7 @@ describe('Toolbar', () => {
     expect(screen.getByTitle('Heading 1')).toBeInTheDocument();
     expect(screen.getByTitle('Heading 2')).toBeInTheDocument();
     expect(screen.getByTitle('Heading 3')).toBeInTheDocument();
+    expect(screen.getByTitle('Heading 4')).toBeInTheDocument();
     expect(screen.getByTitle('Bullet List')).toBeInTheDocument();
     expect(screen.getByTitle('Numbered List')).toBeInTheDocument();
     expect(screen.getByTitle('Code')).toBeInTheDocument();
@@ -59,7 +60,7 @@ describe('Toolbar', () => {
     
     const buttons = [
       'Bold', 'Italic', 'Underline', 'Strikethrough',
-      'Heading 1', 'Heading 2', 'Heading 3',
+      'Heading 1', 'Heading 2', 'Heading 3', 'Heading 4',
       'Bullet List', 'Numbered List', 'Code'
     ];
     
