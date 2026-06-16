@@ -197,4 +197,38 @@ function getCompactionModel() {
   return getProvider('google')('gemini-2.5-flash');
 }
 
-module.exports = { resolveModel, resolveModelWithKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };
+/**
+ * Resolve the model to use for a chat request, in order of preference:
+ *  1. BYOK — when active, the user's selected model + decrypted key. An unknown
+ *     or invalid BYOK model key falls through to the server default rather than
+ *     throwing (the old inline version dereferenced an undefined def).
+ *  2. Server default — AI_CHAT_MODEL (or DEFAULT_MODEL_KEY when unset).
+ *  3. DEFAULT_MODEL_KEY as a final fallback if AI_CHAT_MODEL is unknown.
+ *
+ * @param {object}   opts
+ * @param {boolean}  opts.isByok       Whether BYOK is active for this user.
+ * @param {object}   [opts.byokSettings] Raw BYOK settings row (may be null).
+ * @param {function} opts.decryptKey   Decrypts a stored BYOK key ciphertext.
+ * @returns {{ model, def, provider } | null} Resolved model, or null if nothing resolves.
+ */
+function resolveChatModel({ isByok, byokSettings, decryptKey }) {
+  if (isByok && byokSettings) {
+    const def = MODEL_DEFS.find((d) => d.key === byokSettings.byok_model_key);
+    if (def) {
+      const encryptedKey = def.provider === 'anthropic'
+        ? byokSettings.byok_anthropic_key
+        : byokSettings.byok_google_key;
+      const resolved = resolveModelWithKey(byokSettings.byok_model_key, decryptKey(encryptedKey));
+      if (resolved) return resolved;
+    }
+  }
+
+  const modelKey = process.env.AI_CHAT_MODEL || DEFAULT_MODEL_KEY;
+  const resolved = resolveModel(modelKey);
+  if (resolved) return resolved;
+
+  console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${DEFAULT_MODEL_KEY}"`);
+  return resolveModel(DEFAULT_MODEL_KEY);
+}
+
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };

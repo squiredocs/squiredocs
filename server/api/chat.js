@@ -53,6 +53,11 @@ const isWritable = (res) => !res.writableEnded && !res.destroyed;
 /** Format a value as a single SSE data event. */
 const sseEvent = (value) => `data: ${JSON.stringify(value)}\n\n`;
 
+/** Begin the SSE HTTP response (status + headers), if not already started. */
+function writeSSEHead(res) {
+  if (!res.headersSent && isWritable(res)) res.writeHead(200, SSE_HEADERS);
+}
+
 /**
  * Append a formatted SSE chunk to the replay buffer and write it to the client.
  *
@@ -273,7 +278,7 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   // `res` while it can still accept writes, so the buffer keeps filling for a
   // reconnecting client without write-after-destroy errors aborting the loop.
   function commitHeaders() {
-    if (isWritable(res)) res.writeHead(200, SSE_HEADERS);
+    writeSSEHead(res);
     headersWritten = true;
     for (const p of pending) pushChunk(res, entry, sseEvent(p));
     pending.length = 0;
@@ -340,11 +345,6 @@ function inlineDataUrls(modelMessages) {
       }
     }
   }
-}
-
-/** Write a single SSE event to both the response and the replay buffer. */
-function writeSSEEvent(res, entry, data) {
-  pushChunk(res, entry, sseEvent(data));
 }
 
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
@@ -454,24 +454,12 @@ router.post('/', requireAuth, async (req, res) => {
 
     const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
 
-    // Resolve model — BYOK uses user's key + selected model, otherwise server default
-    let resolved;
-    if (isByok) {
-      const def = chatModels.MODEL_DEFS.find(d => d.key === byokSettings.byok_model_key);
-      const encryptedKey = def.provider === 'anthropic' ? byokSettings.byok_anthropic_key : byokSettings.byok_google_key;
-      resolved = chatModels.resolveModelWithKey(byokSettings.byok_model_key, decrypt(encryptedKey));
-    }
+    // Resolve model — BYOK uses user's key + selected model, otherwise the
+    // server default (with fallback). See chatModels.resolveChatModel.
+    const resolved = chatModels.resolveChatModel({ isByok, byokSettings, decryptKey: decrypt });
     if (!resolved) {
-      const modelKey = process.env.AI_CHAT_MODEL || chatModels.DEFAULT_MODEL_KEY;
-      resolved = chatModels.resolveModel(modelKey);
-      if (!resolved) {
-        console.error(`[Chat API] Unknown model key "${modelKey}", falling back to "${chatModels.DEFAULT_MODEL_KEY}"`);
-        resolved = chatModels.resolveModel(chatModels.DEFAULT_MODEL_KEY);
-        if (!resolved) {
-          cleanupEntry();
-          return res.status(500).json({ error: 'No valid chat model configured' });
-        }
-      }
+      cleanupEntry();
+      return res.status(500).json({ error: 'No valid chat model configured' });
     }
     const { model, def, provider } = resolved;
 
@@ -630,24 +618,22 @@ router.post('/', requireAuth, async (req, res) => {
       if (isTokenLimitError(streamError)) {
         console.log('[Chat API] Token limit hit, compacting conversation…');
 
-        if (!res.headersSent) {
-          res.writeHead(200, SSE_HEADERS);
-        }
+        writeSSEHead(res);
 
-        writeSSEEvent(res, entry, {
+        pushChunk(res, entry, sseEvent({
           type: 'tool-input-available',
           toolCallId: 'compact-1',
           toolName: '_compacting',
           input: {},
-        });
+        }));
 
         const compacted = await compactMessages(dedupedMessages);
 
-        writeSSEEvent(res, entry, {
+        pushChunk(res, entry, sseEvent({
           type: 'tool-output-available',
           toolCallId: 'compact-1',
           output: 'done',
-        });
+        }));
 
         // Retry with compacted messages (headers already sent)
         await runStream(compacted, { writeHeaders: false });
@@ -694,7 +680,7 @@ router.get('/:id/stream', requireAuth, async (req, res) => {
     return res.status(204).end();
   }
 
-  res.writeHead(200, SSE_HEADERS);
+  writeSSEHead(res);
 
   // Replay buffered chunks
   for (const chunk of entry.chunks) {
@@ -723,76 +709,63 @@ router.get('/:id/stream', requireAuth, async (req, res) => {
 
 // ── Chat CRUD routes ─────────────────────────────────────────────────────────
 
+/**
+ * Wrap an async CRUD handler so a thrown error is logged, reported, and turned
+ * into a 500 — collapsing the identical try/catch each route used to repeat.
+ * `action` names the operation (e.g. "create chat") for the log + 500 message.
+ */
+function asyncRoute(action, handler) {
+  return async (req, res, next) => {
+    try {
+      await handler(req, res, next);
+    } catch (error) {
+      console.error(`[Chat API] Failed to ${action}:`, error);
+      notifyException(error, { req, source: 'chat-api' });
+      if (!res.headersSent) res.status(500).json({ error: `Failed to ${action}` });
+    }
+  };
+}
+
 // Create a new chat
-router.post('/chats', requireAuth, async (req, res) => {
-  try {
-    const id = await chatStore.createChat(req.user.userId);
-    res.json({ id });
-  } catch (error) {
-    console.error('[Chat API] Error creating chat:', error);
-    notifyException(error, { req, source: 'chat-api' });
-    res.status(500).json({ error: 'Failed to create chat' });
-  }
-});
+router.post('/chats', requireAuth, asyncRoute('create chat', async (req, res) => {
+  const id = await chatStore.createChat(req.user.userId);
+  res.json({ id });
+}));
 
 // List user's chats (paginated)
-router.get('/chats', requireAuth, async (req, res) => {
-  try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
-    const before = req.query.before || undefined;
-    const chats = await chatStore.getChatsForUser(req.user.userId, { limit, before });
-    res.json(chats);
-  } catch (error) {
-    console.error('[Chat API] Error listing chats:', error);
-    notifyException(error, { req, source: 'chat-api' });
-    res.status(500).json({ error: 'Failed to list chats' });
-  }
-});
+router.get('/chats', requireAuth, asyncRoute('list chats', async (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+  const before = req.query.before || undefined;
+  const chats = await chatStore.getChatsForUser(req.user.userId, { limit, before });
+  res.json(chats);
+}));
 
 // Load a specific chat's messages
-router.get('/chats/:id', requireAuth, async (req, res) => {
-  try {
-    const messages = await chatStore.loadChat(req.params.id, req.user.userId);
-    res.json({ messages });
-  } catch (error) {
-    console.error('[Chat API] Error loading chat:', error);
-    notifyException(error, { req, source: 'chat-api' });
-    res.status(500).json({ error: 'Failed to load chat' });
-  }
-});
+router.get('/chats/:id', requireAuth, asyncRoute('load chat', async (req, res) => {
+  const messages = await chatStore.loadChat(req.params.id, req.user.userId);
+  res.json({ messages });
+}));
 
 // Delete a chat
-router.delete('/chats/:id', requireAuth, async (req, res) => {
-  try {
-    const deleted = await chatStore.deleteChat(req.params.id, req.user.userId);
-    if (!deleted) {
-      return res.status(404).json({ error: 'Chat not found' });
-    }
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[Chat API] Error deleting chat:', error);
-    notifyException(error, { req, source: 'chat-api' });
-    res.status(500).json({ error: 'Failed to delete chat' });
+router.delete('/chats/:id', requireAuth, asyncRoute('delete chat', async (req, res) => {
+  const deleted = await chatStore.deleteChat(req.params.id, req.user.userId);
+  if (!deleted) {
+    return res.status(404).json({ error: 'Chat not found' });
   }
-});
+  res.json({ ok: true });
+}));
 
 // Update chat title
-router.patch('/chats/:id', requireAuth, async (req, res) => {
-  try {
-    const { title } = req.body;
-    if (typeof title !== 'string') {
-      return res.status(400).json({ error: 'title is required' });
-    }
-    const updated = await chatStore.updateChatTitle(req.params.id, req.user.userId, title);
-    if (!updated) {
-      return res.status(404).json({ error: 'Chat not found' });
-    }
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[Chat API] Error updating chat:', error);
-    notifyException(error, { req, source: 'chat-api' });
-    res.status(500).json({ error: 'Failed to update chat' });
+router.patch('/chats/:id', requireAuth, asyncRoute('update chat', async (req, res) => {
+  const { title } = req.body;
+  if (typeof title !== 'string') {
+    return res.status(400).json({ error: 'title is required' });
   }
-});
+  const updated = await chatStore.updateChatTitle(req.params.id, req.user.userId, title);
+  if (!updated) {
+    return res.status(404).json({ error: 'Chat not found' });
+  }
+  res.json({ ok: true });
+}));
 
 module.exports = { router, activeStreams, init, pipeAsSSE };
