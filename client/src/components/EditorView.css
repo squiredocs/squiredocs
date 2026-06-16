@@ -58,7 +58,10 @@
   grid-column: 1 / -1;
   border-bottom: 1px solid #e5e7eb;
   min-width: 0;
-  overflow: hidden;
+  /* Must stay visible so toolbar dropdowns (font, color, table, etc.) can
+     open downward past the toolbar without being clipped. The toolbar content
+     wraps via flex-wrap, so there's nothing to clip horizontally. */
+  overflow: visible;
 }
 
 .editor-toolbar > .toolbar {
