@@ -14,7 +14,9 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy package files and install server dependencies
-COPY package*.json ./
+# --chown so the runtime user (appuser) can always read these regardless of the
+# host file mode; COPY otherwise preserves source permission bits as root.
+COPY --chown=appuser:appgroup package*.json ./
 RUN npm ci --only=production && \
     npm install --no-save node-pg-migrate
 
