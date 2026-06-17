@@ -47,10 +47,7 @@ export function ByokProvider({ children }) {
   }, [api]);
 
   const clearKey = useCallback(async (provider) => {
-    const updates = {};
-    if (provider === 'anthropic') updates.anthropicKey = null;
-    if (provider === 'google') updates.googleKey = null;
-    await saveSettings(updates);
+    await saveSettings({ [`${provider}Key`]: null });
   }, [saveSettings]);
 
   const accentColor = settings?.enabled ? '#312e81' : '#7c3aed';

@@ -35,6 +35,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/google": "^3.0.51",
+    "@ai-sdk/openai": "^3.0.73",
     "@hpcc-js/wasm-graphviz": "^1.22.0",
     "@resvg/resvg-js": "^2.6.2",
     "@terrastruct/d2": "^0.1.33",

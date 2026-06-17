@@ -67,12 +67,12 @@ describe('chat-models BYOK', () => {
 
   describe('getAvailableModels', () => {
     test('returns all models', () => {
-      const models = getAvailableModels(false, false);
+      const models = getAvailableModels({});
       expect(models.length).toBe(MODEL_DEFS.length);
     });
 
     test('marks non-BYOK models as available without keys', () => {
-      const models = getAvailableModels(false, false);
+      const models = getAvailableModels({});
       const freeModels = models.filter(m => !m.byokOnly);
       for (const m of freeModels) {
         expect(m.available).toBe(true);
@@ -80,7 +80,7 @@ describe('chat-models BYOK', () => {
     });
 
     test('marks BYOK-only models as unavailable without keys', () => {
-      const models = getAvailableModels(false, false);
+      const models = getAvailableModels({});
       const byokModels = models.filter(m => m.byokOnly);
       expect(byokModels.length).toBeGreaterThan(0);
       for (const m of byokModels) {
@@ -89,7 +89,7 @@ describe('chat-models BYOK', () => {
     });
 
     test('marks Anthropic BYOK models available with Anthropic key', () => {
-      const models = getAvailableModels(true, false);
+      const models = getAvailableModels({ anthropic: true });
       const anthropicByok = models.filter(m => m.byokOnly && m.provider === 'anthropic');
       for (const m of anthropicByok) {
         expect(m.available).toBe(true);
@@ -102,7 +102,7 @@ describe('chat-models BYOK', () => {
     });
 
     test('includes label for each model', () => {
-      const models = getAvailableModels(false, false);
+      const models = getAvailableModels({});
       for (const m of models) {
         expect(m.label).toBeDefined();
         expect(typeof m.label).toBe('string');

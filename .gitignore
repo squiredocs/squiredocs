@@ -24,3 +24,6 @@ skills-lock.json
 
 # Local DB backups / scratch
 tmp/
+
+# API keys / secrets
+*.key

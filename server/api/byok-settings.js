@@ -1,48 +1,25 @@
 /**
  * BYOK (Bring Your Own Key) settings API
  *
- * Manages user-provided API keys for Anthropic and Google AI providers.
- * Keys are encrypted at rest and never returned to the client.
+ * Manages user-provided API keys for the AI providers defined in the provider
+ * registry (server/api/ai-providers.js). Keys are encrypted at rest and never
+ * returned to the client — only their presence is surfaced.
  */
 const express = require('express');
 const { requireAuth } = require('../auth');
 const { encrypt } = require('../crypto');
 const { MODEL_DEFS, getAvailableModels } = require('./chat-models');
+const { getProviderConfig, listProviders } = require('./ai-providers');
 
 const router = express.Router();
 
 /**
- * Validate an API key by making a lightweight request to the provider.
- * Returns null on success, or an error message string on failure.
+ * Validate an API key by making a lightweight request to the provider (delegated
+ * to the registry). Returns null on success, or an error message string.
  */
 async function validateApiKey(provider, apiKey) {
   try {
-    if (provider === 'anthropic') {
-      // Count tokens is the cheapest Anthropic endpoint — no model invocation
-      const res = await fetch('https://api.anthropic.com/v1/messages/count_tokens', {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          messages: [{ role: 'user', content: 'hi' }],
-        }),
-      });
-      if (res.status === 401) return 'Invalid Anthropic API key';
-      if (res.status === 403) return 'Anthropic API key does not have permission';
-      if (!res.ok) return `Anthropic API returned status ${res.status}`;
-    } else if (provider === 'google') {
-      // List models is a free, auth-only endpoint
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1`
-      );
-      if (res.status === 400 || res.status === 403) return 'Invalid Google API key';
-      if (!res.ok) return `Google API returned status ${res.status}`;
-    }
-    return null;
+    return await getProviderConfig(provider).validateKey(apiKey);
   } catch (err) {
     return `Failed to validate key: ${err.message}`;
   }
@@ -54,16 +31,26 @@ function init(dbPool) {
   pool = dbPool;
 }
 
+/**
+ * Build the client-facing response from a settings row. Emits a data-driven
+ * `providers` array (id/label/placeholder/mask/hasKey) plus a per-provider
+ * `{ hasKey }` object keyed by provider id for backwards compatibility.
+ */
 function buildResponse(row) {
-  const hasAnthropicKey = !!row.byok_anthropic_key;
-  const hasGoogleKey = !!row.byok_google_key;
-  return {
+  const hasKeyByProvider = {};
+  const providers = listProviders().map((p) => {
+    const hasKey = !!row[p.keyColumn];
+    hasKeyByProvider[p.id] = hasKey;
+    return { id: p.id, label: p.label, keyPlaceholder: p.keyPlaceholder, keyMask: p.keyMask, hasKey };
+  });
+  const response = {
     enabled: row.byok_enabled,
-    anthropic: { hasKey: hasAnthropicKey },
-    google: { hasKey: hasGoogleKey },
+    providers,
     modelKey: row.byok_model_key,
-    models: getAvailableModels(hasAnthropicKey, hasGoogleKey),
+    models: getAvailableModels(hasKeyByProvider),
   };
+  for (const p of providers) response[p.id] = { hasKey: p.hasKey };
+  return response;
 }
 
 // GET /api/settings/byok — return current BYOK state (never returns actual keys)
@@ -83,7 +70,7 @@ router.get('/', requireAuth, async (req, res) => {
 // PUT /api/settings/byok — update BYOK settings
 router.put('/', requireAuth, async (req, res) => {
   try {
-    const { enabled, anthropicKey, googleKey, modelKey } = req.body;
+    const { enabled, modelKey } = req.body;
 
     // Load current state to merge partial updates
     const row = await loadByokSettings(req.user.userId);
@@ -94,24 +81,21 @@ router.put('/', requireAuth, async (req, res) => {
     // Toggle
     let newEnabled = typeof enabled === 'boolean' ? enabled : row.byok_enabled;
 
-    // Determine new values (undefined = no change, null = clear, string = set)
-    // Validate keys against provider APIs before accepting them.
-    let newAnthropicKey = row.byok_anthropic_key;
-    if (anthropicKey === null) {
-      newAnthropicKey = null;
-    } else if (typeof anthropicKey === 'string' && anthropicKey.length > 0) {
-      const err = await validateApiKey('anthropic', anthropicKey);
-      if (err) return res.status(400).json({ error: err });
-      newAnthropicKey = encrypt(anthropicKey);
-    }
-
-    let newGoogleKey = row.byok_google_key;
-    if (googleKey === null) {
-      newGoogleKey = null;
-    } else if (typeof googleKey === 'string' && googleKey.length > 0) {
-      const err = await validateApiKey('google', googleKey);
-      if (err) return res.status(400).json({ error: err });
-      newGoogleKey = encrypt(googleKey);
+    // Resolve each provider's new key value, keyed by DB column.
+    // For each provider the client sends `${id}Key` in the body:
+    //   undefined = no change, null = clear, non-empty string = validate + set.
+    const newKeys = {};
+    for (const p of listProviders()) {
+      const provided = req.body[`${p.id}Key`];
+      let value = row[p.keyColumn];
+      if (provided === null) {
+        value = null;
+      } else if (typeof provided === 'string' && provided.length > 0) {
+        const err = await validateApiKey(p.id, provided);
+        if (err) return res.status(400).json({ error: err });
+        value = encrypt(provided);
+      }
+      newKeys[p.keyColumn] = value;
     }
 
     let newModelKey = row.byok_model_key;
@@ -129,7 +113,7 @@ router.put('/', requireAuth, async (req, res) => {
     // - Explicit toggle on → reject with error so the user knows why
     // - Key cleared while already on → silently disable (existing behavior)
     if (newEnabled) {
-      const hasAnyKey = !!newAnthropicKey || !!newGoogleKey;
+      const hasAnyKey = listProviders().some((p) => !!newKeys[p.keyColumn]);
       if (!hasAnyKey) {
         if (enabled === true) {
           return res.status(400).json({
@@ -140,16 +124,25 @@ router.put('/', requireAuth, async (req, res) => {
       }
     }
 
+    // Build the UPDATE dynamically from the registry's key columns. Column names
+    // come from the registry (trusted), never from user input.
+    const setParts = ['byok_enabled', 'byok_model_key'];
+    const params = [newEnabled, newModelKey];
+    for (const p of listProviders()) {
+      params.push(newKeys[p.keyColumn]);
+      setParts.push(p.keyColumn);
+    }
+    const assignments = setParts.map((col, i) => `${col} = $${i + 1}`).join(', ');
+    params.push(req.user.userId);
     await pool.query(
-      `UPDATE users SET byok_enabled = $1, byok_anthropic_key = $2, byok_google_key = $3, byok_model_key = $4, updated_at = now() WHERE id = $5`,
-      [newEnabled, newAnthropicKey, newGoogleKey, newModelKey, req.user.userId]
+      `UPDATE users SET ${assignments}, updated_at = now() WHERE id = $${params.length}`,
+      params
     );
 
     res.json(buildResponse({
       byok_enabled: newEnabled,
-      byok_anthropic_key: newAnthropicKey,
-      byok_google_key: newGoogleKey,
       byok_model_key: newModelKey,
+      ...newKeys,
     }));
   } catch (err) {
     console.error('[BYOK] Error saving settings:', err);
@@ -162,8 +155,9 @@ router.put('/', requireAuth, async (req, res) => {
  * Returns null if user not found.
  */
 async function loadByokSettings(userId) {
+  const columns = ['byok_enabled', 'byok_model_key', ...listProviders().map((p) => p.keyColumn)];
   const result = await pool.query(
-    `SELECT byok_enabled, byok_anthropic_key, byok_google_key, byok_model_key FROM users WHERE id = $1`,
+    `SELECT ${columns.join(', ')} FROM users WHERE id = $1`,
     [userId]
   );
   return result.rows[0] || null;
@@ -177,8 +171,7 @@ function isByokActive(settings) {
   if (!settings?.byok_enabled || !settings.byok_model_key) return false;
   const def = MODEL_DEFS.find(d => d.key === settings.byok_model_key);
   if (!def) return false;
-  const key = def.provider === 'anthropic' ? settings.byok_anthropic_key : settings.byok_google_key;
-  return !!key;
+  return !!settings[getProviderConfig(def.provider).keyColumn];
 }
 
 module.exports = { router, init, loadByokSettings, isByokActive };

@@ -13,6 +13,7 @@ const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
+const { getProviderConfig } = require('./ai-providers');
 const { deduplicateReadResults } = require('./chat-dedup');
 const { getObservedClocks, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
@@ -462,6 +463,9 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'No valid chat model configured' });
     }
     const { model, def, provider } = resolved;
+    // Provider capability flags drive the per-provider streaming gates below
+    // (prompt caching, thinking, provider-executed web-search message stripping).
+    const caps = getProviderConfig(def.provider).capabilities;
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
 
@@ -487,7 +491,7 @@ router.post('/', requireAuth, async (req, res) => {
     // blocks from what we SEND while keeping validatedMessages (and thus the persisted
     // history + UI citations) intact. No-op on the Google path (its web search is a
     // client tool, not provider-executed).
-    const modelInputMessages = def.provider === 'anthropic'
+    const modelInputMessages = caps.providerExecutedWebSearch
       ? chatModels.stripProviderExecutedTools(validatedMessages)
       : validatedMessages;
     const modelMessages = await convertToModelMessages(modelInputMessages);
@@ -525,11 +529,11 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Build streamText options (reusable for compaction/retry)
-    const useThinking = def.provider === 'google';
+    const useThinking = caps.thinking;
     // Anthropic prompt caching: top-level cacheControl caches the large, static
     // tools+system prefix (re-sent on every agentic step). runStream additionally
     // tags the last message to extend the cache over the conversation history.
-    const useAnthropicCache = def.provider === 'anthropic';
+    const useAnthropicCache = caps.promptCache;
     const providerOptions = chatModels.buildProviderOptions(def);
     const streamTextOpts = {
       model,

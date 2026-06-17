@@ -16,7 +16,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection
 - **Image Upload in Chat**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; 15 MB per file) via drag-and-drop or file picker
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
-- **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic or Google API keys from the Settings page to use premium models without consuming shared credits
+- **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, or OpenAI API keys from the Settings page to use premium models without consuming shared credits
 - **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
@@ -35,7 +35,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
 - **Sandbox**: isolated-vm (true V8 isolate with 128 MB memory limit) for secure script execution in the `modify` tool
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; Claude Sonnet 4.6 / Opus 4.8 via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; Claude Sonnet 4.6 / Opus 4.8 and OpenAI GPT-5.5 / GPT-5.4 / GPT-5.4 mini via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents. Per-provider behavior (model dispatch, key validation, web search, prompt caching) is defined in one place, `server/api/ai-providers.js`
 
 ## Prerequisites
 
@@ -381,9 +381,10 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
   - `gemini-3.1-pro` — Gemini 3.1 Pro (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.5-flash` — Gemini 3.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `claude-opus` — Claude Opus 4.8, selectable only when the user supplies their own Anthropic key (BYOK); `claude-sonnet` is also selectable via BYOK with a user-supplied key
-- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic` or `@ai-sdk/google` on the server)
+  - `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` — OpenAI models, selectable only when the user supplies their own OpenAI key (BYOK)
+- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic`, `@ai-sdk/google`, or `@ai-sdk/openai` on the server). Providers are registered in `server/api/ai-providers.js`
 - **Endpoint**: `POST /api/chat` — streams responses to the client
-- **Tools**: All 17 MCP document tools plus web search and web fetch (web tools work with both Anthropic and Google models — Gemini wraps Google Search as a function tool)
+- **Tools**: All 17 MCP document tools plus web search and web fetch (web tools work with Anthropic, Google, and OpenAI models — Gemini wraps Google Search as a function tool; Anthropic and OpenAI use their provider-executed web search)
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
 - **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats; the active chat is preserved across page refreshes via sessionStorage
 - **Thinking display**: Gemini models show collapsible reasoning/thinking blocks so users can see how the model arrived at its answer
@@ -392,7 +393,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **Image upload**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; max 15 MB each) via drag-and-drop or file picker, with thumbnail previews before sending
 - **Copy button**: Each chat message has a copy-to-clipboard button on hover
 - **SPA navigation**: Internal document links in chat messages use client-side navigation instead of full-page reloads
-- **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic or Google API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
+- **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic, Google, or OpenAI API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
 - **Reactive compaction**: When a conversation exceeds the model's token limit, the system automatically compacts earlier messages and retries, with a UI indicator
 - **Fresh document context**: After a `modify`, the result echoes the updated document so the assistant's view stays current without re-reading. Repeated full-document snapshots (from reads and modifies) are deduplicated in context so only the latest is kept
 - **Concurrent-edit awareness**: The assistant tracks the document version (clock) it has seen. If someone else (or you, editing directly) changes a document since it last read it, the assistant is told who changed it, and a `modify` that would overwrite those edits is refused and returns the current content so it can reconcile
@@ -819,7 +820,8 @@ paragraphs.forEach((node, index) => {
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
 │   ├── api/
 │   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + configurable model)
-│   │   ├── chat-models.js    # Model registry (Claude, Gemini) with lazy provider loading
+│   │   ├── ai-providers.js   # Provider registry (Anthropic, Google, OpenAI): key validation, SDK factories, web search, capabilities
+│   │   ├── chat-models.js    # Model registry (Claude, Gemini, GPT) with lazy provider loading
 │   │   ├── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   │   ├── byok-settings.js  # Bring-your-own-key (BYOK) API key management
 │   │   ├── connected-services.js # External service connections (Google Drive)

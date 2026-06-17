@@ -49,7 +49,7 @@ function ByokKeyField({ label, provider, mask, placeholder, byok, onError }) {
             onClick={async () => {
               if (!input.trim()) return;
               onError(null);
-              const saveKey = provider === 'anthropic' ? 'anthropicKey' : 'googleKey';
+              const saveKey = `${provider}Key`;
               try {
                 await byok.saveSettings({ [saveKey]: input.trim() });
                 setInput('');
@@ -240,8 +240,17 @@ export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, onNavi
                 </div>
                 {byokError && <div className="byok-error">{byokError}</div>}
 
-                <ByokKeyField label="Anthropic Key" provider="anthropic" mask="sk-ant-••••••" placeholder="sk-ant-..." byok={byok} onError={setByokError} />
-                <ByokKeyField label="Google Key" provider="google" mask="AIza••••••" placeholder="AIza..." byok={byok} onError={setByokError} />
+                {byok.settings.providers?.map(p => (
+                  <ByokKeyField
+                    key={p.id}
+                    label={`${p.label} Key`}
+                    provider={p.id}
+                    mask={p.keyMask}
+                    placeholder={p.keyPlaceholder}
+                    byok={byok}
+                    onError={setByokError}
+                  />
+                ))}
                 <p className="settings-description byok-note">
                   Keys are encrypted and never exposed. Using your own key bypasses AI usage limits.
                 </p>
@@ -262,24 +271,17 @@ export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, onNavi
                     disabled={byok.saving}
                   >
                     <option value="" disabled>Select a model...</option>
-                    <optgroup label="Anthropic">
-                      {byok.settings.models
-                        ?.filter(m => m.provider === 'anthropic')
-                        .map(m => (
-                          <option key={m.key} value={m.key} disabled={!byok.settings.anthropic?.hasKey}>
-                            {m.label || m.key}
-                          </option>
-                        ))}
-                    </optgroup>
-                    <optgroup label="Google">
-                      {byok.settings.models
-                        ?.filter(m => m.provider === 'google')
-                        .map(m => (
-                          <option key={m.key} value={m.key} disabled={!byok.settings.google?.hasKey}>
-                            {m.label || m.key}
-                          </option>
-                        ))}
-                    </optgroup>
+                    {byok.settings.providers?.map(p => (
+                      <optgroup key={p.id} label={p.label}>
+                        {byok.settings.models
+                          ?.filter(m => m.provider === p.id)
+                          .map(m => (
+                            <option key={m.key} value={m.key} disabled={!p.hasKey}>
+                              {m.label || m.key}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
               </div>

@@ -13,6 +13,7 @@
 const toolRegistry = require('../mcp/tools');
 const { webFetch } = require('./web-fetch');
 const { SNAPSHOT_TOOLS } = require('./chat-staleness');
+const { getProviderConfig } = require('./ai-providers');
 
 // Static cap for any single tool result. Documents larger than this should
 // be read in chunks via xpath. Reactive compaction handles overall context.
@@ -66,62 +67,14 @@ function buildOversizedError(toolName, resultChars, maxChars, result) {
  * @returns {object} { webSearch, webFetch } tool definitions
  */
 function buildWebTools(providerName, provider) {
-  const { tool, generateText, jsonSchema } = require('ai');
+  const { tool, jsonSchema } = require('ai');
   const tools = {};
 
-  // Provider-specific web search
-  if (providerName === 'anthropic') {
-    tools.webSearch = provider.tools.webSearch_20250305();
-  } else if (providerName === 'google') {
-    // Gemini can't combine googleSearch with function tools in one request,
-    // so we wrap it as a function tool that makes a separate generateText call.
-    const searchModel = provider('gemini-2.5-flash');
-    tools.webSearch = tool({
-      description: 'Search the web for current information using Google Search. Returns a grounded summary of search results. You MUST provide a query.',
-      inputSchema: jsonSchema({
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'The search query to look up on the web' },
-        },
-        required: ['query'],
-      }),
-      execute: async (args) => {
-        const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
-        console.log('[Chat API] webSearch query:', query);
-        const searchResult = await generateText({
-          model: searchModel,
-          maxTokens: 4096,
-          tools: { googleSearch: provider.tools.googleSearch({}) },
-          system: 'You are a web research assistant. Answer questions using only information found in Google Search results. Always include specific details such as names, locations, and descriptions. For every fact you include, cite the exact source URL from the search results.',
-          prompt: query,
-        });
-
-        const text = searchResult.text || '';
-        const sources = searchResult.sources || [];
-        console.log('[Chat API] webSearch result: text=%d chars, sources=%d, finishReason=%s',
-          text.length, sources.length, searchResult.finishReason);
-        if (!text && sources.length === 0) return 'No results found.';
-        if (sources.length === 0) return text;
-
-        // Build structured result with citation data from groundingMetadata
-        const result = { text, citations: {} };
-        result.citations.sources = sources.map((s, i) => ({
-          index: i,
-          url: s.url,
-          title: s.title || undefined,
-        }));
-
-        const gm = searchResult.providerMetadata?.google?.groundingMetadata;
-        if (gm?.groundingSupports) {
-          result.citations.supports = gm.groundingSupports.map(sup => ({
-            text: sup.segment?.text || sup.segment_text || undefined,
-            sourceIndices: sup.groundingChunkIndices || sup.supportChunkIndices || [],
-          }));
-        }
-
-        return result;
-      },
-    });
+  // Provider-specific web search (delegated to the provider registry; the
+  // builder returns null for providers without web search).
+  if (providerName) {
+    const webSearch = getProviderConfig(providerName).buildWebSearch(provider);
+    if (webSearch) tools.webSearch = webSearch;
   }
 
   // Universal webFetch — works the same for all providers

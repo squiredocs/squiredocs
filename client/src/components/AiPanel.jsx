@@ -14,7 +14,7 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini' };
+const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini', openai: 'OpenAI' };
 
 function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
   const byok = useByok();

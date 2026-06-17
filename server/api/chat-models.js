@@ -9,6 +9,8 @@
  * dependencies at startup.
  */
 
+const { PROVIDERS, getProviderConfig, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
+
 const DEFAULT_MODEL_KEY = 'claude-sonnet';
 
 // pricing: cents per 1M tokens (from official Anthropic/Google pricing)
@@ -23,20 +25,20 @@ const MODEL_DEFS = [
   { key: 'gemini-3-flash',     provider: 'google',    modelId: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash (Preview)',       pricing: { input:  50, output: 300 },  contextWindow: 1_048_576 },
   { key: 'gemini-3.1-pro',     provider: 'google',    modelId: 'gemini-3.1-pro-preview',     label: 'Gemini 3.1 Pro (Preview)',       pricing: { input: 200, output: 1200 }, contextWindow: 1_048_576 },
   { key: 'gemini-3.5-flash',   provider: 'google',    modelId: 'gemini-3.5-flash',           label: 'Gemini 3.5 Flash',              pricing: { input: 150, output: 900 },  contextWindow: 1_048_576 },
+  // OpenAI (BYOK only — no server pool key). pricing in cents per 1M tokens,
+  // from the official API pricing page (developers.openai.com/api/docs/pricing,
+  // June 2026). Reasoning (o-series / *-pro) models are intentionally omitted.
+  { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_000_000, byokOnly: true },
+  { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000, byokOnly: true },
+  { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000, byokOnly: true },
 ];
 
-// Cached provider factory functions, keyed by provider name
+// Cached default provider clients (server-pool key from env), keyed by provider.
 const _providers = {};
 
 function getProvider(providerName) {
   if (!_providers[providerName]) {
-    if (providerName === 'anthropic') {
-      _providers[providerName] = require('@ai-sdk/anthropic').anthropic;
-    } else if (providerName === 'google') {
-      _providers[providerName] = require('@ai-sdk/google').google;
-    } else {
-      throw new Error(`Unknown provider: ${providerName}`);
-    }
+    _providers[providerName] = getProviderConfig(providerName).defaultClient();
   }
   return _providers[providerName];
 }
@@ -63,45 +65,22 @@ function resolveModelWithKey(key, apiKey) {
   const def = MODEL_DEFS.find((d) => d.key === key);
   if (!def) return null;
 
-  let provider;
-  if (def.provider === 'anthropic') {
-    provider = require('@ai-sdk/anthropic').createAnthropic({ apiKey });
-  } else if (def.provider === 'google') {
-    provider = require('@ai-sdk/google').createGoogleGenerativeAI({ apiKey });
-  } else {
-    throw new Error(`Unknown provider: ${def.provider}`);
-  }
-
+  const provider = getProviderConfig(def.provider).createClient(apiKey);
   const model = provider(def.modelId);
   return { model, def, provider };
 }
 
-// Ephemeral prompt-caching breakpoint applied to Anthropic requests. The '5m'
-// TTL is deliberate — it keeps the cheaper 1.25x cache-write multiplier (a 1h
-// TTL would be 2x). If this TTL ever changes, CACHE_WRITE_MULTIPLIER in
-// ai-usage.js must change to match.
-const ANTHROPIC_CACHE_CONTROL = { type: 'ephemeral', ttl: '5m' };
-
 /**
- * Build the provider-specific `providerOptions` for a streamText call.
- *
- * - anthropic: ephemeral prompt caching. Caching the large, stable tools+system
- *   prefix is the main cost lever for the agentic loop, where every step
- *   re-sends that prefix.
- * - google: surface thinking/reasoning blocks to the client.
- *
- * Returns undefined for providers that need no options. Pure + exported so the
- * provider-gating logic is unit-testable without spinning up a model.
+ * Build the provider-specific `providerOptions` for a streamText call by
+ * delegating to the provider registry (e.g. anthropic ephemeral prompt caching,
+ * google thinking config). Returns undefined for providers that need no options
+ * or that aren't registered. Pure + exported so the provider-gating logic is
+ * unit-testable without spinning up a model.
  */
 function buildProviderOptions(def) {
   if (!def) return undefined;
-  if (def.provider === 'anthropic') {
-    return { anthropic: { cacheControl: ANTHROPIC_CACHE_CONTROL } };
-  }
-  if (def.provider === 'google') {
-    return { google: { thinkingConfig: { includeThoughts: true } } };
-  }
-  return undefined;
+  const cfg = PROVIDERS[def.provider];
+  return cfg ? cfg.buildProviderOptions(def) : undefined;
 }
 
 /**
@@ -172,20 +151,18 @@ function stripProviderExecutedTools(messages) {
 
 /**
  * Get the list of available models for the settings UI.
- * @param {boolean} hasAnthropicKey - Whether the user has an Anthropic API key
- * @param {boolean} hasGoogleKey - Whether the user has a Google API key
+ * @param {Object<string, boolean>} hasKeyByProvider - Map of provider id → whether
+ *   the user has a stored key for it (e.g. { anthropic: true, google: false }).
  * @returns {Array} Models with availability info
  */
-function getAvailableModels(hasAnthropicKey, hasGoogleKey) {
+function getAvailableModels(hasKeyByProvider = {}) {
   return MODEL_DEFS.map((def) => ({
     key: def.key,
     label: def.label,
     provider: def.provider,
     modelId: def.modelId,
     byokOnly: !!def.byokOnly,
-    available: !def.byokOnly ||
-      (def.provider === 'anthropic' && hasAnthropicKey) ||
-      (def.provider === 'google' && hasGoogleKey),
+    available: !def.byokOnly || !!hasKeyByProvider[def.provider],
   }));
 }
 
@@ -215,9 +192,7 @@ function resolveChatModel({ isByok, byokSettings, decryptKey }) {
   if (isByok && byokSettings) {
     const def = MODEL_DEFS.find((d) => d.key === byokSettings.byok_model_key);
     if (def) {
-      const encryptedKey = def.provider === 'anthropic'
-        ? byokSettings.byok_anthropic_key
-        : byokSettings.byok_google_key;
+      const encryptedKey = byokSettings[getProviderConfig(def.provider).keyColumn];
       const resolved = resolveModelWithKey(byokSettings.byok_model_key, decryptKey(encryptedKey));
       if (resolved) return resolved;
     }
