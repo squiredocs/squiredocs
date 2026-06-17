@@ -529,7 +529,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Build streamText options (reusable for compaction/retry)
-    const useThinking = caps.thinking;
+    const retryWithoutReasoning = caps.retryWithoutReasoningOnInvalidArgument;
     // Anthropic prompt caching: top-level cacheControl caches the large, static
     // tools+system prefix (re-sent on every agentic step). runStream additionally
     // tags the last message to extend the cache over the conversation history.
@@ -641,16 +641,16 @@ router.post('/', requireAuth, async (req, res) => {
 
         // Retry with compacted messages (headers already sent)
         await runStream(compacted, { writeHeaders: false });
-      } else if (useThinking && isInvalidArgumentError(streamError)) {
+      } else if (retryWithoutReasoning && isInvalidArgumentError(streamError)) {
         // Gemini 3 models can fail with INVALID_ARGUMENT when thought
         // signatures from earlier turns are lost during DB persistence.
-        // Retry without thinkingConfig so the request isn't rejected.
+        // Retry without reasoning/thinking options so the request isn't rejected.
         console.warn(
-          '[Chat API] INVALID_ARGUMENT with thinking enabled — retrying without thinkingConfig'
+          '[Chat API] INVALID_ARGUMENT with reasoning enabled — retrying without provider options'
         );
-        // This retry is gated behind useThinking (Google only), so clobbering
-        // providerOptions here never disables Anthropic caching. Keep that gate
-        // if this branch is ever generalized.
+        // Gated behind retryWithoutReasoningOnInvalidArgument (Google only), so
+        // clobbering providerOptions here never disables Anthropic caching. Keep
+        // that gate if this branch is ever extended to another provider.
         await runStream(dedupedMessages, {
           providerOptions: {},
           writeHeaders: !res.headersSent,

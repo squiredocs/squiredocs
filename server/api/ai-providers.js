@@ -137,6 +137,21 @@ function buildOpenAIWebSearch(provider) {
   return make ? make({}) : null;
 }
 
+/**
+ * Per-model Anthropic extended-thinking options. The thinking form is
+ * model-specific (verified live against @ai-sdk/anthropic@3.0.64):
+ *   - claude-haiku-4-5  → only `{ type: 'enabled', budgetTokens }` (rejects adaptive)
+ *   - claude-opus-4-8   → only `{ type: 'adaptive' }` + top-level effort (rejects enabled)
+ *   - claude-sonnet-4-6 → supports both
+ * Default non-haiku models to adaptive (the modern form); haiku gets a modest budget.
+ */
+function anthropicThinking(modelId) {
+  if (/haiku/.test(modelId || '')) {
+    return { thinking: { type: 'enabled', budgetTokens: 2048 } };
+  }
+  return { thinking: { type: 'adaptive' }, effort: 'low' };
+}
+
 // ---------------------------------------------------------------------------
 // Provider registry
 // ---------------------------------------------------------------------------
@@ -151,9 +166,18 @@ const PROVIDERS = {
     defaultClient: () => require('@ai-sdk/anthropic').anthropic,
     createClient: (apiKey) => require('@ai-sdk/anthropic').createAnthropic({ apiKey }),
     validateKey: validateAnthropicKey,
-    buildProviderOptions: () => ({ anthropic: { cacheControl: ANTHROPIC_CACHE_CONTROL } }),
+    // Extended thinking on all Claude models (incl. the shared default assistant),
+    // using the per-model thinking form (see anthropicThinking). sendReasoning
+    // surfaces reasoning summaries to the client; cacheControl stays for caching.
+    buildProviderOptions: (def) => ({
+      anthropic: {
+        cacheControl: ANTHROPIC_CACHE_CONTROL,
+        sendReasoning: true,
+        ...anthropicThinking(def?.modelId),
+      },
+    }),
     buildWebSearch: buildAnthropicWebSearch,
-    capabilities: { promptCache: true, thinking: false, providerExecutedWebSearch: true },
+    capabilities: { promptCache: true, providerExecutedWebSearch: true },
   },
   google: {
     id: 'google',
@@ -166,7 +190,9 @@ const PROVIDERS = {
     validateKey: validateGoogleKey,
     buildProviderOptions: () => ({ google: { thinkingConfig: { includeThoughts: true } } }),
     buildWebSearch: buildGoogleWebSearch,
-    capabilities: { promptCache: false, thinking: true, providerExecutedWebSearch: false },
+    // Gemini can hit INVALID_ARGUMENT when thought signatures from earlier turns are
+    // lost in persistence; chat.js retries once without reasoning options when this is set.
+    capabilities: { promptCache: false, providerExecutedWebSearch: false, retryWithoutReasoningOnInvalidArgument: true },
   },
   openai: {
     id: 'openai',
@@ -177,13 +203,15 @@ const PROVIDERS = {
     defaultClient: () => require('@ai-sdk/openai').openai,
     createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({ apiKey }),
     validateKey: validateOpenAIKey,
-    // Standard chat models need no special options. Reasoning (o-series) models
-    // would add { openai: { reasoningEffort, ... } } here — deferred for now.
-    buildProviderOptions: () => undefined,
+    // GPT-5.x are reasoning models. Surface reasoning summaries to the client and
+    // keep effort 'low' to bound agentic-loop cost/latency ('minimal' is rejected by
+    // gpt-5.4-mini; 'low' is supported across the family). BYOK-only — cost is on the
+    // user's key. Bump to 'medium'/'high' per model here later if desired.
+    buildProviderOptions: () => ({ openai: { reasoningEffort: 'low', reasoningSummary: 'auto' } }),
     buildWebSearch: buildOpenAIWebSearch,
     // OpenAI's web search runs server-side (provider-executed), so the same
     // history-stripping the Anthropic path uses applies here too.
-    capabilities: { promptCache: false, thinking: false, providerExecutedWebSearch: true },
+    capabilities: { promptCache: false, providerExecutedWebSearch: true },
   },
 };
 

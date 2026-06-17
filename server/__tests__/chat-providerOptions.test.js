@@ -7,12 +7,24 @@
 const { buildProviderOptions, tagLastMessageWithCache } = require('../api/chat-models');
 
 describe('buildProviderOptions', () => {
-  test('returns anthropic ephemeral cacheControl for anthropic provider', () => {
-    const opts = buildProviderOptions({ provider: 'anthropic' });
+  test('returns anthropic cacheControl + adaptive thinking for non-haiku models', () => {
+    const opts = buildProviderOptions({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' });
     expect(opts).toEqual({
-      anthropic: { cacheControl: { type: 'ephemeral', ttl: '5m' } },
+      anthropic: {
+        cacheControl: { type: 'ephemeral', ttl: '5m' },
+        sendReasoning: true,
+        thinking: { type: 'adaptive' },
+        effort: 'low',
+      },
     });
     expect(opts.google).toBeUndefined();
+  });
+
+  test('uses enabled+budget thinking for claude haiku (rejects adaptive)', () => {
+    const opts = buildProviderOptions({ provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001' });
+    expect(opts.anthropic.thinking).toEqual({ type: 'enabled', budgetTokens: 2048 });
+    expect(opts.anthropic.effort).toBeUndefined();
+    expect(opts.anthropic.cacheControl).toEqual({ type: 'ephemeral', ttl: '5m' });
   });
 
   test('returns google thinking config for google provider', () => {
@@ -23,8 +35,14 @@ describe('buildProviderOptions', () => {
     expect(opts.anthropic).toBeUndefined();
   });
 
+  test('returns openai reasoning options (effort + summary) for openai provider', () => {
+    const opts = buildProviderOptions({ provider: 'openai', modelId: 'gpt-5.4-mini' });
+    expect(opts).toEqual({ openai: { reasoningEffort: 'low', reasoningSummary: 'auto' } });
+    expect(opts.anthropic).toBeUndefined();
+  });
+
   test('returns undefined for unknown or missing provider', () => {
-    expect(buildProviderOptions({ provider: 'openai' })).toBeUndefined();
+    expect(buildProviderOptions({ provider: 'totally-unknown' })).toBeUndefined();
     expect(buildProviderOptions(undefined)).toBeUndefined();
   });
 });
