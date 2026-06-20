@@ -8,6 +8,7 @@ import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
 import { PlusIcon, ListIcon, ChevronLeftIcon, ChatBubbleIcon, CloseIcon, LayoutBottomIcon, LayoutRightIcon } from './icons';
 import { getGreeting } from '../utils/greeting';
+import { spaNavigate } from '../utils/navigation';
 import './AiPanel.css';
 
 const MIN_WIDTH = 280;
@@ -57,8 +58,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
     if (onNavigateToDoc) {
       onNavigateToDoc(linkedDocGuid);
     } else {
-      window.history.pushState({}, '', `/d/${linkedDocGuid}`);
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      spaNavigate(`/d/${linkedDocGuid}`);
     }
     if (isMobile) close();
   }, [onNavigateToDoc, isMobile, close]);

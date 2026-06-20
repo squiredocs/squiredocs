@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { isImageType } from '../utils/media';
 
 const ACCEPTED_TYPES = [
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
@@ -6,7 +7,6 @@ const ACCEPTED_TYPES = [
 ];
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
-const isImageType = (t) => t?.startsWith('image/');
 
 const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed }, ref) {
   const [value, setValue] = useState('');

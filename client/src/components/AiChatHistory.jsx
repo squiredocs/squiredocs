@@ -1,25 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PlusIcon } from './icons';
+import { formatRelativeTime } from '../utils/datetime';
 import './AiChatHistory.css';
-
-// Cached formatter for the >7d fallback — avoids constructing a new Intl
-// formatter on every chat-list render (the list re-renders on a 5s poll).
-const CHAT_DATE_FMT = new Intl.DateTimeFormat();
-
-function formatRelativeTime(dateStr) {
-  const now = Date.now();
-  const date = new Date(dateStr).getTime();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `${diffH}h ago`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD === 1) return 'Yesterday';
-  if (diffD < 7) return `${diffD}d ago`;
-  return CHAT_DATE_FMT.format(new Date(dateStr));
-}
 
 function AiChatHistory({ aiChat, onBack }) {
   const {

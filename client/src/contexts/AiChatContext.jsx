@@ -3,14 +3,10 @@ import { DefaultChatTransport } from 'ai';
 import { useChat, Chat } from '@ai-sdk/react';
 import { useAuth } from './AuthContext';
 import { isTokenExpiringSoon } from '../utils/jwt';
+import { parseDocGuid } from '../utils/navigation';
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 
 const AiChatContext = createContext(null);
-
-// Extract docGuid from the current URL (e.g., /d/{uuid} or /doc/{uuid})
-function getActiveDocGuid() {
-  const match = window.location.pathname.match(/^\/d(?:oc)?\/([0-9a-f-]+)/i);
-  return match ? match[1].toLowerCase() : null;
-}
 
 // Auto-generate a short title from the first user message
 function generateTitle(text) {
@@ -96,7 +92,7 @@ export function AiChatProvider({ children }) {
         body: {
           message: messages[messages.length - 1],
           id: chatIdRef.current,
-          docGuid: docGuidOverrideRef.current || getActiveDocGuid(),
+          docGuid: docGuidOverrideRef.current || parseDocGuid(window.location.pathname),
         },
       };
     },
@@ -287,20 +283,8 @@ export function AiChatProvider({ children }) {
     });
   }, [accessToken, refreshChatList]);
 
-  // Poll chat list + refresh on tab visibility (mirrors DocList pattern)
-  useEffect(() => {
-    if (!accessToken) return;
-    const POLL_INTERVAL = 5000;
-    const id = setInterval(() => {
-      if (!document.hidden) refreshChatList();
-    }, POLL_INTERVAL);
-    const onVisibility = () => { if (!document.hidden) refreshChatList(); };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [accessToken, refreshChatList]);
+  // Poll chat list + refresh on tab visibility (once we have a token)
+  useVisibilityPoll(refreshChatList, 5000, !!accessToken);
 
   // ── CRUD operations ──────────────────────────────────────────────────────
 

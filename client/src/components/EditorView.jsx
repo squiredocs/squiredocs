@@ -17,25 +17,9 @@ import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { generateColorFromId } from '../utils/colorUtils';
 import Logo from './Logo';
 import ViewToggleButton from './ViewToggleButton';
+import { formatVersionTimestamp } from '../utils/datetime';
 import './EditorView.css';
 import './MenuCommon.css';
-
-// Cached Intl formatter — reuse one instance rather than building a fresh
-// formatter (the expensive part) on every call to toLocaleString.
-const VERSION_TS_FMT = new Intl.DateTimeFormat(undefined, {
-  month: 'long',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  hour12: true,
-});
-
-/**
- * Format timestamp for version history header
- */
-function formatVersionTimestamp(timestamp) {
-  return VERSION_TS_FMT.format(new Date(timestamp));
-}
 
 function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();

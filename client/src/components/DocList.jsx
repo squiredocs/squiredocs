@@ -5,14 +5,10 @@ import ViewToggleButton from './ViewToggleButton';
 import ShareDialog from './ShareDialog';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
+import { formatDateTime } from '../utils/datetime';
 import './DocList.css';
 import './MenuCommon.css';
-
-// Cached Intl formatters — constructing a formatter is the expensive part, so
-// reuse one instance instead of calling toLocale*String (which builds a fresh
-// formatter per call) on every render of every list row.
-const DOC_DATE_FMT = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-const DOC_TIME_FMT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 
 /**
  * Generate UUID v4
@@ -94,18 +90,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
   }, [searchQuery, filter]);
 
   // Poll for near-realtime doc list updates
-  useEffect(() => {
-    const POLL_INTERVAL = 5000;
-    const id = setInterval(() => {
-      if (!document.hidden) fetchDocs(true);
-    }, POLL_INTERVAL);
-    const onVisibility = () => { if (!document.hidden) fetchDocs(true); };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [searchQuery, filter]);
+  useVisibilityPoll(() => fetchDocs(true), 5000);
 
   const fetchDocs = async (background = false) => {
     try {
@@ -209,11 +194,6 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [openMenuId]);
-
-  const formatDateTime = (dateString) => {
-    const date = new Date(dateString);
-    return `${DOC_DATE_FMT.format(date)} at ${DOC_TIME_FMT.format(date)}`;
-  };
 
   const DocIcon = ({ isSharedWithMe, isSharedByMe }) => {
     const showBadge = isSharedWithMe || isSharedByMe;

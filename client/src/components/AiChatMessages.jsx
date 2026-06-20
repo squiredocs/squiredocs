@@ -3,8 +3,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { useAiChat } from '../contexts/AiChatContext';
-
-const isImageType = (t) => t?.startsWith('image/');
+import { isImageType } from '../utils/media';
+import { spaNavigate, parseDocGuid } from '../utils/navigation';
 
 // Labels for tool badges. Doc-scoped tools (value ends with a preposition
 // or single verb) get a linked document title appended automatically.
@@ -42,12 +42,6 @@ function getToolLabel(toolName) {
   return TOOL_LABELS[toolName] || toolName;
 }
 
-/** Push a path to the browser history and trigger SPA navigation. */
-function spaNavigate(path) {
-  window.history.pushState({}, '', path);
-  window.dispatchEvent(new PopStateEvent('popstate'));
-}
-
 // Context for intercepting doc link clicks (used by /chat page to open side pane)
 const DocLinkContext = createContext(null);
 
@@ -55,8 +49,6 @@ const DocLinkContext = createContext(null);
 // The undo/redo button is rendered only on that part: the agent's UndoManager is a
 // single LIFO stack, so only the latest edit can be undone.
 const LastModifyContext = createContext(null);
-
-const UUID_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
 
 function isToolPart(part) {
   return part.type?.startsWith('tool-') || part.type === 'dynamic-tool';
@@ -323,22 +315,29 @@ function GoogleDocResultView({ title, url, linkPrefix }) {
   );
 }
 
+const faviconUrl = (hostname, size = 16) =>
+  `https://www.google.com/s2/favicons?sz=${size}&domain=${hostname}`;
+
+/** A web source rendered as a favicon + title link, with an optional [n] index. */
+function SourceLink({ url, title, index }) {
+  let hostname = '';
+  try { hostname = new URL(url).hostname; } catch (_) { /* leave blank */ }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="ai-source-link">
+      {hostname && <img src={faviconUrl(hostname)} alt="" className="ai-source-favicon" />}
+      <span className="ai-source-title">{title || hostname || url}</span>
+      {index != null && <span className="ai-source-index">[{index}]</span>}
+    </a>
+  );
+}
+
 function WebSearchResultsView({ sources }) {
   if (!sources || sources.length === 0) return null;
   return (
     <ul className="ai-web-results-list">
-      {sources.map((src) => {
-        let hostname = '';
-        try { hostname = new URL(src.url).hostname; } catch (_) {}
-        return (
-          <li key={src.url}>
-            <a href={src.url} target="_blank" rel="noopener noreferrer" className="ai-source-link">
-              {hostname && <img src={`https://www.google.com/s2/favicons?sz=16&domain=${hostname}`} alt="" className="ai-source-favicon" />}
-              <span className="ai-source-title">{src.title || hostname || src.url}</span>
-            </a>
-          </li>
-        );
-      })}
+      {sources.map((src) => (
+        <li key={src.url}><SourceLink url={src.url} title={src.title} /></li>
+      ))}
     </ul>
   );
 }
@@ -508,8 +507,8 @@ function MarkdownLink({ href, children }) {
     const pathname = href.startsWith('/') ? href : new URL(href).pathname;
     // If a doc link handler is registered and this is a doc URL, use it
     if (onDocLinkClick) {
-      const m = pathname.match(UUID_RE);
-      if (m) { onDocLinkClick(m[1].toLowerCase()); return; }
+      const guid = parseDocGuid(pathname);
+      if (guid) { onDocLinkClick(guid); return; }
     }
     spaNavigate(pathname);
   }, [href, isInternal, onDocLinkClick]);
@@ -677,19 +676,9 @@ function SourcesPanel({ citations }) {
       </button>
       {expanded && (
         <ol className="ai-sources-list">
-          {sources.map((src, i) => {
-            let hostname = '';
-            try { hostname = new URL(src.url).hostname; } catch (_) {}
-            return (
-              <li key={src.url}>
-                <a href={src.url} target="_blank" rel="noopener noreferrer" className="ai-source-link">
-                  {hostname && <img src={`https://www.google.com/s2/favicons?sz=16&domain=${hostname}`} alt="" className="ai-source-favicon" />}
-                  <span className="ai-source-title">{src.title || hostname || src.url}</span>
-                  <span className="ai-source-index">[{i + 1}]</span>
-                </a>
-              </li>
-            );
-          })}
+          {sources.map((src, i) => (
+            <li key={src.url}><SourceLink url={src.url} title={src.title} index={i + 1} /></li>
+          ))}
         </ol>
       )}
     </div>
