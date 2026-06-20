@@ -489,6 +489,59 @@
   padding: 2px 0;
 }
 
+.ai-diff-wrap {
+  position: relative;
+}
+
+/* While an agent edit is undone, dim its diff so it's clear the change is no
+   longer applied to the document (the diff itself stays as a record of what the
+   agent did). */
+.ai-diff-wrap--undone .ai-diff-view {
+  opacity: 0.5;
+  filter: grayscale(0.4);
+}
+
+.ai-diff-undo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* "Reverted" sits at the left of the row; the button stays right-aligned. */
+.ai-diff-reverted {
+  margin-right: auto;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: #9ca3af;
+}
+
+.ai-diff-undo-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.ai-diff-undo-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.02);
+  color: #374151;
+}
+
+.ai-diff-undo-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ai-diff-undo-error {
+  font-size: var(--text-xs);
+  color: #dc2626;
+}
+
 .ai-diff-format-annotation {
   color: #9ca3af;
   font-style: italic;

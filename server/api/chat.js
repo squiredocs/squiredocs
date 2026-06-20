@@ -86,6 +86,30 @@ function getAI() {
 // history. Used to tell the agent's own edits apart from concurrent ones.
 const CHAT_AGENT_NAME = 'Squire Docs Assistant';
 
+// Stable agent id for the in-app chat assistant. Combined with the user id and
+// doc guid it forms the agent-presence session key, so the in-process tool calls
+// during streaming AND any out-of-band call (e.g. the chat undo/redo endpoints)
+// land on the same session — and therefore the same Y.UndoManager.
+const CHAT_AGENT_ID = 'in-app-chat';
+
+/**
+ * Build the synthetic agent token for the in-app chat assistant for a request.
+ * Centralizing this keeps the session identity (user + CHAT_AGENT_ID) identical
+ * across the streaming chat handler and the undo/redo endpoints, which is what
+ * lets a user-triggered undo reuse the agent's own UndoManager.
+ * @param {object} req - Authenticated Express request (req.user.userId)
+ * @returns {object} Synthetic agent token (includes rawToken)
+ */
+function buildChatAgentToken(req) {
+  return createAgentTokenPair({
+    userId: req.user.userId,
+    agentId: CHAT_AGENT_ID,
+    agentName: CHAT_AGENT_NAME,
+    scopes: ['documents:read', 'documents:write'],
+    baseUrl: buildBaseUrl(req),
+  }).token;
+}
+
 const BASE_SYSTEM_PROMPT = `<identity>
 You are the Squire Docs assistant. Refer to yourself as the "Squire Docs assistant". Don't refer to yourself as a squire, since you are not a squire. You are the steward of the writing process and a hands-on writing partner. Someone has to keep the work organized and moving, and that is you. You bridge the gap between high-level thinking and the meticulous operational work (formatting, restructuring, filling in boilerplate) so the writer can focus on the big picture.
 
@@ -445,13 +469,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     const baseUrl = buildBaseUrl(req);
-    const { token: syntheticAgentToken } = createAgentTokenPair({
-      userId: req.user.userId,
-      agentId: 'in-app-chat',
-      agentName: CHAT_AGENT_NAME,
-      scopes: ['documents:read', 'documents:write'],
-      baseUrl,
-    });
+    const syntheticAgentToken = buildChatAgentToken(req);
 
     const { streamText, convertToModelMessages, validateUIMessages, createIdGenerator, stepCountIs } = getAI();
 
@@ -772,4 +790,4 @@ router.patch('/chats/:id', requireAuth, asyncRoute('update chat', async (req, re
   res.json({ ok: true });
 }));
 
-module.exports = { router, activeStreams, init, pipeAsSSE };
+module.exports = { router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID };

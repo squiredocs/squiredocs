@@ -21,6 +21,8 @@ const permissions = require('./permissions');
 const versionHistory = require('./version-history');
 const { toMarkdown } = require('./mcp/yjs/serialization');
 const mcp = require('./mcp');
+const toolRegistry = require('./mcp/tools');
+const agentPresence = require('./mcp/agent-presence');
 const chat = require('./api/chat');
 const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
@@ -1007,6 +1009,90 @@ app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
     }
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to restore version' });
+  }
+});
+
+// API: Undo / Redo the chat assistant's last edit to a document.
+//
+// Unlike restore (which reverts to a point in time and discards later edits),
+// these drive the in-app chat assistant's own Y.UndoManager — the same session
+// manager its `modify` tool edited through — so they perform a true surgical
+// inverse. We rebuild the assistant's synthetic agent token (same user + agent
+// id) so executeTool lands on that exact session. Returns the tool result, e.g.
+// { success, undone|redone, cursor }. `undone:false` means there was nothing on
+// the stack (e.g. the agent session expired since the edit).
+function makeUndoRedoHandler(toolName, label) {
+  return async (req, res) => {
+    try {
+      const { docId } = req.params;
+      const userId = req.user.userId;
+
+      const role = await documents.getRole(docId, userId);
+      if (!role || role === 'viewer') {
+        return res.status(403).json({ error: `You do not have permission to ${label} this document` });
+      }
+
+      const token = chat.buildChatAgentToken(req);
+      const result = await toolRegistry.executeTool(toolName, { docGuid: docId }, token);
+
+      // Persist the reverted state on the chat message so the "Reverted" marker
+      // survives reloads. Best-effort: never fail the undo/redo if this doesn't
+      // stick. undo -> reverted, redo -> not reverted.
+      const succeeded = toolName === 'undo' ? result.undone : result.redone;
+      if (succeeded && req.body?.chatId && req.body?.toolCallId) {
+        try {
+          await setChatPartReverted(req.body.chatId, userId, req.body.toolCallId, toolName === 'undo');
+        } catch (e) {
+          console.warn(`[${label}] could not persist reverted flag:`, e.message);
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error(`Error during ${label}:`, error);
+      notifyException(error, { req, source: 'api' });
+      res.status(500).json({ error: `Failed to ${label} document` });
+    }
+  };
+}
+
+// Set/clear the `reverted` flag on a tool part (by toolCallId) within a stored
+// chat, so the chat UI can show the edit as reverted after a reload.
+async function setChatPartReverted(chatId, userId, toolCallId, reverted) {
+  const messages = await chatStore.loadChat(chatId, userId);
+  if (!messages || !messages.length) return;
+  let changed = false;
+  for (const m of messages) {
+    for (const p of (m.parts || [])) {
+      if (p.toolCallId === toolCallId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
+        if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
+        else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
+      }
+    }
+  }
+  if (changed) await chatStore.saveChat(chatId, userId, messages);
+}
+
+app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo'));
+app.post('/api/docs/:docId/redo', requireAuth, makeUndoRedoHandler('redo', 'redo'));
+
+// API: Whether the chat assistant's edit can currently be undone/redone for a
+// document. Peeks the assistant's live presence session (the in-memory
+// Y.UndoManager) without creating one — so the chat UI only shows an undo/redo
+// button while the edit is actually reversible (the session expires a few
+// minutes after the edit, and is lost on disconnect/restart). Returns
+// { canUndo, canRedo }, both false when there's no live session.
+app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const role = await documents.getRole(docId, req.user.userId);
+    if (!role || role === 'viewer') {
+      return res.json({ canUndo: false, canRedo: false });
+    }
+    res.json(agentPresence.getUndoRedoAvailability(docId, req.user.userId, chat.CHAT_AGENT_ID));
+  } catch (error) {
+    console.error('Error checking undo status:', error);
+    res.json({ canUndo: false, canRedo: false });
   }
 });
 

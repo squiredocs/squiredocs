@@ -835,6 +835,28 @@ function getSession(sessionId) {
   return activeSessions.get(sessionId) || null;
 }
 
+/**
+ * Peek at undo/redo availability for an agent's live presence session WITHOUT
+ * creating one. Returns false/false when no session is currently active for this
+ * user+agent+doc (e.g. it expired, disconnected, or the server restarted) — which
+ * is exactly when the in-memory UndoManager no longer holds the agent's edits.
+ * Used to decide whether to surface an undo/redo affordance to the user.
+ * @param {string} docGuid - Document UUID
+ * @param {string} userId - User the agent acts on behalf of
+ * @param {string} [agentId='default'] - Agent id (e.g. 'in-app-chat')
+ * @returns {{ canUndo: boolean, canRedo: boolean }}
+ */
+function getUndoRedoAvailability(docGuid, userId, agentId = 'default') {
+  const sessionKey = `${userId}-${agentId}-${docGuid}`;
+  const sessionId = sessionsByKey.get(sessionKey);
+  const session = sessionId ? activeSessions.get(sessionId) : null;
+  const um = session && session.undoManager;
+  return {
+    canUndo: !!(um && um.canUndo()),
+    canRedo: !!(um && um.canRedo()),
+  };
+}
+
 module.exports = {
   init,
   getOrCreateSession,
@@ -846,6 +868,7 @@ module.exports = {
   clearHighlightQueue,
   queueHighlightSequence,
   getSession,
+  getUndoRedoAvailability,
   // Internal indexes exposed for testing only
   _sessionsByKey: sessionsByKey,
   _sessionsByUserId: sessionsByUserId,

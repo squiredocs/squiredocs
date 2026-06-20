@@ -1,6 +1,22 @@
-import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import AiChatMessages from '../AiChatMessages';
+
+// UndoEditButton (rendered after a modify diff) calls useAuth() for the axios
+// client. Other tests never mount it, so a module-level mock is safe here.
+const mockGet = vi.fn();
+const mockPost = vi.fn();
+// `api` must be a STABLE reference across renders — components depend on it in
+// useCallback/useEffect deps, so a fresh object each call causes an effect loop.
+const mockApi = { get: mockGet, post: mockPost };
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ api: mockApi }),
+}));
+// Mock the chat context so the test doesn't pull the heavy AI SDK chain, and so
+// the undo/redo persistence calls have a known chatId.
+vi.mock('../../contexts/AiChatContext', () => ({
+  useAiChat: () => ({ currentChatId: 'chat-1' }),
+}));
 
 const makeMsg = (overrides) => ({
   id: `msg-${Math.random()}`,
@@ -473,5 +489,147 @@ describe('AiChatMessages', () => {
     rerender(<AiChatMessages messages={updated} status="ready" />);
 
     expect(scrollEl.scrollTop).toBe(500);
+  });
+
+  // --------------- Undo/redo on agent edits ---------------
+
+  const modifyPart = (output, docGuid = 'doc-123', extra = {}) => ({
+    type: 'tool-modify',
+    toolName: 'modify',
+    toolCallId: 'tc-1',
+    state: 'output-available',
+    input: { docGuid },
+    output,
+    ...extra,
+  });
+
+  const makeModifyMsg = (output, docGuid, extra) => makeMsg({
+    role: 'assistant',
+    parts: [modifyPart(output, docGuid, extra)],
+  });
+
+  const diffOutput = {
+    changed: true,
+    diff: { lines: ['-old', '+new'], hunkStarts: [{ index: 0, oldStart: 1, newStart: 1 }] },
+  };
+
+  const undoAvailable = { data: { canUndo: true, canRedo: false } };
+  const redoAvailable = { data: { canUndo: false, canRedo: true } };
+
+  it('shows an Undo edit button when undo is available', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    const { findByRole } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+    expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
+  });
+
+  it('does NOT show the button when undo is no longer available (session expired)', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue({ data: { canUndo: false, canRedo: false } });
+    const { queryByRole } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/docs/doc-123/undo-status'));
+    expect(queryByRole('button', { name: /undo edit/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the button when the edit made no change', () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    const { queryByRole } = render(
+      <AiChatMessages messages={[makeModifyMsg({ changed: false })]} status="ready" />,
+    );
+    expect(queryByRole('button', { name: /undo edit/i })).not.toBeInTheDocument();
+    expect(mockGet).not.toHaveBeenCalled(); // not even the latest modify -> not mounted
+  });
+
+  it('only renders the button on the most recent modify (LIFO undo stack)', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    const messages = [
+      makeMsg({ id: 'a', role: 'assistant', parts: [modifyPart(diffOutput, 'doc-1')] }),
+      makeMsg({ id: 'b', role: 'assistant', parts: [modifyPart(diffOutput, 'doc-2')] }),
+    ];
+    const { findAllByRole } = render(<AiChatMessages messages={messages} status="ready" />);
+    const buttons = await findAllByRole('button', { name: 'Undo edit' });
+    expect(buttons).toHaveLength(1);
+    // Only the latest edit's status is ever queried.
+    expect(mockGet).toHaveBeenCalledWith('/api/docs/doc-2/undo-status');
+    expect(mockGet).not.toHaveBeenCalledWith('/api/docs/doc-1/undo-status');
+  });
+
+  it('calls /undo and flips to Redo, then /redo flips back', async () => {
+    mockGet.mockReset();
+    mockGet
+      .mockResolvedValueOnce(undoAvailable)   // initial
+      .mockResolvedValueOnce(redoAvailable)   // after undo
+      .mockResolvedValueOnce(undoAvailable);  // after redo
+    mockPost.mockReset();
+    mockPost
+      .mockResolvedValueOnce({ data: { success: true, undone: true } })
+      .mockResolvedValueOnce({ data: { success: true, redone: true } });
+    const { findByRole } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
+    expect(await findByRole('button', { name: 'Redo edit' })).toBeInTheDocument();
+    expect(mockPost).toHaveBeenCalledWith('/api/docs/doc-123/undo', { chatId: 'chat-1', toolCallId: 'tc-1' });
+
+    fireEvent.click(await findByRole('button', { name: 'Redo edit' }));
+    expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
+    expect(mockPost).toHaveBeenLastCalledWith('/api/docs/doc-123/redo', { chatId: 'chat-1', toolCallId: 'tc-1' });
+  });
+
+  it('persists reverted: a part flagged reverted renders dimmed with "Reverted" on load', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(redoAvailable);
+    const { container, findByText } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput, 'doc-123', { reverted: true })]} status="ready" />,
+    );
+    // No interaction needed — the persisted flag drives the reverted UI.
+    expect(await findByText('Reverted')).toBeInTheDocument();
+    expect(container.querySelector('.ai-diff-wrap--undone')).toBeInTheDocument();
+    // And since it's the latest edit and redo is available, a Redo button shows.
+    expect(await findByText('Redo edit')).toBeInTheDocument();
+  });
+
+  it('marks the diff as reverted while undone and clears it on redo', async () => {
+    mockGet.mockReset();
+    mockGet
+      .mockResolvedValueOnce(undoAvailable)
+      .mockResolvedValueOnce(redoAvailable)
+      .mockResolvedValueOnce(undoAvailable);
+    mockPost.mockReset();
+    mockPost
+      .mockResolvedValueOnce({ data: { success: true, undone: true } })
+      .mockResolvedValueOnce({ data: { success: true, redone: true } });
+    const { findByRole, container, queryByText } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
+    await waitFor(() => expect(container.querySelector('.ai-diff-wrap--undone')).toBeInTheDocument());
+    expect(queryByText('Reverted')).toBeInTheDocument();
+
+    fireEvent.click(await findByRole('button', { name: 'Redo edit' }));
+    await waitFor(() => expect(container.querySelector('.ai-diff-wrap--undone')).toBeNull());
+    expect(queryByText('Reverted')).toBeNull();
+  });
+
+  it('shows an inline error when the request fails', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    mockPost.mockReset();
+    mockPost.mockRejectedValue({ response: { data: { error: 'No permission' } } });
+    const { findByRole, findByText } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
+    expect(await findByText('No permission')).toBeInTheDocument();
+    expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
   });
 });

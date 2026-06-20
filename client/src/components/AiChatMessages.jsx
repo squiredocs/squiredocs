@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useContext, createContext } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../contexts/AuthContext';
+import { useAiChat } from '../contexts/AiChatContext';
 
 const isImageType = (t) => t?.startsWith('image/');
 
@@ -49,6 +51,11 @@ function spaNavigate(path) {
 // Context for intercepting doc link clicks (used by /chat page to open side pane)
 const DocLinkContext = createContext(null);
 
+// Holds the most recent completed `modify` part that actually changed a document.
+// The undo/redo button is rendered only on that part: the agent's UndoManager is a
+// single LIFO stack, so only the latest edit can be undone.
+const LastModifyContext = createContext(null);
+
 const UUID_RE = /^\/d(?:oc)?\/([0-9a-f-]+)/i;
 
 function isToolPart(part) {
@@ -59,6 +66,28 @@ function getToolName(part) {
   if (part.toolName) return part.toolName;
   if (part.type?.startsWith('tool-')) return part.type.slice(5);
   return 'unknown';
+}
+
+/**
+ * Find the most recent completed `modify` tool part that actually changed a
+ * document, scanning messages and their parts newest-first. Returns the part
+ * object (used for reference-equality matching) or null.
+ */
+function findLastModifyPart(messages) {
+  for (let m = messages.length - 1; m >= 0; m--) {
+    const parts = messages[m]?.parts;
+    if (!parts) continue;
+    for (let p = parts.length - 1; p >= 0; p--) {
+      const part = parts[p];
+      if (getToolName(part) === 'modify'
+        && part.state === 'output-available'
+        && part.output?.changed
+        && part.input?.docGuid) {
+        return part;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -336,6 +365,10 @@ function DocTitleLink({ docGuid, title }) {
 
 function ToolCard({ part, citations }) {
   const [expanded, setExpanded] = useState(false);
+  // Whether this agent edit is currently reverted. Initialized from the persisted
+  // flag on the part (set server-side on undo), so it survives chat reloads.
+  const [reverted, setReverted] = useState(!!part.reverted);
+  const lastModifyPart = useContext(LastModifyContext);
   const toolName = getToolName(part);
   const isComplete = part.state === 'output-available' || part.state === 'output-error';
   const input = part.input;
@@ -444,7 +477,20 @@ function ToolCard({ part, citations }) {
           <ToolCardDetail toolName={toolName} input={input} />
         </div>
       )}
-      {diff && <DiffView diff={diff} />}
+      {diff && (
+        <div className={`ai-diff-wrap${reverted ? ' ai-diff-wrap--undone' : ''}`}>
+          <DiffView diff={diff} />
+        </div>
+      )}
+      {isModify && isComplete && part.output?.changed && docGuid && (
+        <UndoEditButton
+          docGuid={docGuid}
+          toolCallId={part.toolCallId}
+          isLatest={part === lastModifyPart}
+          reverted={reverted}
+          onRevertedChange={setReverted}
+        />
+      )}
       {isFormatOnly && (
         <div className="ai-diff-format-only">Formatting changes only</div>
       )}
@@ -473,6 +519,97 @@ function MarkdownLink({ href, children }) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
 }
 const markdownLinkRenderer = { a: MarkdownLink };
+
+/**
+ * Undo (↔ Redo) the agent's last edit directly from the chat. Drives the chat
+ * assistant's server-side Y.UndoManager via the /undo and /redo endpoints — the
+ * same manager its `modify` tool edited through — so it's a true surgical inverse
+ * (unlike restore, it preserves edits made after the agent's).
+ *
+ * The reverted state is persisted on the chat message (server sets a `reverted`
+ * flag on this tool part), so it survives reloads. The Undo/Redo *button*,
+ * though, only appears while the edit is actually reversible: that UndoManager is
+ * in-memory and lives only for the few-minute life of the assistant's session
+ * (lost on disconnect/restart), so we poll /undo-status and hide the button when
+ * it can no longer act. Because the stack is LIFO the button is also only shown
+ * on the most recent edit (isLatest).
+ *
+ * Renders a single row: the "Reverted" label (left) and the action button
+ * (right). Returns null when there's nothing to show.
+ */
+function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedChange }) {
+  const { api } = useAuth();
+  const chatId = useAiChat()?.currentChatId || null;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [status, setStatus] = useState(null); // { canUndo, canRedo } | null until first load
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await api.get(`/api/docs/${docGuid}/undo-status`);
+      return { canUndo: !!res.data?.canUndo, canRedo: !!res.data?.canRedo };
+    } catch {
+      return { canUndo: false, canRedo: false };
+    }
+  }, [api, docGuid]);
+
+  // Only the latest edit can be (un)done — poll its availability so the button
+  // disappears once the assistant's session (and its undo stack) expires.
+  useEffect(() => {
+    if (!isLatest) { setStatus(null); return undefined; }
+    let alive = true;
+    const tick = async () => {
+      const s = await fetchStatus();
+      if (alive) setStatus(s);
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isLatest, fetchStatus]);
+
+  const handleClick = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    const undoing = !reverted;
+    try {
+      const res = await api.post(
+        `/api/docs/${docGuid}/${undoing ? 'undo' : 'redo'}`,
+        { chatId, toolCallId },
+      );
+      const ok = undoing ? res.data?.undone : res.data?.redone;
+      if (ok) onRevertedChange(undoing);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Something went wrong');
+    } finally {
+      setBusy(false);
+      setStatus(await fetchStatus());
+    }
+  }, [api, docGuid, chatId, toolCallId, reverted, onRevertedChange, fetchStatus]);
+
+  const canAct = reverted ? status?.canRedo : status?.canUndo;
+  const showButton = isLatest && (canAct || busy);
+  if (!reverted && !showButton) return null;
+
+  const label = reverted ? 'Redo edit' : 'Undo edit';
+
+  return (
+    <div className="ai-diff-undo">
+      {reverted && <span className="ai-diff-reverted">Reverted</span>}
+      {showButton && (
+        <button
+          type="button"
+          className="ai-diff-undo-btn"
+          onClick={handleClick}
+          disabled={busy}
+          title={reverted ? 'Reapply this edit' : 'Revert this edit'}
+        >
+          {busy ? '…' : label}
+        </button>
+      )}
+      {error && <span className="ai-diff-undo-error">{error}</span>}
+    </div>
+  );
+}
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -685,8 +822,13 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
   const lastGroups = lastMsg?.role === 'assistant' ? groupParts(lastMsg.parts || []) : [];
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
+  // The most recent completed modify that changed a document — only this part
+  // gets an undo/redo button (the agent's UndoManager is a single LIFO stack).
+  const lastModifyPart = findLastModifyPart(messages);
+
   return (
     <DocLinkContext.Provider value={onDocLinkClick || null}>
+    <LastModifyContext.Provider value={lastModifyPart}>
       <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
         {messages.map((msg) => {
           if (msg.role === 'assistant') {
@@ -725,6 +867,7 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
         })}
         {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
       </div>
+    </LastModifyContext.Provider>
     </DocLinkContext.Provider>
   );
 }
