@@ -16,7 +16,7 @@ const MIN_HEIGHT = 200;
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini', openai: 'OpenAI' };
 
-function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
+function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }) {
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
   const { accentColor } = byok;
@@ -49,6 +49,19 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
   const [showHistory, setShowHistory] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
+
+  // Clicking a document link in the chat navigates to that doc. On mobile the
+  // panel is a full-screen overlay, so close it too — otherwise the chat stays
+  // on top of the document the user just asked to see.
+  const handleDocLinkClick = useCallback((linkedDocGuid) => {
+    if (onNavigateToDoc) {
+      onNavigateToDoc(linkedDocGuid);
+    } else {
+      window.history.pushState({}, '', `/d/${linkedDocGuid}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+    if (isMobile) close();
+  }, [onNavigateToDoc, isMobile, close]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -208,6 +221,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, docGuid }) {
             errorMessage={errorWasByok && error?.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : undefined}
             onRetry={retryLastMessage}
             greeting={getGreeting(user?.name)} accentColor={accentColor}
+            onDocLinkClick={handleDocLinkClick}
           />
           <AiChatInput ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} />
         </>

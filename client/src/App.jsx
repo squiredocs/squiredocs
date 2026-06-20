@@ -329,7 +329,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         <div className="app-content">
           {page}
         </div>
-        <AiPanel aiPanel={aiPanel} aiChat={aiChat} onNavigateToChat={navigateToChat} docGuid={route.docGuid} />
+        <AiPanel aiPanel={aiPanel} aiChat={aiChat} onNavigateToChat={navigateToChat} onNavigateToDoc={navigateToDoc} docGuid={route.docGuid} />
       </div>
       {/* Floating AI toggle — consistent across all pages */}
       <button

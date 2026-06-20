@@ -170,6 +170,53 @@ describe('AiPanel', () => {
     expect(screen.queryByRole('button', { name: /Move to/i })).not.toBeInTheDocument();
   });
 
+  // A message whose tool card renders a clickable document title link.
+  const docLinkMessages = [{
+    id: '1',
+    role: 'assistant',
+    parts: [{
+      type: 'tool-read_document',
+      toolName: 'read_document',
+      state: 'output-available',
+      input: { docGuid: 'doc-xyz' },
+      output: { docTitle: 'My Doc' },
+    }],
+  }];
+
+  it('on mobile, clicking a document link navigates to the doc and closes the panel', () => {
+    mockIsMobile = true;
+    const close = vi.fn();
+    const onNavigateToDoc = vi.fn();
+    render(
+      <AiPanel
+        aiPanel={makeAiPanel({ close })}
+        aiChat={makeAiChat({ messages: docLinkMessages })}
+        onNavigateToDoc={onNavigateToDoc}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('My Doc'));
+    expect(onNavigateToDoc).toHaveBeenCalledWith('doc-xyz');
+    expect(close).toHaveBeenCalled();
+  });
+
+  it('on desktop, clicking a document link navigates but keeps the panel open', () => {
+    mockIsMobile = false;
+    const close = vi.fn();
+    const onNavigateToDoc = vi.fn();
+    render(
+      <AiPanel
+        aiPanel={makeAiPanel({ close })}
+        aiChat={makeAiChat({ messages: docLinkMessages })}
+        onNavigateToDoc={onNavigateToDoc}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('My Doc'));
+    expect(onNavigateToDoc).toHaveBeenCalledWith('doc-xyz');
+    expect(close).not.toHaveBeenCalled();
+  });
+
   // --------------- Streaming ---------------
 
   it('shows stop button when status is streaming', () => {
