@@ -11,7 +11,7 @@ import {
 } from '../diagramShared';
 
 // Build the name→config map buildEnrichedClipboardOutput expects. Pass extras
-// per type, e.g. cfgs({ graphviz: { droppedPlaceholder: 'digraph{x}' } }).
+// per type, e.g. cfgs({ mermaid: { droppedPlaceholder: 'graph TD; a-->b' } }).
 function cfgs(spec) {
   const m = new Map();
   for (const [name, extra] of Object.entries(spec)) {
@@ -85,38 +85,38 @@ function imagesInOrder(html) {
 }
 
 describe('chooseAltText', () => {
-  const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
+  const big = 'graph TD\n' + 'A-->B\n'.repeat(400);
 
   it('returns the encoded real source when it fits the cap', () => {
-    const alt = chooseAltText('graphviz', 'digraph{A->B}', {});
-    expect(decodeSourceFromAlt('graphviz', alt)).toBe('digraph{A->B}');
+    const alt = chooseAltText('mermaid', 'graph TD; A-->B', {});
+    expect(decodeSourceFromAlt('mermaid', alt)).toBe('graph TD; A-->B');
   });
 
   it('falls back to the placeholder source when the real source is too big', () => {
-    const placeholder = 'digraph { dropped [label="lost"] }';
-    const alt = chooseAltText('graphviz', big, { droppedPlaceholder: placeholder });
-    expect(decodeSourceFromAlt('graphviz', alt)).toBe(placeholder);
+    const placeholder = 'graph TD; dropped[lost]';
+    const alt = chooseAltText('mermaid', big, { droppedPlaceholder: placeholder });
+    expect(decodeSourceFromAlt('mermaid', alt)).toBe(placeholder);
     expect(alt.length).toBeLessThanOrEqual(1000);
   });
 
   it('uses a short label when too big and no placeholder is configured', () => {
-    expect(chooseAltText('graphviz', big, {})).toBe('graphviz diagram');
+    expect(chooseAltText('mermaid', big, {})).toBe('mermaid diagram');
   });
 });
 
 describe('buildEnrichedClipboardOutput pairing', () => {
   it('pairs each diagram with its OWN image (regression: no index drift)', () => {
-    // Four graphviz diagrams, each with a distinct PNG. The bug replaced <pre>
+    // Four mermaid diagrams, each with a distinct PNG. The bug replaced <pre>
     // elements with a per-iteration querySelectorAll, so removed <pre>s made the
     // positional index drift and later diagrams got the wrong (or no) image.
     const blocks = [
-      { name: 'graphviz', source: 'A', png: 'data:img-A' },
-      { name: 'graphviz', source: 'B', png: 'data:img-B' },
-      { name: 'graphviz', source: 'C', png: 'data:img-C' },
-      { name: 'graphviz', source: 'D', png: 'data:img-D' },
+      { name: 'mermaid', source: 'A', png: 'data:img-A' },
+      { name: 'mermaid', source: 'B', png: 'data:img-B' },
+      { name: 'mermaid', source: 'C', png: 'data:img-C' },
+      { name: 'mermaid', source: 'D', png: 'data:img-D' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 4, cfgs({ graphviz: {} }));
+    const out = buildEnrichedClipboardOutput(view, 0, 4, cfgs({ mermaid: {} }));
     const seq = imagesInOrder(out.html);
 
     expect(seq).toEqual([
@@ -129,12 +129,12 @@ describe('buildEnrichedClipboardOutput pairing', () => {
 
   it('keeps pairing when a middle diagram has no PNG (its <pre> stays as source)', () => {
     const blocks = [
-      { name: 'graphviz', source: 'A', png: 'data:img-A' },
-      { name: 'graphviz', source: 'B' }, // no png, no svg → left as source
-      { name: 'graphviz', source: 'C', png: 'data:img-C' },
+      { name: 'mermaid', source: 'A', png: 'data:img-A' },
+      { name: 'mermaid', source: 'B' }, // no png, no svg → left as source
+      { name: 'mermaid', source: 'C', png: 'data:img-C' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 3, cfgs({ graphviz: {} }));
+    const out = buildEnrichedClipboardOutput(view, 0, 3, cfgs({ mermaid: {} }));
     const seq = imagesInOrder(out.html);
 
     expect(seq).toEqual([
@@ -144,45 +144,21 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     ]);
   });
 
-  it('keeps per-type pairing for mixed mermaid + graphviz selections', () => {
-    const blocks = [
-      { name: 'graphviz', source: 'G0', png: 'data:gv-0' },
-      { name: 'mermaid', source: 'M0', png: 'data:mm-0' },
-      { name: 'graphviz', source: 'G1', png: 'data:gv-1' },
-      { name: 'mermaid', source: 'M1', png: 'data:mm-1' },
-    ];
-    const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(
-      view,
-      0,
-      4,
-      cfgs({ graphviz: {}, mermaid: {} }),
-    );
-    const seq = imagesInOrder(out.html);
-
-    expect(seq).toEqual([
-      { kind: 'img', src: 'data:gv-0' },
-      { kind: 'img', src: 'data:mm-0' },
-      { kind: 'img', src: 'data:gv-1' },
-      { kind: 'img', src: 'data:mm-1' },
-    ]);
-  });
-
   it('uses a short alt for a large source when no placeholder is configured', () => {
     // Without a placeholder, an oversized source falls back to a short,
     // gdocs-sync-safe alt. data-<name>-source is still set (Google Docs strips
     // it anyway) so Squire→Squire / →Notion paste-back still works.
-    const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
-    const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
+    const big = 'graph TD\n' + 'A-->B\n'.repeat(400);
+    const blocks = [{ name: 'mermaid', source: big, png: 'data:img-big' }];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 1, cfgs({ graphviz: {} }));
+    const out = buildEnrichedClipboardOutput(view, 0, 1, cfgs({ mermaid: {} }));
 
     const div = document.createElement('div');
     div.innerHTML = out.html;
     const img = div.querySelector('img');
     expect(img.getAttribute('src')).toBe('data:img-big');
-    expect(img.alt).toBe('graphviz diagram'); // short, gdocs-sync-safe alt
-    expect(img.getAttribute('data-graphviz-source')).toBe(big); // round-trip intact
+    expect(img.alt).toBe('mermaid diagram'); // short, gdocs-sync-safe alt
+    expect(img.getAttribute('data-mermaid-source')).toBe(big); // round-trip intact
   });
 
   it('embeds the placeholder source in alt for a large diagram (gdocs paste-back)', () => {
@@ -191,41 +167,41 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     // where data-* is stripped — the alt rule decodes it into a visible
     // "source not preserved" diagram instead of a bare image. The full source
     // still rides on data-source for non-gdocs targets.
-    const big = 'digraph {\n' + 'A -> B;\n'.repeat(400) + '}';
-    const placeholder = 'digraph { dropped [label="source not preserved"] }';
-    const blocks = [{ name: 'graphviz', source: big, png: 'data:img-big' }];
+    const big = 'graph TD\n' + 'A-->B\n'.repeat(400);
+    const placeholder = 'graph TD; dropped[source not preserved]';
+    const blocks = [{ name: 'mermaid', source: big, png: 'data:img-big' }];
     const view = makeView(blocks);
     const out = buildEnrichedClipboardOutput(
       view,
       0,
       1,
-      cfgs({ graphviz: { droppedPlaceholder: placeholder } }),
+      cfgs({ mermaid: { droppedPlaceholder: placeholder } }),
     );
 
     const div = document.createElement('div');
     div.innerHTML = out.html;
     const img = div.querySelector('img');
-    // alt decodes (via the same [graphviz-src] rule) to the placeholder source
-    expect(decodeSourceFromAlt('graphviz', img.alt)).toBe(placeholder);
+    // alt decodes (via the same [mermaid-src] rule) to the placeholder source
+    expect(decodeSourceFromAlt('mermaid', img.alt)).toBe(placeholder);
     expect(img.alt.length).toBeLessThanOrEqual(1000); // safely under the gdocs cap
-    expect(img.getAttribute('data-graphviz-source')).toBe(big); // full source intact
+    expect(img.getAttribute('data-mermaid-source')).toBe(big); // full source intact
   });
 
   it('stamps the matching source onto each image (alt + data-attr)', () => {
     const blocks = [
-      { name: 'graphviz', source: 'digraph{A->B}', png: 'data:img-A' },
-      { name: 'graphviz', source: 'digraph{C->D}', png: 'data:img-C' },
+      { name: 'mermaid', source: 'graph TD; A-->B', png: 'data:img-A' },
+      { name: 'mermaid', source: 'graph TD; C-->D', png: 'data:img-C' },
     ];
     const view = makeView(blocks);
-    const out = buildEnrichedClipboardOutput(view, 0, 2, cfgs({ graphviz: {} }));
+    const out = buildEnrichedClipboardOutput(view, 0, 2, cfgs({ mermaid: {} }));
 
     const div = document.createElement('div');
     div.innerHTML = out.html;
     const imgs = div.querySelectorAll('img');
-    expect(imgs[0].getAttribute('data-graphviz-source')).toBe('digraph{A->B}');
-    expect(imgs[1].getAttribute('data-graphviz-source')).toBe('digraph{C->D}');
-    expect(imgs[0].alt.startsWith(altSourcePrefix('graphviz'))).toBe(true);
-    expect(decodeURIComponent(imgs[1].alt.slice(altSourcePrefix('graphviz').length)))
-      .toBe('digraph{C->D}');
+    expect(imgs[0].getAttribute('data-mermaid-source')).toBe('graph TD; A-->B');
+    expect(imgs[1].getAttribute('data-mermaid-source')).toBe('graph TD; C-->D');
+    expect(imgs[0].alt.startsWith(altSourcePrefix('mermaid'))).toBe(true);
+    expect(decodeURIComponent(imgs[1].alt.slice(altSourcePrefix('mermaid').length)))
+      .toBe('graph TD; C-->D');
   });
 });

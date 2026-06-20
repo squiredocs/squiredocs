@@ -30,8 +30,6 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { Mark } from '@tiptap/core';
 import { MermaidNode } from './MermaidNode';
-import { GraphvizNode } from './GraphvizNode';
-import { D2Node } from './D2Node';
 import { DiagramClipboard } from './DiagramClipboard';
 
 /**
@@ -79,8 +77,6 @@ export function getBaseExtensions({ openLinksOnClick = false } = {}) {
     DiffInsert,
     DiffDelete,
     MermaidNode,
-    GraphvizNode,
-    D2Node,
     // Single shared copy/cut handler for all diagram blocks (registered once,
     // not per node — see DiagramClipboard).
     DiagramClipboard,

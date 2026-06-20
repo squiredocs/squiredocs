@@ -14,8 +14,6 @@
   "dependencies": {
     "@ai-sdk/react": "^3.0.143",
     "@floating-ui/dom": "^1.7.5",
-    "@hpcc-js/wasm-graphviz": "^1.22.0",
-    "@terrastruct/d2": "^0.1.33",
     "@tiptap/extension-collaboration": "^3.15.0",
     "@tiptap/extension-collaboration-caret": "^3.15.0",
     "@tiptap/extension-link": "^3.15.0",

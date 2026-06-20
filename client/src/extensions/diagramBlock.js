@@ -4,12 +4,12 @@ import { Fragment } from '@tiptap/pm/model';
 import DiagramNodeView from '../components/DiagramNodeView.jsx';
 import { altSourcePrefix, decodeSourceFromAlt } from './diagramShared';
 
-// Factory for a diagram-as-code block (Mermaid, Graphviz, …). Each format is a
-// thin config; the rendering shell (DiagramNodeView), rasterization, and the
-// copy/cut clipboard handling (DiagramClipboard) are shared.
+// Factory for a diagram-as-code block (Mermaid). Each format is a thin config;
+// the rendering shell (DiagramNodeView), rasterization, and the copy/cut
+// clipboard handling (DiagramClipboard) are shared.
 //
-// (Markdown fence labels — `mermaid`, `graphviz`, the `dot` alias — are owned
-// server-side in markdown-to-pm.js / yjs/serialization.js, not by this config.)
+// (Markdown fence labels — `mermaid` — are owned server-side in
+// markdown-to-pm.js / yjs/serialization.js, not by this config.)
 //
 // config:
 //   name               node name + data-type + capitalized into the insert command

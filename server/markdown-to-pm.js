@@ -158,13 +158,10 @@ function markdownToPm(markdown, diffMark = null) {
       }
       i++; // skip closing ```
       const codeText = codeLines.join('\n');
-      // Diagram fences route to their dedicated block node; `dot` is accepted
-      // as an alias for graphviz. Everything else is a generic codeBlock.
+      // Mermaid fences route to the dedicated diagram block node; everything
+      // else is a generic codeBlock.
       const diagramType = {
         mermaid: 'mermaid',
-        graphviz: 'graphviz',
-        dot: 'graphviz',
-        d2: 'd2',
       }[lang.toLowerCase()];
       const node = { type: diagramType || 'codeBlock' };
       if (!diagramType && lang) node.attrs = { language: lang };

@@ -118,32 +118,6 @@ const nodes = {
     },
   },
 
-  graphviz: {
-    content: 'text*',
-    marks: '',
-    group: 'block',
-    code: true,
-    defining: true,
-    isolating: true,
-    parseDOM: [{ tag: 'pre[data-type="graphviz"]', preserveWhitespace: 'full' }],
-    toDOM() {
-      return ['pre', { 'data-type': 'graphviz' }, ['code', 0]];
-    },
-  },
-
-  d2: {
-    content: 'text*',
-    marks: '',
-    group: 'block',
-    code: true,
-    defining: true,
-    isolating: true,
-    parseDOM: [{ tag: 'pre[data-type="d2"]', preserveWhitespace: 'full' }],
-    toDOM() {
-      return ['pre', { 'data-type': 'd2' }, ['code', 0]];
-    },
-  },
-
   hardBreak: {
     inline: true,
     group: 'inline',

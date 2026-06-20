@@ -12,8 +12,8 @@ describe('fitRasterScale', () => {
   });
 
   it('downscales a large diagram so the longest side fits the cap', () => {
-    // A wide Graphviz graph: 3000pt wide. 2× would be 6000px → too big for
-    // Google Docs. Cap the longest side at 2000px → scale 2000/3000.
+    // A wide diagram: 3000px wide. 2× would be 6000px → too big for Google
+    // Docs. Cap the longest side at 2000px → scale 2000/3000.
     expect(fitRasterScale(3000, 700, 2, 2000)).toBeCloseTo(2000 / 3000);
   });
 
@@ -32,14 +32,14 @@ describe('fitRasterScale', () => {
 });
 
 describe('alt source round-trip', () => {
-  it('encodes and decodes a multiline Graphviz source losslessly', () => {
-    const src = 'digraph {\n  A -> B [label="x>y & z"]\n}';
-    const alt = encodeSourceForAlt('graphviz', src);
-    expect(decodeSourceFromAlt('graphviz', alt)).toBe(src);
+  it('encodes and decodes a multiline Mermaid source losslessly', () => {
+    const src = 'graph TD\n  A -->|"x>y & z"| B';
+    const alt = encodeSourceForAlt('mermaid', src);
+    expect(decodeSourceFromAlt('mermaid', alt)).toBe(src);
   });
 
   it('returns null for a mismatched prefix', () => {
-    const alt = encodeSourceForAlt('mermaid', 'graph TD; A-->B');
-    expect(decodeSourceFromAlt('graphviz', alt)).toBe(null);
+    const alt = encodeSourceForAlt('codeBlock', 'graph TD; A-->B');
+    expect(decodeSourceFromAlt('mermaid', alt)).toBe(null);
   });
 });

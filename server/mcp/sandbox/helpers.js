@@ -377,11 +377,10 @@ function validateTextStyleAttrs(attrs) {
  *   ]);
  *
  * @example
- *   // Create diagram-as-code blocks (rendered to SVG in the editor).
- *   // content is the diagram source string; type is 'mermaid' or 'graphviz'.
+ *   // Create a diagram-as-code block (rendered to SVG in the editor).
+ *   // content is the diagram source string; type is 'mermaid'.
  *   appendBlocks(doc, [
- *     { type: 'mermaid', content: 'graph TD\n  A --> B' },
- *     { type: 'graphviz', content: 'digraph { A -> B -> C }' }
+ *     { type: 'mermaid', content: 'graph TD\n  A --> B' }
  *   ]);
  *
  * @example
@@ -495,9 +494,9 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
-   * Create a diagram-as-code block (mermaid | graphviz | d2). Same shape as a code
-   * block — a single Y.XmlText child holding the diagram source — but tagged so
-   * the editor renders it to a diagram instead of showing source.
+   * Create a diagram-as-code block (mermaid). Same shape as a code block — a
+   * single Y.XmlText child holding the diagram source — but tagged so the
+   * editor renders it to a diagram instead of showing source.
    */
   function createDiagramBlock(type, content) {
     if (typeof content !== 'string') {
@@ -663,8 +662,6 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createCodeBlock(blockDef.content);
 
       case 'mermaid':
-      case 'graphviz':
-      case 'd2':
         if (blockDef.content === undefined) {
           throw new Error(`appendBlocks: ${blockDef.type} requires content`);
         }
@@ -698,7 +695,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, graphviz, d2, blockquote, horizontalRule, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, table`);
     }
   }
 

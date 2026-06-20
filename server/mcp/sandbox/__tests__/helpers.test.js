@@ -452,29 +452,21 @@ describe('Sandbox Helpers', () => {
         expect(helpers.getTextContent(codeBlock)).toBe('const x = 42;');
       });
 
-      it('should create diagram blocks (mermaid, graphviz, d2)', () => {
+      it('should create a mermaid diagram block', () => {
         helpers.appendBlocks(fragment, [
-          { type: 'mermaid', content: 'graph TD\n  A --> B' },
-          { type: 'graphviz', content: 'digraph { A -> B -> C }' },
-          { type: 'd2', content: 'x -> y -> z' }
+          { type: 'mermaid', content: 'graph TD\n  A --> B' }
         ]);
 
-        expect(fragment.length).toBe(3);
+        expect(fragment.length).toBe(1);
         const mermaid = fragment.get(0);
         expect(mermaid.nodeName).toBe('mermaid');
         expect(helpers.getTextContent(mermaid)).toBe('graph TD\n  A --> B');
-        const graphviz = fragment.get(1);
-        expect(graphviz.nodeName).toBe('graphviz');
-        expect(helpers.getTextContent(graphviz)).toBe('digraph { A -> B -> C }');
-        const d2 = fragment.get(2);
-        expect(d2.nodeName).toBe('d2');
-        expect(helpers.getTextContent(d2)).toBe('x -> y -> z');
       });
 
       it('should require content for diagram blocks', () => {
         expect(() =>
-          helpers.appendBlocks(fragment, [{ type: 'graphviz' }])
-        ).toThrow(/graphviz requires content/);
+          helpers.appendBlocks(fragment, [{ type: 'mermaid' }])
+        ).toThrow(/mermaid requires content/);
       });
 
       it('should create a bullet list', () => {

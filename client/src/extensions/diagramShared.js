@@ -1,7 +1,7 @@
-// Shared utilities for diagram-as-code blocks (Mermaid, Graphviz, …). The
-// format-specific bits live in each block's config (see diagramBlock.js); the
-// rasterization, SVG-export normalization, and clipboard source-encoding here
-// are format-agnostic — they operate on the rendered SVG and the node name.
+// Shared utilities for diagram-as-code blocks (Mermaid). The format-specific
+// bits live in each block's config (see diagramBlock.js); the rasterization,
+// SVG-export normalization, and clipboard source-encoding here are
+// format-agnostic — they operate on the rendered SVG and the node name.
 
 // Dataset keys the node view stamps onto the preview element so the clipboard
 // handler can read them at copy-time. Centralized here so a rename can't
@@ -39,20 +39,11 @@ export function decodeSourceFromAlt(name, altText) {
   }
 }
 
-// Trim a rendered SVG string to its opening `<svg` tag, dropping any XML prolog
-// / `<!DOCTYPE>` a renderer emits ahead of it. Graphviz always emits the prolog;
-// the HTML parser behind the node view's `innerHTML = svg` drops those nodes and
-// the diagram never renders. Harmless for renderers that emit no prolog.
-export function toInlineSvg(out) {
-  const start = out.indexOf('<svg');
-  return start === -1 ? out : out.slice(start);
-}
-
 // Normalize a cloned <svg> so it can render correctly as a standalone document
 // (canvas drawImage, clipboard SVG fallback, …). Mermaid emits `width="100%"` +
-// viewBox + an inherited max-width style; Graphviz emits `width="62pt"` + a
-// viewBox. Neither survives cleanly outside the editor, and Firefox refuses to
-// decode an SVG <img> without the namespace. parseFloat strips the `pt` unit.
+// viewBox + an inherited max-width style, which doesn't survive cleanly outside
+// the editor, and Firefox refuses to decode an SVG <img> without the namespace.
+// parseFloat strips any unit (e.g. `pt`).
 export function prepareSvgForExport(svgClone) {
   svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
@@ -76,10 +67,9 @@ export function prepareSvgForExport(svgClone) {
 // A pasted image is inlined into the clipboard HTML as a base64 PNG data URL,
 // and Google Docs' realtime sync rejects an edit whose payload is too large
 // ("Can't sync your changes. Copy your recent edits, then revert your
-// changes."). A big diagram (e.g. a wide Graphviz graph) rasterized at 2× blows
-// past that, so cap both the pixel dimension and the encoded byte size; small
-// diagrams (the common case, including Mermaid) are unaffected and still render
-// at full `scale`.
+// changes."). A big diagram rasterized at 2× blows past that, so cap both the
+// pixel dimension and the encoded byte size; small diagrams (the common case)
+// are unaffected and still render at full `scale`.
 const RASTER_MAX_DIMENSION = 2000; // px — cap on the longest side
 const RASTER_MAX_BYTES = 1_000_000; // ~1 MB of PNG before base64 expansion
 
@@ -99,8 +89,8 @@ export function fitRasterScale(
 // with a white background. Returns { pngUrl, width, height } where width/height
 // are the diagram's natural (display) size — independent of the raster
 // resolution. Throws (SecurityError) if the SVG taints the canvas — callers
-// fall back to inline SVG. Mermaid (with htmlLabels:false) and Graphviz emit
-// plain <text>, which does not taint.
+// fall back to inline SVG. Mermaid (with htmlLabels:false) emits plain <text>,
+// which does not taint.
 export async function rasterizeSvg(
   svgEl,
   {

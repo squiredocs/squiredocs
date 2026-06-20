@@ -286,22 +286,6 @@ export default function MobileActionBar({ editor }) {
         >
           ◇
         </button>
-        <button
-          onClick={() => editor.chain().focus().insertGraphviz().run()}
-          className={`mobile-format-btn ${editor.isActive('graphviz') ? 'is-active' : ''}`}
-          title="Insert Graphviz diagram"
-          aria-label="Insert Graphviz diagram"
-        >
-          ⬡
-        </button>
-        <button
-          onClick={() => editor.chain().focus().insertD2().run()}
-          className={`mobile-format-btn ${editor.isActive('d2') ? 'is-active' : ''}`}
-          title="Insert D2 diagram"
-          aria-label="Insert D2 diagram"
-        >
-          ◈
-        </button>
       </div>
     </div>
   );

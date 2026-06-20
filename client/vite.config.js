@@ -62,7 +62,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           mermaid: ['mermaid'],
-          d2: ['@terrastruct/d2'],
         },
       },
     },

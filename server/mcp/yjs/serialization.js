@@ -123,10 +123,6 @@ function toMarkdown(xmlFragment) {
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'mermaid') {
       parts.push('```mermaid\n' + getChildText(node) + '\n```\n');
-    } else if (tag === 'graphviz') {
-      parts.push('```graphviz\n' + getChildText(node) + '\n```\n');
-    } else if (tag === 'd2') {
-      parts.push('```d2\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.
