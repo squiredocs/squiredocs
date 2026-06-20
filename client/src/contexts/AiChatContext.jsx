@@ -1,6 +1,6 @@
 import { createContext, useContext, useRef, useEffect, useMemo, useCallback, useState } from 'react';
 import { DefaultChatTransport } from 'ai';
-import { useChat } from '@ai-sdk/react';
+import { useChat, Chat } from '@ai-sdk/react';
 import { useAuth } from './AuthContext';
 import { isTokenExpiringSoon } from '../utils/jwt';
 
@@ -133,55 +133,81 @@ export function AiChatProvider({ children }) {
   // Guard: auto-retry on 401 at most once per send attempt
   const authRetryRef = useRef(false);
 
-  // Single Chat instance — never pass `id` so useChat doesn't recreate it
-  const chat = useChat({
-    transport,
-    onError: (error) => {
-      // DefaultChatTransport throws Error(responseBody) on non-200.
-      const msg = (error?.message || '').toLowerCase();
+  // Keep refreshAccessToken reachable from the per-instance onError closures
+  // (constructed once per chat) without rebuilding the instances when it changes.
+  const refreshRef = useRef(refreshAccessToken);
+  refreshRef.current = refreshAccessToken;
 
-      // Auto-retry once on auth errors: refresh the token and resend
-      const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
-      if (isAuth && !authRetryRef.current) {
-        authRetryRef.current = true;
-        refreshAccessToken()
-          .then(() => {
-            chat.sendMessage({
-              text: lastSentTextRef.current || ' ',
-              files: lastSentFilesRef.current?.length ? lastSentFilesRef.current : undefined,
-            });
-          })
-          .catch(() => {
-            // Refresh failed — restore draft for manual retry
-            if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-            if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+  // Shared error handler for every chat instance. Bound to the instance that
+  // erred so an auth-retry resends on the right chat.
+  const handleChatError = useCallback((error, instance) => {
+    // DefaultChatTransport throws Error(responseBody) on non-200.
+    const msg = (error?.message || '').toLowerCase();
+
+    // Auto-retry once on auth errors: refresh the token and resend
+    const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
+    if (isAuth && !authRetryRef.current) {
+      authRetryRef.current = true;
+      refreshRef.current()
+        .then(() => {
+          instance.sendMessage({
+            text: lastSentTextRef.current || ' ',
+            files: lastSentFilesRef.current?.length ? lastSentFilesRef.current : undefined,
           });
-        return;
-      }
+        })
+        .catch(() => {
+          // Refresh failed — restore draft for manual retry
+          if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+          if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+        });
+      return;
+    }
 
-      // Non-auth error (or auth retry exhausted) — restore draft
-      if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-      if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+    // Non-auth error (or auth retry exhausted) — restore draft
+    if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+    if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
 
-      // Our 429 returns JSON: {"error":"AI usage limit reached"}
-      if (msg.includes('usage limit')) {
-        setUsageLimitReached(true);
-      }
-    },
-  });
+    // Our 429 returns JSON: {"error":"AI usage limit reached"}
+    if (msg.includes('usage limit')) {
+      setUsageLimitReached(true);
+    }
+  }, []);
+
+  // One persistent Chat instance per chat id, cached and reused across switches.
+  // This is what isolates streams (a stream started in chat A writes only to A's
+  // instance, never bleeding into another chat after a switch) AND keeps a
+  // mid-stream response alive when you switch away: the instance keeps streaming
+  // in the background, so switching back simply re-attaches to it with the
+  // message already there — no fragile reload/resume needed. The null draft gets
+  // its own instance (keyed '__draft__').
+  const DRAFT_KEY = '__draft__';
+  const instancesRef = useRef(new Map());
+  const getChatInstance = useCallback((id) => {
+    const key = id || DRAFT_KEY;
+    let inst = instancesRef.current.get(key);
+    if (!inst) {
+      inst = new Chat({
+        id: id || undefined,
+        transport,
+        onError: (error) => handleChatError(error, inst),
+      });
+      instancesRef.current.set(key, inst);
+    }
+    return inst;
+  }, [transport, handleChatError]);
+
+  const chat = useChat({ chat: getChatInstance(currentChatId) });
 
   // ── Load messages when chat changes ──────────────────────────────────────
 
-  // Identifies the (chat, retry-tick) we last tore down + loaded for. `accessToken`
-  // is a dependency of the load effect below (we need a token before fetching and
-  // must react when one first arrives), but it also changes on every mid-session
-  // token refresh — the 5s chat-list poll hitting a 401, a cross-tab broadcast, or
-  // the proactive pre-send refresh. Without this guard, such a refresh re-runs the
-  // effect and calls chat.stop() on an in-flight stream, aborting the client's view
-  // of it. The server keeps streaming via its response tee, so the turn still
-  // completes and persists, but the spinner vanishes and nothing renders until a
-  // manual page refresh. Keying off this ref means a token refresh (same chat, same
-  // tick) is a no-op and leaves any active stream untouched.
+  // Identifies the (chat, retry-tick) we last loaded for. `accessToken` is a
+  // dependency of the load effect below (we need a token before fetching and must
+  // react when one first arrives), but it also changes on every mid-session token
+  // refresh — the 5s chat-list poll hitting a 401, a cross-tab broadcast, or the
+  // proactive pre-send refresh. Without this guard, such a refresh re-runs the
+  // effect for the same chat and re-evaluates the load/reuse branch mid-stream.
+  // Keying off this ref makes a token refresh (same chat, same tick) a no-op and
+  // leaves the active instance untouched.
   const loadedKeyRef = useRef(null);
 
   useEffect(() => {
@@ -209,29 +235,34 @@ export function AiChatProvider({ children }) {
     // transitions from null to a value, at which point we proceed.
     if (!accessToken) return;
 
-    // Only tear down + reload when the chat actually changed (or an explicit
-    // retry bumped the tick). A re-run caused solely by a token refresh keeps
-    // the same key and must leave any in-flight stream untouched.
+    // Only (re)load when the chat actually changed (or an explicit retry bumped
+    // the tick). A re-run caused solely by a token refresh keeps the same key
+    // and must leave any in-flight stream untouched.
     const key = `${currentChatId}:${loadMessagesTick}`;
     if (key === loadedKeyRef.current) return;
     loadedKeyRef.current = key;
 
-    // Disconnect any active stream from the previous chat so its tokens
-    // don't spill into the new chat's view. The server-side tee ensures
-    // the response is still saved even after the client disconnects.
-    chat.stop();
+    // The chat's instance persists across switches. If it already holds messages
+    // or is mid-stream, it kept that state (and kept streaming) while we were
+    // away — re-attach as-is instead of refetching and clobbering a live stream.
+    // Only a fresh instance (first visit this session, or after a page refresh)
+    // loads from the DB.
+    if (chat.messages.length > 0 || chat.status === 'streaming' || chat.status === 'submitted') {
+      setMessagesLoading(false);
+      setMessagesError(null);
+      return;
+    }
 
     let cancelled = false;
     setMessagesLoading(true);
     setMessagesError(null);
-    chat.setMessages([]);
     fetchChatMessages(currentChatId).then((msgs) => {
       if (cancelled) return;
       chat.setMessages(msgs);
-      // If the last message is from the user, the server may still be
-      // streaming a response. resumeStream() calls GET /api/chat/:id/stream —
-      // returns 204 (no-op) if no active stream, or reconnects live if still
-      // generating.
+      // If the last message is from the user, the server may still be streaming
+      // a response started before a refresh or in another tab. resumeStream()
+      // calls GET /api/chat/:id/stream — 204 (no-op) if nothing is live, or
+      // reconnects to the live buffer.
       if (msgs[msgs.length - 1]?.role === 'user') {
         chat.resumeStream();
       }
@@ -290,12 +321,14 @@ export function AiChatProvider({ children }) {
     return null;
   }, [api, refreshChatList]);
 
-  // Reset UI to a blank chat (no server call — persisted on first message)
+  // Reset UI to a blank chat (no server call — persisted on first message).
+  // Clears the draft instance only; the outgoing chat's instance is preserved
+  // (and keeps streaming) so switching back to it still shows its messages.
   const createChat = useCallback(async () => {
-    chat.setMessages([]);
+    getChatInstance(null).setMessages([]);
     setCurrentChatId(null);
     return null;
-  }, [chat.setMessages]);
+  }, [getChatInstance, setCurrentChatId]);
 
   const selectChat = useCallback((id) => {
     setCurrentChatId(id);
@@ -304,6 +337,9 @@ export function AiChatProvider({ children }) {
   const deleteChat = useCallback(async (id) => {
     try {
       await api.delete(`/api/chat/chats/${id}`);
+      // Drop the cached instance (and stop any stream) for the deleted chat.
+      const inst = instancesRef.current.get(id);
+      if (inst) { inst.stop?.(); instancesRef.current.delete(id); }
       const newList = await refreshChatList();
       // If we deleted the active chat, switch to the most recent or clear
       if (id === currentChatId) {
@@ -331,16 +367,17 @@ export function AiChatProvider({ children }) {
   // Auto-creates a chat if none is selected
   const sendMessage = useCallback(
     async (text, files) => {
+      authRetryRef.current = false;
+      lastSentTextRef.current = text;
+      lastSentFilesRef.current = files || null;
+      const payload = { text: text || ' ', files: files?.length ? files : undefined };
+
+      // Resolve the target chat id, creating a server row for a brand-new chat.
       let chatId = currentChatId;
       const isNewChat = !chatId;
       if (isNewChat) {
         chatId = await createChatOnServer();
         if (!chatId) return;
-        chatIdRef.current = chatId;
-        // Flag so the load-messages useEffect skips its stop/clear cycle
-        // when currentChatId changes — the stream is about to start.
-        creatingChatRef.current = true;
-        setCurrentChatId(chatId);
       }
 
       // Auto-title the chat on the first message
@@ -352,15 +389,25 @@ export function AiChatProvider({ children }) {
       // Proactively refresh the token if it's expired or expiring soon so the
       // streaming transport sends a valid Authorization header on the first try.
       if (isTokenExpiringSoon(tokenRef.current)) {
-        try { await refreshAccessToken(); } catch { /* onError will auto-retry on 401 */ }
+        try { await refreshRef.current(); } catch { /* onError will auto-retry on 401 */ }
       }
 
-      authRetryRef.current = false;
-      lastSentTextRef.current = text;
-      lastSentFilesRef.current = files || null;
-      chat.sendMessage({ text: text || ' ', files: files?.length ? files : undefined });
+      if (isNewChat) {
+        // Send on the new chat's own (cached) instance, then switch the view to
+        // it. Because instances are cached by id, the instance we send on is the
+        // exact one useChat renders after the switch — the stream shows up in the
+        // new chat with no deferral needed.
+        chatIdRef.current = chatId;        // transport targets the new id immediately
+        creatingChatRef.current = true;    // load-messages effect skips its fetch for the new chat
+        const inst = getChatInstance(chatId);
+        inst.sendMessage(payload);
+        setCurrentChatId(chatId);
+        return;
+      }
+
+      chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, refreshAccessToken],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance],
   );
 
   // Retry the last failed message (for the error-banner retry button)

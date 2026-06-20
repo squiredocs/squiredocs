@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useContext, createContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext, useMemo, createContext } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
@@ -794,6 +794,61 @@ function AssistantBubble({ groups, isLoading, citations }) {
   );
 }
 
+/**
+ * A single chat message (assistant bubble or user bubble), memoized so that a
+ * streaming token — which replaces only the last message's object — re-renders
+ * just that message instead of re-parsing every message's markdown. The AI SDK
+ * preserves the object identity of completed messages across streaming updates,
+ * so `React.memo` skips them. `isLoading` is `false` for every message except
+ * the actively streaming one, keeping completed messages stable as status flips.
+ */
+const MessageItem = React.memo(function MessageItem({ message, isLoading }) {
+  const isAssistant = message.role === 'assistant';
+  // Keyed on parts: a stable reference (completed message) returns the cached
+  // result; only the streaming message's parts change, so only it recomputes.
+  const groups = useMemo(
+    () => (isAssistant ? groupParts(message.parts || []) : null),
+    [isAssistant, message.parts],
+  );
+  const citations = useMemo(
+    () => (isAssistant ? extractCitations(message.parts || []) : null),
+    [isAssistant, message.parts],
+  );
+
+  if (isAssistant) {
+    if (groups.length === 0 && !isLoading) return null;
+    return <AssistantBubble groups={groups} isLoading={isLoading} citations={citations} />;
+  }
+
+  const text = message.parts?.find(p => p.type === 'text')?.text || message.content;
+  const fileParts = message.parts?.filter(p => p.type === 'file') || [];
+  return (
+    <div className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
+      <div className={`ai-chat-bubble ai-chat-bubble--${message.role}`}>
+        {fileParts.length > 0 && (
+          <div className="ai-chat-images">
+            {fileParts.map((fp, i) =>
+              isImageType(fp.mediaType) ? (
+                <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+              ) : (
+                <div key={i} className="ai-chat-file-badge">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <span>{fp.filename || 'Attachment'}</span>
+                </div>
+              )
+            )}
+          </div>
+        )}
+        {text}
+      </div>
+      {text && <CopyButton text={text} />}
+    </div>
+  );
+});
+
 function AiChatMessages({ messages, status, onDocLinkClick }) {
   const scrollRef = useRef(null);
   const isAtBottomRef = useRef(true);
@@ -817,54 +872,21 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
     }
   }, [messages, status]);
 
-  // Check if the last message is an assistant response with visible content
   const lastMsg = messages[messages.length - 1];
-  const lastGroups = lastMsg?.role === 'assistant' ? groupParts(lastMsg.parts || []) : [];
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
   // The most recent completed modify that changed a document — only this part
   // gets an undo/redo button (the agent's UndoManager is a single LIFO stack).
-  const lastModifyPart = findLastModifyPart(messages);
+  // Memoized so it isn't rescanned on renders unrelated to a message change.
+  const lastModifyPart = useMemo(() => findLastModifyPart(messages), [messages]);
 
   return (
     <DocLinkContext.Provider value={onDocLinkClick || null}>
     <LastModifyContext.Provider value={lastModifyPart}>
       <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
-        {messages.map((msg) => {
-          if (msg.role === 'assistant') {
-            const groups = msg === lastMsg ? lastGroups : groupParts(msg.parts || []);
-            const citations = extractCitations(msg.parts || []);
-            if (groups.length === 0 && !isLoading) return null;
-            return <AssistantBubble key={msg.id} groups={groups} isLoading={msg === lastMsg && isLoading} citations={citations} />;
-          }
-          const text = msg.parts?.find(p => p.type === 'text')?.text || msg.content;
-          const fileParts = msg.parts?.filter(p => p.type === 'file') || [];
-          return (
-            <div key={msg.id} className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
-              <div className={`ai-chat-bubble ai-chat-bubble--${msg.role}`}>
-                {fileParts.length > 0 && (
-                  <div className="ai-chat-images">
-                    {fileParts.map((fp, i) =>
-                      isImageType(fp.mediaType) ? (
-                        <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
-                      ) : (
-                        <div key={i} className="ai-chat-file-badge">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                            <polyline points="14 2 14 8 20 8" />
-                          </svg>
-                          <span>{fp.filename || 'Attachment'}</span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-                {text}
-              </div>
-              {text && <CopyButton text={text} />}
-            </div>
-          );
-        })}
+        {messages.map((msg) => (
+          <MessageItem key={msg.id} message={msg} isLoading={msg === lastMsg && isLoading} />
+        ))}
         {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
       </div>
     </LastModifyContext.Provider>

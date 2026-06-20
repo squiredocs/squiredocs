@@ -28,17 +28,35 @@ const resumeStreamSpy = vi.fn();
 const sendMessageSpy = vi.fn();
 let mockMessages = [];
 let mockStatus = 'ready';
+let capturedUseChatOptions = null;
 
-vi.mock('@ai-sdk/react', () => ({
-  useChat: () => ({
-    messages: mockMessages,
-    status: mockStatus,
-    stop: stopSpy,
-    setMessages: setMessagesSpy,
-    resumeStream: resumeStreamSpy,
-    sendMessage: sendMessageSpy,
-  }),
-}));
+vi.mock('@ai-sdk/react', () => {
+  // Cached Chat instances expose the same global spies, plus live id/messages/
+  // status getters so the provider's reuse check can read them.
+  class MockChat {
+    constructor({ id } = {}) { this.id = id; }
+    get messages() { return mockMessages; }
+    get status() { return mockStatus; }
+    stop = stopSpy;
+    setMessages = setMessagesSpy;
+    resumeStream = resumeStreamSpy;
+    sendMessage = sendMessageSpy;
+  }
+  return {
+    Chat: MockChat,
+    useChat: (opts) => {
+      capturedUseChatOptions = opts;
+      return {
+        messages: mockMessages,
+        status: mockStatus,
+        stop: stopSpy,
+        setMessages: setMessagesSpy,
+        resumeStream: resumeStreamSpy,
+        sendMessage: sendMessageSpy,
+      };
+    },
+  };
+});
 
 // Mock axios api instance — chat CRUD calls use api.get/post/patch/delete
 const mockApi = {
@@ -85,6 +103,7 @@ function mockNewChatFlow(chatId) {
 describe('AiChatContext', () => {
   beforeEach(() => {
     capturedTransportArgs = null;
+    capturedUseChatOptions = null;
     mockMessages = [];
     mockStatus = 'ready';
     mockAccessToken = 'test-token';
@@ -107,25 +126,54 @@ describe('AiChatContext', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls chat.stop() when switching chats', async () => {
+  it('gives each chat its own Chat instance so streams are isolated per chat', async () => {
     const { result } = renderAiChat();
-
-    // Wait for initial mount effects
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
-    stopSpy.mockClear();
 
-    // Switch to chat A
-    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } }); // fetchChatMessages
+    // No chat selected yet → the draft instance (undefined id).
+    expect(capturedUseChatOptions).toHaveProperty('chat');
+    const draftInstance = capturedUseChatOptions.chat;
+
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
+    act(() => { result.current.selectChat('chat-iso'); });
+
+    await waitFor(() => expect(capturedUseChatOptions.chat.id).toBe('chat-iso'));
+    // A different chat is a different instance — streams can't cross.
+    expect(capturedUseChatOptions.chat).not.toBe(draftInstance);
+  });
+
+  it('does NOT stop the outgoing stream when switching chats (keeps it alive to resume)', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
     act(() => { result.current.selectChat('chat-a'); });
-
-    await waitFor(() => expect(stopSpy).toHaveBeenCalled());
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
     stopSpy.mockClear();
 
-    // Switch to chat B — should stop again
-    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } }); // fetchChatMessages
+    // Switching to B must not abort A's instance — it keeps streaming in the
+    // background so switching back re-attaches to the live message.
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
     act(() => { result.current.selectChat('chat-b'); });
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
+    expect(stopSpy).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() => expect(stopSpy).toHaveBeenCalled());
+  it('reuses a cached instance that already has messages instead of refetching', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    // Simulate the chat's instance already holding messages (cached/streamed).
+    mockMessages = [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }];
+    setMessagesSpy.mockClear();
+    resumeStreamSpy.mockClear();
+
+    act(() => { result.current.selectChat('chat-cached'); });
+
+    // No reload — the live instance is re-attached as-is.
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(setMessagesSpy).not.toHaveBeenCalled();
+    expect(resumeStreamSpy).not.toHaveBeenCalled();
   });
 
   it('does NOT stop/reload an in-flight stream when the access token refreshes mid-chat', async () => {
@@ -135,7 +183,7 @@ describe('AiChatContext', () => {
     // Open a chat
     mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
     act(() => { result.current.selectChat('chat-stream'); });
-    await waitFor(() => expect(stopSpy).toHaveBeenCalled());
+    await waitFor(() => expect(setMessagesSpy).toHaveBeenCalled());
 
     // Simulate an active stream + a mid-session token refresh (e.g. the 5s
     // chat-list poll hit a 401 and the interceptor rotated the token).

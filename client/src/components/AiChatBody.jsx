@@ -17,7 +17,11 @@ function AiChatBody({
 
   return (
     <>
-      {messagesLoading ? (
+      {/* Only show the full-pane loading spinner on a cold load (no prior
+          messages). When switching between chats that already have content,
+          keep the previous list rendered until the new messages arrive so the
+          heavy message DOM isn't torn down and rebuilt mid-switch. */}
+      {messagesLoading && isEmpty ? (
         <div className="ai-chat-body-welcome">
           <div className="ai-typing-indicator">
             <span className="ai-typing-dot" />
