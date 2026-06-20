@@ -133,13 +133,9 @@ export function AiChatProvider({ children }) {
   // Guard: auto-retry on 401 at most once per send attempt
   const authRetryRef = useRef(false);
 
-  // Keep refreshAccessToken reachable from the per-instance onError closures
-  // (constructed once per chat) without rebuilding the instances when it changes.
-  const refreshRef = useRef(refreshAccessToken);
-  refreshRef.current = refreshAccessToken;
-
   // Shared error handler for every chat instance. Bound to the instance that
-  // erred so an auth-retry resends on the right chat.
+  // erred so an auth-retry resends on the right chat. (refreshAccessToken is a
+  // stable useCallback, so the per-instance onError closures never go stale.)
   const handleChatError = useCallback((error, instance) => {
     // DefaultChatTransport throws Error(responseBody) on non-200.
     const msg = (error?.message || '').toLowerCase();
@@ -148,7 +144,7 @@ export function AiChatProvider({ children }) {
     const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
     if (isAuth && !authRetryRef.current) {
       authRetryRef.current = true;
-      refreshRef.current()
+      refreshAccessToken()
         .then(() => {
           instance.sendMessage({
             text: lastSentTextRef.current || ' ',
@@ -171,7 +167,7 @@ export function AiChatProvider({ children }) {
     if (msg.includes('usage limit')) {
       setUsageLimitReached(true);
     }
-  }, []);
+  }, [refreshAccessToken]);
 
   // One persistent Chat instance per chat id, cached and reused across switches.
   // This is what isolates streams (a stream started in chat A writes only to A's
@@ -389,7 +385,7 @@ export function AiChatProvider({ children }) {
       // Proactively refresh the token if it's expired or expiring soon so the
       // streaming transport sends a valid Authorization header on the first try.
       if (isTokenExpiringSoon(tokenRef.current)) {
-        try { await refreshRef.current(); } catch { /* onError will auto-retry on 401 */ }
+        try { await refreshAccessToken(); } catch { /* onError will auto-retry on 401 */ }
       }
 
       if (isNewChat) {
@@ -407,7 +403,7 @@ export function AiChatProvider({ children }) {
 
       chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken],
   );
 
   // Retry the last failed message (for the error-banner retry button)
