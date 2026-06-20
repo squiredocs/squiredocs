@@ -4,13 +4,20 @@ import './UserProfileBadge.css';
 /**
  * User profile badge component with dropdown menu
  */
-export default function UserProfileBadge({ user, onLogout, onNavigateToSettings, onNavigateToAdmin }) {
+export default function UserProfileBadge({ user, onLogout, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin }) {
   const [showMenu, setShowMenu] = useState(false);
 
   const handleSettingsClick = () => {
     setShowMenu(false);
     if (onNavigateToSettings) {
       onNavigateToSettings();
+    }
+  };
+
+  const handleSupportClick = () => {
+    setShowMenu(false);
+    if (onNavigateToSupport) {
+      onNavigateToSupport();
     }
   };
 
@@ -59,6 +66,11 @@ export default function UserProfileBadge({ user, onLogout, onNavigateToSettings,
             {onNavigateToSettings && (
               <button className="user-menu-item" onClick={handleSettingsClick}>
                 ⚙️ Settings
+              </button>
+            )}
+            {onNavigateToSupport && (
+              <button className="user-menu-item" onClick={handleSupportClick}>
+                💬 Get Support
               </button>
             )}
             <button className="user-menu-item" onClick={onLogout}>

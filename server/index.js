@@ -35,6 +35,7 @@ const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
 const googleDocsRoutes = require('./google-docs/routes');
 const connectedServices = require('./api/connected-services');
+const support = require('./api/support');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 setupProcessHandlers();
 
@@ -280,6 +281,9 @@ byokSettings.init(persistenceProvider.getPool());
 // Initialize admin module with shared database pool
 admin.init(persistenceProvider.getPool());
 
+// Initialize support module with shared database pool
+support.init(persistenceProvider.getPool());
+
 // Initialize Google Docs sync and connected services
 googleDocsRoutes.init(persistenceProvider.getPool());
 connectedServices.init(persistenceProvider.getPool());
@@ -306,6 +310,7 @@ app.use('/api/settings/connected-services', express.json(), connectedServices.ro
 app.use('/api/chat', express.json({ limit: '150mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin/users', requireAdmin, admin.router);
+app.use('/api/support', express.json(), support.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities

@@ -37,14 +37,16 @@ const escapeHtml = (s) => String(s)
 /**
  * Send an email via SES SMTP. Never throws.
  */
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, replyTo }) {
   if (!FROM_EMAIL) {
     console.warn('SES_FROM_EMAIL not set — skipping email:', subject);
     return;
   }
 
   try {
-    await getTransporter().sendMail({ from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html });
+    const message = { from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html };
+    if (replyTo) message.replyTo = sanitizeHeader(replyTo);
+    await getTransporter().sendMail(message);
   } catch (err) {
     console.error('Failed to send email:', subject, err.message);
   }
@@ -118,4 +120,27 @@ function notifyCreditLimitReached({ email, name, creditCents, usedCents }) {
   });
 }
 
-module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached };
+/**
+ * Notify admin of a new support request submitted from the Settings page.
+ */
+function notifySupportRequest({ email, name, message }) {
+  if (!ADMIN_EMAIL) return;
+  const safeEmail = escapeHtml(email);
+  const safeName = escapeHtml(name || '(not provided)');
+  const safeMessage = escapeHtml(message).replace(/\n/g, '<br>');
+  sendEmail({
+    to: ADMIN_EMAIL,
+    replyTo: email,
+    subject: `Support request from ${sanitizeHeader(email)}`,
+    html: `
+      <h3>New support request</h3>
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      <p><strong>Name:</strong> ${safeName}</p>
+      <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+      <hr>
+      <p>${safeMessage}</p>
+    `,
+  });
+}
+
+module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest };

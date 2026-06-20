@@ -65,7 +65,7 @@ function ByokKeyField({ label, provider, mask, placeholder, byok, onError }) {
   );
 }
 
-export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, onNavigateToChat, user }) {
+export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, user }) {
   const { updateUser, api, logout } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(user?.name || '');
@@ -120,7 +120,7 @@ export default function SettingsPage({ onNavigateHome, onNavigateToAdmin, onNavi
           </div>
           <div className="app-header-right">
             <ViewToggleButton onClick={onNavigateToChat} />
-            <UserProfileBadge user={user} onLogout={logout} onNavigateToAdmin={onNavigateToAdmin} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToSupport={onNavigateToSupport} onNavigateToAdmin={onNavigateToAdmin} />
           </div>
         </div>
       </header>

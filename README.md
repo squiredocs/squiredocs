@@ -18,13 +18,14 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
 - **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, or OpenAI API keys from the Settings page to use premium models without consuming shared credits
 - **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
+- **Get Support**: A "Get Support" item in the user menu opens a dedicated page (`/support`) where users describe an issue and review their previous requests; submissions are saved to the `support_requests` table and emailed to the admin (reply-to set to the user)
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
 - **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
-- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, and email notifications (sign-up, login, credit-limit, exceptions)
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
 
 ## Technology Stack
 
@@ -228,7 +229,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-sonnet`). Supported values: `claude-haiku`, `claude-sonnet`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The BYOK-only model `claude-opus` requires a user-supplied key and is not valid as a shared server default.)
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-sonnet` or `claude-haiku` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
-- `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, and unhandled exception alerts (optional; all notifications skipped if unset)
+- `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
 - `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
@@ -829,7 +830,7 @@ paragraphs.forEach((node, index) => {
 │   │   ├── web-fetch.js      # Web fetch tool used by the AI assistant
 │   │   └── admin.js          # Admin dashboard endpoints
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
-│   ├── email.js             # Admin email notifications (signup, login, credit limit)
+│   ├── email.js             # Admin email notifications (signup, login, credit limit, support)
 │   ├── exception-notifier.js # Rate-limited exception email alerts
 │   ├── chat-store.js        # Chat persistence (CRUD with ownership checks)
 │   ├── google-docs/          # Google Docs/Drive sync (OAuth, import/export)

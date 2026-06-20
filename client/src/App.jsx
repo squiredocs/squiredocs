@@ -10,6 +10,7 @@ import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
 import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
+import SupportPage from './pages/SupportPage';
 import AdminPage from './pages/AdminPage';
 import ChatPage from './pages/ChatPage';
 import './App.css';
@@ -40,6 +41,11 @@ function parseRoute() {
   // Check for /settings path
   if (path === '/settings') {
     return { view: 'settings', docGuid: null };
+  }
+
+  // Check for /support path
+  if (path === '/support') {
+    return { view: 'support', docGuid: null };
   }
 
   // /admin path — parsed here but gated on isAdmin in AppContent
@@ -166,6 +172,12 @@ function AppContent() {
     setRoute({ view: 'settings', docGuid: null });
   };
 
+  // Navigate to support page
+  const navigateToSupport = () => {
+    window.history.pushState({}, '', '/support');
+    setRoute({ view: 'support', docGuid: null });
+  };
+
   // Navigate to admin page
   const navigateToAdmin = () => {
     window.history.pushState({}, '', '/admin');
@@ -245,6 +257,7 @@ function AppContent() {
       <AuthenticatedApp route={route} listKey={listKey} user={user}
         navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
         navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings}
+        navigateToSupport={navigateToSupport}
         navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat} />
     </ByokProvider>
   );
@@ -254,7 +267,7 @@ function AppContent() {
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToAdmin, navigateToChat }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
@@ -286,6 +299,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
+        onNavigateToSupport={navigateToSupport}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
         showVersionHistory={false}
@@ -301,6 +315,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateHome={navigateToDocs}
         onNavigateToVersions={navigateToVersions}
         onNavigateToSettings={navigateToSettings}
+        onNavigateToSupport={navigateToSupport}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
         showVersionHistory={true}
@@ -309,13 +324,15 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
       />
     );
   } else if (route.view === 'settings') {
-    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
+    page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
+  } else if (route.view === 'support') {
+    page = <SupportPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'admin') {
-    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToChat={navigateToChat} user={user} />;
+    page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'chat') {
-    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToDoc={navigateToDoc} onNavigateBack={(docGuid) => { docGuid ? navigateToDoc(docGuid) : navigateToDocs(); }} initialDocGuid={prevViewRef.current === 'editor' ? lastDocGuidRef.current : null} />;
+    page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToDoc={navigateToDoc} onNavigateBack={(docGuid) => { docGuid ? navigateToDoc(docGuid) : navigateToDocs(); }} initialDocGuid={prevViewRef.current === 'editor' ? lastDocGuidRef.current : null} />;
   } else {
-    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   }
 
   const isChatPage = route.view === 'chat';

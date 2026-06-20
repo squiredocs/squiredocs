@@ -8,6 +8,12 @@ import Logo from './Logo';
 import './DocList.css';
 import './MenuCommon.css';
 
+// Cached Intl formatters — constructing a formatter is the expensive part, so
+// reuse one instance instead of calling toLocale*String (which builds a fresh
+// formatter per call) on every render of every list row.
+const DOC_DATE_FMT = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const DOC_TIME_FMT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+
 /**
  * Generate UUID v4
  * Fallback for environments where crypto.randomUUID() is not available
@@ -27,7 +33,7 @@ export function generateUUID() {
   });
 }
 
-function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNavigateToChat, user }) {
+function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -206,16 +212,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
 
   const formatDateTime = (dateString) => {
     const date = new Date(dateString);
-    const dateStr = date.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-    const timeStr = date.toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-    return `${dateStr} at ${timeStr}`;
+    return `${DOC_DATE_FMT.format(date)} at ${DOC_TIME_FMT.format(date)}`;
   };
 
   const DocIcon = ({ isSharedWithMe, isSharedByMe }) => {
@@ -266,7 +263,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToAdmin, onNaviga
   const headerRight = (
     <div className="app-header-right">
       <ViewToggleButton onClick={onNavigateToChat} />
-      <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />
+      <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToSupport={onNavigateToSupport} onNavigateToAdmin={onNavigateToAdmin} />
     </div>
   );
 

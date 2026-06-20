@@ -20,22 +20,24 @@ import ViewToggleButton from './ViewToggleButton';
 import './EditorView.css';
 import './MenuCommon.css';
 
+// Cached Intl formatter — reuse one instance rather than building a fresh
+// formatter (the expensive part) on every call to toLocaleString.
+const VERSION_TS_FMT = new Intl.DateTimeFormat(undefined, {
+  month: 'long',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
 /**
  * Format timestamp for version history header
  */
 function formatVersionTimestamp(timestamp) {
-  const date = new Date(timestamp);
-  const options = {
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  };
-  return date.toLocaleString(undefined, options);
+  return VERSION_TS_FMT.format(new Date(timestamp));
 }
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -757,7 +759,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               </div>
             )}
             <ViewToggleButton onClick={onNavigateToChat} />
-            {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />}
+            {!isMobile && <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToSupport={onNavigateToSupport} onNavigateToAdmin={onNavigateToAdmin} />}
           </div>
         </div>
       </header>

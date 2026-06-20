@@ -14,7 +14,7 @@ import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { getGreeting } from '../utils/greeting';
 import './ChatPage.css';
 
-function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc, onNavigateBack, initialDocGuid }) {
+function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToDoc, onNavigateBack, initialDocGuid }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
   const { accentColor } = useByok();
@@ -106,7 +106,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToDoc,
           </div>
           <div className="app-header-right">
             <ViewToggleButton onClick={() => onNavigateBack(sidePaneDocGuid)} />
-            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} />
+            <UserProfileBadge user={user} onLogout={logout} onNavigateToSettings={onNavigateToSettings} onNavigateToSupport={onNavigateToSupport} />
           </div>
         </div>
       </header>

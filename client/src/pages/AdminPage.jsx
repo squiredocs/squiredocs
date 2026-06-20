@@ -5,7 +5,7 @@ import Logo from '../components/Logo';
 import ViewToggleButton from '../components/ViewToggleButton';
 import './AdminPage.css';
 
-export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavigateToChat, user }) {
+export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToChat, user }) {
   const { api, logout } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -176,6 +176,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
               user={user}
               onLogout={logout}
               onNavigateToSettings={onNavigateToSettings}
+              onNavigateToSupport={onNavigateToSupport}
             />
           </div>
         </div>
