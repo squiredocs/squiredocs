@@ -16,6 +16,7 @@ const {
 const { findOrCreateUser, findById, incrementTokenVersion, updateName, updateLastLogin } = require('./users');
 const { requireAuth } = require('./middleware');
 const { notifyNewUser, notifyLogin } = require('../email');
+const onboarding = require('../onboarding');
 
 const router = express.Router();
 
@@ -158,8 +159,20 @@ router.get('/google/callback', async (req, res) => {
     res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
     res.cookie('refreshToken', refreshToken, getCookieOptions());
 
+    // Onboarding: not-yet-engaged users land on their seeded welcome doc with
+    // the assistant primed to greet them; everyone else goes to their doc list.
+    let redirectPath = '/docs?signup=1';
+    try {
+      const { welcomeDocId, onboarded } = await onboarding.resolveOnboarding(user, { seed: true });
+      if (!onboarded && welcomeDocId) {
+        redirectPath = `/d/${welcomeDocId}?welcome=1`;
+      }
+    } catch (e) {
+      console.error('Onboarding resolve failed:', e);
+    }
+
     // Redirect to client (token is in cookie, not URL)
-    res.redirect(`${clientUrl}/docs?signup=1`);
+    res.redirect(`${clientUrl}${redirectPath}`);
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.redirect(`${clientUrl}/login?error=auth_failed`);
@@ -234,7 +247,17 @@ router.get('/me', requireAuth, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
+    // Onboarding state (read-only probe — recomputes engagement so a refresh
+    // stops redirecting once the user has created a real doc; never seeds here).
+    let welcomeDocId = user.welcome_doc_id || null;
+    let onboarded = !!user.onboarded_at;
+    try {
+      ({ welcomeDocId, onboarded } = await onboarding.resolveOnboarding(user, { seed: false }));
+    } catch (e) {
+      console.error('Onboarding probe failed:', e);
+    }
+
     // Return user profile (exclude sensitive fields)
     res.json({
       id: user.id,
@@ -242,6 +265,8 @@ router.get('/me', requireAuth, async (req, res) => {
       name: user.name,
       picture: user.picture,
       isAdmin: !!user.is_admin,
+      welcomeDocId,
+      onboarded,
     });
   } catch (error) {
     console.error('Get user error:', error);
@@ -332,6 +357,15 @@ if (process.env.NODE_ENV !== 'production') {
       res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
       res.cookie('refreshToken', refreshToken, getCookieOptions());
 
+      // Mirror the OAuth onboarding resolution so dev-bypass exercises the flow.
+      let welcomeDocId = null;
+      let onboarded = true;
+      try {
+        ({ welcomeDocId, onboarded } = await onboarding.resolveOnboarding(user, { seed: true }));
+      } catch (e) {
+        console.error('Onboarding resolve failed (dev-login):', e);
+      }
+
       res.json({
         accessToken,
         user: {
@@ -339,11 +373,29 @@ if (process.env.NODE_ENV !== 'production') {
           email: user.email,
           name: user.name,
           picture: user.picture,
+          welcomeDocId,
+          onboarded,
         }
       });
     } catch (error) {
       console.error('Dev login error:', error);
       res.status(500).json({ error: 'Dev login failed' });
+    }
+  });
+
+  /**
+   * POST /auth/dev-onboarding-reset
+   * Development-only: reset the current user's onboarding state and reseed a
+   * fresh welcome doc, so the welcome flow can be re-triggered on demand (even
+   * for an already-engaged user). Returns the welcome doc URL to open.
+   */
+  router.post('/dev-onboarding-reset', requireAuth, async (req, res) => {
+    try {
+      const welcomeDocId = await onboarding.resetForDev(req.user.userId);
+      res.json({ welcomeDocId, url: `/d/${welcomeDocId}?welcome=1` });
+    } catch (error) {
+      console.error('Dev onboarding reset error:', error);
+      res.status(500).json({ error: 'Dev onboarding reset failed' });
     }
   });
 }

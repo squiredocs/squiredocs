@@ -19,6 +19,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, or OpenAI API keys from the Settings page to use premium models without consuming shared credits
 - **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
 - **Get Support**: A "Get Support" item in the user menu opens a dedicated page (`/support`) where users describe an issue and review their previous requests; submissions are saved to the `support_requests` table and emailed to the admin (reply-to set to the user)
+- **Onboarding / Welcome Flow**: On login, a not-yet-"engaged" user lands on their own seeded "Welcome to Squire Docs" document with the AI assistant panel open and the assistant proactively greeting them and offering to research a topic. See [Onboarding / Welcome Flow](#onboarding--welcome-flow).
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
 - **User Presence**: See who's online and their cursor positions
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
@@ -447,6 +448,23 @@ ChatPage.jsx ── AiChatHistory.jsx     (chat-centric)
 ```
 
 The chat endpoint builds a synthetic agent token from the user's session, so tool calls execute with the user's permissions and show up as agent activity in the editor (cursors, highlights).
+
+## Onboarding / Welcome Flow
+
+New users are dropped straight into a working, AI-assisted document instead of an empty document list, to avoid the "blank page" problem and reach value quickly.
+
+### Behavior
+
+- **Per-user welcome doc**: On a user's first login, a personal "Welcome to Squire Docs" document is seeded (owned by that user) from a content template. Each user gets their own editable copy — nothing is shared.
+- **Lands on the welcome doc until "engaged"**: On every login, a user who is not yet *engaged* is redirected to their welcome doc (`/d/<id>?welcome=1`) with the AI panel open. **Engaged** = the user owns a document *other than* their welcome doc that has content (≥1 persisted Yjs update). Once engaged, the user's `onboarded_at` is stamped and logins go to the normal document list (`/docs`).
+- **Assistant speaks first**: On the welcome doc, the assistant streams a live greeting (a real model call) introducing itself and asking what topic to research. This is triggered by a hidden "kickoff" user turn (tagged `metadata.kind: 'welcome-kickoff'`) that is sent through the normal `/api/chat` pipeline but filtered out of the transcript. The `?welcome=1` flag is stripped after firing so refreshes don't re-greet.
+
+### Implementation
+
+- **Schema** (`migrations/1783000000000_add-onboarding-to-users.js`): `users.welcome_doc_id` (FK → `documents`, `ON DELETE SET NULL`) and `users.onboarded_at` (timestamptz; NULL until engaged).
+- **Server** (`server/onboarding.js`): `seedWelcomeDoc()` (idempotent; uses `documents.createDocument` + `documentService.updateDocument` with `buildYjsNode` to write content server-side — no live websocket needed), `isEngaged()`, and `resolveOnboarding()`. The welcome content lives in `server/onboarding/welcome-template.js`.
+- **Login wiring** (`server/auth/routes.js`): the OAuth callback and dev-login resolve onboarding (`seed: true`) and choose the redirect; `GET /auth/me` resolves it read-only (`seed: false`) and returns `welcomeDocId` / `onboarded` so the client can route on refresh and dev-bypass.
+- **Client**: `App.jsx` reads `?welcome=1` (and the `/auth/me` fields on the landing route), opens the panel, and calls `aiChat.sendWelcomeMessage()` once. The kickoff/greeting lives in `client/src/contexts/AiChatContext.jsx`; the hidden message is filtered in `client/src/components/AiChatMessages.jsx`.
 
 ## AI Agent Integration (Model Context Protocol)
 

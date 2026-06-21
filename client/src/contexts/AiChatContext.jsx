@@ -14,6 +14,14 @@ function generateTitle(text) {
   return text.length > 50 ? text.slice(0, 50) + '...' : text;
 }
 
+// Onboarding "speak first" kickoff. Sent as a hidden user turn (tagged via
+// metadata so the renderer omits it) to prompt the assistant's live greeting.
+export const WELCOME_KICKOFF_KIND = 'welcome-kickoff';
+const WELCOME_KICKOFF_PROMPT =
+  "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant, "
+  + "introduce in one sentence what you can do (research, drafting, and refining documents), and ask if there's a "
+  + "topic they'd like you to research and draft into this document. Keep it to 2-3 short, friendly sentences.";
+
 export function AiChatProvider({ children }) {
   const { accessToken, refreshAccessToken, api } = useAuth();
   const tokenRef = useRef(accessToken);
@@ -390,6 +398,34 @@ export function AiChatProvider({ children }) {
     [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken],
   );
 
+  // Start the onboarding greeting: always opens a fresh chat scoped to the
+  // current (welcome) doc and sends a hidden kickoff so the assistant speaks
+  // first. Mirrors sendMessage's new-chat branch, but the kickoff is tagged
+  // (hidden in the UI) and the chat is titled "Welcome" instead of from the text.
+  const sendWelcomeMessage = useCallback(async () => {
+    const text = WELCOME_KICKOFF_PROMPT;
+    authRetryRef.current = false;
+    lastSentTextRef.current = text;
+    lastSentFilesRef.current = null;
+
+    const chatId = await createChatOnServer();
+    if (!chatId) return;
+
+    // Skip auto-titling from the hidden prompt; give it a stable title.
+    titleSetRef.current.add(chatId);
+    renameChat(chatId, 'Welcome');
+
+    if (isTokenExpiringSoon(tokenRef.current)) {
+      try { await refreshAccessToken(); } catch { /* onError will auto-retry on 401 */ }
+    }
+
+    chatIdRef.current = chatId;       // transport targets the new id immediately
+    creatingChatRef.current = true;   // load-messages effect skips its fetch for the new chat
+    const inst = getChatInstance(chatId);
+    inst.sendMessage({ text, metadata: { kind: WELCOME_KICKOFF_KIND } });
+    setCurrentChatId(chatId);
+  }, [createChatOnServer, renameChat, getChatInstance, refreshAccessToken, setCurrentChatId]);
+
   // Retry the last failed message (for the error-banner retry button)
   const retryLastMessage = useCallback(() => {
     if (!lastSentTextRef.current && !lastSentFilesRef.current) return;
@@ -400,6 +436,7 @@ export function AiChatProvider({ children }) {
     () => ({
       ...chat,
       sendMessage,
+      sendWelcomeMessage,
       currentChatId,
       chatList,
       createChat,
@@ -420,7 +457,7 @@ export function AiChatProvider({ children }) {
       clearDraftFiles: () => setDraftFiles(null),
       setDocGuidOverride,
     }),
-    [chat, sendMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
   );
 
   return (

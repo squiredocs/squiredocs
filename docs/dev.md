@@ -710,6 +710,34 @@ This bypasses OAuth and automatically logs you in for testing.
 - HMR is disabled (doesn't work reliably through the k8s tunnel)
 - Manually refresh the page after making changes
 
+## Testing the Onboarding / Welcome Flow
+
+The welcome flow (see the README's "Onboarding / Welcome Flow" section) only fires
+for users who are *not yet engaged* (own no doc, other than their welcome doc,
+that has content). A dev account that has been used will already be "engaged," so
+logging in normally just lands on `/docs`. Two ways to re-trigger it on demand:
+
+**1. Client-only (greeting UX, zero setup):** append `?welcome=1` to any document
+URL, e.g. `/d/<any-doc-guid>?welcome=1`. This opens the AI panel and has the
+assistant greet you (scoped to that doc). It does *not* exercise seeding or the
+login redirect — it's the fastest way to iterate on the greeting itself.
+
+**2. Full flow (seed + redirect + greeting):** call the dev-only reset endpoint,
+which wipes your onboarding state, deletes the old welcome doc, reseeds a fresh
+one, and returns its URL. Then open that URL.
+
+```bash
+# Log in (dev bypass) to get a token, then reset onboarding and open the URL it returns.
+TOKEN=$(curl -s -X POST http://localhost:3001/auth/dev-login | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+curl -s -X POST http://localhost:3001/auth/dev-onboarding-reset \
+  -H "Authorization: Bearer $TOKEN"
+# → {"welcomeDocId":"<guid>","url":"/d/<guid>?welcome=1"}  — open that url in the app
+```
+
+Both the `?welcome=1` trigger and `POST /auth/dev-onboarding-reset` are gated to
+`NODE_ENV !== 'production'`. The reset endpoint acts on the authenticated user, so
+it works for both dev-bypass and real OAuth sessions in development.
+
 ## Vite Configuration for Port-Forward
 
 The `client/vite.config.js` is configured to work with kubectl port-forward:

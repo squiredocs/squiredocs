@@ -28,6 +28,7 @@ const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
+const onboarding = require('./onboarding');
 const search = require('./search');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
@@ -257,6 +258,9 @@ initUsers(persistenceProvider.getPool());
 
 // Initialize documents module with shared database pool
 documents.init(persistenceProvider.getPool());
+
+// Initialize onboarding/welcome flow with shared database pool
+onboarding.init(persistenceProvider.getPool());
 
 // Initialize chat store with shared database pool
 chatStore.init(persistenceProvider.getPool());

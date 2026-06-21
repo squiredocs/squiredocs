@@ -53,6 +53,30 @@ describe('AiChatMessages', () => {
     expect(bubble).toHaveTextContent('Bot reply');
   });
 
+  it('hides the onboarding welcome-kickoff message from the transcript', () => {
+    const messages = [
+      makeMsg({ id: 'k', role: 'user', metadata: { kind: 'welcome-kickoff' }, parts: [{ type: 'text', text: 'SECRET KICKOFF PROMPT' }] }),
+      makeMsg({ id: 'a', role: 'assistant', parts: [{ type: 'text', text: 'Hi there!' }] }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const bubbles = container.querySelectorAll('.ai-chat-bubble');
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0]).toHaveTextContent('Hi there!');
+    expect(container).not.toHaveTextContent('SECRET KICKOFF PROMPT');
+  });
+
+  it('shows a typing bubble while the kickoff is the only message and a reply is streaming', () => {
+    const messages = [
+      makeMsg({ id: 'k', role: 'user', metadata: { kind: 'welcome-kickoff' }, parts: [{ type: 'text', text: 'kickoff' }] }),
+    ];
+    const { container } = render(<AiChatMessages messages={messages} status="submitted" />);
+
+    // No user bubble (kickoff hidden), but the assistant typing indicator shows.
+    expect(container.querySelector('.ai-chat-bubble--user')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-typing-indicator')).toBeInTheDocument();
+  });
+
   it('renders multiple messages in order', () => {
     const messages = [
       makeMsg({ id: '1', role: 'user', parts: [{ type: 'text', text: 'First' }] }),

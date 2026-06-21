@@ -140,6 +140,13 @@ function AppContent() {
     setRoute({ view: 'editor', docGuid });
   };
 
+  // Navigate to the user's welcome doc and trigger the onboarding flow
+  // (?welcome=1 → AuthenticatedApp opens the panel + the assistant greets).
+  const navigateToWelcome = (docGuid) => {
+    window.history.pushState({}, '', `/d/${docGuid}?welcome=1`);
+    setRoute({ view: 'editor', docGuid });
+  };
+
   // Navigate to version history
   const navigateToVersions = (docGuid) => {
     const newPath = `/d/${docGuid}/versions`;
@@ -199,10 +206,14 @@ function AppContent() {
     );
   }
 
-  // Landing page - redirect to docs or signup
+  // Landing page - redirect to welcome doc (not-yet-onboarded), docs, or signup
   if (route.view === 'landing') {
     if (isAuthenticated) {
-      navigateToDocs();
+      if (user && user.onboarded === false && user.welcomeDocId) {
+        navigateToWelcome(user.welcomeDocId);
+      } else {
+        navigateToDocs();
+      }
     } else {
       navigateToSignup();
     }
@@ -273,6 +284,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const isMobile = useMobile();
   const lastDocGuidRef = useRef(null);
   const prevViewRef = useRef(route.view);
+  const welcomeStartedRef = useRef(false);
 
   // Track most recently viewed document for chat↔editor toggle
   if (route.view === 'editor' && route.docGuid) {
@@ -286,6 +298,24 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
     }
     prevViewRef.current = route.view;
   }, [route.view, aiPanel.open]);
+
+  // Onboarding: landing on the welcome doc (?welcome=1) opens the AI panel and
+  // has the assistant greet the user. Fires exactly once, then strips the flag
+  // so a refresh or back-nav doesn't re-trigger the greeting.
+  useEffect(() => {
+    if (welcomeStartedRef.current) return;
+    if (route.view !== 'editor' || !route.docGuid) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('welcome') !== '1') return;
+
+    welcomeStartedRef.current = true;
+    aiPanel.open();
+    aiChat.sendWelcomeMessage();
+
+    params.delete('welcome');
+    const qs = params.toString();
+    window.history.replaceState({}, '', `/d/${route.docGuid}${qs ? `?${qs}` : ''}`);
+  }, [route.view, route.docGuid, aiPanel.open, aiChat.sendWelcomeMessage]);
 
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';

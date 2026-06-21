@@ -126,6 +126,38 @@ async function updateLastLogin(userId) {
   await ensurePool().query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
 }
 
+/**
+ * Set a user's welcome document id, but only if one isn't already set.
+ * The conditional WHERE makes this safe against concurrent logins (two tabs
+ * racing to seed) — only the first writer wins, the rest become no-ops.
+ * @param {string} userId - User's UUID
+ * @param {string} docId - Welcome document UUID
+ * @returns {Promise<string|null>} The winning welcome_doc_id (this call's or the existing one)
+ */
+async function setWelcomeDocId(userId, docId) {
+  const result = await ensurePool().query(
+    `UPDATE users SET welcome_doc_id = $2
+     WHERE id = $1 AND welcome_doc_id IS NULL
+     RETURNING welcome_doc_id`,
+    [userId, docId]
+  );
+  if (result.rows.length > 0) return result.rows[0].welcome_doc_id;
+  // Someone else won the race (or it was already set) — return the existing value.
+  const existing = await ensurePool().query('SELECT welcome_doc_id FROM users WHERE id = $1', [userId]);
+  return existing.rows[0]?.welcome_doc_id || null;
+}
+
+/**
+ * Mark a user as onboarded (engaged). Idempotent — only sets the timestamp once.
+ * @param {string} userId - User's UUID
+ */
+async function markOnboarded(userId) {
+  await ensurePool().query(
+    'UPDATE users SET onboarded_at = now() WHERE id = $1 AND onboarded_at IS NULL',
+    [userId]
+  );
+}
+
 module.exports = {
   init,
   findOrCreateUser,
@@ -134,4 +166,6 @@ module.exports = {
   getTokenVersion,
   updateName,
   updateLastLogin,
+  setWelcomeDocId,
+  markOnboarded,
 };

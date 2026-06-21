@@ -843,6 +843,13 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
   const isAtBottomRef = useRef(true);
   const isLoading = status === 'submitted' || status === 'streaming';
 
+  // Hide the onboarding kickoff (a tagged user turn used only to prompt the
+  // assistant's greeting) — it should never appear in the transcript.
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => m.metadata?.kind !== 'welcome-kickoff'),
+    [messages],
+  );
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -852,28 +859,28 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const lastMsg = messages[messages.length - 1];
+    const lastMsg = visibleMessages[visibleMessages.length - 1];
     // Always scroll when the human sends a message; otherwise only scroll if
     // the user hasn't manually scrolled up.
     if (lastMsg?.role === 'user' || isAtBottomRef.current) {
       el.scrollTop = el.scrollHeight;
       isAtBottomRef.current = true;
     }
-  }, [messages, status]);
+  }, [visibleMessages, status]);
 
-  const lastMsg = messages[messages.length - 1];
+  const lastMsg = visibleMessages[visibleMessages.length - 1];
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
   // The most recent completed modify that changed a document — only this part
   // gets an undo/redo button (the agent's UndoManager is a single LIFO stack).
   // Memoized so it isn't rescanned on renders unrelated to a message change.
-  const lastModifyPart = useMemo(() => findLastModifyPart(messages), [messages]);
+  const lastModifyPart = useMemo(() => findLastModifyPart(visibleMessages), [visibleMessages]);
 
   return (
     <DocLinkContext.Provider value={onDocLinkClick || null}>
     <LastModifyContext.Provider value={lastModifyPart}>
       <div className="ai-chat-messages" ref={scrollRef} onScroll={handleScroll}>
-        {messages.map((msg) => (
+        {visibleMessages.map((msg) => (
           <MessageItem key={msg.id} message={msg} isLoading={msg === lastMsg && isLoading} />
         ))}
         {needsTypingBubble && <AssistantBubble groups={[]} isLoading />}
