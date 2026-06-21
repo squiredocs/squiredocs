@@ -132,6 +132,13 @@ describe('list_document_versions tool', () => {
         agentToken
       );
       testDocGuid = result.docGuid;
+
+      // create_document's initial update is persisted asynchronously by the test
+      // bindState harness (the storeUpdate promise is pushed to pendingOperations,
+      // not awaited by the tool). Drain it here so version reads in the test body
+      // see a fully-persisted timeline instead of racing the in-flight write —
+      // otherwise two back-to-back reads can observe different version counts.
+      await Promise.all(pendingOperations);
     });
 
     afterEach(async () => {

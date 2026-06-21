@@ -206,6 +206,11 @@ describe('onboarding / welcome flow', () => {
       await freshUser();
       const first = await onboarding.seedWelcomeDoc(testUserId);
       createdDocIds.push(first);
+      // The welcome doc's content is persisted asynchronously by the bindState
+      // harness. Drain it before resetForDev deletes first's updates, otherwise
+      // the in-flight storeUpdate can land after the DELETE and leave a stray
+      // row (the source of this test's intermittent failures).
+      await Promise.all(pendingOperations);
       await users.markOnboarded(testUserId);
 
       const second = await onboarding.resetForDev(testUserId);

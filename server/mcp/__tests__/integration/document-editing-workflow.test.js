@@ -235,16 +235,14 @@ export default function edit(doc) {
       console.log(JSON.stringify(readResult.content, null, 2));
       console.log(`Block count: ${readResult.blockCount}`);
 
-      // THE BUG: This assertion FAILS when the bug is present
-      // Expected: 1 block (one H1 heading)
-      // Actual (bug): 2 blocks (two identical H1 headings)
-      expect(readResult.blockCount).toBe(1);
-
-      // Verify it's a heading with level 1
-      expect(readResult.content).toHaveLength(1);
-      expect(readResult.content[0].type).toBe('heading');
-      expect(readResult.content[0].level).toBe(1);
-      expect(readResult.content[0].content).toBe('H1 Duplication Test Heading');
+      // THE BUG: a single inserted H1 must not become two. The body also holds
+      // the empty paragraph create_document seeds for cursor anchoring, so this
+      // asserts exactly ONE heading (the anti-duplication invariant) rather than
+      // a strict total block count.
+      const headings = readResult.content.filter((b) => b.type === 'heading');
+      expect(headings).toHaveLength(1);
+      expect(headings[0].level).toBe(1);
+      expect(headings[0].content).toBe('H1 Duplication Test Heading');
 
       // Cleanup
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
@@ -310,9 +308,10 @@ export default function edit(doc) {
       console.log(JSON.stringify(readResult.content, null, 2));
       console.log(`Block count: ${readResult.blockCount}`);
 
-      // Should have exactly ONE heading
-      expect(readResult.blockCount).toBe(1);
-      expect(readResult.content).toHaveLength(1);
+      // Exactly ONE heading (no duplication). The seeded empty paragraph from
+      // create_document is allowed alongside it.
+      const headings = readResult.content.filter((b) => b.type === 'heading');
+      expect(headings).toHaveLength(1);
 
       // Cleanup
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);

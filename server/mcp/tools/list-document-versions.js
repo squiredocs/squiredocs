@@ -218,8 +218,10 @@ async function handler(args, agentToken) {
 
     filteredVersions = timeline.versions.filter(v => {
       const versionTime = new Date(v.timestamp).getTime();
-      if (sinceTime && versionTime < sinceTime) return false;
-      if (untilTime && versionTime > untilTime) return false;
+      // Compare against null, not truthiness: an epoch bound (getTime() === 0)
+      // is falsy but a real filter, so `if (untilTime && …)` would skip it.
+      if (sinceTime !== null && versionTime < sinceTime) return false;
+      if (untilTime !== null && versionTime > untilTime) return false;
       return true;
     });
   }
