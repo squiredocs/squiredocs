@@ -16,15 +16,25 @@ function generateTitle(text) {
 
 // Onboarding "speak first" kickoff. Sent as a hidden user turn (tagged via
 // metadata so the renderer omits it) to prompt the assistant's live greeting.
+// The user's first name is woven in so the assistant can personalize the
+// welcome sentence it writes into the doc (the agent isn't told the name
+// otherwise).
 export const WELCOME_KICKOFF_KIND = 'welcome-kickoff';
-const WELCOME_KICKOFF_PROMPT =
-  "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant. "
-  + "Silently read this document for context first — do not mention or narrate that you're reading it. Then focus on "
-  + "the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
-  + "document with a learning brief to get them started. Keep it warm, brief, and concrete.";
+const buildWelcomeKickoffPrompt = (firstName) => {
+  const welcomeSentence = firstName
+    ? `Welcome ${firstName}! We're glad you're here. 😊`
+    : `Welcome! We're glad you're here. 😊`;
+  return (
+    "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant. "
+    + "Silently read this document for context first — do not mention or narrate that you're reading it. "
+    + `Then make exactly one edit to the document: insert "${welcomeSentence}" as the first sentence of the first body paragraph, before its existing text. `
+    + "Then focus on the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
+    + "document with a learning brief to get them started. Keep it warm, brief, and concrete."
+  );
+};
 
 export function AiChatProvider({ children }) {
-  const { accessToken, refreshAccessToken, api } = useAuth();
+  const { accessToken, refreshAccessToken, api, user } = useAuth();
   const tokenRef = useRef(accessToken);
   tokenRef.current = accessToken;
 
@@ -404,7 +414,8 @@ export function AiChatProvider({ children }) {
   // first. Mirrors sendMessage's new-chat branch, but the kickoff is tagged
   // (hidden in the UI) and the chat is titled "Welcome" instead of from the text.
   const sendWelcomeMessage = useCallback(async () => {
-    const text = WELCOME_KICKOFF_PROMPT;
+    const firstName = (user?.name || '').trim().split(/\s+/)[0] || '';
+    const text = buildWelcomeKickoffPrompt(firstName);
     authRetryRef.current = false;
     lastSentTextRef.current = text;
     lastSentFilesRef.current = null;
@@ -425,7 +436,7 @@ export function AiChatProvider({ children }) {
     const inst = getChatInstance(chatId);
     inst.sendMessage({ text, metadata: { kind: WELCOME_KICKOFF_KIND } });
     setCurrentChatId(chatId);
-  }, [createChatOnServer, renameChat, getChatInstance, refreshAccessToken, setCurrentChatId]);
+  }, [user, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, setCurrentChatId]);
 
   // Retry the last failed message (for the error-banner retry button)
   const retryLastMessage = useCallback(() => {
