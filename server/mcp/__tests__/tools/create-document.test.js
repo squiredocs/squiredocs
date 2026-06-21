@@ -349,6 +349,28 @@ describe('create_document tool', () => {
       expect(parseInt(updateResult.rows[0].count, 10)).toBeGreaterThan(0);
     });
 
+    test('establishes agent presence in the newly created document', async () => {
+      const agentPresence = require('../../agent-presence');
+      // Stub out the real WebSocket session so the test stays fast and offline;
+      // we only assert that presence is requested for the new doc.
+      const spy = jest.spyOn(agentPresence, 'getOrCreateSession').mockResolvedValue({});
+      try {
+        const agentToken = {
+          userId: testUserId,
+          delegationId: 'test-delegation-id',
+          agentId: 'claude-code:test',
+          scopes: ['documents:write'],
+        };
+
+        const result = await createDocument.handler({ title: 'Presence Doc' }, agentToken);
+        createdDocIds.push(result.docGuid);
+
+        expect(spy).toHaveBeenCalledWith(result.docGuid, agentToken, expect.any(Number));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     test('throws error when not initialized', async () => {
       // Create a new instance without initializing
       const uninitializedModule = { ...createDocument };

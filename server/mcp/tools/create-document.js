@@ -8,6 +8,7 @@
 const Y = require('yjs');
 const { randomUUID } = require('crypto');
 const documentService = require('../../document-service');
+const agentPresence = require('../agent-presence');
 
 // Persistence provider and documents module - set by init function
 let persistenceProvider = null;
@@ -109,6 +110,18 @@ async function handler(args, agentToken) {
 
   console.log(`[create_document:DIAGNOSTIC] docGuid=${docGuid}`);
   console.log(`[create_document:DIAGNOSTIC] blockCountAfterCreate=${blockCountAfterCreate}`);
+
+  // Give the agent live presence (avatar + cursor) in the doc it just created,
+  // the same WebSocket session modify/read_document use — so it shows up as
+  // present immediately, and a subsequent modify reuses this session (keyed by
+  // user+agent+doc). Best-effort and deliberately NOT awaited: presence is
+  // purely visual and must never fail or delay creation, and the first sync on
+  // a brand-new (content-empty) doc can take a few seconds to settle. The
+  // cursor stays null until there's text to anchor it to (set as the agent
+  // edits). Errors (e.g. no presence in a non-WS context) are swallowed.
+  agentPresence
+    .getOrCreateSession(docGuid, agentToken, 60)
+    .catch((err) => console.warn(`[create_document] presence setup failed for ${docGuid}: ${err.message}`));
 
   const baseUrl = agentToken.baseUrl || '';
   return {
