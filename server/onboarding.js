@@ -8,8 +8,6 @@
  *
  * See migration 1783000000000_add-onboarding-to-users.js for the schema.
  */
-const Y = require('yjs');
-const { randomUUID } = require('crypto');
 const documents = require('./documents');
 const documentService = require('./document-service');
 const users = require('./auth/users');
@@ -42,23 +40,16 @@ async function seedWelcomeDoc(userId) {
   const existing = await users.findById(userId);
   if (existing?.welcome_doc_id) return existing.welcome_doc_id;
 
-  const docGuid = randomUUID();
-
-  // Create the document record + owner share (same path as user/MCP creation).
-  await documents.createDocument(docGuid, userId);
-  await ensurePool().query('UPDATE documents SET title = $1 WHERE id = $2', [WELCOME_DOC_TITLE, docGuid]);
-
-  // Seed content through the normal Yjs update path so it persists and would
-  // broadcast to any connected client — no live websocket session required.
-  await documentService.updateDocument(
-    docGuid,
-    (ydoc) => {
-      ydoc.getMap('meta').set('title', WELCOME_DOC_TITLE);
-      const fragment = ydoc.get('default', Y.XmlFragment);
-      fragment.insert(0, WELCOME_DOC_NODES.map(buildYjsNode));
-    },
-    { userId, agentName: AGENT_NAME }
-  );
+  // Create the record + owner share and seed the welcome content in one step
+  // (shared with the create_document MCP tool). Content persists through the
+  // normal Yjs update path and would broadcast to any connected client — no
+  // live websocket session required.
+  const docGuid = await documentService.createSeededDocument({
+    userId,
+    title: WELCOME_DOC_TITLE,
+    nodes: WELCOME_DOC_NODES.map(buildYjsNode),
+    agentName: AGENT_NAME,
+  });
 
   // Claim the welcome_doc_id; if another concurrent login already claimed one,
   // drop our orphan and use theirs.

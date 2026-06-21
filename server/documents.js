@@ -124,9 +124,10 @@ async function ensureDocument(docId, creatorId = null) {
  * Create a new document with an owner
  * @param {string} docId - Document UUID
  * @param {string} ownerId - Owner's user UUID (also becomes creator)
+ * @param {string|null} [title] - Optional title to set on the document row
  * @returns {Promise<object>} Document record
  */
-async function createDocument(docId, ownerId) {
+async function createDocument(docId, ownerId, title = null) {
   if (!pool) throw new Error('Documents module not initialized');
 
   // Create document record with creator
@@ -134,6 +135,14 @@ async function createDocument(docId, ownerId) {
 
   // Set owner role
   await setRole(docId, ownerId, 'owner');
+
+  if (title != null) {
+    const result = await pool.query(
+      'UPDATE documents SET title = $1 WHERE id = $2 RETURNING *',
+      [title, docId]
+    );
+    return result.rows[0];
+  }
 
   return doc;
 }

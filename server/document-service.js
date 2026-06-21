@@ -6,7 +6,9 @@
  * ydoc cache and are broadcast to connected clients.
  */
 const Y = require('yjs');
+const { randomUUID } = require('crypto');
 const { createOrigin } = require('./origin');
+const documents = require('./documents');
 
 let getYDocFn = null;
 let extractDocGuidFn = null;
@@ -89,8 +91,42 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   await Promise.race([updatePromise, timeoutPromise]);
 }
 
+/**
+ * Create a server-seeded document in one step: the document record (with owner
+ * + DB title), then its Yjs body — the title in the `meta` map and the given
+ * prebuilt nodes inserted at the top of the default fragment, attributed to
+ * userId/agentName. Shared by the create_document MCP tool and the onboarding
+ * welcome flow so the two birth paths can't drift. Returns the new doc guid.
+ *
+ * @param {object} opts
+ * @param {string} opts.userId - Owner / attribution user id
+ * @param {string} opts.title - Document title (set in both the row and Yjs meta)
+ * @param {Array<Y.XmlElement>} [opts.nodes=[]] - Prebuilt block nodes to seed
+ * @param {string|null} [opts.agentName=null] - Attribution agent name
+ * @returns {Promise<string>} The new document's guid
+ */
+async function createSeededDocument({ userId, title, nodes = [], agentName = null }) {
+  const docGuid = randomUUID();
+
+  await documents.createDocument(docGuid, userId, title);
+
+  await updateDocument(
+    docGuid,
+    (ydoc) => {
+      ydoc.getMap('meta').set('title', title);
+      if (nodes.length > 0) {
+        ydoc.get('default', Y.XmlFragment).insert(0, nodes);
+      }
+    },
+    { userId, agentName }
+  );
+
+  return docGuid;
+}
+
 module.exports = {
   init,
   getSharedDoc,
   updateDocument,
+  createSeededDocument,
 };
