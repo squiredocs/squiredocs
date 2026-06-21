@@ -99,6 +99,13 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: GOOGLE_GENERATIVE_AI_API_KEY
+            # Shared Anthropic key — backs the default chat model (claude-opus,
+            # DEFAULT_MODEL_KEY in server/api/chat-models.js) for non-BYOK users.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: ANTHROPIC_API_KEY
             # AI_CHAT_MODEL is intentionally not injected here: the default chat
             # model is a version-controlled code constant (DEFAULT_MODEL_KEY in
             # server/api/chat-models.js). Set AI_CHAT_MODEL in the env only to

@@ -182,15 +182,10 @@ kubectl exec -n collab <postgres-pod> -- \
 | `script/backup-postgres.sh` | pg_dump backup script used by the CronJob |
 | **`script/build-and-deploy-aws.sh`** | **One-command production build + deploy** — ECR login, builds & pushes the arm64 image for HEAD, switches context, then runs `deploy-aws.sh` (passes through its flags) |
 | **`script/deploy-aws.sh`** | **Production deploy to k3s-wft-aws (collab namespace)** — pulls image from ECR, applies postgres + redis + app + ingress, runs db-migrate-job |
-| **`script/bootstrap-collab-aws-secrets.sh`** | One-shot copy of `auth-secret`, `postgres-secret`, `mcp-auth-secret`, `ses-secret` from GKE collab namespace into k3s collab namespace (run before first `deploy-aws.sh`) |
-| **`script/sync-collab-data.sh`** | One-shot `pg_dump | psql` cutover: dumps GKE Postgres and restores into k3s. Used during the GKE → k3s cutover only. |
 
 ### AWS k3s Deployment (production)
 
 ```bash
-# First-time setup (one-time): copy the 4 secrets from GKE -> k3s
-./script/bootstrap-collab-aws-secrets.sh
-
 # Build + deploy in one command (run on an ARM Mac — the k3s image is arm64).
 # Builds the image for the current HEAD, pushes to ECR, switches context, deploys:
 ./script/build-and-deploy-aws.sh                # full deploy (infra + migrate + app)
