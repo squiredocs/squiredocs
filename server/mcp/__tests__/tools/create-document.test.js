@@ -187,7 +187,7 @@ describe('create_document tool', () => {
       expect(meta.get('title')).toBe('Yjs Title Test');
     });
 
-    test('creates empty document (no content)', async () => {
+    test('seeds a single empty paragraph (so the agent cursor can anchor)', async () => {
       const agentToken = {
         userId: testUserId,
         delegationId: 'test-delegation-id',
@@ -207,10 +207,15 @@ describe('create_document tool', () => {
       // Wait for persistence to complete
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Verify the document content is empty (only has title in meta)
+      // The body holds exactly one empty paragraph: no visible text, but a text
+      // node the agent's presence cursor can anchor to. The title lives in meta.
       const ydoc = documentService.getSharedDoc(result.docGuid);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
-      expect(xmlFragment.length).toBe(0);
+      expect(xmlFragment.length).toBe(1);
+      const firstBlock = xmlFragment.get(0);
+      expect(firstBlock.nodeName).toBe('paragraph');
+      // Strip tags — the remaining text content should be empty.
+      expect(firstBlock.toString().replace(/<[^>]*>/g, '').trim()).toBe('');
     });
 
     test('generates unique document IDs', async () => {

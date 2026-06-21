@@ -100,9 +100,19 @@ async function handler(args, agentToken) {
       const meta = ydoc.getMap('meta');
       meta.set('title', title);
 
-      // DIAGNOSTIC LOGGING: Check if any content exists after creation
-      // This helps debug the duplicate H1 heading bug
+      // Seed a single empty paragraph so the body isn't a zero-block void. This
+      // gives the agent's presence cursor a text node to anchor to — an empty
+      // XmlFragment has nowhere to render a cursor, so the agent would be
+      // invisible in the doc it just created. It also lets the presence session
+      // finalize immediately instead of waiting on the empty-document content
+      // timeout. A plain paragraph (not a heading) keeps the body clear of the
+      // title, which lives in `meta` and renders in its own field.
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
+      if (xmlFragment.length === 0) {
+        const paragraph = new Y.XmlElement('paragraph');
+        paragraph.insert(0, [new Y.XmlText()]);
+        xmlFragment.insert(0, [paragraph]);
+      }
       blockCountAfterCreate = xmlFragment.toArray().length;
     },
     { userId, agentName: agentToken.agentName }
@@ -113,12 +123,11 @@ async function handler(args, agentToken) {
 
   // Give the agent live presence (avatar + cursor) in the doc it just created,
   // the same WebSocket session modify/read_document use — so it shows up as
-  // present immediately, and a subsequent modify reuses this session (keyed by
-  // user+agent+doc). Best-effort and deliberately NOT awaited: presence is
-  // purely visual and must never fail or delay creation, and the first sync on
-  // a brand-new (content-empty) doc can take a few seconds to settle. The
-  // cursor stays null until there's text to anchor it to (set as the agent
-  // edits). Errors (e.g. no presence in a non-WS context) are swallowed.
+  // present, with a cursor anchored at the seeded paragraph above, and a
+  // subsequent modify reuses this session (keyed by user+agent+doc).
+  // Best-effort and deliberately NOT awaited: presence is purely visual and
+  // must never fail or delay creation. Errors (e.g. no presence in a non-WS
+  // context) are swallowed.
   agentPresence
     .getOrCreateSession(docGuid, agentToken, 60)
     .catch((err) => console.warn(`[create_document] presence setup failed for ${docGuid}: ${err.message}`));
