@@ -8,7 +8,6 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **In-App AI Assistant**: Built-in chat panel powered by Claude for editing, searching, and managing documents via natural language
 - **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
-- **Google Docs Sync**: Connect a Google account to import documents from Google Docs and export Squire documents back to Google Docs (managed on the Settings page under Connected Services)
 - **Markdown Export**: Export any document you can view as a Markdown (`.md`) file from the editor's tools menu (uses the same Yjs→Markdown serializer that powers version-history diffs)
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
@@ -37,7 +36,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
 - **Sandbox**: isolated-vm (true V8 isolate with 128 MB memory limit) for secure script execution in the `modify` tool
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; Claude Sonnet 4.6 / Opus 4.8 and OpenAI GPT-5.5 / GPT-5.4 / GPT-5.4 mini via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents. Per-provider behavior (model dispatch, key validation, web search, prompt caching) is defined in one place, `server/api/ai-providers.js`
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Sonnet 4.6, and Opus 4.8; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; OpenAI GPT-5.5 / GPT-5.4 / GPT-5.4 mini via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents. Per-provider behavior (model dispatch, key validation, web search, prompt caching) is defined in one place, `server/api/ai-providers.js`
 
 ## Prerequisites
 
@@ -222,13 +221,12 @@ kubectl exec -n collab <postgres-pod> -- \
 - `DB_PASSWORD`: Database password (default: `postgres`)
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`: Google OAuth credentials for user sign-in (required)
 - `GOOGLE_REDIRECT_URI`: OAuth callback URL for Google sign-in
-- `GOOGLE_DRIVE_REDIRECT_URI`: OAuth callback URL for the Google Docs/Drive integration
 - `JWT_SECRET`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`: Secrets for signing user session JWTs
 - `API_KEY_ENCRYPTION_KEY`: Key used to encrypt stored BYOK API keys at rest
 - `CLIENT_URL`: Base URL of the frontend (used to build absolute links in emails and redirects)
 - `REDIS_HOST` / `REDIS_PORT`: Redis connection (defaults: `localhost` / `6379`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-sonnet`). Supported values: `claude-haiku`, `claude-sonnet`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The BYOK-only model `claude-opus` requires a user-supplied key and is not valid as a shared server default.)
-- `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-sonnet` or `claude-haiku` model)
+- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-opus`). Supported values: `claude-haiku`, `claude-sonnet`, `claude-opus`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The OpenAI models `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` have no shared server key and are usable only via BYOK, so they're not valid as a shared server default.)
+- `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
 - `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
@@ -374,7 +372,8 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Sonnet 4.6). Supported models:
+- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Opus 4.8). Supported models:
+  - `claude-opus` — Claude Opus 4.8 (requires `ANTHROPIC_API_KEY`; the default)
   - `claude-sonnet` — Claude Sonnet 4.6 (requires `ANTHROPIC_API_KEY`)
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
@@ -382,7 +381,6 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
   - `gemini-3-flash` — Gemini 3 Flash (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.1-pro` — Gemini 3.1 Pro (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.5-flash` — Gemini 3.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
-  - `claude-opus` — Claude Opus 4.8, selectable only when the user supplies their own Anthropic key (BYOK); `claude-sonnet` is also selectable via BYOK with a user-supplied key
   - `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` — OpenAI models, selectable only when the user supplies their own OpenAI key (BYOK)
 - **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic`, `@ai-sdk/google`, or `@ai-sdk/openai` on the server). Providers are registered in `server/api/ai-providers.js`
 - **Endpoint**: `POST /api/chat` — streams responses to the client
@@ -403,7 +401,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### Usage Limits
 
-Each user has a monthly AI credit allowance (default: $5.00). Usage is tracked per-request based on token counts from the AI provider, with costs computed from official pricing. When a user exceeds their allowance, chat requests return a 429 and the UI shows a clear error banner. Usage resets automatically at the start of each calendar month.
+Each user has a monthly AI credit allowance (default: $10.00). Usage is tracked per-request based on token counts from the AI provider, with costs computed from official pricing. When a user exceeds their allowance, chat requests return a 429 and the UI shows a clear error banner. Usage resets automatically at the start of each calendar month.
 
 - **Credits**: Stored as `ai_credit_cents` on the `users` table (overridable per user)
 - **Extra credits**: One-off credit grants via the `ai_extra_credits` table — admins can grant bonus credits that supplement the monthly allowance and persist until depleted or expired
@@ -511,11 +509,6 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - `compare_document_versions` - Compare two versions using custom TypeScript scripts
 - `undo` - Undo last operation
 - `redo` - Redo previously undone operation
-
-**Google Docs Sync:** (require a connected Google account — see Settings → Connected Services)
-- `list_google_docs` - List the user's Google Docs
-- `import_from_google_docs` - Import a Google Doc into a new Squire document
-- `export_to_google_docs` - Export a Squire document to Google Docs
 
 ### Quick Start
 
@@ -844,14 +837,12 @@ paragraphs.forEach((node, index) => {
 │   │   ├── chat-models.js    # Model registry (Claude, Gemini, GPT) with lazy provider loading
 │   │   ├── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   │   ├── byok-settings.js  # Bring-your-own-key (BYOK) API key management
-│   │   ├── connected-services.js # External service connections (Google Drive)
 │   │   ├── web-fetch.js      # Web fetch tool used by the AI assistant
 │   │   └── admin.js          # Admin dashboard endpoints
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
 │   ├── email.js             # Admin email notifications (signup, login, credit limit, support)
 │   ├── exception-notifier.js # Rate-limited exception email alerts
 │   ├── chat-store.js        # Chat persistence (CRUD with ownership checks)
-│   ├── google-docs/          # Google Docs/Drive sync (OAuth, import/export)
 │   └── mcp/                  # Model Context Protocol integration
 │       ├── index.js          # MCP server entry point
 │       ├── tools/            # MCP tools for document operations

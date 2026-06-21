@@ -25,16 +25,12 @@ const TOOL_LABELS = {
   compare_document_versions: 'Comparing versions of',
   webSearch: 'Searching the web',
   webFetch: 'Fetching page',
-  export_to_google_docs: 'Exporting to Google Docs',
-  import_from_google_docs: 'Importing from Google Docs',
-  list_google_docs: 'Listing Google Docs',
   _compacting: 'Compacting conversation',
 };
 
 // Non-doc tools use standalone labels; everything else is a doc-scoped tool
 const NON_DOC_TOOLS = new Set([
   'list_documents', 'webSearch', 'webFetch', '_compacting',
-  'export_to_google_docs', 'import_from_google_docs', 'list_google_docs',
 ]);
 const DOC_TOOLS = new Set(Object.keys(TOOL_LABELS).filter(k => !NON_DOC_TOOLS.has(k)));
 
@@ -275,46 +271,6 @@ function DocumentListView({ documents, pagination }) {
   );
 }
 
-function GoogleDocsListView({ documents, pagination }) {
-  if (!documents || documents.length === 0) return null;
-  return (
-    <ul className="ai-doc-list">
-      {documents.map((doc) => (
-        <li key={doc.id}>
-          <a
-            href={doc.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ai-tool-card-link"
-          >
-            {doc.title || 'Untitled'}
-          </a>
-          {doc.linkedSquireDocGuid && (
-            <span className="ai-doc-list-role"> linked</span>
-          )}
-        </li>
-      ))}
-      {pagination && pagination.hasMore && (
-        <li className="ai-doc-list-more">more available…</li>
-      )}
-    </ul>
-  );
-}
-
-function GoogleDocResultView({ title, url, linkPrefix }) {
-  if (!title || !url) return null;
-  return (
-    <ul className="ai-doc-list">
-      <li>
-        {linkPrefix && <span>{linkPrefix} </span>}
-        <a href={url} target="_blank" rel="noopener noreferrer" className="ai-tool-card-link">
-          {title}
-        </a>
-      </li>
-    </ul>
-  );
-}
-
 const faviconUrl = (hostname, size = 16) =>
   `https://www.google.com/s2/favicons?sz=${size}&domain=${hostname}`;
 
@@ -377,9 +333,6 @@ function ToolCard({ part, citations }) {
   const isCreate = toolName === 'create_document';
   const isListDocs = toolName === 'list_documents';
   const isWebSearch = toolName === 'webSearch';
-  const isListGoogleDocs = toolName === 'list_google_docs';
-  const isExportGoogleDocs = toolName === 'export_to_google_docs';
-  const isImportGoogleDocs = toolName === 'import_from_google_docs';
 
   // For create_document, docGuid comes from output; for others it's on input
   const docGuid = isDocTool && (isCreate ? part.output?.docGuid : input?.docGuid);
@@ -396,8 +349,7 @@ function ToolCard({ part, citations }) {
     || (isCreate && input?.title)
     || null;
 
-  const showDetail = hasInput && !isModify && !isCreate && !isListDocs && !isWebSearch
-    && !isListGoogleDocs && !isExportGoogleDocs && !isImportGoogleDocs;
+  const showDetail = hasInput && !isModify && !isCreate && !isListDocs && !isWebSearch;
 
   // Cache titles from list_documents results for subsequent tool calls
   const docList = (isListDocs && isComplete && part.output?.documents) || null;
@@ -411,23 +363,6 @@ function ToolCard({ part, citations }) {
   const webSearchSources = (isWebSearch && isComplete
     && (part.output?.citations?.sources || citations?.sources)) || null;
 
-  // Google Docs tool results
-  const googleDocsList = (isListGoogleDocs && isComplete && part.output?.documents) || null;
-  const googleDocsPagination = (isListGoogleDocs && isComplete && part.output?.pagination) || null;
-  const googleExportResult = (isExportGoogleDocs && isComplete && !part.output?.error
-    && part.output?.title && part.output?.url) ? {
-    title: part.output.title,
-    url: part.output.url,
-    action: part.output.action,
-  } : null;
-  const googleImportResult = (isImportGoogleDocs && isComplete && !part.output?.error
-    && part.output?.title && part.output?.url) ? {
-    title: part.output.title,
-    url: part.output.url,
-    docGuid: part.output.docGuid,
-    action: part.output.action,
-  } : null;
-
   const diff = (isModify && isComplete && part.output?.diff) || null;
   const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
 
@@ -439,12 +374,11 @@ function ToolCard({ part, citations }) {
         .filter(Boolean).join(', ')
     : '';
   const webSearchSuffix = isWebSearch && input?.query ? `\u201c${input.query}\u201d` : '';
-  const listGoogleDocsSuffix = isListGoogleDocs && input?.query ? `\u201c${input.query}\u201d` : '';
 
   return (
     <div className="ai-tool-card">
       <div
-        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}${docList || webSearchSources || googleDocsList || googleExportResult || googleImportResult ? ' ai-tool-card--has-list' : ''}`}
+        className={`ai-tool-card-toggle ${isComplete ? 'ai-tool-card--complete' : 'ai-tool-card--running'}${docList || webSearchSources ? ' ai-tool-card--has-list' : ''}`}
         onClick={showDetail ? () => setExpanded(!expanded) : undefined}
         style={showDetail ? undefined : { cursor: 'default' }}
         role={showDetail ? 'button' : undefined}
@@ -455,21 +389,10 @@ function ToolCard({ part, citations }) {
             : docTitle || 'document')}
           {listDocsSuffix && ` \u2014 ${listDocsSuffix}`}
           {webSearchSuffix && ` \u2014 ${webSearchSuffix}`}
-          {listGoogleDocsSuffix && ` \u2014 ${listGoogleDocsSuffix}`}
           {isComplete ? ' \u2713' : '...'}{showDetail ? (expanded ? ' \u25B4' : ' \u25BE') : ''}
         </span>
         {docList && <DocumentListView documents={docList} pagination={docListPagination} />}
         {webSearchSources && <WebSearchResultsView sources={webSearchSources} />}
-        {googleDocsList && <GoogleDocsListView documents={googleDocsList} pagination={googleDocsPagination} />}
-        {googleExportResult && <GoogleDocResultView title={googleExportResult.title} url={googleExportResult.url} />}
-        {googleImportResult && googleImportResult.docGuid && (
-          <ul className="ai-doc-list">
-            <li>
-              <DocTitleLink docGuid={googleImportResult.docGuid} title={googleImportResult.title} />
-              <span className="ai-doc-list-role"> from <a href={part.output?.googleDocUrl} target="_blank" rel="noopener noreferrer" className="ai-tool-card-link">Google Doc</a></span>
-            </li>
-          </ul>
-        )}
       </div>
       {expanded && showDetail && (
         <div className="ai-tool-card-detail">

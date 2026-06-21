@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react';
 import AgentDelegationList from '../components/AgentDelegationList';
 import ApiTokenList from '../components/ApiTokenList';
-import DriveConnection from '../components/DriveConnection';
 import Logo from '../components/Logo';
 import UserProfileBadge from '../components/UserProfileBadge';
 import ViewToggleButton from '../components/ViewToggleButton';
@@ -286,17 +285,6 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
                 </div>
               </div>
             )}
-          </section>
-
-          <section className="settings-section">
-            <h2>Connected Services</h2>
-            <p className="settings-description">
-              Connect external services to sync documents and access content from other platforms.
-            </p>
-            <div className="settings-subsection">
-              <h3>Google Drive</h3>
-              <DriveConnection />
-            </div>
           </section>
 
           <section className="settings-section">

@@ -34,8 +34,6 @@ const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
-const googleDocsRoutes = require('./google-docs/routes');
-const connectedServices = require('./api/connected-services');
 const support = require('./api/support');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 setupProcessHandlers();
@@ -281,10 +279,6 @@ admin.init(persistenceProvider.getPool());
 // Initialize support module with shared database pool
 support.init(persistenceProvider.getPool());
 
-// Initialize Google Docs sync and connected services
-googleDocsRoutes.init(persistenceProvider.getPool());
-connectedServices.init(persistenceProvider.getPool());
-
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
 
@@ -298,8 +292,6 @@ const diffService = new DiffService(persistenceProvider.getPool());
 
 // Mount auth routes
 app.use('/auth', authRouter);
-app.use('/auth/google', googleDocsRoutes.router);
-app.use('/api/settings/connected-services', express.json(), connectedServices.router);
 
 // 150mb: per-file limit is 15MB (enforced client-side), but the JSON body
 // carries base64-encoded images (~33% overhead) across up to 5 files, plus
