@@ -18,9 +18,10 @@ function generateTitle(text) {
 // metadata so the renderer omits it) to prompt the assistant's live greeting.
 export const WELCOME_KICKOFF_KIND = 'welcome-kickoff';
 const WELCOME_KICKOFF_PROMPT =
-  "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant, "
-  + "introduce in one sentence what you can do (research, drafting, and refining documents), and ask if there's a "
-  + "topic they'd like you to research and draft into this document. Keep it to 2-3 short, friendly sentences.";
+  "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant. "
+  + "Silently read this document for context first — do not mention or narrate that you're reading it. Then focus on "
+  + "the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
+  + "document with a learning brief to get them started. Keep it warm, brief, and concrete.";
 
 export function AiChatProvider({ children }) {
   const { accessToken, refreshAccessToken, api } = useAuth();
