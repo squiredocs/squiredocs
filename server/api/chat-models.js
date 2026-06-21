@@ -11,26 +11,28 @@
 
 const { PROVIDERS, getProviderConfig, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
 
-const DEFAULT_MODEL_KEY = 'claude-sonnet';
+const DEFAULT_MODEL_KEY = 'claude-opus';
 
 // pricing: cents per 1M tokens (from official Anthropic/Google pricing)
 // contextWindow: model input limit in tokens (used for dynamic tool result sizing)
-// byokOnly models are only available when the user has provided their own API key
 const MODEL_DEFS = [
   { key: 'claude-haiku',       provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',              pricing: { input: 100, output: 500 },  contextWindow: 200_000 },
   { key: 'claude-sonnet',      provider: 'anthropic', modelId: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',             pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
-  { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 200_000, byokOnly: true },
+  { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 200_000 },
   { key: 'gemini-2.5-flash',   provider: 'google',    modelId: 'gemini-2.5-flash',           label: 'Gemini 2.5 Flash',              pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
   { key: 'gemini-2.5-pro',     provider: 'google',    modelId: 'gemini-2.5-pro',             label: 'Gemini 2.5 Pro',                pricing: { input: 125, output: 1000 }, contextWindow: 1_048_576 },
   { key: 'gemini-3-flash',     provider: 'google',    modelId: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash (Preview)',       pricing: { input:  50, output: 300 },  contextWindow: 1_048_576 },
   { key: 'gemini-3.1-pro',     provider: 'google',    modelId: 'gemini-3.1-pro-preview',     label: 'Gemini 3.1 Pro (Preview)',       pricing: { input: 200, output: 1200 }, contextWindow: 1_048_576 },
   { key: 'gemini-3.5-flash',   provider: 'google',    modelId: 'gemini-3.5-flash',           label: 'Gemini 3.5 Flash',              pricing: { input: 150, output: 900 },  contextWindow: 1_048_576 },
-  // OpenAI (BYOK only — no server pool key). pricing in cents per 1M tokens,
-  // from the official API pricing page (developers.openai.com/api/docs/pricing,
-  // June 2026). Reasoning (o-series / *-pro) models are intentionally omitted.
-  { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_000_000, byokOnly: true },
-  { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000, byokOnly: true },
-  { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000, byokOnly: true },
+  // OpenAI models. There is no shared server OpenAI key, so these only run when
+  // a user supplies their own (selectable in Settings once an OpenAI key is
+  // stored; isByokActive enforces the key at request time). pricing in cents per
+  // 1M tokens, from the official API pricing page
+  // (developers.openai.com/api/docs/pricing, June 2026). Reasoning (o-series /
+  // *-pro) models are intentionally omitted.
+  { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_000_000 },
+  { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000 },
 ];
 
 // Cached default provider clients (server-pool key from env), keyed by provider.
@@ -150,19 +152,17 @@ function stripProviderExecutedTools(messages) {
 }
 
 /**
- * Get the list of available models for the settings UI.
- * @param {Object<string, boolean>} hasKeyByProvider - Map of provider id → whether
- *   the user has a stored key for it (e.g. { anthropic: true, google: false }).
- * @returns {Array} Models with availability info
+ * Get the list of models for the settings UI. The client groups these by
+ * provider and gates selection on whether the user has stored that provider's
+ * key (see SettingsPage); request-time enforcement lives in isByokActive.
+ * @returns {Array} Models with key, label, provider, modelId.
  */
-function getAvailableModels(hasKeyByProvider = {}) {
+function getAvailableModels() {
   return MODEL_DEFS.map((def) => ({
     key: def.key,
     label: def.label,
     provider: def.provider,
     modelId: def.modelId,
-    byokOnly: !!def.byokOnly,
-    available: !def.byokOnly || !!hasKeyByProvider[def.provider],
   }));
 }
 

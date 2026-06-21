@@ -224,9 +224,9 @@ describe('AI Usage', () => {
       const quota = await aiUsage.checkQuota(testUserId);
 
       expect(quota.allowed).toBe(true);
-      expect(quota.creditCents).toBe(500); // default
+      expect(quota.creditCents).toBe(1000); // default
       expect(quota.usedCents).toBe(0);
-      expect(quota.remainingCents).toBe(500);
+      expect(quota.remainingCents).toBe(1000);
     });
 
     test('subtracts usage from allowance', async () => {
@@ -237,7 +237,7 @@ describe('AI Usage', () => {
       const quota = await aiUsage.checkQuota(testUserId);
       expect(quota.allowed).toBe(true);
       expect(quota.usedCents).toBe(3);
-      expect(quota.remainingCents).toBe(497);
+      expect(quota.remainingCents).toBe(997);
     });
 
     test('blocks when usage meets credit limit', async () => {

@@ -37,17 +37,15 @@ function init(dbPool) {
  * `{ hasKey }` object keyed by provider id for backwards compatibility.
  */
 function buildResponse(row) {
-  const hasKeyByProvider = {};
   const providers = listProviders().map((p) => {
     const hasKey = !!row[p.keyColumn];
-    hasKeyByProvider[p.id] = hasKey;
     return { id: p.id, label: p.label, keyPlaceholder: p.keyPlaceholder, keyMask: p.keyMask, hasKey };
   });
   const response = {
     enabled: row.byok_enabled,
     providers,
     modelKey: row.byok_model_key,
-    models: getAvailableModels(hasKeyByProvider),
+    models: getAvailableModels(),
   };
   for (const p of providers) response[p.id] = { hasKey: p.hasKey };
   return response;
