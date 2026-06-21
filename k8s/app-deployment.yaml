@@ -99,11 +99,10 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: GOOGLE_GENERATIVE_AI_API_KEY
-            - name: AI_CHAT_MODEL
-              valueFrom:
-                secretKeyRef:
-                  name: auth-secret
-                  key: AI_CHAT_MODEL
+            # AI_CHAT_MODEL is intentionally not injected here: the default chat
+            # model is a version-controlled code constant (DEFAULT_MODEL_KEY in
+            # server/api/chat-models.js). Set AI_CHAT_MODEL in the env only to
+            # override that default for a specific deployment.
             - name: API_KEY_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

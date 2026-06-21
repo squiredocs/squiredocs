@@ -225,7 +225,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `API_KEY_ENCRYPTION_KEY`: Key used to encrypt stored BYOK API keys at rest
 - `CLIENT_URL`: Base URL of the frontend (used to build absolute links in emails and redirects)
 - `REDIS_HOST` / `REDIS_PORT`: Redis connection (defaults: `localhost` / `6379`)
-- `AI_CHAT_MODEL`: Model for the in-app AI assistant (default: `claude-opus`). Supported values: `claude-haiku`, `claude-sonnet`, `claude-opus`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The OpenAI models `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` have no shared server key and are usable only via BYOK, so they're not valid as a shared server default.)
+- `AI_CHAT_MODEL`: Optional override for the in-app AI assistant's model. When unset, the default is the `DEFAULT_MODEL_KEY` code constant in `server/api/chat-models.js` (`claude-opus`) — version-controlled, not sourced from a deployment secret. Supported values: `claude-haiku`, `claude-sonnet`, `claude-opus`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The OpenAI models `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` have no shared server key and are usable only via BYOK, so they're not valid as a shared server default.)
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
@@ -372,7 +372,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Configurable via `AI_CHAT_MODEL` env var (default: Claude Opus 4.8). Supported models:
+- **Model**: Defaults to the `DEFAULT_MODEL_KEY` code constant (Claude Opus 4.8); optionally overridden per-deployment via the `AI_CHAT_MODEL` env var. Supported models:
   - `claude-opus` — Claude Opus 4.8 (requires `ANTHROPIC_API_KEY`; the default)
   - `claude-sonnet` — Claude Sonnet 4.6 (requires `ANTHROPIC_API_KEY`)
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
