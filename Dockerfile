@@ -17,8 +17,11 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # --chown so the runtime user (appuser) can always read these regardless of the
 # host file mode; COPY otherwise preserves source permission bits as root.
 COPY --chown=appuser:appgroup package*.json ./
-RUN npm ci --only=production && \
-    npm install --no-save node-pg-migrate
+# Production deps only. node-pg-migrate is a runtime dependency (the deploy's
+# db-migrate Job runs `npm run migrate`), so it lives in "dependencies" and is
+# installed here — no separate `npm install` step, which would otherwise pull
+# the entire devDependency tree (jest/babel/esbuild/…, ~126MB) into the image.
+RUN npm ci --omit=dev
 
 # Copy server code
 COPY --chown=appuser:appgroup server/ ./server/
