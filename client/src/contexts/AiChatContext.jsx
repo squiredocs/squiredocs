@@ -22,9 +22,10 @@ function generateTitle(text) {
 export const WELCOME_KICKOFF_KIND = 'welcome-kickoff';
 
 // Positive emojis the assistant chooses from when refreshing the welcome line's
-// trailing emoji on a re-trigger (😊 is the initial default; the swap picks a
-// different one from this list).
-const WELCOME_EMOJIS = ['🎉', '🌟', '✨', '🙌', '😄', '🚀', '👋', '💫', '🌈', '🎊'];
+// trailing emoji on a re-trigger. 😊 is the initial default and stays in the
+// pool, so the rotation can cycle back to it; the swap just picks one that
+// differs from whatever is currently shown.
+const WELCOME_EMOJIS = ['😊', '🎉', '🌟', '✨', '🙌', '😄', '🚀', '👋', '💫', '🌈', '🎊'];
 
 const buildWelcomeKickoffPrompt = (firstName) => {
   const welcomeSentence = firstName
