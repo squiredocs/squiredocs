@@ -11,6 +11,7 @@ const { executeScript } = require('../sandbox');
 const { toMarkdown } = require('../yjs/serialization');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
+const { validateMermaidBlocks } = require('../mermaid-validate');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
 // always succeeds in changing the live document; the content echo is a
@@ -484,6 +485,7 @@ RETURNS
 - blockCount / characterCount: Size of the updated document
 - clock: The document's update counter, so you can track its version
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
+- mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1583,6 +1585,7 @@ async function handler(args, agentToken) {
       let content = null;
       let characterCount;
       let updatedBlockCount = blockCountAfter;
+      let mermaidErrors = [];
       if (changed) {
         try {
           diff = computeChatDiff(mdBefore, mdAfter);
@@ -1596,6 +1599,14 @@ async function handler(args, agentToken) {
           updatedBlockCount = serialized.blockCount;
         } catch (e) {
           console.error('[modify] content serialization failed:', e.message);
+        }
+        // Mermaid diagrams only render in the browser, so a syntax error would
+        // otherwise be invisible to the agent. Validate server-side and surface
+        // any errors so the agent can fix them. Non-blocking: the edit stands.
+        try {
+          mermaidErrors = await validateMermaidBlocks(xmlFragment);
+        } catch (e) {
+          console.error('[modify] mermaid validation failed:', e.message);
         }
       }
 
@@ -1622,6 +1633,16 @@ async function handler(args, agentToken) {
         response.message = 'No changes were made \u2014 your script ran but didn\'t modify the document. '
           + 'This usually means your XPath or element targeting didn\'t match. '
           + 'Re-read the document with format: "structured" to verify the structure before retrying.';
+      }
+      if (mermaidErrors.length > 0) {
+        response.mermaidErrors = mermaidErrors;
+        const n = mermaidErrors.length;
+        const warning = `${n} mermaid diagram${n > 1 ? 's have' : ' has'} a syntax error `
+          + 'and will not render. See mermaidErrors for the parser message(s) and please '
+          + 'fix the diagram(s).';
+        // Compose with any existing message (e.g. the large-doc omission note)
+        // rather than clobbering it.
+        response.message = response.message ? `${response.message} ${warning}` : warning;
       }
 
       return response;

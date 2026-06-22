@@ -495,6 +495,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
   - All changes atomic (single undo)
   - Real-time sync to all users
   - Returns change detection (`changed`, `operationCount`, `summary`) plus the updated document `content` so the agent's view stays current without re-reading (omitted for very large documents)
+  - **Mermaid validation**: Mermaid diagrams only render in the browser, so a syntax error would otherwise be invisible to the agent. After an edit, the server validates the document's Mermaid blocks (the same `mermaid.parse()` the editor uses, run under jsdom — see `server/mcp/mermaid-validate.js`) and, if any diagram has invalid syntax, returns a `mermaidErrors` array (`{ block, error, source }`) plus a corrective `message`. This is non-blocking — the edit still applies — so the agent can fix the diagram in a follow-up instead of leaving the user with a broken render
 
 **History:**
 - `list_document_versions` - List version history with optional nested subversions and time-based filtering

@@ -320,6 +320,68 @@ export default function edit(doc) {
       console.log('✓ Cleaned up test document');
     }, 30000);
 
+    test('modify surfaces Mermaid syntax errors and clears them once fixed', async () => {
+      const createDoc = toolRegistry.getTool('create_document');
+      const modify = toolRegistry.getTool('modify');
+
+      const createResult = await createDoc.handler(
+        { title: 'Mermaid Test' },
+        mockAgentToken
+      );
+      const newDocGuid = createResult.docGuid;
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Insert a diagram with INVALID syntax (dangling arrow).
+      const badScript = `
+export default function edit(doc) {
+  const m = new Y.XmlElement('mermaid');
+  const t = new Y.XmlText();
+  t.insert(0, 'graph TD\\n  A[Start] -->');
+  m.insert(0, [t]);
+  doc.insert(doc.length, [m]);
+}
+`;
+      const badResult = await modify.handler(
+        { docGuid: newDocGuid, script: badScript },
+        mockAgentToken
+      );
+      // Edit still applied (non-blocking) but the error is surfaced.
+      expect(badResult.changed).toBe(true);
+      expect(Array.isArray(badResult.mermaidErrors)).toBe(true);
+      expect(badResult.mermaidErrors).toHaveLength(1);
+      expect(badResult.mermaidErrors[0].block).toBe(1);
+      expect(badResult.mermaidErrors[0].error.length).toBeGreaterThan(0);
+      expect(badResult.message).toMatch(/mermaid/i);
+
+      // Fix the diagram in place; the error should clear.
+      const fixScript = `
+export default function edit(doc) {
+  const block = findByNodeName(doc, 'mermaid')[0];
+  const text = findTextNode(block);
+  text.delete(0, extractText(text).length);
+  text.insert(0, 'graph TD\\n  A[Start] --> B[End]');
+}
+`;
+      const fixResult = await modify.handler(
+        { docGuid: newDocGuid, script: fixScript },
+        mockAgentToken
+      );
+      expect(fixResult.changed).toBe(true);
+      expect(fixResult.mermaidErrors).toBeUndefined();
+
+      // Cleanup
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+    }, 30000);
+
     test('Complete workflow: create document with title, add content via modify, verify', async () => {
       // Step 1: Create a new document with a title
       console.log('\n=== Step 1: Create document with title ===');
