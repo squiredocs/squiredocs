@@ -20,6 +20,12 @@ function generateTitle(text) {
 // welcome sentence it writes into the doc (the agent isn't told the name
 // otherwise).
 export const WELCOME_KICKOFF_KIND = 'welcome-kickoff';
+
+// Positive emojis the assistant chooses from when refreshing the welcome line's
+// trailing emoji on a re-trigger (😊 is the initial default; the swap picks a
+// different one from this list).
+const WELCOME_EMOJIS = ['🎉', '🌟', '✨', '🙌', '😄', '🚀', '👋', '💫', '🌈', '🎊'];
+
 const buildWelcomeKickoffPrompt = (firstName) => {
   const welcomeSentence = firstName
     ? `Welcome ${firstName}! We're glad you're here. 😊`
@@ -29,7 +35,7 @@ const buildWelcomeKickoffPrompt = (firstName) => {
     + "Silently read this document for context first — do not mention or narrate that you're reading it. "
     + "Then make exactly one edit to the document: "
     + `if it does not already contain a "We're glad you're here" welcome line, insert "${welcomeSentence}" as a new paragraph immediately after the "Write with AI, right in your doc" heading (above the "What's Next?" section); `
-    + "if that welcome line is already present, do not add another — instead replace only the emoji at its end with a different positive emoji (e.g. 🎉, 🌟, ✨, 🙌, 😄), choosing one that differs from the one currently shown. "
+    + `if that welcome line is already present, do not add another — instead replace only the emoji at its end with a different one chosen from this list, picking one that differs from the emoji currently shown: ${WELCOME_EMOJIS.join(' ')}. `
     + "Then focus on the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
     + "document with a learning brief to get them started. Keep it warm, brief, and concrete."
   );
