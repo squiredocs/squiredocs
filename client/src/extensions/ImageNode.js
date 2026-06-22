@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
-import { Plugin } from '@tiptap/pm/state';
+import { Plugin, NodeSelection } from '@tiptap/pm/state';
 import ImageNodeView from '../components/ImageNodeView.jsx';
 import { isImageType } from '../utils/media';
 import { uploadDocumentImage } from '../utils/uploadImage';
@@ -80,6 +80,23 @@ export const ImageNode = Node.create({
         (attrs) =>
         ({ chain }) =>
           chain().focus().insertContent({ type: this.name, attrs }).run(),
+    };
+  },
+
+  addKeyboardShortcuts() {
+    // When the image is node-selected, Backspace/Delete should remove it.
+    // This takes precedence over the base keymap handlers (selectNodeBackward
+    // /joinBackward) that otherwise leave an atom node in place.
+    const deleteSelectedImage = () => {
+      const { selection } = this.editor.state;
+      if (selection instanceof NodeSelection && selection.node.type.name === this.name) {
+        return this.editor.commands.deleteSelection();
+      }
+      return false;
+    };
+    return {
+      Backspace: deleteSelectedImage,
+      Delete: deleteSelectedImage,
     };
   },
 

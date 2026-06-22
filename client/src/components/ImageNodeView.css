@@ -1,5 +1,12 @@
 .image-node {
   margin: 0.5rem 0;
+  /* Treat the image as atomic to text selection. Without this, dragging a text
+     selection partway into this contenteditable=false leaf makes the browser's
+     native selection balloon across the document, which ProseMirror then maps to
+     the wrong range (Delete hits content above). The image is still selectable
+     as a whole via click (NodeSelection) and via select-all. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .image-node img {
@@ -9,7 +16,16 @@
   border-radius: 4px;
 }
 
-.image-node.ProseMirror-selectednode img {
+.image-node {
+  cursor: pointer;
+}
+
+/* Highlight the selected image. Driven by both the React `selected` prop
+   (.is-selected) and ProseMirror's own class, so it shows regardless. */
+.image-node.is-selected img,
+.image-node.ProseMirror-selectednode img,
+.image-node.is-selected .image-node__placeholder,
+.image-node.ProseMirror-selectednode .image-node__placeholder {
   outline: 2px solid #4a90e2;
   outline-offset: 2px;
 }

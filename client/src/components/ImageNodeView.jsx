@@ -8,11 +8,22 @@ import './ImageNodeView.css';
 // bare <img src> can't carry the Bearer token. Other srcs (data:/http) render directly.
 const APP_IMAGE_RE = /^\/api\/docs\/[^/]+\/images\/[^/]+$/;
 
-export default function ImageNodeView({ node }) {
+export default function ImageNodeView({ node, editor, getPos, selected }) {
   const { src, alt, title, width } = node.attrs;
   const { api } = useAuth();
   const [resolvedSrc, setResolvedSrc] = useState(null);
   const [error, setError] = useState(false);
+
+  // Force a NodeSelection on click so the image highlights and can be deleted.
+  // Use click (not mousedown) and don't preventDefault, so dragging the node to
+  // reposition it still works — a drag is mousedown+move and fires no click,
+  // while `draggable={false}` on the <img> keeps native image-drag from
+  // swallowing a plain click.
+  const selectSelf = () => {
+    if (typeof getPos === 'function') {
+      editor.commands.setNodeSelection(getPos());
+    }
+  };
 
   const isAppUrl = typeof src === 'string' && APP_IMAGE_RE.test(src);
 
@@ -45,8 +56,10 @@ export default function ImageNodeView({ node }) {
     };
   }, [src, isAppUrl, api]);
 
+  const className = `image-node${selected ? ' is-selected' : ''}`;
+
   return (
-    <NodeViewWrapper className="image-node" data-drag-handle>
+    <NodeViewWrapper className={className} data-drag-handle onClick={selectSelf}>
       {error ? (
         <div className="image-node__placeholder image-node__placeholder--error">
           ⚠ Image unavailable
@@ -56,6 +69,7 @@ export default function ImageNodeView({ node }) {
           src={resolvedSrc}
           alt={alt || ''}
           title={title || undefined}
+          draggable={false}
           style={width ? { width: `${width}px` } : undefined}
           onError={() => setError(true)}
         />
