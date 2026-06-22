@@ -438,7 +438,7 @@ MCP agent tokens are JWTs with a specific structure:
   userId: '<user-uuid>',            // User ID the agent acts on behalf of
   agentId: 'test-agent',            // Unique agent identifier
   agentName: 'Test Agent',          // Human-readable agent name
-  scopes: ['read', 'write'],        // Granted permissions
+  scopes: ['documents:read', 'documents:write'],        // Granted permissions
   isAgent: true                     // Required flag
 }
 ```
@@ -455,7 +455,7 @@ const token = jwt.sign({
   userId: '10937127-083d-4359-b0be-6c1390878780',  // Replace with actual user ID
   agentId: 'test-agent',
   agentName: 'Test Agent',
-  scopes: ['read', 'write'],
+  scopes: ['documents:read', 'documents:write'],
   isAgent: true
 }, 'dev-mcp-secret-change-in-production', {
   expiresIn: '1h',
@@ -490,7 +490,7 @@ const token = jwt.sign({
   userId: 'YOUR-USER-ID-HERE',
   agentId: 'test-agent',
   agentName: 'Test Agent',
-  scopes: ['read', 'write'],
+  scopes: ['documents:read', 'documents:write'],
   isAgent: true
 }, 'dev-mcp-secret-change-in-production', {
   expiresIn: '1h',
@@ -615,7 +615,7 @@ curl -s -X POST http://127.0.0.1:3001/mcp \
 
 1. **Token validation errors**: Ensure the secret and issuer match `server/mcp/auth/jwt.js`
 2. **User not found**: The `userId` in the token must exist in the database
-3. **Permission denied**: Check that `scopes` includes the required permissions (`read`, `write`)
+3. **Permission denied**: Check that `scopes` includes the required permissions (`documents:read`, `documents:write`)
 4. **Document not found**: Verify the `docGuid` exists and the user has access
 
 ### Visual Testing with Agent Presence
