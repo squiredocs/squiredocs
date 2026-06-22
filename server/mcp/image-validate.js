@@ -13,13 +13,11 @@
  * agent can self-correct.
  */
 const { findByNodeName } = require('./sandbox/helpers');
-
-// The only src an agent edit may carry: a relative app image URL.
-const APP_IMAGE_SRC = /^\/api\/docs\/[^/]+\/images\/[^/]+$/;
+const { isAppImageUrl } = require('../image-url');
 
 /** @returns {boolean} whether src is an allowed app image URL */
 function isAllowedImageSrc(src) {
-  return typeof src === 'string' && APP_IMAGE_SRC.test(src);
+  return isAppImageUrl(src);
 }
 
 /**
@@ -45,4 +43,4 @@ function sanitizeImageSrcs(xmlFragment) {
   return removed;
 }
 
-module.exports = { sanitizeImageSrcs, isAllowedImageSrc, APP_IMAGE_SRC };
+module.exports = { sanitizeImageSrcs, isAllowedImageSrc };

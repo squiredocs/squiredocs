@@ -6,6 +6,7 @@ const Y = require('yjs');
 const { buildYjsNode } = require('../yjs/node-builder');
 const { appendBlocks } = require('../sandbox/helpers');
 const { sanitizeImageSrcs, isAllowedImageSrc } = require('../image-validate');
+const documentImages = require('../../document-images');
 const { toMarkdown, toStructured } = require('../yjs/serialization');
 
 function freshFragment() {
@@ -63,5 +64,26 @@ describe('sanitizeImageSrcs guardrail', () => {
     expect(removed).toEqual([{ src: 'https://evil.com/track.png' }, { src: 'data:image/png;base64,AAAA' }]);
     const images = frag.toArray().filter((n) => n.nodeName === 'image');
     expect(images.map((n) => n.getAttribute('src'))).toEqual(['/api/docs/d/images/good']);
+  });
+});
+
+describe('storeImage validation', () => {
+  // These reject before any S3/DB call, so no infra is needed.
+  const base = { docId: 'd', uploaderId: 'u' };
+
+  it('rejects an unsupported mime type with status 400', async () => {
+    await expect(documentImages.storeImage({ ...base, data: Buffer.from('x'), mimeType: 'image/svg+xml' }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects empty data with status 400', async () => {
+    await expect(documentImages.storeImage({ ...base, data: Buffer.alloc(0), mimeType: 'image/png' }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects oversized data with status 413', async () => {
+    const big = Buffer.alloc(documentImages.MAX_IMAGE_BYTES + 1);
+    await expect(documentImages.storeImage({ ...base, data: big, mimeType: 'image/png' }))
+      .rejects.toMatchObject({ status: 413 });
   });
 });

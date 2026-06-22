@@ -11,7 +11,6 @@
  * Imports from 'ai' are lazy-loaded (called from chat.js at request time).
  */
 const Y = require('yjs');
-const { randomUUID } = require('crypto');
 const toolRegistry = require('../mcp/tools');
 const { webFetch } = require('./web-fetch');
 const { SNAPSHOT_TOOLS } = require('./chat-staleness');
@@ -21,13 +20,46 @@ const documentImages = require('../document-images');
 const s3Images = require('../s3-images');
 const documentService = require('../document-service');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
+const { parseAppImageUrl } = require('../image-url');
 
-// Image upload constraints (mirror the upload route in server/index.js).
-const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+/**
+ * Upload a chat-attached image into a document and insert the image node.
+ * Returns a small result object (the tool's stored output); errors are returned
+ * as { error } so the model can recover.
+ */
+async function insertChatImage({ args = {}, messageImages, chatDocGuid, userId, agentName }) {
+  if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
+  const docGuid = args.docGuid || chatDocGuid;
+  if (!docGuid) return { error: 'No target document. Specify docGuid.' };
+  if (!messageImages.length) {
+    return { error: 'No image is attached to the current message. Ask the user to attach the image they want inserted.' };
+  }
+  const index = Number.isInteger(args.attachmentIndex) ? args.attachmentIndex : 0;
+  const att = messageImages[index];
+  if (!att) return { error: `No attachment at index ${index}; this message has ${messageImages.length} image(s).` };
+  if (!(await documents.canEdit(docGuid, userId))) {
+    return { error: 'You do not have permission to edit this document.' };
+  }
 
-// Pull an imageId out of an app image URL if the agent passes a url instead.
-const APP_IMAGE_URL = /\/api\/docs\/([^/]+)\/images\/([^/?#]+)/;
+  let stored;
+  try {
+    stored = await documentImages.storeImage({
+      docId: docGuid, uploaderId: userId,
+      data: Buffer.from(att.dataBase64, 'base64'), mimeType: att.mediaType, filename: att.filename,
+    });
+  } catch (e) {
+    return { error: e.message };
+  }
+
+  const alt = args.alt || att.filename || null;
+  const atStart = args.position === 'start';
+  await documentService.updateDocument(docGuid, (ydoc) => {
+    const frag = ydoc.get('default', Y.XmlFragment);
+    frag.insert(atStart ? 0 : frag.length, [buildYjsNode({ type: 'image', src: stored.url, alt })]);
+  }, { userId, agentName });
+
+  return { inserted: true, id: stored.id, url: stored.url, alt };
+}
 
 // Static cap for any single tool result. Documents larger than this should
 // be read in chunks via xpath. Reactive compaction handles overall context.
@@ -153,43 +185,7 @@ function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid 
     }),
     execute: async (args = {}) => {
       try {
-        if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
-        const docGuid = args.docGuid || chatDocGuid;
-        if (!docGuid) return { error: 'No target document. Specify docGuid.' };
-        if (!messageImages.length) {
-          return { error: 'No image is attached to the current message. Ask the user to attach the image they want inserted.' };
-        }
-        const index = Number.isInteger(args.attachmentIndex) ? args.attachmentIndex : 0;
-        const att = messageImages[index];
-        if (!att) return { error: `No attachment at index ${index}; this message has ${messageImages.length} image(s).` };
-        if (!ALLOWED_IMAGE_MIME_TYPES.includes(att.mediaType)) {
-          return { error: `Unsupported image type ${att.mediaType}.` };
-        }
-        if (!(await documents.canEdit(docGuid, userId))) {
-          return { error: 'You do not have permission to edit this document.' };
-        }
-        const data = Buffer.from(att.dataBase64, 'base64');
-        if (data.length === 0) return { error: 'Attachment had no data.' };
-        if (data.length > MAX_IMAGE_BYTES) return { error: 'Image exceeds the 15MB limit.' };
-
-        const imageId = randomUUID();
-        const s3Key = `doc-images/${docGuid}/${imageId}`;
-        await s3Images.putObject({ key: s3Key, body: data, contentType: att.mediaType });
-        await documentImages.createImage({
-          id: imageId, docId: docGuid, uploaderId: userId,
-          mimeType: att.mediaType, filename: att.filename, byteSize: data.length, s3Key,
-        });
-
-        const url = `/api/docs/${docGuid}/images/${imageId}`;
-        const alt = args.alt || att.filename || null;
-        const atStart = args.position === 'start';
-        await documentService.updateDocument(docGuid, (ydoc) => {
-          const frag = ydoc.get('default', Y.XmlFragment);
-          const node = buildYjsNode({ type: 'image', src: url, alt });
-          frag.insert(atStart ? 0 : frag.length, [node]);
-        }, { userId, agentName });
-
-        return { inserted: true, id: imageId, url, alt };
+        return await insertChatImage({ args, messageImages, chatDocGuid, userId, agentName });
       } catch (error) {
         console.error('[chat-tools] insert_image error:', error.message);
         return { error: error.message };
@@ -216,8 +212,13 @@ function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid 
         if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
         let docGuid = args.docGuid || chatDocGuid;
         let imageId = args.imageId;
-        const m = typeof imageId === 'string' ? imageId.match(APP_IMAGE_URL) : null;
-        if (m) { docGuid = m[1]; imageId = m[2]; }
+        const parsed = parseAppImageUrl(imageId);
+        if (parsed) {
+          docGuid = parsed.docId;
+          imageId = parsed.imageId;
+        } else if (typeof imageId === 'string' && imageId.includes('/')) {
+          return { error: 'Provide a bare image id or an app image URL (/api/docs/:docId/images/:imageId).' };
+        }
         if (!docGuid || !imageId) return { error: 'Provide an imageId (or app image URL) and docGuid.' };
         if (!(await documents.hasAccess(docGuid, userId))) {
           return { error: 'You do not have access to this document.' };

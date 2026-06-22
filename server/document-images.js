@@ -5,6 +5,19 @@
  * (see server/s3-images.js); this table is the source of truth for permission
  * scoping (image belongs to a doc) and cleanup.
  */
+const { randomUUID } = require('crypto');
+const s3Images = require('./s3-images');
+const { imageUrl } = require('./image-url');
+
+// Upload policy, shared by the HTTP upload route and the insert_image chat tool.
+// SVG is excluded (script-injection surface); the 15MB cap mirrors chat attachments.
+const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+/** Build an Error carrying an HTTP status, so callers can map it to a response. */
+function imageError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
 
 // Database pool - set by init function
 let pool = null;
@@ -40,6 +53,39 @@ async function createImage({ id, docId, uploaderId, mimeType, filename, byteSize
   );
 
   return result.rows[0];
+}
+
+/**
+ * Validate, store bytes in S3, and record the metadata row for a document image.
+ * Does NOT check permissions or that storage is enabled — callers handle those
+ * (their error surface differs). Throws an Error with `.status` (400/413) on
+ * invalid input.
+ * @param {object} args
+ * @param {string} args.docId - Owning document UUID
+ * @param {string|null} args.uploaderId - Uploading user UUID
+ * @param {Buffer} args.data - Decoded image bytes
+ * @param {string} args.mimeType - Image MIME type
+ * @param {string|null} [args.filename] - Original filename
+ * @returns {Promise<{id: string, url: string}>}
+ */
+async function storeImage({ docId, uploaderId, data, mimeType, filename = null }) {
+  if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+    throw imageError(400, 'Unsupported image type');
+  }
+  if (!data || data.length === 0) {
+    throw imageError(400, 'Empty image data');
+  }
+  if (data.length > MAX_IMAGE_BYTES) {
+    throw imageError(413, 'Image exceeds the 15MB limit');
+  }
+
+  const id = randomUUID();
+  const s3Key = `doc-images/${docId}/${id}`;
+  // Upload bytes first so the metadata row never points at a missing object.
+  await s3Images.putObject({ key: s3Key, body: data, contentType: mimeType });
+  await createImage({ id, docId, uploaderId, mimeType, filename, byteSize: data.length, s3Key });
+
+  return { id, url: imageUrl(docId, id) };
 }
 
 /**
@@ -79,6 +125,9 @@ async function listKeysForDoc(docId) {
 module.exports = {
   init,
   createImage,
+  storeImage,
   getImage,
   listKeysForDoc,
+  ALLOWED_IMAGE_MIME_TYPES,
+  MAX_IMAGE_BYTES,
 };

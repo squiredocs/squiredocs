@@ -639,11 +639,6 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
   }
 });
 
-// Image upload constraints. MIME allowlist excludes SVG (script-injection surface);
-// the 15MB cap mirrors the AI chat attachment limit.
-const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-
 // API: Upload an image for a document (editor or owner)
 // Body: { filename, mimeType, dataBase64 }. Bytes go to S3; only metadata is stored in PG.
 app.post('/api/docs/:docId/images', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
@@ -664,35 +659,16 @@ app.post('/api/docs/:docId/images', requireAuth, express.json({ limit: '20mb' })
     if (!mimeType || !dataBase64) {
       return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
     }
-    if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
-      return res.status(400).json({ error: 'Unsupported image type' });
-    }
 
-    const data = Buffer.from(dataBase64, 'base64');
-    if (data.length === 0) {
-      return res.status(400).json({ error: 'Empty image data' });
-    }
-    if (data.length > MAX_IMAGE_BYTES) {
-      return res.status(413).json({ error: 'Image exceeds the 15MB limit' });
-    }
-
-    const imageId = require('crypto').randomUUID();
-    const s3Key = `doc-images/${docId}/${imageId}`;
-
-    // Upload bytes first so the metadata row never points at a missing object.
-    await s3Images.putObject({ key: s3Key, body: data, contentType: mimeType });
-    await documentImages.createImage({
-      id: imageId,
-      docId,
-      uploaderId: userId,
-      mimeType,
-      filename,
-      byteSize: data.length,
-      s3Key,
+    const result = await documentImages.storeImage({
+      docId, uploaderId: userId, data: Buffer.from(dataBase64, 'base64'), mimeType, filename,
     });
-
-    res.status(201).json({ id: imageId, url: `/api/docs/${docId}/images/${imageId}` });
+    res.status(201).json(result);
   } catch (error) {
+    // storeImage tags validation errors with a status (400/413).
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Error uploading document image:', error);
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to upload image' });
