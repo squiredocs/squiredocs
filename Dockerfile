@@ -21,7 +21,8 @@ COPY --chown=appuser:appgroup package*.json ./
 # db-migrate Job runs `npm run migrate`), so it lives in "dependencies" and is
 # installed here — no separate `npm install` step, which would otherwise pull
 # the entire devDependency tree (jest/babel/esbuild/…, ~126MB) into the image.
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && \
+    find node_modules -name '*.map' -type f -delete
 
 # Copy server code
 COPY --chown=appuser:appgroup server/ ./server/
