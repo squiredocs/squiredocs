@@ -27,7 +27,7 @@ const buildWelcomeKickoffPrompt = (firstName) => {
   return (
     "The user just opened their welcome document for the first time. Greet them warmly as the Squire Docs assistant. "
     + "Silently read this document for context first — do not mention or narrate that you're reading it. "
-    + `Then make exactly one edit to the document: insert "${welcomeSentence}" as the first sentence of the first body paragraph, before its existing text. `
+    + `Then make exactly one edit to the document: insert "${welcomeSentence}" as a new paragraph immediately after the "Write with AI, right in your doc" heading (above the "What's Next?" section). `
     + "Then focus on the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
     + "document with a learning brief to get them started. Keep it warm, brief, and concrete."
   );

@@ -15,11 +15,9 @@ const WELCOME_DOC_TITLE = 'Welcome to Squire Docs';
 const WELCOME_DOC_NODES = [
   { type: 'heading', level: 1, content: 'Welcome to Squire Docs!' },
   { type: 'heading', level: 2, content: 'Write with AI, right in your doc' },
-  {
-    type: 'paragraph',
-    content:
-      'Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to finished plans. It is currently in free public beta, including a $10 AI credit allotment for new users.',
-  },
+  // The assistant injects a personalized "Welcome <First>! …" paragraph here on
+  // first open (see the welcome kickoff in client AiChatContext.jsx), so the
+  // template intentionally leaves this slot empty.
   { type: 'heading', level: 2, content: "What's Next?" },
   { type: 'paragraph', content: 'Choose a path to begin:' },
   {
@@ -59,6 +57,12 @@ const WELCOME_DOC_NODES = [
       { text: 'Get Support', marks: [{ type: 'link', href: 'https://squiredocs.com/support' }] },
       ' link in the Account menu.',
     ],
+  },
+  { type: 'heading', level: 2, content: 'About Squire Docs' },
+  {
+    type: 'paragraph',
+    content:
+      'Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to finished plans. It is currently in free public beta, including a $10 AI credit allotment for new users.',
   },
 ];
 
