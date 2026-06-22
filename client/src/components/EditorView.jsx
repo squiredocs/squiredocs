@@ -748,7 +748,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         </div>
       </header>
       {/* Desktop toolbar - below the header */}
-      {userRole !== 'viewer' && !isMobile && <div className="editor-toolbar"><Toolbar editor={editor} /></div>}
+      {userRole !== 'viewer' && !isMobile && <div className="editor-toolbar"><Toolbar editor={editor} docId={docGuid} /></div>}
       {/* Mobile toolbar - full width rows below the header */}
       {userRole !== 'viewer' && isMobile && <div className="editor-toolbar"><MobileActionBar editor={editor} /></div>}
       <main className="app-main">
@@ -768,6 +768,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           onShowLabelsReady={(callback) => setShowLabelsCallback(() => callback)}
           editable={userRole !== 'viewer'}
           synced={synced}
+          docId={docGuid}
         />
       </main>
 

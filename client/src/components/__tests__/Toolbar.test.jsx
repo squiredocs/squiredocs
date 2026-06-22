@@ -2,13 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Toolbar from '../Toolbar';
-import { createMockEditor } from '../../test/utils';
+import { useAuth } from '../../contexts/AuthContext';
+import { createMockEditor, createMockAuthContext } from '../../test/utils';
+
+vi.mock('../../contexts/AuthContext');
 
 describe('Toolbar', () => {
   let mockEditor;
 
   beforeEach(() => {
     mockEditor = createMockEditor();
+    vi.mocked(useAuth).mockReturnValue(createMockAuthContext());
   });
 
   it('renders all formatting buttons', () => {

@@ -6,6 +6,7 @@ import TableContextMenu from './TableContextMenu';
 import { getBaseExtensions } from '../extensions/editorExtensions';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
+import { useAuth } from '../contexts/AuthContext';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import { colorToRgba } from '../utils/colorUtils';
 import './EditorCommon.css';
@@ -35,7 +36,8 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null }) {
+  const { api } = useAuth();
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
@@ -77,7 +79,12 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
 
   const extensions = useMemo(() => {
     const allExtensions = [
-      ...getBaseExtensions({ openLinksOnClick: false }), // Prevent default link navigation in editor
+      // Prevent default link navigation in editor. Enable image uploads (drag/paste)
+      // only in editable editors that have a docId to upload against.
+      ...getBaseExtensions({
+        openLinksOnClick: false,
+        imageUpload: editable && docId ? { docId, api } : null,
+      }),
       Collaboration.configure({
         document: ydoc,
         field: 'default' // Field name in Yjs document for ProseMirror content
@@ -96,7 +103,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
     }
 
     return allExtensions;
-  }, [ydoc, provider]);
+  }, [ydoc, provider, editable, docId, api]);
 
   const editor = useEditor({
     extensions,

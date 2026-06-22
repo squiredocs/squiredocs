@@ -12,6 +12,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, and code snippets
 - **Diagram Blocks**: Insert **Mermaid** (`◇`) diagram-as-code blocks from the toolbar that render to SVG live as you type. Copying a diagram places a rasterized PNG on the clipboard so it pastes as an image into Google Docs/Notion, and the source round-trips back into an editable block on paste. Diagrams serialize to fenced code blocks (` ```mermaid `) for Markdown export and AI-agent editing.
+- **Images in Documents**: Insert images (PNG, JPEG, GIF, WebP; 15 MB max) via the toolbar picker (`🖼`), drag-and-drop, or paste (e.g. a screenshot). Bytes are stored in a dedicated S3 bucket; the document holds only a short app URL (resolved to a short-lived presigned URL on view), so the Yjs update log stays small. Images serialize to `![alt](url)` for Markdown export and AI-agent editing. Optional — requires S3 config (see [docs/dev.md](docs/dev.md#document-image-storage-s3)); uploads are disabled if unset.
 - **Version History**: View, name, filter, and restore previous versions with markdown-based diff highlighting and formatting-change detection
 - **Image Upload in Chat**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; 15 MB per file) via drag-and-drop or file picker
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
@@ -228,6 +229,8 @@ kubectl exec -n collab <postgres-pod> -- \
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
 - `SES_SMTP_PASS`: SES SMTP password
+- `S3_IMAGE_BUCKET` / `S3_IMAGE_REGION`: Dedicated S3 bucket + region for document image storage (optional; image uploads are disabled if unset). Use a separate bucket from DB backups.
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: IAM credentials for the document image bucket (`s3:PutObject`/`GetObject`/`DeleteObject`)
 
 Example using connection string:
 ```bash

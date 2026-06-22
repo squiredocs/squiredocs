@@ -17,6 +17,8 @@ const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./
 const admin = require('./api/admin');
 const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
+const documentImages = require('./document-images');
+const s3Images = require('./s3-images');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
 const { toMarkdown } = require('./mcp/yjs/serialization');
@@ -122,9 +124,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Parse JSON bodies (skip /api/chat — it has its own larger limit)
+// Parse JSON bodies (skip routes that set their own larger limit:
+// /api/chat, and document image uploads which carry base64-encoded bytes)
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) return next();
+  if (req.method === 'POST' && /^\/api\/docs\/[^/]+\/images$/.test(req.path)) return next();
   express.json()(req, res, next);
 });
 
@@ -256,6 +260,9 @@ initUsers(persistenceProvider.getPool());
 
 // Initialize documents module with shared database pool
 documents.init(persistenceProvider.getPool());
+
+// Initialize document images metadata module with shared database pool
+documentImages.init(persistenceProvider.getPool());
 
 // Initialize onboarding/welcome flow with shared database pool
 onboarding.init(persistenceProvider.getPool());
@@ -605,7 +612,19 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
     
     // Delete Yjs data
     await persistenceProvider.clearDocument(docId);
-    
+
+    // Delete the document's images from S3 (DB rows cascade with the document).
+    // Best-effort: a failure here shouldn't block document deletion.
+    try {
+      if (s3Images.isEnabled()) {
+        const imageKeys = await documentImages.listKeysForDoc(docId);
+        await s3Images.deleteObjects(imageKeys);
+      }
+    } catch (cleanupError) {
+      console.error('Error deleting document images from S3:', cleanupError);
+      notifyException(cleanupError, { req, source: 'api' });
+    }
+
     // Delete document record and shares
     const deleted = await documents.deleteDocument(docId);
     if (!deleted) {
@@ -617,6 +636,96 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
     console.error('Error deleting document:', error);
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
+// Image upload constraints. MIME allowlist excludes SVG (script-injection surface);
+// the 15MB cap mirrors the AI chat attachment limit.
+const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+// API: Upload an image for a document (editor or owner)
+// Body: { filename, mimeType, dataBase64 }. Bytes go to S3; only metadata is stored in PG.
+app.post('/api/docs/:docId/images', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const userId = req.user.userId;
+
+    if (!s3Images.isEnabled()) {
+      return res.status(503).json({ error: 'Image storage is not configured' });
+    }
+
+    // Uploading is an edit — require editor-or-better
+    if (!(await documents.canEdit(docId, userId))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { filename = null, mimeType, dataBase64 } = req.body || {};
+    if (!mimeType || !dataBase64) {
+      return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
+    }
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+      return res.status(400).json({ error: 'Unsupported image type' });
+    }
+
+    const data = Buffer.from(dataBase64, 'base64');
+    if (data.length === 0) {
+      return res.status(400).json({ error: 'Empty image data' });
+    }
+    if (data.length > MAX_IMAGE_BYTES) {
+      return res.status(413).json({ error: 'Image exceeds the 15MB limit' });
+    }
+
+    const imageId = require('crypto').randomUUID();
+    const s3Key = `doc-images/${docId}/${imageId}`;
+
+    // Upload bytes first so the metadata row never points at a missing object.
+    await s3Images.putObject({ key: s3Key, body: data, contentType: mimeType });
+    await documentImages.createImage({
+      id: imageId,
+      docId,
+      uploaderId: userId,
+      mimeType,
+      filename,
+      byteSize: data.length,
+      s3Key,
+    });
+
+    res.status(201).json({ id: imageId, url: `/api/docs/${docId}/images/${imageId}` });
+  } catch (error) {
+    console.error('Error uploading document image:', error);
+    notifyException(error, { req, source: 'api' });
+    res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
+
+// API: Resolve a document image to a short-lived presigned S3 URL (viewer-or-better).
+// Returns { url } rather than bytes so images load directly from S3.
+app.get('/api/docs/:docId/images/:imageId', requireAuth, async (req, res) => {
+  try {
+    const { docId, imageId } = req.params;
+    const userId = req.user.userId;
+
+    if (!s3Images.isEnabled()) {
+      return res.status(503).json({ error: 'Image storage is not configured' });
+    }
+
+    if (!(await documents.hasAccess(docId, userId))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const image = await documentImages.getImage(imageId, docId);
+    if (!image) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    const url = await s3Images.getSignedGetUrl(image.s3_key);
+    res.set('Cache-Control', 'no-store');
+    res.json({ url });
+  } catch (error) {
+    console.error('Error resolving document image:', error);
+    notifyException(error, { req, source: 'api' });
+    res.status(500).json({ error: 'Failed to resolve image' });
   }
 });
 

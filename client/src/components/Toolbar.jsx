@@ -7,10 +7,29 @@ import LineHeightDropdown from './LineHeightDropdown';
 import ColorPickerButton from './ColorPickerButton';
 import DropdownWrapper from './DropdownWrapper';
 import TableMenu from './TableMenu';
+import { useAuth } from '../contexts/AuthContext';
+import { uploadDocumentImage } from '../utils/uploadImage';
 
-export default function Toolbar({ editor }) {
+export default function Toolbar({ editor, docId = null }) {
+  const { api } = useAuth();
   const [linkPreview, setLinkPreview] = useState(null);
   const editorContainerRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+  // Upload the picked file(s) and insert image nodes referencing them.
+  const handleImageFilesPicked = useCallback(async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = ''; // allow re-picking the same file
+    if (!editor || !docId || files.length === 0) return;
+    for (const file of files) {
+      try {
+        const { url } = await uploadDocumentImage(api, docId, file);
+        editor.chain().focus().setImage({ src: url, alt: file.name }).run();
+      } catch (err) {
+        console.error('Image upload failed:', err);
+      }
+    }
+  }, [editor, docId, api]);
 
   // Find the editor container to get its position
   useEffect(() => {
@@ -274,6 +293,25 @@ export default function Toolbar({ editor }) {
         >
           ◇
         </button>
+        {docId && (
+          <>
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              className="toolbar-button"
+              title="Insert image"
+            >
+              🖼
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleImageFilesPicked}
+            />
+          </>
+        )}
       </div>
 
       {linkPreview && (

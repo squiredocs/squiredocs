@@ -136,6 +136,32 @@ spec:
                 secretKeyRef:
                   name: ses-secret
                   key: ADMIN_EMAIL
+            # S3-backed document image storage (optional: image uploads are
+            # disabled if this secret is absent — see server/s3-images.js)
+            - name: S3_IMAGE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-images-secret
+                  key: S3_IMAGE_BUCKET
+                  optional: true
+            - name: S3_IMAGE_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-images-secret
+                  key: S3_IMAGE_REGION
+                  optional: true
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-images-secret
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-images-secret
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
             # Redis
             - name: REDIS_HOST
               value: collab-redis

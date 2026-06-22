@@ -32,6 +32,7 @@ const BLOCK_ELEMENTS = [
   ...LIST_CONTAINERS,
   'blockquote',
   'horizontalRule',
+  'image',
 ];
 
 const isInlineContentBlock = (name) => INLINE_CONTENT_BLOCKS.includes(name);

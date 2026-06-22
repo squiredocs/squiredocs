@@ -31,6 +31,13 @@ function toPlainText(xmlFragment) {
     } else if (node instanceof Y.XmlElement) {
       const tagName = node.nodeName;
 
+      // Image is a void leaf — emit a marker (with alt text if present)
+      if (tagName === 'image') {
+        const alt = node.getAttribute('alt');
+        parts.push(alt ? `[image: ${alt}]\n` : '[image]\n');
+        return;
+      }
+
       // Add appropriate spacing/formatting based on node type
       if (tagName === 'heading') {
         // Add newline before headings if not first
@@ -151,6 +158,10 @@ function toMarkdown(xmlFragment) {
       }
     } else if (tag === 'horizontalRule') {
       parts.push('---\n');
+    } else if (tag === 'image') {
+      const src = node.getAttribute('src') || '';
+      const alt = node.getAttribute('alt') || '';
+      parts.push(`![${alt}](${src})\n`);
     } else if (tag === 'table') {
       renderTable(node);
     } else {
@@ -391,9 +402,9 @@ function toStructuredNode(node) {
     if (processed) children.push(processed);
   }
 
-  // Void elements (self-closing, no content) - filter out any children
-  if (tagName === 'horizontalRule') {
-    // horizontalRule should have no children, even if TipTap adds empty text nodes
+  // Void elements (self-closing, no content) - filter out any children.
+  // Their attributes (e.g. image src/alt/title/width) are already captured above.
+  if (tagName === 'horizontalRule' || tagName === 'image') {
     return result;
   }
 
@@ -444,6 +455,13 @@ function toTextNode(node) {
   }
 
   const tagName = node.nodeName;
+
+  // Image is a void leaf — emit a marker (with alt text if present)
+  if (tagName === 'image') {
+    const alt = node.getAttribute('alt');
+    return alt ? `[image: ${alt}]\n` : '[image]\n';
+  }
+
   let text = '';
 
   for (const child of node.toArray()) {

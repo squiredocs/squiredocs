@@ -136,6 +136,39 @@ const nodes = {
     },
   },
 
+  image: {
+    group: 'block',
+    atom: true,
+    draggable: true,
+    attrs: {
+      src: {},
+      alt: { default: null },
+      title: { default: null },
+      width: { default: null },
+    },
+    parseDOM: [
+      {
+        tag: 'img[src]',
+        getAttrs(dom) {
+          return {
+            src: dom.getAttribute('src'),
+            alt: dom.getAttribute('alt'),
+            title: dom.getAttribute('title'),
+            width: dom.getAttribute('width') ? parseInt(dom.getAttribute('width'), 10) : null,
+          };
+        },
+      },
+    ],
+    toDOM(node) {
+      const { src, alt, title, width } = node.attrs;
+      const attrs = { src };
+      if (alt) attrs.alt = alt;
+      if (title) attrs.title = title;
+      if (width) attrs.width = width;
+      return ['img', attrs];
+    },
+  },
+
   table: {
     content: 'tableRow+',
     tableRole: 'table',

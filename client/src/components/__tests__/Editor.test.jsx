@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import * as Y from 'yjs';
 import Editor from '../Editor';
-import { createMockYjsProvider } from '../../test/utils';
+import { useAuth } from '../../contexts/AuthContext';
+import { createMockYjsProvider, createMockAuthContext } from '../../test/utils';
+
+vi.mock('../../contexts/AuthContext');
 
 // Mock TipTap
 const mockUseEditor = vi.fn();
@@ -56,6 +59,7 @@ describe('Editor', () => {
       off: vi.fn()
     };
     mockUseEditor.mockReturnValue(mockEditor);
+    vi.mocked(useAuth).mockReturnValue(createMockAuthContext());
   });
 
   afterEach(() => {

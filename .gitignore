@@ -15,6 +15,7 @@ k8s/postgres-secret.yaml
 k8s/mcp-auth-secret.yaml
 k8s/ses-secret.yaml
 k8s/s3cmd-configmap.yaml
+k8s/s3-images-secret.yaml
 k8s/auth.env
 k8s/auth.production.env
 .vscode

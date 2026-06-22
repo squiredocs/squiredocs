@@ -30,12 +30,16 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { Mark } from '@tiptap/core';
 import { MermaidNode } from './MermaidNode';
+import { ImageNode } from './ImageNode';
 import { DiagramClipboard } from './DiagramClipboard';
 
 /**
  * Get base extensions shared by all editors
  * @param {object} options - Configuration options
  * @param {boolean} options.openLinksOnClick - Whether links should open on click (default: false)
+ * @param {{docId: string, api: object}|null} options.imageUpload - Enables image
+ *   drag/drop + paste uploads when present (editable editors only). The ImageNode
+ *   is always registered for schema consistency regardless of this option.
  * @returns {Array} Array of TipTap extensions
  */
 const DiffInsert = Mark.create({
@@ -50,7 +54,7 @@ const DiffDelete = Mark.create({
   renderHTML() { return ['del', 0]; },
 });
 
-export function getBaseExtensions({ openLinksOnClick = false } = {}) {
+export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null } = {}) {
   return [
     StarterKit.configure({
       undoRedo: false, // Disable built-in undo/redo (Yjs handles it for collaborative editor)
@@ -77,6 +81,7 @@ export function getBaseExtensions({ openLinksOnClick = false } = {}) {
     DiffInsert,
     DiffDelete,
     MermaidNode,
+    ImageNode.configure({ imageUpload }),
     // Single shared copy/cut handler for all diagram blocks (registered once,
     // not per node — see DiagramClipboard).
     DiagramClipboard,

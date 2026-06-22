@@ -968,6 +968,53 @@ kubectl create job --from=cronjob/postgres-backup manual-backup-$(date +%s) -n c
 - **Naming**: `collab-postgres-<hostname>-<arch>-<day-of-year>.sql.gz`
 - **Script**: `script/backup-postgres.sh`
 
+## Document Image Storage (S3)
+
+Documents can embed images. Bytes are stored in a **dedicated S3 bucket** (separate
+from the DB-backup bucket); the document itself only stores a short app URL
+(`/api/docs/:docId/images/:imageId`). The server resolves that to a short-lived
+presigned GET URL on read, so bytes never sit in the Yjs update log and never
+traverse the app on the hot path. See `server/s3-images.js` and
+`server/document-images.js`.
+
+This feature is **optional** — if the S3 config is absent, image uploads return
+503 and everything else works normally (`s3Images.isEnabled()` gates it).
+
+### Configuration
+
+Set four env vars (locally in `.env`, in-cluster via the `s3-images-secret`):
+
+```
+S3_IMAGE_BUCKET=squiredocs-images-dev
+S3_IMAGE_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+The IAM credentials need `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` on
+`arn:aws:s3:::<bucket>/*`. Use a dedicated bucket + IAM user — do **not** reuse the
+DB-backup credentials.
+
+For the cluster, copy `k8s/s3-images-secret.yaml.example` to
+`k8s/s3-images-secret.yaml` (gitignored) and fill it in. `script/deploy-aws.sh`
+applies it when present; `k8s/app-deployment.yaml` and `k8s/app-dev.yaml` reference
+it with `optional: true`.
+
+### Migration
+
+The image metadata table is created by `migrations/1786000000000_create-document-images.js`:
+
+```bash
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run migrate"
+```
+
+### Constraints
+
+- Allowed types: PNG, JPEG, GIF, WebP (SVG is excluded — script-injection surface).
+- Max size: 15 MB per image (mirrors the AI chat attachment limit).
+- Uploading requires **editor** access; viewing requires **viewer** access.
+- Deleting a document deletes its image rows (CASCADE) and its S3 objects.
+
 ## Next Steps
 
 - See [README.md](../README.md) for application features and usage
