@@ -39,6 +39,18 @@ function isEnabled() {
 }
 
 /**
+ * S3 origin(s) the browser loads presigned image URLs from — for the CSP
+ * `img-src` allowlist. Empty when storage isn't configured. Virtual-hosted
+ * style (`<bucket>.s3.<region>.amazonaws.com`), which is what the presigner
+ * emits for our dotless bucket names.
+ * @returns {string[]}
+ */
+function cspImageSources() {
+  if (!isEnabled()) return [];
+  return [`https://${S3_IMAGE_CONFIG.bucket}.s3.${S3_IMAGE_CONFIG.region}.amazonaws.com`];
+}
+
+/**
  * Get the singleton S3 client. Throws if storage isn't configured.
  * @returns {S3Client}
  */
@@ -123,6 +135,7 @@ async function deleteObjects(keys) {
 
 module.exports = {
   isEnabled,
+  cspImageSources,
   putObject,
   getObject,
   getSignedGetUrl,
