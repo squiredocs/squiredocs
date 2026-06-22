@@ -15,6 +15,7 @@ const {
   GetObjectCommand,
   DeleteObjectsCommand,
 } = require('@aws-sdk/client-s3');
+const { Buffer } = require('buffer');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const S3_IMAGE_CONFIG = {
@@ -77,6 +78,24 @@ async function putObject({ key, body, contentType }) {
 }
 
 /**
+ * Fetch an object's bytes (used for agent vision over doc images).
+ * @param {string} key - S3 object key
+ * @returns {Promise<Buffer>} Object bytes
+ */
+async function getObject(key) {
+  const res = await getClient().send(new GetObjectCommand({
+    Bucket: S3_IMAGE_CONFIG.bucket,
+    Key: key,
+  }));
+  // Node stream → Buffer
+  const chunks = [];
+  for await (const chunk of res.Body) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
  * Generate a short-lived presigned GET URL for an object.
  * @param {string} key - S3 object key
  * @returns {Promise<string>} Presigned URL
@@ -105,6 +124,7 @@ async function deleteObjects(keys) {
 module.exports = {
   isEnabled,
   putObject,
+  getObject,
   getSignedGetUrl,
   deleteObjects,
   GET_URL_TTL_SECONDS,

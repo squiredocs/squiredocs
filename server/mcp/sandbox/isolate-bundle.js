@@ -12559,7 +12559,8 @@ ${err.toString()}`);
         ...INLINE_CONTENT_BLOCKS,
         ...LIST_CONTAINERS,
         "blockquote",
-        "horizontalRule"
+        "horizontalRule",
+        "image"
       ];
       var isInlineContentBlock = (name) => INLINE_CONTENT_BLOCKS.includes(name);
       var isCodeLikeBlock = (name) => CODE_LIKE_BLOCKS.includes(name);
@@ -12819,6 +12820,17 @@ ${err.toString()}`);
         function createHorizontalRule() {
           return new XmlElement("horizontalRule");
         }
+        function createImage(attrs) {
+          if (!attrs || typeof attrs.src !== "string" || !attrs.src) {
+            throw new Error("appendBlocks: image requires a src (an existing app image URL)");
+          }
+          const image = new XmlElement("image");
+          image.setAttribute("src", attrs.src);
+          if (attrs.alt != null) image.setAttribute("alt", attrs.alt);
+          if (attrs.title != null) image.setAttribute("title", attrs.title);
+          if (attrs.width != null) image.setAttribute("width", attrs.width);
+          return image;
+        }
         function createTable(headers, rows) {
           if (!Array.isArray(rows) || rows.length === 0) {
             throw new Error("appendBlocks: table requires rows array");
@@ -12894,13 +12906,15 @@ ${err.toString()}`);
               return createBlockquote(blockDef.content);
             case "horizontalRule":
               return createHorizontalRule();
+            case "image":
+              return createImage(blockDef);
             case "table":
               if (!blockDef.rows) {
                 throw new Error("appendBlocks: table requires rows");
               }
               return createTable(blockDef.headers, blockDef.rows);
             default:
-              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, table`);
+              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, image, table`);
           }
         }
         const elements = blocks.map(createBlock);

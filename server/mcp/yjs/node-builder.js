@@ -22,6 +22,14 @@ function buildYjsNode(node) {
   if (language !== undefined) {
     element.setAttribute('language', language);
   }
+  // Image is a void/atom node — carry its attributes (it has no content/children).
+  if (type === 'image') {
+    for (const key of ['src', 'alt', 'title', 'width']) {
+      if (node[key] !== undefined && node[key] !== null) {
+        element.setAttribute(key, node[key]);
+      }
+    }
+  }
 
   // Build content
   if (type === 'codeBlock') {

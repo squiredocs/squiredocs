@@ -372,6 +372,26 @@ function inlineDataUrls(modelMessages) {
   }
 }
 
+/**
+ * Extract image attachments from the incoming user UIMessage as base64, so the
+ * insert_image tool can place one into a document. The model can't carry image
+ * bytes through a tool call, so the tool references these by index instead.
+ * @returns {Array<{filename: string|null, mediaType: string, dataBase64: string}>}
+ */
+function extractMessageImages(message) {
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  const images = [];
+  for (const part of parts) {
+    if (part?.type !== 'file' || typeof part.mediaType !== 'string') continue;
+    if (!part.mediaType.startsWith('image/')) continue;
+    const src = typeof part.url === 'string' ? part.url : part.data;
+    if (typeof src !== 'string') continue;
+    const m = src.match(/^data:[^;]+;base64,(.+)$/s);
+    if (m) images.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: m[1] });
+  }
+  return images;
+}
+
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
 router.post('/', requireAuth, async (req, res) => {
@@ -493,11 +513,15 @@ router.post('/', requireAuth, async (req, res) => {
     const observedClockHolder = { byDoc: new Map() };
 
     // Build tool set: MCP tools + provider-specific web search + universal webFetch
+    // + image tools (insert_image references this message's attachments; view_image
+    // lets the agent see images already in the doc).
     const tools = chatTools.buildTools(syntheticAgentToken, {
       providerName: def.provider,
       provider,
       pool,
       observedClockHolder,
+      docGuid,
+      messageImages: extractMessageImages(message),
     });
 
     // Validate and convert UI messages for streamText.

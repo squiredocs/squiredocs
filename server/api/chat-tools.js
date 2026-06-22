@@ -10,10 +10,24 @@
  *
  * Imports from 'ai' are lazy-loaded (called from chat.js at request time).
  */
+const Y = require('yjs');
+const { randomUUID } = require('crypto');
 const toolRegistry = require('../mcp/tools');
 const { webFetch } = require('./web-fetch');
 const { SNAPSHOT_TOOLS } = require('./chat-staleness');
 const { getProviderConfig } = require('./ai-providers');
+const documents = require('../documents');
+const documentImages = require('../document-images');
+const s3Images = require('../s3-images');
+const documentService = require('../document-service');
+const { buildYjsNode } = require('../mcp/yjs/node-builder');
+
+// Image upload constraints (mirror the upload route in server/index.js).
+const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+// Pull an imageId out of an app image URL if the agent passes a url instead.
+const APP_IMAGE_URL = /\/api\/docs\/([^/]+)\/images\/([^/?#]+)/;
 
 // Static cap for any single tool result. Documents larger than this should
 // be read in chunks via xpath. Reactive compaction handles overall context.
@@ -104,6 +118,145 @@ function buildWebTools(providerName, provider) {
 }
 
 /**
+ * Build chat-only image tools (not in the shared MCP registry, since external
+ * agents have no chat attachments):
+ *   - insert_image: place an image the user attached in THIS message into a doc.
+ *   - view_image: fetch an image already in a doc and show it to the model (vision).
+ * Both run in-process against s3Images / documentImages / documentService.
+ *
+ * @param {object} agentToken - { userId, agentName }
+ * @param {object} ctx - { messageImages, docGuid }
+ */
+function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid } = {}) {
+  const { tool, jsonSchema } = require('ai');
+  const tools = {};
+  const userId = agentToken.userId;
+  const agentName = agentToken.agentName;
+
+  tools.insert_image = tool({
+    description:
+      'Insert an image the user attached in the CURRENT chat message into a document. '
+      + 'Use when the user asks to add/place/insert an image they attached. The image is '
+      + 'referenced by its 0-based index among the attachments in this message '
+      + '(attachmentIndex, default 0). Inserts at the end of the document by default. '
+      + 'Only works for images attached in chat — to reference an image already in the '
+      + 'document, use the modify tool instead.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        docGuid: { type: 'string', description: 'Target document UUID (defaults to the current document).' },
+        attachmentIndex: { type: 'integer', minimum: 0, description: '0-based index of the attached image in this message (default 0).' },
+        alt: { type: 'string', description: 'Alt text / caption describing the image.' },
+        position: { type: 'string', enum: ['start', 'end'], description: 'Where to place it (default: end).' },
+      },
+      required: [],
+    }),
+    execute: async (args = {}) => {
+      try {
+        if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
+        const docGuid = args.docGuid || chatDocGuid;
+        if (!docGuid) return { error: 'No target document. Specify docGuid.' };
+        if (!messageImages.length) {
+          return { error: 'No image is attached to the current message. Ask the user to attach the image they want inserted.' };
+        }
+        const index = Number.isInteger(args.attachmentIndex) ? args.attachmentIndex : 0;
+        const att = messageImages[index];
+        if (!att) return { error: `No attachment at index ${index}; this message has ${messageImages.length} image(s).` };
+        if (!ALLOWED_IMAGE_MIME_TYPES.includes(att.mediaType)) {
+          return { error: `Unsupported image type ${att.mediaType}.` };
+        }
+        if (!(await documents.canEdit(docGuid, userId))) {
+          return { error: 'You do not have permission to edit this document.' };
+        }
+        const data = Buffer.from(att.dataBase64, 'base64');
+        if (data.length === 0) return { error: 'Attachment had no data.' };
+        if (data.length > MAX_IMAGE_BYTES) return { error: 'Image exceeds the 15MB limit.' };
+
+        const imageId = randomUUID();
+        const s3Key = `doc-images/${docGuid}/${imageId}`;
+        await s3Images.putObject({ key: s3Key, body: data, contentType: att.mediaType });
+        await documentImages.createImage({
+          id: imageId, docId: docGuid, uploaderId: userId,
+          mimeType: att.mediaType, filename: att.filename, byteSize: data.length, s3Key,
+        });
+
+        const url = `/api/docs/${docGuid}/images/${imageId}`;
+        const alt = args.alt || att.filename || null;
+        const atStart = args.position === 'start';
+        await documentService.updateDocument(docGuid, (ydoc) => {
+          const frag = ydoc.get('default', Y.XmlFragment);
+          const node = buildYjsNode({ type: 'image', src: url, alt });
+          frag.insert(atStart ? 0 : frag.length, [node]);
+        }, { userId, agentName });
+
+        return { inserted: true, id: imageId, url, alt };
+      } catch (error) {
+        console.error('[chat-tools] insert_image error:', error.message);
+        return { error: error.message };
+      }
+    },
+  });
+
+  tools.view_image = tool({
+    description:
+      'View an image that is already in a document so you can see its actual contents '
+      + '(e.g. to describe, critique, or answer questions about it). Pass the image\'s id '
+      + 'or its app URL (/api/docs/:docId/images/:imageId), which appears as the src of '
+      + 'image nodes when you read the document.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        docGuid: { type: 'string', description: 'Document UUID (defaults to the current document).' },
+        imageId: { type: 'string', description: 'The image id, or the full app image URL.' },
+      },
+      required: ['imageId'],
+    }),
+    execute: async (args = {}) => {
+      try {
+        if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
+        let docGuid = args.docGuid || chatDocGuid;
+        let imageId = args.imageId;
+        const m = typeof imageId === 'string' ? imageId.match(APP_IMAGE_URL) : null;
+        if (m) { docGuid = m[1]; imageId = m[2]; }
+        if (!docGuid || !imageId) return { error: 'Provide an imageId (or app image URL) and docGuid.' };
+        if (!(await documents.hasAccess(docGuid, userId))) {
+          return { error: 'You do not have access to this document.' };
+        }
+        const image = await documentImages.getImage(imageId, docGuid);
+        if (!image) return { error: 'Image not found in this document.' };
+        // Bytes are fetched in toModelOutput (kept out of stored chat history).
+        return { imageId, docGuid, mediaType: image.mime_type, s3Key: image.s3_key, viewed: true };
+      } catch (error) {
+        console.error('[chat-tools] view_image error:', error.message);
+        return { error: error.message };
+      }
+    },
+    // Send the actual image bytes to the model as a multimodal tool result, while
+    // the stored result (execute output) stays small (just metadata).
+    toModelOutput: async ({ output }) => {
+      if (!output || output.error) {
+        return { type: 'error-text', value: output?.error || 'Could not view image.' };
+      }
+      try {
+        const bytes = await s3Images.getObject(output.s3Key);
+        return {
+          type: 'content',
+          value: [
+            { type: 'text', text: `Image ${output.imageId} (${output.mediaType}):` },
+            { type: 'image-data', data: bytes.toString('base64'), mediaType: output.mediaType },
+          ],
+        };
+      } catch (err) {
+        console.error('[chat-tools] view_image fetch failed:', err.message);
+        return { type: 'error-text', value: 'The image could not be loaded.' };
+      }
+    },
+  });
+
+  return tools;
+}
+
+/**
  * Build AI SDK tool definitions from the MCP tool registry,
  * plus provider-specific web tools when provider info is given.
  * @param {object} syntheticAgentToken - Token object for tool execution context
@@ -112,7 +265,7 @@ function buildWebTools(providerName, provider) {
  * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder } = {}) {
+function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder, docGuid, messageImages } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -176,7 +329,10 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
     Object.assign(aiTools, buildWebTools(providerName, provider));
   }
 
+  // Chat-only image tools (insert from chat attachment, view doc images).
+  Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, docGuid }));
+
   return aiTools;
 }
 
-module.exports = { buildTools, buildWebTools, MAX_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };
+module.exports = { buildTools, buildWebTools, buildImageTools, MAX_RESULT_CHARS, XPATH_TOOLS, buildOversizedError };

@@ -590,6 +590,23 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
+   * Create an image element. `src` must be an existing app image URL
+   * (/api/docs/:docId/images/:imageId) — agents can't fabricate image bytes.
+   * @param {{src: string, alt?: string, title?: string, width?: number}} attrs
+   */
+  function createImage(attrs) {
+    if (!attrs || typeof attrs.src !== 'string' || !attrs.src) {
+      throw new Error('appendBlocks: image requires a src (an existing app image URL)');
+    }
+    const image = new XmlElement('image');
+    image.setAttribute('src', attrs.src);
+    if (attrs.alt != null) image.setAttribute('alt', attrs.alt);
+    if (attrs.title != null) image.setAttribute('title', attrs.title);
+    if (attrs.width != null) image.setAttribute('width', attrs.width);
+    return image;
+  }
+
+  /**
    * Create a table element with optional headers and rows
    * @param {string[]} [headers] - Optional header cell contents
    * @param {string[][]} rows - Array of row arrays, each containing cell contents
@@ -688,6 +705,9 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       case 'horizontalRule':
         return createHorizontalRule();
 
+      case 'image':
+        return createImage(blockDef);
+
       case 'table':
         if (!blockDef.rows) {
           throw new Error('appendBlocks: table requires rows');
@@ -695,7 +715,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, image, table`);
     }
   }
 

@@ -12,6 +12,7 @@ const { toMarkdown } = require('../yjs/serialization');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks } = require('../mermaid-validate');
+const { sanitizeImageSrcs } = require('../image-validate');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
 // always succeeds in changing the live document; the content echo is a
@@ -418,6 +419,11 @@ TipTap Block Types:
   - 'bulletList', 'orderedList', 'listItem'
   - 'codeBlock', 'blockquote', 'horizontalRule'
   - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
+  - 'image' (atom block — attrs: src, alt?, title?, width?). src MUST be an existing
+     app image URL (/api/docs/:docId/images/:imageId). You can move, reorder, delete,
+     and edit alt/title/width of existing images, but you CANNOT create a new image
+     here — an external/invented src is stripped. To add a new image the user attached
+     in chat, use the insert_image tool instead.
   - 'table', 'tableRow', 'tableCell', 'tableHeader'
 
 Table Structure:
@@ -486,6 +492,7 @@ RETURNS
 - clock: The document's update counter, so you can track its version
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
+- imageErrors: Present only if your script left image node(s) with a non-app src. Those images were REMOVED (an array of { src }). Only reference existing app image URLs (/api/docs/:docId/images/:imageId); to add a new image from chat use the insert_image tool.
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1568,6 +1575,17 @@ async function handler(args, agentToken) {
       timeout: validatedTimeout,
     });
 
+    // Guardrail: strip any image whose src isn't an app image URL (agents may
+    // reference existing images but not inject external/data srcs). Runs before
+    // diff/content so the response reflects the sanitized document. Mutates the
+    // live fragment, so the removal persists with the rest of the edit.
+    let imageErrors = [];
+    try {
+      imageErrors = sanitizeImageSrcs(xmlFragment);
+    } catch (e) {
+      console.error('[modify] image src validation failed:', e.message);
+    }
+
     // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
     const mdAfter = toMarkdown(xmlFragment);
@@ -1642,6 +1660,14 @@ async function handler(args, agentToken) {
           + 'fix the diagram(s).';
         // Compose with any existing message (e.g. the large-doc omission note)
         // rather than clobbering it.
+        response.message = response.message ? `${response.message} ${warning}` : warning;
+      }
+      if (imageErrors.length > 0) {
+        response.imageErrors = imageErrors;
+        const n = imageErrors.length;
+        const warning = `${n} image${n > 1 ? 's were' : ' was'} removed because the src was not an `
+          + 'app image URL (/api/docs/:docId/images/:imageId). You can only reference images that '
+          + 'already exist in the document; to add a new image from chat, use the insert_image tool.';
         response.message = response.message ? `${response.message} ${warning}` : warning;
       }
 
