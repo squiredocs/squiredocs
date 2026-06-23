@@ -144,43 +144,39 @@ function notifySupportRequest({ email, name, message }) {
 }
 
 /**
- * Email a person who is NOT yet signed up, inviting them to a shared document.
- * Sent to an arbitrary external address (requires SES production access).
+ * Send a "document shared with you" email. The invite variant (for people who
+ * aren't signed up yet) adds a sign-in instruction; otherwise the body just
+ * says they now have access. Both go to an arbitrary external address, so they
+ * require SES production access.
+ * @param {boolean} pending - true for a not-yet-registered invitee
  */
-function sendShareInvite({ to, docTitle, inviterName, docUrl, replyTo }) {
-  const safeTitle = escapeHtml(docTitle || 'Untitled document');
-  const safeInviter = escapeHtml(inviterName || 'Someone');
+function sendShareEmail({ to, docTitle, inviterName, docUrl, replyTo, pending }) {
+  const title = docTitle || 'Untitled document';
+  const inviter = inviterName || 'Someone';
+  const safeTitle = escapeHtml(title);
+  const safeInviter = escapeHtml(inviter);
   const safeUrl = escapeHtml(docUrl);
+  const action = pending ? 'invited you to' : 'gave you access to';
+  const signInHint = pending
+    ? `<p>You'll need to sign in with Google using this email address to access it.</p>`
+    : '';
   sendEmail({
     to,
     replyTo,
-    subject: sanitizeHeader(`${inviterName || 'Someone'} shared "${docTitle || 'Untitled document'}" with you on Squire Docs`),
+    subject: sanitizeHeader(`${inviter} shared "${title}" with you on Squire Docs`),
     html: `
       <h3>${safeInviter} shared a document with you</h3>
-      <p><strong>${safeInviter}</strong> invited you to the document <strong>"${safeTitle}"</strong> on Squire Docs.</p>
+      <p><strong>${safeInviter}</strong> ${action} the document <strong>"${safeTitle}"</strong> on Squire Docs.</p>
       <p><a href="${safeUrl}">Open the document</a></p>
-      <p>You'll need to sign in with Google using this email address to access it.</p>
+      ${signInHint}
     `,
   });
 }
 
-/**
- * Notify an existing user that a document has just been shared with them.
- */
-function sendShareNotification({ to, docTitle, inviterName, docUrl, replyTo }) {
-  const safeTitle = escapeHtml(docTitle || 'Untitled document');
-  const safeInviter = escapeHtml(inviterName || 'Someone');
-  const safeUrl = escapeHtml(docUrl);
-  sendEmail({
-    to,
-    replyTo,
-    subject: sanitizeHeader(`${inviterName || 'Someone'} shared "${docTitle || 'Untitled document'}" with you on Squire Docs`),
-    html: `
-      <h3>${safeInviter} shared a document with you</h3>
-      <p><strong>${safeInviter}</strong> gave you access to the document <strong>"${safeTitle}"</strong> on Squire Docs.</p>
-      <p><a href="${safeUrl}">Open the document</a></p>
-    `,
-  });
-}
+/** Invite a person who is NOT yet signed up to a shared document. */
+const sendShareInvite = (opts) => sendShareEmail({ ...opts, pending: true });
+
+/** Notify an existing user that a document has just been shared with them. */
+const sendShareNotification = (opts) => sendShareEmail({ ...opts, pending: false });
 
 module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification };

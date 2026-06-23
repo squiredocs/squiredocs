@@ -5,6 +5,15 @@ import { useVisualViewport } from '../hooks/useVisualViewport';
 import Avatar from './Avatar';
 import './ShareDialog.css';
 
+/** The "✕" glyph used by the dialog close button and the remove/cancel buttons. */
+function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
 function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const { api, user: currentUser } = useAuth();
   const isMobile = useMobile();
@@ -202,9 +211,7 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
         <div className="share-dialog-header">
           <h2>Share "{docTitle || 'Untitled document'}"</h2>
           <button className="share-dialog-close" onClick={onClose} aria-label="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <XIcon />
           </button>
         </div>
 
@@ -305,9 +312,7 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
                         onClick={() => handleRemoveAccess(user.id, user.name)}
                         aria-label={`Remove ${user.name}'s access`}
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        <XIcon />
                       </button>
                     </div>
                   ) : (
@@ -336,9 +341,7 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
                         onClick={() => handleRemoveInvite(invite.email)}
                         aria-label={`Cancel invitation to ${invite.email}`}
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        <XIcon />
                       </button>
                     )}
                   </li>
