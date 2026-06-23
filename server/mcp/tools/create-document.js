@@ -7,6 +7,7 @@
  */
 const documentService = require('../../document-service');
 const agentPresence = require('../agent-presence');
+const onboarding = require('../../onboarding');
 const { buildYjsNode } = require('../yjs/node-builder');
 
 // create_document delegates record creation + Yjs seeding to
@@ -83,6 +84,12 @@ async function handler(args, agentToken) {
   });
 
   console.log(`[create_document] created docGuid=${docGuid}`);
+
+  // The user (or an agent acting for them) just created a real, non-welcome
+  // document — they're engaged. Stamp onboarded_at now instead of waiting for
+  // their next login/_auth/me probe. Best-effort and not awaited: must never
+  // delay or fail document creation.
+  onboarding.markEngagedFromDocCreation(userId).catch(() => {});
 
   // Give the agent live presence (avatar + cursor) in the doc it just created,
   // the same WebSocket session modify/read_document use — so it shows up as

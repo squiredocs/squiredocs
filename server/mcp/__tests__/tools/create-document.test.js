@@ -12,6 +12,8 @@ const persistenceProvider = createPersistence();
 
 // Import modules
 const documents = require('../../../documents');
+const users = require('../../../auth/users');
+const onboarding = require('../../../onboarding');
 const createDocument = require('../../tools/create-document');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const documentService = require('../../../document-service');
@@ -65,6 +67,8 @@ describe('create_document tool', () => {
 
     // Initialize modules
     documents.init(pool);
+    users.init(pool);
+    onboarding.init(pool);
     createDocument.init(persistenceProvider);
 
     // Create test user
@@ -352,6 +356,28 @@ describe('create_document tool', () => {
         [result.docGuid]
       );
       expect(parseInt(updateResult.rows[0].count, 10)).toBeGreaterThan(0);
+    });
+
+    test('stamps onboarded_at on the creator (engagement)', async () => {
+      // A real (non-welcome) doc means the user is engaged — onboarded_at
+      // should flip without waiting for their next login/_auth/me probe.
+      await pool.query('UPDATE users SET onboarded_at = NULL WHERE id = $1', [testUserId]);
+
+      const agentToken = {
+        userId: testUserId,
+        delegationId: 'test-delegation-id',
+        agentId: 'claude-code:test',
+        scopes: ['documents:write'],
+      };
+
+      const result = await createDocument.handler({ title: 'Engagement Doc' }, agentToken);
+      createdDocIds.push(result.docGuid);
+
+      // The stamp is fire-and-forget inside the handler; give it a tick to land.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const u = await users.findById(testUserId);
+      expect(u.onboarded_at).toBeTruthy();
     });
 
     test('establishes agent presence in the newly created document', async () => {

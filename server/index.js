@@ -559,6 +559,10 @@ app.post('/api/docs', requireAuth, async (req, res) => {
     
     // Create the document with this user as owner
     const doc = await documents.createDocument(docId, userId);
+    // Creating a real (non-welcome) doc means the user is now engaged — stamp
+    // onboarded_at now instead of waiting for their next login/_auth/me probe.
+    // Best-effort: never block or fail creation on the onboarding stamp.
+    onboarding.markEngagedFromDocCreation(userId).catch(() => {});
     res.status(201).json({ doc, role: 'owner', created: true });
   } catch (error) {
     console.error('Error creating document:', error);

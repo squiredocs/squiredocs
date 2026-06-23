@@ -114,6 +114,31 @@ async function resolveOnboarding(user, { seed = false } = {}) {
 }
 
 /**
+ * Stamp onboarded_at because the user just created a real (non-welcome)
+ * document — i.e. they're now engaged by definition. Called from the
+ * user-initiated document-creation paths (the POST /api/docs endpoint and the
+ * create_document MCP tool) so the flag reflects engagement at the moment it
+ * happens, rather than lagging until the user's next login or /auth/me probe.
+ *
+ * Idempotent (users.markOnboarded only writes when onboarded_at IS NULL) and
+ * best-effort: it must never block or fail document creation, so callers can
+ * fire-and-forget and errors are swallowed here.
+ *
+ * Deliberately NOT called from seedWelcomeDoc — creating the welcome doc is not
+ * engagement, and is the one creation path that must leave the flag unset.
+ * @param {string} userId
+ * @returns {Promise<void>}
+ */
+async function markEngagedFromDocCreation(userId) {
+  if (!userId) return;
+  try {
+    await users.markOnboarded(userId);
+  } catch (e) {
+    console.error('[Onboarding] Failed to stamp onboarded_at on doc creation:', e);
+  }
+}
+
+/**
  * DEV ONLY: reset a user's onboarding state and reseed a fresh welcome doc, so
  * the full welcome flow can be re-triggered on demand even for an "engaged"
  * user. Deletes the previous welcome doc, clears the onboarding columns, and
@@ -141,5 +166,6 @@ module.exports = {
   seedWelcomeDoc,
   isEngaged,
   resolveOnboarding,
+  markEngagedFromDocCreation,
   resetForDev,
 };

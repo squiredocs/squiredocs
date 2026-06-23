@@ -200,6 +200,32 @@ describe('onboarding / welcome flow', () => {
     });
   });
 
+  describe('markEngagedFromDocCreation', () => {
+    test('stamps onboarded_at for a not-yet-onboarded user', async () => {
+      const user = await freshUser();
+      expect(user.onboarded_at).toBeNull();
+
+      await onboarding.markEngagedFromDocCreation(testUserId);
+
+      const u = await users.findById(testUserId);
+      expect(u.onboarded_at).toBeTruthy();
+    });
+
+    test('is idempotent — preserves the original timestamp on a repeat call', async () => {
+      const first = (await users.findById(testUserId)).onboarded_at;
+      expect(first).toBeTruthy();
+
+      await onboarding.markEngagedFromDocCreation(testUserId);
+
+      const second = (await users.findById(testUserId)).onboarded_at;
+      expect(second).toEqual(first);
+    });
+
+    test('no-op for a falsy userId (never throws)', async () => {
+      await expect(onboarding.markEngagedFromDocCreation(null)).resolves.toBeUndefined();
+    });
+  });
+
   describe('resetForDev', () => {
     test('clears onboarding state and reseeds a fresh welcome doc', async () => {
       // Establish a starting welcome doc + onboarded state
