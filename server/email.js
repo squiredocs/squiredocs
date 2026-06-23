@@ -46,7 +46,8 @@ async function sendEmail({ to, subject, html, replyTo }) {
   try {
     const message = { from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html };
     if (replyTo) message.replyTo = sanitizeHeader(replyTo);
-    await getTransporter().sendMail(message);
+    const info = await getTransporter().sendMail(message);
+    console.log('Email sent:', subject, '->', to, `(messageId: ${info.messageId})`);
   } catch (err) {
     console.error('Failed to send email:', subject, err.message);
   }
@@ -160,7 +161,7 @@ function sendShareEmail({ to, docTitle, inviterName, docUrl, replyTo, pending })
   const signInHint = pending
     ? `<p>You'll need to sign in with Google using this email address to access it.</p>`
     : '';
-  sendEmail({
+  return sendEmail({
     to,
     replyTo,
     subject: sanitizeHeader(`${inviter} shared "${title}" with you on Squire Docs`),

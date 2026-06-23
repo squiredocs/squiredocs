@@ -784,10 +784,12 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
 
       await documents.createInvite(docId, email, role, userId);
 
-      // Fire-and-forget; never blocks the response. Suppressed when the
-      // inviter isn't trusted to send email (the invite is still recorded).
+      // Awaited so the send completes before we respond — otherwise an
+      // in-flight send is silently dropped if the pod is shutting down (e.g.
+      // mid-deploy). sendEmail never throws, so this can't fail the request.
+      // Suppressed when the inviter isn't trusted (the invite is still recorded).
       if (canEmail) {
-        sendShareInvite({
+        await sendShareInvite({
           to: email,
           docTitle: doc?.title,
           inviterName: req.user.name,
@@ -817,8 +819,10 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
 
     // Notify the existing user that a doc was shared with them (gated on the
     // inviter being trusted to send email; access is granted regardless).
+    // Awaited so the send isn't dropped if the pod is shutting down mid-deploy;
+    // sendEmail never throws, so this can't fail the request.
     if (canEmail) {
-      sendShareNotification({
+      await sendShareNotification({
         to: targetUser.email,
         docTitle: doc?.title,
         inviterName: req.user.name,
