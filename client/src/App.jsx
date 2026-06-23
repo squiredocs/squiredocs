@@ -13,6 +13,8 @@ import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import AdminPage from './pages/AdminPage';
 import ChatPage from './pages/ChatPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
 import './App.css';
 
 // UUID validation regex
@@ -46,6 +48,14 @@ function parseRoute() {
   // Check for /support path
   if (path === '/support') {
     return { view: 'support', docGuid: null };
+  }
+
+  // Public legal pages (no auth required)
+  if (path === '/privacy') {
+    return { view: 'privacy', docGuid: null };
+  }
+  if (path === '/terms') {
+    return { view: 'terms', docGuid: null };
   }
 
   // /admin path — parsed here but gated on isAdmin in AppContent
@@ -195,6 +205,15 @@ function AppContent() {
     window.history.pushState({}, '', '/chat');
     setRoute({ view: 'chat', docGuid: null });
   };
+
+  // Public legal pages - static content, available signed in or out and
+  // independent of auth state (rendered before the auth-loading gate).
+  if (route.view === 'privacy') {
+    return <PrivacyPage />;
+  }
+  if (route.view === 'terms') {
+    return <TermsPage />;
+  }
 
   // Show loading state during auth initialization
   if (loading) {

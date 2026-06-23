@@ -98,6 +98,12 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
             </>
           )}
         </div>
+
+        <div className="login-legal">
+          <a href="/privacy" className="login-legal-link">Privacy Policy</a>
+          <span className="login-legal-sep" aria-hidden="true">·</span>
+          <a href="/terms" className="login-legal-link">Terms of Service</a>
+        </div>
       </div>
     </div>
   );

@@ -152,6 +152,31 @@
   text-decoration: underline;
 }
 
+.login-legal {
+  margin-top: 1.25rem;
+  font-size: var(--text-sm);
+  color: #9ca3af;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.login-legal-link {
+  color: #6b7280;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.login-legal-link:hover {
+  color: #7c3aed;
+  text-decoration: underline;
+}
+
+.login-legal-sep {
+  color: #d1d5db;
+}
+
 /* Loading state */
 .login-button.loading {
   position: relative;
