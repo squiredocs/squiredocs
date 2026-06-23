@@ -225,7 +225,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
-- `SES_FROM_EMAIL`: AWS SES verified sender address for admin notifications (optional; notifications are skipped if unset)
+- `SES_FROM_EMAIL`: AWS SES verified sender address for transactional email — admin notifications plus document share invitations/notifications (optional; email is skipped if unset). Set to `no-reply@squiredocs.com`. Sending invitations to external (non-admin) recipients requires the SES account to have production access (out of the sandbox) and the `squiredocs.com` domain verified in SES
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
 - `SES_SMTP_PASS`: SES SMTP password
@@ -289,7 +289,7 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 
 1. **Sign in**: Authenticate with Google OAuth
 2. **Create or open documents**: Access your documents from the list page
-3. **Share documents**: Click the Share button to add users with Editor or Viewer access
+3. **Share documents**: Click the Share button to add users with Editor or Viewer access. The email field autocompletes against existing users. You can also share with someone who hasn't signed up yet — they receive an email invitation and gain access automatically the first time they sign in
 4. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
 5. **View version history**: Click the History button to view, name, and restore previous versions
 6. **Manage permissions**: Editors and Owners can change roles and remove access
@@ -1109,6 +1109,8 @@ See `server/mcp/yjs/cursor-operations.js` (getAllText function) and `server/mcp/
 
 ### Sharing Interface
 - **Share dialog**: Shows document title, lists all users with access
+- **User autocomplete**: Typing in the email field suggests matching registered users (name + avatar); excludes the current user and people already on the doc
+- **Invite by email**: Sharing with an address that isn't a registered user yet creates a pending invite (shown under "Pending invites") and emails them an invitation. The invite converts to a real share on their first sign-in. Pending invites can be cancelled by editors/owners
 - **Role management**: Visual role badges, dropdown selectors for role changes
 - **Permission hints**: Disabled actions show tooltips explaining restrictions
 

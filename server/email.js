@@ -143,4 +143,44 @@ function notifySupportRequest({ email, name, message }) {
   });
 }
 
-module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest };
+/**
+ * Email a person who is NOT yet signed up, inviting them to a shared document.
+ * Sent to an arbitrary external address (requires SES production access).
+ */
+function sendShareInvite({ to, docTitle, inviterName, docUrl, replyTo }) {
+  const safeTitle = escapeHtml(docTitle || 'Untitled document');
+  const safeInviter = escapeHtml(inviterName || 'Someone');
+  const safeUrl = escapeHtml(docUrl);
+  sendEmail({
+    to,
+    replyTo,
+    subject: sanitizeHeader(`${inviterName || 'Someone'} shared "${docTitle || 'Untitled document'}" with you on Squire Docs`),
+    html: `
+      <h3>${safeInviter} shared a document with you</h3>
+      <p><strong>${safeInviter}</strong> invited you to the document <strong>"${safeTitle}"</strong> on Squire Docs.</p>
+      <p><a href="${safeUrl}">Open the document</a></p>
+      <p>You'll need to sign in with Google using this email address to access it.</p>
+    `,
+  });
+}
+
+/**
+ * Notify an existing user that a document has just been shared with them.
+ */
+function sendShareNotification({ to, docTitle, inviterName, docUrl, replyTo }) {
+  const safeTitle = escapeHtml(docTitle || 'Untitled document');
+  const safeInviter = escapeHtml(inviterName || 'Someone');
+  const safeUrl = escapeHtml(docUrl);
+  sendEmail({
+    to,
+    replyTo,
+    subject: sanitizeHeader(`${inviterName || 'Someone'} shared "${docTitle || 'Untitled document'}" with you on Squire Docs`),
+    html: `
+      <h3>${safeInviter} shared a document with you</h3>
+      <p><strong>${safeInviter}</strong> gave you access to the document <strong>"${safeTitle}"</strong> on Squire Docs.</p>
+      <p><a href="${safeUrl}">Open the document</a></p>
+    `,
+  });
+}
+
+module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
@@ -12,11 +12,19 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const [email, setEmail] = useState('');
   const [shareRole, setShareRole] = useState('editor');
   const [users, setUsers] = useState([]);
+  const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(false);
   const [usersLoading, setUsersLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [currentUserRole, setCurrentUserRole] = useState(null);
+
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  // Set when the user picks a suggestion so the debounced search doesn't reopen.
+  const skipSearchRef = useRef(false);
 
   // Fetch current users when dialog opens
   useEffect(() => {
@@ -31,6 +39,9 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
       setEmail('');
       setError(null);
       setSuccess(null);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setHighlightIndex(-1);
     }
   }, [isOpen]);
 
@@ -43,11 +54,38 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
     }
   }, [currentUserRole]);
 
+  // Debounced autocomplete search as the user types
+  useEffect(() => {
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false;
+      return;
+    }
+    const q = email.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const response = await api.get('/api/users/search', { params: { q, docId } });
+        setSuggestions(response.data.users || []);
+        setShowSuggestions(true);
+        setHighlightIndex(-1);
+      } catch (err) {
+        console.error('Error searching users:', err);
+        setSuggestions([]);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [email, docId]);
+
   const fetchUsers = async () => {
     try {
       setUsersLoading(true);
       const response = await api.get(`/api/docs/${docId}/shares`);
       setUsers(response.data.users || []);
+      setInvites(response.data.invites || []);
       setCurrentUserRole(response.data.currentUserRole);
     } catch (err) {
       console.error('Error fetching users:', err);
@@ -59,6 +97,30 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
     }
   };
 
+  const selectSuggestion = (suggestion) => {
+    skipSearchRef.current = true;
+    setEmail(suggestion.email);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setHighlightIndex(-1);
+  };
+
+  const handleEmailKeyDown = (e) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && highlightIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[highlightIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
+
   const handleShare = async (e) => {
     e.preventDefault();
     if (!email.trim() || loading) return;
@@ -66,15 +128,20 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setShowSuggestions(false);
 
     try {
-      const response = await api.post(`/api/docs/${docId}/share`, { 
+      const response = await api.post(`/api/docs/${docId}/share`, {
         email: email.trim(),
         role: shareRole
       });
-      setSuccess(`Shared with ${response.data.user.name || email}`);
+      if (response.data.invite) {
+        setSuccess(`Invitation sent to ${response.data.invite.email}`);
+      } else {
+        setSuccess(`Shared with ${response.data.user.name || email}`);
+      }
       setEmail('');
-      fetchUsers(); // Refresh the users list
+      fetchUsers(); // Refresh the users and invites lists
     } catch (err) {
       console.error('Error sharing document:', err);
       setError(err.response?.data?.error || 'Failed to share document');
@@ -93,6 +160,19 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
     } catch (err) {
       console.error('Error removing access:', err);
       setError(err.response?.data?.error || 'Failed to remove access');
+    }
+  };
+
+  const handleRemoveInvite = async (inviteEmail) => {
+    if (!confirm(`Cancel the invitation to ${inviteEmail}?`)) return;
+
+    try {
+      await api.delete(`/api/docs/${docId}/invite`, { data: { email: inviteEmail } });
+      setInvites(invites.filter(i => i.email !== inviteEmail));
+      setSuccess(`Cancelled invitation to ${inviteEmail}`);
+    } catch (err) {
+      console.error('Error removing invite:', err);
+      setError(err.response?.data?.error || 'Failed to cancel invitation');
     }
   };
 
@@ -130,14 +210,38 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
 
         <form onSubmit={handleShare} className="share-form">
           <div className="share-input-row">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter email address"
-              className="share-email-input"
-              disabled={loading}
-            />
+            <div className="share-input-wrapper">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={handleEmailKeyDown}
+                onFocus={() => { if (suggestions.length) setShowSuggestions(true); }}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                placeholder="Enter email address"
+                className="share-email-input"
+                disabled={loading}
+                autoComplete="off"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <ul className="share-suggestions">
+                  {suggestions.map((s, i) => (
+                    <li
+                      key={s.id}
+                      className={`share-suggestion-item${i === highlightIndex ? ' highlighted' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
+                      onMouseEnter={() => setHighlightIndex(i)}
+                    >
+                      <Avatar picture={s.picture} name={s.name} className="share-suggestion-avatar" />
+                      <div className="share-user-info">
+                        <span className="share-user-name">{s.name}</span>
+                        <span className="share-user-email">{s.email}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <select
               value={shareRole}
               onChange={(e) => setShareRole(e.target.value)}
@@ -188,8 +292,8 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
                     <span className="share-role-badge">{user.role}</span>
                   ) : canManage ? (
                     <div className="share-actions">
-                      <select 
-                        value={user.role} 
+                      <select
+                        value={user.role}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
                         className="share-role-select"
                       >
@@ -212,6 +316,35 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
                 </li>
               ))}
             </ul>
+          )}
+
+          {!usersLoading && invites.length > 0 && (
+            <>
+              <h3 className="share-invites-heading">Pending invites</h3>
+              <ul className="share-list">
+                {invites.map((invite) => (
+                  <li key={invite.id} className="share-list-item">
+                    <Avatar name={invite.email} className="share-user-avatar" />
+                    <div className="share-user-info">
+                      <span className="share-user-email">{invite.email}</span>
+                    </div>
+                    <span className="share-role-badge">{invite.role}</span>
+                    <span className="share-role-badge pending">Pending</span>
+                    {canManage && (
+                      <button
+                        className="share-remove-btn"
+                        onClick={() => handleRemoveInvite(invite.email)}
+                        aria-label={`Cancel invitation to ${invite.email}`}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       </div>

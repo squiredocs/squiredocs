@@ -44,7 +44,57 @@ async function findOrCreateUser({ googleId, email, name, picture }) {
   const user = result.rows[0];
   user.isNew = user.is_new;
   delete user.is_new;
+
+  // Convert any pending share invites addressed to this user's email into real
+  // shares. Runs on every login (not just signup), so invites created after a
+  // user already exists are also picked up the next time they log in.
+  await convertPendingInvites(user);
+
   return user;
+}
+
+/**
+ * Promote pending document_share_invites matching a user's email into real
+ * document_shares rows, then delete the consumed invites.
+ *
+ * Defensive by design: wrapped in a transaction and never throws — a failure
+ * here must not break login. Worst case the invites stay pending and convert on
+ * the next login. Uses ON CONFLICT DO NOTHING so an existing (possibly stronger)
+ * role is never downgraded by a pending invite.
+ *
+ * SQL is inlined here (rather than calling documents.js) to avoid introducing a
+ * circular require between the users and documents modules.
+ * @param {object} user - User record (must have id and email)
+ */
+async function convertPendingInvites(user) {
+  if (!user?.email) return;
+
+  const client = await ensurePool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO document_shares (doc_id, user_id, role)
+       SELECT i.doc_id, $1, i.role
+       FROM document_share_invites i
+       WHERE lower(i.email) = lower($2)
+       ON CONFLICT (doc_id, user_id) DO NOTHING`,
+      [user.id, user.email]
+    );
+    await client.query(
+      'DELETE FROM document_share_invites WHERE lower(email) = lower($1)',
+      [user.email]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('Failed to roll back invite conversion:', rollbackErr.message);
+    }
+    console.error('Failed to convert pending invites for', user.email, '-', err.message);
+  } finally {
+    client.release();
+  }
 }
 
 /**

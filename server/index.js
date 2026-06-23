@@ -38,6 +38,8 @@ const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
+const { sendShareInvite, sendShareNotification } = require('./email');
+const { buildBaseUrl } = require('./url');
 setupProcessHandlers();
 
 // Profiling utilities
@@ -710,6 +712,30 @@ app.get('/api/docs/:docId/images/:imageId', requireAuth, async (req, res) => {
   }
 });
 
+// API: Search registered users for the share autocomplete
+app.get('/api/users/search', requireAuth, async (req, res) => {
+  try {
+    const query = (req.query.q || '').trim();
+    const { docId } = req.query;
+
+    // Require a couple of characters to avoid dumping the whole user table.
+    if (query.length < 2) {
+      return res.json({ users: [] });
+    }
+
+    const users = await documents.searchUsers(query, {
+      excludeUserId: req.user.userId,
+      excludeDocId: docId || null,
+    });
+
+    res.json({ users });
+  } catch (error) {
+    console.error('Error searching users:', error);
+    notifyException(error, { req, source: 'api' });
+    res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
 // API: Share document with a user by email
 app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
   try {
@@ -737,26 +763,58 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Viewers can only share with viewer access' });
     }
     
+    const doc = await documents.getDocument(docId);
+    const docUrl = `${buildBaseUrl(req)}/d/${docId}`;
+
     // Find the user to share with
     const targetUser = await documents.findUserByEmail(email);
+
+    // Not a registered user yet — create a pending invite and email them.
     if (!targetUser) {
-      return res.status(404).json({ error: 'User not found. They must sign in at least once.' });
+      // Can't invite your own email address
+      if (req.user.email && req.user.email.toLowerCase() === email.toLowerCase()) {
+        return res.status(400).json({ error: 'Cannot share with yourself' });
+      }
+
+      await documents.createInvite(docId, email, role, userId);
+
+      // Fire-and-forget; never blocks the response.
+      sendShareInvite({
+        to: email,
+        docTitle: doc?.title,
+        inviterName: req.user.name,
+        docUrl,
+        replyTo: req.user.email,
+      });
+
+      return res.status(201).json({
+        invite: { email, role, pending: true },
+      });
     }
-    
+
     // Can't share with yourself
     if (targetUser.id === userId) {
       return res.status(400).json({ error: 'Cannot share with yourself' });
     }
-    
+
     // Can't change an owner's role
     const targetRole = await documents.getRole(docId, targetUser.id);
     if (targetRole === 'owner') {
       return res.status(400).json({ error: 'Cannot change owner\'s role' });
     }
-    
+
     // Set the role
     const share = await documents.setRole(docId, targetUser.id, role);
-    
+
+    // Notify the existing user that a doc was shared with them.
+    sendShareNotification({
+      to: targetUser.email,
+      docTitle: doc?.title,
+      inviterName: req.user.name,
+      docUrl,
+      replyTo: req.user.email,
+    });
+
     res.status(201).json({
       user: {
         id: targetUser.id,
@@ -847,6 +905,36 @@ app.delete('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res)
   }
 });
 
+// API: Remove a pending share invite (by email)
+app.delete('/api/docs/:docId/invite', requireAuth, async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { email } = req.body;
+    const userId = req.user.userId;
+
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    // Check manage permission (editors and owners can manage)
+    const canManage = await permissions.can.manage(userId, docId);
+    if (!canManage.allowed) {
+      return res.status(403).json({ error: canManage.reason });
+    }
+
+    const removed = await documents.removeInvite(docId, email);
+    if (!removed) {
+      return res.status(404).json({ error: 'Invite not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing invite:', error);
+    notifyException(error, { req, source: 'api' });
+    res.status(500).json({ error: 'Failed to remove invite' });
+  }
+});
+
 // API: Get all users with access to a document
 app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
   try {
@@ -860,9 +948,11 @@ app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
     }
 
     const users = await documents.getDocumentUsers(docId);
+    const invites = await documents.getInvitesForDoc(docId);
 
     res.json({
       users,
+      invites,
       currentUserRole: role,
     });
   } catch (error) {

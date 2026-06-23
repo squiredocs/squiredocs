@@ -267,6 +267,97 @@ async function findUserByEmail(email) {
 }
 
 /**
+ * Search registered users by name or email, for the share autocomplete.
+ * Excludes the requesting user and anyone who already has access to the doc.
+ * @param {string} query - Partial name or email
+ * @param {object} options
+ * @param {string} options.excludeUserId - Requesting user's UUID (omitted from results)
+ * @param {string} [options.excludeDocId] - Doc UUID; users already shared on it are omitted
+ * @returns {Promise<Array<object>>} Up to 8 user records (id, email, name, picture)
+ */
+async function searchUsers(query, { excludeUserId, excludeDocId = null } = {}) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const pattern = `%${escapeIlike(query)}%`;
+  const result = await pool.query(
+    `SELECT u.id, u.email, u.name, u.picture
+     FROM users u
+     WHERE (u.email ILIKE $1 OR u.name ILIKE $1)
+       AND u.id <> $2
+       AND ($3::uuid IS NULL OR NOT EXISTS (
+         SELECT 1 FROM document_shares ds
+         WHERE ds.doc_id = $3 AND ds.user_id = u.id
+       ))
+     ORDER BY u.name
+     LIMIT 8`,
+    [pattern, excludeUserId, excludeDocId]
+  );
+
+  return result.rows;
+}
+
+/**
+ * Create (or update) a pending share invite for an email that is not yet a user.
+ * Idempotent per (doc_id, lower(email)); a re-invite updates the role/inviter.
+ * @param {string} docId - Document UUID
+ * @param {string} email - Invitee email (stored as entered)
+ * @param {string} role - 'editor' or 'viewer'
+ * @param {string} invitedByUserId - Inviter's user UUID
+ * @returns {Promise<object>} Invite record
+ */
+async function createInvite(docId, email, role, invitedByUserId) {
+  if (!pool) throw new Error('Documents module not initialized');
+  if (!ROLES[role]) throw new Error(`Invalid role: ${role}`);
+
+  const result = await pool.query(
+    `INSERT INTO document_share_invites (doc_id, email, role, invited_by_user_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (doc_id, lower(email))
+       DO UPDATE SET role = EXCLUDED.role, invited_by_user_id = EXCLUDED.invited_by_user_id
+     RETURNING *`,
+    [docId, email, role, invitedByUserId]
+  );
+
+  return result.rows[0];
+}
+
+/**
+ * Get all pending invites for a document.
+ * @param {string} docId - Document UUID
+ * @returns {Promise<Array<object>>} Invite records
+ */
+async function getInvitesForDoc(docId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    `SELECT id, email, role, invited_by_user_id, created_at
+     FROM document_share_invites
+     WHERE doc_id = $1
+     ORDER BY created_at ASC`,
+    [docId]
+  );
+
+  return result.rows;
+}
+
+/**
+ * Remove a pending invite (case-insensitive email).
+ * @param {string} docId - Document UUID
+ * @param {string} email - Invitee email
+ * @returns {Promise<boolean>} True if removed
+ */
+async function removeInvite(docId, email) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'DELETE FROM document_share_invites WHERE doc_id = $1 AND lower(email) = lower($2)',
+    [docId, email]
+  );
+
+  return result.rowCount > 0;
+}
+
+/**
  * Get document record
  * @param {string} docId - Document UUID
  * @returns {Promise<object|null>} Document record or null
@@ -290,9 +381,11 @@ async function getDocument(docId) {
 async function deleteDocument(docId) {
   if (!pool) throw new Error('Documents module not initialized');
 
-  // Delete shares first (foreign key constraint)
+  // Delete shares and pending invites first (foreign key constraint).
+  // ON DELETE CASCADE also covers these, but we delete explicitly for parity.
   await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
-  
+  await pool.query('DELETE FROM document_share_invites WHERE doc_id = $1', [docId]);
+
   // Delete document record
   const result = await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
 
@@ -316,4 +409,8 @@ module.exports = {
   getDocumentUsers,
   getAccessibleDocuments,
   findUserByEmail,
+  searchUsers,
+  createInvite,
+  getInvitesForDoc,
+  removeInvite,
 };

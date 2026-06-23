@@ -34,6 +34,7 @@ describe('Documents module', () => {
 
   afterAll(async () => {
     // Clean up test data
+    await pool.query("DELETE FROM document_share_invites WHERE doc_id IN (SELECT id FROM documents WHERE creator_id IN (SELECT id FROM users WHERE email LIKE 'test-doc-%@example.com'))");
     await pool.query("DELETE FROM document_shares WHERE doc_id IN (SELECT id FROM documents WHERE creator_id IN (SELECT id FROM users WHERE email LIKE 'test-doc-%@example.com'))");
     await pool.query("DELETE FROM documents WHERE creator_id IN (SELECT id FROM users WHERE email LIKE 'test-doc-%@example.com')");
     await pool.query("DELETE FROM users WHERE email LIKE 'test-doc-%@example.com'");
@@ -255,6 +256,60 @@ describe('Documents module', () => {
       const user = await documents.findUserByEmail('nonexistent@example.com');
       
       expect(user).toBeNull();
+    });
+  });
+
+  describe('searchUsers', () => {
+    test('matches by email or name, excludes requester', async () => {
+      const results = await documents.searchUsers('test-doc-user', { excludeUserId: testUserId });
+      expect(results.some(u => u.id === testUser2Id)).toBe(true);
+      expect(results.some(u => u.id === testUserId)).toBe(false);
+    });
+
+    test('excludes users already shared on the doc', async () => {
+      await documents.createDocument(testDocId, testUserId);
+      await documents.setRole(testDocId, testUser2Id, 'editor');
+
+      const results = await documents.searchUsers('test-doc-user2', {
+        excludeUserId: testUserId,
+        excludeDocId: testDocId,
+      });
+      expect(results.some(u => u.id === testUser2Id)).toBe(false);
+    });
+  });
+
+  describe('invites', () => {
+    beforeEach(async () => {
+      await documents.createDocument(testDocId, testUserId);
+    });
+
+    afterEach(async () => {
+      await pool.query('DELETE FROM document_share_invites WHERE doc_id = $1', [testDocId]);
+    });
+
+    test('createInvite creates a pending invite', async () => {
+      const invite = await documents.createInvite(testDocId, 'invitee@example.com', 'editor', testUserId);
+      expect(invite.email).toBe('invitee@example.com');
+      expect(invite.role).toBe('editor');
+
+      const invites = await documents.getInvitesForDoc(testDocId);
+      expect(invites).toHaveLength(1);
+    });
+
+    test('createInvite is idempotent per (doc, lower(email)) and updates role', async () => {
+      await documents.createInvite(testDocId, 'Invitee@Example.com', 'viewer', testUserId);
+      await documents.createInvite(testDocId, 'invitee@example.com', 'editor', testUserId);
+
+      const invites = await documents.getInvitesForDoc(testDocId);
+      expect(invites).toHaveLength(1);
+      expect(invites[0].role).toBe('editor');
+    });
+
+    test('removeInvite deletes case-insensitively', async () => {
+      await documents.createInvite(testDocId, 'invitee@example.com', 'editor', testUserId);
+      const removed = await documents.removeInvite(testDocId, 'INVITEE@EXAMPLE.COM');
+      expect(removed).toBe(true);
+      expect(await documents.getInvitesForDoc(testDocId)).toHaveLength(0);
     });
   });
 
