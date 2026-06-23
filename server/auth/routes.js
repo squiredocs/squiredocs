@@ -3,7 +3,7 @@
  */
 const crypto = require('crypto');
 const express = require('express');
-const { generateAuthUrl, exchangeCodeForTokens, verifyIdToken } = require('./google');
+const { generateAuthUrl, exchangeCodeForTokens, verifyIdToken, fetchUserInfo } = require('./google');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -139,7 +139,14 @@ router.get('/google/callback', async (req, res) => {
     
     // Verify ID token and extract user profile
     const profile = await verifyIdToken(tokens.id_token);
-    
+
+    // Google's ID token omits the `picture` claim for some accounts, so backfill
+    // the avatar from the userinfo endpoint when it's missing.
+    if (!profile.picture) {
+      const info = await fetchUserInfo(tokens.access_token);
+      if (info.picture) profile.picture = info.picture;
+    }
+
     // Create or update user in database
     const user = await findOrCreateUser(profile);
 

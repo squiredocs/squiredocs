@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Avatar from './Avatar';
 import './UserProfileBadge.css';
 
 /**
@@ -35,18 +36,7 @@ export default function UserProfileBadge({ user, onLogout, onNavigateToSettings,
         onClick={() => setShowMenu(!showMenu)}
         aria-expanded={showMenu}
       >
-        {user?.picture ? (
-          <img 
-            src={user.picture} 
-            alt={user.name} 
-            className="user-avatar-small"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="user-avatar-placeholder-small">
-            {user?.name?.charAt(0).toUpperCase() || '?'}
-          </div>
-        )}
+        <Avatar picture={user?.picture} name={user?.name} className="user-avatar-small" />
       </button>
       
       {showMenu && (

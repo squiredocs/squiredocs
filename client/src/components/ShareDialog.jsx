@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import Avatar from './Avatar';
 import './ShareDialog.css';
 
 function ShareDialog({ docId, docTitle, isOpen, onClose }) {
@@ -176,13 +177,7 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
             <ul className="share-list">
               {users.map((user) => (
                 <li key={user.id} className="share-list-item">
-                  <div className="share-user-avatar">
-                    {user.picture ? (
-                      <img src={user.picture} alt={user.name} referrerPolicy="no-referrer" />
-                    ) : (
-                      <span>{user.name?.charAt(0).toUpperCase() || '?'}</span>
-                    )}
-                  </div>
+                  <Avatar picture={user.picture} name={user.name} className="share-user-avatar" />
                   <div className="share-user-info">
                     <span className="share-user-name">{user.name}</span>
                     <span className="share-user-email">{user.email}</span>

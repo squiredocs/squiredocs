@@ -24,21 +24,6 @@
 .user-avatar-small {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  display: block;
-  object-fit: cover;
-}
-
-.user-avatar-placeholder-small {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #7c3aed;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: var(--font-semibold);
   font-size: var(--text-lg);
 }
 
@@ -101,8 +86,7 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
-  .user-avatar-small,
-  .user-avatar-placeholder-small {
+  .user-avatar-small {
     width: 36px;
     height: 36px;
     font-size: var(--text-md);

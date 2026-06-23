@@ -1,0 +1,22 @@
+/* Shared circular avatar. Callers supply size (width/height) and, for the
+   monogram fallback, font-size via their own className. */
+.avatar {
+  border-radius: 50%;
+  display: block;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* Monogram fallback shown when a user has no picture or it fails to load.
+   Defined after `.avatar` so its display overrides the image's `display`. */
+.avatar-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #7c3aed;
+  color: white;
+  font-weight: var(--font-semibold);
+  line-height: 1;
+  text-transform: uppercase;
+  user-select: none;
+}

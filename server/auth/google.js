@@ -89,10 +89,39 @@ async function verifyIdToken(idToken) {
   };
 }
 
+/**
+ * Fetch the OIDC userinfo for an access token.
+ *
+ * Google's ID token treats `picture` (and `name`) as optional claims and omits
+ * them for some accounts even when the profile scope is granted, which leaves
+ * those users without an avatar. The userinfo endpoint is the reliable source,
+ * so we use it to backfill anything the ID token didn't carry.
+ *
+ * @param {string} accessToken - The access token from the token exchange
+ * @returns {Promise<object>} The userinfo response, or {} on any failure
+ */
+async function fetchUserInfo(accessToken) {
+  if (!accessToken) return {};
+  try {
+    const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      console.error(`Google userinfo request failed: ${res.status}`);
+      return {};
+    }
+    return await res.json();
+  } catch (err) {
+    console.error('Google userinfo request error:', err.message);
+    return {};
+  }
+}
+
 module.exports = {
   generateAuthUrl,
   exchangeCodeForTokens,
   verifyIdToken,
+  fetchUserInfo,
   getOAuth2Client,
 };
 

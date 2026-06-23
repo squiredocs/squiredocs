@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from '../components/UserProfileBadge';
+import Avatar from '../components/Avatar';
 import Logo from '../components/Logo';
 import ViewToggleButton from '../components/ViewToggleButton';
 import './AdminPage.css';
@@ -215,9 +216,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                     // Main user row
                     <tr key={u.id} className={isExpanded ? 'admin-row-expanded' : ''}>
                       <td className="admin-cell-name">
-                        {u.picture && (
-                          <img src={u.picture} alt="" className="admin-avatar" referrerPolicy="no-referrer" />
-                        )}
+                        <Avatar picture={u.picture} name={u.name} className="admin-avatar" />
                         {u.name || '—'}
                         {u.isAdmin && <span className="admin-badge">Admin</span>}
                       </td>
