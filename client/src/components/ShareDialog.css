@@ -182,6 +182,12 @@
   border: 1px solid #bbf7d0;
 }
 
+.share-note {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
 .share-list-section {
   padding: 0 24px 24px;
 }

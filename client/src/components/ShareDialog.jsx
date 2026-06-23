@@ -268,6 +268,12 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
           </div>
         </form>
 
+        {currentUser && !currentUser.emailEnabled && (
+          <div className="share-message share-note">
+            Email notifications are disabled during public beta, so people you share with won't be emailed. Contact support to enable them.
+          </div>
+        )}
+
         {error && (
           <div className="share-message share-error">
             {error}

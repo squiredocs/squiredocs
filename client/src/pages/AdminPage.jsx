@@ -12,10 +12,15 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Expanded user row — shows extra credit detail
+  // Expanded user row — shows extra credit + sharing detail
   const [expandedUserId, setExpandedUserId] = useState(null);
   const [extraCredits, setExtraCredits] = useState([]);
   const [extraCreditsLoading, setExtraCreditsLoading] = useState(false);
+  const [sharing, setSharing] = useState(null);
+  const [sharingLoading, setSharingLoading] = useState(false);
+
+  // Trusted (email sending) toggle
+  const [togglingEmailUserId, setTogglingEmailUserId] = useState(null);
 
   // Grant form state
   const [grantingUserId, setGrantingUserId] = useState(null);
@@ -64,18 +69,29 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
     if (expandedUserId === userId) {
       setExpandedUserId(null);
       setExtraCredits([]);
+      setSharing(null);
       return;
     }
     setExpandedUserId(userId);
     setExtraCreditsLoading(true);
+    setSharingLoading(true);
+    api.get(`/api/admin/users/${userId}/extra-credits`)
+      .then((res) => setExtraCredits(res.data.credits))
+      .catch(() => setExtraCredits([]))
+      .finally(() => setExtraCreditsLoading(false));
+    api.get(`/api/admin/users/${userId}/sharing`)
+      .then((res) => setSharing(res.data))
+      .catch(() => setSharing({ invites: [], shares: [] }))
+      .finally(() => setSharingLoading(false));
+  };
+
+  const toggleEmailEnabled = async (u) => {
+    setTogglingEmailUserId(u.id);
     try {
-      const res = await api.get(`/api/admin/users/${userId}/extra-credits`);
-      setExtraCredits(res.data.credits);
-    } catch {
-      setExtraCredits([]);
-    } finally {
-      setExtraCreditsLoading(false);
-    }
+      await api.patch(`/api/admin/users/${u.id}/email-enabled`, { emailEnabled: !u.emailEnabled });
+      fetchUsers();
+    } catch { /* ignore */ }
+    finally { setTogglingEmailUserId(null); }
   };
 
   const refreshExpanded = async (userId) => {
@@ -272,6 +288,70 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                       <tr key={`${u.id}-detail`} className="admin-detail-row">
                         <td colSpan={colCount}>
                           <div className="admin-detail">
+                            <div className="admin-detail-section">
+                              <label className="admin-trusted-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={!!u.emailEnabled}
+                                  disabled={togglingEmailUserId === u.id}
+                                  onChange={() => toggleEmailEnabled(u)}
+                                />
+                                Trusted — can send share invitation emails
+                              </label>
+                            </div>
+
+                            <div className="admin-detail-section">
+                              <h4>Sharing activity</h4>
+                              {sharingLoading ? (
+                                <div className="admin-detail-loading">Loading...</div>
+                              ) : (
+                                <>
+                                  <h5>Invites sent</h5>
+                                  {!sharing || sharing.invites.length === 0 ? (
+                                    <div className="admin-detail-empty">No invites sent.</div>
+                                  ) : (
+                                    <table className="admin-credits-table">
+                                      <thead>
+                                        <tr><th>Email</th><th>Role</th><th>Document</th><th>Sent</th></tr>
+                                      </thead>
+                                      <tbody>
+                                        {sharing.invites.map((inv) => (
+                                          <tr key={inv.id}>
+                                            <td>{inv.email}</td>
+                                            <td>{inv.role}</td>
+                                            <td>{inv.docTitle || 'Untitled document'}</td>
+                                            <td>{formatDate(inv.createdAt)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+
+                                  <h5>Shared on owned docs</h5>
+                                  {!sharing || sharing.shares.length === 0 ? (
+                                    <div className="admin-detail-empty">No collaborators on owned docs.</div>
+                                  ) : (
+                                    <table className="admin-credits-table">
+                                      <thead>
+                                        <tr><th>Document</th><th>Collaborator</th><th>Email</th><th>Role</th><th>Since</th></tr>
+                                      </thead>
+                                      <tbody>
+                                        {sharing.shares.map((s, i) => (
+                                          <tr key={`${s.docId}-${s.email}-${i}`}>
+                                            <td>{s.docTitle || 'Untitled document'}</td>
+                                            <td>{s.name || '—'}</td>
+                                            <td>{s.email}</td>
+                                            <td>{s.role}</td>
+                                            <td>{formatDate(s.createdAt)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
                             <div className="admin-detail-header">
                               <h4>Extra Credits for {u.name || u.email}</h4>
                               {grantingUserId === u.id ? (

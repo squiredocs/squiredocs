@@ -222,6 +222,47 @@
   font-size: var(--text-base);
 }
 
+.admin-detail-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.admin-detail-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.admin-detail-section h4 {
+  margin: 0 0 8px;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  color: #374151;
+}
+
+.admin-detail-section h5 {
+  margin: 12px 0 6px;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: #6b7280;
+}
+
+.admin-trusted-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-base);
+  color: #374151;
+  cursor: pointer;
+}
+
+.admin-trusted-toggle input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 /* ─── Extra credits sub-table ──────────────────────────── */
 
 .admin-credits-table {

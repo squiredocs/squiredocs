@@ -40,6 +40,7 @@ const support = require('./api/support');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
+const users = require('./auth/users');
 setupProcessHandlers();
 
 // Profiling utilities
@@ -766,6 +767,11 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
     const doc = await documents.getDocument(docId);
     const docUrl = `${buildBaseUrl(req)}/d/${docId}`;
 
+    // Outbound share email is gated per-user (off by default during beta).
+    // Read the flag fresh from the DB so an admin toggle takes effect immediately.
+    const inviter = await users.findById(userId);
+    const canEmail = !!inviter?.email_enabled;
+
     // Find the user to share with
     const targetUser = await documents.findUserByEmail(email);
 
@@ -778,14 +784,17 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
 
       await documents.createInvite(docId, email, role, userId);
 
-      // Fire-and-forget; never blocks the response.
-      sendShareInvite({
-        to: email,
-        docTitle: doc?.title,
-        inviterName: req.user.name,
-        docUrl,
-        replyTo: req.user.email,
-      });
+      // Fire-and-forget; never blocks the response. Suppressed when the
+      // inviter isn't trusted to send email (the invite is still recorded).
+      if (canEmail) {
+        sendShareInvite({
+          to: email,
+          docTitle: doc?.title,
+          inviterName: req.user.name,
+          docUrl,
+          replyTo: req.user.email,
+        });
+      }
 
       return res.status(201).json({
         invite: { email, role, pending: true },
@@ -806,14 +815,17 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
     // Set the role
     const share = await documents.setRole(docId, targetUser.id, role);
 
-    // Notify the existing user that a doc was shared with them.
-    sendShareNotification({
-      to: targetUser.email,
-      docTitle: doc?.title,
-      inviterName: req.user.name,
-      docUrl,
-      replyTo: req.user.email,
-    });
+    // Notify the existing user that a doc was shared with them (gated on the
+    // inviter being trusted to send email; access is granted regardless).
+    if (canEmail) {
+      sendShareNotification({
+        to: targetUser.email,
+        docTitle: doc?.title,
+        inviterName: req.user.name,
+        docUrl,
+        replyTo: req.user.email,
+      });
+    }
 
     res.status(201).json({
       user: {

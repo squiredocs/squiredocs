@@ -272,6 +272,7 @@ router.get('/me', requireAuth, async (req, res) => {
       name: user.name,
       picture: user.picture,
       isAdmin: !!user.is_admin,
+      emailEnabled: !!user.email_enabled,
       welcomeDocId,
       onboarded,
     });
@@ -380,6 +381,8 @@ if (process.env.NODE_ENV !== 'production') {
           email: user.email,
           name: user.name,
           picture: user.picture,
+          isAdmin: !!user.is_admin,
+          emailEnabled: !!user.email_enabled,
           welcomeDocId,
           onboarded,
         }

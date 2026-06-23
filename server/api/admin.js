@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
-        u.id, u.name, u.email, u.picture, u.is_admin,
+        u.id, u.name, u.email, u.picture, u.is_admin, u.email_enabled,
         u.ai_credit_cents, u.created_at, u.last_login_at,
         COALESCE(d.doc_count, 0)::int AS doc_count,
         COALESCE(a.ai_used_cents, 0)::int AS ai_used_cents,
@@ -55,6 +55,7 @@ router.get('/', async (req, res) => {
       email: r.email,
       picture: r.picture,
       isAdmin: r.is_admin,
+      emailEnabled: r.email_enabled,
       aiCreditCents: r.ai_credit_cents,
       createdAt: r.created_at,
       lastLoginAt: r.last_login_at,
@@ -97,6 +98,91 @@ router.patch('/:userId/credit', async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error updating credit:', err);
     res.status(500).json({ error: 'Failed to update credit' });
+  }
+});
+
+/**
+ * PATCH /:userId/email-enabled — mark a user trusted to send share email
+ * Body: { emailEnabled: boolean }
+ */
+router.patch('/:userId/email-enabled', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { emailEnabled } = req.body;
+
+    if (typeof emailEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'emailEnabled must be a boolean' });
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET email_enabled = $1 WHERE id = $2 RETURNING email_enabled',
+      [emailEnabled, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ emailEnabled: result.rows[0].email_enabled });
+  } catch (err) {
+    console.error('[Admin] Error updating email_enabled:', err);
+    res.status(500).json({ error: 'Failed to update email setting' });
+  }
+});
+
+/**
+ * GET /:userId/sharing — review a user's sharing activity
+ * Returns the pending invites they created and the collaborators on docs they own.
+ * (document_shares has no "granted_by", so shares are scoped to owned docs — the
+ * accurate, attributable view of what this user has shared.)
+ */
+router.get('/:userId/sharing', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const invitesResult = await pool.query(
+      `SELECT i.id, i.email, i.role, i.doc_id, d.title AS doc_title, i.created_at
+       FROM document_share_invites i
+       JOIN documents d ON d.id = i.doc_id
+       WHERE i.invited_by_user_id = $1
+       ORDER BY i.created_at DESC`,
+      [userId]
+    );
+
+    const sharesResult = await pool.query(
+      `SELECT d.id AS doc_id, d.title AS doc_title,
+              mu.email, mu.name, member_s.role, member_s.created_at
+       FROM document_shares owner_s
+       JOIN documents d ON d.id = owner_s.doc_id
+       JOIN document_shares member_s ON member_s.doc_id = d.id AND member_s.user_id <> $1
+       JOIN users mu ON mu.id = member_s.user_id
+       WHERE owner_s.user_id = $1 AND owner_s.role = 'owner'
+       ORDER BY d.title NULLS LAST, member_s.created_at ASC`,
+      [userId]
+    );
+
+    const invites = invitesResult.rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      role: r.role,
+      docId: r.doc_id,
+      docTitle: r.doc_title,
+      createdAt: r.created_at,
+    }));
+
+    const shares = sharesResult.rows.map((r) => ({
+      docId: r.doc_id,
+      docTitle: r.doc_title,
+      email: r.email,
+      name: r.name,
+      role: r.role,
+      createdAt: r.created_at,
+    }));
+
+    res.json({ invites, shares });
+  } catch (err) {
+    console.error('[Admin] Error fetching sharing activity:', err);
+    res.status(500).json({ error: 'Failed to fetch sharing activity' });
   }
 });
 

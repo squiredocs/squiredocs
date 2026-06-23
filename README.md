@@ -26,7 +26,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
 - **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
-- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, reviewing a user's sharing activity (invites sent, collaborators on owned docs), and email notifications (sign-up, login, credit-limit, support requests, exceptions)
 
 ## Technology Stack
 
@@ -225,7 +225,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
-- `SES_FROM_EMAIL`: AWS SES verified sender address for transactional email — admin notifications plus document share invitations/notifications (optional; email is skipped if unset). Set to `no-reply@squiredocs.com`. Sending invitations to external (non-admin) recipients requires the SES account to have production access (out of the sandbox) and the `squiredocs.com` domain verified in SES
+- `SES_FROM_EMAIL`: AWS SES verified sender address for transactional email — admin notifications plus document share invitations/notifications (optional; email is skipped if unset). Set to `no-reply@squiredocs.com`. Sending invitations to external (non-admin) recipients requires the SES account to have production access (out of the sandbox) and the `squiredocs.com` domain verified in SES. Note: user-initiated share email is additionally gated per user by the `users.email_enabled` flag (off by default; toggled from the Admin page) — admin/ops notifications to `ADMIN_EMAIL` are not gated
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
 - `SES_SMTP_PASS`: SES SMTP password
@@ -289,7 +289,7 @@ VITE_WS_URL=ws://your-server.com/s npm run build
 
 1. **Sign in**: Authenticate with Google OAuth
 2. **Create or open documents**: Access your documents from the list page
-3. **Share documents**: Click the Share button to add users with Editor or Viewer access. The email field autocompletes against existing users. You can also share with someone who hasn't signed up yet — they receive an email invitation and gain access automatically the first time they sign in
+3. **Share documents**: Click the Share button to add users with Editor or Viewer access. The email field autocompletes against existing users. You can also share with someone who hasn't signed up yet — they receive an email invitation and gain access automatically the first time they sign in. During public beta, outbound share email is disabled per user by default; an admin marks a user "trusted" (Admin page) to enable it. When disabled, sharing still grants access/records the invite — only the email is suppressed
 4. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
 5. **View version history**: Click the History button to view, name, and restore previous versions
 6. **Manage permissions**: Editors and Owners can change roles and remove access
