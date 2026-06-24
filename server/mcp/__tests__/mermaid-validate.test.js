@@ -2,7 +2,11 @@
  * Tests for validateMermaidBlocks (server-side Mermaid syntax validation).
  */
 const Y = require('yjs');
-const { validateMermaidBlocks } = require('../mermaid-validate');
+const { validateMermaidBlocks, shutdownMermaidWorker } = require('../mermaid-validate');
+
+// The first worker-spawning test pays a one-time cold start (jsdom + ESM mermaid
+// import + initialize); give Jest room beyond its 5s default.
+jest.setTimeout(20000);
 
 /** Append a mermaid block with the given source to the fragment. */
 function buildMermaid(xmlFragment, source) {
@@ -30,6 +34,10 @@ describe('validateMermaidBlocks', () => {
   beforeEach(() => {
     ydoc = new Y.Doc();
     xmlFragment = ydoc.get('default', Y.XmlFragment);
+  });
+
+  afterAll(async () => {
+    await shutdownMermaidWorker();
   });
 
   test('document with no mermaid blocks returns []', async () => {
@@ -77,14 +85,15 @@ describe('validateMermaidBlocks', () => {
     expect(errors[0].source.length).toBeLessThanOrEqual(201);
   });
 
-  // Regression: setting up jsdom leaks global.window process-wide. Libraries
-  // like gaxios (via google-auth-library during OAuth) detect `window` and
-  // reach for `window.fetch`; if that's undefined they throw "fetchImpl is not
-  // a function" and break login. The jsdom window must expose a real fetch.
-  test('validation leaves a usable window.fetch (does not break gaxios fetch detection)', async () => {
+  // Regression: jsdom setup must NOT leak onto the main-thread globals. When it
+  // did, libraries that feature-detect `window` (gaxios, via google-auth-library
+  // during OAuth) grabbed the nonexistent `window.fetch` and threw "fetchImpl is
+  // not a function", breaking login. Mermaid now runs in a worker, so the main
+  // thread must never see a `window`/`document`.
+  test('validation does not pollute main-thread globals', async () => {
     buildMermaid(xmlFragment, 'graph TD\n  A --> B');
     await validateMermaidBlocks(xmlFragment);
-    expect(typeof global.window).toBe('object');
-    expect(typeof global.window.fetch).toBe('function');
+    expect(global.window).toBeUndefined();
+    expect(global.document).toBeUndefined();
   });
 });

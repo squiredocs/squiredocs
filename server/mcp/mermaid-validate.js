@@ -11,65 +11,102 @@
  * Scope is parse-only (syntax). Full render() needs real DOM layout (getBBox /
  * text measurement) which jsdom does not implement, so we do not attempt it.
  *
- * Mermaid 11 is ESM-only and touches `document` at module-eval time, so we set
- * up jsdom globals before dynamically importing it from our CommonJS server.
+ * Mermaid 11 is ESM-only and (with dompurify) touches `document` at module-eval
+ * time, so it needs jsdom globals. We run it in a dedicated worker thread
+ * (mermaid-worker.js) so those globals stay confined to the worker — setting
+ * them on the main process's `global` leaked process-wide and broke gaxios
+ * (google-auth-library) during OAuth, which feature-detects `window` and then
+ * reaches for the nonexistent `window.fetch`.
  */
 
+const { Worker } = require('worker_threads');
+const path = require('path');
 const { findByNodeName, getTextContent } = require('./sandbox/helpers');
 
 // Truncate echoed source so a huge diagram can't bloat the tool result.
 const MAX_SOURCE_CHARS = 200;
+// Cap a single validation round so a wedged worker can't hang `modify`'s await.
+// Generous enough to cover the worker's one-time cold start (jsdom + ESM mermaid
+// import + initialize) on the first request.
+const REQUEST_TIMEOUT_MS = 10000;
 
-let mermaidPromise = null;
+let worker = null; // cached long-lived Worker | null
+let nextRequestId = 1; // monotonic request-correlation id
+const pending = new Map(); // id -> { resolve, reject, timer }
 
 /**
- * Lazily set up a jsdom DOM and import + initialize Mermaid, once.
- * Mirrors loadMermaid() in client/src/extensions/MermaidNode.js.
- *
- * @returns {Promise<object>} the initialized mermaid instance
+ * Reject every in-flight request and drop the cached worker so the next call
+ * spawns a fresh one. Used when the worker errors or exits unexpectedly.
  */
-function getMermaid() {
-  if (!mermaidPromise) {
-    mermaidPromise = (async () => {
-      const { JSDOM } = require('jsdom');
-      const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
-        pretendToBeVisual: true,
-      });
-      const w = dom.window;
-      // Mermaid (and its dompurify dependency) reference these at import and
-      // parse time. Assign before importing mermaid.
-      // jsdom's window has no fetch. Once global.window is set, any library
-      // that detects `window` and reaches for `window.fetch` (e.g. gaxios, via
-      // google-auth-library during OAuth) would otherwise grab `undefined` and
-      // throw "fetchImpl is not a function". Back it with Node's global fetch.
-      w.fetch ||= globalThis.fetch;
-      global.window = w;
-      global.document = w.document;
-      global.navigator = w.navigator;
-      global.DOMParser = w.DOMParser;
-      global.Node = w.Node;
-      global.Element = w.Element;
-      global.HTMLElement = w.HTMLElement;
-      global.SVGElement = w.SVGElement;
-      global.getComputedStyle = w.getComputedStyle;
-
-      const { default: mermaid } = await import('mermaid');
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        theme: 'neutral',
-      });
-      return mermaid;
-    })();
+function resetWorker(err) {
+  for (const { reject, timer } of pending.values()) {
+    clearTimeout(timer);
+    reject(err);
   }
-  return mermaidPromise;
+  pending.clear();
+  worker = null;
+}
+
+/** Lazily spawn and cache the validation worker, wiring its event handlers. */
+function getWorker() {
+  if (worker) return worker;
+  worker = new Worker(path.join(__dirname, 'mermaid-worker.js'));
+  // Don't let an idle worker keep the process (or a Jest run) alive.
+  worker.unref();
+  worker.on('message', (msg) => {
+    const p = pending.get(msg.id);
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.delete(msg.id);
+    if (msg.error) p.reject(new Error(msg.error));
+    else p.resolve(msg.results);
+  });
+  worker.on('error', (err) => resetWorker(err));
+  worker.on('exit', (code) => {
+    if (code !== 0) resetWorker(new Error(`mermaid worker exited with code ${code}`));
+    else resetWorker(new Error('mermaid worker exited'));
+  });
+  return worker;
+}
+
+/**
+ * Send sources to the worker and resolve with per-index parse results
+ * (error message string, or null if valid). Rejects on worker failure or
+ * timeout so the caller can fail open.
+ *
+ * @param {string[]} sources
+ * @returns {Promise<Array<string|null>>}
+ */
+function sendToWorker(sources) {
+  return new Promise((resolve, reject) => {
+    let w;
+    try {
+      w = getWorker();
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const id = nextRequestId++;
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error('mermaid validation timed out'));
+    }, REQUEST_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, timer });
+    try {
+      w.postMessage({ id, sources });
+    } catch (err) {
+      clearTimeout(timer);
+      pending.delete(id);
+      reject(err);
+    }
+  });
 }
 
 /**
  * Validate every Mermaid block in a document and report syntax errors.
  *
  * Non-blocking by design: callers surface the returned errors to the agent but
- * do not roll back the edit. Fails open — if the validator itself can't load, we
+ * do not roll back the edit. Fails open — if the validator itself can't run, we
  * return [] rather than risk a false positive that blocks a legitimate edit.
  *
  * @param {Y.XmlFragment} xmlFragment - live document fragment to inspect
@@ -78,35 +115,43 @@ function getMermaid() {
  */
 async function validateMermaidBlocks(xmlFragment) {
   const blocks = findByNodeName(xmlFragment, 'mermaid');
-  // Short-circuit before paying the jsdom/mermaid init cost (the common case).
+  // Short-circuit before paying the worker spawn/init cost (the common case).
   if (blocks.length === 0) return [];
 
-  let mermaid;
+  // Extract plain source strings in the main thread — the live Yjs fragment
+  // cannot cross the worker boundary, only structured-cloneable values.
+  const sources = blocks.map((b) => getTextContent(b));
+
+  let results;
   try {
-    mermaid = await getMermaid();
+    results = await sendToWorker(sources);
   } catch (err) {
-    console.error('[mermaid-validate] failed to load mermaid:', err.message);
+    console.error('[mermaid-validate] worker validation failed:', err.message);
     return [];
   }
 
   const errors = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const source = getTextContent(blocks[i]);
-    // Empty source is valid/blank, matching the client (renders nothing).
-    if (!source.trim()) continue;
-    try {
-      await mermaid.parse(source);
-    } catch (err) {
-      errors.push({
-        block: i + 1,
-        error: String((err && err.message) || err),
-        source: source.length > MAX_SOURCE_CHARS
-          ? source.slice(0, MAX_SOURCE_CHARS) + '…'
-          : source,
-      });
-    }
+  for (let i = 0; i < results.length; i++) {
+    const message = results[i];
+    if (message == null) continue; // valid (or empty) block
+    const source = sources[i];
+    errors.push({
+      block: i + 1,
+      error: message,
+      source: source.length > MAX_SOURCE_CHARS
+        ? source.slice(0, MAX_SOURCE_CHARS) + '…'
+        : source,
+    });
   }
   return errors;
 }
 
-module.exports = { validateMermaidBlocks, getMermaid };
+/** Terminate the cached worker, if any. Primarily for test teardown. */
+async function shutdownMermaidWorker() {
+  if (!worker) return;
+  const w = worker;
+  resetWorker(new Error('mermaid worker shutting down'));
+  await w.terminate();
+}
+
+module.exports = { validateMermaidBlocks, shutdownMermaidWorker };
