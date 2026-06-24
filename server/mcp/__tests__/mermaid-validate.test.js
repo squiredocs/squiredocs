@@ -76,4 +76,15 @@ describe('validateMermaidBlocks', () => {
     expect(errors[0].source.endsWith('…')).toBe(true);
     expect(errors[0].source.length).toBeLessThanOrEqual(201);
   });
+
+  // Regression: setting up jsdom leaks global.window process-wide. Libraries
+  // like gaxios (via google-auth-library during OAuth) detect `window` and
+  // reach for `window.fetch`; if that's undefined they throw "fetchImpl is not
+  // a function" and break login. The jsdom window must expose a real fetch.
+  test('validation leaves a usable window.fetch (does not break gaxios fetch detection)', async () => {
+    buildMermaid(xmlFragment, 'graph TD\n  A --> B');
+    await validateMermaidBlocks(xmlFragment);
+    expect(typeof global.window).toBe('object');
+    expect(typeof global.window.fetch).toBe('function');
+  });
 });

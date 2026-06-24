@@ -38,6 +38,11 @@ function getMermaid() {
       const w = dom.window;
       // Mermaid (and its dompurify dependency) reference these at import and
       // parse time. Assign before importing mermaid.
+      // jsdom's window has no fetch. Once global.window is set, any library
+      // that detects `window` and reaches for `window.fetch` (e.g. gaxios, via
+      // google-auth-library during OAuth) would otherwise grab `undefined` and
+      // throw "fetchImpl is not a function". Back it with Node's global fetch.
+      w.fetch ||= globalThis.fetch;
       global.window = w;
       global.document = w.document;
       global.navigator = w.navigator;
