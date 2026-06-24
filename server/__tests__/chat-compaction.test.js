@@ -5,64 +5,15 @@
  * messages when they exceed a fraction of the model's context window.
  */
 
-// Mock requireAuth
-jest.mock('../auth', () => ({
-  requireAuth: (req, res, next) => {
-    req.user = { userId: 'test-user' };
-    next();
-  },
-}));
-
-// Mock heavy dependencies
-jest.mock('../auth/jwt', () => ({ extractBearerToken: jest.fn() }));
-jest.mock('../mcp/auth/agent-token-factory', () => ({
-  createAgentTokenPair: jest.fn(() => ({ token: {} })),
-}));
-jest.mock('../url', () => ({ buildBaseUrl: jest.fn(() => 'http://test') }));
-jest.mock('../api/chat-tools', () => ({
-  buildTools: jest.fn(() => ({})),
-}));
-jest.mock('../api/chat-models', () => ({
-  DEFAULT_MODEL_KEY: 'test',
-  MODEL_DEFS: [],
-  resolveModel: jest.fn(),
-  resolveModelWithKey: jest.fn(),
-}));
-jest.mock('../documents', () => ({ getDocument: jest.fn() }));
-jest.mock('../chat-store', () => ({
-  loadChat: jest.fn(() => []),
-  saveChat: jest.fn(),
-  createChat: jest.fn(),
-  getChatsForUser: jest.fn(),
-  deleteChat: jest.fn(),
-  updateChatTitle: jest.fn(),
-}));
-jest.mock('../ai-usage', () => ({
-  checkQuota: jest.fn(() => ({ allowed: true })),
-  computeCostCents: jest.fn(),
-  recordUsage: jest.fn(() => Promise.resolve()),
-}));
-jest.mock('../crypto', () => ({ decrypt: jest.fn() }));
-
-// Mock the AI SDK — need generateText for compaction
-const mockGenerateText = jest.fn();
-jest.mock('ai', () => ({
-  streamText: jest.fn(),
-  generateText: mockGenerateText,
-  convertToModelMessages: jest.fn((msgs) => msgs),
-  validateUIMessages: jest.fn(({ messages }) => messages),
-  createIdGenerator: jest.fn(() => () => 'msg-test'),
-  stepCountIs: jest.fn(),
-  pipeUIMessageStreamToResponse: jest.fn(),
-  tool: jest.fn(),
-  jsonSchema: jest.fn(),
-}));
-
-// We need to test compactMessages which is not exported.
-// We'll test it indirectly through the module by accessing it via the
-// prepareStep callback, or we can extract and test the logic directly.
-// For now, let's test the core logic by requiring the module and
-// examining the prepareStep behavior.
+// NOTE: This file does NOT require ../api/chat (where compactMessages lives) —
+// compactMessages is not exported, so these tests re-implement and assert its
+// expected behavior inline. There are deliberately no jest.mock() calls: with
+// no real module loaded, mocks for ../api/chat-models, 'ai', etc. would be dead
+// code that silently drifts from the real exports (e.g. a mock 'ai' whose
+// streamText returns undefined when the real one returns a stream object). That
+// is exactly the kind of stale mock that hides prod crashes, so we keep none.
+// If compactMessages is ever exported and exercised directly here, mock only
+// what that path actually loads, matching the real export surface.
 
 describe('compactMessages logic', () => {
   // Since compactMessages is not exported, we test the expected behavior:

@@ -7,7 +7,7 @@ function makeAiChat(overrides = {}) {
   return {
     chatList: [],
     currentChatId: null,
-    createChat: vi.fn().mockResolvedValue('new-id'),
+    createChat: vi.fn().mockResolvedValue(null), // real createChat resolves null
     selectChat: vi.fn(),
     deleteChat: vi.fn().mockResolvedValue(),
     renameChat: vi.fn().mockResolvedValue(),
@@ -91,7 +91,7 @@ describe('AiChatHistory', () => {
   });
 
   it('"New Chat" button calls createChat and onBack', async () => {
-    const createChat = vi.fn().mockResolvedValue('new-id');
+    const createChat = vi.fn().mockResolvedValue(null); // real createChat resolves null
     render(
       <AiChatHistory aiChat={makeAiChat({ createChat })} onBack={onBack} />
     );
