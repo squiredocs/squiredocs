@@ -333,7 +333,9 @@ export function AiChatProvider({ children }) {
   // Clears the draft instance only; the outgoing chat's instance is preserved
   // (and keeps streaming) so switching back to it still shows its messages.
   const createChat = useCallback(async () => {
-    getChatInstance(null).setMessages([]);
+    // Raw Chat instances expose a `messages` setter, not setMessages() — that
+    // helper lives only on the useChat() return value.
+    getChatInstance(null).messages = [];
     setCurrentChatId(null);
     return null;
   }, [getChatInstance, setCurrentChatId]);
