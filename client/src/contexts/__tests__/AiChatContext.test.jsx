@@ -26,19 +26,25 @@ const stopSpy = vi.fn();
 const setMessagesSpy = vi.fn();
 const resumeStreamSpy = vi.fn();
 const sendMessageSpy = vi.fn();
+// Tracks assignments to the raw Chat instance's `messages` setter — distinct
+// from setMessagesSpy (the useChat() helper). The real Chat class exposes only
+// this setter, NOT a setMessages() method.
+const messagesSetterSpy = vi.fn();
 let mockMessages = [];
 let mockStatus = 'ready';
 let capturedUseChatOptions = null;
 
 vi.mock('@ai-sdk/react', () => {
-  // Cached Chat instances expose the same global spies, plus live id/messages/
-  // status getters so the provider's reuse check can read them.
+  // Mirror the real API surface: a raw Chat instance (AbstractChat) has a
+  // `messages` getter/setter and NO setMessages() method — setMessages() lives
+  // only on the useChat() return value. Keeping the mock faithful means calling
+  // setMessages() on a raw instance throws here exactly as it does in prod.
   class MockChat {
     constructor({ id } = {}) { this.id = id; }
     get messages() { return mockMessages; }
+    set messages(next) { messagesSetterSpy(next); mockMessages = next; }
     get status() { return mockStatus; }
     stop = stopSpy;
-    setMessages = setMessagesSpy;
     resumeStream = resumeStreamSpy;
     sendMessage = sendMessageSpy;
   }
@@ -109,6 +115,7 @@ describe('AiChatContext', () => {
     mockAccessToken = 'test-token';
     stopSpy.mockClear();
     setMessagesSpy.mockClear();
+    messagesSetterSpy.mockClear();
     resumeStreamSpy.mockClear();
     sendMessageSpy.mockClear();
     mockApi.get.mockReset();
@@ -409,6 +416,26 @@ describe('AiChatContext', () => {
       await act(async () => { await result.current.sendMessage('My first msg'); });
 
       expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'My first msg', files: undefined });
+    });
+  });
+
+  // ── New Chat button (createChat) ───────────────────────────────────────────
+
+  describe('createChat (New Chat button)', () => {
+    it('clears the draft instance and resets to a blank chat without throwing', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      messagesSetterSpy.mockClear();
+
+      // Regression: createChat used to call getChatInstance(null).setMessages([]),
+      // but a raw Chat instance has no setMessages() — only a `messages` setter —
+      // so the New Chat button threw "setMessages is not a function". This must
+      // resolve without throwing and clear the draft instance via the setter.
+      await act(async () => { await result.current.createChat(); });
+
+      expect(messagesSetterSpy).toHaveBeenCalledWith([]);
+      expect(result.current.currentChatId).toBeNull();
     });
   });
 
