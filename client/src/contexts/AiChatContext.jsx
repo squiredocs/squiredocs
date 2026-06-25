@@ -651,7 +651,10 @@ export function AiChatProvider({ children }) {
       retryLoadMessages,
       retryLastMessage,
       usageLimitReached,
-      reconnecting: reconnectingChatId === currentChatId,
+      // Guard against null === null: a brand-new chat has currentChatId === null,
+      // and the idle reconnecting state is also null — without this check every
+      // new chat would falsely show the "Reconnecting…" banner.
+      reconnecting: reconnectingChatId !== null && reconnectingChatId === currentChatId,
       draftText,
       clearDraft: () => setDraftText(''),
       draftFiles,

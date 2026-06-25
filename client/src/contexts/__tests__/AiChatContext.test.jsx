@@ -257,6 +257,17 @@ describe('AiChatContext', () => {
     expect(resumeStreamSpy).not.toHaveBeenCalled();
   });
 
+  it('does NOT report reconnecting for a brand-new chat (null currentChatId)', async () => {
+    // Regression: `reconnecting` was `reconnectingChatId === currentChatId`, and
+    // both are null on a fresh chat, so null === null falsely showed the
+    // "Reconnecting…" banner until the first message gave the chat a real id.
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    expect(result.current.currentChatId).toBeNull();
+    expect(result.current.reconnecting).toBe(false);
+  });
+
   it('transport configures prepareReconnectToStreamRequest', () => {
     renderAiChat();
 
