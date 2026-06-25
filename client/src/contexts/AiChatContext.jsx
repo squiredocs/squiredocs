@@ -30,6 +30,15 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// The last persisted turn being the user's means the assistant's reply was never
+// saved — so the server may still be streaming it and we should (re)attach.
+const isAwaitingAssistant = (msgs) => msgs?.[msgs.length - 1]?.role === 'user';
+
+// Reattach to an in-flight server stream. Fire-and-forget: resumeStream resolves
+// only when the whole stream ends, and any re-error surfaces via the instance's
+// onError, so the promise is swallowed here.
+const reattachStream = (instance) => { instance.resumeStream?.().catch(() => {}); };
+
 // Resolve true once a resumed stream is established (status moved to
 // submitted/streaming, or an assistant message has landed); false if it never
 // establishes within `ms`. Polls the instance so it works regardless of the
@@ -244,18 +253,17 @@ export function AiChatProvider({ children }) {
     // Reset the instance to the persisted state, dropping any partial assistant
     // turn it's holding (raw `messages` setter — same idiom as createChat).
     instance.messages = dbMsgs;
-    const last = dbMsgs[dbMsgs.length - 1];
-    if (last?.role === 'assistant') {
+    if (!isAwaitingAssistant(dbMsgs)) {
       instance.clearError?.(); // complete response saved — clear the stale error
       return true;
     }
 
-    // Assistant not persisted yet: reconnect to the in-flight stream. Don't await
-    // to completion (resolves only when the whole stream ends); detect that it
-    // STARTED by polling. Leave status at 'error' so the fallback banner still
-    // shows if it never establishes. A re-error during the resumed replay surfaces
-    // via onError separately (caught by the re-entry guard).
-    instance.resumeStream?.().catch(() => {});
+    // Assistant not persisted yet: reconnect to the in-flight stream. Detect that
+    // it STARTED by polling (resumeStream only resolves when the whole stream
+    // ends). Leave status at 'error' so the fallback banner still shows if it
+    // never establishes; a re-error during the resumed replay surfaces via onError
+    // separately (caught by the re-entry guard).
+    reattachStream(instance);
     return waitForEstablish(instance, RECONNECT_ESTABLISH_MS);
   }, [fetchChatMessages]);
 
@@ -361,9 +369,7 @@ export function AiChatProvider({ children }) {
     }
     instance.messages = msgs;       // raw setter — drops any partial assistant turn
     instance.clearError?.();
-    if (msgs[msgs.length - 1]?.role === 'user') {
-      instance.resumeStream?.().catch(() => {}); // server may still be streaming
-    }
+    if (isAwaitingAssistant(msgs)) reattachStream(instance); // server may still be streaming
   }, [fetchChatMessages]);
 
   // bfcache restore (Cmd+Shift+T, or back/forward) brings the page back from a
@@ -450,7 +456,7 @@ export function AiChatProvider({ children }) {
       // a response started before a refresh or in another tab. resumeStream()
       // calls GET /api/chat/:id/stream — 204 (no-op) if nothing is live, or
       // reconnects to the live buffer.
-      if (msgs[msgs.length - 1]?.role === 'user') {
+      if (isAwaitingAssistant(msgs)) {
         chat.resumeStream();
       }
     }).catch(() => {
