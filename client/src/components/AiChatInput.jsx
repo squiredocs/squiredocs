@@ -8,9 +8,13 @@ const ACCEPTED_TYPES = [
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
 
-const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed }, ref) {
-  const [value, setValue] = useState('');
-  const [pendingFiles, setPendingFiles] = useState([]);
+const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed, chatId, getChatDraft, saveChatDraft }, ref) {
+  // Seed from the persisted per-chat draft so unsent input survives a panel
+  // close/reopen or a chat switch (this component unmounts in both cases). The
+  // parent keys us by chatId, so each chat mounts its own instance and these
+  // lazy initializers read that chat's saved draft.
+  const [value, setValue] = useState(() => getChatDraft?.(chatId)?.text || '');
+  const [pendingFiles, setPendingFiles] = useState(() => getChatDraft?.(chatId)?.files || []);
   const [fileError, setFileError] = useState(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -39,6 +43,12 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
       onDraftFilesConsumed?.();
     }
   }, [draftFiles, onDraftFilesConsumed]);
+
+  // Persist unsent input to the per-chat draft store on every change. Sending
+  // clears value/pendingFiles, which writes an empty draft (i.e. forgets it).
+  useEffect(() => {
+    saveChatDraft?.(chatId, value, pendingFiles);
+  }, [chatId, value, pendingFiles, saveChatDraft]);
 
   const processFiles = useCallback((fileList) => {
     setFileError(null);

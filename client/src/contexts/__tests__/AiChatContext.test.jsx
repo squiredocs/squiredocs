@@ -340,6 +340,27 @@ describe('AiChatContext', () => {
     expect(typeof result.current.clearDraftFiles).toBe('function');
   });
 
+  it('persists and retrieves per-chat input drafts', () => {
+    const { result } = renderAiChat();
+
+    // Unknown chat → no draft.
+    expect(result.current.getChatDraft('chat-a')).toBeNull();
+
+    // Saving a draft is retrievable per chat id, isolated from other chats.
+    act(() => { result.current.saveChatDraft('chat-a', 'half-typed', null); });
+    expect(result.current.getChatDraft('chat-a')).toEqual({ text: 'half-typed', files: null });
+    expect(result.current.getChatDraft('chat-b')).toBeNull();
+
+    // The not-yet-created chat (null id) gets its own slot.
+    act(() => { result.current.saveChatDraft(null, 'new chat text', null); });
+    expect(result.current.getChatDraft(null)).toEqual({ text: 'new chat text', files: null });
+    expect(result.current.getChatDraft('chat-a')).toEqual({ text: 'half-typed', files: null });
+
+    // An empty draft is forgotten (sending clears the input → empty draft).
+    act(() => { result.current.saveChatDraft('chat-a', '   ', null); });
+    expect(result.current.getChatDraft('chat-a')).toBeNull();
+  });
+
   it('pendingAssistantResponse is not in context value', () => {
     const { result } = renderAiChat();
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');

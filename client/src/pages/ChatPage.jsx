@@ -26,6 +26,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
   const {
     messages, sendMessage, status, stop, error,
     usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles,
+    getChatDraft, saveChatDraft, currentChatId,
     messagesLoading, messagesError, retryLoadMessages, retryLastMessage,
     setDocGuidOverride,
   } = aiChat;
@@ -146,6 +147,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
             />
             <div className="chat-page-input-wrap">
               <AiChatInput
+                key={currentChatId || '__new__'}
                 ref={chatInputRef}
                 onSend={sendMessage}
                 onStop={stop}
@@ -156,6 +158,9 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
                 onDraftConsumed={clearDraft}
                 draftFiles={draftFiles}
                 onDraftFilesConsumed={clearDraftFiles}
+                chatId={currentChatId}
+                getChatDraft={getChatDraft}
+                saveChatDraft={saveChatDraft}
               />
             </div>
           </>

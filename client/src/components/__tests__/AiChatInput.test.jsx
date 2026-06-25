@@ -137,6 +137,46 @@ describe('AiChatInput', () => {
     expect(onDraftConsumed).not.toHaveBeenCalled();
   });
 
+  // --------------- Per-chat draft persistence ---------------
+
+  it('seeds the textarea from the persisted draft for the current chat', () => {
+    const getChatDraft = vi.fn((id) => (id === 'chat-1' ? { text: 'unsent words', files: null } : null));
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} chatId="chat-1" getChatDraft={getChatDraft} saveChatDraft={vi.fn()} />);
+
+    expect(getChatDraft).toHaveBeenCalledWith('chat-1');
+    expect(screen.getByRole('textbox')).toHaveValue('unsent words');
+  });
+
+  it('persists typed input to the per-chat draft store as the user types', async () => {
+    const user = userEvent.setup();
+    const saveChatDraft = vi.fn();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} chatId="chat-7" getChatDraft={vi.fn(() => null)} saveChatDraft={saveChatDraft} />);
+
+    await user.type(screen.getByRole('textbox'), 'Hi');
+
+    expect(saveChatDraft).toHaveBeenLastCalledWith('chat-7', 'Hi', []);
+  });
+
+  it('clears the persisted draft after sending', async () => {
+    const user = userEvent.setup();
+    const saveChatDraft = vi.fn();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} chatId="chat-9" getChatDraft={vi.fn(() => null)} saveChatDraft={saveChatDraft} />);
+
+    await user.type(screen.getByRole('textbox'), 'Send me');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    // The send empties the input, which writes an empty draft (the store then forgets it).
+    expect(saveChatDraft).toHaveBeenLastCalledWith('chat-9', '', []);
+  });
+
+  it('works without draft-store props (backward compatible)', async () => {
+    const user = userEvent.setup();
+    render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    await user.type(screen.getByRole('textbox'), 'Hello{Enter}');
+    expect(onSend).toHaveBeenCalledWith('Hello', undefined);
+  });
+
   // --------------- Image attachment ---------------
 
   it('shows preview strip after adding files via addFiles ref', async () => {

@@ -8,6 +8,10 @@ import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 
 const AiChatContext = createContext(null);
 
+// Map key for the not-yet-created chat (null currentChatId): its cached Chat
+// instance and its unsent-input draft both live under this key.
+const DRAFT_KEY = '__draft__';
+
 // Auto-generate a short title from the first user message
 function generateTitle(text) {
   if (!text) return 'New Chat';
@@ -154,6 +158,24 @@ export function AiChatProvider({ children }) {
   const [draftText, setDraftText] = useState('');
   const [draftFiles, setDraftFiles] = useState(null);
 
+  // Per-chat unsent input drafts. Keeps a chat's typed-but-unsent text and
+  // attachments alive across panel close/reopen and chat switches — the input
+  // component unmounts in those cases, so its local state can't survive on its
+  // own. Keyed by chat id (the not-yet-created chat uses DRAFT_KEY). Lives in a
+  // ref on the always-mounted provider, so it outlives any input remount.
+  const chatDraftsRef = useRef(new Map());
+  const getChatDraft = useCallback((id) => chatDraftsRef.current.get(id || DRAFT_KEY) || null, []);
+  const saveChatDraft = useCallback((id, text, files) => {
+    const key = id || DRAFT_KEY;
+    const hasText = !!(text && text.trim());
+    const hasFiles = !!(files && files.length > 0);
+    if (!hasText && !hasFiles) {
+      chatDraftsRef.current.delete(key); // empty draft → forget it
+    } else {
+      chatDraftsRef.current.set(key, { text: text || '', files: hasFiles ? files : null });
+    }
+  }, []);
+
   // Guard: auto-retry on 401 at most once per send attempt
   const authRetryRef = useRef(false);
 
@@ -200,7 +222,6 @@ export function AiChatProvider({ children }) {
   // in the background, so switching back simply re-attaches to it with the
   // message already there — no fragile reload/resume needed. The null draft gets
   // its own instance (keyed '__draft__').
-  const DRAFT_KEY = '__draft__';
   const instancesRef = useRef(new Map());
   const getChatInstance = useCallback((id) => {
     const key = id || DRAFT_KEY;
@@ -478,9 +499,11 @@ export function AiChatProvider({ children }) {
       clearDraft: () => setDraftText(''),
       draftFiles,
       clearDraftFiles: () => setDraftFiles(null),
+      getChatDraft,
+      saveChatDraft,
       setDocGuidOverride,
     }),
-    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, setDocGuidOverride],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride],
   );
 
   return (
