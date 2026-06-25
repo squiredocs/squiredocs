@@ -51,6 +51,20 @@
   gap: 10px;
 }
 
+/* Reconnecting banner — shown while auto-recovering a transient stream error.
+   Reuses the editor reconnecting-banner colors, placed inline like the chat's
+   other banners. */
+.ai-chat-body-reconnecting {
+  padding: 8px 16px;
+  margin: 0 12px 4px;
+  background: #fed7aa;
+  color: #c2410c;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  border-radius: 6px;
+  text-align: center;
+}
+
 /* Retry button */
 .ai-chat-body-retry-btn {
   margin-top: 8px;

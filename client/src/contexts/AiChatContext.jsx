@@ -12,6 +12,44 @@ const AiChatContext = createContext(null);
 // instance and its unsent-input draft both live under this key.
 const DRAFT_KEY = '__draft__';
 
+// Transient-error recovery tuning. RECOVERY_TIMEOUT_MS bounds the DB re-fetch;
+// RECONNECT_ESTABLISH_MS bounds how long we wait for a resumed stream to START
+// (NOT its full duration — a healthy stream then continues uncapped). A genuine
+// failure/204 falls through the establish window to the error fallback.
+const RECOVERY_TIMEOUT_MS = 10_000;
+const RECONNECT_ESTABLISH_MS = 5_000;
+const RECONNECT_POLL_MS = 100;
+const MAX_RECOVERY_ATTEMPTS = 2;
+
+// Reject `promise` if it doesn't settle within `ms`.
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('recovery timeout')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Resolve true once a resumed stream is established (status moved to
+// submitted/streaming, or an assistant message has landed); false if it never
+// establishes within `ms`. Polls the instance so it works regardless of the
+// SDK's internal subscription API.
+function waitForEstablish(instance, ms) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + ms;
+    const tick = () => {
+      const msgs = instance.messages;
+      const lastRole = msgs?.[msgs.length - 1]?.role;
+      if (instance.status === 'streaming' || instance.status === 'submitted' || lastRole === 'assistant') {
+        return resolve(true);
+      }
+      if (Date.now() >= deadline) return resolve(false);
+      setTimeout(tick, RECONNECT_POLL_MS);
+    };
+    tick();
+  });
+}
+
 // Auto-generate a short title from the first user message
 function generateTitle(text) {
   if (!text) return 'New Chat';
@@ -179,12 +217,63 @@ export function AiChatProvider({ children }) {
   // Guard: auto-retry on 401 at most once per send attempt
   const authRetryRef = useRef(false);
 
+  // Transient-error recovery state. recoveringRef holds instances mid-recovery
+  // (re-entry guard — also absorbs a re-fired onError during a resumed replay).
+  // recoverAttemptsRef caps attempts per chat. reconnectingChatId drives the
+  // "Reconnecting…" banner, scoped so a background recovery doesn't show it on a
+  // chat you've switched to.
+  const recoveringRef = useRef(new Set());
+  const recoverAttemptsRef = useRef(new Map());
+  const [reconnectingChatId, setReconnectingChatId] = useState(null);
+
+  // Recover a chat whose stream hit a transient error, mirroring what a page
+  // refresh does: re-fetch persisted messages; if the assistant turn already
+  // saved, show it; otherwise reconnect to the live/buffered server stream.
+  // Returns true if recovered, false to fall back to the error banner + draft.
+  const recoverChat = useCallback(async (instance) => {
+    const id = instance?.id;
+    if (!id) return false; // the __draft__ instance has no server row
+    let dbMsgs;
+    try {
+      dbMsgs = await withTimeout(fetchChatMessages(id), RECOVERY_TIMEOUT_MS);
+    } catch {
+      return false;
+    }
+    if (!dbMsgs || dbMsgs.length === 0) return false; // nothing saved (don't wipe the visible turn)
+
+    // Reset the instance to the persisted state, dropping any partial assistant
+    // turn it's holding (raw `messages` setter — same idiom as createChat).
+    instance.messages = dbMsgs;
+    const last = dbMsgs[dbMsgs.length - 1];
+    if (last?.role === 'assistant') {
+      instance.clearError?.(); // complete response saved — clear the stale error
+      return true;
+    }
+
+    // Assistant not persisted yet: reconnect to the in-flight stream. Don't await
+    // to completion (resolves only when the whole stream ends); detect that it
+    // STARTED by polling. Leave status at 'error' so the fallback banner still
+    // shows if it never establishes. A re-error during the resumed replay surfaces
+    // via onError separately (caught by the re-entry guard).
+    instance.resumeStream?.().catch(() => {});
+    return waitForEstablish(instance, RECONNECT_ESTABLISH_MS);
+  }, [fetchChatMessages]);
+
   // Shared error handler for every chat instance. Bound to the instance that
-  // erred so an auth-retry resends on the right chat. (refreshAccessToken is a
-  // stable useCallback, so the per-instance onError closures never go stale.)
+  // erred so an auth-retry / recovery acts on the right chat. (refreshAccessToken
+  // and recoverChat are stable useCallbacks, so the per-instance onError closures
+  // never go stale.)
   const handleChatError = useCallback((error, instance) => {
     // DefaultChatTransport throws Error(responseBody) on non-200.
     const msg = (error?.message || '').toLowerCase();
+
+    // Restore the draft + surface usage limits. The single place that gives up.
+    const fallback = () => {
+      if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+      if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+      // Our 429 returns JSON: {"error":"AI usage limit reached"}
+      if (msg.includes('usage limit')) setUsageLimitReached(true);
+    };
 
     // Auto-retry once on auth errors: refresh the token and resend
     const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
@@ -197,23 +286,40 @@ export function AiChatProvider({ children }) {
             files: lastSentFilesRef.current?.length ? lastSentFilesRef.current : undefined,
           });
         })
-        .catch(() => {
-          // Refresh failed — restore draft for manual retry
-          if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-          if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
-        });
+        .catch(fallback); // refresh failed — restore draft for manual retry
       return;
     }
 
-    // Non-auth error (or auth retry exhausted) — restore draft
-    if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-    if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
-
-    // Our 429 returns JSON: {"error":"AI usage limit reached"}
+    // Never auto-recover a usage-limit (429) — surface it immediately.
     if (msg.includes('usage limit')) {
-      setUsageLimitReached(true);
+      fallback();
+      return;
     }
-  }, [refreshAccessToken]);
+
+    // Transient streaming error: the server often keeps streaming and persists the
+    // response. Try to reconnect/recover instead of dumping the draft + showing the
+    // error; only fall back if recovery genuinely fails.
+    const id = instance?.id;
+    if (recoveringRef.current.has(instance)) {
+      fallback(); // already recovering (e.g. a re-fired error) — don't loop
+      return;
+    }
+    const attempts = (id && recoverAttemptsRef.current.get(id)) || 0;
+    if (attempts >= MAX_RECOVERY_ATTEMPTS) {
+      fallback();
+      return;
+    }
+    if (id) recoverAttemptsRef.current.set(id, attempts + 1);
+    recoveringRef.current.add(instance);
+    if (id) setReconnectingChatId(id);
+    recoverChat(instance)
+      .then((ok) => { if (!ok) fallback(); })
+      .catch(fallback)
+      .finally(() => {
+        recoveringRef.current.delete(instance);
+        setReconnectingChatId((cur) => (cur === id ? null : cur));
+      });
+  }, [refreshAccessToken, recoverChat]);
 
   // One persistent Chat instance per chat id, cached and reused across switches.
   // This is what isolates streams (a stream started in chat A writes only to A's
@@ -411,6 +517,9 @@ export function AiChatProvider({ children }) {
         if (!chatId) return;
       }
 
+      // Fresh send → reset this chat's transient-recovery attempt budget.
+      recoverAttemptsRef.current.delete(chatId);
+
       // Auto-title the chat on the first message
       if (!titleSetRef.current.has(chatId)) {
         titleSetRef.current.add(chatId);
@@ -454,6 +563,7 @@ export function AiChatProvider({ children }) {
 
     const chatId = await createChatOnServer();
     if (!chatId) return;
+    recoverAttemptsRef.current.delete(chatId);
 
     // Skip auto-titling from the hidden prompt; give it a stable title.
     titleSetRef.current.add(chatId);
@@ -495,6 +605,7 @@ export function AiChatProvider({ children }) {
       retryLoadMessages,
       retryLastMessage,
       usageLimitReached,
+      reconnecting: reconnectingChatId === currentChatId,
       draftText,
       clearDraft: () => setDraftText(''),
       draftFiles,
@@ -503,7 +614,7 @@ export function AiChatProvider({ children }) {
       saveChatDraft,
       setDocGuidOverride,
     }),
-    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride],
   );
 
   return (

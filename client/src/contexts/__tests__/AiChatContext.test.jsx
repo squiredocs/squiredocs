@@ -26,6 +26,7 @@ const stopSpy = vi.fn();
 const setMessagesSpy = vi.fn();
 const resumeStreamSpy = vi.fn();
 const sendMessageSpy = vi.fn();
+const clearErrorSpy = vi.fn();
 // Tracks assignments to the raw Chat instance's `messages` setter — distinct
 // from setMessagesSpy (the useChat() helper). The real Chat class exposes only
 // this setter, NOT a setMessages() method.
@@ -40,13 +41,16 @@ vi.mock('@ai-sdk/react', () => {
   // only on the useChat() return value. Keeping the mock faithful means calling
   // setMessages() on a raw instance throws here exactly as it does in prod.
   class MockChat {
-    constructor({ id } = {}) { this.id = id; }
+    // Capture onError so tests can simulate a stream error by invoking the
+    // bound handler (instance.onError(err)), exactly as the real SDK does.
+    constructor({ id, onError } = {}) { this.id = id; this.onError = onError; }
     get messages() { return mockMessages; }
     set messages(next) { messagesSetterSpy(next); mockMessages = next; }
     get status() { return mockStatus; }
     stop = stopSpy;
     resumeStream = resumeStreamSpy;
     sendMessage = sendMessageSpy;
+    clearError = clearErrorSpy;
   }
   return {
     Chat: MockChat,
@@ -116,8 +120,9 @@ describe('AiChatContext', () => {
     stopSpy.mockClear();
     setMessagesSpy.mockClear();
     messagesSetterSpy.mockClear();
-    resumeStreamSpy.mockClear();
+    resumeStreamSpy.mockClear().mockResolvedValue(undefined);
     sendMessageSpy.mockClear();
+    clearErrorSpy.mockClear();
     mockApi.get.mockReset();
     mockApi.post.mockReset();
     mockApi.patch.mockReset();
@@ -130,6 +135,7 @@ describe('AiChatContext', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -359,6 +365,189 @@ describe('AiChatContext', () => {
     // An empty draft is forgotten (sending clears the input → empty draft).
     act(() => { result.current.saveChatDraft('chat-a', '   ', null); });
     expect(result.current.getChatDraft('chat-a')).toBeNull();
+  });
+
+  // ── Transient streaming error recovery ────────────────────────────────────
+
+  describe('transient error recovery', () => {
+    const userMsg = { role: 'user', parts: [{ type: 'text', text: 'please reply' }] };
+    const assistantMsg = { role: 'assistant', parts: [{ type: 'text', text: 'done' }] };
+
+    // Send a message so a chat instance exists, lastSent refs are populated, and
+    // the attempt counter is reset; return the active (erred-able) instance.
+    async function sendAndGetInstance(result, id, text = 'please reply') {
+      mockNewChatFlow(id);
+      await act(async () => { await result.current.sendMessage(text); });
+      await waitFor(() => expect(capturedUseChatOptions.chat.id).toBe(id));
+      sendMessageSpy.mockClear();
+      messagesSetterSpy.mockClear();
+      resumeStreamSpy.mockClear();
+      return capturedUseChatOptions.chat;
+    }
+
+    it('resumes the in-flight stream when the assistant turn is not yet saved', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-resume');
+
+      // DB shows only the user turn; simulate the resumed stream having started.
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
+      mockStatus = 'streaming';
+
+      await act(async () => {
+        inst.onError(new Error('anthropic overloaded'));
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      expect(messagesSetterSpy).toHaveBeenCalledWith([userMsg]);
+      expect(resumeStreamSpy).toHaveBeenCalled();
+      expect(result.current.draftText).toBe('');   // draft NOT restored — recovered
+      expect(result.current.reconnecting).toBe(false); // cleared after establishment
+    });
+
+    it('shows the persisted assistant message without resuming when it is already saved', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-saved');
+
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg, assistantMsg] } });
+      clearErrorSpy.mockClear();
+
+      await act(async () => {
+        inst.onError(new Error('network error'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(messagesSetterSpy).toHaveBeenCalledWith([userMsg, assistantMsg]);
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+      expect(clearErrorSpy).toHaveBeenCalled();
+      expect(result.current.draftText).toBe('');
+    });
+
+    it('falls back to draft + error when the DB fetch fails', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-fetchfail');
+
+      mockApi.get.mockRejectedValueOnce(new Error('500'));
+
+      await act(async () => {
+        inst.onError(new Error('anthropic error'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+      expect(result.current.draftText).toBe('please reply'); // draft restored
+    });
+
+    it('does not wipe the visible turn when the DB has no messages (new chat)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-empty');
+
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [] } });
+
+      await act(async () => {
+        inst.onError(new Error('anthropic error'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(messagesSetterSpy).not.toHaveBeenCalledWith([]); // visible turn preserved
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+      expect(result.current.draftText).toBe('please reply');
+    });
+
+    it('does not start a second recovery while one is in flight (re-entry guard)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-reentry');
+
+      // Make the recovery fetch hang so the first recovery stays in flight.
+      mockApi.get.mockReset();
+      let getCalls = 0;
+      mockApi.get.mockImplementation(() => { getCalls += 1; return new Promise(() => {}); });
+
+      await act(async () => {
+        inst.onError(new Error('err one'));
+        inst.onError(new Error('err two'));
+        await Promise.resolve();
+      });
+
+      expect(getCalls).toBe(1); // the 2nd error was short-circuited by the guard
+    });
+
+    it('gives up to the error banner after the establish window (no live stream / 204)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-204');
+
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
+      mockStatus = 'error'; // resume never establishes
+
+      vi.useFakeTimers();
+      await act(async () => {
+        inst.onError(new Error('anthropic error'));
+        await vi.advanceTimersByTimeAsync(6000); // past RECONNECT_ESTABLISH_MS
+      });
+      vi.useRealTimers();
+
+      expect(resumeStreamSpy).toHaveBeenCalled(); // it tried
+      expect(result.current.draftText).toBe('please reply'); // then fell back
+    });
+
+    it('stops recovering after MAX_RECOVERY_ATTEMPTS and surfaces the error', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-cap');
+      mockStatus = 'error';
+
+      vi.useFakeTimers();
+      // Two failed recoveries (each fetch resolves user-last, resume never establishes).
+      for (let i = 0; i < 2; i += 1) {
+        mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
+        await act(async () => {
+          inst.onError(new Error('anthropic error'));
+          await vi.advanceTimersByTimeAsync(6000);
+        });
+      }
+      resumeStreamSpy.mockClear();
+      // Third error: attempts exhausted → straight to fallback, no resume attempt.
+      await act(async () => {
+        inst.onError(new Error('anthropic error'));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      vi.useRealTimers();
+
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
+
+    it('auth errors take precedence over recovery (refresh + resend, no resume)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-auth');
+
+      await act(async () => {
+        inst.onError(new Error('401 Unauthorized'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(refreshAccessTokenSpy).toHaveBeenCalled();
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
+
+    it('usage-limit errors surface immediately without recovery', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendAndGetInstance(result, 'chat-usage');
+
+      await act(async () => {
+        inst.onError(new Error('AI usage limit reached'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(result.current.usageLimitReached).toBe(true);
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('pendingAssistantResponse is not in context value', () => {

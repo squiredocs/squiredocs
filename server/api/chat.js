@@ -334,9 +334,16 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
         continue;
       }
 
-      // Log error events from the AI provider so failures aren't silent
+      // Provider error events: forward to the live client (so a genuinely fatal
+      // error stays visible) but do NOT append to entry.chunks. Buffering the
+      // error part poisons reconnection — a resumeStream() replay would re-deliver
+      // it and re-trigger the client's onError. Generation keeps running via the
+      // tee and onFinish still persists the (possibly partial) message, so the
+      // client can recover by replaying a clean buffer or re-fetching from the DB.
       if (value?.type === 'error') {
         console.error('[Chat API] Provider error in stream:', value.errorText || JSON.stringify(value));
+        if (isWritable(res)) res.write(sseEvent(value));
+        continue;
       }
 
       pushChunk(res, entry, sseEvent(value));

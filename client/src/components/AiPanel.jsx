@@ -29,7 +29,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
     heightPx, updateHeight,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -219,7 +219,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
             retryLoadMessages={retryLoadMessages}
             usageLimitReached={usageLimitReached} error={error}
             errorMessage={errorWasByok && error?.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : undefined}
-            onRetry={retryLastMessage}
+            onRetry={retryLastMessage} reconnecting={reconnecting}
             greeting={getGreeting(user?.name)} accentColor={accentColor}
             onDocLinkClick={handleDocLinkClick}
           />

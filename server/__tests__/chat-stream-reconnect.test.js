@@ -254,6 +254,32 @@ describe('pipeAsSSE', () => {
     expect(entry.done).toBe(false);
   });
 
+  test('forwards a provider error event to the live client but does NOT buffer it', async () => {
+    // A mid-stream error part must reach the connected client (so a genuinely
+    // fatal error stays visible) yet stay OUT of entry.chunks — buffering it would
+    // poison reconnection (a replay would re-deliver the error and re-trigger the
+    // client's onError). Generation continues; the surrounding content is buffered.
+    const values = [
+      { type: 'start' },
+      { type: 'text-delta', text: 'a' },     // commits headers
+      { type: 'error', errorText: 'overloaded' },
+      { type: 'text-delta', text: 'b' },
+    ];
+    const res = makeRes();
+    const entry = { chunks: [], done: false, userId: 'u' };
+
+    await pipeAsSSE(streamOf(values), res, entry);
+
+    // The error reached the client...
+    expect(res.written.some((c) => c.includes('"type":"error"'))).toBe(true);
+    // ...but was never added to the replay buffer.
+    expect(entry.chunks.some((c) => c.includes('"type":"error"'))).toBe(false);
+    // Surrounding content IS buffered for replay (plus the [DONE] sentinel).
+    expect(entry.chunks.some((c) => c.includes('"text":"a"'))).toBe(true);
+    expect(entry.chunks.some((c) => c.includes('"text":"b"'))).toBe(true);
+    expect(entry.chunks[entry.chunks.length - 1]).toBe('data: [DONE]\n\n');
+  });
+
   test('writes the full stream to a client that stays connected', async () => {
     const values = [
       { type: 'start' },

@@ -10,7 +10,7 @@ import './AiChatBody.css';
  */
 function AiChatBody({
   messages, status, messagesLoading, messagesError, retryLoadMessages,
-  usageLimitReached, error, errorMessage, onRetry,
+  usageLimitReached, error, errorMessage, onRetry, reconnecting,
   greeting, accentColor, iconSize = 40, onDocLinkClick,
 }) {
   const isEmpty = messages.length === 0;
@@ -48,6 +48,8 @@ function AiChatBody({
         <div className="ai-chat-body-usage-limit">
           You've reached your AI usage limit for this month. <a href="/settings">View Usage</a>
         </div>
+      ) : reconnecting ? (
+        <div className="ai-chat-body-reconnecting">Reconnecting…</div>
       ) : status === 'error' && error && (
         <div className="ai-chat-body-error">
           {errorMessage || 'Something went wrong. Please try again.'}
