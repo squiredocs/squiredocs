@@ -345,6 +345,46 @@ export function AiChatProvider({ children }) {
 
   const chat = useChat({ chat: getChatInstance(currentChatId) });
 
+  // Re-sync an instance from the DB and re-attach to a still-live server stream.
+  // Mirrors the load-messages effect's fetch body, but operates on a given
+  // instance and bypasses the "already has messages / is streaming" guard — used
+  // when the in-memory state is stale (e.g. a bfcache restore) and must be
+  // refreshed even though the instance still looks populated/streaming.
+  const reloadChatFromDb = useCallback(async (instance) => {
+    const id = instance?.id;
+    if (!id) return;
+    let msgs;
+    try {
+      msgs = await fetchChatMessages(id);
+    } catch {
+      return; // leave the stale view in place rather than blanking it
+    }
+    instance.messages = msgs;       // raw setter — drops any partial assistant turn
+    instance.clearError?.();
+    if (msgs[msgs.length - 1]?.role === 'user') {
+      instance.resumeStream?.().catch(() => {}); // server may still be streaming
+    }
+  }, [fetchChatMessages]);
+
+  // bfcache restore (Cmd+Shift+T, or back/forward) brings the page back from a
+  // frozen snapshot WITHOUT re-mounting React, so the load-messages effect never
+  // re-runs and the SSE connection that died when the tab closed is never
+  // re-established — a chat that was mid-stream stays frozen on a partial. On a
+  // persisted pageshow, re-sync the active chat and resume if the server is still
+  // streaming. A real reload fires pageshow with persisted=false and is handled by
+  // the normal mount/load path instead.
+  useEffect(() => {
+    const onPageShow = (e) => {
+      if (!e.persisted || !currentChatId) return;
+      const inst = getChatInstance(currentChatId);
+      if (inst.status === 'streaming' || inst.status === 'submitted') {
+        reloadChatFromDb(inst);
+      }
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, [currentChatId, getChatInstance, reloadChatFromDb]);
+
   // ── Load messages when chat changes ──────────────────────────────────────
 
   // Identifies the (chat, retry-tick) we last loaded for. `accessToken` is a

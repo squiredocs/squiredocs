@@ -550,6 +550,83 @@ describe('AiChatContext', () => {
     });
   });
 
+  // ── bfcache restore (Cmd+Shift+T) ─────────────────────────────────────────
+
+  describe('bfcache restore (persisted pageshow)', () => {
+    function firePageShow(persisted) {
+      const evt = new Event('pageshow');
+      Object.defineProperty(evt, 'persisted', { value: persisted });
+      window.dispatchEvent(evt);
+    }
+
+    it('re-syncs and resumes the active chat when restored mid-stream', async () => {
+      sessionStorage.setItem('ai_chat_id', 'chat-bfcache');
+      mockApi.get.mockReset();
+      // Initial mount load for the restored chat (user-last → resumes once).
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }] } });
+      mockApi.get.mockResolvedValueOnce({ data: [] }); // chat list
+
+      const { result } = renderAiChat();
+      await waitFor(() => expect(result.current.currentChatId).toBe('chat-bfcache'));
+      await waitFor(() => expect(resumeStreamSpy).toHaveBeenCalled());
+
+      // Simulate the stale-but-streaming in-memory state a bfcache restore brings back.
+      mockStatus = 'streaming';
+      resumeStreamSpy.mockClear();
+      messagesSetterSpy.mockClear();
+      const userMsg = { role: 'user', parts: [{ type: 'text', text: 'hi' }] };
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
+
+      await act(async () => {
+        firePageShow(true);
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(messagesSetterSpy).toHaveBeenCalledWith([userMsg]);
+      expect(resumeStreamSpy).toHaveBeenCalled(); // re-attached to the live stream
+    });
+
+    it('ignores a non-persisted pageshow (a real reload handles itself)', async () => {
+      sessionStorage.setItem('ai_chat_id', 'chat-reload');
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'assistant', parts: [{ type: 'text', text: 'done' }] }] } });
+      mockApi.get.mockResolvedValueOnce({ data: [] });
+
+      const { result } = renderAiChat();
+      await waitFor(() => expect(result.current.currentChatId).toBe('chat-reload'));
+      mockStatus = 'streaming';
+      resumeStreamSpy.mockClear();
+
+      await act(async () => {
+        firePageShow(false);
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
+
+    it('does nothing on restore when the chat is not mid-stream', async () => {
+      sessionStorage.setItem('ai_chat_id', 'chat-idle');
+      mockApi.get.mockReset();
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'assistant', parts: [{ type: 'text', text: 'done' }] }] } });
+      mockApi.get.mockResolvedValueOnce({ data: [] });
+
+      const { result } = renderAiChat();
+      await waitFor(() => expect(result.current.currentChatId).toBe('chat-idle'));
+      mockStatus = 'ready';
+      resumeStreamSpy.mockClear();
+      messagesSetterSpy.mockClear();
+
+      await act(async () => {
+        firePageShow(true);
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+      expect(messagesSetterSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it('pendingAssistantResponse is not in context value', () => {
     const { result } = renderAiChat();
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');
