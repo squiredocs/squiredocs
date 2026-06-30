@@ -15,7 +15,7 @@ const chatTools = require('./chat-tools');
 const chatModels = require('./chat-models');
 const { getProviderConfig } = require('./ai-providers');
 const { deduplicateReadResults } = require('./chat-dedup');
-const { getObservedClocks, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
+const { getObservedClocks, getRevertedDocs, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
 const { getDocument, hasAccess } = require('../documents');
 const chatStore = require('../chat-store');
@@ -553,6 +553,11 @@ router.post('/', requireAuth, async (req, res) => {
     // Track the agent's last-seen clock per document and warn it about edits
     // made by anyone else since then.
     observedClockHolder.byDoc = getObservedClocks(modelMessages);
+    // Docs whose latest agent edit the user has since undone via the chat Undo
+    // button. The undo is written through the agent's own identity out-of-band,
+    // so foreignEditsSince can't detect it — surface it as a change here so the
+    // agent re-reads instead of trusting its now-reverted snapshot.
+    const revertedDocs = getRevertedDocs(allMessages);
     if (persistence && observedClockHolder.byDoc.size > 0) {
       const staleEntries = [];
       for (const [staleDocGuid, baseClock] of observedClockHolder.byDoc) {
@@ -562,12 +567,13 @@ router.post('/', requireAuth, async (req, res) => {
             userId: req.user.userId,
             agentName: CHAT_AGENT_NAME,
           });
-          if (editors.length === 0) continue;
+          const reverted = revertedDocs.has(staleDocGuid);
+          if (editors.length === 0 && !reverted) continue;
           let title = staleDocGuid === docGuid ? docTitle : null;
           if (!title) {
             try { title = (await getDocument(staleDocGuid))?.title || null; } catch (_) { /* best-effort */ }
           }
-          staleEntries.push({ docGuid: staleDocGuid, editors, title });
+          staleEntries.push({ docGuid: staleDocGuid, editors, title, reverted });
         } catch (e) {
           console.warn('[Chat API] staleness check failed for', staleDocGuid, e.message);
         }

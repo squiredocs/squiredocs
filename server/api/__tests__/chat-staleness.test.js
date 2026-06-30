@@ -3,6 +3,7 @@
  */
 const {
   getObservedClocks,
+  getRevertedDocs,
   foreignEditsSince,
   buildStalenessNote,
 } = require('../chat-staleness');
@@ -12,6 +13,11 @@ function call(toolCallId, toolName, input) {
 }
 function result(toolCallId, value) {
   return { role: 'tool', content: [{ type: 'tool-result', toolCallId, output: { type: 'json', value } }] };
+}
+
+// Stored UI-format assistant message carrying a tool part (the shape getRevertedDocs reads).
+function uiTool(toolName, input, extra = {}) {
+  return { role: 'assistant', parts: [{ type: `tool-${toolName}`, input, ...extra }] };
 }
 
 const AGENT = { userId: 'u1', agentName: 'Squire Docs Assistant' };
@@ -49,6 +55,42 @@ describe('getObservedClocks', () => {
       result('c1', { content: [] }),
     ];
     expect(getObservedClocks(messages).has('A')).toBe(false);
+  });
+});
+
+describe('getRevertedDocs', () => {
+  it('reports a doc whose latest modify was undone by the user', () => {
+    const messages = [
+      uiTool('read_document', { docGuid: 'A' }),
+      uiTool('modify', { docGuid: 'A', script: 'x' }, { reverted: true }),
+    ];
+    expect(getRevertedDocs(messages).has('A')).toBe(true);
+  });
+
+  it('does not report a doc whose latest modify is not reverted', () => {
+    const messages = [
+      uiTool('modify', { docGuid: 'A', script: 'x' }, { reverted: true }),
+      uiTool('modify', { docGuid: 'A', script: 'y' }),
+    ];
+    expect(getRevertedDocs(messages).has('A')).toBe(false);
+  });
+
+  it('clears once the agent re-reads the doc after the undo', () => {
+    const messages = [
+      uiTool('modify', { docGuid: 'A', script: 'x' }, { reverted: true }),
+      uiTool('read_document', { docGuid: 'A' }),
+    ];
+    expect(getRevertedDocs(messages).has('A')).toBe(false);
+  });
+
+  it('tracks reverted state independently per document', () => {
+    const messages = [
+      uiTool('modify', { docGuid: 'A', script: 'x' }, { reverted: true }),
+      uiTool('modify', { docGuid: 'B', script: 'y' }),
+    ];
+    const reverted = getRevertedDocs(messages);
+    expect(reverted.has('A')).toBe(true);
+    expect(reverted.has('B')).toBe(false);
   });
 });
 
@@ -111,5 +153,13 @@ describe('buildStalenessNote', () => {
       { docGuid: 'A', title: 'Plan', editors: [{ name: 'Alice' }] },
     ]);
     expect(note).toContain('Do NOT tell the user');
+  });
+
+  it('describes a reverted edit (no foreign editors) as an undo by the user', () => {
+    const note = buildStalenessNote([
+      { docGuid: 'A', title: 'Plan', editors: [], reverted: true },
+    ]);
+    expect(note).toContain('"Plan": your earlier edit was undone by the user');
+    expect(note).toContain('Silently re-read');
   });
 });

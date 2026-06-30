@@ -52,6 +52,38 @@ function getObservedClocks(messages) {
 }
 
 /**
+ * Documents whose most recent snapshot in the agent's view is a `modify` the
+ * user has since undone (via the chat Undo button). The undo runs out-of-band
+ * through the agent's own identity, so foreignEditsSince can't see it as a
+ * change — but the revert is recorded as `reverted: true` on the persisted
+ * modify tool part. A doc qualifies only while that reverted modify is still the
+ * agent's latest read/modify of it; a later read_document clears it (the agent
+ * has re-read the reverted content), as does a redo (which clears `reverted`).
+ *
+ * @param {Array} messages - stored UI-format messages ({ parts: [...] })
+ * @returns {Set<string>} docGuids whose latest agent edit is currently undone
+ */
+function getRevertedDocs(messages) {
+  const lastSnapshot = new Map(); // docGuid -> { toolName, reverted }
+  for (const msg of messages) {
+    const parts = Array.isArray(msg.parts) ? msg.parts : [];
+    for (const part of parts) {
+      const toolName = part.toolName
+        || (typeof part.type === 'string' && part.type.startsWith('tool-') ? part.type.slice(5) : null);
+      if (!toolName || !SNAPSHOT_TOOLS.has(toolName)) continue;
+      const docGuid = part.input?.docGuid;
+      if (!docGuid) continue;
+      lastSnapshot.set(docGuid, { toolName, reverted: part.reverted === true });
+    }
+  }
+  const reverted = new Set();
+  for (const [docGuid, snap] of lastSnapshot) {
+    if (snap.toolName === 'modify' && snap.reverted) reverted.add(docGuid);
+  }
+  return reverted;
+}
+
+/**
  * Distinct editors, other than this agent, among updates after `sinceClock`.
  * The agent's own edits carry its agentName + userId; the human typing directly
  * carries a null agentName, and other users carry their own userId — all of
@@ -83,13 +115,16 @@ function foreignEditsSince(updates, sinceClock, agent) {
  * Build a short context note listing documents that changed outside the
  * conversation, or null when nothing is stale.
  *
- * @param {Array<{ title: string|null, docGuid: string, editors: Array<{name}> }>} entries
+ * @param {Array<{ title: string|null, docGuid: string, editors: Array<{name}>, reverted?: boolean }>} entries
  * @returns {string|null}
  */
 function buildStalenessNote(entries) {
   if (!entries || entries.length === 0) return null;
   const lines = entries.map(e => {
     const label = e.title ? `"${e.title}"` : e.docGuid;
+    if (e.reverted && (!e.editors || e.editors.length === 0)) {
+      return `- ${label}: your earlier edit was undone by the user and is no longer in the document.`;
+    }
     const names = e.editors.map(ed => ed.name).join(', ');
     return `- ${label} was edited by ${names} since you last read it.`;
   });
@@ -103,6 +138,7 @@ function buildStalenessNote(entries) {
 
 module.exports = {
   getObservedClocks,
+  getRevertedDocs,
   foreignEditsSince,
   buildStalenessNote,
   SNAPSHOT_TOOLS,
