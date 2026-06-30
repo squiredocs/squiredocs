@@ -3,6 +3,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursorWithSelection from './CollaborationCursorWithSelection';
 import LinkPreview from './LinkPreview';
 import TableContextMenu from './TableContextMenu';
+import SelectionChatButton from './SelectionChatButton';
 import { getBaseExtensions } from '../extensions/editorExtensions';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
@@ -36,7 +37,7 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null, onRequestOpenChat }) {
   const { api } = useAuth();
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
@@ -411,6 +412,14 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
           editor={editor}
           position={tableContextMenu}
           onClose={() => setTableContextMenu(null)}
+        />
+      )}
+      {docId && (
+        <SelectionChatButton
+          editor={editor}
+          docId={docId}
+          isMobile={isMobile}
+          onRequestOpenChat={onRequestOpenChat}
         />
       )}
     </div>

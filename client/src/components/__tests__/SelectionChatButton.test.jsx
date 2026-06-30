@@ -1,0 +1,73 @@
+import React from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+// Hoisted so the vi.mock factory can reference it.
+const { addSelectionRefSpy } = vi.hoisted(() => ({ addSelectionRefSpy: vi.fn() }));
+vi.mock('../../contexts/AiChatContext', () => ({
+  useAiChat: () => ({ addSelectionRef: addSelectionRefSpy }),
+}));
+
+import SelectionChatButton from '../SelectionChatButton';
+
+// Minimal fake TipTap editor exercising just the surface the button reads.
+function makeEditor({ empty = false, text = 'hello world', heading = 'Section A' } = {}) {
+  return {
+    state: {
+      selection: { empty, from: 1, to: 5 },
+      doc: {
+        content: { size: 100 },
+        textBetween: () => (empty ? '' : text),
+        nodesBetween: (_from, _to, cb) => {
+          if (heading) cb({ type: { name: 'heading' }, textContent: heading });
+        },
+      },
+    },
+    view: { coordsAtPos: () => ({ left: 10, bottom: 20, top: 10, right: 30 }) },
+    commands: { setTextSelection: vi.fn() },
+  };
+}
+
+describe('SelectionChatButton', () => {
+  beforeEach(() => {
+    addSelectionRefSpy.mockClear();
+  });
+
+  it('renders nothing when the selection is empty', () => {
+    render(<SelectionChatButton editor={makeEditor({ empty: true })} docId="doc-1" />);
+    expect(screen.queryByRole('button', { name: 'Add selection to chat' })).not.toBeInTheDocument();
+  });
+
+  it('shows the tag for a non-empty text selection', () => {
+    render(<SelectionChatButton editor={makeEditor()} docId="doc-1" />);
+    expect(screen.getByRole('button', { name: 'Add selection to chat' })).toBeInTheDocument();
+  });
+
+  it('captures the passage + heading + docId and opens the panel on click', async () => {
+    const user = userEvent.setup();
+    const editor = makeEditor({ text: 'the auth service' });
+    const onRequestOpenChat = vi.fn();
+    render(<SelectionChatButton editor={editor} docId="doc-7" onRequestOpenChat={onRequestOpenChat} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add selection to chat' }));
+
+    expect(addSelectionRefSpy).toHaveBeenCalledWith({
+      text: 'the auth service',
+      heading: 'Section A',
+      docId: 'doc-7',
+    });
+    // Collapses the selection to dismiss the tag and signal capture.
+    expect(editor.commands.setTextSelection).toHaveBeenCalledWith(5);
+    expect(onRequestOpenChat).toHaveBeenCalled();
+  });
+
+  it('records a null heading when the selection has no enclosing heading', async () => {
+    const user = userEvent.setup();
+    render(<SelectionChatButton editor={makeEditor({ heading: null })} docId="doc-2" />);
+
+    await user.click(screen.getByRole('button', { name: 'Add selection to chat' }));
+
+    expect(addSelectionRefSpy).toHaveBeenCalledWith(expect.objectContaining({ heading: null }));
+  });
+});

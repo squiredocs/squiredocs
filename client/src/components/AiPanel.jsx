@@ -31,7 +31,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
     heightPx, updateHeight,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, pendingRefs, removeSelectionRef } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
 
@@ -201,12 +201,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
               <button className="icon-btn" onClick={() => setShowHistory(true)} aria-label="Chat history" title="Chat history">
                 <ListIcon size={iconSize} />
               </button>
-              <ChatFontSizeControl
-                onIncrease={chatFont.increase}
-                onDecrease={chatFont.decrease}
-                canIncrease={chatFont.canIncrease}
-                canDecrease={chatFont.canDecrease}
-              />
+              <ChatFontSizeControl {...chatFont} />
               {!isMobile && onNavigateToChat && (
                 <button className="icon-btn" onClick={onNavigateToChat} aria-label="Open chat view" title="Open chat view">
                   <ChatBubbleIcon size={iconSize} />
@@ -238,7 +233,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
             greeting={getGreeting(user?.name)} accentColor={accentColor}
             onDocLinkClick={handleDocLinkClick}
           />
-          <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} />
+          <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} pendingRefs={pendingRefs} onRemoveRef={removeSelectionRef} />
         </>
       )}
     </WrapperTag>

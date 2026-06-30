@@ -341,4 +341,55 @@ describe('AiChatInput', () => {
 
     expect(pasteEvent.preventDefault).not.toHaveBeenCalled();
   });
+
+  // --------------- "Add to Chat" selection references ---------------
+
+  const sampleRefs = [
+    { id: 'sel-1', text: 'the auth service shipping', heading: 'Objectives' },
+    { id: 'sel-2', text: 'a second passage', heading: null },
+  ];
+
+  it('renders a chip per pending selection reference', () => {
+    const { container } = render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={sampleRefs} onRemoveRef={vi.fn()} />
+    );
+
+    expect(container.querySelectorAll('.ai-chat-ref-chip')).toHaveLength(2);
+    expect(screen.getByText(/the auth service shipping/)).toBeInTheDocument();
+    expect(screen.getByText('Objectives:')).toBeInTheDocument();
+  });
+
+  it('calls onRemoveRef with the ref id when its remove button is clicked', async () => {
+    const user = userEvent.setup();
+    const onRemoveRef = vi.fn();
+    render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={sampleRefs} onRemoveRef={onRemoveRef} />
+    );
+
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove reference' });
+    await user.click(removeButtons[0]);
+
+    expect(onRemoveRef).toHaveBeenCalledWith('sel-1');
+  });
+
+  it('enables send when refs are present even with empty text', () => {
+    render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={sampleRefs} onRemoveRef={vi.fn()} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Send message' })).not.toBeDisabled();
+  });
+
+  it('sends with empty text when only refs are attached', async () => {
+    const user = userEvent.setup();
+    render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={sampleRefs} onRemoveRef={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    // The refs themselves are folded in by the context's sendMessage, so the
+    // input just emits the (empty) typed text.
+    expect(onSend).toHaveBeenCalledWith('', undefined);
+  });
 });

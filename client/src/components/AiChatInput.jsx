@@ -8,7 +8,7 @@ const ACCEPTED_TYPES = [
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
 
-const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed, chatId, getChatDraft, saveChatDraft }, ref) {
+const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed, chatId, getChatDraft, saveChatDraft, pendingRefs, onRemoveRef }, ref) {
   // Seed from the persisted per-chat draft so unsent input survives a panel
   // close/reopen or a chat switch (this component unmounts in both cases). The
   // parent keys us by chatId, so each chat mounts its own instance and these
@@ -111,9 +111,13 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
   }, []);
 
+  const hasRefs = (pendingRefs?.length || 0) > 0;
+
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    if ((!trimmed && pendingFiles.length === 0) || isStreaming) return;
+    // Selection references (added via "Add to Chat") count as content, so a
+    // message carrying only refs can still be sent.
+    if ((!trimmed && pendingFiles.length === 0 && !hasRefs) || isStreaming) return;
     onSend(trimmed, pendingFiles.length > 0 ? pendingFiles : undefined);
     setValue('');
     setPendingFiles([]);
@@ -122,7 +126,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [value, pendingFiles, isStreaming, onSend]);
+  }, [value, pendingFiles, isStreaming, onSend, hasRefs]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -137,11 +141,32 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     }
   }, [autoFocus]);
 
-  const isEmpty = value.trim() === '' && pendingFiles.length === 0;
+  const isEmpty = value.trim() === '' && pendingFiles.length === 0 && !hasRefs;
 
   return (
     <div className="ai-chat-input">
       <div className="ai-chat-input-inner">
+        {hasRefs && (
+          <div className="ai-chat-ref-strip">
+            {pendingRefs.map((r) => (
+              <div key={r.id} className="ai-chat-ref-chip" title={r.text}>
+                <svg className="ai-chat-ref-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span className="ai-chat-ref-text">
+                  {r.heading ? <span className="ai-chat-ref-heading">{r.heading}: </span> : null}
+                  {r.text}
+                </span>
+                <button
+                  type="button"
+                  className="ai-chat-ref-remove"
+                  onClick={() => onRemoveRef?.(r.id)}
+                  aria-label="Remove reference"
+                >&times;</button>
+              </div>
+            ))}
+          </div>
+        )}
         {pendingFiles.length > 0 && (
           <div className="ai-chat-preview-strip">
             {pendingFiles.map((file, i) => (

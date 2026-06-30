@@ -65,6 +65,24 @@ function generateTitle(text) {
   return text.length > 50 ? text.slice(0, 50) + '...' : text;
 }
 
+// "Add to Chat" support. When the user selects text in a document and clicks the
+// floating tag, the passage is captured as a "selection reference" and held here
+// until the next message is sent. On send, the quoted passages are serialized
+// into a delimited block prepended to the user's text so the assistant knows
+// exactly which parts of the document the user means — no fragile position
+// tracking needed (the literal quote lets it locate the passage via
+// read_document if it wants surrounding context). The same refs ride along as
+// message metadata so the transcript can render them as styled chips instead of
+// showing the raw delimiter block.
+let selectionRefIdSeq = 0;
+function serializeSelectionRefs(refs) {
+  const lines = refs.map((r, i) => {
+    const where = r.heading ? ` (under heading "${r.heading}")` : '';
+    return `[${i + 1}]${where} "${r.text}"`;
+  });
+  return `<referenced_passages>\n${lines.join('\n')}\n</referenced_passages>`;
+}
+
 // Onboarding "speak first" kickoff. Sent as a hidden user turn (tagged via
 // metadata so the renderer omits it) to prompt the assistant's live greeting.
 // The user's first name is woven in so the assistant can personalize the
@@ -204,6 +222,23 @@ export function AiChatProvider({ children }) {
   const lastSentFilesRef = useRef(null);
   const [draftText, setDraftText] = useState('');
   const [draftFiles, setDraftFiles] = useState(null);
+
+  // Pending "Add to Chat" selection references for the message being composed.
+  // Ephemeral composing state (like pendingFiles in the input) — lives on the
+  // always-mounted provider so it survives the input's per-chat remount, and is
+  // cleared when the message sends.
+  const [pendingRefs, setPendingRefs] = useState([]);
+  const addSelectionRef = useCallback((ref) => {
+    if (!ref?.text) return;
+    setPendingRefs((prev) => [
+      ...prev,
+      { id: `sel-${++selectionRefIdSeq}`, text: ref.text, heading: ref.heading || null, docId: ref.docId || null },
+    ]);
+  }, []);
+  const removeSelectionRef = useCallback((id) => {
+    setPendingRefs((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+  const clearSelectionRefs = useCallback(() => setPendingRefs([]), []);
 
   // Per-chat unsent input drafts. Keeps a chat's typed-but-unsent text and
   // attachments alive across panel close/reopen and chat switches — the input
@@ -553,7 +588,20 @@ export function AiChatProvider({ children }) {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
       lastSentFilesRef.current = files || null;
-      const payload = { text: text || ' ', files: files?.length ? files : undefined };
+
+      // Fold any pending "Add to Chat" selection references into this turn: a
+      // delimited quote block prepended to the text (so the model reads it) plus
+      // matching metadata (so the transcript renders chips, not raw delimiters).
+      const refs = pendingRefs;
+      const composedText = refs.length
+        ? `${serializeSelectionRefs(refs)}\n\n${text || ''}`.trimEnd()
+        : text;
+      const payload = {
+        text: composedText || ' ',
+        files: files?.length ? files : undefined,
+        ...(refs.length ? { metadata: { refs: refs.map((r) => ({ text: r.text, heading: r.heading })) } } : {}),
+      };
+      if (refs.length) setPendingRefs([]); // consumed by this send
 
       // Resolve the target chat id, creating a server row for a brand-new chat.
       let chatId = currentChatId;
@@ -569,7 +617,7 @@ export function AiChatProvider({ children }) {
       // Auto-title the chat on the first message
       if (!titleSetRef.current.has(chatId)) {
         titleSetRef.current.add(chatId);
-        renameChat(chatId, generateTitle(text || 'Image'));
+        renameChat(chatId, generateTitle(text || (refs.length ? refs[0].text : 'Image')));
       }
 
       // Proactively refresh the token if it's expired or expiring soon so the
@@ -593,7 +641,7 @@ export function AiChatProvider({ children }) {
 
       chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs],
   );
 
   // Start the onboarding greeting: always opens a fresh chat scoped to the
@@ -662,8 +710,12 @@ export function AiChatProvider({ children }) {
       getChatDraft,
       saveChatDraft,
       setDocGuidOverride,
+      pendingRefs,
+      addSelectionRef,
+      removeSelectionRef,
+      clearSelectionRefs,
     }),
-    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride, pendingRefs, addSelectionRef, removeSelectionRef, clearSelectionRefs],
   );
 
   return (

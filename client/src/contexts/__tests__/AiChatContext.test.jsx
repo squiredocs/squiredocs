@@ -643,6 +643,77 @@ describe('AiChatContext', () => {
     expect(result.current).not.toHaveProperty('pendingAssistantResponse');
   });
 
+  // ── "Add to Chat" selection references ────────────────────────────────────
+
+  describe('selection references', () => {
+    it('addSelectionRef appends a ref with a generated id; removeSelectionRef drops it', () => {
+      const { result } = renderAiChat();
+
+      act(() => { result.current.addSelectionRef({ text: 'a passage', heading: 'Intro' }); });
+      expect(result.current.pendingRefs).toHaveLength(1);
+      expect(result.current.pendingRefs[0]).toMatchObject({ text: 'a passage', heading: 'Intro' });
+      expect(result.current.pendingRefs[0].id).toBeTruthy();
+
+      const id = result.current.pendingRefs[0].id;
+      act(() => { result.current.addSelectionRef({ text: 'second' }); });
+      expect(result.current.pendingRefs).toHaveLength(2);
+
+      act(() => { result.current.removeSelectionRef(id); });
+      expect(result.current.pendingRefs).toHaveLength(1);
+      expect(result.current.pendingRefs[0].text).toBe('second');
+    });
+
+    it('addSelectionRef ignores a ref with no text', () => {
+      const { result } = renderAiChat();
+      act(() => { result.current.addSelectionRef({ text: '' }); });
+      expect(result.current.pendingRefs).toHaveLength(0);
+    });
+
+    it('folds pending refs into the sent message (delimited block + metadata) and clears them', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      act(() => { result.current.addSelectionRef({ text: 'the auth service', heading: 'Objectives' }); });
+      mockNewChatFlow('chat-ref');
+
+      await act(async () => { await result.current.sendMessage('explain this'); });
+
+      expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+      const payload = sendMessageSpy.mock.calls[0][0];
+      expect(payload.text).toContain('<referenced_passages>');
+      expect(payload.text).toContain('(under heading "Objectives") "the auth service"');
+      expect(payload.text).toContain('explain this');
+      expect(payload.metadata).toEqual({ refs: [{ text: 'the auth service', heading: 'Objectives' }] });
+
+      // Consumed by the send.
+      expect(result.current.pendingRefs).toHaveLength(0);
+    });
+
+    it('allows a refs-only send with empty text', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      act(() => { result.current.addSelectionRef({ text: 'just this passage' }); });
+      mockNewChatFlow('chat-refonly');
+
+      await act(async () => { await result.current.sendMessage(''); });
+
+      const payload = sendMessageSpy.mock.calls[0][0];
+      expect(payload.text).toContain('just this passage');
+      expect(payload.metadata.refs).toHaveLength(1);
+    });
+
+    it('does not attach metadata when there are no refs', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+      mockNewChatFlow('chat-noref');
+      await act(async () => { await result.current.sendMessage('plain message'); });
+
+      expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'plain message', files: undefined });
+    });
+  });
+
   // ── New-chat creation: first message should not be swallowed ──────────
 
   describe('new chat first message', () => {

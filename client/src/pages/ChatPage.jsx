@@ -31,7 +31,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
     usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles,
     getChatDraft, saveChatDraft, currentChatId,
     messagesLoading, messagesError, retryLoadMessages, retryLastMessage,
-    setDocGuidOverride,
+    setDocGuidOverride, pendingRefs, removeSelectionRef,
   } = aiChat;
 
   const isStreaming = status === 'submitted' || status === 'streaming';
@@ -134,12 +134,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
           >
             <ListIcon size={18} />
           </button>
-          <ChatFontSizeControl
-            onIncrease={chatFont.increase}
-            onDecrease={chatFont.decrease}
-            canIncrease={chatFont.canIncrease}
-            canDecrease={chatFont.canDecrease}
-          />
+          <ChatFontSizeControl {...chatFont} />
         </div>
         {showHistory ? (
           <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />
@@ -170,6 +165,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
                 chatId={currentChatId}
                 getChatDraft={getChatDraft}
                 saveChatDraft={saveChatDraft}
+                pendingRefs={pendingRefs}
+                onRemoveRef={removeSelectionRef}
               />
             </div>
           </>

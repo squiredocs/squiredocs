@@ -6,6 +6,14 @@ import { useAiChat } from '../contexts/AiChatContext';
 import { isImageType } from '../utils/media';
 import { spaNavigate, parseDocGuid } from '../utils/navigation';
 
+// Remove the leading <referenced_passages>…</referenced_passages> block that
+// "Add to Chat" prepends to a user turn (it's rendered as chips from metadata
+// instead). Defensive against a missing/partial block.
+function stripReferencedPassages(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/^<referenced_passages>[\s\S]*?<\/referenced_passages>\n*/, '');
+}
+
 // Labels for tool badges. Doc-scoped tools (value ends with a preposition
 // or single verb) get a linked document title appended automatically.
 const TOOL_LABELS = {
@@ -732,11 +740,30 @@ const MessageItem = React.memo(function MessageItem({ message, isLoading }) {
     return <AssistantBubble groups={groups} isLoading={isLoading} citations={citations} />;
   }
 
-  const text = message.parts?.find(p => p.type === 'text')?.text || message.content;
+  const rawText = message.parts?.find(p => p.type === 'text')?.text || message.content;
   const fileParts = message.parts?.filter(p => p.type === 'file') || [];
+  // "Add to Chat" references ride along as metadata; show them as quote chips and
+  // strip the raw <referenced_passages> delimiter block out of the visible text.
+  const refs = message.metadata?.refs;
+  const text = refs?.length ? stripReferencedPassages(rawText) : rawText;
   return (
     <div className="ai-chat-bubble-wrap ai-chat-bubble-wrap--user">
       <div className={`ai-chat-bubble ai-chat-bubble--${message.role}`}>
+        {refs?.length > 0 && (
+          <div className="ai-chat-msg-refs">
+            {refs.map((r, i) => (
+              <div key={i} className="ai-chat-msg-ref" title={r.text}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span className="ai-chat-msg-ref-text">
+                  {r.heading ? <span className="ai-chat-msg-ref-heading">{r.heading}: </span> : null}
+                  {r.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {fileParts.length > 0 && (
           <div className="ai-chat-images">
             {fileParts.map((fp, i) =>

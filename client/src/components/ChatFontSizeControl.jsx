@@ -6,12 +6,12 @@ import './ChatFontSizeControl.css';
  * live in useChatFontScale; this is the presentational control rendered in the
  * chat header (side panel) and full-page chat toolbar.
  */
-export default function ChatFontSizeControl({ onIncrease, onDecrease, canIncrease, canDecrease }) {
+export default function ChatFontSizeControl({ increase, decrease, canIncrease, canDecrease }) {
   return (
     <div className="chat-font-size-control">
       <button
         className="icon-btn chat-font-size-btn"
-        onClick={onDecrease}
+        onClick={decrease}
         disabled={!canDecrease}
         aria-label="Decrease chat text size"
         title="Decrease chat text size"
@@ -20,7 +20,7 @@ export default function ChatFontSizeControl({ onIncrease, onDecrease, canIncreas
       </button>
       <button
         className="icon-btn chat-font-size-btn"
-        onClick={onIncrease}
+        onClick={increase}
         disabled={!canIncrease}
         aria-label="Increase chat text size"
         title="Increase chat text size"
