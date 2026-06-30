@@ -6,6 +6,8 @@ import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatBody from './AiChatBody';
 import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
+import ChatFontSizeControl from './ChatFontSizeControl';
+import { useChatFontScale } from '../hooks/useChatFontScale';
 import { PlusIcon, ListIcon, ChevronLeftIcon, ChatBubbleIcon, CloseIcon, LayoutBottomIcon, LayoutRightIcon } from './icons';
 import { getGreeting } from '../utils/greeting';
 import { spaNavigate } from '../utils/navigation';
@@ -44,6 +46,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
   const errorWasByok = errorByokRef.current ?? false;
 
   const { user } = useAuth();
+  const chatFont = useChatFontScale();
   const isMobile = useMobile();
   const panelRef = useRef(null);
   const chatInputRef = useRef(null);
@@ -145,12 +148,18 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
   const byokClass = isByok ? ' ai-panel--byok' : '';
   const WrapperTag = isMobile ? 'div' : 'aside';
   const wrapperProps = isMobile
-    ? { className: `ai-panel-mobile${byokClass}` }
+    ? {
+        className: `ai-panel-mobile${byokClass}`,
+        style: { '--chat-font-scale': chatFont.fontScale },
+      }
     : {
         className: `ai-panel ai-panel--${position}${byokClass}`,
-        style: isRight
-          ? { '--ai-panel-width': `${widthPx}px` }
-          : { '--ai-panel-height': `${heightPx}px` },
+        style: {
+          '--chat-font-scale': chatFont.fontScale,
+          ...(isRight
+            ? { '--ai-panel-width': `${widthPx}px` }
+            : { '--ai-panel-height': `${heightPx}px` }),
+        },
       };
 
   const iconSize = isMobile ? 18 : 16;
@@ -192,6 +201,12 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
               <button className="icon-btn" onClick={() => setShowHistory(true)} aria-label="Chat history" title="Chat history">
                 <ListIcon size={iconSize} />
               </button>
+              <ChatFontSizeControl
+                onIncrease={chatFont.increase}
+                onDecrease={chatFont.decrease}
+                canIncrease={chatFont.canIncrease}
+                canDecrease={chatFont.canDecrease}
+              />
               {!isMobile && onNavigateToChat && (
                 <button className="icon-btn" onClick={onNavigateToChat} aria-label="Open chat view" title="Open chat view">
                   <ChatBubbleIcon size={iconSize} />

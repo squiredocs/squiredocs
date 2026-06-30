@@ -5,6 +5,8 @@ import { useByok } from '../contexts/ByokContext';
 import AiChatBody from '../components/AiChatBody';
 import AiChatInput from '../components/AiChatInput';
 import AiChatHistory from '../components/AiChatHistory';
+import ChatFontSizeControl from '../components/ChatFontSizeControl';
+import { useChatFontScale } from '../hooks/useChatFontScale';
 import { PlusIcon, ListIcon } from '../components/icons';
 import DocSidePane from '../components/DocSidePane';
 import UserProfileBadge from '../components/UserProfileBadge';
@@ -18,6 +20,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
   const aiChat = useAiChat();
   const { logout } = useAuth();
   const { accentColor } = useByok();
+  const chatFont = useChatFontScale();
   const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -112,7 +115,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
         </div>
       </header>
 
-      <main className="chat-page-main" onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      <main className="chat-page-main" style={{ '--chat-font-scale': chatFont.fontScale }} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDrop={handleDrop}>
         {isDragOver && <div className="chat-page-drop-overlay">Drop files here</div>}
         <div className="chat-page-toolbar">
           <button
@@ -131,6 +134,12 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
           >
             <ListIcon size={18} />
           </button>
+          <ChatFontSizeControl
+            onIncrease={chatFont.increase}
+            onDecrease={chatFont.decrease}
+            canIncrease={chatFont.canIncrease}
+            canDecrease={chatFont.canDecrease}
+          />
         </div>
         {showHistory ? (
           <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />

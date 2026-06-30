@@ -160,7 +160,7 @@
   max-width: 100%;
   padding: 8px 12px;
   border-radius: 12px;
-  font-size: var(--text-md);
+  font-size: calc(var(--text-md) * var(--chat-font-scale, 1));
   line-height: var(--leading-normal);
   word-wrap: break-word;
 }

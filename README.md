@@ -392,6 +392,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **Image upload**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; max 15 MB each) via drag-and-drop or file picker, with thumbnail previews before sending
 - **Working with images**: The assistant can put an image you attached into a document (`insert_image` — uploads it to S3 and inserts the node), *see* images already in a document to describe or answer questions about them (`view_image` — fetches the bytes as vision input), and move/reorder/delete or re-caption existing images via the `modify` tool. To prevent injecting external/tracking URLs, agent-written image `src` values must be app image URLs (`/api/docs/:docId/images/:imageId`); any other src is stripped
 - **Copy button**: Each chat message has a copy-to-clipboard button on hover
+- **Adjustable chat text size**: An A−/A+ stepper in the chat header scales only the chat message text (independent of the rest of the app's typography). The preference is saved per-device in localStorage and applies to both the docked panel and the full-page chat
 - **SPA navigation**: Internal document links in chat messages use client-side navigation instead of full-page reloads
 - **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic, Google, or OpenAI API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
 - **Reactive compaction**: When a conversation exceeds the model's token limit, the system automatically compacts earlier messages and retries, with a UI indicator
@@ -415,7 +416,7 @@ Each user has a monthly AI credit allowance (default: $10.00). Usage is tracked 
 - **Chat-centric mode** (`/chat`): Full-page chat with conversation history sidebar and optional document side pane
 - **Mobile**: Full-screen overlay with keyboard-aware layout
 
-Panel position and size preferences are persisted to localStorage.
+Panel position and size preferences are persisted to localStorage, as is the chat text-size scale (`--chat-font-scale`, adjustable via the header A−/A+ stepper).
 
 ### View Toggle
 
