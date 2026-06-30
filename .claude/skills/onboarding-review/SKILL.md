@@ -1,7 +1,7 @@
 ---
 name: onboarding-review
-description: Review new-user onboarding activity from the production database — find the newest signup(s) and summarize their chats, documents, and AI usage. Use when asked to review new signups, what new users did, or onboarding activity.
-argument-hint: "[count | email]  (default: newest 1 user)"
+description: Review new-user onboarding activity from the production database — find recent signups and summarize their chats, documents, and AI usage. Use when asked to review new signups, what new users did, or onboarding activity.
+argument-hint: "[count | email | time window]  (default: signups in the past 24 hours)"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
 ---
@@ -13,9 +13,10 @@ assistant, what documents got created, and where they dropped off. Pulls from th
 **production** `collab` Postgres database.
 
 `$ARGUMENTS` controls scope:
-- empty → the single newest user
+- empty → **all signups in the past 24 hours** (the default)
 - a number `N` → the newest N users
 - an email → that specific user
+- a time window (e.g. `past 48 hours`, `this week`) → all signups in that window
 
 ## Read this first — privacy
 
@@ -60,14 +61,29 @@ kubectl -n collab exec "$PGPOD" -- bash -lc 'psql -U "$POSTGRES_USER" -d "$POSTG
 
 ## Step 3 — Identify the target user(s)
 
+Default scope is **everyone who signed up in the past 24 hours**, with activity
+counts in one shot:
+
 ```sql
-SELECT id, email, name, created_at, last_login_at
-FROM users ORDER BY created_at DESC LIMIT 5;
+SELECT u.id, u.email, u.name, u.created_at,
+  (SELECT count(*) FROM chats     WHERE user_id=u.id)    AS chats,
+  (SELECT count(*) FROM documents WHERE creator_id=u.id) AS docs,
+  (SELECT count(*) FROM ai_usage_log WHERE user_id=u.id) AS ai_calls
+FROM users u
+WHERE u.created_at >= now() - interval '24 hours'
+ORDER BY u.created_at DESC;
 ```
 
-Pick the newest (or the N / email from `$ARGUMENTS`). Sanity-check `created_at`
-against today's date — a stale-looking max date means you're on the wrong cluster
-(see Step 1).
+For other scopes from `$ARGUMENTS`: swap the `WHERE` for a different interval
+(e.g. `'48 hours'`, `'7 days'`), or drop it and use `ORDER BY created_at DESC
+LIMIT N` for the newest N, or `WHERE email = '...'` for one user.
+
+Sanity-check `created_at` against today's date — a stale-looking max date means
+you're on the wrong cluster (see Step 1). If the window returns zero rows on a
+day you expect signups, that's also a wrong-cluster tell.
+
+This query already covers Step 4's per-user counts, so you can skip Step 4 unless
+you want them for a single user picked by email.
 
 ## Step 4 — Activity overview
 
@@ -85,18 +101,24 @@ SELECT (SELECT count(*) FROM chats     WHERE user_id='$U')    AS chats,
 ## Step 5 — Documents
 
 Document bodies live in Yjs (binary). Use **`document_search_index.content_text`**
-for readable plain text.
+for readable plain text. Pull docs for the whole cohort in one query by joining
+`users` on the same time window, and skip the boilerplate (see below):
 
 ```sql
-SELECT d.title, d.created_at, left(dsi.content_text, 800) AS excerpt
+SELECT u.name, d.title, d.created_at, left(dsi.content_text, 700) AS excerpt
 FROM documents d
+JOIN users u ON u.id = d.creator_id
 LEFT JOIN document_search_index dsi ON dsi.doc_id = d.id
-WHERE d.creator_id = '<U>'
-ORDER BY d.created_at;
+WHERE u.created_at >= now() - interval '24 hours'
+  AND d.title <> 'Welcome to Squire Docs'
+ORDER BY u.created_at DESC, d.created_at;
 ```
 
+For a single user, swap the `WHERE` for `d.creator_id = '<U>'`.
+
 Every new user is auto-seeded a **"Welcome to Squire Docs"** document — that one is
-boilerplate, not user-authored. Call out only the docs they actually created.
+boilerplate, not user-authored (the filter above drops it). A user whose only doc
+is the Welcome one created nothing real. Call out only the docs they actually made.
 
 ## Step 6 — Chats
 
@@ -105,27 +127,48 @@ array; text lives in `parts[].text` (where `type='text'`), role in `role`, and t
 seeded opening system prompt is tagged `metadata.kind = 'welcome-kickoff'` — label
 or skip it (it's not something the user typed).
 
+Pull all cohort chats in one query by joining `users` on the time window:
+
 ```sql
-SELECT m.ord, m.msg->>'role' AS role,
+SELECT u.name, m.ord, m.msg->>'role' AS role,
   coalesce(m.msg->'metadata'->>'kind', '') AS kind,
-  left(string_agg(p->>'text', ' ') FILTER (WHERE p->>'type'='text'), 1400) AS text
+  left(string_agg(p->>'text', ' ') FILTER (WHERE p->>'type'='text'), 1200) AS text
 FROM chats c
+JOIN users u ON u.id = c.user_id
 CROSS JOIN LATERAL jsonb_array_elements(c.messages) WITH ORDINALITY AS m(msg, ord)
 LEFT JOIN LATERAL jsonb_array_elements(m.msg->'parts') AS p ON true
-WHERE c.id = '<chat-id>'
-GROUP BY m.ord, m.msg
-ORDER BY m.ord;
+WHERE u.created_at >= now() - interval '24 hours'
+GROUP BY u.name, u.created_at, m.ord, m.msg
+ORDER BY u.created_at DESC, m.ord;
 ```
 
+For a single chat, swap the `WHERE` for `c.id = '<chat-id>'` and drop `u.name`.
+Add `-A -F"|"` to the `psql` flags so wide multilingual text isn't truncated by
+the table border.
+
 To see the assistant's actual edits (tool calls), select parts where
-`type <> 'text'` — `tool-modify` parts carry the `script` and a `diff`.
+`type <> 'text'` — `tool-modify` parts carry the `script` and a `diff`. An
+assistant message with **no parts at all** (no text and no tool calls) is a
+genuine empty generation — flag it as a likely failure, not a user bounce.
 
 If output is large, it's saved to a tool-results file — `Read` it rather than
 re-running with tighter limits.
 
 ## Step 7 — Write the summary
 
-Per user, lead with the takeaway, not a data dump:
+When the scope is a cohort (the default), open with a one-line rollup before the
+per-user breakdown: how many signed up, how many produced a real document vs.
+dropped off, and how many returned. A user returned only if `last_login_at` is
+meaningfully later than `created_at` — signup auto-logs-in, so a sub-second gap
+means they never came back:
+
+```sql
+SELECT name, last_login_at - created_at AS session_gap
+FROM users WHERE created_at >= now() - interval '24 hours'
+ORDER BY created_at DESC;
+```
+
+Then, per user, lead with the takeaway, not a data dump:
 - **Who & when** — name, email, signup time, whether they returned (`last_login_at`).
 - **What they wanted** — their first real request in their own words (skip the
   `welcome-kickoff` prompt).
