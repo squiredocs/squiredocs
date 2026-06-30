@@ -103,6 +103,13 @@ describe('buildStalenessNote', () => {
     ]);
     expect(note).toContain('"Plan" was edited by Alice');
     expect(note).toContain('B was edited by Bob, Sam');
-    expect(note).toContain('Re-read it');
+    expect(note).toContain('Silently re-read');
+  });
+
+  it('instructs the agent not to announce the change before re-reading', () => {
+    const note = buildStalenessNote([
+      { docGuid: 'A', title: 'Plan', editors: [{ name: 'Alice' }] },
+    ]);
+    expect(note).toContain('Do NOT tell the user');
   });
 });

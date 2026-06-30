@@ -91,10 +91,14 @@ function buildStalenessNote(entries) {
   const lines = entries.map(e => {
     const label = e.title ? `"${e.title}"` : e.docGuid;
     const names = e.editors.map(ed => ed.name).join(', ');
-    return `- ${label} was edited by ${names} since you last read it. `
-      + 'Re-read it before relying on its content or editing it.';
+    return `- ${label} was edited by ${names} since you last read it.`;
   });
-  return '[System note: these documents changed outside this conversation]\n' + lines.join('\n');
+  return '[System note: these documents changed outside this conversation]\n'
+    + lines.join('\n') + '\n'
+    + 'Silently re-read each document listed above before relying on its content or '
+    + 'editing it. Do NOT tell the user that the document changed or that you are about '
+    + 'to re-read it — just re-read it. Only after re-reading, mention the change if it '
+    + "is relevant to the user's request; otherwise stay silent about it.";
 }
 
 module.exports = {
