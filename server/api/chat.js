@@ -17,6 +17,7 @@ const { getProviderConfig } = require('./ai-providers');
 const { deduplicateReadResults } = require('./chat-dedup');
 const { getObservedClocks, getRevertedDocs, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
+const appSettings = require('./app-settings');
 const { getDocument, hasAccess } = require('../documents');
 const chatStore = require('../chat-store');
 const aiUsage = require('../ai-usage');
@@ -503,7 +504,12 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Resolve model — BYOK uses user's key + selected model, otherwise the
     // server default (with fallback). See chatModels.resolveChatModel.
-    const resolved = chatModels.resolveChatModel({ isByok, byokSettings, decryptKey: decrypt });
+    const resolved = chatModels.resolveChatModel({
+      isByok,
+      byokSettings,
+      decryptKey: decrypt,
+      sharedDefaultKey: appSettings.getSharedDefaultModel(),
+    });
     if (!resolved) {
       cleanupEntry();
       return res.status(500).json({ error: 'No valid chat model configured' });

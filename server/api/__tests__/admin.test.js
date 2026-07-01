@@ -11,6 +11,7 @@ process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
 process.env.REFRESH_TOKEN_SECRET = 'test-refresh-secret';
 
 const admin = require('../admin');
+const appSettings = require('../app-settings');
 const aiUsage = require('../../ai-usage');
 const users = require('../../auth/users');
 const { generateAccessToken } = require('../../auth/jwt');
@@ -27,10 +28,11 @@ describe('Admin API', () => {
     users.init(pool);
     admin.init(pool);
     aiUsage.init(pool);
+    await appSettings.init(pool);
 
     app = express();
     app.use(express.json());
-    app.use('/api/admin/users', requireAdmin, admin.router);
+    app.use('/api/admin', requireAdmin, admin.router);
   });
 
   afterAll(async () => {
@@ -561,6 +563,89 @@ describe('Admin API', () => {
       await request(app)
         .delete(`/api/admin/users/extra-credits/${grant.id}`)
         .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+  });
+
+  describe('shared assistant default model', () => {
+    // Eligibility filters on a configured shared server key, so ensure the
+    // Anthropic key is present for the duration of these tests.
+    let savedAnthropicKey;
+    beforeEach(() => {
+      savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    });
+    afterEach(async () => {
+      if (savedAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
+      await pool.query('DELETE FROM app_settings');
+      await appSettings.refresh();
+    });
+
+    test('GET returns effective model and eligible models (admin)', async () => {
+      const token = generateAccessToken(adminUser);
+      const response = await request(app)
+        .get('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(response.body.modelKey).toBeNull();
+      expect(typeof response.body.effectiveModelKey).toBe('string');
+      // Anthropic models are eligible (server key set); OpenAI never is.
+      const providers = response.body.models.map((m) => m.provider);
+      expect(providers).toContain('anthropic');
+      expect(providers).not.toContain('openai');
+    });
+
+    test('PUT sets and clears the shared default', async () => {
+      const token = generateAccessToken(adminUser);
+
+      const set = await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'claude-sonnet' })
+        .expect(200);
+      expect(set.body.modelKey).toBe('claude-sonnet');
+      expect(set.body.effectiveModelKey).toBe('claude-sonnet');
+      expect(appSettings.getSharedDefaultModel()).toBe('claude-sonnet');
+
+      const cleared = await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: null })
+        .expect(200);
+      expect(cleared.body.modelKey).toBeNull();
+      expect(appSettings.getSharedDefaultModel()).toBeNull();
+    });
+
+    test('PUT rejects an unknown model', async () => {
+      const token = generateAccessToken(adminUser);
+      await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'bogus-model' })
+        .expect(400);
+    });
+
+    test('PUT rejects a BYOK-only model as the shared default', async () => {
+      const token = generateAccessToken(adminUser);
+      await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'gpt-5.4' })
+        .expect(400);
+    });
+
+    test('returns 403 for non-admin', async () => {
+      const token = generateAccessToken(regularUser);
+      await request(app)
+        .get('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+      await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'claude-sonnet' })
         .expect(403);
     });
   });

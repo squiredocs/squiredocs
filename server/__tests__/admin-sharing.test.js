@@ -41,7 +41,7 @@ describe('Admin: email-enabled + sharing review', () => {
 
     app = express();
     app.use(express.json());
-    app.use('/api/admin/users', admin.router);
+    app.use('/api/admin', admin.router);
   });
 
   afterAll(async () => {

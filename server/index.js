@@ -15,6 +15,7 @@ const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
 const admin = require('./api/admin');
+const appSettings = require('./api/app-settings');
 const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const documentImages = require('./document-images');
@@ -287,6 +288,11 @@ byokSettings.init(persistenceProvider.getPool());
 // Initialize admin module with shared database pool
 admin.init(persistenceProvider.getPool());
 
+// Initialize app-wide settings and warm the in-memory cache (shared-assistant
+// default model, read synchronously on the chat hot path). Non-blocking: until
+// the cache loads, resolveChatModel falls back to the env/constant default.
+appSettings.init(persistenceProvider.getPool());
+
 // Initialize support module with shared database pool
 support.init(persistenceProvider.getPool());
 
@@ -309,7 +315,7 @@ app.use('/auth', authRouter);
 // full conversation history, so the body parser limit must be well above 75MB.
 app.use('/api/chat', express.json({ limit: '150mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
-app.use('/api/admin/users', requireAdmin, admin.router);
+app.use('/api/admin', requireAdmin, admin.router);
 app.use('/api/support', express.json(), support.router);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)

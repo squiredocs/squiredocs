@@ -18,6 +18,9 @@ const DEFAULT_MODEL_KEY = 'claude-opus';
 const MODEL_DEFS = [
   { key: 'claude-haiku',       provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',              pricing: { input: 100, output: 500 },  contextWindow: 200_000 },
   { key: 'claude-sonnet',      provider: 'anthropic', modelId: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',             pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
+  // Sonnet 5 has an introductory discount ($2/$10 per 1M through 2026-08-31); we
+  // record standard $3/$15 list pricing so metering stays correct after it lapses.
+  { key: 'claude-sonnet-5',    provider: 'anthropic', modelId: 'claude-sonnet-5',           label: 'Claude Sonnet 5',               pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
   { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 200_000 },
   { key: 'gemini-2.5-flash',   provider: 'google',    modelId: 'gemini-2.5-flash',           label: 'Gemini 2.5 Flash',              pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
   { key: 'gemini-2.5-pro',     provider: 'google',    modelId: 'gemini-2.5-pro',             label: 'Gemini 2.5 Pro',                pricing: { input: 125, output: 1000 }, contextWindow: 1_048_576 },
@@ -33,6 +36,27 @@ const MODEL_DEFS = [
   { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_000_000 },
   { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000 },
+  // z.ai (Zhipu) GLM models. Like OpenAI, there is no shared server z.ai key, so
+  // these only run via BYOK (selectable in Settings once a z.ai key is stored;
+  // isByokActive enforces the key at request time). z.ai speaks the OpenAI wire
+  // format but only the chat-completions API, not the Responses API — see the
+  // provider's createModel hook in ai-providers.js. pricing in cents per 1M
+  // tokens, from z.ai's published API pricing (July 2026).
+  { key: 'glm-4.6',            provider: 'zai',       modelId: 'glm-4.6',                    label: 'GLM-4.6',                       pricing: { input:  60, output:  220 }, contextWindow:   200_000 },
+  { key: 'glm-4.7',            provider: 'zai',       modelId: 'glm-4.7',                    label: 'GLM-4.7',                       pricing: { input:  60, output:  220 }, contextWindow:   200_000 },
+  { key: 'glm-5',              provider: 'zai',       modelId: 'glm-5',                      label: 'GLM-5',                         pricing: { input: 100, output:  320 }, contextWindow:   200_000 },
+  { key: 'glm-5.2',            provider: 'zai',       modelId: 'glm-5.2',                    label: 'GLM-5.2',                       pricing: { input: 140, output:  440 }, contextWindow: 1_000_000 },
+  // OpenRouter — an OpenAI-compatible gateway, BYOK-only. Model ids are namespaced
+  // (`z-ai/glm-*`); like z.ai it only implements chat-completions, so the provider's
+  // createModel hook forces the chat model. These reach the same GLM models as the
+  // direct `zai` provider but bill through the user's OpenRouter account, so they're
+  // separate model keys the user selects by which key they hold. pricing in cents per
+  // 1M tokens and context windows are read straight from OpenRouter's models API
+  // (openrouter.ai/api/v1/models, July 2026).
+  { key: 'or-glm-4.6',         provider: 'openrouter', modelId: 'z-ai/glm-4.6',              label: 'GLM-4.6',                       pricing: { input:  43, output:  174 }, contextWindow:   202_752 },
+  { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40, output:  175 }, contextWindow:   202_752 },
+  { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  60, output:  192 }, contextWindow:   202_752 },
+  { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  93, output:  300 }, contextWindow: 1_048_576 },
 ];
 
 // Cached default provider clients (server-pool key from env), keyed by provider.
@@ -54,8 +78,20 @@ function resolveModel(key) {
   if (!def) return null;
 
   const provider = getProvider(def.provider);
-  const model = provider(def.modelId);
+  const model = instantiateModel(def.provider, provider, def.modelId);
   return { model, def, provider };
+}
+
+/**
+ * Build an AI SDK model instance from a provider factory + model id, honoring the
+ * provider's optional `createModel` hook. Most providers use the callable
+ * shorthand `provider(modelId)`; z.ai overrides this to force the
+ * chat-completions API (see ai-providers.js), since its OpenAI-compatible
+ * endpoint doesn't implement the Responses API the shorthand targets.
+ */
+function instantiateModel(providerName, provider, modelId) {
+  const cfg = getProviderConfig(providerName);
+  return cfg.createModel ? cfg.createModel(provider, modelId) : provider(modelId);
 }
 
 /**
@@ -68,7 +104,7 @@ function resolveModelWithKey(key, apiKey) {
   if (!def) return null;
 
   const provider = getProviderConfig(def.provider).createClient(apiKey);
-  const model = provider(def.modelId);
+  const model = instantiateModel(def.provider, provider, def.modelId);
   return { model, def, provider };
 }
 
@@ -175,20 +211,35 @@ function getCompactionModel() {
 }
 
 /**
+ * Resolve the shared-assistant default model KEY (not a model instance), in
+ * order of preference:
+ *  1. The admin-selected default stored in app_settings (passed in by the caller).
+ *  2. The AI_CHAT_MODEL env var (per-deployment override).
+ *  3. DEFAULT_MODEL_KEY code constant.
+ * @param {string} [storedKey] The admin-selected key from app_settings (may be null).
+ * @returns {string} The resolved model key.
+ */
+function resolveSharedDefaultKey(storedKey) {
+  return storedKey || process.env.AI_CHAT_MODEL || DEFAULT_MODEL_KEY;
+}
+
+/**
  * Resolve the model to use for a chat request, in order of preference:
  *  1. BYOK — when active, the user's selected model + decrypted key. An unknown
  *     or invalid BYOK model key falls through to the server default rather than
  *     throwing (the old inline version dereferenced an undefined def).
- *  2. Server default — AI_CHAT_MODEL (or DEFAULT_MODEL_KEY when unset).
- *  3. DEFAULT_MODEL_KEY as a final fallback if AI_CHAT_MODEL is unknown.
+ *  2. Shared default — the admin-selected model (sharedDefaultKey), else
+ *     AI_CHAT_MODEL, else DEFAULT_MODEL_KEY (see resolveSharedDefaultKey).
+ *  3. DEFAULT_MODEL_KEY as a final fallback if the resolved key is unknown.
  *
  * @param {object}   opts
  * @param {boolean}  opts.isByok       Whether BYOK is active for this user.
  * @param {object}   [opts.byokSettings] Raw BYOK settings row (may be null).
  * @param {function} opts.decryptKey   Decrypts a stored BYOK key ciphertext.
+ * @param {string}   [opts.sharedDefaultKey] Admin-selected shared default model key.
  * @returns {{ model, def, provider } | null} Resolved model, or null if nothing resolves.
  */
-function resolveChatModel({ isByok, byokSettings, decryptKey }) {
+function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }) {
   if (isByok && byokSettings) {
     const def = MODEL_DEFS.find((d) => d.key === byokSettings.byok_model_key);
     if (def) {
@@ -198,7 +249,7 @@ function resolveChatModel({ isByok, byokSettings, decryptKey }) {
     }
   }
 
-  const modelKey = process.env.AI_CHAT_MODEL || DEFAULT_MODEL_KEY;
+  const modelKey = resolveSharedDefaultKey(sharedDefaultKey);
   const resolved = resolveModel(modelKey);
   if (resolved) return resolved;
 
@@ -206,4 +257,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey }) {
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };

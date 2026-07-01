@@ -66,6 +66,40 @@ async function validateOpenAIKey(apiKey) {
   return null;
 }
 
+// z.ai exposes an OpenAI-compatible API. Base URL for its general (paas) endpoint;
+// used both by the client factory and key validation below.
+const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+
+async function validateZaiKey(apiKey) {
+  // z.ai's OpenAI-compatible list-models is a free, auth-only endpoint (verified
+  // live: the route exists and auth is checked before anything else — a bad key
+  // returns 401, not 404).
+  const res = await fetch(`${ZAI_BASE_URL}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (res.status === 401) return 'Invalid z.ai API key';
+  if (res.status === 403) return 'z.ai API key does not have permission';
+  if (!res.ok) return `z.ai API returned status ${res.status}`;
+  return null;
+}
+
+// OpenRouter is an OpenAI-compatible gateway (base URL for its v1 API). Reused by
+// the client factory and key validation below.
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
+async function validateOpenRouterKey(apiKey) {
+  // NOTE: OpenRouter's /models is PUBLIC (returns 200 without auth), so it can't
+  // validate a key. /key is the auth-only endpoint — it returns the key's own
+  // metadata (limits, usage) and 401s on a missing/invalid key (verified live).
+  const res = await fetch(`${OPENROUTER_BASE_URL}/key`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (res.status === 401) return 'Invalid OpenRouter API key';
+  if (res.status === 403) return 'OpenRouter API key does not have permission';
+  if (!res.ok) return `OpenRouter API returned status ${res.status}`;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Web-search tool builders. Return an AI SDK tool definition, or null if the
 // provider has no web search. The universal webFetch tool is added separately in
@@ -137,6 +171,65 @@ function buildOpenAIWebSearch(provider) {
   return make ? make({}) : null;
 }
 
+function buildZaiWebSearch() {
+  // z.ai's OpenAI-compatible chat API has no provider-executed web search we wire
+  // up; GLM models still get the universal webFetch tool from chat-tools.js.
+  return null;
+}
+
+// Model used for OpenRouter's web-search sub-call. The `:online` suffix is
+// OpenRouter's web plugin — a cheap, fast model is enough since it only has to
+// summarize+cite search results, not reason about the user's task.
+const OPENROUTER_SEARCH_MODEL = 'z-ai/glm-4.7-flash:online';
+
+function buildOpenRouterWebSearch(provider) {
+  // OpenRouter has no provider-executed web search that composes with function
+  // tools in one request, so — like the Gemini path — we expose search as a
+  // function tool that makes a SEPARATE generateText call against an `:online`
+  // model. OpenRouter runs the web plugin, injects results, and returns
+  // `url_citation` annotations, which @ai-sdk/openai surfaces as `sources`.
+  const { tool, generateText, jsonSchema } = require('ai');
+  const searchModel = provider.chat(OPENROUTER_SEARCH_MODEL);
+  return tool({
+    description: 'Search the web for current information. Returns a grounded summary of search results with source URLs. You MUST provide a query.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The search query to look up on the web' },
+      },
+      required: ['query'],
+    }),
+    execute: async (args) => {
+      const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
+      console.log('[Chat API] webSearch (openrouter) query:', query);
+      const searchResult = await generateText({
+        model: searchModel,
+        maxTokens: 4096,
+        system: 'You are a web research assistant. Answer questions using only information found in web search results. Always include specific details such as names, locations, and descriptions. For every fact you include, cite the exact source URL from the search results.',
+        prompt: query,
+      });
+
+      const text = searchResult.text || '';
+      const sources = searchResult.sources || [];
+      console.log('[Chat API] webSearch (openrouter) result: text=%d chars, sources=%d, finishReason=%s',
+        text.length, sources.length, searchResult.finishReason);
+      if (!text && sources.length === 0) return 'No results found.';
+      if (sources.length === 0) return text;
+
+      return {
+        text,
+        citations: {
+          sources: sources.map((s, i) => ({
+            index: i,
+            url: s.url,
+            title: s.title || undefined,
+          })),
+        },
+      };
+    },
+  });
+}
+
 /**
  * Per-model Anthropic extended-thinking options. The thinking form is
  * model-specific (verified live against @ai-sdk/anthropic@3.0.64):
@@ -163,6 +256,10 @@ const PROVIDERS = {
     keyColumn: 'byok_anthropic_key',
     keyPlaceholder: 'sk-ant-...',
     keyMask: 'sk-ant-••••••',
+    // Env var holding the shared server key (used by defaultClient). Presence of
+    // this key is what makes the provider's models eligible as a shared default
+    // (see hasServerKey). null → BYOK-only, never a shared default.
+    serverKeyEnv: 'ANTHROPIC_API_KEY',
     defaultClient: () => require('@ai-sdk/anthropic').anthropic,
     createClient: (apiKey) => require('@ai-sdk/anthropic').createAnthropic({ apiKey }),
     validateKey: validateAnthropicKey,
@@ -185,6 +282,7 @@ const PROVIDERS = {
     keyColumn: 'byok_google_key',
     keyPlaceholder: 'AIza...',
     keyMask: 'AIza••••••',
+    serverKeyEnv: 'GOOGLE_GENERATIVE_AI_API_KEY',
     defaultClient: () => require('@ai-sdk/google').google,
     createClient: (apiKey) => require('@ai-sdk/google').createGoogleGenerativeAI({ apiKey }),
     validateKey: validateGoogleKey,
@@ -200,6 +298,9 @@ const PROVIDERS = {
     keyColumn: 'byok_openai_key',
     keyPlaceholder: 'sk-...',
     keyMask: 'sk-••••••',
+    // No shared server OpenAI key — GPT-5.x run only via BYOK, so they can never
+    // be selected as the shared-assistant default.
+    serverKeyEnv: null,
     defaultClient: () => require('@ai-sdk/openai').openai,
     createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({ apiKey }),
     validateKey: validateOpenAIKey,
@@ -212,6 +313,66 @@ const PROVIDERS = {
     // OpenAI's web search runs server-side (provider-executed), so the same
     // history-stripping the Anthropic path uses applies here too.
     capabilities: { promptCache: false, providerExecutedWebSearch: true },
+  },
+  zai: {
+    id: 'zai',
+    label: 'z.ai',
+    keyColumn: 'byok_zai_key',
+    keyPlaceholder: 'z.ai API key',
+    keyMask: '••••••',
+    // No shared server z.ai key — GLM models run only via BYOK, so they can never
+    // be selected as the shared-assistant default.
+    serverKeyEnv: null,
+    // z.ai speaks the OpenAI wire format, so we reuse @ai-sdk/openai pointed at
+    // z.ai's base URL. The default OpenAI client would hit api.openai.com, so the
+    // "default" (no-BYOK) client also needs the z.ai base URL — but since there's
+    // no server key it is never actually used to serve the shared default.
+    defaultClient: () => require('@ai-sdk/openai').createOpenAI({ apiKey: process.env.ZAI_API_KEY, baseURL: ZAI_BASE_URL }),
+    createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({ apiKey, baseURL: ZAI_BASE_URL }),
+    // @ai-sdk/openai's callable shorthand `provider(id)` targets the Responses
+    // API, which z.ai does not implement. Force the chat-completions model, which
+    // z.ai's OpenAI-compatible endpoint does support.
+    createModel: (provider, modelId) => provider.chat(modelId),
+    validateKey: validateZaiKey,
+    // GLM models work out of the box over the chat-completions API; we send no
+    // provider-specific options (OpenAI reasoning options don't map to z.ai).
+    buildProviderOptions: () => undefined,
+    buildWebSearch: buildZaiWebSearch,
+    capabilities: { promptCache: false, providerExecutedWebSearch: false },
+  },
+  openrouter: {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    keyColumn: 'byok_openrouter_key',
+    keyPlaceholder: 'sk-or-v1-...',
+    keyMask: 'sk-or-••••••',
+    // No shared server OpenRouter key — models run only via BYOK (cost is on the
+    // user's OpenRouter account), so they can never be the shared-assistant default.
+    serverKeyEnv: null,
+    // OpenRouter is an OpenAI-compatible gateway, so we reuse @ai-sdk/openai
+    // pointed at its base URL. The HTTP-Referer / X-Title headers are OpenRouter's
+    // (optional) app-attribution convention. As with z.ai, the default (no-BYOK)
+    // client is never used to serve a shared default since there's no server key.
+    defaultClient: () => require('@ai-sdk/openai').createOpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: OPENROUTER_BASE_URL,
+      headers: { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' },
+    }),
+    createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({
+      apiKey,
+      baseURL: OPENROUTER_BASE_URL,
+      headers: { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' },
+    }),
+    // OpenRouter implements the OpenAI chat-completions API, not the Responses API
+    // that @ai-sdk/openai's callable shorthand targets — force the chat model.
+    createModel: (provider, modelId) => provider.chat(modelId),
+    validateKey: validateOpenRouterKey,
+    buildProviderOptions: () => undefined,
+    // Web search via OpenRouter's `:online` web plugin, wrapped as a function tool
+    // (a separate generateText sub-call) — same shape as the Gemini path, so it's a
+    // normal client tool and needs no provider-executed history stripping.
+    buildWebSearch: buildOpenRouterWebSearch,
+    capabilities: { promptCache: false, providerExecutedWebSearch: false },
   },
 };
 
@@ -227,4 +388,14 @@ function listProviders() {
   return Object.values(PROVIDERS);
 }
 
-module.exports = { PROVIDERS, getProviderConfig, listProviders, ANTHROPIC_CACHE_CONTROL };
+/**
+ * Whether this deployment has a shared server key for the given provider. Only
+ * providers with a server key can back the shared-assistant default model (BYOK
+ * models run on the user's own key and are excluded). Unknown provider → false.
+ */
+function hasServerKey(id) {
+  const cfg = PROVIDERS[id];
+  return !!(cfg && cfg.serverKeyEnv && process.env[cfg.serverKeyEnv]);
+}
+
+module.exports = { PROVIDERS, getProviderConfig, listProviders, hasServerKey, ANTHROPIC_CACHE_CONTROL };

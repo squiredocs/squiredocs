@@ -8,9 +8,66 @@
 
 .admin-page > .admin-table-wrapper,
 .admin-page > .admin-loading,
-.admin-page > .admin-error {
+.admin-page > .admin-error,
+.admin-page > .admin-settings-card {
   max-width: 1200px;
   margin: 0 auto;
+}
+
+/* ─── Shared assistant settings ────────────────────────── */
+
+.admin-settings-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+
+.admin-settings-heading h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: #111827;
+}
+
+.admin-settings-heading p {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: #6b7280;
+}
+
+.admin-settings-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.admin-settings-control label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: #374151;
+}
+
+.admin-settings-control select {
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: var(--text-md);
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+}
+
+.admin-settings-control select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.admin-settings-status {
+  font-size: var(--text-sm);
+  color: #6b7280;
 }
 
 .admin-loading {

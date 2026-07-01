@@ -17,7 +17,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Add Selection to Chat**: Select any text in a document and click the floating **"Add to Chat"** tag to attach that passage to the AI chat input as a removable reference chip — labeled with the document it came from — then ask about it without describing where it is. Works on desktop and mobile, and you can stack several selections (even from different documents) before sending
 - **Image Upload in Chat**: Attach up to 5 images per message (PNG, JPEG, GIF, WebP; 15 MB per file) via drag-and-drop or file picker
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
-- **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, or OpenAI API keys from the Settings page to use premium models without consuming shared credits
+- **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, OpenAI, z.ai, or OpenRouter API keys from the Settings page to use premium models without consuming shared credits
 - **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
 - **Get Support**: A "Get Support" item in the user menu opens a dedicated page (`/support`) where users describe an issue and review their previous requests; submissions are saved to the `support_requests` table and emailed to the admin (reply-to set to the user)
 - **Onboarding / Welcome Flow**: On login, a not-yet-"engaged" user lands on their own seeded "Welcome to Squire Docs" document with the AI assistant panel open and the assistant proactively greeting them and offering to research a topic. See [Onboarding / Welcome Flow](#onboarding--welcome-flow).
@@ -27,7 +27,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
 - **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
-- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, reviewing a user's sharing activity (invites sent, collaborators on owned docs), and email notifications (sign-up, login, credit-limit, support requests, exceptions)
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, reviewing a user's sharing activity (invites sent, collaborators on owned docs), setting the shared assistant's default AI model, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
 
 ## Technology Stack
 
@@ -38,7 +38,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Database**: PostgreSQL with node-pg-migrate for schema management
 - **Caching**: Redis for session and state management
 - **Sandbox**: isolated-vm (true V8 isolate with 128 MB memory limit) for secure script execution in the `modify` tool
-- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Sonnet 4.6, and Opus 4.8; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; OpenAI GPT-5.5 / GPT-5.4 / GPT-5.4 mini via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents. Per-provider behavior (model dispatch, key validation, web search, prompt caching) is defined in one place, `server/api/ai-providers.js`
+- **AI Integration**: In-app assistant via AI SDK v6 (Claude Haiku 4.5, Sonnet 4.6, and Opus 4.8; Gemini 2.5 Flash/Pro; Gemini 3 Flash, Gemini 3.1 Pro, and Gemini 3.5 Flash; OpenAI GPT-5.5 / GPT-5.4 / GPT-5.4 mini via BYOK; z.ai GLM-4.6 / GLM-4.7 / GLM-5 / GLM-5.2 via BYOK; the same GLM models via the OpenRouter gateway via BYOK); Model Context Protocol (MCP) with OAuth 2.0 or API tokens for external AI agents. Per-provider behavior (model dispatch, key validation, web search, prompt caching) is defined in one place, `server/api/ai-providers.js`
 
 ## Prerequisites
 
@@ -222,7 +222,7 @@ kubectl exec -n collab <postgres-pod> -- \
 - `API_KEY_ENCRYPTION_KEY`: Key used to encrypt stored BYOK API keys at rest
 - `CLIENT_URL`: Base URL of the frontend (used to build absolute links in emails and redirects)
 - `REDIS_HOST` / `REDIS_PORT`: Redis connection (defaults: `localhost` / `6379`)
-- `AI_CHAT_MODEL`: Optional override for the in-app AI assistant's model. When unset, the default is the `DEFAULT_MODEL_KEY` code constant in `server/api/chat-models.js` (`claude-opus`) — version-controlled, not sourced from a deployment secret. Supported values: `claude-haiku`, `claude-sonnet`, `claude-opus`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The OpenAI models `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` have no shared server key and are usable only via BYOK, so they're not valid as a shared server default.)
+- `AI_CHAT_MODEL`: Optional _fallback_ default for the in-app AI assistant's model on the shared key. The shared default is now editable at runtime from the Admin page (stored in `app_settings`, see below); `AI_CHAT_MODEL` only applies when no admin selection has been made, and the `DEFAULT_MODEL_KEY` code constant in `server/api/chat-models.js` (`claude-opus`) applies when neither is set. Supported values: `claude-haiku`, `claude-sonnet`, `claude-sonnet-5`, `claude-opus`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`. (The OpenAI models `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` have no shared server key and are usable only via BYOK, so they're not valid as a shared server default.)
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
@@ -371,9 +371,10 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 
 ### How It Works
 
-- **Model**: Defaults to the `DEFAULT_MODEL_KEY` code constant (Claude Opus 4.8); optionally overridden per-deployment via the `AI_CHAT_MODEL` env var. Supported models:
+- **Model**: The shared (non-BYOK) default is set from the **Admin page** ("Shared assistant" → Default model) and persisted in the `app_settings` table. Its precedence is: admin selection → `AI_CHAT_MODEL` env var → `DEFAULT_MODEL_KEY` code constant (Claude Opus 4.8). Only models whose provider has a shared server key are selectable as the default (OpenAI is BYOK-only and excluded). Supported models:
   - `claude-opus` — Claude Opus 4.8 (requires `ANTHROPIC_API_KEY`; the default)
   - `claude-sonnet` — Claude Sonnet 4.6 (requires `ANTHROPIC_API_KEY`)
+  - `claude-sonnet-5` — Claude Sonnet 5 (requires `ANTHROPIC_API_KEY`)
   - `claude-haiku` — Claude Haiku 4.5 (requires `ANTHROPIC_API_KEY`)
   - `gemini-2.5-flash` — Gemini 2.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-2.5-pro` — Gemini 2.5 Pro (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
@@ -381,9 +382,11 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
   - `gemini-3.1-pro` — Gemini 3.1 Pro (Preview) (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gemini-3.5-flash` — Gemini 3.5 Flash (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
   - `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` — OpenAI models, selectable only when the user supplies their own OpenAI key (BYOK)
-- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic`, `@ai-sdk/google`, or `@ai-sdk/openai` on the server). Providers are registered in `server/api/ai-providers.js`
+  - `glm-4.6`, `glm-4.7`, `glm-5`, `glm-5.2` — z.ai (Zhipu) GLM models, selectable only when the user supplies their own z.ai key (BYOK). z.ai speaks the OpenAI wire format (reused via `@ai-sdk/openai` pointed at `https://api.z.ai/api/paas/v4`), but only implements the chat-completions API, so the provider forces the chat model via its `createModel` hook
+  - `or-glm-4.6`, `or-glm-4.7`, `or-glm-5`, `or-glm-5.2` — the same GLM models reached through the [OpenRouter](https://openrouter.ai) gateway (namespaced model ids like `z-ai/glm-5.2`), selectable only when the user supplies their own OpenRouter key (BYOK). OpenRouter is also OpenAI-compatible (base URL `https://openrouter.ai/api/v1`) and chat-completions-only, so it uses the same `createModel` hook. These bill through the user's OpenRouter account, so they're separate model keys from the direct `zai` provider. Unlike direct z.ai, OpenRouter models get web search via OpenRouter's `:online` web plugin (wrapped as a function tool)
+- **Framework**: AI SDK v6 (`@ai-sdk/react` on the client, `ai` + `@ai-sdk/anthropic`, `@ai-sdk/google`, or `@ai-sdk/openai` on the server; z.ai and OpenRouter reuse `@ai-sdk/openai` with a custom base URL). Providers are registered in `server/api/ai-providers.js`
 - **Endpoint**: `POST /api/chat` — streams responses to the client
-- **Tools**: All 17 MCP document tools plus web search and web fetch (web tools work with Anthropic, Google, and OpenAI models — Gemini wraps Google Search as a function tool; Anthropic and OpenAI use their provider-executed web search)
+- **Tools**: All 17 MCP document tools plus web search and web fetch. Web search works for Anthropic, Google, OpenAI, and OpenRouter — Gemini wraps Google Search and OpenRouter wraps its `:online` web plugin as function tools; Anthropic and OpenAI use their provider-executed web search. Direct z.ai gets web fetch but no web search. Web fetch is universal across all providers
 - **Context-aware**: When a document is open, the assistant knows its title and can operate on it directly
 - **Add selection to chat**: Selecting text in the editor surfaces an "Add to Chat" affordance; clicking it captures the passage (plus the source document and the heading it sits under) as a reference chip in the chat input and opens the panel. On desktop the tag floats just below the selection; on touch devices it docks as a pill above the on-screen keyboard (anchored to the visual viewport) so it never collides with the native iOS/Android selection callout (Cut/Copy/Paste), which hugs the selection. On send, the quoted passages are prepended to the message inside a `<referenced_passages>` block — each entry naming its source document and id (rendered as chips in the transcript, not raw markup) so the assistant knows exactly what the user is pointing at and which document it came from, even when a single chat references passages from several documents. No position anchoring — the quote is enough for the assistant to answer or to locate the passage via `read_document` if it needs surrounding context. Client-only (`SelectionChatButton.jsx`, pending refs on `AiChatContext`); the server prompt has a nudge in `buildSystemPrompt`
 - **Chat history**: Conversations are persisted to the database with a history sidebar for searching, renaming, and switching between past chats; the active chat is preserved across page refreshes via sessionStorage
@@ -396,7 +399,7 @@ A built-in chat panel lets users interact with an AI assistant directly inside t
 - **Copy button**: Each chat message has a copy-to-clipboard button on hover
 - **Adjustable chat text size**: An A−/A+ stepper in the chat header scales only the chat message text (independent of the rest of the app's typography). The preference is saved per-device in localStorage and applies to both the docked panel and the full-page chat
 - **SPA navigation**: Internal document links in chat messages use client-side navigation instead of full-page reloads
-- **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic, Google, or OpenAI API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
+- **BYOK (Bring Your Own Key)**: Users can supply their own Anthropic, Google, OpenAI, z.ai, or OpenRouter API keys on the Settings page. When BYOK is enabled, chat requests use the user's key and bypass shared credit limits
 - **Reactive compaction**: When a conversation exceeds the model's token limit, the system automatically compacts earlier messages and retries, with a UI indicator
 - **Fresh document context**: After a `modify`, the result echoes the updated document so the assistant's view stays current without re-reading. Repeated full-document snapshots (from reads and modifies) are deduplicated in context so only the latest is kept
 - **Concurrent-edit awareness**: The assistant tracks the document version (clock) it has seen. If someone else (or you, editing directly) changes a document since it last read it, the assistant is told who changed it, and a `modify` that would overwrite those edits is refused and returns the current content so it can reconcile. This also covers the **Undo button**: an undo is written through the assistant's own identity out-of-band, so the by-author staleness check can't see it. Instead, the persisted `reverted` flag is read back from the chat history — while a doc's most recent assistant edit is one the user has undone (and it hasn't been re-read since), the assistant is told its earlier edit is no longer in the document and silently re-reads before trusting its cached snapshot
@@ -838,11 +841,12 @@ paragraphs.forEach((node, index) => {
 │   ├── auth/                 # Human authentication (Google OAuth, JWT)
 │   ├── api/
 │   │   ├── chat.js           # In-app AI chat endpoint (AI SDK + configurable model)
-│   │   ├── ai-providers.js   # Provider registry (Anthropic, Google, OpenAI): key validation, SDK factories, web search, capabilities
-│   │   ├── chat-models.js    # Model registry (Claude, Gemini, GPT) with lazy provider loading
+│   │   ├── ai-providers.js   # Provider registry (Anthropic, Google, OpenAI, z.ai, OpenRouter): key validation, SDK factories, web search, capabilities
+│   │   ├── chat-models.js    # Model registry (Claude, Gemini, GPT, GLM; direct + via OpenRouter) with lazy provider loading
 │   │   ├── chat-tools.js     # Wraps MCP tools as AI SDK tool definitions
 │   │   ├── byok-settings.js  # Bring-your-own-key (BYOK) API key management
 │   │   ├── web-fetch.js      # Web fetch tool used by the AI assistant
+│   │   ├── app-settings.js   # Global admin-editable settings (shared assistant default model)
 │   │   └── admin.js          # Admin dashboard endpoints
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
 │   ├── email.js             # Admin email notifications (signup, login, credit limit, support)

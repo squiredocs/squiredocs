@@ -5,6 +5,9 @@
  */
 const express = require('express');
 const aiUsage = require('../ai-usage');
+const appSettings = require('./app-settings');
+const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey } = require('./chat-models');
+const { hasServerKey } = require('./ai-providers');
 
 const router = express.Router();
 let pool = null;
@@ -14,9 +17,71 @@ function init(dbPool) {
 }
 
 /**
- * GET /  — list all users with aggregate stats
+ * Models eligible to back the shared-assistant default: those whose provider has
+ * a shared server key in this deployment (BYOK-only providers are excluded, since
+ * the shared assistant has no user key to run them on).
  */
-router.get('/', async (req, res) => {
+function sharedDefaultModels() {
+  return getAvailableModels().filter((m) => hasServerKey(m.provider));
+}
+
+/**
+ * GET /settings/shared-model — the shared-assistant default model.
+ * Returns the admin-selected key (may be null), the effective key actually used
+ * (after env/constant fallback), and the list of eligible models.
+ */
+router.get('/settings/shared-model', async (req, res) => {
+  try {
+    const storedKey = appSettings.getSharedDefaultModel();
+    res.json({
+      modelKey: storedKey,
+      effectiveModelKey: resolveSharedDefaultKey(storedKey),
+      models: sharedDefaultModels(),
+    });
+  } catch (err) {
+    console.error('[Admin] Error fetching shared model:', err);
+    res.status(500).json({ error: 'Failed to fetch shared model setting' });
+  }
+});
+
+/**
+ * PUT /settings/shared-model — set the shared-assistant default model.
+ * Body: { modelKey: string | null }  (null clears the override → env/constant default)
+ */
+router.put('/settings/shared-model', async (req, res) => {
+  try {
+    const { modelKey } = req.body;
+
+    if (modelKey !== null) {
+      const def = MODEL_DEFS.find((d) => d.key === modelKey);
+      if (!def) {
+        return res.status(400).json({ error: `Unknown model: ${modelKey}` });
+      }
+      if (!hasServerKey(def.provider)) {
+        return res.status(400).json({
+          error: `Model "${modelKey}" has no shared server key and can't be the shared default`,
+        });
+      }
+    }
+
+    await appSettings.setSharedDefaultModel(modelKey);
+
+    const storedKey = appSettings.getSharedDefaultModel();
+    res.json({
+      modelKey: storedKey,
+      effectiveModelKey: resolveSharedDefaultKey(storedKey),
+      models: sharedDefaultModels(),
+    });
+  } catch (err) {
+    console.error('[Admin] Error updating shared model:', err);
+    res.status(500).json({ error: 'Failed to update shared model setting' });
+  }
+});
+
+/**
+ * GET /users  — list all users with aggregate stats
+ */
+router.get('/users', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
@@ -73,10 +138,10 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * PATCH /:userId/credit — update a user's monthly AI credit allowance
+ * PATCH /users/:userId/credit — update a user's monthly AI credit allowance
  * Body: { aiCreditCents: number }
  */
-router.patch('/:userId/credit', async (req, res) => {
+router.patch('/users/:userId/credit', async (req, res) => {
   try {
     const { userId } = req.params;
     const { aiCreditCents } = req.body;
@@ -102,10 +167,10 @@ router.patch('/:userId/credit', async (req, res) => {
 });
 
 /**
- * PATCH /:userId/email-enabled — mark a user trusted to send share email
+ * PATCH /users/:userId/email-enabled — mark a user trusted to send share email
  * Body: { emailEnabled: boolean }
  */
-router.patch('/:userId/email-enabled', async (req, res) => {
+router.patch('/users/:userId/email-enabled', async (req, res) => {
   try {
     const { userId } = req.params;
     const { emailEnabled } = req.body;
@@ -131,12 +196,12 @@ router.patch('/:userId/email-enabled', async (req, res) => {
 });
 
 /**
- * GET /:userId/sharing — review a user's sharing activity
+ * GET /users/:userId/sharing — review a user's sharing activity
  * Returns the pending invites they created and the collaborators on docs they own.
  * (document_shares has no "granted_by", so shares are scoped to owned docs — the
  * accurate, attributable view of what this user has shared.)
  */
-router.get('/:userId/sharing', async (req, res) => {
+router.get('/users/:userId/sharing', async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -187,9 +252,9 @@ router.get('/:userId/sharing', async (req, res) => {
 });
 
 /**
- * GET /:userId/extra-credits — list all extra credit records for a user
+ * GET /users/:userId/extra-credits — list all extra credit records for a user
  */
-router.get('/:userId/extra-credits', async (req, res) => {
+router.get('/users/:userId/extra-credits', async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -225,10 +290,10 @@ router.get('/:userId/extra-credits', async (req, res) => {
 });
 
 /**
- * POST /extra-credits — grant extra AI credits to a user
+ * POST /users/extra-credits — grant extra AI credits to a user
  * Body: { userId, amountCents, memo?, expiresAt? }
  */
-router.post('/extra-credits', async (req, res) => {
+router.post('/users/extra-credits', async (req, res) => {
   try {
     const { userId, amountCents, memo, expiresAt } = req.body;
 
@@ -257,9 +322,9 @@ router.post('/extra-credits', async (req, res) => {
 });
 
 /**
- * DELETE /extra-credits/:creditId — remove an extra credit record
+ * DELETE /users/extra-credits/:creditId — remove an extra credit record
  */
-router.delete('/extra-credits/:creditId', async (req, res) => {
+router.delete('/users/extra-credits/:creditId', async (req, res) => {
   try {
     const { creditId } = req.params;
 

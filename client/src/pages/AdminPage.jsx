@@ -35,11 +35,35 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [editCreditValue, setEditCreditValue] = useState('');
   const [savingCredit, setSavingCredit] = useState(false);
 
+  // Shared assistant default model
+  const [sharedModel, setSharedModel] = useState(null);
+  const [savingSharedModel, setSavingSharedModel] = useState(false);
+
   useEffect(() => {
     document.title = 'Admin - Squire Docs';
     fetchUsers();
+    fetchSharedModel();
     return () => { document.title = 'Squire Docs'; };
   }, [api]);
+
+  const fetchSharedModel = () => {
+    api.get('/api/admin/settings/shared-model')
+      .then((res) => setSharedModel(res.data))
+      .catch(() => setSharedModel(null));
+  };
+
+  // Empty string = "Deployment default" → clears the override (sends null).
+  const handleSharedModelChange = async (e) => {
+    const value = e.target.value;
+    setSavingSharedModel(true);
+    try {
+      const res = await api.put('/api/admin/settings/shared-model', {
+        modelKey: value === '' ? null : value,
+      });
+      setSharedModel(res.data);
+    } catch { /* ignore */ }
+    finally { setSavingSharedModel(false); }
+  };
 
   const fetchUsers = () => {
     api.get('/api/admin/users')
@@ -62,6 +86,10 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   };
 
   const formatCents = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+  // Human label for a model key from the shared-model settings payload.
+  const modelLabel = (settings, key) =>
+    settings?.models.find((m) => m.key === key)?.label || key;
 
   // -- Expand/collapse extra credits --
 
@@ -200,6 +228,32 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       </header>
 
       <div className="admin-page">
+        {sharedModel && (
+          <div className="admin-settings-card">
+            <div className="admin-settings-heading">
+              <h3>Shared assistant</h3>
+              <p>Default model used by the in-app AI assistant for users on the shared key (non-BYOK).</p>
+            </div>
+            <div className="admin-settings-control">
+              <label htmlFor="shared-model-select">Default model</label>
+              <select
+                id="shared-model-select"
+                value={sharedModel.modelKey ?? ''}
+                onChange={handleSharedModelChange}
+                disabled={savingSharedModel}
+              >
+                <option value="">
+                  Deployment default{sharedModel.modelKey === null ? ` (${modelLabel(sharedModel, sharedModel.effectiveModelKey)})` : ''}
+                </option>
+                {sharedModel.models.map((m) => (
+                  <option key={m.key} value={m.key}>{m.label}</option>
+                ))}
+              </select>
+              {savingSharedModel && <span className="admin-settings-status">Saving…</span>}
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="admin-loading">
             <div className="loading-spinner"></div>

@@ -41,6 +41,14 @@ describe('buildProviderOptions', () => {
     expect(opts.anthropic).toBeUndefined();
   });
 
+  test('returns undefined for z.ai provider (GLM models send no extra options)', () => {
+    expect(buildProviderOptions({ provider: 'zai', modelId: 'glm-4.6' })).toBeUndefined();
+  });
+
+  test('returns undefined for OpenRouter provider (gateway models send no extra options)', () => {
+    expect(buildProviderOptions({ provider: 'openrouter', modelId: 'z-ai/glm-5.2' })).toBeUndefined();
+  });
+
   test('returns undefined for unknown or missing provider', () => {
     expect(buildProviderOptions({ provider: 'totally-unknown' })).toBeUndefined();
     expect(buildProviderOptions(undefined)).toBeUndefined();
