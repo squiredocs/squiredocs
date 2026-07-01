@@ -188,6 +188,38 @@ function stripProviderExecutedTools(messages) {
 }
 
 /**
+ * Return a copy of UI `messages` with `reasoning` parts removed from assistant
+ * turns. Used for providers whose SDK echoes prior reasoning back into the request
+ * (see stripReasoningFromHistory): @ai-sdk/openai-compatible serializes assistant
+ * reasoning parts as `reasoning_content`, so replaying history would feed GLM its
+ * own earlier chain-of-thought — unnecessary context that some reasoning APIs also
+ * reject. The reasoning is still streamed live to the UI and persisted; we only
+ * drop it from what we SEND on subsequent turns. The final answer text carries the
+ * conclusions forward, so nothing meaningful is lost.
+ *
+ * The input array and its parts are not mutated; assistant turns left empty by the
+ * strip (reasoning-only turns) are dropped, matching stripProviderExecutedTools.
+ */
+function stripReasoningParts(messages) {
+  if (!Array.isArray(messages)) return messages;
+  const out = [];
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.parts)) {
+      out.push(m);
+      continue;
+    }
+    const parts = m.parts.filter((p) => p?.type !== 'reasoning');
+    if (parts.length === m.parts.length) {
+      out.push(m);
+    } else if (parts.length > 0) {
+      out.push({ ...m, parts });
+    }
+    // else: assistant turn was reasoning-only — drop it
+  }
+  return out;
+}
+
+/**
  * Get the list of models for the settings UI. The client groups these by
  * provider and gates selection on whether the user has stored that provider's
  * key (see SettingsPage); request-time enforcement lives in isByokActive.
@@ -257,4 +289,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

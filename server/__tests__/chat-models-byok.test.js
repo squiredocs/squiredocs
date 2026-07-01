@@ -34,25 +34,27 @@ describe('chat-models BYOK', () => {
       expect(result.def.provider).toBe('anthropic');
     });
 
-    test('resolves a z.ai GLM model to a chat-completions model (not Responses)', () => {
-      // z.ai speaks the OpenAI wire format but only implements chat-completions,
-      // so the provider's createModel hook must force the chat model — the
-      // callable shorthand would target the unsupported Responses API.
+    test('resolves a z.ai GLM model via the openai-compatible chat model', () => {
+      // z.ai speaks the OpenAI chat-completions wire format; we use
+      // @ai-sdk/openai-compatible (its callable targets chat-completions and it
+      // parses GLM reasoning), so the model is an OpenAICompatible chat model.
       const result = resolveModelWithKey('glm-4.6', 'zai-test-key');
       expect(result).not.toBeNull();
       expect(result.def.provider).toBe('zai');
-      expect(result.model.constructor.name).toBe('OpenAIChatLanguageModel');
+      expect(result.model.constructor.name).toContain('Compatible');
       expect(result.model.modelId).toBe('glm-4.6');
     });
 
-    test('resolves an OpenRouter GLM model to a chat-completions model with its namespaced id', () => {
-      // OpenRouter is also an OpenAI-compatible gateway that only implements
-      // chat-completions; the model id is namespaced (`z-ai/glm-5.2`).
+    test('resolves an OpenRouter GLM model via openai-compatible with its namespaced id', () => {
+      // OpenRouter is also an OpenAI-compatible gateway; the model id is
+      // namespaced (`z-ai/glm-5.2`). The provider also carries a dedicated
+      // @ai-sdk/openai webSearchClient for the :online search sub-call.
       const result = resolveModelWithKey('or-glm-5.2', 'sk-or-test-key');
       expect(result).not.toBeNull();
       expect(result.def.provider).toBe('openrouter');
-      expect(result.model.constructor.name).toBe('OpenAIChatLanguageModel');
+      expect(result.model.constructor.name).toContain('Compatible');
       expect(result.model.modelId).toBe('z-ai/glm-5.2');
+      expect(typeof result.provider.webSearchClient.chat).toBe('function');
     });
   });
 

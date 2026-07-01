@@ -11,9 +11,9 @@
     "start": "node server/index.js",
     "test": "npm run test:server && npm run test:client",
     "test:watch": "concurrently \"npm run test:server:watch\" \"npm run test:client:watch\"",
-    "test:server": "NODE_OPTIONS=--experimental-vm-modules REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --forceExit --silent --reporters=./script/jest-llm-reporter.js",
-    "test:server:watch": "NODE_OPTIONS=--experimental-vm-modules REDIS_HOST=${REDIS_HOST:-localhost} jest --watch",
-    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --coverage",
+    "test:server": "REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --forceExit --silent --reporters=./script/jest-llm-reporter.js",
+    "test:server:watch": "REDIS_HOST=${REDIS_HOST:-localhost} jest --watch",
+    "test:coverage": "REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --coverage",
     "test:client": "cd client && npx vitest run --reporter=../script/vitest-llm-reporter.mjs",
     "test:client:watch": "cd client && npm run test:watch",
     "test:collab": "node test-collaboration.js",
@@ -36,6 +36,7 @@
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/google": "^3.0.51",
     "@ai-sdk/openai": "^3.0.73",
+    "@ai-sdk/openai-compatible": "^3.0.3",
     "@aws-sdk/client-s3": "^3.1074.0",
     "@aws-sdk/s3-request-presigner": "^3.1074.0",
     "ai": "^6.0.116",
@@ -65,6 +66,7 @@
     "yjs": "^13.6.27"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.29.7",
     "@jest/test-sequencer": "^30.2.0",
     "@types/jest": "^29.5.11",
     "concurrently": "^8.2.2",
@@ -80,6 +82,12 @@
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/client/"
+    ],
+    "transform": {
+      "\\.[jt]sx?$": ["babel-jest", { "presets": [["@babel/preset-env", { "targets": { "node": "current" } }]] }]
+    },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(@ai-sdk|@workflow)/)"
     ],
     "collectCoverageFrom": [
       "server/**/*.js",

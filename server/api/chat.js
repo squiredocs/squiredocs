@@ -547,9 +547,17 @@ router.post('/', requireAuth, async (req, res) => {
     // blocks from what we SEND while keeping validatedMessages (and thus the persisted
     // history + UI citations) intact. No-op on the Google path (its web search is a
     // client tool, not provider-executed).
-    const modelInputMessages = caps.providerExecutedWebSearch
-      ? chatModels.stripProviderExecutedTools(validatedMessages)
-      : validatedMessages;
+    // Strip parts we keep for persistence/UI but must not (or need not) resend:
+    //  - provider-executed web-search results (Anthropic history-adjacency, above)
+    //  - prior-turn reasoning for GLM/openai-compatible (echoed back as
+    //    reasoning_content otherwise; validatedMessages keeps it for UI + storage).
+    let modelInputMessages = validatedMessages;
+    if (caps.providerExecutedWebSearch) {
+      modelInputMessages = chatModels.stripProviderExecutedTools(modelInputMessages);
+    }
+    if (caps.stripReasoningFromHistory) {
+      modelInputMessages = chatModels.stripReasoningParts(modelInputMessages);
+    }
     const modelMessages = await convertToModelMessages(modelInputMessages);
     inlineDataUrls(modelMessages);
 

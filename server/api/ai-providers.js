@@ -83,9 +83,39 @@ async function validateZaiKey(apiKey) {
   return null;
 }
 
+// z.ai/OpenRouter clients use @ai-sdk/openai-compatible rather than @ai-sdk/openai
+// for two reasons: (1) its callable shorthand targets the chat-completions API by
+// default (neither backend implements the Responses API the @ai-sdk/openai
+// shorthand assumes), so no per-provider createModel hook is needed; and (2) it
+// parses GLM's reasoning stream (z.ai's `reasoning_content` and OpenRouter's
+// `reasoning` delta fields) into AI SDK reasoning parts, which @ai-sdk/openai drops
+// — that's what surfaces GLM "thinking" blocks in the chat UI.
+function createZaiClient(apiKey) {
+  return require('@ai-sdk/openai-compatible').createOpenAICompatible({
+    name: 'zai', apiKey, baseURL: ZAI_BASE_URL,
+  });
+}
+
 // OpenRouter is an OpenAI-compatible gateway (base URL for its v1 API). Reused by
 // the client factory and key validation below.
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+// OpenRouter's optional app-attribution headers.
+const OPENROUTER_HEADERS = { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' };
+
+function createOpenRouterClient(apiKey) {
+  const compat = require('@ai-sdk/openai-compatible');
+  const provider = compat.createOpenAICompatible({
+    name: 'openrouter', apiKey, baseURL: OPENROUTER_BASE_URL, headers: OPENROUTER_HEADERS,
+  });
+  // The web-search sub-call (buildOpenRouterWebSearch) needs OpenRouter's
+  // `url_citation` annotations mapped to `sources`, which @ai-sdk/openai does but
+  // @ai-sdk/openai-compatible does not. Stash a dedicated @ai-sdk/openai client
+  // built from the same key/base URL for that one call.
+  provider.webSearchClient = require('@ai-sdk/openai').createOpenAI({
+    apiKey, baseURL: OPENROUTER_BASE_URL, headers: OPENROUTER_HEADERS,
+  });
+  return provider;
+}
 
 async function validateOpenRouterKey(apiKey) {
   // NOTE: OpenRouter's /models is PUBLIC (returns 200 without auth), so it can't
@@ -194,8 +224,16 @@ function buildOpenRouterWebSearch(provider) {
   // function tool that makes a SEPARATE generateText call against an `:online`
   // model. OpenRouter runs the web plugin, injects results, and returns
   // `url_citation` annotations, which @ai-sdk/openai surfaces as `sources`.
+  //
+  // The main GLM client is @ai-sdk/openai-compatible (for reasoning parsing), but
+  // that provider does NOT map annotations to `sources`, so we use the dedicated
+  // @ai-sdk/openai `webSearchClient` attached in createOpenRouterClient. `.chat()`
+  // forces chat-completions; the callable fallback covers an unexpected shape.
   const { tool, generateText, jsonSchema } = require('ai');
-  const searchModel = provider.chat(OPENROUTER_SEARCH_MODEL);
+  const client = provider.webSearchClient || provider;
+  const searchModel = typeof client.chat === 'function'
+    ? client.chat(OPENROUTER_SEARCH_MODEL)
+    : client(OPENROUTER_SEARCH_MODEL);
   return tool({
     description: 'Search the web for current information. Returns a grounded summary of search results with source URLs. You MUST provide a query.',
     inputSchema: jsonSchema({
@@ -330,24 +368,23 @@ const PROVIDERS = {
     keyPlaceholder: 'z.ai API key',
     keyMask: '••••••',
     // No shared server z.ai key — GLM models run only via BYOK, so they can never
-    // be selected as the shared-assistant default.
+    // be selected as the shared-assistant default. The default (no-BYOK) client is
+    // therefore never used to serve a shared default; it exists only for symmetry.
     serverKeyEnv: null,
-    // z.ai speaks the OpenAI wire format, so we reuse @ai-sdk/openai pointed at
-    // z.ai's base URL. The default OpenAI client would hit api.openai.com, so the
-    // "default" (no-BYOK) client also needs the z.ai base URL — but since there's
-    // no server key it is never actually used to serve the shared default.
-    defaultClient: () => require('@ai-sdk/openai').createOpenAI({ apiKey: process.env.ZAI_API_KEY, baseURL: ZAI_BASE_URL }),
-    createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({ apiKey, baseURL: ZAI_BASE_URL }),
-    // @ai-sdk/openai's callable shorthand `provider(id)` targets the Responses
-    // API, which z.ai does not implement. Force the chat-completions model, which
-    // z.ai's OpenAI-compatible endpoint does support.
-    createModel: (provider, modelId) => provider.chat(modelId),
+    // openai-compatible client (see createZaiClient): chat-completions by default
+    // and parses GLM `reasoning_content` into UI reasoning parts.
+    defaultClient: () => createZaiClient(process.env.ZAI_API_KEY),
+    createClient: (apiKey) => createZaiClient(apiKey),
     validateKey: validateZaiKey,
     // GLM models work out of the box over the chat-completions API; we send no
     // provider-specific options (OpenAI reasoning options don't map to z.ai).
     buildProviderOptions: () => undefined,
     buildWebSearch: buildZaiWebSearch,
-    capabilities: { promptCache: false, providerExecutedWebSearch: false },
+    // GLM reasoning is streamed to the UI, but openai-compatible echoes it back as
+    // `reasoning_content` in assistant history — strip it from outgoing requests so
+    // z.ai isn't fed its own prior chain-of-thought (see stripReasoningFromHistory
+    // handling in chat.js).
+    capabilities: { promptCache: false, providerExecutedWebSearch: false, stripReasoningFromHistory: true },
   },
   openrouter: {
     id: 'openrouter',
@@ -358,30 +395,20 @@ const PROVIDERS = {
     // No shared server OpenRouter key — models run only via BYOK (cost is on the
     // user's OpenRouter account), so they can never be the shared-assistant default.
     serverKeyEnv: null,
-    // OpenRouter is an OpenAI-compatible gateway, so we reuse @ai-sdk/openai
-    // pointed at its base URL. The HTTP-Referer / X-Title headers are OpenRouter's
-    // (optional) app-attribution convention. As with z.ai, the default (no-BYOK)
-    // client is never used to serve a shared default since there's no server key.
-    defaultClient: () => require('@ai-sdk/openai').createOpenAI({
-      apiKey: process.env.OPENROUTER_API_KEY,
-      baseURL: OPENROUTER_BASE_URL,
-      headers: { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' },
-    }),
-    createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({
-      apiKey,
-      baseURL: OPENROUTER_BASE_URL,
-      headers: { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' },
-    }),
-    // OpenRouter implements the OpenAI chat-completions API, not the Responses API
-    // that @ai-sdk/openai's callable shorthand targets — force the chat model.
-    createModel: (provider, modelId) => provider.chat(modelId),
+    // openai-compatible client (see createOpenRouterClient): chat-completions by
+    // default and parses OpenRouter's `reasoning` deltas into UI reasoning parts.
+    // The default (no-BYOK) client is never used to serve a shared default.
+    defaultClient: () => createOpenRouterClient(process.env.OPENROUTER_API_KEY),
+    createClient: (apiKey) => createOpenRouterClient(apiKey),
     validateKey: validateOpenRouterKey,
     buildProviderOptions: () => undefined,
     // Web search via OpenRouter's `:online` web plugin, wrapped as a function tool
     // (a separate generateText sub-call) — same shape as the Gemini path, so it's a
     // normal client tool and needs no provider-executed history stripping.
     buildWebSearch: buildOpenRouterWebSearch,
-    capabilities: { promptCache: false, providerExecutedWebSearch: false },
+    // GLM reasoning streams to the UI but is echoed back as `reasoning_content` in
+    // assistant history by openai-compatible — strip it from outgoing requests.
+    capabilities: { promptCache: false, providerExecutedWebSearch: false, stripReasoningFromHistory: true },
   },
 };
 

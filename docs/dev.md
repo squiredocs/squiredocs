@@ -346,6 +346,17 @@ kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev/client && npm 
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run test:collab"
 ```
 
+**Backend test transform note:** the backend is CommonJS, but some AI SDK deps
+(`@ai-sdk/openai-compatible` and its nested `@ai-sdk/*`, plus `@workflow/*`) ship
+ESM-only. Jest handles them via a babel-jest `transform` with `@babel/preset-env`
+plus a `transformIgnorePatterns` allowlist (`(?!(@ai-sdk|@workflow)/)`) in
+`package.json`'s `jest` config — this transpiles those packages to CJS at test
+time. Because of that, the server test scripts run WITHOUT
+`--experimental-vm-modules` (that flag makes Jest load `type: module` packages as
+native ESM, which bypasses the transform and breaks `require()` from our CJS). If
+you add another ESM-only dependency and see "Cannot use import statement outside a
+module" in tests, add its scope to the `transformIgnorePatterns` allowlist.
+
 ### Workflow 3: Installing New Dependencies
 
 ```bash

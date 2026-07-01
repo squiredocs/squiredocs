@@ -12,7 +12,7 @@
  * the helper's behavior and the end-to-end conversion invariant.
  */
 const { convertToModelMessages } = require('ai');
-const { stripProviderExecutedTools } = require('../api/chat-models');
+const { stripProviderExecutedTools, stripReasoningParts } = require('../api/chat-models');
 
 // Minimal fixture mirroring prod: a client tool call (`list_documents`) and a
 // provider-executed `webSearch` end the same assistant step.
@@ -93,6 +93,43 @@ describe('stripProviderExecutedTools', () => {
 
   test('passes through non-array input unchanged', () => {
     expect(stripProviderExecutedTools(undefined)).toBeUndefined();
+  });
+});
+
+describe('stripReasoningParts (GLM/openai-compatible reasoning history)', () => {
+  const history = () => [
+    { role: 'user', id: 'u1', parts: [{ type: 'text', text: 'hi' }] },
+    {
+      role: 'assistant', id: 'a1', parts: [
+        { type: 'reasoning', text: 'let me think' },
+        { type: 'text', text: 'the answer' },
+      ],
+    },
+  ];
+
+  test('removes reasoning parts from assistant turns, keeping the rest', () => {
+    const out = stripReasoningParts(history());
+    expect(out[1].parts.map((p) => p.type)).toEqual(['text']);
+    expect(out).toHaveLength(2);
+  });
+
+  test('drops an assistant turn that was reasoning-only', () => {
+    const out = stripReasoningParts([
+      { role: 'user', id: 'u1', parts: [{ type: 'text', text: 'hi' }] },
+      { role: 'assistant', id: 'a1', parts: [{ type: 'reasoning', text: 'only thinking' }] },
+    ]);
+    expect(out.find((m) => m.role === 'assistant')).toBeUndefined();
+    expect(out).toHaveLength(1);
+  });
+
+  test('does not mutate the input and is a no-op when there is no reasoning', () => {
+    const input = history();
+    const before = JSON.stringify(input);
+    stripReasoningParts(input);
+    expect(JSON.stringify(input)).toBe(before);
+
+    const clean = [{ role: 'assistant', id: 'a1', parts: [{ type: 'text', text: 'hi' }] }];
+    expect(stripReasoningParts(clean)).toEqual(clean);
   });
 });
 
