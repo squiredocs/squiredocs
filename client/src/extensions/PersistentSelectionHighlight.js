@@ -71,9 +71,13 @@ export function persistentSelectionHighlightPlugin() {
         // unreliable here: when the chat panel is already open, adding a
         // selection to chat never blurs the editor (the tag preventDefaults its
         // mousedown, and nothing re-focuses the input), so no later `focus` event
-        // ever fires to clear the highlight. A mousedown/keydown in the editor
-        // fires regardless of whether focus actually changed.
-        mousedown: (view) => { clearHighlightIfPresent(view); return false; },
+        // ever fires to clear the highlight. A mouseup/keydown in the editor fires
+        // regardless of whether focus actually changed.
+        //
+        // mouseup (not mousedown): dispatching mid-mousedown would run while
+        // ProseMirror is starting its own click/drag-selection handling and can
+        // interfere with it; mouseup fires after PM has finished.
+        mouseup: (view) => { clearHighlightIfPresent(view); return false; },
         keydown: (view) => { clearHighlightIfPresent(view); return false; },
       },
     },

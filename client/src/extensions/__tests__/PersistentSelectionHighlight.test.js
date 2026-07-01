@@ -9,7 +9,7 @@ import {
 
 // Covers the decoration reducer that keeps the local selection highlighted after
 // the editor blurs. We drive it at the ProseMirror-state level (no live editor):
-// the plugin's DOM handlers (blur → paint, mousedown/keydown → clear) just
+// the plugin's DOM handlers (blur → paint, mouseup/keydown → clear) just
 // dispatch these same `paint`/`clear` meta commands.
 
 const schema = getSchema(getBaseExtensions());
