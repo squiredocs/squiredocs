@@ -299,6 +299,9 @@
 
 .ai-tool-card {
   margin: 2px 0;
+  /* Allow this flex item of .ai-tool-group to shrink below its content's
+     min-content width so long web-search titles don't force overflow. */
+  min-width: 0;
 }
 
 .ai-tool-card-toggle {
@@ -552,7 +555,10 @@
 /* ---------- Document list view (list_documents tool output) ---------- */
 
 .ai-tool-card-toggle.ai-tool-card--has-list {
-  display: inline-block;
+  /* block (not inline-block) so the card is bounded by the bubble width
+     instead of shrink-wrapping to its widest child, which caused
+     horizontal overflow with long web-search result titles/URLs. */
+  display: block;
   padding: 4px 10px 6px;
 }
 
@@ -655,6 +661,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Permit the title to shrink inside the (inline-)flex link so the
+     ellipsis actually engages rather than pushing the row wider. */
+  min-width: 0;
 }
 
 .ai-source-index {
