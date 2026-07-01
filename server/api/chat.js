@@ -633,9 +633,13 @@ router.post('/', requireAuth, async (req, res) => {
         // inputTokenDetails). Naturally 0 for non-caching providers (e.g. Gemini).
         const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? 0;
         const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
-        if (useAnthropicCache) {
+        // Log cache activity for ANY provider that reports it, not just Anthropic.
+        // Anthropic caches via our explicit breakpoints (writes + reads); z.ai and
+        // OpenRouter GLM cache implicitly (reads only, no code). Gemini reports
+        // neither, so this stays quiet there.
+        if (cacheReadTokens > 0 || cacheWriteTokens > 0) {
           console.log(
-            `[Chat API] Anthropic cache — read=${cacheReadTokens} write=${cacheWriteTokens} `
+            `[Chat API] ${def.provider} cache — read=${cacheReadTokens} write=${cacheWriteTokens} `
             + `noCache=${usage.inputTokenDetails?.noCacheTokens ?? 0} totalIn=${inputTokens}`
           );
         }

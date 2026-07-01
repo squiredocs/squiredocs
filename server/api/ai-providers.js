@@ -130,7 +130,9 @@ function buildGoogleWebSearch(provider) {
       console.log('[Chat API] webSearch query:', query);
       const searchResult = await generateText({
         model: searchModel,
-        maxTokens: 4096,
+        // AI SDK v6 renamed maxTokens → maxOutputTokens; the old name was silently
+        // ignored here, leaving the grounded summary unbounded.
+        maxOutputTokens: 2048,
         tools: { googleSearch: provider.tools.googleSearch({}) },
         system: 'You are a web research assistant. Answer questions using only information found in Google Search results. Always include specific details such as names, locations, and descriptions. For every fact you include, cite the exact source URL from the search results.',
         prompt: query,
@@ -178,9 +180,13 @@ function buildZaiWebSearch() {
 }
 
 // Model used for OpenRouter's web-search sub-call. The `:online` suffix is
-// OpenRouter's web plugin — a cheap, fast model is enough since it only has to
-// summarize+cite search results, not reason about the user's task.
-const OPENROUTER_SEARCH_MODEL = 'z-ai/glm-4.7-flash:online';
+// OpenRouter's web plugin. We deliberately do NOT use a GLM model here: the sub-
+// call only has to summarize+cite search results (not reason about the user's
+// task), and GLM inference via OpenRouter is high-latency. Routing the search
+// synthesis through fast, low-latency Gemini Flash keeps web search snappy even
+// when the user's main model is GLM — mirroring how the native Gemini path uses a
+// fixed fast model regardless of the chosen model.
+const OPENROUTER_SEARCH_MODEL = 'google/gemini-2.5-flash:online';
 
 function buildOpenRouterWebSearch(provider) {
   // OpenRouter has no provider-executed web search that composes with function
@@ -204,7 +210,10 @@ function buildOpenRouterWebSearch(provider) {
       console.log('[Chat API] webSearch (openrouter) query:', query);
       const searchResult = await generateText({
         model: searchModel,
-        maxTokens: 4096,
+        // NOTE: AI SDK v6 renamed maxTokens → maxOutputTokens; the old name is
+        // silently ignored (leaving generation effectively unbounded). Bounding
+        // the grounded summary is the main latency lever for this nested call.
+        maxOutputTokens: 2048,
         system: 'You are a web research assistant. Answer questions using only information found in web search results. Always include specific details such as names, locations, and descriptions. For every fact you include, cite the exact source URL from the search results.',
         prompt: query,
       });
