@@ -607,7 +607,12 @@ router.post('/', requireAuth, async (req, res) => {
           error?.statusCode, error?.data?.error?.type,
           error?.responseBody || error?.message || error);
       },
-      onFinish: async ({ usage }) => {
+      // Use `totalUsage` (aggregated across ALL agentic steps), not `usage`
+      // (which is only the final step). With stopWhen: stepCountIs(100) each user
+      // turn is a multi-step tool loop where every step re-sends the growing
+      // context and Anthropic bills it separately; metering the last step alone
+      // undercounts real cost by ~the number of steps.
+      onFinish: async ({ totalUsage: usage }) => {
         if (!usage) {
           // No usage data — release reservation
           if (reservationId) {
