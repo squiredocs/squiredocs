@@ -52,9 +52,16 @@ export default function SelectionChatButton({ editor, docId, docTitle, isMobile,
     // Capture phase catches scrolling of the inner editor container too.
     window.addEventListener('scroll', bump, true);
     window.addEventListener('resize', bump);
+    // The mobile button rides above the on-screen keyboard; the layout viewport
+    // doesn't change when the keyboard opens, so track the visual viewport too.
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', bump);
+    vv?.addEventListener('scroll', bump);
     return () => {
       window.removeEventListener('scroll', bump, true);
       window.removeEventListener('resize', bump);
+      vv?.removeEventListener('resize', bump);
+      vv?.removeEventListener('scroll', bump);
     };
   }, [hasText]);
 
@@ -77,8 +84,42 @@ export default function SelectionChatButton({ editor, docId, docTitle, isMobile,
 
   if (!hasText || !addSelectionRef) return null;
 
-  // Position below the selection end so the tag doesn't collide with the native
-  // selection toolbar (which sits above the selection on touch devices).
+  const icon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+  // Keep the editor selection intact through the click (both platforms fire
+  // mousedown before the click, and preventing it stops focus/selection loss).
+  const commonProps = {
+    type: 'button',
+    onMouseDown: (e) => e.preventDefault(),
+    onClick: handleAdd,
+    'aria-label': 'Add selection to chat',
+    title: 'Add selection to chat',
+  };
+
+  // On touch devices, iOS/Android render their own selection callout
+  // (Cut/Copy/Paste/AutoFill) hugging the selection, repositioning it above or
+  // below with no stable gap — a selection-anchored tag ends up buried behind
+  // it. Dock the button to the bottom of the *visible* viewport instead: above
+  // the on-screen keyboard and clear of the callout, which sits up by the text.
+  if (isMobile) {
+    const vv = window.visualViewport;
+    const keyboardInset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    return (
+      <button
+        {...commonProps}
+        className="selection-chat-btn selection-chat-btn--docked"
+        style={{ bottom: `${keyboardInset + 12}px` }}
+      >
+        {icon}
+        <span>Add selection to Chat</span>
+      </button>
+    );
+  }
+
+  // Desktop: anchor the tag just below the selection end.
   let coords;
   try {
     coords = editor.view.coordsAtPos(editor.state.selection.to);
@@ -86,24 +127,17 @@ export default function SelectionChatButton({ editor, docId, docTitle, isMobile,
     return null;
   }
   const GAP = 6;
-  const estWidth = isMobile ? 128 : 116;
+  const estWidth = 116;
   const left = Math.max(8, Math.min(coords.left, window.innerWidth - estWidth - 8));
   const top = coords.bottom + GAP;
 
   return (
     <button
-      type="button"
+      {...commonProps}
       className="selection-chat-btn"
       style={{ top: `${top}px`, left: `${left}px` }}
-      // Keep the editor selection intact through the click.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={handleAdd}
-      aria-label="Add selection to chat"
-      title="Add selection to chat"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
+      {icon}
       <span>Add to Chat</span>
     </button>
   );

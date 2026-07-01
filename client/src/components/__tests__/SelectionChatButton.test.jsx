@@ -44,6 +44,18 @@ describe('SelectionChatButton', () => {
     expect(screen.getByRole('button', { name: 'Add selection to chat' })).toBeInTheDocument();
   });
 
+  it('docks the button above the keyboard on mobile instead of anchoring to the selection', () => {
+    // On touch devices the selection-anchored tag collides with the native
+    // iOS callout, so we dock it to the visible viewport bottom instead.
+    const editor = makeEditor();
+    render(<SelectionChatButton editor={editor} docId="doc-1" isMobile />);
+
+    const btn = screen.getByRole('button', { name: 'Add selection to chat' });
+    expect(btn.className).toContain('selection-chat-btn--docked');
+    expect(btn.style.bottom).toBeTruthy();
+    expect(btn.style.top).toBe('');
+  });
+
   it('captures the passage + heading + source document and opens the panel on click', async () => {
     const user = userEvent.setup();
     const editor = makeEditor({ text: 'the auth service' });

@@ -44,7 +44,47 @@
   }
 }
 
+/*
+ * Mobile: a prominent pill docked above the on-screen keyboard, horizontally
+ * centered. `bottom` is set inline from the visual viewport. Centering uses
+ * auto margins (not translateX) so the `:active` translateY nudge doesn't fight
+ * it. Sits above the native selection callout's z-order and stretches nowhere
+ * near the selection, so the two never collide.
+ */
+.selection-chat-btn--docked {
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 24px);
+  padding: 11px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: #7c3aed;
+  border-color: #7c3aed;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  z-index: 2147483000; /* above the keyboard-accessory/callout layer */
+  animation: selection-chat-btn-dock-in 130ms ease-out;
+}
+
+/* White icon on the filled pill so it reads against the purple. */
+.selection-chat-btn--docked svg {
+  color: #fff;
+}
+
+.selection-chat-btn--docked:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+  color: #fff;
+}
+
 @keyframes selection-chat-btn-in {
   from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes selection-chat-btn-dock-in {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
