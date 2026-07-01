@@ -790,6 +790,18 @@
   white-space: nowrap;
 }
 
+.ai-chat-ref-doc {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #ede9fe;
+  color: #5b21b6;
+  font-weight: 600;
+  font-size: 0.85em;
+  vertical-align: baseline;
+}
+
 .ai-chat-ref-heading {
   font-weight: 600;
   color: #6d28d9;
@@ -991,6 +1003,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ai-chat-msg-ref-doc {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  font-weight: 600;
+  font-size: 0.85em;
+  vertical-align: baseline;
 }
 
 .ai-chat-msg-ref-heading {

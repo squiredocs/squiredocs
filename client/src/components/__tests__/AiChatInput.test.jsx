@@ -345,8 +345,8 @@ describe('AiChatInput', () => {
   // --------------- "Add to Chat" selection references ---------------
 
   const sampleRefs = [
-    { id: 'sel-1', text: 'the auth service shipping', heading: 'Objectives' },
-    { id: 'sel-2', text: 'a second passage', heading: null },
+    { id: 'sel-1', text: 'the auth service shipping', heading: 'Objectives', docTitle: 'Launch Plan' },
+    { id: 'sel-2', text: 'a second passage', heading: null, docTitle: 'Design Notes' },
   ];
 
   it('renders a chip per pending selection reference', () => {
@@ -357,6 +357,15 @@ describe('AiChatInput', () => {
     expect(container.querySelectorAll('.ai-chat-ref-chip')).toHaveLength(2);
     expect(screen.getByText(/the auth service shipping/)).toBeInTheDocument();
     expect(screen.getByText('Objectives:')).toBeInTheDocument();
+  });
+
+  it('shows the source document name on each reference chip', () => {
+    render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={sampleRefs} onRemoveRef={vi.fn()} />
+    );
+
+    expect(screen.getByText('Launch Plan')).toBeInTheDocument();
+    expect(screen.getByText('Design Notes')).toBeInTheDocument();
   });
 
   it('calls onRemoveRef with the ref id when its remove button is clicked', async () => {

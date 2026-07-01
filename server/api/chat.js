@@ -195,7 +195,7 @@ function buildSystemPrompt(docGuid, docTitle, baseUrl) {
   return BASE_SYSTEM_PROMPT + `\n\n<active_document>
 The user is currently viewing document${titleStr} (${docGuid}).${urlStr}
 When they refer to "this document", "the document", or "my document" without specifying which one, assume they mean this document. However, you are not limited to this document, and the user may ask about or work on other documents too.
-If a user turn includes a <referenced_passages> block, those are passages the user selected directly in this document via "Add to Chat" — treat them as the specific text the user is pointing at. The quotes are usually enough to answer; if you need surrounding context or want to edit them, locate the passage in the document with read_document (e.g. an XPath contains() search on the quoted text).
+If a user turn includes a <referenced_passages> block, those are passages the user selected directly via "Add to Chat" — treat them as the specific text the user is pointing at. Each entry names the source document (and its id), which may or may not be the active document, since the user can reference passages from several documents in one chat — use that to tell passages apart and address the right document. The quotes are usually enough to answer; if you need surrounding context or want to edit them, locate the passage in its document with read_document (e.g. an XPath contains() search on the quoted text).
 </active_document>`;
 }
 

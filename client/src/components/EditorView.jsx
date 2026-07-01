@@ -769,6 +769,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           editable={userRole !== 'viewer'}
           synced={synced}
           docId={docGuid}
+          docTitle={docTitle}
           onRequestOpenChat={aiPanel?.open}
         />
       </main>

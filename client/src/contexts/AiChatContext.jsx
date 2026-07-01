@@ -77,8 +77,17 @@ function generateTitle(text) {
 let selectionRefIdSeq = 0;
 function serializeSelectionRefs(refs) {
   const lines = refs.map((r, i) => {
-    const where = r.heading ? ` (under heading "${r.heading}")` : '';
-    return `[${i + 1}]${where} "${r.text}"`;
+    // Name the source document (and its id) so the assistant can tell passages
+    // apart across multiple docs and locate them with read_document — the user
+    // may be chatting about more than the active document.
+    const where = [];
+    if (r.docTitle || r.docId) {
+      const label = r.docTitle ? `document "${r.docTitle}"` : 'a document';
+      where.push(`from ${label}${r.docId ? ` (id ${r.docId})` : ''}`);
+    }
+    if (r.heading) where.push(`under heading "${r.heading}"`);
+    const ctx = where.length ? ` (${where.join(', ')})` : '';
+    return `[${i + 1}]${ctx} "${r.text}"`;
   });
   return `<referenced_passages>\n${lines.join('\n')}\n</referenced_passages>`;
 }
@@ -232,7 +241,7 @@ export function AiChatProvider({ children }) {
     if (!ref?.text) return;
     setPendingRefs((prev) => [
       ...prev,
-      { id: `sel-${++selectionRefIdSeq}`, text: ref.text, heading: ref.heading || null, docId: ref.docId || null },
+      { id: `sel-${++selectionRefIdSeq}`, text: ref.text, heading: ref.heading || null, docId: ref.docId || null, docTitle: ref.docTitle || null },
     ]);
   }, []);
   const removeSelectionRef = useCallback((id) => {
@@ -599,7 +608,7 @@ export function AiChatProvider({ children }) {
       const payload = {
         text: composedText || ' ',
         files: files?.length ? files : undefined,
-        ...(refs.length ? { metadata: { refs: refs.map((r) => ({ text: r.text, heading: r.heading })) } } : {}),
+        ...(refs.length ? { metadata: { refs: refs.map((r) => ({ text: r.text, heading: r.heading, docTitle: r.docTitle, docId: r.docId })) } } : {}),
       };
       if (refs.length) setPendingRefs([]); // consumed by this send
 

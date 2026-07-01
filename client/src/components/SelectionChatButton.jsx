@@ -35,7 +35,7 @@ function findEnclosingHeading(state, pos) {
  * The useAiChat() subscription is isolated here (not in Editor) so streaming
  * chat tokens don't re-render the editor — this tiny component absorbs them.
  */
-export default function SelectionChatButton({ editor, docId, isMobile, onRequestOpenChat }) {
+export default function SelectionChatButton({ editor, docId, docTitle, isMobile, onRequestOpenChat }) {
   const { addSelectionRef } = useAiChat() || {};
   // Selection coords come from the live editor state (Editor re-renders on every
   // transaction via shouldRerenderOnTransaction). Scrolling doesn't fire a
@@ -67,12 +67,13 @@ export default function SelectionChatButton({ editor, docId, isMobile, onRequest
       text: capLength(text),
       heading: findEnclosingHeading(editor.state, from),
       docId: docId || null,
+      docTitle: docTitle || null,
     });
     // Collapse the selection so the tag dismisses and the user gets a clear
     // "captured" cue; the panel then opens to show the new chip.
     editor.commands.setTextSelection(to);
     onRequestOpenChat?.();
-  }, [editor, addSelectionRef, docId, onRequestOpenChat]);
+  }, [editor, addSelectionRef, docId, docTitle, onRequestOpenChat]);
 
   if (!hasText || !addSelectionRef) return null;
 

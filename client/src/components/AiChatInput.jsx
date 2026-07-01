@@ -154,6 +154,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
                 <span className="ai-chat-ref-text">
+                  {r.docTitle ? <span className="ai-chat-ref-doc">{r.docTitle}</span> : null}
                   {r.heading ? <span className="ai-chat-ref-heading">{r.heading}: </span> : null}
                   {r.text}
                 </span>

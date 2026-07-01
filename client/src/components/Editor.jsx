@@ -37,7 +37,7 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null, onRequestOpenChat }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null, docTitle = null, onRequestOpenChat }) {
   const { api } = useAuth();
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
@@ -418,6 +418,7 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
         <SelectionChatButton
           editor={editor}
           docId={docId}
+          docTitle={docTitle}
           isMobile={isMobile}
           onRequestOpenChat={onRequestOpenChat}
         />

@@ -673,7 +673,7 @@ describe('AiChatContext', () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-      act(() => { result.current.addSelectionRef({ text: 'the auth service', heading: 'Objectives' }); });
+      act(() => { result.current.addSelectionRef({ text: 'the auth service', heading: 'Objectives', docId: 'doc-7', docTitle: 'Launch Plan' }); });
       mockNewChatFlow('chat-ref');
 
       await act(async () => { await result.current.sendMessage('explain this'); });
@@ -681,9 +681,10 @@ describe('AiChatContext', () => {
       expect(sendMessageSpy).toHaveBeenCalledTimes(1);
       const payload = sendMessageSpy.mock.calls[0][0];
       expect(payload.text).toContain('<referenced_passages>');
-      expect(payload.text).toContain('(under heading "Objectives") "the auth service"');
+      // Names the source document (so the assistant can tell docs apart) and the heading.
+      expect(payload.text).toContain('(from document "Launch Plan" (id doc-7), under heading "Objectives") "the auth service"');
       expect(payload.text).toContain('explain this');
-      expect(payload.metadata).toEqual({ refs: [{ text: 'the auth service', heading: 'Objectives' }] });
+      expect(payload.metadata).toEqual({ refs: [{ text: 'the auth service', heading: 'Objectives', docTitle: 'Launch Plan', docId: 'doc-7' }] });
 
       // Consumed by the send.
       expect(result.current.pendingRefs).toHaveLength(0);

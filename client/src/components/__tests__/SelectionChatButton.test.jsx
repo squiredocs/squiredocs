@@ -44,11 +44,11 @@ describe('SelectionChatButton', () => {
     expect(screen.getByRole('button', { name: 'Add selection to chat' })).toBeInTheDocument();
   });
 
-  it('captures the passage + heading + docId and opens the panel on click', async () => {
+  it('captures the passage + heading + source document and opens the panel on click', async () => {
     const user = userEvent.setup();
     const editor = makeEditor({ text: 'the auth service' });
     const onRequestOpenChat = vi.fn();
-    render(<SelectionChatButton editor={editor} docId="doc-7" onRequestOpenChat={onRequestOpenChat} />);
+    render(<SelectionChatButton editor={editor} docId="doc-7" docTitle="Launch Plan" onRequestOpenChat={onRequestOpenChat} />);
 
     await user.click(screen.getByRole('button', { name: 'Add selection to chat' }));
 
@@ -56,6 +56,7 @@ describe('SelectionChatButton', () => {
       text: 'the auth service',
       heading: 'Section A',
       docId: 'doc-7',
+      docTitle: 'Launch Plan',
     });
     // Collapses the selection to dismiss the tag and signal capture.
     expect(editor.commands.setTextSelection).toHaveBeenCalledWith(5);
