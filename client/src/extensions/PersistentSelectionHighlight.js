@@ -22,6 +22,15 @@ export const persistentSelectionHighlightKey = new PluginKey('persistentSelectio
 
 const PAINT_CLASS = 'persisted-selection';
 
+// Clear the frozen highlight if one is currently shown (guarded so normal typing
+// with no highlight present doesn't dispatch a no-op transaction every keystroke).
+function clearHighlightIfPresent(view) {
+  const deco = persistentSelectionHighlightKey.getState(view.state);
+  if (deco && deco.find().length) {
+    view.dispatch(view.state.tr.setMeta(persistentSelectionHighlightKey, { type: 'clear' }));
+  }
+}
+
 export function persistentSelectionHighlightPlugin() {
   return new Plugin({
     key: persistentSelectionHighlightKey,
@@ -55,14 +64,17 @@ export function persistentSelectionHighlightPlugin() {
           }
           return false;
         },
-        // On focus, drop the frozen highlight — the native selection resumes.
-        focus: (view) => {
-          const deco = persistentSelectionHighlightKey.getState(view.state);
-          if (deco && deco.find().length) {
-            view.dispatch(view.state.tr.setMeta(persistentSelectionHighlightKey, { type: 'clear' }));
-          }
-          return false;
-        },
+        // Drop the frozen highlight as soon as the user interacts with the editor
+        // again (clicks or types in it) — the live native selection takes over.
+        //
+        // We clear on interaction rather than on `focus` because `focus` is
+        // unreliable here: when the chat panel is already open, adding a
+        // selection to chat never blurs the editor (the tag preventDefaults its
+        // mousedown, and nothing re-focuses the input), so no later `focus` event
+        // ever fires to clear the highlight. A mousedown/keydown in the editor
+        // fires regardless of whether focus actually changed.
+        mousedown: (view) => { clearHighlightIfPresent(view); return false; },
+        keydown: (view) => { clearHighlightIfPresent(view); return false; },
       },
     },
   });
