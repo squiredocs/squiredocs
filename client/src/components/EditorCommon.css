@@ -341,7 +341,8 @@
     display: none !important;
   }
 
-  .collaboration-cursor__selection {
+  .collaboration-cursor__selection,
+  .persisted-selection {
     background: transparent !important;
   }
 

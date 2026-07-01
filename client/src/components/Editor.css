@@ -15,6 +15,15 @@
   pointer-events: none;
 }
 
+/* Local selection held visible after the editor blurs (e.g. when the user
+   clicks into the AI chat). Matches the native text-selection blue so the
+   selection appears to simply persist — no color shift when focus leaves.
+   (Browsers grey out a blurred selection; this keeps it looking active.) */
+.editor-common-content .persisted-selection {
+  background-color: rgba(56, 132, 255, 0.3);
+  pointer-events: none;
+}
+
 .editor-common-content .collaboration-cursor__label {
   border-radius: 3px 3px 3px 0;
   color: #fff;

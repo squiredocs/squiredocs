@@ -5,6 +5,7 @@ import LinkPreview from './LinkPreview';
 import TableContextMenu from './TableContextMenu';
 import SelectionChatButton from './SelectionChatButton';
 import { getBaseExtensions } from '../extensions/editorExtensions';
+import { PersistentSelectionHighlight } from '../extensions/PersistentSelectionHighlight';
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import { useMobile } from '../hooks/useMobile';
 import { useAuth } from '../contexts/AuthContext';
@@ -91,6 +92,9 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
         field: 'default' // Field name in Yjs document for ProseMirror content
       }),
       // Note: yUndoPlugin is automatically included by Collaboration extension
+      // Keep the local selection highlighted after the editor blurs (e.g. when
+      // clicking into the AI chat); cleared when the editor regains focus.
+      PersistentSelectionHighlight,
     ];
 
     if (provider) {
