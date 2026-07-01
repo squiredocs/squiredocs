@@ -13,9 +13,12 @@ import SelectionChatButton from '../SelectionChatButton';
 
 // Minimal fake TipTap editor exercising just the surface the button reads.
 function makeEditor({ empty = false, text = 'hello world', heading = 'Section A' } = {}) {
+  const tr = {};
+  tr.setMeta = vi.fn(() => tr); // chainable, returns the transaction
   return {
     state: {
       selection: { empty, from: 1, to: 5 },
+      tr,
       doc: {
         content: { size: 100 },
         textBetween: () => (empty ? '' : text),
@@ -24,7 +27,7 @@ function makeEditor({ empty = false, text = 'hello world', heading = 'Section A'
         },
       },
     },
-    view: { coordsAtPos: () => ({ left: 10, bottom: 20, top: 10, right: 30 }) },
+    view: { coordsAtPos: () => ({ left: 10, bottom: 20, top: 10, right: 30 }), dispatch: vi.fn() },
     commands: { setTextSelection: vi.fn() },
   };
 }
@@ -70,6 +73,13 @@ describe('SelectionChatButton', () => {
       docId: 'doc-7',
       docTitle: 'Launch Plan',
     });
+    // Paints a persistent highlight over the passage so it stays visible after
+    // the selection is collapsed and the editor blurs into the chat.
+    expect(editor.state.tr.setMeta).toHaveBeenCalledWith(
+      expect.anything(),
+      { type: 'paint', from: 1, to: 5 },
+    );
+    expect(editor.view.dispatch).toHaveBeenCalled();
     // Collapses the selection to dismiss the tag and signal capture.
     expect(editor.commands.setTextSelection).toHaveBeenCalledWith(5);
     expect(onRequestOpenChat).toHaveBeenCalled();

@@ -1,5 +1,6 @@
 import { useReducer, useEffect, useCallback } from 'react';
 import { useAiChat } from '../contexts/AiChatContext';
+import { persistentSelectionHighlightKey } from '../extensions/PersistentSelectionHighlight';
 import './SelectionChatButton.css';
 
 // Cap a captured passage so a huge selection doesn't bloat the message. The
@@ -76,8 +77,18 @@ export default function SelectionChatButton({ editor, docId, docTitle, isMobile,
       docId: docId || null,
       docTitle: docTitle || null,
     });
-    // Collapse the selection so the tag dismisses and the user gets a clear
-    // "captured" cue; the panel then opens to show the new chip.
+    // Keep the passage visually highlighted after capture. Paint the
+    // persistent-selection decoration over it first: collapsing the live
+    // selection (below) drops the native highlight, and the panel-open blur
+    // would then have an empty selection and paint nothing — so without this the
+    // highlight vanishes for a real (focused) selection. The decoration is
+    // independent of the selection, so it survives the collapse and stays until
+    // the user clicks back into the doc (mirroring the already-blurred case).
+    editor.view.dispatch(
+      editor.state.tr.setMeta(persistentSelectionHighlightKey, { type: 'paint', from, to }),
+    );
+    // Collapse the selection so the floating tag dismisses and the user gets a
+    // clear "captured" cue; the panel then opens to show the new chip.
     editor.commands.setTextSelection(to);
     onRequestOpenChat?.();
   }, [editor, addSelectionRef, docId, docTitle, onRequestOpenChat]);
