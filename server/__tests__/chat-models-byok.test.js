@@ -56,6 +56,19 @@ describe('chat-models BYOK', () => {
       expect(result.model.modelId).toBe('z-ai/glm-5.2');
       expect(typeof result.provider.webSearchClient.chat).toBe('function');
     });
+
+    test('GLM models emit the same LanguageModel spec version streamText requires', () => {
+      // Regression guard: @ai-sdk/openai-compatible@3.x jumped to spec v4, which
+      // the installed `ai` rejects at streamText() ("Unsupported model version").
+      // Unit tests here never call streamText, so pin GLM's spec to the version
+      // the known-good @ai-sdk/openai provider emits — both must be accepted by
+      // the same `ai`, so a future openai-compatible bump can't silently break it.
+      const referenceSpec = require('@ai-sdk/openai')
+        .createOpenAI({ apiKey: 'x' }).chat('gpt-5.4').specificationVersion;
+      for (const key of ['glm-4.6', 'or-glm-5.2']) {
+        expect(resolveModelWithKey(key, 'k').model.specificationVersion).toBe(referenceSpec);
+      }
+    });
   });
 
   describe('resolveChatModel', () => {

@@ -36,7 +36,7 @@
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/google": "^3.0.51",
     "@ai-sdk/openai": "^3.0.73",
-    "@ai-sdk/openai-compatible": "^3.0.3",
+    "@ai-sdk/openai-compatible": "^2.0.56",
     "@aws-sdk/client-s3": "^3.1074.0",
     "@aws-sdk/s3-request-presigner": "^3.1074.0",
     "ai": "^6.0.116",
@@ -84,7 +84,21 @@
       "/client/"
     ],
     "transform": {
-      "\\.[jt]sx?$": ["babel-jest", { "presets": [["@babel/preset-env", { "targets": { "node": "current" } }]] }]
+      "\\.[jt]sx?$": [
+        "babel-jest",
+        {
+          "presets": [
+            [
+              "@babel/preset-env",
+              {
+                "targets": {
+                  "node": "current"
+                }
+              }
+            ]
+          ]
+        }
+      ]
     },
     "transformIgnorePatterns": [
       "/node_modules/(?!(@ai-sdk|@workflow)/)"
