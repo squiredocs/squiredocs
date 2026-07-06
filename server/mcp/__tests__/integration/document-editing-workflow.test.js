@@ -475,7 +475,7 @@ export default function edit(doc) {
       result = await readDoc.handler(
         {
           docGuid: newDocGuid,
-          format: 'text',
+          format: 'markdown',
         },
         mockAgentToken
       );
@@ -637,7 +637,7 @@ export default function edit(doc) {
       expect(readDoc).toBeDefined();
 
       result = await readDoc.handler(
-        { docGuid: bugTestDocGuid, format: 'text' },
+        { docGuid: bugTestDocGuid, format: 'markdown' },
         mockAgentToken
       );
 
@@ -738,7 +738,7 @@ export default function edit(doc) {
       const readDoc = toolRegistry.getTool('read_document');
       const readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
 
       // Verify operation had an effect (text content is present)
@@ -817,7 +817,7 @@ export default function edit(doc) {
       // VERIFY: Block was actually added (content appears in document)
       let readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
       expect(readResult.content).toContain(uniqueText);
 
@@ -849,7 +849,7 @@ export default function edit(doc) {
       // VERIFY: Block was actually deleted (content no longer in document)
       readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
       expect(readResult.content).not.toContain(uniqueText);
 
@@ -894,7 +894,7 @@ export default function edit(doc) {
       // VERIFY: bulletList content appears in document
       const readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
       expect(readResult.content).toContain(uniqueText);
 
@@ -939,7 +939,7 @@ export default function edit(doc) {
       // VERIFY: orderedList content appears in document
       const readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
       expect(readResult.content).toContain(uniqueText);
 
@@ -1006,7 +1006,7 @@ export default function edit(doc) {
       // VERIFY: All 3 items appear in the document
       const readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
       expect(readResult.content).toContain('Watch the sunrise together as a family');
       expect(readResult.content).toContain('Sub-item A');
@@ -1174,7 +1174,7 @@ export default function edit(doc) {
       // VERIFY: Document has all expected content
       const readResult = await readDoc.handler({
         docGuid: testDocGuid,
-        format: 'text',
+        format: 'markdown',
       }, mockAgentToken);
 
       expect(readResult.content).toContain('Free Researcher Access Pitch');

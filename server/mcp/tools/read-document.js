@@ -29,76 +29,34 @@ function init(persistence) {
  */
 const name = 'read_document';
 
-const description = `Read document content with optional XPath filtering.
+const description = `Read document content with optional XPath filtering. Returns structured JSON
+or Markdown. Use this to understand document structure before modifying.
 
-═══════════════════════════════════════════════════════════════════════════
-OVERVIEW
-═══════════════════════════════════════════════════════════════════════════
-
-Query document content using XPath expressions. Returns structured JSON
-or plain text. Use this to understand document structure before modifying.
-
-═══════════════════════════════════════════════════════════════════════════
-PARAMETERS
-═══════════════════════════════════════════════════════════════════════════
-
+PARAMETERS:
 - docGuid: Document UUID (required)
-- xpath: XPath expression to filter results (optional)
-  - If omitted, returns entire document
-  - Uses same XPath syntax as modify tool
-- format: "structured" or "text" (optional, default: "structured")
+- xpath: XPath expression to filter results (optional; omit for the entire
+  document; same XPath syntax as the modify tool)
+- format: "structured" or "markdown" (optional, default "structured")
 
-═══════════════════════════════════════════════════════════════════════════
-XPATH EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
+XPATH EXAMPLES:
+- "//heading" - all headings
+- "//heading[@level=2]" - level-2 headings only
+- "//paragraph[contains(., 'TODO')]" - paragraphs containing "TODO"
+- "//listItem" - all list items
+- "//heading[contains(., 'Tasks')]/following-sibling::bulletList[1]" - the
+  bullet list after a specific heading
 
-// Get all headings
-xpath: "//heading"
-
-// Get level-2 headings only
-xpath: "//heading[@level=2]"
-
-// Find paragraphs containing "TODO"
-xpath: "//paragraph[contains(., 'TODO')]"
-
-// Get all list items
-xpath: "//listItem"
-
-// Get bullet list after a specific heading
-xpath: "//heading[contains(., 'Tasks')]/following-sibling::bulletList[1]"
-
-═══════════════════════════════════════════════════════════════════════════
-RETURNS
-═══════════════════════════════════════════════════════════════════════════
-
-- content: Structured array or text string (based on format)
+RETURNS:
+- content: Structured array or Markdown string (based on format)
 - matchCount: Number of elements returned (when using xpath)
 - blockCount: Total blocks in document
 - characterCount: Total characters in result
 - clock: Current document version (update counter)
-- lastModifiedAt: ISO timestamp of last modification
-- lastModifiedBy: Author object of last modifier
-- recentAuthors: Array of authors from current editing session
+- lastModifiedAt / lastModifiedBy: Last modification time and author
+- recentAuthors: Authors from the current editing session
 
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// Read entire document
-await read_document({ docGuid: "abc-123" });
-
-// Read only headings
-await read_document({
-  docGuid: "abc-123",
-  xpath: "//heading"
-});
-
-// Find TODOs as plain text
-await read_document({
-  docGuid: "abc-123",
-  xpath: "//paragraph[contains(., 'TODO')]",
-  format: "text"
-});`;
+EXAMPLE:
+await read_document({ docGuid: "abc-123", xpath: "//heading", format: "markdown" });`;
 
 const inputSchema = {
   type: 'object',
@@ -114,7 +72,7 @@ const inputSchema = {
     },
     format: {
       type: 'string',
-      enum: ['text', 'structured'],
+      enum: ['markdown', 'structured'],
       description: 'Output format (default: "structured")',
     },
   },

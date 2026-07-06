@@ -8,7 +8,7 @@
 const { xpath } = require('../sandbox/xpath');
 const {
   toStructuredNode,
-  toTextNode,
+  toMarkdownNodes,
   countCharacters,
   countBlocks,
 } = require('../yjs/serialization');
@@ -19,7 +19,7 @@ const {
  *
  * @param {Y.XmlFragment} xmlFragment
  * @param {string|undefined} xpathExpr - XPath expression or undefined for all blocks
- * @param {string} format - 'text' or 'structured'
+ * @param {string} format - 'markdown' or 'structured'
  * @returns {{ nodes: Array, content: string|Array, blockCount: number, characterCount: number, matchCount?: number }}
  */
 function queryAndSerialize(xmlFragment, xpathExpr, format) {
@@ -38,8 +38,8 @@ function queryAndSerialize(xmlFragment, xpathExpr, format) {
   }
 
   let content;
-  if (format === 'text') {
-    content = nodes.map(toTextNode).join('').trim();
+  if (format === 'markdown') {
+    content = toMarkdownNodes(nodes);
   } else {
     content = nodes.map(toStructuredNode).filter(Boolean);
   }

@@ -66,11 +66,11 @@ function toPlainText(xmlFragment) {
 }
 
 /**
- * Serialize a Yjs XmlFragment to Markdown
- * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
+ * Serialize an array of Yjs nodes to Markdown
+ * @param {Array<Y.XmlElement|Y.XmlText>} nodes - Yjs nodes (e.g. fragment blocks or xpath matches)
  * @returns {string} Markdown content
  */
-function toMarkdown(xmlFragment) {
+function toMarkdownNodes(nodes) {
   const parts = [];
 
   function renderInline(textNode) {
@@ -214,11 +214,20 @@ function toMarkdown(xmlFragment) {
     }
   }
 
-  for (const child of xmlFragment.toArray()) {
-    processNode(child, '');
+  for (const node of nodes) {
+    processNode(node, '');
   }
 
   return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Serialize a Yjs XmlFragment to Markdown
+ * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
+ * @returns {string} Markdown content
+ */
+function toMarkdown(xmlFragment) {
+  return toMarkdownNodes(xmlFragment.toArray());
 }
 
 /**
@@ -508,6 +517,7 @@ module.exports = {
   toStructured,
   loadYDoc,
   // Node-level serialization (new)
+  toMarkdownNodes,
   toStructuredNode,
   toTextNode,
   extractTextWithMarks,

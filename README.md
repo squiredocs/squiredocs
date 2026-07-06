@@ -496,7 +496,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - `set_document_title` - Update document titles
 
 **Reading:**
-- `read_document` - Read document with optional XPath filtering
+- `read_document` - Read document with optional XPath filtering (structured JSON or Markdown output)
 - `get_collaborators` - See who else is editing
 
 **Sandboxed Script Execution:**

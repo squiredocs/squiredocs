@@ -97,16 +97,17 @@ describe('read_document tool', () => {
       expect(result.matchCount).toBeUndefined(); // No xpath = no matchCount
     });
 
-    test('returns text format when requested', async () => {
+    test('returns markdown format when requested', async () => {
       const result = await readDocument.handler(
-        { docGuid: 'test-doc-id', format: 'text' },
+        { docGuid: 'test-doc-id', format: 'markdown' },
         { userId: 'test-user' }
       );
 
       expect(typeof result.content).toBe('string');
-      expect(result.content).toContain('Test Heading');
+      expect(result.content).toContain('# Test Heading');
       expect(result.content).toContain('First paragraph');
       expect(result.content).toContain('Second paragraph');
+      expect(result.content).toContain('## Subheading');
     });
 
     test('defaults to structured format', async () => {
@@ -201,21 +202,79 @@ describe('read_document tool', () => {
       ).rejects.toThrow('Invalid XPath expression');
     });
 
-    test('xpath results can be returned as text format', async () => {
+    test('xpath results can be returned as markdown format', async () => {
       const headings = mockXmlFragment.toArray().filter(
         (n) => n instanceof Y.XmlElement && n.nodeName === 'heading'
       );
       xpath.mockReturnValue(headings);
 
       const result = await readDocument.handler(
-        { docGuid: 'test-doc-id', xpath: '//heading', format: 'text' },
+        { docGuid: 'test-doc-id', xpath: '//heading', format: 'markdown' },
         { userId: 'test-user' }
       );
 
       expect(typeof result.content).toBe('string');
-      expect(result.content).toContain('Test Heading');
-      expect(result.content).toContain('Subheading');
+      expect(result.content).toContain('# Test Heading');
+      expect(result.content).toContain('## Subheading');
       expect(result.content).not.toContain('paragraph');
+    });
+  });
+
+  describe('markdown output format', () => {
+    test('renders lists, code blocks, and tables as markdown', async () => {
+      const bulletList = new Y.XmlElement('bulletList');
+      const listItem = new Y.XmlElement('listItem');
+      const itemPara = new Y.XmlElement('paragraph');
+      const itemText = new Y.XmlText();
+      itemText.insert(0, 'List entry');
+      itemPara.insert(0, [itemText]);
+      listItem.insert(0, [itemPara]);
+      bulletList.insert(0, [listItem]);
+
+      const codeBlock = new Y.XmlElement('codeBlock');
+      codeBlock.setAttribute('language', 'js');
+      const codeText = new Y.XmlText();
+      codeText.insert(0, 'const x = 1;');
+      codeBlock.insert(0, [codeText]);
+
+      const table = new Y.XmlElement('table');
+      const row = new Y.XmlElement('tableRow');
+      const cell = new Y.XmlElement('tableHeader');
+      const cellPara = new Y.XmlElement('paragraph');
+      const cellText = new Y.XmlText();
+      cellText.insert(0, 'Col A');
+      cellPara.insert(0, [cellText]);
+      cell.insert(0, [cellPara]);
+      row.insert(0, [cell]);
+      table.insert(0, [row]);
+
+      mockXmlFragment.insert(mockXmlFragment.length, [bulletList, codeBlock, table]);
+
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      expect(result.content).toContain('- List entry');
+      expect(result.content).toContain('```js\nconst x = 1;\n```');
+      expect(result.content).toContain('| Col A |');
+      expect(result.content).toContain('| --- |');
+    });
+
+    test('renders inline marks as markdown', async () => {
+      const boldPara = new Y.XmlElement('paragraph');
+      const boldText = new Y.XmlText();
+      boldText.insert(0, 'Normal and bold text');
+      boldText.format(11, 4, { bold: true });
+      boldPara.insert(0, [boldText]);
+      mockXmlFragment.insert(mockXmlFragment.length, [boldPara]);
+
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      expect(result.content).toContain('Normal and **bold** text');
     });
   });
 

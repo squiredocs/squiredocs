@@ -122,7 +122,7 @@ describe('read_document_version tool', () => {
     test('has optional xpath and format parameters', () => {
       expect(readDocumentVersion.inputSchema.properties.xpath).toBeDefined();
       expect(readDocumentVersion.inputSchema.properties.format).toBeDefined();
-      expect(readDocumentVersion.inputSchema.properties.format.enum).toContain('text');
+      expect(readDocumentVersion.inputSchema.properties.format.enum).toContain('markdown');
       expect(readDocumentVersion.inputSchema.properties.format.enum).toContain('structured');
     });
   });
@@ -198,7 +198,7 @@ describe('read_document_version tool', () => {
       expect(result.version.id).toBe(versionId);
     });
 
-    test('reads version content in text format', async () => {
+    test('reads version content in markdown format', async () => {
       const agentToken = {
         userId: testUserId,
         scopes: ['documents:read'],
@@ -209,7 +209,7 @@ describe('read_document_version tool', () => {
       const versionId = String(latestClock);
 
       const result = await readDocumentVersion.handler(
-        { docGuid: testDocGuid, versionId, format: 'text' },
+        { docGuid: testDocGuid, versionId, format: 'markdown' },
         agentToken
       );
 

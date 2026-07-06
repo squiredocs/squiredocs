@@ -94,20 +94,20 @@ export default function edit(doc) {
     console.log('[undo-redo] modify.changed =', m.changed);
     expect(m.changed).toBe(true);
 
-    const after = await readDoc.handler({ docGuid: testDocGuid, format: 'text' }, mockAgentToken);
+    const after = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
     console.log('[undo-redo] after modify:', JSON.stringify(after.content || after.text));
 
     const undo = await toolRegistry.executeTool('undo', { docGuid: testDocGuid }, mockAgentToken);
     console.log('[undo-redo] undo result:', JSON.stringify(undo));
     expect(undo.undone).toBe(true);
 
-    const afterUndo = await readDoc.handler({ docGuid: testDocGuid, format: 'text' }, mockAgentToken);
+    const afterUndo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
     console.log('[undo-redo] after undo:', JSON.stringify(afterUndo.content || afterUndo.text));
 
     const redo = await toolRegistry.executeTool('redo', { docGuid: testDocGuid }, mockAgentToken);
     console.log('[undo-redo] redo result:', JSON.stringify(redo));
 
-    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'text' }, mockAgentToken);
+    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
     console.log('[undo-redo] after redo:', JSON.stringify(afterRedo.content || afterRedo.text));
 
     expect(redo.redone).toBe(true);
@@ -146,7 +146,7 @@ export default function edit(doc) {
     const redo = await toolRegistry.executeTool('redo', { docGuid: testDocGuid }, mockAgentToken);
     console.log('[undo-redo] redo:', JSON.stringify(redo));
 
-    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'text' }, mockAgentToken);
+    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
     console.log('[undo-redo] after redo:', JSON.stringify(afterRedo.content || afterRedo.text));
 
     provider.destroy();

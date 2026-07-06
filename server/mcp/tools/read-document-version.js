@@ -26,74 +26,30 @@ function init(persistence) {
  */
 const name = 'read_document_version';
 
-const description = `Read document content at a specific version with optional XPath filtering.
+const description = `Read document content as it existed at a specific version, with optional
+XPath filtering. Supports the same XPath syntax and output formats as
+read_document. Use it to review historical content or understand what changed
+between versions.
 
-═══════════════════════════════════════════════════════════════════════════
-OVERVIEW
-═══════════════════════════════════════════════════════════════════════════
-
-Read the content of a document as it existed at a specific point in its
-version history. Supports the same XPath filtering and output formats as
-read_document. Use this to review historical content or understand what
-changed between versions.
-
-═══════════════════════════════════════════════════════════════════════════
-PARAMETERS
-═══════════════════════════════════════════════════════════════════════════
-
+PARAMETERS:
 - docGuid: Document UUID (required)
-- versionId: Version identifier (required)
-  - UUID for named versions
-  - Clock number as string for auto-generated versions (e.g., "42")
+- versionId: Version identifier (required) - UUID for named versions, or the
+  clock number as a string (e.g. "42") for auto-generated versions
 - xpath: XPath expression to filter results (optional)
-  - Same syntax as read_document tool
-- format: "structured" or "text" (optional, default: "structured")
+- format: "structured" or "markdown" (optional, default "structured")
 
-═══════════════════════════════════════════════════════════════════════════
-XPATH EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// Get all headings from version
-xpath: "//heading"
-
-// Find paragraphs containing specific text
-xpath: "//paragraph[contains(., 'TODO')]"
-
-// Get list items
-xpath: "//listItem"
-
-═══════════════════════════════════════════════════════════════════════════
-RETURNS
-═══════════════════════════════════════════════════════════════════════════
-
-- content: Structured array or text string (based on format parameter)
+RETURNS:
+- content: Structured array or Markdown string (based on format)
 - matchCount: Number of elements returned (when using xpath)
-- blockCount: Total blocks in this version
-- characterCount: Total characters in results
-- version: Version metadata with id, name, clockStart, clockEnd, timestamp
+- blockCount / characterCount: Size of this version / of the result
+- version: Version metadata { id, name, clockStart, clockEnd, timestamp }
 
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// Read entire version
+EXAMPLE:
 await read_document_version({
   docGuid: "abc-123",
-  versionId: "auto-42"
-});
-
-// Read named version
-await read_document_version({
-  docGuid: "abc-123",
-  versionId: "550e8400-e29b-41d4-a716-446655440000"
-});
-
-// Find headings in historical version
-await read_document_version({
-  docGuid: "abc-123",
-  versionId: "auto-42",
+  versionId: "42",
   xpath: "//heading",
-  format: "text"
+  format: "markdown"
 });`;
 
 const inputSchema = {
@@ -114,7 +70,7 @@ const inputSchema = {
     },
     format: {
       type: 'string',
-      enum: ['text', 'structured'],
+      enum: ['markdown', 'structured'],
       description: 'Output format (default: "structured")',
     },
   },
