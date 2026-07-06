@@ -30,6 +30,9 @@ describe('Tool Module Smoke Tests', () => {
     // Document modification
     'modify',
 
+    // Script-tool documentation
+    'get-tool-documentation',
+
     // Version history tools
     'list-document-versions',
     'read-document-version',
@@ -122,6 +125,11 @@ describe('Tool Module Smoke Tests', () => {
   });
 
   describe('Description Quality', () => {
+    // MCP clients (e.g. Claude Code) truncate tool descriptions at 2KB.
+    // Large references belong in tool-documentation/ served by
+    // get_tool_documentation, not in the description.
+    const MAX_DESCRIPTION_CHARS = 2048;
+
     toolModules.forEach((moduleName) => {
       test(`${moduleName} has substantive description`, () => {
         const toolModule = require(`../../tools/${moduleName}`);
@@ -134,6 +142,11 @@ describe('Tool Module Smoke Tests', () => {
         // Note: "todo" and "fixme" in examples are fine, we're checking for actual placeholders
         expect(description).not.toMatch(/TODO:/i);
         expect(description).not.toMatch(/FIXME:/i);
+      });
+
+      test(`${moduleName} description fits the 2KB client truncation budget`, () => {
+        const toolModule = require(`../../tools/${moduleName}`);
+        expect(toolModule.description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
       });
     });
   });
@@ -191,6 +204,8 @@ describe('Tool Registry Integration', () => {
       'redo',
       // Document modification
       'modify',
+      // Script-tool documentation
+      'get_tool_documentation',
       // Version history tools
       'list_document_versions',
       'read_document_version',

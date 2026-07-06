@@ -19,6 +19,9 @@ const redo = require('./redo');
 // Document modification
 const modify = require('./modify');
 
+// Documentation for the script-based tools (modify, compare_document_versions)
+const getToolDocumentation = require('./get-tool-documentation');
+
 // Version history tools
 const listDocumentVersions = require('./list-document-versions');
 const readDocumentVersion = require('./read-document-version');
@@ -44,6 +47,9 @@ const tools = {
 
   // Document modification (replaces 15 deprecated editing tools)
   modify: modify,
+
+  // Full API docs for the script-based tools (MCP clients truncate descriptions)
+  get_tool_documentation: getToolDocumentation,
 
   // Version history tools
   list_document_versions: listDocumentVersions,
@@ -107,6 +113,7 @@ const TOOL_SCOPES = {
   list_document_versions: 'documents:read',
   read_document_version: 'documents:read',
   compare_document_versions: 'documents:read',
+  get_tool_documentation: 'documents:read',
 };
 
 /**

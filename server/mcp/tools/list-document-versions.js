@@ -22,107 +22,39 @@ function init(persistence) {
  */
 const name = 'list_document_versions';
 
-const description = `List version history timeline for a document with optional nested subversions
-and time-based filtering.
+const description = `List the version history timeline for a document, with optional nested
+subversions and time-based filtering.
 
-═══════════════════════════════════════════════════════════════════════════
-OVERVIEW
-═══════════════════════════════════════════════════════════════════════════
+Versions are grouped automatically by time gaps between edits (5-minute
+threshold); users can also create named checkpoints. Subversions drill down
+to individual edit groups (10-second threshold).
 
-Get a timeline of document versions showing when edits were made and by whom.
-Versions are automatically grouped by time gaps between edits (5-minute threshold),
-and users can create named checkpoints.
-
-FEATURES:
-- Nested subversions: Drill down to see individual edit groups (10-second threshold)
-- Time filtering: Filter versions by date/time range
-
-═══════════════════════════════════════════════════════════════════════════
-PARAMETERS
-═══════════════════════════════════════════════════════════════════════════
-
+PARAMETERS:
 - docGuid: Document UUID (required)
-- limit: Maximum versions to return, 1-100 (optional, default: 50)
-- offset: Number of versions to skip for pagination (optional, default: 0)
-- includeSubversions: Include nested subversions array (optional, default: false)
-- since: Filter versions since this time (optional, ISO 8601)
-- until: Filter versions until this time (optional, ISO 8601)
+- limit: Max versions to return, 1-100 (optional, default 50)
+- offset: Versions to skip for pagination (optional, default 0)
+- includeSubversions: Include nested subversions array (optional, default false)
+- since / until: Filter by time range (optional, ISO 8601). Timestamps are
+  stored and returned in UTC; always give an explicit timezone
+  (e.g. "2024-01-15T10:30:00Z", or "2024-01-15T10:30:00-05:00" for EST).
 
-TIMEZONE HANDLING:
-- All version timestamps are stored and returned in UTC
-- For time filtering, use ISO 8601 format with explicit timezone:
-  - "2024-01-15T10:30:00Z" - 10:30 AM UTC (recommended)
-  - "2024-01-15T10:30:00-05:00" - 10:30 AM EST
-  - "2024-01-15" - Midnight on Jan 15 in server's local timezone (avoid)
-- BEST PRACTICE: Always specify timezone explicitly (use "Z" suffix for UTC)
-
-═══════════════════════════════════════════════════════════════════════════
-RETURNS
-═══════════════════════════════════════════════════════════════════════════
-
-- versions: Array of version objects with:
-  - id: Version ID (UUID for named versions, clock number as string for auto versions)
-  - name: Version name (null for auto versions)
-  - clockStart: Starting clock value
-  - clockEnd: Ending clock value
-  - timestamp: ISO 8601 timestamp (UTC)
-  - formattedTimestamp: Human-readable timestamp
-  - authors: Array of author objects with id, name, email, picture, color, isAgent
-  - isNamed: Boolean indicating if this is a named checkpoint
-  - isCurrent: Boolean indicating if this is the current version
-  - subversions: (if includeSubversions: true) Array of up to 10 most recent edit groups:
-    - id, clockStart, clockEnd, timestamp, authors (same as versions)
-    - updateCount: Number of Yjs updates in this subversion
-    - previousClock: Baseline clock for diffing
-  - subversionCount: (if includeSubversions: true) Total number of subversions for this version
-  - hasMoreSubversions: (if includeSubversions: true) Boolean indicating if there are more than 10
-
-  NOTE: Only the 10 most recent subversions are returned per version. The subversionCount
-  and hasMoreSubversions fields indicate if there are additional subversions not shown.
-
+RETURNS:
+- versions: Array of { id (UUID for named versions, clock number as string
+  for auto versions), name (null for auto versions), clockStart, clockEnd,
+  timestamp (UTC), formattedTimestamp, authors [{ id, name, email, picture,
+  color, isAgent }], isNamed, isCurrent }. With includeSubversions, each
+  version also has subversions (the 10 most recent edit groups: same fields
+  plus updateCount and previousClock, the baseline clock for diffing),
+  subversionCount, and hasMoreSubversions (true when more than 10 exist).
 - totalEdits: Total number of meaningful edits in document history
-- pagination: Pagination metadata with total, limit, offset, hasMore
+- pagination: { total, limit, offset, hasMore }
 
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// List all versions (default, backward compatible)
-await list_document_versions({ docGuid: "abc-123" });
-
-// List versions with nested subversions
-await list_document_versions({
-  docGuid: "abc-123",
-  includeSubversions: true
-});
-
-// List versions from a specific date (UTC midnight)
-await list_document_versions({
-  docGuid: "abc-123",
-  since: "2024-01-15T00:00:00Z"
-});
-
-// List versions between two dates (UTC)
-await list_document_versions({
-  docGuid: "abc-123",
-  since: "2024-01-01T00:00:00Z",
-  until: "2024-01-15T23:59:59Z"
-});
-
-// List versions with subversions and time filtering
+EXAMPLE:
 await list_document_versions({
   docGuid: "abc-123",
   since: "2024-01-01T00:00:00Z",
   includeSubversions: true,
   limit: 10
-});
-
-// Pagination with time filtering
-await list_document_versions({
-  docGuid: "abc-123",
-  since: "2024-01-01T00:00:00Z",
-  limit: 10,
-  offset: 0
 });`;
 
 const inputSchema = {

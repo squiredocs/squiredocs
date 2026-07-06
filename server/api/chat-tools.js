@@ -272,8 +272,13 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
   const aiTools = {};
 
   for (const { name, description, inputSchema } of mcpTools) {
+    // Script tools (modify, compare_document_versions) ship a short MCP
+    // description because clients truncate at 2KB, and carry the full API
+    // reference in chatDescription; in-app chat has no such limit, so prefer
+    // the full docs here.
+    const chatDescription = toolRegistry.getTool(name)?.chatDescription;
     aiTools[name] = tool({
-      description,
+      description: chatDescription || description,
       inputSchema: jsonSchema(inputSchema),
       execute: async (args) => {
         try {

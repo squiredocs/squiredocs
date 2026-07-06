@@ -300,4 +300,29 @@ describe('modify conflict detection (content-aware gating)', () => {
     expect(result.conflict).toBeUndefined();
     expect(result.changed).toBe(true);
   }, 30000);
+
+  test('runtime script errors include the get_tool_documentation hint', async () => {
+    const modify = toolRegistry.getTool('modify');
+    const { docGuid } = await seedDoc('Runtime Error Hint Test');
+
+    let error;
+    try {
+      await modify.handler({
+        docGuid,
+        script: `
+          export default function edit(doc) {
+            throw new Error('intentional test failure');
+          }
+        `,
+      }, agentToken());
+    } catch (e) {
+      error = e;
+    }
+
+    expect(error).toBeDefined();
+    expect(error.message).toMatch(/Script execution failed/);
+    expect(error.message).toContain('intentional test failure');
+    // The truncated-description hint is appended exactly once
+    expect(error.message.split('get_tool_documentation').length - 1).toBe(1);
+  }, 30000);
 });

@@ -19,14 +19,32 @@ server/
 │   │   └── middleware.js                  # requireAgentAuth, requireScope
 │   │
 │   ├── tools/                             # MCP tool implementations
-│   │   ├── index.js                       # Tool registry and dispatcher
+│   │   ├── index.js                       # Tool registry, scopes, and dispatcher
 │   │   ├── list-documents.js              # list_documents tool
-│   │   ├── get-document.js                # get_document tool
-│   │   ├── update-document.js             # update_document tool
-│   │   ├── watch-document.js              # watch_document tool
 │   │   ├── create-document.js             # create_document tool
 │   │   ├── share-document.js              # share_document tool
-│   │   └── get-document-info.js           # get_document_info tool
+│   │   ├── set-document-title.js          # set_document_title tool
+│   │   ├── read-document.js               # read_document tool (XPath filtering)
+│   │   ├── read-helpers.js                # Shared XPath query/serialization helpers
+│   │   ├── get-collaborators.js           # get_collaborators tool
+│   │   ├── undo.js / redo.js              # undo / redo tools
+│   │   ├── undo-redo-handler.js           # Shared undo/redo implementation
+│   │   ├── modify.js                      # modify tool (sandboxed TypeScript editing)
+│   │   ├── get-tool-documentation.js      # get_tool_documentation tool
+│   │   ├── tool-documentation/            # Full API references for the script tools
+│   │   │   ├── index.js                   # Docs registry + section parsing
+│   │   │   ├── modify.js                  # modify scripting API reference
+│   │   │   └── compare-document-versions.js  # compare scripting API reference
+│   │   ├── list-document-versions.js      # list_document_versions tool
+│   │   ├── read-document-version.js       # read_document_version tool
+│   │   ├── set-document-version-name.js   # set_document_version_name tool
+│   │   ├── restore-document-version.js    # restore_document_version tool
+│   │   └── compare-document-versions.js   # compare_document_versions tool
+│   │
+│   │   Note: tool descriptions are kept ≤2KB because MCP clients (e.g.
+│   │   Claude Code) truncate them; the script tools' full docs are served
+│   │   by get_tool_documentation and inline to in-app chat via
+│   │   chatDescription.
 │   │
 │   ├── yjs/                               # Yjs/TipTap integration
 │   │   ├── adapter.js                     # Yjs ↔ MCP format conversion

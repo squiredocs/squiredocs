@@ -7,9 +7,14 @@
 // Mock the MCP tool registry
 const mockGetToolList = jest.fn();
 const mockExecuteTool = jest.fn();
+// buildTools consults getTool(name).chatDescription for the script tools;
+// these fake tools have none, so return null like the real registry does
+// for unknown names.
+const mockGetTool = jest.fn(() => null);
 jest.mock('../mcp/tools', () => ({
   getToolList: mockGetToolList,
   executeTool: mockExecuteTool,
+  getTool: mockGetTool,
 }));
 
 // Mock the AI SDK's tool and jsonSchema functions

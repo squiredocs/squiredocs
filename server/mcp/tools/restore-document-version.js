@@ -23,63 +23,28 @@ function init(persistence) {
  */
 const name = 'restore_document_version';
 
-const description = `Restore document to a previous version (non-destructive).
-
-═══════════════════════════════════════════════════════════════════════════
-OVERVIEW
-═══════════════════════════════════════════════════════════════════════════
-
-Restore a document to the state it was in at a previous version. This is
-non-destructive: it creates a new edit that replaces the current content
-with the historical content. The restore operation itself becomes a new
-version in the history, so you can undo it by restoring to a version
-before the restore.
-
-Changes are immediately broadcast to all connected clients via WebSocket.
-
-═══════════════════════════════════════════════════════════════════════════
-PARAMETERS
-═══════════════════════════════════════════════════════════════════════════
-
-- docGuid: Document UUID (required)
-- versionId: Version to restore to (required)
-  - UUID for named versions
-  - Clock number as string for auto-generated versions
-
-═══════════════════════════════════════════════════════════════════════════
-PERMISSIONS
-═══════════════════════════════════════════════════════════════════════════
+const description = `Restore a document to a previous version (non-destructive). Creates a new
+edit that replaces the current content with the historical content; the
+restore itself becomes a new version in the history, so you can undo it by
+restoring to a version from before the restore. Changes broadcast immediately
+to all connected clients.
 
 Requires editor or owner role. Viewers cannot restore versions.
 
-═══════════════════════════════════════════════════════════════════════════
-RETURNS
-═══════════════════════════════════════════════════════════════════════════
+PARAMETERS:
+- docGuid: Document UUID (required)
+- versionId: Version to restore to (required) - UUID for named versions, or
+  the clock number as a string (e.g. "42") for auto-generated versions
 
+RETURNS:
 - success: Boolean indicating success
 - newClock: Clock value of the restore operation
 - message: Human-readable success message
 
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// Restore to an auto-generated version
-await restore_document_version({
-  docGuid: "abc-123",
-  versionId: "auto-42"
-});
-
-// Restore to a named version
-await restore_document_version({
-  docGuid: "abc-123",
-  versionId: "550e8400-e29b-41d4-a716-446655440000"
-});
-
-// After restoring, you can:
-// - Use read_document to see the restored content
-// - Use list_document_versions to see the restore as a new version
-// - Restore again to undo the restore`;
+EXAMPLE:
+await restore_document_version({ docGuid: "abc-123", versionId: "42" });
+// Afterwards: read_document shows the restored content, and
+// list_document_versions shows the restore as a new version.`;
 
 const inputSchema = {
   type: 'object',

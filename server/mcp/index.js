@@ -161,6 +161,20 @@ router.post('/', requireAgentAuth, async (req, res) => {
   }
 });
 
+// Sent to MCP clients at initialize. Clients such as Claude Code truncate
+// server instructions at 2KB and use them to decide when to engage this
+// server's tools, so keep this short with the critical details first.
+const SERVER_INSTRUCTIONS =
+  'Collaborative rich-text document server (docs, version history, real-time '
+  + 'multi-user editing). Documents are edited with the modify tool and '
+  + 'compared with compare_document_versions — both take TypeScript scripts '
+  + 'and have a large scripting API (built-in helpers, XPath targeting, Yjs '
+  + 'API, examples, common pitfalls) that does not fit in their tool '
+  + 'descriptions. ALWAYS call get_tool_documentation({ tool: "modify" }) (or '
+  + '{ tool: "compare_document_versions" }) before writing your first script. '
+  + 'Read documents with read_document (optionally XPath-filtered); build '
+  + 'documents incrementally with multiple small modify calls.';
+
 /**
  * Handle initialize method
  */
@@ -174,6 +188,7 @@ function handleInitialize(params) {
     capabilities: {
       tools: {},
     },
+    instructions: SERVER_INSTRUCTIONS,
   };
 }
 

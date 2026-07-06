@@ -8,6 +8,7 @@
 const versionHistory = require('../../version-history');
 const { executeComparisonScript } = require('../sandbox');
 const documents = require('../../documents');
+const { COMPARE_DOCUMENTATION } = require('./tool-documentation/compare-document-versions');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -25,105 +26,48 @@ function init(persistence) {
  */
 const name = 'compare_document_versions';
 
-const description = `═══════════════════════════════════════════════════════════════════════════
-OVERVIEW
-═══════════════════════════════════════════════════════════════════════════
+// MCP clients such as Claude Code truncate tool descriptions at 2KB, so the
+// MCP-facing description is a short summary pointing to get_tool_documentation.
+// The in-app chat agent receives the full reference via chatDescription.
+const description = `Compare two document versions using a TypeScript script in a read-only sandbox.
 
-Compare two document versions using a programmable TypeScript environment.
-Instead of a fixed diff format, write custom comparison logic to extract
-exactly the information you need.
+REQUIRED READING: This is a summary. Call
+get_tool_documentation({ tool: "compare_document_versions" }) for the full API
+reference (helper functions and worked examples) BEFORE writing your first
+comparison script.
 
-Use cases:
-- "Did the title change?" - Compare specific elements
-- "How many sections were added?" - Count structural changes
-- "Were any links added?" - Extract and compare links
-- "Find paragraphs mentioning 'budget'" - Semantic search across versions
-
-═══════════════════════════════════════════════════════════════════════════
-SCRIPT ENVIRONMENT
-═══════════════════════════════════════════════════════════════════════════
-
-Your script receives two Y.XmlFragment objects (ephemeral snapshots):
-- doc1: Document at versionId1
-- doc2: Document at versionId2
-
-Return any data you want - the tool will return it to you.
-
-Script structure:
+SCRIPT CONTRACT: export a default function that receives two ephemeral
+snapshots and returns any data you need:
   export default function compare(doc1: Y.XmlFragment, doc2: Y.XmlFragment) {
-    // Your comparison logic here
     return { ... };
   }
+Write custom comparison logic (did the title change? how many sections were
+added? which links are new?) instead of relying on a fixed diff format.
+Built-in helpers include xpath, extractPlainText, extractText, extractLinks,
+getWordCount, getBlockCount, findByText, getAttributes. Modifications to the
+snapshots do not persist.
 
-Note: Documents are temporary snapshots loaded from version history.
-Any modifications won't persist (but there's no need to modify for comparison).
+PARAMETERS:
+- docGuid: Document UUID (required)
+- versionId1 / versionId2: Versions to compare — UUID (named version) or clock
+  number as string (required)
+- script: TypeScript source code (required)
+- timeout: Execution timeout in ms (optional, default 5000, max 30000)
 
-═══════════════════════════════════════════════════════════════════════════
-HELPER FUNCTIONS
-═══════════════════════════════════════════════════════════════════════════
+RETURNS: { success: true, result } where result is whatever your script
+returned; on script failure { success: false, error } — if the error directs
+you to get_tool_documentation, fetch the docs before retrying.`;
 
-Text extraction:
-- extractPlainText(doc) - Get all text from document
-- extractText(xmlText) - Get text from Y.XmlText node
-- findTextNode(element) - Find first text node in element
+const chatDescription = COMPARE_DOCUMENTATION;
 
-Finding elements:
-- xpath('//heading[@level="1"]') - Query with XPath
-- xpath('//heading', contextNode) - Query within specific node
-- findByText(doc, 'search text') - Find element containing text
-- findAllByText(doc, 'search text') - Find all matching elements
-- getElementByType(doc, 'heading') - Get all elements of type
-
-Comparison helpers:
-- getBlockCount(doc) - Count total blocks
-- getWordCount(doc) - Count total words
-- getCharacterCount(doc) - Count total characters
-- extractLinks(doc) - Get all links [{text, href}, ...]
-
-Element properties:
-- getAttributes(element) - Get all attributes as object
-- hasAttribute(element, name, value?) - Check if attribute exists
-
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLES
-═══════════════════════════════════════════════════════════════════════════
-
-// Check if title changed
-export default function compare(doc1, doc2) {
-  const headings1 = xpath('//heading[@level="1"]', doc1);
-  const headings2 = xpath('//heading[@level="1"]', doc2);
-
-  const title1 = headings1[0];
-  const title2 = headings2[0];
-
-  return {
-    titleChanged: extractPlainText(title1) !== extractPlainText(title2),
-    oldTitle: extractPlainText(title1),
-    newTitle: extractPlainText(title2)
-  };
-}
-
-// Count new links
-export default function compare(doc1, doc2) {
-  const links1 = extractLinks(doc1);
-  const links2 = extractLinks(doc2);
-
-  const newLinks = links2.filter(l2 =>
-    !links1.some(l1 => l1.href === l2.href)
-  );
-
-  return { linksAdded: newLinks.length, newLinks };
-}
-
-// Word count change
-export default function compare(doc1, doc2) {
-  return {
-    wordsAdded: getWordCount(doc2) - getWordCount(doc1),
-    wordsV1: getWordCount(doc1),
-    wordsV2: getWordCount(doc2)
-  };
-}
-`;
+// Appended to script errors. Script authors working from a truncated tool
+// description (see the 2KB note above) fail here first; the hint gives them
+// the recovery path.
+const TRUNCATION_HINT =
+  '\n\nHINT: The compare_document_versions tool has a scripting API (helpers, '
+  + 'XPath, examples) that MCP clients truncate from its description. If you '
+  + 'have not already fetched it, call '
+  + 'get_tool_documentation({ tool: "compare_document_versions" }) before retrying.';
 
 const inputSchema = {
   type: 'object',
@@ -221,9 +165,12 @@ async function handler(args, agentToken) {
       executionTime: Date.now() - startTime
     };
   } catch (error) {
+    const message = error.message.includes('get_tool_documentation')
+      ? error.message
+      : error.message + TRUNCATION_HINT;
     return {
       success: false,
-      error: error.message,
+      error: message,
       executionTime: Date.now() - startTime
     };
   }
@@ -232,6 +179,7 @@ async function handler(args, agentToken) {
 module.exports = {
   name,
   description,
+  chatDescription,
   inputSchema,
   handler,
   init,

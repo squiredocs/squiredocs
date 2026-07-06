@@ -1,0 +1,758 @@
+/**
+ * Full scripting API reference for the modify tool.
+ *
+ * Served on demand via the get_tool_documentation MCP tool and passed in full
+ * to the in-app chat agent (chatDescription). The MCP-facing description of
+ * modify is a short summary because clients such as Claude Code truncate tool
+ * descriptions at 2KB.
+ */
+
+const MODIFY_DOCUMENTATION = `Modify the document using a TypeScript script.
+
+═══════════════════════════════════════════════════════════════════════════
+INCREMENTAL AUTHORING (READ THIS FIRST)
+═══════════════════════════════════════════════════════════════════════════
+
+ALWAYS build documents incrementally using MULTIPLE modify calls.
+Users watch the document in real-time - they should see content appear
+progressively, not all at once.
+
+WHY INCREMENTAL IS BETTER:
+✓ Users see progress as you work (engaging experience)
+✓ Each change syncs immediately to all connected viewers
+✓ Smaller scripts are more reliable and faster
+✓ Errors don't lose all work (partial content preserved)
+✓ Natural undo boundaries (each modify = one undo step)
+
+RECOMMENDED STRATEGIES (choose based on content):
+- SECTION BY SECTION (best for new documents): title, then intro, then one
+  modify call per section
+- STRUCTURE FIRST (best for complex docs): all headings first, then fill in
+  each section with its own modify call
+- BY CONTENT TYPE (best for formatting tasks): one modify call per
+  transformation (fix headings, bold TODOs, convert URLs to links, ...)
+- ITEM BY ITEM (best for long lists): create the list with the first few
+  items, append the rest in batches
+
+ANTI-PATTERNS TO AVOID:
+❌ Writing entire document in one massive script
+❌ Deleting everything and recreating from scratch
+❌ Scripts longer than ~50 lines (break them up!)
+❌ Using positional indexing (doc.get(n), element.get(n)) to target elements
+  → Positions shift in collaborative docs. Always use XPath instead.
+
+⚠️ WHY "DELETE ALL + RECREATE" IS BAD:
+  - Breaks real-time collaboration (other users see flickering)
+  - Loses document history and undo/redo state
+  - User sees blank doc then sudden content (jarring)
+  - Instead: insert new content, or iterate and modify in place
+
+═══════════════════════════════════════════════════════════════════════════
+QUICK DECISION GUIDE: What kind of edit am I doing?
+═══════════════════════════════════════════════════════════════════════════
+
+Before writing your script, ask yourself:
+
+□ Creating NEW content from scratch?
+  → Build incrementally across multiple modify calls (section by section)
+  → See "INCREMENTAL AUTHORING" strategies above
+
+□ Transforming EXISTING content? (e.g., formatting, converting block types)
+  → Iterate through blocks and modify in place
+  → DON'T delete everything and recreate — breaks collaboration & undo history
+  → See the block-type transformation example in EXAMPLES below
+
+□ Complex nested structure you're unsure about?
+  → Use read_document with format:"structured" FIRST to understand the tree
+  → See PITFALL 6 below
+
+□ Finding/formatting patterns in text?
+  → Use built-in helpers: findByText(), xpath(), findTextNode()
+  → Use indexOf() + length for positions — never count manually
+  → See QUICK REFERENCE below
+
+═══════════════════════════════════════════════════════════════════════════
+SANDBOXED TYPESCRIPT EXECUTION
+═══════════════════════════════════════════════════════════════════════════
+
+Executes a TypeScript script with direct access to the Yjs document API.
+Scripts can perform complex editing operations using standard Yjs methods.
+All changes are atomic (single undo step) and sync in real-time.
+
+WHAT YOU GET:
+- Full Yjs API (Y.XmlFragment, Y.XmlElement, Y.XmlText)
+- TypeScript type checking and compilation
+- Automatic cursor animation for visual feedback
+- Atomic undo (entire script = one undo step)
+- Real-time sync with all connected users
+
+SECURITY:
+- Sandboxed execution (no access to fs, net, require)
+- Configurable timeout (default 5s, max 30s)
+- Memory limits enforced
+- Full rollback on error
+
+SCRIPT STRUCTURE:
+Scripts must export a default function that receives the document fragment:
+
+  export default function edit(doc: Y.XmlFragment) {
+    // Your editing logic here
+  }
+
+═══════════════════════════════════════════════════════════════════════════
+BUILT-IN HELPER FUNCTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+These helpers are available globally in your scripts - no need to define them!
+
+findTextNode(element)
+  - Find first Y.XmlText node in element (recursive)
+  - Returns Y.XmlText or null
+  - Example: const text = findTextNode(paragraph);
+
+extractText(xmlText)
+  - Extract plain text from Y.XmlText using toDelta()
+  - CRITICAL: Use this instead of toString() for formatted text
+  - Returns string
+  - Example: const content = extractText(text);
+
+getTextContent(node)
+  - Get all text from element recursively
+  - Works with XmlElement or XmlText
+  - Returns string
+  - Example: const allText = getTextContent(bulletList);
+
+findElements(container, predicate)
+  - Find all elements matching a predicate function
+  - Returns Y.XmlElement[]
+  - Example: findElements(doc, el => el.nodeName === 'heading')
+
+findByNodeName(container, nodeName)
+  - Find all elements by node name
+  - Returns Y.XmlElement[]
+  - Example: const headings = findByNodeName(doc, 'heading');
+
+findByText(container, searchText, caseSensitive=false)
+  - Find all elements containing specific text
+  - Returns Y.XmlElement[]
+  - Example: const todos = findByText(doc, 'TODO');
+
+createFormattedText(segments)  ⭐ PREFERRED FOR MIXED FORMATTING
+  - Create Y.XmlText from segments with formatting
+  - ✓ No position counting needed — just list segments in order
+  - ✓ Avoids text reversal bug on unattached XmlText
+  - ✓ Self-documenting: format is visible in segment structure
+  - Each segment: string OR { text: string, attrs: object }
+  - Returns Y.XmlText
+  - Example:
+      const text = createFormattedText([
+        'Visit ',
+        { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+        ' for more info'
+      ]);
+      para.insert(0, [text]);
+
+getFormattedContent(element)  ⭐ READ FORMATTED CONTENT
+  - Read formatted content as segments (same format as createFormattedText)
+  - Works with paragraph, heading, listItem, tableCell, blockquote
+  - Returns array: ["plain", { text: "formatted", attrs: {...} }]
+  - Example: const segments = getFormattedContent(paragraph);
+
+setFormattedContent(element, segments)  ⭐ WRITE FORMATTED CONTENT
+  - Write segments to element (replaces existing content)
+  - Uses same format as createFormattedText
+  - Example: setFormattedContent(para, ["Hello ", { text: "world", attrs: { bold: true } }]);
+
+getPlainText(segments)
+  - Extract plain text from segments array
+  - Useful for searching/matching
+  - Example: if (getPlainText(segments).includes('TODO')) { ... }
+
+getParagraphs(container)
+  - Read all paragraphs from a container as array of segment arrays
+  - For listItem, tableCell, blockquote with multiple paragraphs
+  - Example: const paras = getParagraphs(listItem);
+
+setParagraphs(container, segmentArrays)
+  - Replace all paragraphs in a container
+  - Example: setParagraphs(listItem, [["First para"], ["Second para"]]);
+
+appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
+  - Create multiple block elements from declarative definitions
+  - ✓ Eliminates ~75% of boilerplate for common operations
+  - ✓ Supports headings, paragraphs, lists, code blocks
+  - ✓ Supports nested lists with arbitrary depth
+  - ✓ Supports formatted content within blocks
+  - ✓ Supports xpath-based positioning
+  - Returns Y.XmlElement[] (the created blocks)
+
+  Block types:
+    { type: 'paragraph', content: string | FormattedContent }
+    { type: 'heading', level: 1-6, content: string | FormattedContent }
+    { type: 'bulletList', items: ListItem[] }
+    { type: 'orderedList', items: ListItem[] }
+    { type: 'codeBlock', content: string }
+    { type: 'blockquote', content: string | FormattedContent }
+    { type: 'horizontalRule' }
+    { type: 'table', headers?: string[], rows: string[][] }
+      Note: Table rows can contain FormattedContent arrays for rich text (bold, color, etc.)
+      Note: For colspan/rowspan, use low-level API (see Example 7c below)
+
+  ListItem = string | FormattedContent | NestedItem
+  NestedItem = { content: string | FormattedContent, items?: ListItem[], type?: 'bulletList' | 'orderedList' }
+  FormattedContent = Array<string | { text: string, attrs: object }>
+
+  Position options:
+    { at: 'start' }  - Insert at beginning
+    { at: 'end' }    - Insert at end (default)
+    { before: element | xpath }  - Insert before target
+    { after: element | xpath }   - Insert after target
+
+  Example - Mixed blocks with formatted content, positioned after a heading:
+      appendBlocks(doc, [
+        { type: 'heading', level: 2, content: 'Summary' },
+        { type: 'paragraph', content: [
+          'Text with ',
+          { text: 'bold', attrs: { bold: true } },
+          ' and ',
+          { text: 'italic', attrs: { italic: true } }
+        ]},
+        { type: 'blockquote', content: 'To be or not to be...' },
+        { type: 'horizontalRule' }
+      ], { after: '//heading[contains(., "Introduction")]' });
+
+  Example - Nested lists and a table (cells may use FormattedContent):
+      appendBlocks(doc, [
+        { type: 'bulletList', items: [
+          'Simple item',
+          { content: 'Item with sub-items', items: ['Sub-item 1', 'Sub-item 2'] },
+          { content: 'Mixed nesting', items: ['Numbered child'], type: 'orderedList' }
+        ]},
+        { type: 'table',
+          headers: ['Name', 'Status'],
+          rows: [
+            ['Alice', [{ text: 'Active', attrs: { bold: true } }]],
+            ['Bob', [{ text: 'On Leave', attrs: { textStyle: { color: '#dc2626' } } }]]
+          ]
+        }
+      ]);
+
+───────────────────────────────────────────────────────────────────────────
+XPATH QUERY FUNCTIONS (Recommended for element selection!)
+───────────────────────────────────────────────────────────────────────────
+
+xpath(expression, contextNode?)
+  - Execute XPath query, return all matching nodes
+  - Uses standard XPath syntax - no fragile index-based access!
+  - If contextNode omitted, queries from document root
+  - Returns Y.XmlElement[] (actual Yjs nodes you can modify)
+  - Examples:
+      // Find all headings
+      const headings = xpath('//heading');
+
+      // Find level-2 headings
+      const h2s = xpath('//heading[@level=2]');
+
+      // Find elements containing text
+      const todos = xpath('//paragraph[contains(., "TODO")]');
+
+      // Find list after a specific heading
+      const list = xpath('//heading[contains(., "June 13")]/following-sibling::bulletList[1]');
+
+      // Query from a specific element
+      const items = xpath('.//listItem', bulletList);
+
+xpathFirst(expression, contextNode?)
+  - Execute XPath query, return first matching node (or null)
+  - Same syntax as xpath(), just returns single result
+  - Returns Y.XmlElement | null
+  - Example:
+      const firstHeading = xpathFirst('//heading');
+      if (firstHeading) {
+        firstHeading.setAttribute('level', 1);
+      }
+
+Supported XPath features:
+  ✓ //element           - Descendant selection (searches ALL descendants, including nested structures)
+  ✓ [@attr=value]       - Attribute predicates
+  ✓ [contains(., text)] - Text content predicates
+  ✓ child::*            - Child axis
+  ✓ following-sibling:: - Following sibling axis
+  ✓ preceding-sibling:: - Preceding sibling axis
+  ✗ parent::            - Not supported (Yjs limitation)
+  ✗ ancestor::          - Not supported (Yjs limitation)
+
+XPath and nested structures (tables, lists):
+  - //paragraph finds ALL paragraphs, including those inside table cells
+  - To exclude nested paragraphs: /paragraph or //paragraph[not(ancestor::table)]
+  - //paragraph[last()] returns the last paragraph in document order (may be inside a table!)
+  - For top-level only: (//paragraph[not(ancestor::table)])[last()]
+
+═══════════════════════════════════════════════════════════════════════════
+YJS API AVAILABLE IN SCRIPTS
+═══════════════════════════════════════════════════════════════════════════
+
+Y.XmlFragment (document root):
+  - toArray() => (XmlElement | XmlText)[]
+  - insert(index, content[])
+  - delete(index, length)
+  - get(index) => XmlElement | XmlText
+  - length: number
+
+Y.XmlElement (blocks: paragraph, heading, list, etc.):
+  - nodeName: string (e.g., 'paragraph', 'heading')
+  - getAttribute(name) => any
+  - setAttribute(name, value)
+  - toArray() => (XmlElement | XmlText)[]
+  - insert(index, content[])
+  - delete(index, length)
+  - get(index) => XmlElement | XmlText
+  - length: number
+
+Y.XmlText (text content with formatting):
+  - toString() => string (WARNING: returns XML if formatted)
+  - toDelta() => Delta[] (RECOMMENDED for text extraction)
+  - insert(offset, text, attributes?)
+  - delete(offset, length)
+  - format(offset, length, attributes)
+  - length: number
+
+TipTap Block Types:
+  - 'paragraph', 'heading' (with level: 1-6)
+  - 'bulletList', 'orderedList', 'listItem'
+  - 'codeBlock', 'blockquote', 'horizontalRule'
+  - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
+  - 'image' (atom block — attrs: src, alt?, title?, width?). src MUST be an existing
+     app image URL (/api/docs/:docId/images/:imageId). You can move, reorder, delete,
+     and edit alt/title/width of existing images, but you CANNOT create a new image
+     here — an external/invented src is stripped. To add a new image the user attached
+     in chat, use the insert_image tool instead.
+  - 'table', 'tableRow', 'tableCell', 'tableHeader'
+
+Table Structure:
+  table
+  └── tableRow
+      ├── tableHeader (for header cells, typically first row)
+      │   └── paragraph → text
+      └── tableCell (for data cells)
+          └── paragraph → text
+
+  ⚠️ Table cell text is nested inside a paragraph. To read or write cell text,
+  use the helpers that handle this automatically:
+    getFormattedContent(tableCell)  — reads cell text (navigates cell → paragraph → text)
+    setFormattedContent(tableCell, segments) — writes cell text
+    findTextNode(tableCell) — returns the inner Y.XmlText node
+  Low-level access requires: tableCell.get(0) → paragraph, paragraph.get(0) → text
+
+Table Cell Attributes:
+  - colspan: number (merge cells horizontally)
+  - rowspan: number (merge cells vertically)
+  - colwidth: number[] (column widths in pixels)
+    Note: colwidth must be an array: [200] for single column, [100, 150, 200] for multi-column cells
+    Example: cell.setAttribute('colwidth', [150]);
+
+Text Marks (formatting):
+  - bold, italic, underline, strike, code
+  - subscript, superscript
+  - link: { href: string }
+
+TextStyle Marks - IMPORTANT nested format required:
+  These marks MUST be wrapped in a textStyle object:
+  ✓ Correct: { textStyle: { color: '#ff0000' } }
+  ✓ Correct: { textStyle: { color: '#ff0000', fontSize: '18px' } }
+  ✗ Wrong:   { color: '#ff0000' }  // Must be nested inside textStyle!
+
+  Available properties (include only what you need):
+  - color: string
+      Supported formats: hex (#ff0000), rgb (rgb(255,0,0)), rgba (rgba(255,0,0,0.5)),
+                         named colors (red, blue), hsl (hsl(0,100%,50%))
+  - backgroundColor: string (same formats as color)
+  - fontFamily: string (e.g., 'Arial', 'Times New Roman', 'Georgia')
+  - fontSize: string (e.g., '16px', '1.2em', '20pt')
+  - lineHeight: string (e.g., '1.5', '2', '1.8')
+
+  Combining with other marks:
+  { bold: true, textStyle: { color: '#ff0000' } }
+
+═══════════════════════════════════════════════════════════════════════════
+PARAMETERS
+═══════════════════════════════════════════════════════════════════════════
+
+- docGuid: Document UUID (required)
+- script: TypeScript source code (required)
+- timeout: Execution timeout in milliseconds (optional, default: 5000, max: 30000)
+
+═══════════════════════════════════════════════════════════════════════════
+RETURNS
+═══════════════════════════════════════════════════════════════════════════
+
+- changed: true if the document content actually changed (false = targeting missed, re-read the doc)
+- message: Diagnostic guidance when changed is false (explains likely cause and next steps)
+- operationCount: Number of Yjs operations performed
+- summary: Object mapping operation types to counts
+- content: The full updated document (structured format, same as read_document) when changed is true. This reflects the document AFTER your edit, so you do not need to re-read it before the next modify.
+- blockCount / characterCount: Size of the updated document
+- clock: The document's update counter, so you can track its version
+- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
+- mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
+- imageErrors: Present only if your script left image node(s) with a non-app src. Those images were REMOVED (an array of { src }). Only reference existing app image URLs (/api/docs/:docId/images/:imageId); to add a new image from chat use the insert_image tool.
+- error: Error message if execution failed
+
+═══════════════════════════════════════════════════════════════════════════
+EXAMPLES
+═══════════════════════════════════════════════════════════════════════════
+
+// Example 1: Format all TODO items as bold
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // Use built-in helper to find all blocks containing "TODO"
+      const todos = findByText(doc, 'TODO');
+
+      todos.forEach(block => {
+        const text = findTextNode(block);
+        if (text) {
+          const content = extractText(text);
+          const searchTerm = 'TODO';
+          const todoIndex = content.indexOf(searchTerm);
+          if (todoIndex >= 0) {
+            text.format(todoIndex, searchTerm.length, { bold: true });
+          }
+        }
+      });
+    }
+  \`
+});
+
+// Example 2: Add a summary section at the start (use appendBlocks — see helpers)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      appendBlocks(doc, [
+        { type: 'heading', level: 1, content: 'Summary' },
+        { type: 'paragraph', content: 'This document contains important information.' }
+      ], { at: 'start' });
+    }
+  \`
+});
+
+// Example 3: Find and replace text across all blocks
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const searchText = 'old term';
+      const replaceText = 'new term';
+
+      function processElement(element) {
+        for (const child of element.toArray()) {
+          if (child instanceof Y.XmlText) {
+            const delta = child.toDelta();
+            const text = delta.map(op => typeof op.insert === 'string' ? op.insert : '').join('');
+            let index = 0;
+            while ((index = text.indexOf(searchText, index)) !== -1) {
+              child.delete(index, searchText.length);
+              child.insert(index, replaceText);
+              index += replaceText.length;
+            }
+          } else if (child instanceof Y.XmlElement) {
+            processElement(child);
+          }
+        }
+      }
+
+      processElement(doc);
+    }
+  \`
+});
+
+// Example 4: Transform block types in place (e.g., markdown → proper blocks)
+// ⭐ KEY PATTERN: Convert existing blocks without deleting the whole document
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const blocks = doc.toArray();
+
+      // Iterate BACKWARD when replacing blocks (avoids index shifting)
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const block = blocks[i];
+        if (!(block instanceof Y.XmlElement) || block.nodeName !== 'paragraph') continue;
+
+        const textNode = findTextNode(block);
+        if (!textNode) continue;
+        const content = extractText(textNode);
+
+        // Detect markdown heading pattern: # Title, ## Subtitle, ### Section
+        const headingMatch = content.match(/^(#{1,3})\\s+(.+)$/);
+        if (headingMatch) {
+          const level = headingMatch[1].length;
+          const text = headingMatch[2];
+
+          // Create new heading block with same content
+          const heading = new Y.XmlElement('heading');
+          heading.setAttribute('level', level);
+          const newText = new Y.XmlText();
+          newText.insert(0, text);
+          heading.insert(0, [newText]);
+
+          // Replace in place: delete old, insert new at same position
+          doc.delete(i, 1);
+          doc.insert(i, [heading]);
+        }
+
+        // Detect markdown bullet: - Item or * Item
+        const bulletMatch = content.match(/^[-*]\\s+(.+)$/);
+        if (bulletMatch) {
+          const text = bulletMatch[1];
+
+          // Create bullet list with single item
+          const list = new Y.XmlElement('bulletList');
+          const item = new Y.XmlElement('listItem');
+          const para = new Y.XmlElement('paragraph');
+          const newText = new Y.XmlText();
+          newText.insert(0, text);
+          para.insert(0, [newText]);
+          item.insert(0, [para]);
+          list.insert(0, [item]);
+
+          doc.delete(i, 1);
+          doc.insert(i, [list]);
+        }
+      }
+    }
+  \`
+});
+
+// Example 5: Mixed formatting with createFormattedText() — no position counting
+// (For formatting EXISTING text, insert-then-format with indexOf: see PITFALL 5)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        { text: 'Important:', attrs: { bold: true } },
+        ' visit ',
+        { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } },
+        ' for more info'
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+    }
+  \`
+});
+
+// Example 6: Table with colspan/rowspan/colwidth (requires low-level API;
+// for simple tables use appendBlocks — see helpers)
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      // Cell factory: table → tableRow → tableHeader/tableCell → paragraph → text
+      function makeCell(tag, content, colspan = 1, colwidth = null) {
+        const cell = new Y.XmlElement(tag);
+        cell.setAttribute('colspan', colspan);
+        cell.setAttribute('rowspan', 1);
+        cell.setAttribute('colwidth', colwidth);  // e.g. [150], or [200, 250] when colspan=2
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, content);
+        p.insert(0, [t]);
+        cell.insert(0, [p]);
+        return cell;
+      }
+
+      const table = new Y.XmlElement('table');
+
+      const headerRow = new Y.XmlElement('tableRow');
+      headerRow.insert(0, [
+        makeCell('tableHeader', 'Merged Header', 2),  // spans 2 columns
+        makeCell('tableHeader', 'Status')
+      ]);
+      table.insert(0, [headerRow]);
+
+      const dataRow = new Y.XmlElement('tableRow');
+      dataRow.insert(0, [
+        makeCell('tableCell', 'Alice', 1, [150]),   // 150px wide
+        makeCell('tableCell', 'Engineer', 1, [300]),
+        makeCell('tableCell', 'Active')
+      ]);
+      table.insert(1, [dataRow]);
+
+      doc.insert(doc.length, [table]);
+    }
+  \`
+});
+
+// Example 7: TextStyle marks (color, font) — MUST be nested in a textStyle object
+await modify({
+  docGuid: "abc-123",
+  script: \`
+    export default function edit(doc) {
+      const para = new Y.XmlElement('paragraph');
+      const text = createFormattedText([
+        { text: 'Red text', attrs: { textStyle: { color: '#ff0000' } }},
+        ' and ',
+        { text: 'custom font', attrs: { textStyle: { fontFamily: 'Georgia', fontSize: '18px' } }},
+        ' and ',
+        { text: 'bold red', attrs: { bold: true, textStyle: { color: '#dc2626' } }}
+      ]);
+      para.insert(0, [text]);
+      doc.insert(doc.length, [para]);
+    }
+  \`
+});
+
+═══════════════════════════════════════════════════════════════════════════
+QUICK REFERENCE: Key behaviors & techniques
+═══════════════════════════════════════════════════════════════════════════
+
+⭐ VERIFY YOUR CHANGES: the modify result includes the updated document content
+— confirm it matches your intent (location, formatting, list nesting). For a
+targeted check, use read_document with an xpath, e.g.:
+  "//heading[contains(., 'Summary')]/following-sibling::*[position()<=3]"
+
+SCRIPT EXECUTION BEHAVIOR:
+• All changes batched in single transaction → entire script = one undo step
+• If script fails mid-execution → all changes automatically rolled back
+• Scripts run on live document → changes sync to all users in real-time
+
+KEY TECHNIQUES:
+• Use extractText()/toDelta() to extract text, NOT toString() → see PITFALL 3
+• Use createFormattedText() for mixed formatting → see PITFALL 5
+• Use { attribute: null } to remove formatting → see PITFALL 2
+• Use indexOf/regex for format() positions — never count manually:
+     const term = 'TODO';
+     const index = extractText(textNode).indexOf(term);
+     if (index >= 0) textNode.format(index, term.length, { bold: true });
+     const match = content.match(/https?:\\/\\/\\S+/);
+     if (match) textNode.format(match.index, match[0].length, { link: { href: match[0] } });
+• Check instance types before operations:
+     child instanceof Y.XmlElement / child instanceof Y.XmlText
+• For nested structures, use recursive functions to traverse the tree
+
+═══════════════════════════════════════════════════════════════════════════
+COMMON PITFALLS
+═══════════════════════════════════════════════════════════════════════════
+
+⚠️ PITFALL 1: Reusing Yjs Elements Without Cloning
+
+PROBLEM: A Yjs element (XmlElement, XmlText) can only exist in ONE location in
+the document tree. Inserting the same instance twice — or inserting an element
+that already has a parent — fails silently or behaves unexpectedly.
+
+❌ WRONG - Reusing the same element instance:
+  doc.insert(0, [template]);  // First insert works
+  doc.insert(1, [template]);  // ❌ FAILS SILENTLY - element already has a parent!
+
+✅ CORRECT - Clone for each insertion:
+  doc.insert(0, [template.clone()]);
+  doc.insert(1, [template.clone()]);
+
+To MOVE an element to a new parent: clone it (e.g. firstPara.clone()), delete
+the original from its current location, then insert the clone at the new spot.
+Cloning is NOT needed to modify elements in place (setAttribute, format, etc.)
+or when creating a fresh element for each insertion.
+
+⚠️ PITFALL 2: Using Empty Object {} to Remove Formatting
+
+PROBLEM: An empty object {} in format() does NOT remove formatting - it leaves
+the text unchanged. Explicitly set each attribute to null instead.
+
+❌ WRONG - no effect, bold text stays bold:
+  text.format(0, content.length, {});
+
+✅ CORRECT - set attributes to null (list every mark you want removed):
+  text.format(0, content.length, { bold: null, italic: null, underline: null, strike: null });
+
+⚠️ PITFALL 3: Using toString() Instead of toDelta()
+
+toString() on Y.XmlText returns XML markup when the text has formatting.
+Always use extractText(textNode) (or toDelta()) to get plain text.
+
+⚠️ PITFALL 4: Deleting While Iterating
+
+❌ WRONG - Deleting elements while iterating forward:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    for (let i = 0; i < blocks.length; i++) {
+      if (shouldDelete(blocks[i])) {
+        doc.delete(i, 1);  // ❌ Shifts subsequent indices, causes skipping!
+      }
+    }
+  }
+
+✅ CORRECT - Iterate backward when deleting:
+  export default function edit(doc) {
+    const blocks = doc.toArray();
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (shouldDelete(blocks[i])) {
+        doc.delete(i, 1);  // ✅ Safe - doesn't affect previous indices
+      }
+    }
+  }
+
+⚠️ PITFALL 5: Sequential Inserts with Different Attributes on Unattached XmlText
+
+PROBLEM: Calling insert() multiple times with DIFFERENT formatting attributes on
+a Y.XmlText that is NOT yet attached to the document can produce REVERSED text
+(a Yjs CRDT quirk: unattached nodes can't order operations across attribute
+boundaries).
+
+❌ WRONG - differently-formatted inserts on an unattached node:
+  const text = new Y.XmlText();  // Not attached to doc yet!
+  text.insert(0, 'Visit our website at ', {});
+  text.insert(text.length, 'Example Site', { link: { href: 'https://example.com' } });
+  // Result: "Example SiteVisit our website at " - REVERSED!
+
+⭐ PREFERRED - createFormattedText() (segments in order, impossible to get wrong):
+  const text = createFormattedText([
+    'Visit our website at ',
+    { text: 'Example Site', attrs: { link: { href: 'https://example.com' } } }
+  ]);
+
+✅ FALLBACK - insert ALL text plain first, then format ranges found via indexOf:
+  const fullText = 'Visit our website at Example Site';
+  text.insert(0, fullText);
+  const linkText = 'Example Site';
+  text.format(fullText.indexOf(linkText), linkText.length, { link: { href: 'https://example.com' } });
+
+⚠️ PITFALL 6: Using Positional Indexing or Modifying Without Understanding Structure
+
+PROBLEM: Using doc.get(n) or element.get(n) to target elements is fragile.
+Positions shift when content is added, removed, or reordered — especially in
+collaborative documents where multiple users edit simultaneously.
+
+NEVER use positional indexing to target elements. Always use XPath.
+
+❌ WRONG - Positional indexing:
+  export default function edit(doc) {
+    const list = doc.get(0);          // ❌ fragile — what if content was reordered?
+    const item = list.get(0);         // ❌ fragile
+    const bulletList = item.get(1);   // ❌ fragile — might not exist!
+    bulletList.insert(0, [newItem]);
+  }
+
+✅ CORRECT - Use XPath to find elements reliably:
+  export default function edit(doc) {
+    const list = xpathFirst('//orderedList');
+    if (!list) return;  // graceful no-op if not found
+
+    const item = xpathFirst('//orderedList/listItem[1]');
+    if (!item) return;
+
+    const bulletList = xpathFirst('.//bulletList', item);
+    if (!bulletList) return;
+
+    bulletList.insert(0, [newItem]);
+  }
+
+RECOMMENDATION: Use read_document with format: "structured" BEFORE writing
+complex modify scripts — understanding the document tree prevents wasted effort
+and runtime errors. Always use XPath for targeting — never positional indexing.
+`;
+
+module.exports = { MODIFY_DOCUMENTATION };
