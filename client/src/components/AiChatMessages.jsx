@@ -135,7 +135,7 @@ function groupParts(parts) {
 // the reasoning-so-far on this cadence, and show it in place of "Thinking".
 const THINKING_SUMMARY_INTERVAL_MS = 3000;
 // Don't bother summarizing until there's enough reasoning to say anything about.
-const THINKING_SUMMARY_MIN_CHARS = 80;
+const THINKING_SUMMARY_MIN_CHARS = 20;
 
 // Summaries outlive component instances: the transcript remounts message
 // components (stream settling, chat reloads), and a summary resolving against
@@ -158,6 +158,12 @@ function ThinkingBlock({ text, active, cacheId }) {
   // doesn't tear down and restart on every streamed token.
   const textRef = useRef(text);
   textRef.current = text;
+  // Distinguishes a block the user just watched think (gets a completion
+  // summary below) from one loaded out of history, and lets the completion
+  // effect skip firing when a poll request is already in flight.
+  const wasActiveRef = useRef(false);
+  if (active) wasActiveRef.current = true;
+  const requestedRef = useRef(false);
 
   // Effect keys on `ready` (not raw text) so the first summary fires the
   // moment enough reasoning has streamed, without tearing the interval down
@@ -172,6 +178,7 @@ function ThinkingBlock({ text, active, cacheId }) {
       if (inFlight || current === lastSummarized) return;
       inFlight = true;
       lastSummarized = current;
+      requestedRef.current = true;
       try {
         const { data } = await api.post('/api/chat/thinking-summary', { text: current });
         if (data.summary) {
@@ -190,6 +197,28 @@ function ThinkingBlock({ text, active, cacheId }) {
     const interval = setInterval(tick, THINKING_SUMMARY_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [active, ready, api, cacheId]);
+
+  // Completion catch-up: thinking that finished before ever reaching the
+  // polling threshold still gets summarized once, so every block the user
+  // watched think ends with a real label. Blocks loaded from history were
+  // never active here and don't fire \u2014 reloading a long chat must not burst
+  // summary requests.
+  useEffect(() => {
+    if (active || summary || !wasActiveRef.current || requestedRef.current || !textRef.current) return undefined;
+    requestedRef.current = true;
+    (async () => {
+      try {
+        const { data } = await api.post('/api/chat/thinking-summary', { text: textRef.current });
+        if (data.summary) {
+          rememberThinkingSummary(cacheId, data.summary);
+          setSummary(data.summary);
+        }
+      } catch {
+        // Keep the "Thinking" label on failure.
+      }
+    })();
+    return undefined;
+  }, [active, summary, api, cacheId]);
 
   // A request from a previous mount of this block may still be in flight when
   // we remount \u2014 check the cache shortly after settling to pick up its result.

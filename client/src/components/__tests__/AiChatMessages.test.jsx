@@ -715,6 +715,28 @@ describe('ThinkingBlock live summary', () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
+  it('summarizes a below-threshold block once when it completes', async () => {
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ data: { summary: 'Brief deliberation' } });
+
+    const shortText = 'Hmm, quick check.'; // below THINKING_SUMMARY_MIN_CHARS
+    const streaming = makeMsg({ id: 'm-short', role: 'assistant', parts: [{ type: 'reasoning', text: shortText }] });
+    const { rerender, findByText } = render(<AiChatMessages messages={[streaming]} status="streaming" />);
+    expect(mockPost).not.toHaveBeenCalled();
+
+    // Thinking ends and the answer arrives — the block gets one catch-up summary
+    const done = makeMsg({
+      id: 'm-short',
+      role: 'assistant',
+      parts: [{ type: 'reasoning', text: shortText }, { type: 'text', text: 'The answer.' }],
+    });
+    rerender(<AiChatMessages messages={[done]} status="ready" />);
+
+    expect(await findByText('Brief deliberation')).toBeInTheDocument();
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost).toHaveBeenCalledWith('/api/chat/thinking-summary', { text: shortText });
+  });
+
   it('does not poll a reasoning block that is no longer the trailing group', () => {
     mockPost.mockReset();
     const msg = makeReasoningMsg(longReasoning, [{ type: 'text', text: 'Here is the answer so far' }]);
