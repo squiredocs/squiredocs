@@ -4,6 +4,9 @@ WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm ci
 COPY client/ ./
+# Client source imports from ../shared (svg-sanitizer), so the shared dir must
+# exist in the builder stage too (it's also copied into the runtime stage below).
+COPY shared/ ../shared/
 RUN npm run build
 
 # Production stage
