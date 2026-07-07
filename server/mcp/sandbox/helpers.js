@@ -1168,6 +1168,85 @@ function hasAttribute(element, name, value) {
   return true;
 }
 
+/**
+ * Deep-copy Yjs XML nodes so they can be inserted into a different Y.Doc.
+ *
+ * Yjs types cannot be moved between documents — inserting a node that is
+ * already attached to another doc throws. This re-creates the tree from
+ * scratch: XmlText via toDelta() (insert-whole-then-format, same pattern as
+ * createFormattedText to avoid the unattached-XmlText reversal bug), XmlElement
+ * via nodeName + getAttributes() + recursively cloned children. All marks,
+ * attributes, and nesting (tables, lists, code/mermaid blocks, images) survive.
+ *
+ * Exposed in the sandbox as cloneBlocks(), bound to the tracked constructors so
+ * clones inserted into the target document stream like any other mutation.
+ *
+ * @param {Y.XmlFragment|Y.XmlElement|Y.XmlText|Array} input - A fragment (clones
+ *   to an array of its children — i.e. all blocks of that doc), a single node,
+ *   or an array of nodes. Read-only source proxies are accepted transparently.
+ * @param {object} [options] - Constructor overrides (same shape as appendBlocks)
+ * @param {Function} [options.XmlElement] - XmlElement constructor
+ * @param {Function} [options.XmlText] - XmlText constructor
+ * @returns {Array} Detached cloned nodes, ready to insert into another doc
+ *
+ * @example
+ *   // Concatenate a source document onto the target
+ *   doc.insert(doc.length, cloneBlocks(sources[guid]));
+ */
+function cloneNodes(input, options = {}) {
+  const XmlElement = options.XmlElement || Y.XmlElement;
+  const XmlText = options.XmlText || Y.XmlText;
+
+  function cloneNode(node) {
+    if (node instanceof Y.XmlText) {
+      const delta = node.toDelta();
+      const formatRanges = [];
+      let fullText = '';
+      for (const op of delta) {
+        if (typeof op.insert !== 'string') continue;
+        if (op.attributes && Object.keys(op.attributes).length > 0) {
+          formatRanges.push({ start: fullText.length, length: op.insert.length, attrs: op.attributes });
+        }
+        fullText += op.insert;
+      }
+      const text = new XmlText();
+      if (fullText.length > 0) {
+        text.insert(0, fullText);
+        for (const range of formatRanges) {
+          text.format(range.start, range.length, range.attrs);
+        }
+      }
+      return text;
+    }
+
+    if (node instanceof Y.XmlElement) {
+      const el = new XmlElement(node.nodeName);
+      const attrs = node.getAttributes();
+      for (const key of Object.keys(attrs)) {
+        el.setAttribute(key, attrs[key]);
+      }
+      const children = node.toArray().map(cloneNode);
+      if (children.length > 0) {
+        el.insert(0, children);
+      }
+      return el;
+    }
+
+    throw new Error('cloneBlocks: unsupported node type — expected XmlFragment, XmlElement, XmlText, or an array of nodes');
+  }
+
+  if (input == null) {
+    throw new Error('cloneBlocks: input is required');
+  }
+  if (input instanceof Y.XmlFragment && !(input instanceof Y.XmlElement)) {
+    return input.toArray().map(cloneNode);
+  }
+  if (Array.isArray(input)) {
+    return input.map(cloneNode);
+  }
+  return [cloneNode(input)];
+}
+
 // Aliases for consistency with documentation
 const extractPlainText = getTextContent;
 const findAllByText = findByText;
@@ -1181,6 +1260,7 @@ module.exports = {
   findByText,
   createFormattedText,
   appendBlocks,
+  cloneNodes,
   // Formatted content helpers (read/write symmetry)
   getFormattedContent,
   setFormattedContent,

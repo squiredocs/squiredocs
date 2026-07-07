@@ -14,7 +14,7 @@
 const { parentPort, workerData } = require('worker_threads');
 const { executeSandboxed } = require('./executor');
 
-const { snapshot, jsCode, timeout } = workerData;
+const { snapshot, jsCode, timeout, sources = [] } = workerData;
 
 function onBatch(operations, update) {
   // Copy to fresh ArrayBuffer for transfer (Yjs Uint8Arrays may share a pool buffer)
@@ -31,7 +31,7 @@ function onHighlights(positions) {
 }
 
 try {
-  const result = executeSandboxed(jsCode, snapshot, timeout, onBatch, onHighlights);
+  const result = executeSandboxed(jsCode, snapshot, timeout, onBatch, onHighlights, sources);
   parentPort.postMessage({
     type: 'complete',
     operationCount: result.operationCount,

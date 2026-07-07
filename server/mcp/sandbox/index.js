@@ -29,10 +29,12 @@ const { executeInWorker } = require('./bridge');
  * @param {Y.XmlFragment} xmlFragment - Document fragment to edit
  * @param {object} options - Execution options
  * @param {number} [options.timeout=5000] - Execution timeout in milliseconds
+ * @param {Array<{docGuid: string, snapshot: Buffer}>} [options.sources] - Read-only
+ *   source document snapshots exposed to the script as the `sources` global
  * @returns {Promise<object>} - Execution result { success, operationCount, summary, error }
  */
 async function executeScript(tsScript, session, xmlFragment, options = {}) {
-  const { timeout = 5000 } = options;
+  const { timeout = 5000, sources = [] } = options;
 
   let jsCode;
 
@@ -48,7 +50,7 @@ async function executeScript(tsScript, session, xmlFragment, options = {}) {
   }
 
   // 2. Delegate execution to the worker bridge
-  return executeInWorker(jsCode, session, xmlFragment, { timeout });
+  return executeInWorker(jsCode, session, xmlFragment, { timeout, sources });
 }
 
 /**

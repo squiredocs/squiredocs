@@ -30,10 +30,12 @@ function getBundleCode() {
  * @param {number} timeout - Execution timeout in milliseconds
  * @param {Function} onBatch - Callback: (operations, updateBuffer) for streaming batches
  * @param {Function} onHighlights - Callback: (positions) for highlight sequences
+ * @param {Array<{docGuid: string, snapshot: Buffer|Uint8Array}>} [sources] - Read-only
+ *   source document snapshots, exposed to the script as the `sources` global
  * @returns {object} - { operationCount, summary }
  * @throws {Error} - If execution fails or times out
  */
-function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHighlights = null) {
+function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHighlights = null, sources = []) {
   const ivm = require('isolated-vm');
 
   // 1. Create isolate with memory limit
@@ -102,8 +104,29 @@ function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHi
     jail.setSync('__snapshot',
       new ivm.ExternalCopy(snapshotArray.buffer).copyInto());
 
+    // 5b. Transfer read-only source snapshots (same ExternalCopy mechanism as
+    //     the comparison mode's __snapshot1/__snapshot2, generalized to N)
+    jail.setSync('__sourceCount', sources.length);
+    sources.forEach((src, i) => {
+      jail.setSync('__sourceGuid_' + i, src.docGuid);
+      const srcArray = new Uint8Array(src.snapshot);
+      jail.setSync('__sourceSnapshot_' + i,
+        new ivm.ExternalCopy(srcArray.buffer).copyInto());
+    });
+
     // 6. Run setup (creates Y.Doc, wraps fragment, sets up globals)
-    isolate.compileScriptSync('__setup(__snapshot)').runSync(context);
+    isolate.compileScriptSync(`
+      (function() {
+        var srcs = [];
+        for (var i = 0; i < __sourceCount; i++) {
+          srcs.push({
+            docGuid: globalThis['__sourceGuid_' + i],
+            snapshot: globalThis['__sourceSnapshot_' + i],
+          });
+        }
+        __setup(__snapshot, srcs);
+      })()
+    `).runSync(context);
 
     // 7. Compile and run user code with timeout
     const userWrapper = `
@@ -164,7 +187,8 @@ function executeSandboxed(jsCode, snapshot, timeout = 5000, onBatch = null, onHi
       const match = error.message.match(/(\w+) is not defined/);
       if (match) {
         hint = `\nHint: "${match[1]}" is not available in the sandbox. ` +
-               `Available: Y.XmlElement, Y.XmlText, doc, xpath(), xpathFirst(), and helper functions.`;
+               `Available: Y.XmlElement, Y.XmlText, doc, sources, xpath(), xpathFirst(), ` +
+               `cloneBlocks(), and helper functions.`;
       }
     } else if (error.message.includes('Cannot read properties of undefined')) {
       hint = `\nHint: You're trying to access a property on undefined. Common causes:\n` +

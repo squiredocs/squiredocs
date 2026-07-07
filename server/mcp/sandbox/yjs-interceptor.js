@@ -131,6 +131,97 @@ function wrapForTracking(yjsObject, tracker, path = [], onOperation = null) {
   return proxy;
 }
 
+// WeakMap of raw Yjs node -> read-only proxy (a node belongs to exactly one doc,
+// so a single global map is safe and preserves proxy identity across lookups)
+const readOnlyProxies = new WeakMap();
+
+// Mutation methods that isMutationMethod omits because ProseMirror-shaped docs
+// never hit them through the tracking path, but which must still be blocked on
+// read-only sources.
+const EXTRA_BLOCKED_MUTATIONS = ['insertAfter', 'insertEmbed', 'applyDelta'];
+
+/**
+ * Wraps a Yjs object in a read-only Proxy: mutation methods throw, read methods
+ * pass through with their Yjs results wrapped read-only recursively.
+ *
+ * Used for source documents exposed to modify scripts via sourceDocGuids.
+ * Structural safety does not depend on this (only target-doc updates are ever
+ * streamed back to the host); the wrapper exists so a script that tries to edit
+ * a source fails loudly instead of appearing to succeed.
+ *
+ * @param {Y.XmlFragment | Y.XmlElement | Y.XmlText} yjsObject - Yjs object to wrap
+ * @param {string} docGuid - Source document guid (used in error messages and
+ *   returned from the __isReadOnlySource marker property)
+ * @returns {Proxy}
+ */
+function wrapReadOnly(yjsObject, docGuid) {
+  const existingProxy = readOnlyProxies.get(yjsObject);
+  if (existingProxy) {
+    return existingProxy;
+  }
+
+  const handler = {
+    get(target, prop) {
+      if (prop === '__isReadOnlySource') return docGuid;
+      if (prop === '__rawNode') return target;
+
+      const value = Reflect.get(target, prop, target);
+
+      if (typeof value === 'function') {
+        if (isMutationMethod(prop) || EXTRA_BLOCKED_MUTATIONS.includes(prop)) {
+          return function() {
+            throw new Error(
+              `Source document ${docGuid} is read-only: ${String(prop)}() is not allowed. ` +
+              'Copy content into the target document with cloneBlocks() instead.'
+            );
+          };
+        }
+        return function(...args) {
+          const result = value.apply(target, args);
+          if (isYjsObject(result)) {
+            return wrapReadOnly(result, docGuid);
+          }
+          if (Array.isArray(result)) {
+            return result.map(item => (isYjsObject(item) ? wrapReadOnly(item, docGuid) : item));
+          }
+          return result;
+        };
+      }
+
+      if (isYjsObject(value)) {
+        return wrapReadOnly(value, docGuid);
+      }
+
+      return value;
+    },
+
+    set(target, prop) {
+      throw new Error(
+        `Source document ${docGuid} is read-only: cannot set property "${String(prop)}".`
+      );
+    },
+
+    has(target, prop) {
+      if (prop === '__isReadOnlySource' || prop === '__rawNode') return true;
+      return Reflect.has(target, prop);
+    },
+
+    ownKeys(target) {
+      return Reflect.ownKeys(target);
+    },
+
+    getOwnPropertyDescriptor(target, prop) {
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    },
+  };
+
+  const proxy = new Proxy(yjsObject, handler);
+  readOnlyProxies.set(yjsObject, proxy);
+  // Map proxy back to itself so wrapping a proxy returns the same proxy
+  readOnlyProxies.set(proxy, proxy);
+  return proxy;
+}
+
 /**
  * Checks if a method is a mutation operation
  * @param {string} methodName - Method name
@@ -220,4 +311,4 @@ function getTargetType(target) {
   return 'Unknown';
 }
 
-module.exports = { wrapForTracking };
+module.exports = { wrapForTracking, wrapReadOnly, isMutationMethod };

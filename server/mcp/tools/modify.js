@@ -8,7 +8,8 @@
 const Y = require('yjs');
 const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
-const { toMarkdown } = require('../yjs/serialization');
+const { toMarkdown, loadYDoc } = require('../yjs/serialization');
+const documents = require('../../documents');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks } = require('../mermaid-validate');
@@ -21,6 +22,13 @@ const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 // we omit the echo rather than risk tripping the chat layer's result-size cap
 // (which would turn a successful edit into a misleading "too large" error).
 const MAX_ECHO_CONTENT_CHARS = 60_000;
+
+// Limits for read-only source documents (sourceDocGuids). The count cap keeps
+// per-call DB loads bounded; the byte cap (summed encoded Y updates) keeps the
+// sandbox isolate well under its 128MB limit — Y.Doc reconstruction expands
+// snapshot bytes several-fold.
+const MAX_SOURCE_DOCS = 10;
+const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -72,6 +80,8 @@ PARAMETERS:
 - docGuid: Document UUID (required)
 - script: TypeScript source code (required)
 - timeout: Execution timeout in ms (optional, default 5000, max 30000)
+- sourceDocGuids: Up to 10 other doc UUIDs exposed read-only as \`sources\`;
+  copy across docs with cloneBlocks() (see "working-with-source-documents")
 
 RETURNS: changed, content (the full updated document — no need to re-read
 before the next modify), clock, operationCount, summary; conflict + editedBy
@@ -99,6 +109,16 @@ const inputSchema = {
       maximum: 30000,
       default: 5000,
       description: 'Execution timeout in milliseconds',
+    },
+    sourceDocGuids: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      maxItems: 10,
+      description: 'Optional. Up to 10 additional document UUIDs exposed READ-ONLY '
+        + 'inside the script as the `sources` global (keyed by guid; iteration order '
+        + 'matches array order). Use with cloneBlocks() to copy or merge content from '
+        + 'other documents (e.g. concatenate docs) without re-typing it. Viewer access '
+        + 'suffices. Must not include docGuid.',
     },
   },
   required: ['docGuid', 'script'],
@@ -154,6 +174,45 @@ function validateScript(script) {
   return warnings;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates and normalizes the sourceDocGuids argument
+ * @param {any} sourceDocGuids - Raw argument value
+ * @param {string} docGuid - The writable target document guid
+ * @returns {string[]} - Deduped guids in first-occurrence order
+ * @throws {Error} - If validation fails
+ */
+function validateSourceDocGuids(sourceDocGuids, docGuid) {
+  if (sourceDocGuids === undefined || sourceDocGuids === null) {
+    return [];
+  }
+  if (!Array.isArray(sourceDocGuids)) {
+    throw new Error('sourceDocGuids must be an array of document UUIDs');
+  }
+  if (sourceDocGuids.length > MAX_SOURCE_DOCS) {
+    throw new Error(
+      `sourceDocGuids supports at most ${MAX_SOURCE_DOCS} documents (got ${sourceDocGuids.length}). `
+      + 'Copy content across multiple modify calls instead.'
+    );
+  }
+
+  const invalid = sourceDocGuids.filter(g => typeof g !== 'string' || !UUID_REGEX.test(g));
+  if (invalid.length > 0) {
+    throw new Error(`sourceDocGuids contains invalid UUIDs: ${invalid.join(', ')}`);
+  }
+
+  if (sourceDocGuids.includes(docGuid)) {
+    throw new Error(
+      'sourceDocGuids must not include the target docGuid — the target document '
+      + "is already available as the script's doc parameter."
+    );
+  }
+
+  // Dedupe preserving first-occurrence order (order = e.g. concatenation order)
+  return [...new Set(sourceDocGuids)];
+}
+
 /**
  * Tool handler
  * @param {object} args - Tool arguments
@@ -189,6 +248,9 @@ async function handlerImpl(args, agentToken) {
 
   // Validate script before execution
   validateScript(script);
+
+  // Validate source doc guids (read-only docs exposed to the script)
+  const sourceGuids = validateSourceDocGuids(args.sourceDocGuids, docGuid);
 
   // Validate timeout
   const validatedTimeout = Math.max(100, Math.min(30000, timeout));
@@ -285,6 +347,39 @@ async function handlerImpl(args, agentToken) {
     }
   }
 
+  // Load read-only source documents. Runs after the target session (target
+  // access errors take precedence) and after the conflict guard (no wasted
+  // loads on conflict). Sources are DB snapshots — no presence session, no
+  // conflict semantics; viewer access suffices.
+  let sources = [];
+  if (sourceGuids.length > 0) {
+    const accessible = await Promise.all(
+      sourceGuids.map(guid => documents.hasAccess(guid, agentToken.userId))
+    );
+    const denied = sourceGuids.filter((guid, i) => !accessible[i]);
+    if (denied.length > 0) {
+      throw new Error(`Source documents not found or not accessible: ${denied.join(', ')}`);
+    }
+
+    const pool = persistenceProvider.getPool();
+    sources = await Promise.all(sourceGuids.map(async (guid) => {
+      const srcDoc = await loadYDoc(pool, guid);
+      const snapshot = Buffer.from(Y.encodeStateAsUpdate(srcDoc));
+      srcDoc.destroy();
+      return { docGuid: guid, snapshot };
+    }));
+
+    const totalBytes = sources.reduce((sum, s) => sum + s.snapshot.byteLength, 0);
+    if (totalBytes > MAX_TOTAL_SOURCE_BYTES) {
+      throw new Error(
+        `Source documents too large to load into the sandbox: ${totalBytes} bytes total `
+        + `(limit ${MAX_TOTAL_SOURCE_BYTES}). Sizes: `
+        + sources.map(s => `${s.docGuid}=${s.snapshot.byteLength}`).join(', ')
+        + '. Drop some sources or copy content across multiple modify calls.'
+      );
+    }
+  }
+
   // Capture state before script execution for change detection and diff
   const blockCountBefore = xmlFragment.toArray().length;
   const mdBefore = toMarkdown(xmlFragment);
@@ -296,6 +391,7 @@ async function handlerImpl(args, agentToken) {
     // Execute the script
     const result = await executeScript(script, session, xmlFragment, {
       timeout: validatedTimeout,
+      sources,
     });
 
     // Guardrail: strip any image whose src isn't an app image URL (agents may
@@ -358,6 +454,9 @@ async function handlerImpl(args, agentToken) {
         diff,
         clock: currentClock,
       };
+      if (sourceGuids.length > 0) {
+        response.sourceDocGuids = sourceGuids;
+      }
       if (changed && content !== null) {
         response.blockCount = updatedBlockCount;
         response.characterCount = characterCount;

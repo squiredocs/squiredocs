@@ -1683,4 +1683,159 @@ describe('Sandbox Helpers', () => {
       expect(helpers.getTextContent(innerItem.get(1).get(0))).toBe('Deep child');
     });
   });
+
+  describe('cloneNodes', () => {
+    // Cross-doc copy is the whole point: build content in one doc, clone,
+    // insert into a second doc, and verify fidelity there.
+    let targetDoc;
+    let targetFragment;
+
+    beforeEach(() => {
+      targetDoc = new Y.Doc();
+      targetFragment = targetDoc.get('default', Y.XmlFragment);
+    });
+
+    it('should clone a formatted paragraph with identical delta', () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'plain bold link');
+      text.format(6, 4, { bold: true });
+      text.format(11, 4, { link: { href: 'https://example.com' } });
+      para.insert(0, [text]);
+      fragment.insert(0, [para]);
+
+      targetFragment.insert(0, helpers.cloneNodes(para));
+
+      const cloned = targetFragment.get(0);
+      expect(cloned.nodeName).toBe('paragraph');
+      expect(cloned.get(0).toDelta()).toEqual(text.toDelta());
+    });
+
+    it('should clone heading attributes', () => {
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', 3);
+      const text = new Y.XmlText();
+      text.insert(0, 'Title');
+      heading.insert(0, [text]);
+      fragment.insert(0, [heading]);
+
+      targetFragment.insert(0, helpers.cloneNodes(heading));
+
+      expect(targetFragment.get(0).getAttribute('level')).toBe(3);
+      expect(targetFragment.get(0).get(0).toString()).toBe('Title');
+    });
+
+    it('should clone a nested bullet list', () => {
+      const list = new Y.XmlElement('bulletList');
+      const item = new Y.XmlElement('listItem');
+      const itemPara = new Y.XmlElement('paragraph');
+      const itemText = new Y.XmlText();
+      itemText.insert(0, 'Parent');
+      itemPara.insert(0, [itemText]);
+      const subList = new Y.XmlElement('bulletList');
+      const subItem = new Y.XmlElement('listItem');
+      const subPara = new Y.XmlElement('paragraph');
+      const subText = new Y.XmlText();
+      subText.insert(0, 'Child');
+      subPara.insert(0, [subText]);
+      subItem.insert(0, [subPara]);
+      subList.insert(0, [subItem]);
+      item.insert(0, [itemPara, subList]);
+      list.insert(0, [item]);
+      fragment.insert(0, [list]);
+
+      targetFragment.insert(0, helpers.cloneNodes(list));
+
+      const cloned = targetFragment.get(0);
+      expect(cloned.nodeName).toBe('bulletList');
+      expect(helpers.getTextContent(cloned.get(0).get(0))).toBe('Parent');
+      expect(cloned.get(0).get(1).nodeName).toBe('bulletList');
+      expect(helpers.getTextContent(cloned.get(0).get(1).get(0))).toBe('Child');
+    });
+
+    it('should clone a table with formatted cells and cell attributes', () => {
+      // Build via appendBlocks then adjust a cell attribute
+      helpers.appendBlocks(fragment, [
+        {
+          type: 'table',
+          headers: ['Name', 'Status'],
+          rows: [['Alice', [{ text: 'Active', attrs: { bold: true } }]]],
+        },
+      ]);
+      const table = fragment.get(0);
+      const firstHeader = table.get(0).get(0);
+      firstHeader.setAttribute('colwidth', [150]);
+
+      targetFragment.insert(0, helpers.cloneNodes(table));
+
+      const cloned = targetFragment.get(0);
+      expect(cloned.nodeName).toBe('table');
+      expect(cloned.get(0).get(0).nodeName).toBe('tableHeader');
+      expect(cloned.get(0).get(0).getAttribute('colwidth')).toEqual([150]);
+      const statusCell = cloned.get(1).get(1);
+      const cellDelta = statusCell.get(0).get(0).toDelta();
+      expect(cellDelta).toEqual([{ insert: 'Active', attributes: { bold: true } }]);
+    });
+
+    it('should clone codeBlock and mermaid blocks', () => {
+      helpers.appendBlocks(fragment, [
+        { type: 'codeBlock', content: 'const x = 1;' },
+        { type: 'mermaid', content: 'graph TD\n  A --> B' },
+      ]);
+
+      targetFragment.insert(0, helpers.cloneNodes([fragment.get(0), fragment.get(1)]));
+
+      expect(targetFragment.get(0).nodeName).toBe('codeBlock');
+      expect(targetFragment.get(0).get(0).toString()).toBe('const x = 1;');
+      expect(targetFragment.get(1).nodeName).toBe('mermaid');
+      expect(targetFragment.get(1).get(0).toString()).toBe('graph TD\n  A --> B');
+    });
+
+    it('should clone image attributes', () => {
+      const image = new Y.XmlElement('image');
+      image.setAttribute('src', '/api/docs/abc/images/img1');
+      image.setAttribute('alt', 'A diagram');
+      image.setAttribute('width', 400);
+      fragment.insert(0, [image]);
+
+      targetFragment.insert(0, helpers.cloneNodes(image));
+
+      const cloned = targetFragment.get(0);
+      expect(cloned.getAttributes()).toEqual({
+        src: '/api/docs/abc/images/img1',
+        alt: 'A diagram',
+        width: 400,
+      });
+    });
+
+    it('should clone a whole fragment to an array of its blocks', () => {
+      helpers.appendBlocks(fragment, [
+        { type: 'heading', level: 1, content: 'One' },
+        { type: 'paragraph', content: 'Two' },
+      ]);
+
+      const clones = helpers.cloneNodes(fragment);
+      expect(clones).toHaveLength(2);
+      targetFragment.insert(0, clones);
+      expect(targetFragment.get(0).get(0).toString()).toBe('One');
+      expect(targetFragment.get(1).get(0).toString()).toBe('Two');
+    });
+
+    it('should return detached clones that leave the original untouched', () => {
+      helpers.appendBlocks(fragment, [{ type: 'paragraph', content: 'Original' }]);
+      const before = helpers.getTextContent(fragment);
+
+      const clones = helpers.cloneNodes(fragment);
+      targetFragment.insert(0, clones);
+      targetFragment.get(0).get(0).insert(8, ' modified');
+
+      expect(helpers.getTextContent(fragment)).toBe(before);
+      expect(helpers.getTextContent(targetFragment)).toBe('Original modified');
+    });
+
+    it('should throw on unsupported input', () => {
+      expect(() => helpers.cloneNodes(null)).toThrow(/input is required/);
+      expect(() => helpers.cloneNodes([42])).toThrow(/unsupported node type/);
+    });
+  });
 });

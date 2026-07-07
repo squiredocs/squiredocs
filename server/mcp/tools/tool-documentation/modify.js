@@ -237,6 +237,19 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
         }
       ]);
 
+cloneBlocks(input)  ⭐ COPY CONTENT BETWEEN DOCUMENTS
+  - Deep-copies Yjs nodes into fresh, detached nodes you can insert anywhere
+  - Required when copying from a source document (see WORKING WITH SOURCE
+    DOCUMENTS below): Yjs nodes cannot be moved between documents, so
+    inserting a node from sources[guid] directly throws — clone it instead
+  - Preserves everything: text marks, heading levels, nested lists, tables,
+    code/mermaid blocks, image attributes
+  - input: a source fragment (clones ALL its blocks), a single node, or an
+    array of nodes; always returns an array of detached nodes
+  - Example:
+      doc.insert(doc.length, cloneBlocks(sources[guid]));           // whole doc
+      doc.insert(0, cloneBlocks(xpath('//table', sources[guid])));  // just tables
+
 ───────────────────────────────────────────────────────────────────────────
 XPATH QUERY FUNCTIONS (Recommended for element selection!)
 ───────────────────────────────────────────────────────────────────────────
@@ -375,12 +388,79 @@ TextStyle Marks - IMPORTANT nested format required:
   { bold: true, textStyle: { color: '#ff0000' } }
 
 ═══════════════════════════════════════════════════════════════════════════
+WORKING WITH SOURCE DOCUMENTS
+═══════════════════════════════════════════════════════════════════════════
+
+Pass sourceDocGuids (an array of up to 10 other document UUIDs) to expose
+those documents READ-ONLY inside your script as the \`sources\` global. Use
+this to copy, merge, or concatenate content across documents WITHOUT reading
+them into chat and re-typing them — the content moves entirely inside the
+sandbox, with full formatting fidelity.
+
+  sources                    - object keyed by docGuid; each value is that
+                               document's root fragment (read-only)
+  Object.keys(sources)       - guids in the same order as your sourceDocGuids
+                               array (use this for concatenation order)
+
+Access rules:
+  - Viewer access to each source is enough (the target still requires editor)
+  - All sources are checked up front; the call fails before running your
+    script if any guid is unknown or not shared with the user
+  - Total source size is capped (~8MB of document updates); if exceeded, the
+    error lists per-document sizes so you can drop or split sources
+
+Reading sources — all read helpers work on sources:
+  getFormattedContent, getTextContent, extractText, findTextNode,
+  findElements, findByNodeName, findByText, getPlainText, getParagraphs,
+  and xpath()/xpathFirst() with an explicit context:
+      const tables = xpath('//table', sources[guid]);
+
+Sources are READ-ONLY:
+  - Mutation methods (insert, delete, setAttribute, format, ...) throw
+  - xpath() on a source does not highlight (highlights are target-doc only)
+  - To modify a source document, make a separate modify call targeting it
+
+Copying content — ALWAYS use cloneBlocks():
+  Yjs nodes belong to their document and cannot be inserted into another one.
+  cloneBlocks() deep-copies nodes into fresh detached nodes that you insert
+  into the target. Formatting, tables, nested lists, and attributes survive.
+
+Example — concatenate several documents into the target:
+
+  modify({
+    docGuid: targetGuid,
+    sourceDocGuids: [guidA, guidB, guidC],
+    script: \`
+      export default function edit(doc: Y.XmlFragment) {
+        for (const guid of Object.keys(sources)) {   // input order
+          doc.insert(doc.length, cloneBlocks(sources[guid]));
+          appendBlocks(doc, [{ type: 'horizontalRule' }]);
+        }
+      }
+    \`
+  })
+
+Example — pull one section out of another document:
+
+  const src = sources[guid];
+  const section = xpath(
+    '//heading[contains(., "Roadmap")]/following-sibling::*', src);
+  appendBlocks(doc, [{ type: 'heading', level: 2, content: 'Roadmap' }]);
+  doc.insert(doc.length, cloneBlocks(section));
+
+⚠️ Images: cloned image nodes keep their original source-document URLs
+(/api/docs/<sourceDoc>/images/...). Collaborators who can see the target but
+not the source document may not be able to load those images.
+
+═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
 ═══════════════════════════════════════════════════════════════════════════
 
 - docGuid: Document UUID (required)
 - script: TypeScript source code (required)
 - timeout: Execution timeout in milliseconds (optional, default: 5000, max: 30000)
+- sourceDocGuids: Up to 10 other document UUIDs exposed read-only to the
+  script as the \`sources\` global (optional; see WORKING WITH SOURCE DOCUMENTS)
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
@@ -395,6 +475,8 @@ RETURNS
 - clock: The document's update counter, so you can track its version
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
+- sourceDocGuids: Echo of the source documents that were exposed to the script
+  (present only when sourceDocGuids was passed)
 - imageErrors: Present only if your script left image node(s) with a non-app src. Those images were REMOVED (an array of { src }). Only reference existing app image URLs (/api/docs/:docId/images/:imageId); to add a new image from chat use the insert_image tool.
 - error: Error message if execution failed
 

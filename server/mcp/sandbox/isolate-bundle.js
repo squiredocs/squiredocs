@@ -13127,6 +13127,55 @@ ${err.toString()}`);
         }
         return true;
       }
+      function cloneNodes(input, options = {}) {
+        const XmlElement = options.XmlElement || Y2.XmlElement;
+        const XmlText = options.XmlText || Y2.XmlText;
+        function cloneNode(node) {
+          if (node instanceof Y2.XmlText) {
+            const delta = node.toDelta();
+            const formatRanges = [];
+            let fullText = "";
+            for (const op of delta) {
+              if (typeof op.insert !== "string") continue;
+              if (op.attributes && Object.keys(op.attributes).length > 0) {
+                formatRanges.push({ start: fullText.length, length: op.insert.length, attrs: op.attributes });
+              }
+              fullText += op.insert;
+            }
+            const text = new XmlText();
+            if (fullText.length > 0) {
+              text.insert(0, fullText);
+              for (const range of formatRanges) {
+                text.format(range.start, range.length, range.attrs);
+              }
+            }
+            return text;
+          }
+          if (node instanceof Y2.XmlElement) {
+            const el = new XmlElement(node.nodeName);
+            const attrs = node.getAttributes();
+            for (const key of Object.keys(attrs)) {
+              el.setAttribute(key, attrs[key]);
+            }
+            const children = node.toArray().map(cloneNode);
+            if (children.length > 0) {
+              el.insert(0, children);
+            }
+            return el;
+          }
+          throw new Error("cloneBlocks: unsupported node type \u2014 expected XmlFragment, XmlElement, XmlText, or an array of nodes");
+        }
+        if (input == null) {
+          throw new Error("cloneBlocks: input is required");
+        }
+        if (input instanceof Y2.XmlFragment && !(input instanceof Y2.XmlElement)) {
+          return input.toArray().map(cloneNode);
+        }
+        if (Array.isArray(input)) {
+          return input.map(cloneNode);
+        }
+        return [cloneNode(input)];
+      }
       var extractPlainText = getTextContent;
       var findAllByText = findByText;
       module.exports = {
@@ -13138,6 +13187,7 @@ ${err.toString()}`);
         findByText,
         createFormattedText,
         appendBlocks,
+        cloneNodes,
         // Formatted content helpers (read/write symmetry)
         getFormattedContent,
         setFormattedContent,
@@ -24199,6 +24249,63 @@ ${d}`);
         trackerMap.set(proxy, proxy);
         return proxy;
       }
+      var readOnlyProxies = /* @__PURE__ */ new WeakMap();
+      var EXTRA_BLOCKED_MUTATIONS = ["insertAfter", "insertEmbed", "applyDelta"];
+      function wrapReadOnly2(yjsObject, docGuid) {
+        const existingProxy = readOnlyProxies.get(yjsObject);
+        if (existingProxy) {
+          return existingProxy;
+        }
+        const handler = {
+          get(target, prop) {
+            if (prop === "__isReadOnlySource") return docGuid;
+            if (prop === "__rawNode") return target;
+            const value = Reflect.get(target, prop, target);
+            if (typeof value === "function") {
+              if (isMutationMethod(prop) || EXTRA_BLOCKED_MUTATIONS.includes(prop)) {
+                return function() {
+                  throw new Error(
+                    `Source document ${docGuid} is read-only: ${String(prop)}() is not allowed. Copy content into the target document with cloneBlocks() instead.`
+                  );
+                };
+              }
+              return function(...args) {
+                const result = value.apply(target, args);
+                if (isYjsObject(result)) {
+                  return wrapReadOnly2(result, docGuid);
+                }
+                if (Array.isArray(result)) {
+                  return result.map((item) => isYjsObject(item) ? wrapReadOnly2(item, docGuid) : item);
+                }
+                return result;
+              };
+            }
+            if (isYjsObject(value)) {
+              return wrapReadOnly2(value, docGuid);
+            }
+            return value;
+          },
+          set(target, prop) {
+            throw new Error(
+              `Source document ${docGuid} is read-only: cannot set property "${String(prop)}".`
+            );
+          },
+          has(target, prop) {
+            if (prop === "__isReadOnlySource" || prop === "__rawNode") return true;
+            return Reflect.has(target, prop);
+          },
+          ownKeys(target) {
+            return Reflect.ownKeys(target);
+          },
+          getOwnPropertyDescriptor(target, prop) {
+            return Reflect.getOwnPropertyDescriptor(target, prop);
+          }
+        };
+        const proxy = new Proxy(yjsObject, handler);
+        readOnlyProxies.set(yjsObject, proxy);
+        readOnlyProxies.set(proxy, proxy);
+        return proxy;
+      }
       function isMutationMethod(methodName) {
         const mutationMethods = [
           // XmlFragment/XmlElement mutations
@@ -24251,7 +24358,7 @@ ${d}`);
         }
         return "Unknown";
       }
-      module.exports = { wrapForTracking: wrapForTracking2 };
+      module.exports = { wrapForTracking: wrapForTracking2, wrapReadOnly: wrapReadOnly2, isMutationMethod };
     }
   });
 
@@ -25042,7 +25149,7 @@ ${d}`);
   var Y = require_yjs();
   var helpers = require_helpers();
   var { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require_xpath();
-  var { wrapForTracking } = require_yjs_interceptor();
+  var { wrapForTracking, wrapReadOnly } = require_yjs_interceptor();
   var { OperationTracker } = require_operation_tracker();
   var {
     createNodeSelection,
@@ -25115,7 +25222,7 @@ ${d}`);
     } catch (e) {
     }
   }
-  globalThis.__setup = function(snapshotBytes) {
+  globalThis.__setup = function(snapshotBytes, sourceDescriptors) {
     doc = new Y.Doc();
     Y.applyUpdate(doc, new Uint8Array(snapshotBytes));
     xmlFragment = doc.get("default", Y.XmlFragment);
@@ -25142,6 +25249,13 @@ ${d}`);
       },
       flushPendingHighlights: () => flushBatch()
     };
+    globalThis.sources = {};
+    for (const src of sourceDescriptors || []) {
+      const srcDoc = new Y.Doc();
+      Y.applyUpdate(srcDoc, new Uint8Array(src.snapshot));
+      const srcFragment = srcDoc.get("default", Y.XmlFragment);
+      globalThis.sources[src.docGuid] = wrapReadOnly(srcFragment, src.docGuid);
+    }
     globalThis._doc = wrappedFragment;
     globalThis.Y = {
       XmlFragment: Y.XmlFragment,
@@ -25161,6 +25275,10 @@ ${d}`);
     globalThis.getParagraphs = helpers.getParagraphs;
     globalThis.setParagraphs = helpers.setParagraphs;
     globalThis.xpath = (expression, contextNode) => {
+      if (contextNode != null && contextNode.__isReadOnlySource) {
+        const sourceGuid = contextNode.__isReadOnlySource;
+        return xpathQuery(expression, contextNode.__rawNode).map((node) => wrapReadOnly(node, sourceGuid));
+      }
       const context = contextNode != null ? contextNode : wrappedFragment;
       const results = xpathQuery(expression, context);
       if (results.length > 0) {
@@ -25180,6 +25298,11 @@ ${d}`);
       return results.map((node) => wrapForTracking(node, tracker, [], onOperation));
     };
     globalThis.xpathFirst = (expression, contextNode) => {
+      if (contextNode != null && contextNode.__isReadOnlySource) {
+        const sourceGuid = contextNode.__isReadOnlySource;
+        const sourceResult = xpathFirstQuery(expression, contextNode.__rawNode);
+        return sourceResult ? wrapReadOnly(sourceResult, sourceGuid) : null;
+      }
       const context = contextNode != null ? contextNode : wrappedFragment;
       const result = xpathFirstQuery(expression, context);
       if (result) {
@@ -25272,6 +25395,11 @@ ${d}`);
           }
         }
         return elements;
+      };
+    })(WrappedXmlElement, WrappedXmlText);
+    globalThis.cloneBlocks = /* @__PURE__ */ (function(WXE, WXT) {
+      return function cloneBlocks(input) {
+        return helpers.cloneNodes(input, { XmlElement: WXE, XmlText: WXT });
       };
     })(WrappedXmlElement, WrappedXmlText);
     globalThis.console = {

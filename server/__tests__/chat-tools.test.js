@@ -191,6 +191,23 @@ describe('chat-tools', () => {
       expect(modifyArgs._baseClock).toBe(54);
     });
 
+    it('keys _baseClock off the target docGuid when sourceDocGuids is present', async () => {
+      // Multi-doc modify: staleness plumbing must track the writable target
+      // only — read-only sources have no conflict semantics.
+      const holder = { byDoc: new Map([[DOC, 54], ['src-1', 99]]) };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      mockExecuteTool.mockResolvedValueOnce({ changed: true, clock: 55 });
+      await findExecute('Modify a doc')({ docGuid: DOC, sourceDocGuids: ['src-1'] });
+
+      const modifyArgs = mockExecuteTool.mock.calls.find(c => c[0] === 'modify')[1];
+      expect(modifyArgs._baseClock).toBe(54);
+      expect(modifyArgs.sourceDocGuids).toEqual(['src-1']);
+      // Source baseline untouched by the modify result's clock
+      expect(holder.byDoc.get('src-1')).toBe(99);
+      expect(holder.byDoc.get(DOC)).toBe(55);
+    });
+
     it('does not regress the baseline when a result reports a lower clock', async () => {
       const holder = { byDoc: new Map([[DOC, 60]]) };
       buildTools(fakeToken, { observedClockHolder: holder });

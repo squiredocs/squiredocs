@@ -38,9 +38,11 @@ describe('get_tool_documentation', () => {
       expect(result.documentation).toContain('createFormattedText');
       expect(result.documentation).toContain('appendBlocks');
       expect(result.documentation).toContain('XPATH QUERY FUNCTIONS');
+      expect(result.documentation).toContain('cloneBlocks');
       expect(Array.isArray(result.sections)).toBe(true);
       expect(result.sections).toContain('examples');
       expect(result.sections).toContain('common-pitfalls');
+      expect(result.sections).toContain('working-with-source-documents');
     });
 
     test('returns the complete compare_document_versions documentation', async () => {

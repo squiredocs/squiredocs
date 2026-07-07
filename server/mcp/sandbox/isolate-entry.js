@@ -16,7 +16,7 @@
 const Y = require('yjs');
 const helpers = require('./helpers');
 const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
-const { wrapForTracking } = require('./yjs-interceptor');
+const { wrapForTracking, wrapReadOnly } = require('./yjs-interceptor');
 const { OperationTracker } = require('./operation-tracker');
 const {
   createNodeSelection,
@@ -97,7 +97,7 @@ function logToHost() {
   } catch (e) { /* ignore logging errors */ }
 }
 
-globalThis.__setup = function(snapshotBytes) {
+globalThis.__setup = function(snapshotBytes, sourceDescriptors) {
   // 1. Create Y.Doc from snapshot
   doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(snapshotBytes));
@@ -135,7 +135,21 @@ globalThis.__setup = function(snapshotBytes) {
     flushPendingHighlights: () => flushBatch(),
   };
 
-  // 6. Set up sandbox globals
+  // 6. Read-only source documents (sourceDocGuids). Each snapshot becomes its
+  //    own throwaway Y.Doc; only the target doc's updates ever stream back to
+  //    the host, so source mutations could never persist — the read-only
+  //    wrappers just make attempts fail loudly. String-key insertion order
+  //    preserves the caller's array order, so Object.keys(sources) iterates
+  //    sources in the order they were requested.
+  globalThis.sources = {};
+  for (const src of (sourceDescriptors || [])) {
+    const srcDoc = new Y.Doc();
+    Y.applyUpdate(srcDoc, new Uint8Array(src.snapshot));
+    const srcFragment = srcDoc.get('default', Y.XmlFragment);
+    globalThis.sources[src.docGuid] = wrapReadOnly(srcFragment, src.docGuid);
+  }
+
+  // 7. Set up sandbox globals
   globalThis._doc = wrappedFragment;
 
   globalThis.Y = {
@@ -160,6 +174,15 @@ globalThis.__setup = function(snapshotBytes) {
 
   // XPath with highlighting
   globalThis.xpath = (expression, contextNode) => {
+    // Source-document context: query the raw node (xpath's internal wrapper
+    // caches must never see proxies), skip highlighting (highlight positions
+    // are target-doc coordinates), and keep results read-only.
+    if (contextNode != null && contextNode.__isReadOnlySource) {
+      const sourceGuid = contextNode.__isReadOnlySource;
+      return xpathQuery(expression, contextNode.__rawNode)
+        .map(node => wrapReadOnly(node, sourceGuid));
+    }
+
     const context = contextNode != null ? contextNode : wrappedFragment;
     const results = xpathQuery(expression, context);
 
@@ -183,6 +206,12 @@ globalThis.__setup = function(snapshotBytes) {
   };
 
   globalThis.xpathFirst = (expression, contextNode) => {
+    if (contextNode != null && contextNode.__isReadOnlySource) {
+      const sourceGuid = contextNode.__isReadOnlySource;
+      const sourceResult = xpathFirstQuery(expression, contextNode.__rawNode);
+      return sourceResult ? wrapReadOnly(sourceResult, sourceGuid) : null;
+    }
+
     const context = contextNode != null ? contextNode : wrappedFragment;
     const result = xpathFirstQuery(expression, context);
     if (result) {
@@ -289,6 +318,14 @@ globalThis.__setup = function(snapshotBytes) {
       }
 
       return elements;
+    };
+  })(WrappedXmlElement, WrappedXmlText);
+
+  // cloneBlocks using wrapped constructors so cloned nodes inserted into the
+  // target document are tracked and streamed like any other mutation
+  globalThis.cloneBlocks = (function(WXE, WXT) {
+    return function cloneBlocks(input) {
+      return helpers.cloneNodes(input, { XmlElement: WXE, XmlText: WXT });
     };
   })(WrappedXmlElement, WrappedXmlText);
 

@@ -26,10 +26,13 @@ const TIMEOUT_GRACE_MS = 2000;
  * @param {Y.XmlFragment} xmlFragment - Live document fragment to edit
  * @param {object} options - Execution options
  * @param {number} [options.timeout=5000] - Execution timeout in milliseconds
+ * @param {Array<{docGuid: string, snapshot: Buffer}>} [options.sources] - Read-only
+ *   source document snapshots exposed to the script as the `sources` global.
+ *   Sources never stream updates back — ops/rollback/undo stay target-only.
  * @returns {Promise<object>} - { success, operationCount, summary, error }
  */
 function executeInWorker(jsCode, session, xmlFragment, options = {}) {
-  const { timeout = 5000 } = options;
+  const { timeout = 5000, sources = [] } = options;
 
   return new Promise((resolve) => {
     const ydoc = session.provider.doc;
@@ -47,6 +50,12 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
     // Extend captureTimeout so all incremental updates merge into one undo step
     const originalCaptureTimeout = undoManager.captureTimeout;
     undoManager.captureTimeout = timeout + TIMEOUT_GRACE_MS + 5000;
+
+    // Close the previous capture group so this script's changes cannot merge
+    // into an earlier modify's undo step (the stretched captureTimeout would
+    // otherwise merge modify calls made within ~12s of each other, and a
+    // rollback here would revert the earlier successful edit too).
+    undoManager.stopCapturing();
 
     // Track total operation count from streamed messages
     let totalOperationCount = 0;
@@ -75,6 +84,7 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
         snapshot: Buffer.from(snapshot),
         jsCode,
         timeout,
+        sources,
       },
       resourceLimits: {
         maxOldGenerationSizeMb: 128,

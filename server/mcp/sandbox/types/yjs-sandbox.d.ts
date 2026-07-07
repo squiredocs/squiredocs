@@ -203,6 +203,27 @@ export namespace Y {
 }
 
 /**
+ * Read-only source documents (available when the modify call passed
+ * sourceDocGuids). Keyed by document guid; iteration order matches the
+ * sourceDocGuids array. Mutation methods on sources throw — copy content
+ * into the target with cloneBlocks().
+ */
+declare const sources: { [docGuid: string]: Y.XmlFragment };
+
+/**
+ * Deep-copy Yjs nodes into fresh detached nodes that can be inserted into the
+ * target document. Required when copying from a source document (Yjs nodes
+ * cannot move between documents). Preserves all marks, attributes, and
+ * nesting. A fragment input clones to an array of all its child blocks.
+ *
+ * @example
+ * doc.insert(doc.length, cloneBlocks(sources[guid]));
+ */
+declare function cloneBlocks(
+  input: Y.XmlFragment | Y.XmlElement | Y.XmlText | (Y.XmlElement | Y.XmlText)[]
+): (Y.XmlElement | Y.XmlText)[];
+
+/**
  * Script entry point
  * Scripts must export a default function that receives the document fragment
  *
