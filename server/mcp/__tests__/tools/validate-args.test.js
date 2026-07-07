@@ -42,6 +42,19 @@ describe('executeTool argument validation', () => {
     ).rejects.toThrow("unknown parameters 'foo', 'bar'");
   });
 
+  test('allows internal underscore-prefixed params (chat injects _baseClock into modify)', async () => {
+    // Regression: after the first modify on a doc, the chat layer injects
+    // _baseClock — validation must not reject it as unknown. The uninitialized
+    // tool error proves we got PAST validation into the handler.
+    await expect(
+      toolRegistry.executeTool(
+        'modify',
+        { docGuid: 'abc-123', script: 'export default function edit(doc) {}', _baseClock: 42 },
+        agentToken
+      )
+    ).rejects.toThrow(/Tool not initialized|Document not found/);
+  });
+
   test('validation runs before the handler for every registered tool', () => {
     // Guards against a tool being added with a schema shape the validator skips
     for (const tool of toolRegistry.getToolList()) {

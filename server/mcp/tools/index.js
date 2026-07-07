@@ -129,7 +129,12 @@ function validateToolArgs(name, inputSchema, args) {
   const properties = inputSchema.properties;
   const valid = Object.keys(properties).join(', ');
 
-  const unknown = Object.keys(args).filter((k) => !(k in properties));
+  // Underscore-prefixed params are internal, injected by trusted server-side
+  // callers rather than typed by a model — e.g. the chat layer adds _baseClock
+  // to modify calls for conflict detection. They are deliberately absent from
+  // the public schema (exposing them would invite models to set them), so the
+  // unknown-param check must not reject them.
+  const unknown = Object.keys(args).filter((k) => !(k in properties) && !k.startsWith('_'));
   if (unknown.length > 0) {
     throw new Error(
       `Invalid parameters for tool '${name}': unknown parameter${unknown.length > 1 ? 's' : ''} ` +
