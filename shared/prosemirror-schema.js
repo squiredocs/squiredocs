@@ -118,6 +118,19 @@ const nodes = {
     },
   },
 
+  svg: {
+    content: 'text*',
+    marks: '',
+    group: 'block',
+    code: true,
+    defining: true,
+    isolating: true,
+    parseDOM: [{ tag: 'pre[data-type="svg"]', preserveWhitespace: 'full' }],
+    toDOM() {
+      return ['pre', { 'data-type': 'svg' }, ['code', 0]];
+    },
+  },
+
   hardBreak: {
     inline: true,
     group: 'inline',

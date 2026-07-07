@@ -164,6 +164,33 @@ describe('Format round-trip', () => {
       expect(pmStr).toContain('graph TD');
     });
 
+    test('svg round-trips', () => {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const s = new Y.XmlElement('svg');
+        const t = new Y.XmlText();
+        t.insert(0, '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>');
+        s.insert(0, [t]);
+        fragment.insert(0, [s]);
+      });
+      const { md, pmStr } = roundTrip(doc);
+      expect(md).toContain('```svg');
+      expect(md).toContain('<rect width="5" height="5"/>');
+      expect(pmStr).toContain('"type":"svg"');
+      expect(pmStr).not.toContain('"type":"codeBlock"');
+      expect(pmStr).toContain('rect');
+    });
+
+    test('codeBlock with language=svg is treated as svg', () => {
+      const { markdownToPm } = require('../markdown-to-pm');
+      const pm = markdownToPm('```svg\n<svg><circle r="4"/></svg>\n```');
+      const str = JSON.stringify(pm);
+      expect(str).toContain('"type":"svg"');
+      expect(str).not.toContain('"language":"svg"');
+      expect(str).toContain('circle');
+    });
+
     test('codeBlock with language=mermaid is treated as mermaid', () => {
       // Documents authored by AI agents may emit a ```mermaid fence; parser
       // should route that to the mermaid node, not a generic codeBlock.

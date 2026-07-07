@@ -42,4 +42,15 @@ describe('alt source round-trip', () => {
     const alt = encodeSourceForAlt('codeBlock', 'graph TD; A-->B');
     expect(decodeSourceFromAlt('mermaid', alt)).toBe(null);
   });
+
+  it('encodes and decodes a multiline SVG source losslessly', () => {
+    const src = '<svg xmlns="http://www.w3.org/2000/svg">\n  <rect width="5" height="5"/>\n</svg>';
+    const alt = encodeSourceForAlt('svg', src);
+    expect(decodeSourceFromAlt('svg', alt)).toBe(src);
+  });
+
+  it('does not decode an svg-prefixed alt as mermaid (formats stay distinct)', () => {
+    const alt = encodeSourceForAlt('svg', '<svg/>');
+    expect(decodeSourceFromAlt('mermaid', alt)).toBe(null);
+  });
 });

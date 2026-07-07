@@ -130,6 +130,8 @@ function toMarkdownNodes(nodes) {
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'mermaid') {
       parts.push('```mermaid\n' + getChildText(node) + '\n```\n');
+    } else if (tag === 'svg') {
+      parts.push('```svg\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.

@@ -12,7 +12,7 @@ const { toMarkdown, loadYDoc } = require('../yjs/serialization');
 const documents = require('../../documents');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
-const { validateMermaidBlocks } = require('../mermaid-validate');
+const { validateMermaidBlocks, validateSvgBlocks } = require('../diagram-validate');
 const { sanitizeImageSrcs, reconcileCrossDocImages } = require('../image-validate');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
@@ -438,6 +438,7 @@ async function handlerImpl(args, agentToken) {
       let characterCount;
       let updatedBlockCount = blockCountAfter;
       let mermaidErrors = [];
+      let svgErrors = [];
       if (changed) {
         try {
           diff = computeChatDiff(mdBefore, mdAfter);
@@ -452,13 +453,19 @@ async function handlerImpl(args, agentToken) {
         } catch (e) {
           console.error('[modify] content serialization failed:', e.message);
         }
-        // Mermaid diagrams only render in the browser, so a syntax error would
-        // otherwise be invisible to the agent. Validate server-side and surface
-        // any errors so the agent can fix them. Non-blocking: the edit stands.
+        // Diagram blocks only render in the browser, so a Mermaid syntax error
+        // or SVG content the editor's sanitizer strips would otherwise be
+        // invisible to the agent. Validate server-side and surface any errors
+        // so the agent can fix them. Non-blocking: the edit stands.
         try {
           mermaidErrors = await validateMermaidBlocks(xmlFragment);
         } catch (e) {
           console.error('[modify] mermaid validation failed:', e.message);
+        }
+        try {
+          svgErrors = await validateSvgBlocks(xmlFragment);
+        } catch (e) {
+          console.error('[modify] svg validation failed:', e.message);
         }
       }
 
@@ -497,6 +504,14 @@ async function handlerImpl(args, agentToken) {
           + 'fix the diagram(s).';
         // Compose with any existing message (e.g. the large-doc omission note)
         // rather than clobbering it.
+        response.message = response.message ? `${response.message} ${warning}` : warning;
+      }
+      if (svgErrors.length > 0) {
+        response.svgErrors = svgErrors;
+        const n = svgErrors.length;
+        const warning = `${n} SVG block${n > 1 ? 's have' : ' has'} problems and may not render `
+          + 'as written. See svgErrors for details. The edit was still applied — please '
+          + 'fix the SVG block(s) in a follow-up modify.';
         response.message = response.message ? `${response.message} ${warning}` : warning;
       }
       if (imagesCopied.length > 0) {

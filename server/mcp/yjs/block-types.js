@@ -14,13 +14,14 @@ const INLINE_CONTENT_BLOCKS = [
   'heading',
   'codeBlock',
   'mermaid',
+  'svg',
   'listItem',
 ];
 
 // Subset whose content is treated as a literal string with no inline
 // formatting. Drives `forceString` in toStructuredNode and the fenced
 // rendering in toMarkdown.
-const CODE_LIKE_BLOCKS = ['codeBlock', 'mermaid'];
+const CODE_LIKE_BLOCKS = ['codeBlock', 'mermaid', 'svg'];
 
 // List wrappers — children are listItem instances, themselves block-level.
 const LIST_CONTAINERS = ['bulletList', 'orderedList'];

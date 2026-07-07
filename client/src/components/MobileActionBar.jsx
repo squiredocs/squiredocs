@@ -286,6 +286,14 @@ export default function MobileActionBar({ editor }) {
         >
           ◇
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertSvg().run()}
+          className={`mobile-format-btn ${editor.isActive('svg') ? 'is-active' : ''}`}
+          title="Insert SVG image"
+          aria-label="Insert SVG image"
+        >
+          ⬡
+        </button>
       </div>
     </div>
   );

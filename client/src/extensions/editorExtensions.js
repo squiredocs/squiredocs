@@ -30,6 +30,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { Mark } from '@tiptap/core';
 import { MermaidNode } from './MermaidNode';
+import { SvgNode } from './SvgNode';
 import { ImageNode } from './ImageNode';
 import { DiagramClipboard } from './DiagramClipboard';
 
@@ -81,6 +82,7 @@ export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null
     DiffInsert,
     DiffDelete,
     MermaidNode,
+    SvgNode,
     ImageNode.configure({ imageUpload }),
     // Single shared copy/cut handler for all diagram blocks (registered once,
     // not per node — see DiagramClipboard).

@@ -41,6 +41,11 @@ export default defineConfig({
     // HMR disabled - doesn't work reliably through k8s tunnel
     // Manual refresh required after code changes
     hmr: false,
+    // Client source imports from ../shared (svg-sanitizer), which sits outside
+    // the Vite root; without this the dev server refuses to serve it.
+    fs: {
+      allow: ['..'],
+    },
     proxy: {
       '^/s($|/)': {
         target: 'ws://localhost:3001',

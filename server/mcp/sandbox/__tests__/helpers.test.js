@@ -463,10 +463,25 @@ describe('Sandbox Helpers', () => {
         expect(helpers.getTextContent(mermaid)).toBe('graph TD\n  A --> B');
       });
 
+      it('should create an svg block', () => {
+        const source = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>';
+        helpers.appendBlocks(fragment, [
+          { type: 'svg', content: source }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const svg = fragment.get(0);
+        expect(svg.nodeName).toBe('svg');
+        expect(helpers.getTextContent(svg)).toBe(source);
+      });
+
       it('should require content for diagram blocks', () => {
         expect(() =>
           helpers.appendBlocks(fragment, [{ type: 'mermaid' }])
         ).toThrow(/mermaid requires content/);
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'svg' }])
+        ).toThrow(/svg requires content/);
       });
 
       it('should create a bullet list', () => {

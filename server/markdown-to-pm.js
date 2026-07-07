@@ -162,6 +162,7 @@ function markdownToPm(markdown, diffMark = null) {
       // else is a generic codeBlock.
       const diagramType = {
         mermaid: 'mermaid',
+        svg: 'svg',
       }[lang.toLowerCase()];
       const node = { type: diagramType || 'codeBlock' };
       if (!diagramType && lang) node.attrs = { language: lang };

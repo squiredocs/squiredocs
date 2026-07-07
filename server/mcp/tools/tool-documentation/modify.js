@@ -192,6 +192,10 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
     { type: 'bulletList', items: ListItem[] }
     { type: 'orderedList', items: ListItem[] }
     { type: 'codeBlock', content: string }
+    { type: 'mermaid', content: string }   - Mermaid diagram source, rendered live in the editor
+    { type: 'svg', content: string }       - raw SVG markup, rendered live (sanitized) in the editor.
+      Scripts, event handlers, foreignObject, and external references are stripped
+      at render time — reference only #fragment ids and data:image URIs.
     { type: 'blockquote', content: string | FormattedContent }
     { type: 'horizontalRule' }
     { type: 'table', headers?: string[], rows: string[][] }
@@ -335,6 +339,9 @@ TipTap Block Types:
   - 'bulletList', 'orderedList', 'listItem'
   - 'codeBlock', 'blockquote', 'horizontalRule'
   - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
+  - 'svg' (raw SVG block — child Y.XmlText holds the SVG markup, rendered sanitized:
+     scripts, event handlers, foreignObject, and external references are stripped;
+     use only #fragment refs and data:image URIs)
   - 'image' (atom block — attrs: src, alt?, title?, width?). src MUST be an existing
      app image URL (/api/docs/:docId/images/:imageId). You can move, reorder, delete,
      and edit alt/title/width of existing images, but you CANNOT create a new image
@@ -476,6 +483,7 @@ RETURNS
 - clock: The document's update counter, so you can track its version
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
+- svgErrors: Present only if the document contains SVG block(s) with problems: content the editor's sanitizer will strip (scripts, event handlers, foreignObject, external references), a missing <svg> root, or malformed XML. Same { block, error, source } shape as mermaidErrors. The edit was still applied; fix the reported block(s) in a follow-up modify.
 - sourceDocGuids: Echo of the source documents that were exposed to the script
   (present only when sourceDocGuids was passed)
 - imagesCopied: Present only if image node(s) referencing another document were

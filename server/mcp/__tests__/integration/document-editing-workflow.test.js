@@ -382,6 +382,68 @@ export default function edit(doc) {
       await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
     }, 30000);
 
+    test('modify surfaces svgErrors for hostile SVG and clears them once fixed', async () => {
+      const createDoc = toolRegistry.getTool('create_document');
+      const modify = toolRegistry.getTool('modify');
+
+      const createResult = await createDoc.handler(
+        { title: 'SVG Test' },
+        mockAgentToken
+      );
+      const newDocGuid = createResult.docGuid;
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        [newDocGuid, testUserId, 'owner']
+      );
+
+      // Insert an SVG block via appendBlocks with content the editor's
+      // sanitizer will strip (script + event handler).
+      const badScript = `
+export default function edit(doc) {
+  appendBlocks(doc, [{
+    type: 'svg',
+    content: '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)<' + '/script><rect width="5" height="5"/></svg>'
+  }]);
+}
+`;
+      const badResult = await modify.handler(
+        { docGuid: newDocGuid, script: badScript },
+        mockAgentToken
+      );
+      // Edit still applied (non-blocking) but the problem is surfaced.
+      expect(badResult.changed).toBe(true);
+      expect(Array.isArray(badResult.svgErrors)).toBe(true);
+      expect(badResult.svgErrors).toHaveLength(1);
+      expect(badResult.svgErrors[0].block).toBe(1);
+      expect(badResult.svgErrors[0].error).toMatch(/sanitizer will strip/);
+      expect(badResult.message).toMatch(/svg/i);
+
+      // Replace with a clean SVG; the error should clear.
+      const fixScript = `
+export default function edit(doc) {
+  const block = findByNodeName(doc, 'svg')[0];
+  const text = findTextNode(block);
+  text.delete(0, extractText(text).length);
+  text.insert(0, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="5" height="5" fill="red"/></svg>');
+}
+`;
+      const fixResult = await modify.handler(
+        { docGuid: newDocGuid, script: fixScript },
+        mockAgentToken
+      );
+      expect(fixResult.changed).toBe(true);
+      expect(fixResult.svgErrors).toBeUndefined();
+
+      // Cleanup
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [newDocGuid]);
+    }, 30000);
+
     test('Complete workflow: create document with title, add content via modify, verify', async () => {
       // Step 1: Create a new document with a title
       console.log('\n=== Step 1: Create document with title ===');

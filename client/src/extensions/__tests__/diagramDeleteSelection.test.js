@@ -36,7 +36,7 @@ function diagramCount(doc, name) {
 }
 
 describe('deleteSelection across an isolating diagram boundary', () => {
-  for (const name of ['mermaid']) {
+  for (const name of ['mermaid', 'svg']) {
     it(`select-all + delete clears a doc containing a ${name} diagram`, () => {
       const state = stateFor(docWithDiagram(name));
       expect(diagramCount(state.doc, name)).toBe(1);

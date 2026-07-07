@@ -12551,9 +12551,10 @@ ${err.toString()}`);
         "heading",
         "codeBlock",
         "mermaid",
+        "svg",
         "listItem"
       ];
-      var CODE_LIKE_BLOCKS = ["codeBlock", "mermaid"];
+      var CODE_LIKE_BLOCKS = ["codeBlock", "mermaid", "svg"];
       var LIST_CONTAINERS = ["bulletList", "orderedList"];
       var BLOCK_ELEMENTS = [
         ...INLINE_CONTENT_BLOCKS,
@@ -12885,6 +12886,7 @@ ${err.toString()}`);
               }
               return createCodeBlock(blockDef.content);
             case "mermaid":
+            case "svg":
               if (blockDef.content === void 0) {
                 throw new Error(`appendBlocks: ${blockDef.type} requires content`);
               }
@@ -12914,7 +12916,7 @@ ${err.toString()}`);
               }
               return createTable(blockDef.headers, blockDef.rows);
             default:
-              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, image, table`);
+              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
           }
         }
         const elements = blocks.map(createBlock);

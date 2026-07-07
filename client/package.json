@@ -28,6 +28,7 @@
     "@tiptap/react": "^3.15.0",
     "@tiptap/starter-kit": "^3.15.0",
     "axios": "^1.13.2",
+    "dompurify": "^3.4.11",
     "mermaid": "^11.15.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

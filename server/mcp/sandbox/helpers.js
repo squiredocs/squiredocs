@@ -494,9 +494,9 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
-   * Create a diagram-as-code block (mermaid). Same shape as a code block — a
-   * single Y.XmlText child holding the diagram source — but tagged so the
-   * editor renders it to a diagram instead of showing source.
+   * Create a diagram-as-code block (mermaid, svg). Same shape as a code
+   * block — a single Y.XmlText child holding the diagram source — but tagged
+   * so the editor renders it to a diagram instead of showing source.
    */
   function createDiagramBlock(type, content) {
     if (typeof content !== 'string') {
@@ -679,6 +679,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createCodeBlock(blockDef.content);
 
       case 'mermaid':
+      case 'svg':
         if (blockDef.content === undefined) {
           throw new Error(`appendBlocks: ${blockDef.type} requires content`);
         }
@@ -715,7 +716,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, blockquote, horizontalRule, image, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
     }
   }
 

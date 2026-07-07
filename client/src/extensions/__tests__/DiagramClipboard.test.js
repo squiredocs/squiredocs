@@ -187,6 +187,25 @@ describe('buildEnrichedClipboardOutput pairing', () => {
     expect(img.getAttribute('data-mermaid-source')).toBe(big); // full source intact
   });
 
+  it('handles mixed diagram formats, stamping each with its own name-keyed source', () => {
+    const svgSource = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>';
+    const blocks = [
+      { name: 'mermaid', source: 'graph TD; A-->B', png: 'data:img-m' },
+      { name: 'svg', source: svgSource, png: 'data:img-s' },
+    ];
+    const view = makeView(blocks);
+    const out = buildEnrichedClipboardOutput(view, 0, 2, cfgs({ mermaid: {}, svg: {} }));
+
+    const div = document.createElement('div');
+    div.innerHTML = out.html;
+    const imgs = div.querySelectorAll('img');
+    expect(imgs[0].getAttribute('data-mermaid-source')).toBe('graph TD; A-->B');
+    expect(imgs[0].alt.startsWith(altSourcePrefix('mermaid'))).toBe(true);
+    expect(imgs[1].getAttribute('data-svg-source')).toBe(svgSource);
+    expect(imgs[1].alt.startsWith(altSourcePrefix('svg'))).toBe(true);
+    expect(decodeSourceFromAlt('svg', imgs[1].alt)).toBe(svgSource);
+  });
+
   it('stamps the matching source onto each image (alt + data-attr)', () => {
     const blocks = [
       { name: 'mermaid', source: 'graph TD; A-->B', png: 'data:img-A' },

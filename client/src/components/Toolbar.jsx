@@ -293,6 +293,13 @@ export default function Toolbar({ editor, docId = null }) {
         >
           ◇
         </button>
+        <button
+          onClick={() => editor.chain().focus().insertSvg().run()}
+          className={`toolbar-button ${editor.isActive('svg') ? 'is-active' : ''}`}
+          title="Insert SVG image"
+        >
+          ⬡
+        </button>
         {docId && (
           <>
             <button
