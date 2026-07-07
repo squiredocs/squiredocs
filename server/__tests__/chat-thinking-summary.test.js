@@ -1,0 +1,115 @@
+/**
+ * POST /thinking-summary tests
+ *
+ * The chat UI polls this endpoint while a reasoning block streams; a cheap
+ * model condenses the accumulated thinking into a short live label.
+ * Uses supertest with mocked auth and a mocked AI SDK — no database needed.
+ */
+const express = require('express');
+const request = require('supertest');
+
+// Mock requireAuth to always pass with a fake user
+jest.mock('../auth', () => ({
+  requireAuth: (req, res, next) => {
+    req.user = { userId: 'test-user' };
+    next();
+  },
+}));
+
+// Mock all heavy dependencies so requiring chat.js doesn't pull them in
+jest.mock('../auth/jwt', () => ({ extractBearerToken: jest.fn() }));
+jest.mock('../mcp/auth/agent-token-factory', () => ({ createAgentTokenPair: jest.fn() }));
+jest.mock('../url', () => ({ buildBaseUrl: jest.fn() }));
+jest.mock('../api/chat-tools', () => ({ buildTools: jest.fn(() => ({})) }));
+jest.mock('../api/chat-models', () => ({
+  DEFAULT_MODEL_KEY: 'test',
+  resolveModel: jest.fn(),
+  getThinkingSummaryModel: jest.fn(() => 'summary-model'),
+}));
+jest.mock('../documents', () => ({ getDocument: jest.fn() }));
+jest.mock('../chat-store', () => ({
+  loadChat: jest.fn(),
+  saveChat: jest.fn(),
+  createChat: jest.fn(),
+  getChatsForUser: jest.fn(),
+  deleteChat: jest.fn(),
+  updateChatTitle: jest.fn(),
+}));
+jest.mock('../ai-usage', () => ({
+  checkQuota: jest.fn(),
+  computeCostCents: jest.fn(),
+  recordUsage: jest.fn(),
+}));
+
+const mockGenerateText = jest.fn();
+jest.mock('ai', () => ({ generateText: (...args) => mockGenerateText(...args) }));
+
+const { router } = require('../api/chat');
+
+function buildApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/', router);
+  return app;
+}
+
+describe('POST /thinking-summary', () => {
+  let app;
+
+  beforeEach(() => {
+    mockGenerateText.mockReset();
+    app = buildApp();
+  });
+
+  test('returns 400 when text is missing or blank', async () => {
+    expect((await request(app).post('/thinking-summary').send({})).status).toBe(400);
+    expect((await request(app).post('/thinking-summary').send({ text: '   ' })).status).toBe(400);
+    expect((await request(app).post('/thinking-summary').send({ text: 42 })).status).toBe(400);
+    expect(mockGenerateText).not.toHaveBeenCalled();
+  });
+
+  test('summarizes the thinking text with the cheap summary model', async () => {
+    mockGenerateText.mockResolvedValue({ text: ' "Planning the document outline" ' });
+
+    const res = await request(app)
+      .post('/thinking-summary')
+      .send({ text: 'The user wants an outline, so first I should...' });
+
+    expect(res.status).toBe(200);
+    // Surrounding whitespace and quotes are stripped from the model output
+    expect(res.body).toEqual({ summary: 'Planning the document outline' });
+
+    expect(mockGenerateText).toHaveBeenCalledTimes(1);
+    const call = mockGenerateText.mock.calls[0][0];
+    expect(call.model).toBe('summary-model');
+    expect(call.prompt).toContain('The user wants an outline, so first I should...');
+  });
+
+  test('only sends the tail of very long thinking text to the model', async () => {
+    mockGenerateText.mockResolvedValue({ text: 'Summarizing' });
+    const text = 'HEAD-MARKER '.padEnd(9000, 'x') + 'TAIL-MARKER';
+
+    await request(app).post('/thinking-summary').send({ text });
+
+    const { prompt } = mockGenerateText.mock.calls[0][0];
+    expect(prompt).toContain('TAIL-MARKER');
+    expect(prompt).not.toContain('HEAD-MARKER');
+  });
+
+  test('returns null summary when the model returns nothing', async () => {
+    mockGenerateText.mockResolvedValue({ text: '' });
+
+    const res = await request(app).post('/thinking-summary').send({ text: 'thinking...' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: null });
+  });
+
+  test('returns 500 when the model call fails', async () => {
+    mockGenerateText.mockRejectedValue(new Error('provider down'));
+
+    const res = await request(app).post('/thinking-summary').send({ text: 'thinking...' });
+
+    expect(res.status).toBe(500);
+  });
+});

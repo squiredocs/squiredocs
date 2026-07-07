@@ -657,3 +657,69 @@ describe('AiChatMessages', () => {
     expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
   });
 });
+
+describe('ThinkingBlock live summary', () => {
+  // Long enough to clear the THINKING_SUMMARY_MIN_CHARS threshold
+  const longReasoning = 'The user wants an outline, so first I should scan the document headings '
+    + 'and figure out which sections already exist before drafting anything new.';
+
+  const makeReasoningMsg = (text, extraParts = []) => makeMsg({
+    role: 'assistant',
+    parts: [{ type: 'reasoning', text }, ...extraParts],
+  });
+
+  it('shows a static "Thinking" label and does not poll for completed blocks', () => {
+    mockPost.mockReset();
+    const { getByText } = render(
+      <AiChatMessages messages={[makeReasoningMsg(longReasoning)]} status="ready" />,
+    );
+
+    expect(getByText('Thinking')).toBeInTheDocument();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('polls for a summary while the reasoning block streams and shows it as the label', async () => {
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ data: { summary: 'Planning the document outline' } });
+    const { findByText } = render(
+      <AiChatMessages messages={[makeReasoningMsg(longReasoning)]} status="streaming" />,
+    );
+
+    expect(await findByText('Planning the document outline')).toBeInTheDocument();
+    expect(mockPost).toHaveBeenCalledWith('/api/chat/thinking-summary', { text: longReasoning });
+  });
+
+  it('shows "Thinking" until the first summary arrives and still expands to the full text', async () => {
+    mockPost.mockReset();
+    let resolveSummary;
+    mockPost.mockReturnValue(new Promise((resolve) => { resolveSummary = resolve; }));
+    const { getByText, findByText } = render(
+      <AiChatMessages messages={[makeReasoningMsg(longReasoning)]} status="streaming" />,
+    );
+
+    // Initial call is in flight — label still reads "Thinking"
+    expect(getByText('Thinking')).toBeInTheDocument();
+
+    resolveSummary({ data: { summary: 'Scanning document headings' } });
+    const label = await findByText('Scanning document headings');
+
+    // Expanding still reveals the full train of thought
+    fireEvent.click(label.closest('button'));
+    expect(await findByText(/scan the document headings/)).toBeInTheDocument();
+  });
+
+  it('does not poll while reasoning is too short to summarize', () => {
+    mockPost.mockReset();
+    render(<AiChatMessages messages={[makeReasoningMsg('Hmm.')]} status="streaming" />);
+
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('does not poll a reasoning block that is no longer the trailing group', () => {
+    mockPost.mockReset();
+    const msg = makeReasoningMsg(longReasoning, [{ type: 'text', text: 'Here is the answer so far' }]);
+    render(<AiChatMessages messages={[msg]} status="streaming" />);
+
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+});

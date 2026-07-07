@@ -243,6 +243,14 @@ function getCompactionModel() {
 }
 
 /**
+ * Model for live summaries of an in-progress "thinking" block (the chat UI
+ * polls for these while a model reasons). Same fast/cheap model as compaction.
+ */
+function getThinkingSummaryModel() {
+  return getCompactionModel();
+}
+
+/**
  * Resolve the shared-assistant default model KEY (not a model instance), in
  * order of preference:
  *  1. The admin-selected default stored in app_settings (passed in by the caller).
@@ -289,4 +297,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getThinkingSummaryModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

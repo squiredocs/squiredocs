@@ -838,6 +838,36 @@ router.delete('/chats/:id', requireAuth, asyncRoute('delete chat', async (req, r
   res.json({ ok: true });
 }));
 
+// Live summary of an in-progress "thinking" block. While a reasoning part
+// streams, the client polls this every few seconds with the accumulated
+// thinking text; a fast/cheap model condenses it into a short phrase shown in
+// place of the static "Thinking" label. Like compaction, this auxiliary call
+// runs on the shared server key and is not metered against user credits.
+// Only the tail of the reasoning matters for "what is it doing right now".
+const THINKING_SUMMARY_MAX_INPUT_CHARS = 8000;
+
+router.post('/thinking-summary', requireAuth, asyncRoute('summarize thinking', async (req, res) => {
+  const { text } = req.body || {};
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  const { generateText } = getAI();
+  const tail = text.slice(-THINKING_SUMMARY_MAX_INPUT_CHARS);
+  const result = await generateText({
+    model: chatModels.getThinkingSummaryModel(),
+    maxTokens: 64,
+    prompt:
+      'Below is the in-progress reasoning of an AI assistant. Describe what it is '
+      + 'currently doing in ONE short present-tense phrase of at most 8 words '
+      + '(e.g. "Comparing document versions for formatting changes"). '
+      + 'Weight the end of the reasoning most heavily. '
+      + 'Reply with the phrase only — no quotes, no trailing punctuation.\n\n'
+      + `Reasoning:\n${tail}`,
+  });
+  const summary = (result.text || '').trim().replace(/^["']+|["']+$/g, '');
+  res.json({ summary: summary || null });
+}));
+
 // Update chat title
 router.patch('/chats/:id', requireAuth, asyncRoute('update chat', async (req, res) => {
   const { title } = req.body;

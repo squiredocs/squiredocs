@@ -131,15 +131,54 @@ function groupParts(parts) {
   return groups;
 }
 
-function ThinkingBlock({ text }) {
+// While a thinking block streams, poll the server for a cheap-model summary of
+// the reasoning-so-far on this cadence, and show it in place of "Thinking".
+const THINKING_SUMMARY_INTERVAL_MS = 3000;
+// Don't bother summarizing until there's enough reasoning to say anything about.
+const THINKING_SUMMARY_MIN_CHARS = 80;
+
+function ThinkingBlock({ text, active }) {
   const [expanded, setExpanded] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const { api } = useAuth();
+  // The interval callback reads the latest text through a ref so the effect
+  // doesn't tear down and restart on every streamed token.
+  const textRef = useRef(text);
+  textRef.current = text;
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let inFlight = false;
+    let lastSummarized = '';
+    const tick = async () => {
+      const current = textRef.current;
+      if (inFlight || current.length < THINKING_SUMMARY_MIN_CHARS || current === lastSummarized) return;
+      inFlight = true;
+      lastSummarized = current;
+      try {
+        const { data } = await api.post('/api/chat/thinking-summary', { text: current });
+        // Deliberately applied even if the block just finished streaming \u2014 a
+        // late-arriving summary of a short thinking phase is still the best
+        // label for the block (setState after unmount is a no-op in React 18).
+        if (data.summary) setSummary(data.summary);
+      } catch {
+        // Non-essential UI sugar \u2014 keep the previous label on failure.
+      } finally {
+        inFlight = false;
+      }
+    };
+    tick();
+    const interval = setInterval(tick, THINKING_SUMMARY_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [active, api]);
+
   return (
     <div className="ai-thinking-block">
       <button
         className="ai-thinking-toggle"
         onClick={() => setExpanded(!expanded)}
       >
-        Thinking {expanded ? '\u25B4' : '\u25BE'}
+        <span className="ai-thinking-label">{summary || 'Thinking'}</span> {expanded ? '\u25B4' : '\u25BE'}
       </button>
       {expanded && (
         <div className="ai-thinking-content ai-chat-markdown">
@@ -689,7 +728,9 @@ function AssistantBubble({ groups, isLoading, citations }) {
             );
           }
           if (group.type === 'reasoning') {
-            return <ThinkingBlock key={i} text={group.text} />;
+            // Only the trailing reasoning group of the streaming message is
+            // still being produced — that's the one worth live-summarizing.
+            return <ThinkingBlock key={i} text={group.text} active={isLoading && i === groups.length - 1} />;
           }
           if (group.type === 'tools') {
             return (
