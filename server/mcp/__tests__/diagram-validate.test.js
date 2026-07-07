@@ -6,6 +6,7 @@ const Y = require('yjs');
 const {
   validateMermaidBlocks,
   validateSvgBlocks,
+  sanitizeSvgSource,
   shutdownDiagramWorker,
 } = require('../diagram-validate');
 
@@ -220,5 +221,37 @@ describe('validateSvgBlocks', () => {
     await validateSvgBlocks(xmlFragment);
     expect(global.window).toBeUndefined();
     expect(global.document).toBeUndefined();
+  });
+});
+
+describe('sanitizeSvgSource', () => {
+  afterAll(async () => {
+    await shutdownDiagramWorker();
+  });
+
+  test('returns clean markup unchanged in substance', async () => {
+    const svg = await sanitizeSvgSource(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="red"/></svg>',
+    );
+    expect(svg).toContain('<circle');
+    expect(svg).toContain('fill="red"');
+    expect(svg).toContain('viewBox="0 0 10 10"');
+  });
+
+  test('strips hostile content from the returned markup', async () => {
+    const svg = await sanitizeSvgSource(
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>x</script><rect width="5" height="5"/></svg>',
+    );
+    expect(svg).not.toContain('script');
+    expect(svg).not.toContain('onload');
+    expect(svg).toContain('<rect');
+  });
+
+  test('rejects sources without an <svg> root', async () => {
+    await expect(sanitizeSvgSource('plain text')).rejects.toThrow(/<svg>/);
+  });
+
+  test('rejects empty sources', async () => {
+    await expect(sanitizeSvgSource('   ')).rejects.toThrow(/empty/i);
   });
 });

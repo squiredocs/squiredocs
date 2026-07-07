@@ -13,10 +13,15 @@
  * See diagram-validate.js for the host side.
  *
  * Protocol:
- *   request  { id, type: 'mermaid'|'svg', sources: string[] }
- *   response { id, results: (string|null)[] }  // results[k] = error message for
- *                                                  sources[k], or null if valid
+ *   request  { id, type: 'mermaid'|'svg'|'svg-clean', sources: string[] }
+ *   response { id, results }                    // per-index results (below)
  *            { id, error: string }              // init failed; host fails open
+ *
+ *   'mermaid' / 'svg' results: (string|null)[] — error message for sources[k],
+ *   or null if valid.
+ *   'svg-clean' results: ({ svg: string|null, error: string|null })[] — the
+ *   sanitized markup (what the editor will actually render), or an error when
+ *   the source can't be sanitized. Used to rasterize blocks for vision input.
  */
 
 const { parentPort } = require('worker_threads');
@@ -75,18 +80,22 @@ function getMermaid() {
   return mermaidPromise;
 }
 
-let svgValidatorPromise = null;
+let svgToolsPromise = null;
 
 /**
- * Lazily build the SVG validator: an isolated DOMPurify instance bound to the
- * worker's jsdom window, running the same sanitize policy the editor enforces
- * at render time (shared/svg-sanitizer.mjs), plus an XML well-formedness check.
+ * Lazily build the SVG validator and cleaner: an isolated DOMPurify instance
+ * bound to the worker's jsdom window, running the same sanitize policy the
+ * editor enforces at render time (shared/svg-sanitizer.mjs), plus an XML
+ * well-formedness check.
  *
- * @returns {Promise<(source: string) => string|null>} per-source validator
+ * @returns {Promise<{
+ *   validate: (source: string) => string|null,
+ *   clean: (source: string) => { svg: string|null, error: string|null },
+ * }>}
  */
-function getSvgValidator() {
-  if (!svgValidatorPromise) {
-    svgValidatorPromise = (async () => {
+function getSvgTools() {
+  if (!svgToolsPromise) {
+    svgToolsPromise = (async () => {
       const dom = getDom();
       // Isolated instance — never the shared default export, whose hooks
       // mermaid's own sanitize calls would pick up.
@@ -98,7 +107,15 @@ function getSvgValidator() {
       const { createSvgSanitizer } = await import(sanitizerUrl);
       const { sanitizeSvg } = createSvgSanitizer(purify);
 
-      return (source) => {
+      const clean = (source) => {
+        try {
+          return { svg: sanitizeSvg(source).svg, error: null };
+        } catch (err) {
+          return { svg: null, error: String((err && err.message) || err) };
+        }
+      };
+
+      const validate = (source) => {
         // The client renders through the (lenient) HTML parser, so sanitize
         // problems come first; well-formedness matters for SVG export and
         // strict consumers, so it's still reported.
@@ -129,20 +146,32 @@ function getSvgValidator() {
         }
         return null;
       };
+
+      return { validate, clean };
     })();
   }
-  return svgValidatorPromise;
+  return svgToolsPromise;
 }
 
 parentPort.on('message', async ({ id, type, sources }) => {
-  let validate;
+  // Per-source runner and the result used for an empty/blank source (an empty
+  // block is valid-and-renders-nothing for validation, but is an error when
+  // the caller wants markup to rasterize).
+  let run;
+  let emptyResult;
   try {
     if (type === 'svg') {
-      const validateSvg = await getSvgValidator();
-      validate = async (source) => validateSvg(source);
+      const { validate } = await getSvgTools();
+      run = async (source) => validate(source);
+      emptyResult = null;
+    } else if (type === 'svg-clean') {
+      const { clean } = await getSvgTools();
+      run = async (source) => clean(source);
+      emptyResult = { svg: null, error: 'SVG block is empty' };
     } else {
       const mermaid = await getMermaid();
-      validate = async (source) => {
+      emptyResult = null;
+      run = async (source) => {
         try {
           await mermaid.parse(source);
           return null;
@@ -156,7 +185,7 @@ parentPort.on('message', async ({ id, type, sources }) => {
   } catch (err) {
     // Reset so a later request can retry init. Report the failure so the host
     // fails open rather than us silently reporting all diagrams as valid.
-    if (type === 'svg') svgValidatorPromise = null;
+    if (type === 'svg' || type === 'svg-clean') svgToolsPromise = null;
     else mermaidPromise = null;
     parentPort.postMessage({ id, error: String((err && err.message) || err) });
     return;
@@ -164,12 +193,11 @@ parentPort.on('message', async ({ id, type, sources }) => {
 
   const results = [];
   for (const source of sources) {
-    // Empty source is valid/blank, matching the client (renders nothing).
     if (!source || !source.trim()) {
-      results.push(null);
+      results.push(emptyResult);
       continue;
     }
-    results.push(await validate(source));
+    results.push(await run(source));
   }
   parentPort.postMessage({ id, results });
 });

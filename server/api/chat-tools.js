@@ -21,6 +21,8 @@ const s3Images = require('../s3-images');
 const documentService = require('../document-service');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
 const { parseAppImageUrl } = require('../image-url');
+const svgRender = require('../mcp/svg-render');
+const agentPresence = require('../mcp/agent-presence');
 
 /**
  * Upload a chat-attached image into a document and insert the image node.
@@ -154,7 +156,10 @@ function buildWebTools(providerName, provider) {
  * agents have no chat attachments):
  *   - insert_image: place an image the user attached in THIS message into a doc.
  *   - view_image: fetch an image already in a doc and show it to the model (vision).
- * Both run in-process against s3Images / documentImages / documentService.
+ *   - view_svg_blocks: rasterize the doc's SVG blocks and show the rendered
+ *     results to the model (vision) — lets the agent see what it (or a
+ *     collaborator) drew.
+ * All run in-process against s3Images / documentImages / agentPresence.
  *
  * @param {object} agentToken - { userId, agentName }
  * @param {object} ctx - { messageImages, docGuid }
@@ -254,6 +259,94 @@ function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid 
     },
   });
 
+  // Live document fragment via the same session path read_document uses —
+  // always current (no persistence race) and access-checked.
+  const getLiveFragment = async (docGuid) => {
+    const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);
+    return session.provider.doc.get('default', Y.XmlFragment);
+  };
+
+  tools.view_svg_blocks = tool({
+    description:
+      'Render the document\'s SVG blocks to images so you can SEE the rendered results. '
+      + 'Use it to check your own work after writing or editing an SVG block with modify, or '
+      + 'to describe/critique an SVG a collaborator drew. By default ALL SVG blocks render '
+      + '(up to 4); pass an xpath (same dialect as read_document, e.g. "//svg[2]") to narrow. '
+      + 'Each image is labeled with its //svg[n] xpath for follow-up reads/edits. The render '
+      + 'reflects what users actually see: the source is sanitized first, so stripped content '
+      + '(scripts, external references) will not appear.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        docGuid: { type: 'string', description: 'Document UUID (defaults to the current document).' },
+        xpath: { type: 'string', description: 'Optional XPath filter selecting which SVG blocks to render (e.g. "//svg[2]"). Omit to render all.' },
+      },
+      required: [],
+    }),
+    execute: async (args = {}) => {
+      try {
+        const docGuid = args.docGuid || chatDocGuid;
+        if (!docGuid) return { error: 'No document in context. Specify docGuid.' };
+        // Existence/xpath problems surface as a normal tool error now; bytes
+        // are rendered in toModelOutput (kept out of stored chat history).
+        const fragment = await getLiveFragment(docGuid);
+        const blocks = svgRender.collectSvgBlocks(fragment, args.xpath);
+        return {
+          docGuid,
+          xpath: args.xpath,
+          blocks: blocks.map((b) => b.label),
+          viewed: true,
+        };
+      } catch (error) {
+        console.error('[chat-tools] view_svg_blocks error:', error.message);
+        return { error: error.message };
+      }
+    },
+    // Rasterize and send the PNGs to the model as a multimodal tool result; the
+    // stored result (execute output) stays small (just metadata).
+    toModelOutput: async ({ output }) => {
+      if (!output || output.error) {
+        return { type: 'error-text', value: output?.error || 'Could not render the SVG blocks.' };
+      }
+      try {
+        const fragment = await getLiveFragment(output.docGuid);
+        const { rendered, totalSvgBlocks, skipped } = await svgRender.renderSvgBlocks(
+          fragment, output.xpath,
+        );
+        const value = [];
+        for (const block of rendered) {
+          if (block.error) {
+            value.push({ type: 'text', text: `${block.label}: could not render — ${block.error}` });
+          } else {
+            value.push({
+              type: 'text',
+              text: `${block.label} (${block.width}×${block.height}px, sanitized as users see it):`,
+            });
+            value.push({
+              type: 'image-data',
+              data: block.png.toString('base64'),
+              mediaType: 'image/png',
+            });
+          }
+        }
+        if (skipped.length > 0) {
+          value.push({
+            type: 'text',
+            text: `Not rendered (max ${svgRender.MAX_BLOCKS_PER_CALL} per call): ${skipped.join(', ')} — call again with an xpath to view them.`,
+          });
+        }
+        value.push({
+          type: 'text',
+          text: `The document has ${totalSvgBlocks} SVG block(s) in total.`,
+        });
+        return { type: 'content', value };
+      } catch (err) {
+        console.error('[chat-tools] view_svg_blocks render failed:', err.message);
+        return { type: 'error-text', value: `The SVG blocks could not be rendered: ${err.message}` };
+      }
+    },
+  });
+
   return tools;
 }
 
@@ -335,7 +428,8 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
     Object.assign(aiTools, buildWebTools(providerName, provider));
   }
 
-  // Chat-only image tools (insert from chat attachment, view doc images).
+  // Chat-only image tools (insert from chat attachment, view doc images,
+  // render SVG blocks for vision).
   Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, docGuid }));
 
   return aiTools;

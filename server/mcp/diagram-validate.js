@@ -164,6 +164,25 @@ function validateSvgBlocks(xmlFragment) {
   return validateDiagramBlocks(xmlFragment, 'svg');
 }
 
+/**
+ * Sanitize a single raw SVG source through the same policy the editor renders
+ * with, returning the cleaned markup. Unlike validation this does NOT fail
+ * open — callers want markup they can safely rasterize, so worker failures
+ * reject.
+ *
+ * @param {string} source - raw SVG block source
+ * @returns {Promise<string>} sanitized SVG markup
+ * @throws {Error} when the source can't be sanitized (no <svg> root, nothing
+ *   renderable) or the worker is unavailable
+ */
+async function sanitizeSvgSource(source) {
+  const [result] = await sendToWorker('svg-clean', [source]);
+  if (!result || result.error || !result.svg) {
+    throw new Error(result?.error || 'SVG could not be sanitized');
+  }
+  return result.svg;
+}
+
 /** Terminate the cached worker, if any. Primarily for test teardown. */
 async function shutdownDiagramWorker() {
   if (!worker) return;
@@ -172,4 +191,9 @@ async function shutdownDiagramWorker() {
   await w.terminate();
 }
 
-module.exports = { validateMermaidBlocks, validateSvgBlocks, shutdownDiagramWorker };
+module.exports = {
+  validateMermaidBlocks,
+  validateSvgBlocks,
+  sanitizeSvgSource,
+  shutdownDiagramWorker,
+};

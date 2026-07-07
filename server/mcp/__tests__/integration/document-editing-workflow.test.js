@@ -438,6 +438,18 @@ export default function edit(doc) {
       expect(fixResult.changed).toBe(true);
       expect(fixResult.svgErrors).toBeUndefined();
 
+      // The agent can now SEE the block: rasterize it from the live session
+      // fragment (the engine behind the view_svg_blocks chat tool).
+      const { renderSvgBlocks } = require('../../svg-render');
+      const session = await agentPresence.getOrCreateSession(newDocGuid, mockAgentToken, 60);
+      const liveFragment = session.provider.doc.get('default', Y.XmlFragment);
+      const { rendered, totalSvgBlocks } = await renderSvgBlocks(liveFragment);
+      expect(totalSvgBlocks).toBe(1);
+      expect(rendered).toHaveLength(1);
+      expect(rendered[0].label).toBe('//svg[1]');
+      expect(rendered[0].error).toBeUndefined();
+      expect(rendered[0].png.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBe(true);
+
       // Cleanup
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [newDocGuid]);
       await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [newDocGuid]);

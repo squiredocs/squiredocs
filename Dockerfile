@@ -13,6 +13,11 @@ WORKDIR /app
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
+# Fonts for server-side SVG rasterization (@resvg/resvg-js in
+# server/mcp/svg-render.js) — without them <text> in SVG blocks renders blank
+# when the assistant views a block via the view_svg_blocks chat tool.
+RUN apk add --no-cache fontconfig ttf-dejavu
+
 # Copy package files and install server dependencies
 # --chown so the runtime user (appuser) can always read these regardless of the
 # host file mode; COPY otherwise preserves source permission bits as root.
