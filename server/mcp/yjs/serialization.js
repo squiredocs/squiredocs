@@ -174,18 +174,21 @@ function toMarkdownNodes(nodes) {
 
   function renderListItem(node, indent, marker) {
     const children = node.toArray();
+    // CommonMark: child blocks must reach the parent's content column,
+    // i.e. be indented by the full marker width ("1. " = 3, "- " = 2).
+    const childIndent = indent + ' '.repeat(marker.length);
     let first = true;
     for (const child of children) {
       if (child instanceof Y.XmlElement) {
         if (['bulletList', 'orderedList'].includes(child.nodeName)) {
-          processNode(child, indent + '  ');
+          processNode(child, childIndent);
         } else {
           const text = getChildText(child);
           if (first) {
             parts.push(indent + marker + text + '\n');
             first = false;
           } else {
-            parts.push(indent + '  ' + text + '\n');
+            parts.push(childIndent + text + '\n');
           }
         }
       }
@@ -214,11 +217,16 @@ function toMarkdownNodes(nodes) {
     }
   }
 
+  // Render each top-level node separately and join with blank lines —
+  // GFM needs them (tables can't interrupt a paragraph, paragraphs merge).
+  const blocks = [];
   for (const node of nodes) {
     processNode(node, '');
+    const rendered = parts.splice(0).join('').replace(/\n+$/, '');
+    if (rendered !== '') blocks.push(rendered);
   }
 
-  return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+  return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**

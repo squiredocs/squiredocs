@@ -117,6 +117,44 @@ const TOOL_SCOPES = {
 };
 
 /**
+ * Validate tool arguments against the tool's inputSchema.
+ *
+ * Without this, a typo'd parameter name (e.g. documentId instead of docGuid)
+ * falls through to the handler as an undefined docGuid and surfaces as
+ * "Document not found or you do not have access" — a misleading permissions
+ * error. Checks unknown params, missing required params, and enum membership.
+ */
+function validateToolArgs(name, inputSchema, args) {
+  if (!inputSchema || inputSchema.type !== 'object' || !inputSchema.properties) return;
+  const properties = inputSchema.properties;
+  const valid = Object.keys(properties).join(', ');
+
+  const unknown = Object.keys(args).filter((k) => !(k in properties));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Invalid parameters for tool '${name}': unknown parameter${unknown.length > 1 ? 's' : ''} ` +
+      `${unknown.map((u) => `'${u}'`).join(', ')}. Valid parameters: ${valid}`
+    );
+  }
+
+  for (const req of inputSchema.required || []) {
+    if (args[req] === undefined || args[req] === null) {
+      throw new Error(
+        `Invalid parameters for tool '${name}': missing required parameter '${req}'. Valid parameters: ${valid}`
+      );
+    }
+  }
+
+  for (const [key, spec] of Object.entries(properties)) {
+    if (args[key] !== undefined && spec.enum && !spec.enum.includes(args[key])) {
+      throw new Error(
+        `Invalid parameters for tool '${name}': '${key}' must be one of: ${spec.enum.join(', ')} (got '${args[key]}')`
+      );
+    }
+  }
+}
+
+/**
  * Execute a tool
  * @param {string} name - Tool name
  * @param {object} args - Tool arguments
@@ -129,6 +167,8 @@ async function executeTool(name, args, agentToken) {
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
+
+  validateToolArgs(name, tool.inputSchema, args);
 
   // Check scope authorization
   const requiredScope = TOOL_SCOPES[name];

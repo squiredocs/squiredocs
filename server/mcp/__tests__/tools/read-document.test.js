@@ -261,6 +261,61 @@ describe('read_document tool', () => {
       expect(result.content).toContain('| --- |');
     });
 
+    test('renders strikethrough with the editor mark name (strike)', async () => {
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, 'crossed off', { strike: true });
+      para.insert(0, [text]);
+      mockXmlFragment.insert(mockXmlFragment.length, [para]);
+
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      expect(result.content).toContain('~~crossed off~~');
+    });
+
+    test('indents nested ordered lists to the parent content column', async () => {
+      const ol = new Y.XmlElement('orderedList');
+      const li = new Y.XmlElement('listItem');
+      const liPara = new Y.XmlElement('paragraph');
+      const liText = new Y.XmlText();
+      liText.insert(0, 'Parent');
+      liPara.insert(0, [liText]);
+      const inner = new Y.XmlElement('orderedList');
+      const innerLi = new Y.XmlElement('listItem');
+      const innerPara = new Y.XmlElement('paragraph');
+      const innerText = new Y.XmlText();
+      innerText.insert(0, 'Child');
+      innerPara.insert(0, [innerText]);
+      innerLi.insert(0, [innerPara]);
+      inner.insert(0, [innerLi]);
+      li.insert(0, [liPara, inner]);
+      ol.insert(0, [li]);
+      mockXmlFragment.insert(mockXmlFragment.length, [ol]);
+
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      // "1. " marker is 3 chars wide, so the child needs 3 spaces
+      expect(result.content).toContain('1. Parent\n   1. Child');
+    });
+
+    test('separates top-level blocks with blank lines', async () => {
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      // GFM tables can't interrupt a paragraph and paragraphs merge
+      // without a separating blank line
+      expect(result.content).toContain('# Test Heading\n\nFirst paragraph');
+      expect(result.content).toContain('First paragraph with TODO item\n\nSecond paragraph');
+    });
+
     test('renders inline marks as markdown', async () => {
       const boldPara = new Y.XmlElement('paragraph');
       const boldText = new Y.XmlText();

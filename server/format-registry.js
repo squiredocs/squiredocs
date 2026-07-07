@@ -63,7 +63,7 @@ const INLINE_MARKS = [
   { name: 'code',        yjsAttr: 'code',          wrap: ['`', '`'], contentPattern: '[^`]+' },
   { name: 'bold',        yjsAttr: 'bold',           wrap: ['**', '**'] },
   { name: 'italic',      yjsAttr: 'italic',         wrap: ['_', '_'] },
-  { name: 'strike',      yjsAttr: 'strikethrough',  wrap: ['~~', '~~'] },
+  { name: 'strike',      yjsAttr: 'strike',         wrap: ['~~', '~~'] },
   { name: 'underline',   yjsAttr: 'underline',      htmlTag: deriveTag('underline') },
   { name: 'highlight',   yjsAttr: 'highlight',      htmlTag: deriveTag('highlight') },
   { name: 'subscript',   yjsAttr: 'subscript',      htmlTag: deriveTag('subscript') },
