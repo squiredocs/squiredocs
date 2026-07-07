@@ -697,39 +697,15 @@
   margin: 4px 0;
 }
 
-.ai-thinking-toggle {
-  background: none;
-  border: none;
+.ai-thinking-label {
+  display: block;
   padding: 2px 0;
   font-size: var(--text-sm);
   color: #9ca3af;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  max-width: 100%;
-}
-
-.ai-thinking-toggle:hover {
-  color: #6b7280;
-}
-
-.ai-thinking-label {
-  flex: 0 1 auto;
-  min-width: 0;
+  font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-style: italic;
-}
-
-.ai-thinking-content {
-  font-size: var(--text-sm);
-  color: #9ca3af;
-  line-height: 1.5;
-  padding: 4px 0 4px 8px;
-  border-left: 2px solid #e5e7eb;
-  white-space: pre-wrap;
 }
 
 /* =============================================================================

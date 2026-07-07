@@ -689,23 +689,23 @@ describe('ThinkingBlock live summary', () => {
     expect(mockPost).toHaveBeenCalledWith('/api/chat/thinking-summary', { text: longReasoning });
   });
 
-  it('shows "Thinking" until the first summary arrives and still expands to the full text', async () => {
+  it('shows "Thinking" instantly, swaps to the summary when it arrives, and never renders the full text', async () => {
     mockPost.mockReset();
     let resolveSummary;
     mockPost.mockReturnValue(new Promise((resolve) => { resolveSummary = resolve; }));
-    const { getByText, findByText } = render(
+    const { getByText, findByText, container, queryByText } = render(
       <AiChatMessages messages={[makeReasoningMsg(longReasoning)]} status="streaming" />,
     );
 
-    // Initial call is in flight — label still reads "Thinking"
+    // Initial call is in flight — label reads "Thinking" immediately
     expect(getByText('Thinking')).toBeInTheDocument();
 
     resolveSummary({ data: { summary: 'Scanning document headings' } });
-    const label = await findByText('Scanning document headings');
+    expect(await findByText('Scanning document headings')).toBeInTheDocument();
 
-    // Expanding still reveals the full train of thought
-    fireEvent.click(label.closest('button'));
-    expect(await findByText(/scan the document headings/)).toBeInTheDocument();
+    // The full train of thought is never rendered and there is nothing to expand
+    expect(container.querySelector('.ai-thinking-block button')).toBeNull();
+    expect(queryByText(/scan the document headings/)).toBeNull();
   });
 
   it('does not poll while reasoning is too short to summarize', () => {
@@ -721,5 +721,28 @@ describe('ThinkingBlock live summary', () => {
     render(<AiChatMessages messages={[msg]} status="streaming" />);
 
     expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('recovers a summary that resolves while the block was unmounted (transcript remount)', async () => {
+    mockPost.mockReset();
+    let resolveSummary;
+    mockPost.mockReturnValue(new Promise((r) => { resolveSummary = r; }));
+
+    const streaming = makeMsg({ id: 'm-remount', role: 'assistant', parts: [{ type: 'reasoning', text: longReasoning }] });
+    const first = render(<AiChatMessages messages={[streaming]} status="streaming" />);
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+
+    // The transcript remounts (stream settles / chat reloads) with the request in flight
+    first.unmount();
+    resolveSummary({ data: { summary: 'Weighing the investment options' } });
+    await waitFor(() => {}); // let the resolved request write the summary cache
+
+    const done = makeMsg({
+      id: 'm-remount',
+      role: 'assistant',
+      parts: [{ type: 'reasoning', text: longReasoning }, { type: 'text', text: 'Answer' }],
+    });
+    const { findByText } = render(<AiChatMessages messages={[done]} status="ready" />);
+    expect(await findByText('Weighing the investment options')).toBeInTheDocument();
   });
 });

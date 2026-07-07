@@ -13,7 +13,9 @@ describe('buildProviderOptions', () => {
       anthropic: {
         cacheControl: { type: 'ephemeral', ttl: '5m' },
         sendReasoning: true,
-        thinking: { type: 'adaptive' },
+        // display: 'summarized' — visible thinking text on models where the
+        // API defaults display to 'omitted' (Sonnet 5, Opus 4.7+)
+        thinking: { type: 'adaptive', display: 'summarized' },
         effort: 'low',
       },
     });

@@ -137,30 +137,49 @@ const THINKING_SUMMARY_INTERVAL_MS = 3000;
 // Don't bother summarizing until there's enough reasoning to say anything about.
 const THINKING_SUMMARY_MIN_CHARS = 80;
 
-function ThinkingBlock({ text, active }) {
-  const [expanded, setExpanded] = useState(false);
-  const [summary, setSummary] = useState(null);
+// Summaries outlive component instances: the transcript remounts message
+// components (stream settling, chat reloads), and a summary resolving against
+// an unmounted instance would otherwise be lost \u2014 the remounted block would
+// fall back to "Thinking" forever. Keyed by `${messageId}:${groupIndex}`.
+const thinkingSummaryCache = new Map();
+const THINKING_SUMMARY_CACHE_MAX = 500;
+
+function rememberThinkingSummary(cacheId, summary) {
+  thinkingSummaryCache.set(cacheId, summary);
+  if (thinkingSummaryCache.size > THINKING_SUMMARY_CACHE_MAX) {
+    thinkingSummaryCache.delete(thinkingSummaryCache.keys().next().value);
+  }
+}
+
+function ThinkingBlock({ text, active, cacheId }) {
+  const [summary, setSummary] = useState(() => thinkingSummaryCache.get(cacheId) || null);
   const { api } = useAuth();
   // The interval callback reads the latest text through a ref so the effect
   // doesn't tear down and restart on every streamed token.
   const textRef = useRef(text);
   textRef.current = text;
 
+  // Effect keys on `ready` (not raw text) so the first summary fires the
+  // moment enough reasoning has streamed, without tearing the interval down
+  // on every token.
+  const ready = text.length >= THINKING_SUMMARY_MIN_CHARS;
   useEffect(() => {
-    if (!active) return undefined;
+    if (!active || !ready) return undefined;
     let inFlight = false;
     let lastSummarized = '';
     const tick = async () => {
       const current = textRef.current;
-      if (inFlight || current.length < THINKING_SUMMARY_MIN_CHARS || current === lastSummarized) return;
+      if (inFlight || current === lastSummarized) return;
       inFlight = true;
       lastSummarized = current;
       try {
         const { data } = await api.post('/api/chat/thinking-summary', { text: current });
-        // Deliberately applied even if the block just finished streaming \u2014 a
-        // late-arriving summary of a short thinking phase is still the best
-        // label for the block (setState after unmount is a no-op in React 18).
-        if (data.summary) setSummary(data.summary);
+        if (data.summary) {
+          // Cache first: if this instance was unmounted while the request was
+          // in flight, its remounted successor picks the summary up below.
+          rememberThinkingSummary(cacheId, data.summary);
+          setSummary(data.summary);
+        }
       } catch {
         // Non-essential UI sugar \u2014 keep the previous label on failure.
       } finally {
@@ -170,21 +189,23 @@ function ThinkingBlock({ text, active }) {
     tick();
     const interval = setInterval(tick, THINKING_SUMMARY_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [active, api]);
+  }, [active, ready, api, cacheId]);
 
+  // A request from a previous mount of this block may still be in flight when
+  // we remount \u2014 check the cache shortly after settling to pick up its result.
+  useEffect(() => {
+    if (summary || active) return undefined;
+    const t = setTimeout(() => {
+      const cached = thinkingSummaryCache.get(cacheId);
+      if (cached) setSummary(cached);
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [summary, active, cacheId]);
+
+  // Label only \u2014 the full train of thought is deliberately not rendered.
   return (
     <div className="ai-thinking-block">
-      <button
-        className="ai-thinking-toggle"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="ai-thinking-label">{summary || 'Thinking'}</span> {expanded ? '\u25B4' : '\u25BE'}
-      </button>
-      {expanded && (
-        <div className="ai-thinking-content ai-chat-markdown">
-          <Markdown remarkPlugins={[remarkGfm]} components={markdownLinkRenderer}>{text}</Markdown>
-        </div>
-      )}
+      <span className="ai-thinking-label">{summary || 'Thinking'}</span>
     </div>
   );
 }
@@ -708,7 +729,7 @@ function buildMarkdownComponents(citations) {
   };
 }
 
-function AssistantBubble({ groups, isLoading, citations }) {
+function AssistantBubble({ groups, isLoading, citations, messageId }) {
   const lastGroup = groups[groups.length - 1];
   const showDots = isLoading && (!lastGroup || lastGroup.type !== 'text');
 
@@ -730,7 +751,14 @@ function AssistantBubble({ groups, isLoading, citations }) {
           if (group.type === 'reasoning') {
             // Only the trailing reasoning group of the streaming message is
             // still being produced — that's the one worth live-summarizing.
-            return <ThinkingBlock key={i} text={group.text} active={isLoading && i === groups.length - 1} />;
+            return (
+              <ThinkingBlock
+                key={i}
+                text={group.text}
+                active={isLoading && i === groups.length - 1}
+                cacheId={`${messageId}:${i}`}
+              />
+            );
           }
           if (group.type === 'tools') {
             return (
@@ -778,7 +806,7 @@ const MessageItem = React.memo(function MessageItem({ message, isLoading }) {
 
   if (isAssistant) {
     if (groups.length === 0 && !isLoading) return null;
-    return <AssistantBubble groups={groups} isLoading={isLoading} citations={citations} />;
+    return <AssistantBubble groups={groups} isLoading={isLoading} citations={citations} messageId={message.id} />;
   }
 
   const rawText = message.parts?.find(p => p.type === 'text')?.text || message.content;

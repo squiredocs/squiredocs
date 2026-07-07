@@ -244,10 +244,11 @@ function getCompactionModel() {
 
 /**
  * Model for live summaries of an in-progress "thinking" block (the chat UI
- * polls for these while a model reasons). Same fast/cheap model as compaction.
+ * polls for these while a model reasons). Claude Haiku — fast and cheap, and
+ * called without thinking config so it answers immediately.
  */
 function getThinkingSummaryModel() {
-  return getCompactionModel();
+  return getProvider('anthropic')('claude-haiku-4-5-20251001');
 }
 
 /**

@@ -289,7 +289,12 @@ function anthropicThinking(modelId) {
   if (/haiku/.test(modelId || '')) {
     return { thinking: { type: 'enabled', budgetTokens: 2048 } };
   }
-  return { thinking: { type: 'adaptive' }, effort: 'low' };
+  // display: 'summarized' is required to get visible thinking text on models
+  // where it defaults to 'omitted' (Sonnet 5, Opus 4.7+) — without it the API
+  // streams thinking blocks with EMPTY text (signature only), so the UI has
+  // nothing to show. Needs @ai-sdk/anthropic >= 3.0.94 (older versions strip
+  // the field from providerOptions and the empty-thinking behavior returns).
+  return { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'low' };
 }
 
 // ---------------------------------------------------------------------------
