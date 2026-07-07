@@ -89,6 +89,42 @@ async function storeImage({ docId, uploaderId, data, mimeType, filename = null }
 }
 
 /**
+ * Copy an image (S3 object + metadata row) from one document into another.
+ * Used when agent scripts clone content across documents: the cloned image
+ * node keeps the source doc's app URL, which target-doc viewers may not be
+ * allowed to load. The copy gets its own id and S3 key — rows must never
+ * share an s3_key, or deleting one document's images would break the other's.
+ * Does NOT check permissions — callers verify the acting user can read the
+ * source document.
+ * @param {object} args
+ * @param {string} args.sourceImageId - Image UUID in the source document
+ * @param {string} args.sourceDocId - Source document UUID
+ * @param {string} args.targetDocId - Target document UUID
+ * @param {string|null} args.uploaderId - User the copy is attributed to
+ * @returns {Promise<{id: string, url: string}|null>} null if the source image row doesn't exist
+ */
+async function copyImage({ sourceImageId, sourceDocId, targetDocId, uploaderId }) {
+  const source = await getImage(sourceImageId, sourceDocId);
+  if (!source) return null;
+
+  const id = randomUUID();
+  const s3Key = `doc-images/${targetDocId}/${id}`;
+  // Copy bytes first so the metadata row never points at a missing object.
+  await s3Images.copyObject(source.s3_key, s3Key);
+  await createImage({
+    id,
+    docId: targetDocId,
+    uploaderId,
+    mimeType: source.mime_type,
+    filename: source.filename,
+    byteSize: source.byte_size,
+    s3Key,
+  });
+
+  return { id, url: imageUrl(targetDocId, id) };
+}
+
+/**
  * Get an image row by id, scoped to its document.
  * Querying by both ids prevents serving an image under a doc the user can't see.
  * @param {string} imageId - Image UUID
@@ -126,6 +162,7 @@ module.exports = {
   init,
   createImage,
   storeImage,
+  copyImage,
   getImage,
   listKeysForDoc,
   ALLOWED_IMAGE_MIME_TYPES,

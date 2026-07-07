@@ -13,7 +13,7 @@ const documents = require('../../documents');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks } = require('../mermaid-validate');
-const { sanitizeImageSrcs } = require('../image-validate');
+const { sanitizeImageSrcs, reconcileCrossDocImages } = require('../image-validate');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
@@ -405,6 +405,21 @@ async function handlerImpl(args, agentToken) {
       console.error('[modify] image src validation failed:', e.message);
     }
 
+    // Images cloned/referenced from OTHER documents keep the source doc's URL,
+    // which target-doc viewers may not be allowed to load. Copy accessible
+    // ones into this doc (rewriting src in place); strip inaccessible ones.
+    // Best-effort: on failure the cross-doc srcs simply remain (status quo).
+    let imagesCopied = [];
+    try {
+      const reconciled = await reconcileCrossDocImages(xmlFragment, docGuid, agentToken.userId);
+      imagesCopied = reconciled.copied;
+      for (const r of reconciled.removed) {
+        imageErrors.push({ src: r.src, reason: 'source document not accessible' });
+      }
+    } catch (e) {
+      console.error('[modify] cross-doc image reconciliation failed:', e.message);
+    }
+
     // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
     const mdAfter = toMarkdown(xmlFragment);
@@ -484,12 +499,16 @@ async function handlerImpl(args, agentToken) {
         // rather than clobbering it.
         response.message = response.message ? `${response.message} ${warning}` : warning;
       }
+      if (imagesCopied.length > 0) {
+        response.imagesCopied = imagesCopied;
+      }
       if (imageErrors.length > 0) {
         response.imageErrors = imageErrors;
         const n = imageErrors.length;
         const warning = `${n} image${n > 1 ? 's were' : ' was'} removed because the src was not an `
-          + 'app image URL (/api/docs/:docId/images/:imageId). You can only reference images that '
-          + 'already exist in the document; to add a new image from chat, use the insert_image tool.';
+          + 'app image URL (/api/docs/:docId/images/:imageId) or referenced a document the user '
+          + 'cannot access. You can only reference images from this document or documents shared '
+          + 'with the user; to add a new image from chat, use the insert_image tool.';
         response.message = response.message ? `${response.message} ${warning}` : warning;
       }
 

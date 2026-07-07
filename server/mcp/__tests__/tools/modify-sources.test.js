@@ -8,6 +8,20 @@
  * intact, sources never modified, and target rollback when a script fails.
  */
 
+// Mock S3 so cross-doc image copies exercise the DB + reconcile logic without
+// real object storage. Must be declared before the tool registry loads.
+jest.mock('../../../s3-images', () => ({
+  isEnabled: jest.fn(() => true),
+  putObject: jest.fn(async () => {}),
+  getObject: jest.fn(async () => Buffer.alloc(0)),
+  copyObject: jest.fn(async () => {}),
+  getSignedGetUrl: jest.fn(async () => 'https://example.com/signed'),
+  deleteObjects: jest.fn(async () => {}),
+  cspImageSources: jest.fn(() => []),
+  GET_URL_TTL_SECONDS: 3600,
+}));
+
+const { randomUUID } = require('crypto');
 const Y = require('yjs');
 const WebSocket = require('ws');
 const http = require('http');
@@ -19,6 +33,9 @@ const documentService = require('../../../document-service');
 const toolRegistry = require('../../tools/index');
 const agentPresence = require('../../agent-presence');
 const { toMarkdown, loadYDoc } = require('../../yjs/serialization');
+const documentImages = require('../../../document-images');
+const s3Images = require('../../../s3-images');
+const { imageUrl } = require('../../../image-url');
 
 const pool = createPool();
 const persistence = createPersistence();
@@ -67,6 +84,7 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
 
     documentService.init(getYDoc, extractDocGuid);
     documents.init(pool);
+    documentImages.init(pool);
     toolRegistry.init(persistence);
     agentPresence.init(persistence);
 
@@ -170,6 +188,23 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
     const md = toMarkdown(ydoc.get('default', Y.XmlFragment));
     ydoc.destroy();
     return md;
+  }
+
+  // Poll the DB view of a doc until `predicate(fragment)` holds, then return
+  // the (destroyed-safe) snapshot of its top-level nodes for assertions. The
+  // WS-sync → storeUpdate path is async, and end-of-handler mutations (e.g.
+  // image reconciliation) land in the DB just after the handler returns.
+  async function waitForDocState(docGuid, predicate, what) {
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      const d = await loadYDoc(pool, docGuid);
+      const frag = d.get('default', Y.XmlFragment);
+      if (predicate(frag)) return d;
+      d.destroy();
+      if (Date.now() > deadline) throw new Error(`waitForDocState: ${what} never persisted for ${docGuid}`);
+      await new Promise((r) => setTimeout(r, 100));
+      await flushPersistence();
+    }
   }
 
   // The WS-sync → storeUpdate path is async and a modify streams many
@@ -399,6 +434,144 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
       await flushPersistence();
       expect(await sourceMarkdown(targetGuid)).toBe(targetMdBefore);
       expect(await sourceMarkdown(srcGuid)).toBe(srcMdBefore);
+    }, 30000);
+  });
+
+  describe('cross-document images', () => {
+    // Seed a doc containing an image node pointing at its own docId.
+    // Raw Y is needed — appendBlocks has no image block type by design.
+    const IMAGE_SEED = (src) => `
+      export default function edit(doc) {
+        const img = new Y.XmlElement('image');
+        img.setAttribute('src', '${src}');
+        img.setAttribute('alt', 'chart');
+        doc.insert(doc.length, [img]);
+      }
+    `;
+
+    test('cloned images are copied into the target and the src rewritten (one copy per source image)', async () => {
+      const modify = toolRegistry.getTool('modify');
+      const srcGuid = await seedDoc('Image Source Doc', null);
+
+      // Image row + node in the source doc
+      const imageId = randomUUID();
+      const srcImageUrl = imageUrl(srcGuid, imageId);
+      await documentImages.createImage({
+        id: imageId,
+        docId: srcGuid,
+        uploaderId: testUserId,
+        mimeType: 'image/png',
+        filename: 'chart.png',
+        byteSize: 1234,
+        s3Key: `doc-images/${srcGuid}/${imageId}`,
+      });
+      await modify.handler({ docGuid: srcGuid, script: IMAGE_SEED(srcImageUrl) }, agentToken());
+      await flushPersistence();
+      // Sources load from the DB — wait until the image node has persisted
+      (await waitForDocState(srcGuid,
+        f => f.toArray().some(n => n.nodeName === 'image'), 'source image node')).destroy();
+
+      const targetGuid = await seedDoc('Image Copy Target', null);
+      s3Images.copyObject.mockClear();
+
+      // Clone the image twice — repeated references share one copy
+      const result = await modify.handler({
+        docGuid: targetGuid,
+        script: `
+          export default function edit(doc) {
+            const imgs = xpath('//image', sources['${srcGuid}']);
+            doc.insert(doc.length, cloneBlocks(imgs));
+            doc.insert(doc.length, cloneBlocks(imgs));
+          }
+        `,
+        sourceDocGuids: [srcGuid],
+      }, agentToken());
+
+      expect(result.changed).toBe(true);
+      expect(result.imageErrors).toBeUndefined();
+      expect(result.imagesCopied).toHaveLength(1);
+      expect(result.imagesCopied[0].from).toBe(srcImageUrl);
+      const newUrl = result.imagesCopied[0].to;
+      expect(newUrl).toMatch(new RegExp(`^/api/docs/${targetGuid}/images/`));
+
+      // Both cloned nodes point at the single target-doc copy (the rewrite is
+      // the handler's final mutation — poll until it reaches the DB)
+      const targetDoc = await waitForDocState(targetGuid,
+        f => f.toArray().filter(n => n.nodeName === 'image')
+          .every(n => n.getAttribute('src') === newUrl),
+        'rewritten image srcs');
+      const frag = targetDoc.get('default', Y.XmlFragment);
+      const imageNodes = frag.toArray().filter(n => n.nodeName === 'image');
+      expect(imageNodes).toHaveLength(2);
+      for (const node of imageNodes) {
+        expect(node.getAttribute('src')).toBe(newUrl);
+        expect(node.getAttribute('alt')).toBe('chart');
+      }
+      targetDoc.destroy();
+
+      // Exactly one new metadata row, and one S3 object copy to a fresh key
+      const rows = await pool.query(
+        'SELECT * FROM document_images WHERE doc_id = $1', [targetGuid]);
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0].mime_type).toBe('image/png');
+      expect(rows.rows[0].byte_size).toBe(1234);
+      expect(s3Images.copyObject).toHaveBeenCalledTimes(1);
+      expect(s3Images.copyObject).toHaveBeenCalledWith(
+        `doc-images/${srcGuid}/${imageId}`,
+        `doc-images/${targetGuid}/${rows.rows[0].id}`
+      );
+
+      // Source doc's image row is untouched
+      const srcRows = await pool.query(
+        'SELECT id FROM document_images WHERE doc_id = $1', [srcGuid]);
+      expect(srcRows.rows.map(r => r.id)).toEqual([imageId]);
+    }, 30000);
+
+    test('images from inaccessible docs or with missing rows are stripped and reported', async () => {
+      const modify = toolRegistry.getTool('modify');
+      const privateGuid = await seedDoc('Image Private Doc', null, otherUserId);
+      const accessibleGuid = await seedDoc('Image Rowless Doc', null);
+      const targetGuid = await seedDoc('Image Strip Target', null);
+
+      const inaccessibleSrc = imageUrl(privateGuid, randomUUID());
+      // Accessible doc, but no document_images row behind the id
+      const missingRowSrc = imageUrl(accessibleGuid, randomUUID());
+
+      const result = await modify.handler({
+        docGuid: targetGuid,
+        script: `
+          export default function edit(doc) {
+            appendBlocks(doc, [{ type: 'paragraph', content: 'kept' }]);
+            for (const src of ['${inaccessibleSrc}', '${missingRowSrc}']) {
+              const img = new Y.XmlElement('image');
+              img.setAttribute('src', src);
+              doc.insert(doc.length, [img]);
+            }
+          }
+        `,
+      }, agentToken());
+
+      expect(result.changed).toBe(true);
+      expect(result.imagesCopied).toBeUndefined();
+      expect(result.imageErrors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ src: inaccessibleSrc }),
+        expect.objectContaining({ src: missingRowSrc }),
+      ]));
+      expect(result.message).toMatch(/removed/);
+
+      // Both image nodes stripped; the paragraph survives (strips are the
+      // handler's final mutation — poll until they reach the DB)
+      const targetDoc = await waitForDocState(targetGuid,
+        f => f.toArray().filter(n => n.nodeName === 'image').length === 0,
+        'stripped image nodes');
+      const frag = targetDoc.get('default', Y.XmlFragment);
+      expect(toMarkdown(frag)).toContain('kept');
+      targetDoc.destroy();
+
+      // No rows created in the target
+      const rows = await pool.query(
+        'SELECT id FROM document_images WHERE doc_id = $1', [targetGuid]);
+      expect(rows.rows).toHaveLength(0);
     }, 30000);
   });
 });

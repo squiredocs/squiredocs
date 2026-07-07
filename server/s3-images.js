@@ -13,6 +13,7 @@ const {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  CopyObjectCommand,
   DeleteObjectsCommand,
 } = require('@aws-sdk/client-s3');
 const { Buffer } = require('buffer');
@@ -121,6 +122,22 @@ async function getSignedGetUrl(key) {
 }
 
 /**
+ * Server-side copy of an object to a new key (bytes never traverse the app).
+ * Content-Type and Cache-Control carry over (S3 metadata directive COPY).
+ * @param {string} sourceKey - Existing S3 object key
+ * @param {string} destKey - New S3 object key
+ * @returns {Promise<void>}
+ */
+async function copyObject(sourceKey, destKey) {
+  await getClient().send(new CopyObjectCommand({
+    Bucket: S3_IMAGE_CONFIG.bucket,
+    // Our keys are uuid/hyphen/slash only, so no URL-encoding concerns.
+    CopySource: `${S3_IMAGE_CONFIG.bucket}/${sourceKey}`,
+    Key: destKey,
+  }));
+}
+
+/**
  * Delete objects by key (best-effort; used when a document is deleted).
  * @param {string[]} keys - S3 object keys
  * @returns {Promise<void>}
@@ -138,6 +155,7 @@ module.exports = {
   cspImageSources,
   putObject,
   getObject,
+  copyObject,
   getSignedGetUrl,
   deleteObjects,
   GET_URL_TTL_SECONDS,

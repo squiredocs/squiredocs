@@ -448,9 +448,10 @@ Example — pull one section out of another document:
   appendBlocks(doc, [{ type: 'heading', level: 2, content: 'Roadmap' }]);
   doc.insert(doc.length, cloneBlocks(section));
 
-⚠️ Images: cloned image nodes keep their original source-document URLs
-(/api/docs/<sourceDoc>/images/...). Collaborators who can see the target but
-not the source document may not be able to load those images.
+Images: cloned image nodes are handled automatically after your script runs —
+each image referencing another document is COPIED into the target document
+and its src rewritten (reported in the result's imagesCopied). Images from
+documents the user cannot access are removed and reported in imageErrors.
 
 ═══════════════════════════════════════════════════════════════════════════
 PARAMETERS
@@ -477,6 +478,9 @@ RETURNS
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
 - sourceDocGuids: Echo of the source documents that were exposed to the script
   (present only when sourceDocGuids was passed)
+- imagesCopied: Present only if image node(s) referencing another document were
+  found after your edit. Each { from, to } records an image copied into this
+  document with its src rewritten (e.g. cloned via cloneBlocks from a source doc).
 - imageErrors: Present only if your script left image node(s) with a non-app src. Those images were REMOVED (an array of { src }). Only reference existing app image URLs (/api/docs/:docId/images/:imageId); to add a new image from chat use the insert_image tool.
 - error: Error message if execution failed
 
