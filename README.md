@@ -1046,7 +1046,8 @@ If you encounter database connection errors:
 - **Multi-document**: Users can create and manage multiple documents
 - **Permission System**: Centralized RBAC enforcement (see `server/permissions.js`)
 - **UI Features**: Word processor-style editor with visible margins, share badges, and role-based UI
-- **Google Analytics**: The gtag.js snippet is duplicated in `client/index.html` (SPA entry) and `client/public/landing.html` (static landing page). If you update tracking IDs, change both files.
+- **Google Analytics**: The gtag.js snippet is duplicated in `client/index.html` (SPA entry) and each static marketing page (`client/public/landing.html`, `pricing.html`, `about.html`). If you update tracking IDs, change all of them.
+- **Static marketing pages**: `client/public/` holds the public marketing pages — `landing.html` (`/`), `pricing.html` (`/pricing`), `about.html` (`/about`) — sharing `client/public/marketing.css`. They're routed by the `staticPagesPlugin` in `client/vite.config.js` (dev) and explicit Express routes in `server/index.js` (prod); all other unknown paths fall through to the React SPA. Privacy/Terms remain React pages (`client/src/pages/`).
 
 ### ⚠️ Security: User Ownership Checks on All Data Access
 

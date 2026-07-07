@@ -34,6 +34,10 @@ export default function LegalPage({ title, lastUpdated, children }) {
           <span className="legal-footer-sep" aria-hidden="true">·</span>
           <a href="/terms">Terms of Service</a>
           <span className="legal-footer-sep" aria-hidden="true">·</span>
+          <a href="/pricing">Pricing</a>
+          <span className="legal-footer-sep" aria-hidden="true">·</span>
+          <a href="/about">About</a>
+          <span className="legal-footer-sep" aria-hidden="true">·</span>
           <a href="/login">Sign in</a>
         </nav>
       </main>

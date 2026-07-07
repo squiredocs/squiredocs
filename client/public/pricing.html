@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9HGTDJRJWH"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9HGTDJRJWH');
+    gtag('config', 'AW-18023084061');
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pricing — Squire Docs</title>
+  <meta name="description" content="Squire Docs is free during public beta. $10 of AI credits included every month — no credit card. Or bring your own API key for unmetered use." />
+  <meta property="og:title" content="Pricing — Squire Docs" />
+  <meta property="og:description" content="Free during public beta. $10 of AI credits included every month, or bring your own API key." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://squiredocs.com/pricing" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/marketing.css" />
+  <style>
+    .landing-nav-link.active { color: #1f2937; font-weight: 600; }
+
+    .pricing-hero {
+      padding: 9rem 2rem 3rem;
+      text-align: center;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+    }
+
+    .pricing-hero h1 {
+      font-size: 2.75rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #1f2937;
+      margin: 0 0 1rem;
+    }
+
+    .pricing-hero p {
+      font-size: 1.2rem;
+      color: #6b7280;
+      line-height: 1.6;
+      max-width: 620px;
+      margin: 0 auto;
+    }
+
+    .pricing-cards {
+      max-width: 900px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .pricing-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      text-align: left;
+    }
+
+    .pricing-card.featured {
+      border-color: #c4b5fd;
+      box-shadow: 0 8px 24px rgba(124, 58, 237, 0.08);
+    }
+
+    .pricing-badge {
+      display: inline-block;
+      background: #f3e8ff;
+      color: #7c3aed;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      margin-bottom: 1rem;
+    }
+
+    .pricing-price {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #1f2937;
+      margin: 0 0 0.25rem;
+    }
+
+    .pricing-price span {
+      font-size: 1rem;
+      font-weight: 500;
+      color: #6b7280;
+    }
+
+    .pricing-card h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin: 0 0 0.5rem;
+    }
+
+    .pricing-card > p {
+      font-size: 1rem;
+      color: #6b7280;
+      line-height: 1.6;
+      margin: 0 0 1.25rem;
+    }
+
+    .pricing-features {
+      list-style: none;
+      padding: 0;
+      margin: 1.5rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      font-size: 0.95rem;
+      color: #374151;
+      line-height: 1.5;
+    }
+
+    .pricing-features svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      color: #7c3aed;
+    }
+
+    .pricing-card .landing-btn {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .pricing-note {
+      max-width: 620px;
+      margin: 3rem auto 0;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      text-align: left;
+    }
+
+    .pricing-note h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin: 0 0 0.5rem;
+    }
+
+    .pricing-note p {
+      font-size: 0.95rem;
+      color: #6b7280;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .pricing-note a {
+      color: #7c3aed;
+      text-decoration: none;
+    }
+
+    .pricing-note a:hover {
+      text-decoration: underline;
+    }
+
+    .pricing-faq {
+      max-width: 620px;
+      margin: 0 auto;
+      text-align: left;
+    }
+
+    .pricing-faq details {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1rem 0;
+    }
+
+    .pricing-faq summary {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #1f2937;
+      cursor: pointer;
+    }
+
+    .pricing-faq details p {
+      font-size: 0.95rem;
+      color: #6b7280;
+      line-height: 1.6;
+      margin: 0.75rem 0 0;
+    }
+
+    @media (max-width: 768px) {
+      .pricing-hero {
+        padding: 7rem 1.5rem 2.5rem;
+      }
+
+      .pricing-hero h1 {
+        font-size: 2rem;
+      }
+
+      .pricing-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="landing-page">
+    <!-- Header -->
+    <header class="landing-header">
+      <div class="landing-header-content">
+        <a href="/" class="landing-logo">
+          <svg class="landing-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+            <path d="M7.5 7.5h8" stroke-width="1" />
+            <path d="M13.5 5.5l2.5 2-2.5 2" stroke-width="1" />
+            <path d="M7.5 12h8" stroke-width="1" />
+            <path d="M7.5 16.5h8" stroke-width="1" />
+          </svg>
+          <span class="landing-logo-text">Squire Docs</span>
+        </a>
+        <nav class="landing-nav">
+          <a href="/pricing" class="landing-nav-link active">Pricing</a>
+          <a href="/about" class="landing-nav-link">About</a>
+          <a href="/login" class="landing-nav-btn">Sign In</a>
+          <a href="/signup" class="landing-nav-btn primary">Sign Up</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="pricing-hero">
+      <h1>Simple pricing while we're in beta</h1>
+      <p>Squire Docs is free during public beta. Every account includes AI credits each month &mdash; no credit card, ever.</p>
+    </section>
+
+    <!-- Plans -->
+    <section class="landing-section">
+      <div class="landing-section-content">
+        <div class="pricing-cards">
+          <div class="pricing-card featured">
+            <span class="pricing-badge">Public beta</span>
+            <p class="pricing-price">$0 <span>during beta</span></p>
+            <p>Everything you need to write with AI, right in your doc.</p>
+            <ul class="pricing-features">
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>$10 of AI credits every month, resets monthly</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Built-in AI agent on Anthropic's Claude models</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Real-time collaboration and sharing</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Version history &mdash; every change attributed and reversible</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Connect external agents like Claude Code and Codex via MCP</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Sign in with Google &mdash; no password to manage</span>
+              </li>
+            </ul>
+            <a href="/signup" class="landing-btn google">
+              <svg class="google-icon" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Start free
+            </a>
+          </div>
+          <div class="pricing-card">
+            <span class="pricing-badge">Power users</span>
+            <h2>Bring your own key</h2>
+            <p>Connect your own API key from Settings and use AI without touching your monthly credits.</p>
+            <ul class="pricing-features">
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Works with Anthropic, OpenAI, Gemini, z.ai, and OpenRouter keys</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Usage billed directly to your provider account</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Choose any model your provider offers</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Keys encrypted at rest with AES-256-GCM</span>
+              </li>
+              <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+                <span>Remove your key anytime</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="pricing-note">
+          <h3>Need more credits?</h3>
+          <p>If you run out before the month resets, email <a href="mailto:contact@squiredocs.com">contact@squiredocs.com</a> and we'll add more credits to your account &mdash; or connect your own API key for unmetered use.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Questions</h2>
+        <div class="pricing-faq">
+          <details>
+            <summary>What happens when my credits run out?</summary>
+            <p>AI requests pause until the month resets, you get a top-up, or you connect your own API key. Your documents stay fully editable &mdash; only AI usage is metered.</p>
+          </details>
+          <details>
+            <summary>Will Squire Docs stay free?</summary>
+            <p>It's free while we finish the product in public beta. If that changes, you'll get clear notice first &mdash; and your documents are always yours.</p>
+          </details>
+          <details>
+            <summary>Do I need a credit card?</summary>
+            <p>No. There's nowhere to even enter one.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom CTA -->
+    <section class="landing-section cta">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Ready to start writing?</h2>
+        <div class="landing-signup-card">
+          <p class="landing-signup-subtext">Free. No Setup. Sign in with Google.</p>
+          <a href="/signup" class="landing-btn google">
+            <svg class="google-icon" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Start free
+          </a>
+        </div>
+        <p class="landing-cta-contact">Questions? <a href="mailto:contact@squiredocs.com">Email us</a> &mdash; a human answers.</p>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+      <div class="landing-footer-content">
+        <div class="landing-footer-top">
+          <div class="landing-footer-brand">
+            <a href="/" class="landing-footer-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M12 18v-6" />
+                <path d="M9 15l3 3 3-3" />
+              </svg>
+              <span>Squire Docs</span>
+            </a>
+            <p class="landing-footer-tagline">Write with AI, right in your doc</p>
+          </div>
+          <div class="landing-footer-links">
+            <div class="landing-footer-column">
+              <h4>Product</h4>
+              <ul>
+                <li><a href="/pricing">Pricing</a></li>
+                <li><a href="/about">About</a></li>
+                <li><a href="/signup">Sign Up</a></li>
+                <li><a href="/login">Sign In</a></li>
+              </ul>
+            </div>
+            <div class="landing-footer-column">
+              <h4>Legal</h4>
+              <ul>
+                <li><a href="/privacy">Privacy Policy</a></li>
+                <li><a href="/terms">Terms of Service</a></li>
+              </ul>
+            </div>
+            <div class="landing-footer-column">
+              <h4>Contact</h4>
+              <ul>
+                <li><a href="mailto:contact@squiredocs.com">contact@squiredocs.com</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="landing-footer-bottom">
+          <p class="landing-copyright">&copy; 2026 21st Harmonic LLC</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

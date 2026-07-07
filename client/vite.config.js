@@ -3,17 +3,26 @@ import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
 
-// Serve static landing.html for / in dev mode (matches Express production behavior)
-function landingPagePlugin() {
+// Serve static marketing pages in dev mode (matches Express production behavior)
+const STATIC_PAGES = {
+  '/': 'landing.html',
+  '/index.html': 'landing.html',
+  '/pricing': 'pricing.html',
+  '/about': 'about.html',
+};
+
+function staticPagesPlugin() {
   return {
-    name: 'serve-landing-page',
+    name: 'serve-static-pages',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url === '/' || req.url === '/index.html') {
-          const landingPath = path.resolve(__dirname, 'public/landing.html');
-          if (fs.existsSync(landingPath)) {
+        const pathname = req.url.split('?')[0];
+        const page = STATIC_PAGES[pathname];
+        if (page) {
+          const pagePath = path.resolve(__dirname, 'public', page);
+          if (fs.existsSync(pagePath)) {
             res.setHeader('Content-Type', 'text/html');
-            res.end(fs.readFileSync(landingPath, 'utf-8'));
+            res.end(fs.readFileSync(pagePath, 'utf-8'));
             return;
           }
         }
@@ -24,7 +33,7 @@ function landingPagePlugin() {
 }
 
 export default defineConfig({
-  plugins: [landingPagePlugin(), react()],
+  plugins: [staticPagesPlugin(), react()],
   server: {
     host: process.env.VITE_HOST || '0.0.0.0',
     port: 5173,
