@@ -115,6 +115,13 @@ describe('list_documents tool', () => {
       expect(filterProp.enum).toContain('shared_with_me');
       expect(filterProp.enum).toContain('all');
     });
+
+    test('exposes updatedSince as a string parameter', () => {
+      const prop = listDocuments.inputSchema.properties.updatedSince;
+      expect(prop).toBeDefined();
+      expect(prop.type).toBe('string');
+      expect(prop.description).toContain('ISO-8601');
+    });
   });
 
   describe('handler', () => {
@@ -240,6 +247,82 @@ describe('list_documents tool', () => {
 
       expect(doc1.shareCount).toBe(1); // Owner only
       expect(doc2.shareCount).toBe(2); // Owner + 1 editor
+    });
+
+    describe('clock / lastModifiedAt / updatedSince', () => {
+      const Y = require('yjs');
+      const updateData = Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()));
+
+      const agentToken = () => ({
+        userId: testUser1Id,
+        delegationId: 'test-delegation-id',
+        agentId: 'claude-code:test',
+        scopes: ['documents:read'],
+      });
+
+      async function insertUpdate(docGuid, clock, createdAt) {
+        await pool.query(
+          `INSERT INTO yjs_updates (doc_guid, clock, update_data, created_at)
+           VALUES ($1, $2, $3, $4)`,
+          [docGuid, clock, updateData, createdAt]
+        );
+      }
+
+      afterEach(async () => {
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid IN ($1, $2)', [
+          testDoc1Id,
+          testDoc2Id,
+        ]);
+      });
+
+      test('rows expose clock and lastModifiedAt; null for never-edited docs', async () => {
+        await insertUpdate(testDoc1Id, 0, '2026-01-01T00:00:00');
+        await insertUpdate(testDoc1Id, 1, '2026-06-15T00:00:00');
+
+        const result = await listDocuments.handler({}, agentToken());
+
+        const edited = result.documents.find((d) => d.id === testDoc1Id);
+        expect(edited.clock).toBe(1);
+        expect(edited.lastModifiedAt).toBeDefined();
+        expect(new Date(edited.lastModifiedAt).getFullYear()).toBe(2026);
+
+        const untouched = result.documents.find((d) => d.id === testDoc2Id);
+        expect(untouched.clock).toBeNull();
+        expect(untouched.lastModifiedAt).toBeNull();
+      });
+
+      test('updatedSince returns only recently edited docs, total matches', async () => {
+        await insertUpdate(testDoc1Id, 0, '2026-06-15T00:00:00');
+        await insertUpdate(testDoc2Id, 0, '2025-01-01T00:00:00');
+
+        // Derive the boundary from the DB round-trip to stay timezone-agnostic
+        const all = await listDocuments.handler({}, agentToken());
+        const oldEdit = new Date(
+          all.documents.find((d) => d.id === testDoc2Id).lastModifiedAt
+        );
+        const boundary = new Date(oldEdit.getTime() + 1000).toISOString();
+
+        const result = await listDocuments.handler({ updatedSince: boundary }, agentToken());
+
+        expect(result.documents.map((d) => d.id)).toEqual([testDoc1Id]);
+        expect(result.pagination.total).toBe(1);
+        expect(result.pagination.hasMore).toBe(false);
+      });
+
+      test('updatedSince combined with search is rejected', async () => {
+        await expect(
+          listDocuments.handler(
+            { search: 'anything', updatedSince: '2026-01-01T00:00:00Z' },
+            agentToken()
+          )
+        ).rejects.toThrow(/updatedSince is not supported together with search/);
+      });
+
+      test('invalid updatedSince produces a clear error', async () => {
+        await expect(
+          listDocuments.handler({ updatedSince: 'not-a-date' }, agentToken())
+        ).rejects.toThrow(/ISO-8601/);
+      });
     });
   });
 });

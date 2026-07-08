@@ -183,7 +183,12 @@ async function getDocumentUsers(docId) {
  * @param {string} options.sortOrder - Sort direction: 'asc' or 'desc'
  * @param {number} options.limit - Max results (1-100)
  * @param {number} options.offset - Pagination offset
- * @returns {Promise<object>} { rows: Array, total: number }
+ * @param {string|Date} options.updatedSince - Only documents whose last content
+ *   update (yjs_updates) is after this time. Unlike updated_at, this reflects
+ *   actual edits — updated_at is also bumped when a document is merely opened.
+ * @returns {Promise<object>} { rows: Array, total: number } — rows carry
+ *   last_clock / last_modified_at from the yjs update log (null for documents
+ *   with no persisted updates)
  */
 async function getAccessibleDocuments(userId, options = {}) {
   if (!pool) throw new Error('Documents module not initialized');
@@ -195,7 +200,16 @@ async function getAccessibleDocuments(userId, options = {}) {
     sortOrder = 'desc',
     limit = null,
     offset = 0,
+    updatedSince = null,
   } = options;
+
+  let updatedSinceDate = null;
+  if (updatedSince !== null && updatedSince !== undefined) {
+    updatedSinceDate = new Date(updatedSince);
+    if (isNaN(updatedSinceDate.getTime())) {
+      throw new Error('updatedSince must be a valid ISO-8601 timestamp');
+    }
+  }
 
   // Validate and sanitize inputs
   const validSortBy = ['updatedAt', 'createdAt'].includes(sortBy) ? sortBy : 'updatedAt';
@@ -227,6 +241,8 @@ async function getAccessibleDocuments(userId, options = {}) {
        d.title,
        d.created_at,
        d.updated_at,
+       lu.clock as last_clock,
+       lu.created_at as last_modified_at,
        ds.role,
        owner_share.user_id as owner_id,
        owner_user.name as owner_name,
@@ -237,11 +253,19 @@ async function getAccessibleDocuments(userId, options = {}) {
      JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $1
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
+     LEFT JOIN LATERAL (
+       SELECT yu.clock, yu.created_at
+       FROM yjs_updates yu
+       WHERE yu.doc_guid = d.id
+       ORDER BY yu.clock DESC
+       LIMIT 1
+     ) lu ON TRUE
      WHERE ($2::text IS NULL OR d.title ILIKE '%' || $2 || '%')
+     AND ($3::timestamp IS NULL OR lu.created_at > $3)
      ${roleCondition}
      ORDER BY ${sortColumn} ${validSortOrder} NULLS LAST
      ${paginationClause}`,
-    [userId, search ? escapeIlike(search) : null]
+    [userId, search ? escapeIlike(search) : null, updatedSinceDate]
   );
 
   // Extract total count from first row (or 0 if no results)

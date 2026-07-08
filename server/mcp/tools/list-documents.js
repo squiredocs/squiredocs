@@ -36,11 +36,15 @@ PARAMETERS:
 - limit: 1-100 (default: 50 for listing, 10 for search)
 - offset: pagination offset (default: 0)
 - distanceThreshold: max cosine distance for vector results (default: 0.5). Lower = stricter. Only for semantic/hybrid search.
+- updatedSince: ISO-8601 timestamp. Only documents whose last content edit is after this time. List path only (not combinable with search).
 
 RETURNS:
 - documents: Array of { id, title, url, role, updatedAt, ... }
   - When searching: includes snippet and score
-  - When listing: includes createdAt and shareCount
+  - When listing: includes createdAt, shareCount, clock (update counter) and
+    lastModifiedAt (last content edit, null if never edited; unlike updatedAt
+    it is not bumped by merely opening the doc — use with updatedSince for
+    incremental sync).
 - pagination: { total, limit, offset, hasMore }
 
 EXAMPLES:
@@ -111,6 +115,14 @@ const inputSchema = {
         'Max cosine distance for vector search results (0=identical, 1=orthogonal). ' +
         'Lower values return fewer, more relevant results. Default: 0.5. Only applies to semantic/hybrid search.',
     },
+    updatedSince: {
+      type: 'string',
+      description:
+        'ISO-8601 timestamp (e.g. "2026-07-01T00:00:00Z"). Only return documents whose last '
+        + 'content edit (yjs update log) is after this time — reflects actual edits, unlike '
+        + 'updatedAt, which is also bumped when a document is opened. List path only: '
+        + 'cannot be combined with search.',
+    },
   },
 };
 
@@ -122,6 +134,12 @@ async function handler(args, agentToken) {
 
   // Content search path: when a search query is provided
   if (args.search && args.search.trim()) {
+    if (args.updatedSince) {
+      throw new Error(
+        'updatedSince is not supported together with search. Omit search to filter by '
+        + 'last-edit time, or filter the search results client-side.'
+      );
+    }
     const { rows, pagination } = await search.searchDocuments(userId, args.search, {
       mode: args.searchMode,
       filter: args.filter,
@@ -153,6 +171,7 @@ async function handler(args, agentToken) {
     sortOrder: args.sortOrder,
     limit: args.limit || 50,
     offset: args.offset || 0,
+    updatedSince: args.updatedSince,
   });
 
   return {
@@ -163,6 +182,8 @@ async function handler(args, agentToken) {
       role: row.role,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      clock: row.last_clock == null ? null : Number(row.last_clock),
+      lastModifiedAt: row.last_modified_at,
       shareCount: parseInt(row.share_count, 10),
     })),
     pagination: {

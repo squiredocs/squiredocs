@@ -493,7 +493,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 
 **Document Management:**
 - `create_document` - Create new documents with a title (use `modify` to add content)
-- `list_documents` - List accessible documents
+- `list_documents` - List accessible documents (or content-search them); rows include `clock` and `lastModifiedAt`, and `updatedSince` filters to recently edited docs for incremental syncs
 - `share_document` - Share with users and set permissions
 - `set_document_title` - Update document titles
 

@@ -125,13 +125,17 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | \
 ## Available Tools
 
 ### list_documents
-Lists all documents accessible to you with their IDs, titles, roles, timestamps, and share counts.
+Lists all documents accessible to you with their IDs, titles, roles, timestamps, and share counts. Also performs content search when `search` is given.
 
 **Arguments:**
 - `filter` (optional): `"owned"`, `"shared_with_me"`, or `"all"` (default)
+- `search` (optional): content search query (with `searchMode`, `distanceThreshold`)
+- `sortBy` / `sortOrder` / `limit` / `offset` (optional): sorting and pagination
+- `updatedSince` (optional): ISO-8601 timestamp; only documents whose last content edit is after this time (list path only, not combinable with `search`)
 
 **Returns:**
-- `documents`: Array of documents, each with `id`, `title`, `role`, `createdAt`, `updatedAt`, and `shareCount`
+- `documents`: Array of documents, each with `id`, `title`, `role`, `createdAt`, `updatedAt`, `shareCount`, `clock` (update counter, matches read_document/modify), and `lastModifiedAt` (time of last content edit; null if never edited — unlike `updatedAt`, not bumped by merely opening the doc). Use `clock`/`lastModifiedAt` with `updatedSince` for incremental syncs and exports.
+- `pagination`: `{ total, limit, offset, hasMore }`
 
 ### get_document
 Reads document content.

@@ -242,6 +242,93 @@ describe('Documents module', () => {
 
       expect(doc.role).toBe('owner');
     });
+
+    describe('last-update metadata (clock / lastModifiedAt / updatedSince)', () => {
+      const Y = require('yjs');
+      let docA; // three updates, recent
+      let docB; // one update, old
+      let docC; // no updates
+
+      // A minimal valid Yjs update payload for yjs_updates rows
+      const updateData = Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()));
+
+      async function insertUpdate(docGuid, clock, createdAt) {
+        await pool.query(
+          `INSERT INTO yjs_updates (doc_guid, clock, update_data, created_at)
+           VALUES ($1, $2, $3, $4)`,
+          [docGuid, clock, updateData, createdAt]
+        );
+      }
+
+      beforeEach(async () => {
+        const { randomUUID } = require('crypto');
+        docA = randomUUID();
+        docB = randomUUID();
+        docC = randomUUID();
+        await documents.createDocument(docA, testUserId);
+        await documents.createDocument(docB, testUserId);
+        await documents.createDocument(docC, testUserId);
+
+        // docA: clocks 0..2. The max-clock row (2) deliberately has an OLDER
+        // created_at than clock 1 — clock is the source of truth, not time.
+        await insertUpdate(docA, 0, '2026-01-01T00:00:00');
+        await insertUpdate(docA, 1, '2026-06-01T00:00:00');
+        await insertUpdate(docA, 2, '2026-05-01T00:00:00');
+        // docB: single old update.
+        await insertUpdate(docB, 0, '2025-01-01T00:00:00');
+      });
+
+      afterEach(async () => {
+        for (const id of [docA, docB, docC]) {
+          await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [id]);
+          await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [id]);
+          await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+        }
+      });
+
+      test('projects the max-clock row and its created_at', async () => {
+        const { rows } = await documents.getAccessibleDocuments(testUserId);
+        const a = rows.find(d => d.doc_id === docA);
+
+        expect(Number(a.last_clock)).toBe(2);
+        // created_at of the clock-2 row, not the max created_at
+        expect(new Date(a.last_modified_at).getFullYear()).toBe(2026);
+        expect(new Date(a.last_modified_at).getMonth()).toBe(4); // May
+      });
+
+      test('documents with no updates list with null metadata', async () => {
+        const { rows } = await documents.getAccessibleDocuments(testUserId);
+        const c = rows.find(d => d.doc_id === docC);
+
+        expect(c).toBeDefined();
+        expect(c.last_clock).toBeNull();
+        expect(c.last_modified_at).toBeNull();
+      });
+
+      test('updatedSince filters on last edit and keeps total consistent', async () => {
+        // Derive the boundary from what the DB round-trips for docB's update,
+        // to stay timezone-agnostic: anything after docB's edit but before docA's.
+        const { rows: all } = await documents.getAccessibleDocuments(testUserId);
+        const bEdit = new Date(all.find(d => d.doc_id === docB).last_modified_at);
+        const boundary = new Date(bEdit.getTime() + 1000);
+
+        const { rows, total } = await documents.getAccessibleDocuments(testUserId, {
+          updatedSince: boundary.toISOString(),
+        });
+
+        const ids = rows.map(d => d.doc_id);
+        expect(ids).toContain(docA);      // edited after boundary
+        expect(ids).not.toContain(docB);  // edited before boundary
+        expect(ids).not.toContain(docC);  // never edited
+        expect(total).toBe(rows.length);
+      });
+
+      test('rejects an invalid updatedSince timestamp', async () => {
+        await expect(
+          documents.getAccessibleDocuments(testUserId, { updatedSince: 'not-a-date' })
+        ).rejects.toThrow(/ISO-8601/);
+      });
+    });
   });
 
   describe('findUserByEmail', () => {
