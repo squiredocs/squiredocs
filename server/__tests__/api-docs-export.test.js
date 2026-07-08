@@ -1,28 +1,20 @@
 /**
  * Tests for GET /api/docs/:docId/export (Markdown export)
+ *
+ * Exercises the real export router (server/api/docs-export.js) and the real
+ * requireAuth chain — including sqd_ API tokens and scope enforcement — via
+ * supertest. A stub mutating route exercises the documents:write mapping.
  */
 const request = require('supertest');
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const Y = require('yjs');
 const documents = require('../documents');
 const { toMarkdown } = require('../mcp/yjs/serialization');
+const { generateAccessToken } = require('../auth/jwt');
+const { requireAuth } = require('../auth');
+const apiTokens = require('../mcp/auth/api-tokens');
+const { createExportRouter } = require('../api/docs-export');
 const { createPool, createPersistence } = require('./helpers/db');
-
-const JWT_SECRET = 'test-secret';
-process.env.JWT_SECRET = JWT_SECRET;
-
-// Mirror the sanitizeFilename helper from server/index.js
-function sanitizeFilename(title) {
-  const cleaned = String(title || '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\/\\:*?"<>|\x00-\x1f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100)
-    .trim();
-  return cleaned || 'document';
-}
 
 // Build a Yjs update that populates the 'default' XmlFragment with a heading +
 // paragraph and sets the document title in the 'meta' map.
@@ -60,76 +52,52 @@ describe('API: GET /api/docs/:docId/export', () => {
   let docId;
   let authToken;
   let authToken2;
+  let patDefault;
+  let patReadOnly;
+  let patWriteOnly;
 
   beforeAll(async () => {
     pool = createPool();
     persistence = createPersistence();
     await persistence._init();
     documents.init(pool);
+    apiTokens.init(pool);
 
     const user1 = await pool.query(
       `INSERT INTO users (google_id, email, name, picture)
        VALUES ('test-export-1', 'test-export-1@example.com', 'Export User 1', NULL)
-       RETURNING id`
+       RETURNING id, email, name, picture, is_admin`
     );
     testUserId = user1.rows[0].id;
 
     const user2 = await pool.query(
       `INSERT INTO users (google_id, email, name, picture)
        VALUES ('test-export-2', 'test-export-2@example.com', 'Export User 2', NULL)
-       RETURNING id`
+       RETURNING id, email, name, picture, is_admin`
     );
     testUser2Id = user2.rows[0].id;
 
-    authToken = jwt.sign({ userId: testUserId }, JWT_SECRET);
-    authToken2 = jwt.sign({ userId: testUser2Id }, JWT_SECRET);
+    // Real browser-session JWTs (no scopes claim)
+    authToken = generateAccessToken(user1.rows[0]);
+    authToken2 = generateAccessToken(user2.rows[0]);
+
+    // Real sqd_ API tokens through the real auth chain
+    patDefault = (await apiTokens.createToken(testUserId, 'test default')).token;
+    patReadOnly = (await apiTokens.createToken(testUserId, 'test read-only', {
+      scopes: ['documents:read'],
+    })).token;
+    patWriteOnly = (await apiTokens.createToken(testUserId, 'test write-only', {
+      scopes: ['documents:write'],
+    })).token;
 
     app = express();
-
-    const requireAuth = (req, res, next) => {
-      const token = req.headers.authorization?.replace('Bearer ', '');
-      if (!token) return res.status(401).json({ error: 'Unauthorized' });
-      try {
-        req.user = jwt.verify(token, JWT_SECRET);
-        next();
-      } catch (err) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-    };
-
-    // Implement the export endpoint (same logic as server/index.js)
-    app.get('/api/docs/:docId/export', requireAuth, async (req, res) => {
-      try {
-        const { docId } = req.params;
-        const { format = 'markdown' } = req.query;
-        const userId = req.user.userId;
-
-        const role = await documents.getRole(docId, userId);
-        if (!role) {
-          return res.status(403).json({ error: 'You do not have access to this document' });
-        }
-
-        if (format !== 'markdown' && format !== 'md') {
-          return res.status(400).json({ error: `Unsupported export format: ${format}` });
-        }
-
-        const ydoc = await persistence.getYDoc(docId);
-        const xmlFragment = ydoc.get('default', Y.XmlFragment);
-        const title = ydoc.getMap('meta').get('title') || 'Untitled';
-
-        const markdown = toMarkdown(xmlFragment);
-
-        const filename = sanitizeFilename(title) + '.md';
-        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(markdown);
-      } catch (error) {
-        res.status(500).json({ error: 'Failed to export document' });
-      }
-    });
+    app.use(createExportRouter(persistence));
+    // Stub mutating route to exercise the documents:write scope mapping
+    app.post('/api/docs/:docId/touch', requireAuth, (req, res) => res.json({ ok: true }));
   });
 
   afterAll(async () => {
+    await pool.query('DELETE FROM mcp_api_tokens WHERE user_id IN ($1, $2)', [testUserId, testUser2Id]);
     await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [testUserId, testUser2Id]);
     await persistence.destroy();
     await pool.end();
@@ -211,5 +179,65 @@ describe('API: GET /api/docs/:docId/export', () => {
     const disposition = res.headers['content-disposition'];
     expect(disposition).toMatch(/^attachment; filename=".*\.md"$/);
     expect(disposition).not.toMatch(/[\/\\:*?"<>|]\.md/);
+  });
+
+  describe('sqd_ API tokens (personal access tokens)', () => {
+    test('exports end to end with a default-scope token', async () => {
+      await seedDoc(testUserId, 'PAT Doc');
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?format=markdown`)
+        .set('Authorization', `Bearer ${patDefault}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/markdown');
+      expect(res.headers['content-disposition']).toBe('attachment; filename="PAT Doc.md"');
+      expect(res.text).toContain('# Hello');
+    });
+
+    test('read-only token can export', async () => {
+      await seedDoc(testUserId, 'Read Scope Doc');
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${patReadOnly}`);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('# Hello');
+    });
+
+    test('read-only token gets 403 INSUFFICIENT_SCOPE on a mutating route', async () => {
+      const res = await request(app)
+        .post(`/api/docs/${docId}/touch`)
+        .set('Authorization', `Bearer ${patReadOnly}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({
+        error: 'Insufficient scope',
+        code: 'INSUFFICIENT_SCOPE',
+        required: 'documents:write',
+        granted: ['documents:read'],
+      });
+    });
+
+    test('write-only token gets 403 on export but 200 on a mutating route', async () => {
+      await seedDoc(testUserId, 'Write Scope Doc');
+
+      const exportRes = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${patWriteOnly}`);
+      expect(exportRes.status).toBe(403);
+      expect(exportRes.body.code).toBe('INSUFFICIENT_SCOPE');
+      expect(exportRes.body.required).toBe('documents:read');
+
+      const touchRes = await request(app)
+        .post(`/api/docs/${docId}/touch`)
+        .set('Authorization', `Bearer ${patWriteOnly}`);
+      expect(touchRes.status).toBe(200);
+    });
+
+    test('browser-session JWTs are not scope-restricted', async () => {
+      const res = await request(app)
+        .post(`/api/docs/${docId}/touch`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+    });
   });
 });

@@ -173,7 +173,10 @@ const SERVER_INSTRUCTIONS =
   + 'descriptions. ALWAYS call get_tool_documentation({ tool: "modify" }) (or '
   + '{ tool: "compare_document_versions" }) before writing your first script. '
   + 'Read documents with read_document (optionally XPath-filtered); build '
-  + 'documents incrementally with multiple small modify calls.';
+  + 'documents incrementally with multiple small modify calls. For bulk or '
+  + 'scripted markdown export (content over HTTP via curl + an sqd_ API '
+  + 'token, not through model context), a REST endpoint exists — see '
+  + 'get_tool_documentation({ tool: "export_api" }).';
 
 /**
  * Handle initialize method

@@ -57,6 +57,16 @@ describe('get_tool_documentation', () => {
       expect(result.documentation).toContain('export default function compare');
       expect(result.sections).toContain('examples');
     });
+
+    test('returns the export_api documentation with the curl recipe', async () => {
+      const result = await getToolDocumentation.handler({ tool: 'export_api' }, {});
+
+      expect(result.tool).toBe('export_api');
+      expect(result.documentation).toContain('/api/docs/<docId>/export?format=markdown');
+      expect(result.documentation).toContain('curl -sf');
+      expect(result.documentation).toContain('documents:read');
+      expect(result.sections).toContain('incremental-sync');
+    });
   });
 
   describe('section fetch', () => {

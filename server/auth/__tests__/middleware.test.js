@@ -6,7 +6,7 @@
 process.env.ACCESS_TOKEN_SECRET = 'test-access-secret';
 process.env.REFRESH_TOKEN_SECRET = 'test-refresh-secret';
 
-const { requireAuth, optionalAuth } = require('../middleware');
+const { requireAuth, optionalAuth, requiredScopeForMethod, checkScopes } = require('../middleware');
 const { generateAccessToken } = require('../jwt');
 
 describe('Auth middleware', () => {
@@ -152,6 +152,60 @@ describe('Auth middleware', () => {
 
       expect(next).toHaveBeenCalled();
       expect(req.user).toBeUndefined();
+    });
+  });
+
+  describe('scope enforcement', () => {
+    test('maps read methods to documents:read and mutations to documents:write', () => {
+      expect(requiredScopeForMethod('GET')).toBe('documents:read');
+      expect(requiredScopeForMethod('HEAD')).toBe('documents:read');
+      expect(requiredScopeForMethod('OPTIONS')).toBe('documents:read');
+      expect(requiredScopeForMethod('POST')).toBe('documents:write');
+      expect(requiredScopeForMethod('PUT')).toBe('documents:write');
+      expect(requiredScopeForMethod('PATCH')).toBe('documents:write');
+      expect(requiredScopeForMethod('DELETE')).toBe('documents:write');
+    });
+
+    test('allows scope-less principals (browser session JWTs) for all methods', () => {
+      const sessionUser = { userId: mockUser.id, email: mockUser.email };
+      expect(checkScopes(sessionUser, 'GET')).toBeNull();
+      expect(checkScopes(sessionUser, 'DELETE')).toBeNull();
+    });
+
+    test('allows scoped principals holding the required scope', () => {
+      const readWrite = { userId: mockUser.id, scopes: ['documents:read', 'documents:write'] };
+      expect(checkScopes(readWrite, 'GET')).toBeNull();
+      expect(checkScopes(readWrite, 'POST')).toBeNull();
+    });
+
+    test('rejects a read-only principal on a mutating method with the MCP error shape', () => {
+      const readOnly = { userId: mockUser.id, scopes: ['documents:read'] };
+      expect(checkScopes(readOnly, 'POST')).toEqual({
+        error: 'Insufficient scope',
+        code: 'INSUFFICIENT_SCOPE',
+        required: 'documents:write',
+        granted: ['documents:read'],
+      });
+      expect(checkScopes(readOnly, 'GET')).toBeNull();
+    });
+
+    test('rejects a write-only principal on a read method', () => {
+      const writeOnly = { userId: mockUser.id, scopes: ['documents:write'] };
+      const result = checkScopes(writeOnly, 'GET');
+      expect(result.code).toBe('INSUFFICIENT_SCOPE');
+      expect(result.required).toBe('documents:read');
+      expect(checkScopes(writeOnly, 'POST')).toBeNull();
+    });
+
+    test('requireAuth passes browser-session JWTs unaffected on mutating requests', async () => {
+      const token = generateAccessToken(mockUser);
+      const { req, res, next } = createMocks(`Bearer ${token}`);
+      req.method = 'POST';
+
+      await requireAuth(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 

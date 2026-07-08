@@ -22,7 +22,6 @@ const documentImages = require('./document-images');
 const s3Images = require('./s3-images');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
-const { toMarkdown } = require('./mcp/yjs/serialization');
 const mcp = require('./mcp');
 const toolRegistry = require('./mcp/tools');
 const agentPresence = require('./mcp/agent-presence');
@@ -38,6 +37,7 @@ const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
+const { createExportRouter } = require('./api/docs-export');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
@@ -1094,55 +1094,8 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
   }
 });
 
-// Sanitize a document title into a safe download filename (without extension).
-// Strips characters invalid in a Content-Disposition filename / common filesystems,
-// collapses whitespace, caps length, and falls back to "document" if empty.
-function sanitizeFilename(title) {
-  const cleaned = String(title || '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\/\\:*?"<>|\x00-\x1f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100)
-    .trim();
-  return cleaned || 'document';
-}
-
-// API: Export a document as Markdown (downloadable file)
-app.get('/api/docs/:docId/export', requireAuth, async (req, res) => {
-  try {
-    const { docId } = req.params;
-    const { format = 'markdown' } = req.query;
-    const userId = req.user.userId;
-
-    // View access is sufficient (same check as history/diff)
-    const role = await documents.getRole(docId, userId);
-    if (!role) {
-      return res.status(403).json({ error: 'You do not have access to this document' });
-    }
-
-    if (format !== 'markdown' && format !== 'md') {
-      return res.status(400).json({ error: `Unsupported export format: ${format}` });
-    }
-
-    // Load the latest persisted state from Postgres (source of truth), so export
-    // works even when no client is connected.
-    const ydoc = await persistenceProvider.getYDoc(docId);
-    const xmlFragment = ydoc.get('default', Y.XmlFragment);
-    const title = ydoc.getMap('meta').get('title') || 'Untitled';
-
-    const markdown = toMarkdown(xmlFragment);
-
-    const filename = sanitizeFilename(title) + '.md';
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(markdown);
-  } catch (error) {
-    console.error('Error exporting document:', error);
-    notifyException(error, { req, source: 'api' });
-    res.status(500).json({ error: 'Failed to export document' });
-  }
-});
+// API: Export a document as Markdown (downloadable file) — see api/docs-export.js
+app.use(createExportRouter(persistenceProvider));
 
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {

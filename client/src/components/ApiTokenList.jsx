@@ -126,7 +126,11 @@ export default function ApiTokenList() {
           </button>
         )}
       </div>
-      <p className="settings-description">Static bearer tokens for CLI tools, scripts, and other integrations.</p>
+      <p className="settings-description">
+        Static bearer tokens for CLI tools, scripts, and other integrations.
+        They work with MCP and the REST API, e.g.{' '}
+        <code>curl -H "Authorization: Bearer &lt;token&gt;" {window.location.origin}/api/docs/&lt;docId&gt;/export?format=markdown</code>
+      </p>
 
       {error && <div className="error">{error}</div>}
 

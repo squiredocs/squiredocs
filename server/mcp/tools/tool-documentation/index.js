@@ -11,6 +11,7 @@
 
 const { MODIFY_DOCUMENTATION } = require('./modify');
 const { COMPARE_DOCUMENTATION } = require('./compare-document-versions');
+const { EXPORT_API_DOCUMENTATION } = require('./export-api');
 
 const SECTION_SEPARATOR = /═{20,}\n(.+)\n═{20,}\n/g;
 
@@ -60,6 +61,7 @@ function buildEntry(documentation) {
 const docs = {
   modify: buildEntry(MODIFY_DOCUMENTATION),
   compare_document_versions: buildEntry(COMPARE_DOCUMENTATION),
+  export_api: buildEntry(EXPORT_API_DOCUMENTATION),
 };
 
 const DOC_TOPICS = Object.keys(docs);
@@ -91,4 +93,5 @@ module.exports = {
   getSection,
   MODIFY_DOCUMENTATION,
   COMPARE_DOCUMENTATION,
+  EXPORT_API_DOCUMENTATION,
 };

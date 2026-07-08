@@ -364,6 +364,7 @@ await list_document_versions({
 | `GET /api/docs/:docId/versions/:versionId` | Get content at named version |
 | `POST /api/docs/:docId/versions` | Create named version |
 | `POST /api/docs/:docId/restore` | Restore to previous version |
+| `GET /api/docs/:docId/export?format=markdown` | Export document as a Markdown file download |
 
 ## In-App AI Assistant
 
@@ -481,7 +482,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - **Sandboxed TypeScript execution** - Scripts run in an `isolated-vm` V8 isolate (128 MB memory limit) with zero Node.js API access, on a dedicated worker thread
 - **Type-safe editing** - Full TypeScript support with type definitions
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
-- **API token authentication** - Personal access tokens (prefixed `sqd_`) as a simpler alternative to OAuth for programmatic access
+- **API token authentication** - Personal access tokens (prefixed `sqd_`) as a simpler alternative to OAuth for programmatic access. Tokens work on the REST `/api` routes too, with scope enforcement: reads require `documents:read`, mutations require `documents:write`
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
 - **Atomic operations** - Entire scripts execute as single undo step
@@ -552,6 +553,15 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 **Alternative: API Token Authentication**
 
 For programmatic or headless access, users can create personal API tokens from the Settings page instead of going through the OAuth flow. Tokens are prefixed with `sqd_` and stored as SHA-256 hashes. Pass the token as a Bearer token in the `Authorization` header.
+
+API tokens also authenticate against the REST `/api` routes, so scripts can move document content over plain HTTP without an MCP client. For example, exporting a document as Markdown is one curl:
+
+```bash
+curl -H "Authorization: Bearer sqd_..." \
+  "https://squiredocs.com/api/docs/<docId>/export?format=markdown" -o doc.md
+```
+
+Token scopes are enforced on REST routes: `GET` requests require `documents:read`, mutating requests require `documents:write` (new tokens get both by default). A request with an insufficient scope fails with `403 {"code": "INSUFFICIENT_SCOPE"}`. Browser sessions and OAuth flows are unaffected. Agents connected over MCP can fetch this recipe with `get_tool_documentation({ tool: "export_api" })`.
 
 ### Documentation
 
