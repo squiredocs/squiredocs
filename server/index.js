@@ -1384,7 +1384,16 @@ if (fs.existsSync(clientBuildPath)) {
     res.sendFile(path.join(clientBuildPath, 'about.html'));
   });
 
-  app.use(express.static(clientBuildPath));
+  app.use(express.static(clientBuildPath, {
+    setHeaders: (res, filePath) => {
+      // marketing.css is render-blocking for the static marketing pages and
+      // isn't fingerprinted; a short TTL avoids a revalidation round trip on
+      // every page view without pinning stale styles for long after a deploy.
+      if (filePath.endsWith('marketing.css')) {
+        res.setHeader('Cache-Control', 'public, max-age=300');
+      }
+    },
+  }));
 
   // Serve React app for all other routes
   app.get('*', (req, res) => {
