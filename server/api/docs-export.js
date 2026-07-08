@@ -4,7 +4,7 @@
  * GET /api/docs/:docId/export — serialize a document to Markdown as a
  * downloadable file. Loads the latest persisted state from Postgres (source
  * of truth), so export works even when no client is connected. View access
- * is sufficient. Works with browser sessions and sqd_ API tokens alike
+ * is sufficient. Works with browser sessions and sk_sqd_ API tokens alike
  * (requireAuth accepts both; scoped tokens need documents:read).
  */
 const express = require('express');

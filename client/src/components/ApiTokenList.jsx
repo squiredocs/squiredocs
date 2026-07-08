@@ -6,6 +6,18 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
+function formatExpiresIn(date) {
+  const seconds = Math.floor((new Date(date) - new Date()) / 1000);
+  if (seconds <= 0) return 'Expired';
+  if (seconds < 60) return 'Expires in less than a minute';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Expires in ${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Expires in ${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.floor(hours / 24);
+  return `Expires in ${days} day${days === 1 ? '' : 's'}`;
+}
+
 function formatTimeAgo(date) {
   const now = new Date();
   const past = new Date(date);
@@ -197,6 +209,9 @@ export default function ApiTokenList() {
                     ? `Last used ${formatTimeAgo(token.lastUsedAt)}`
                     : 'Never used'}
                 </span>
+                {token.expiresAt && (
+                  <span className="api-token-expiry">{formatExpiresIn(token.expiresAt)}</span>
+                )}
               </div>
             </li>
           ))}

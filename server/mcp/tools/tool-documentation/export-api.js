@@ -18,15 +18,25 @@ directly over HTTP to wherever you point it (a file, a pipe), so it never
 enters your context window. Use read_document instead when you need to look
 at the content yourself.
 
-Requires: a shell with curl (or any HTTP client) and an sqd_ API token.
+Requires: a shell with curl (or any HTTP client) and an API token (prefixed
+sk_sqd_; older sqd_ tokens are still accepted).
 
 ═══════════════════════════════════════════════════════════════════════════
 GETTING A TOKEN
 ═══════════════════════════════════════════════════════════════════════════
 
-A user creates a personal access token under Settings → API Tokens and
-provides it to you (typically via an environment variable). Tokens are
-prefixed sqd_ and are shown only once at creation.
+Two ways:
+
+1. Mint one yourself (no user action needed): call the create_access_token
+   MCP tool. It issues a temporary sk_sqd_ token capped at your own scopes
+   (default documents:read — all the export API needs) that expires
+   automatically (default 1 hour, max 24). The token is returned once, with
+   a ready-to-use curl example; it is revoked automatically if your own
+   credential is revoked, and it cannot mint further tokens.
+
+2. A user creates a personal access token under Settings → API Tokens and
+   provides it to you (typically via an environment variable). These tokens
+   do not expire and are shown only once at creation.
 
 Scopes: exporting needs documents:read. GET requests require documents:read;
 mutating requests (POST/PUT/PATCH/DELETE) require documents:write. New tokens

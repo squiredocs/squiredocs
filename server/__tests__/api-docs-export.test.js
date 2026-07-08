@@ -239,5 +239,91 @@ describe('API: GET /api/docs/:docId/export', () => {
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
     });
+
+    test('a legacy sqd_-prefixed token still exports through the REST chain', async () => {
+      const crypto = require('crypto');
+      const legacyToken = 'sqd_' + crypto.randomBytes(30).toString('base64url');
+      const legacyHash = crypto.createHash('sha256').update(legacyToken).digest('hex');
+      await pool.query(
+        `INSERT INTO mcp_api_tokens (user_id, name, token_prefix, token_hash, scopes)
+         VALUES ($1, 'legacy', $2, $3, ARRAY['documents:read'])`,
+        [testUserId, legacyToken.substring(0, 8), legacyHash]
+      );
+
+      await seedDoc(testUserId, 'Legacy Token Doc');
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${legacyToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('# Hello');
+    });
+  });
+
+  describe('tokens minted via create_access_token', () => {
+    let mintedToken;
+    let mintedRecordId;
+
+    beforeEach(async () => {
+      // Mint through the real tool handler as a PAT principal
+      const parentRecord = await apiTokens.verifyToken(patDefault);
+      const toolRegistry = require('../mcp/tools');
+      const result = await toolRegistry.executeTool('create_access_token', {}, {
+        userId: testUserId,
+        agentId: `api-token:${parentRecord.id}`,
+        agentName: 'Export Test Agent',
+        scopes: parentRecord.scopes,
+        isAgent: true,
+        apiTokenId: parentRecord.id,
+        baseUrl: 'http://localhost',
+      });
+      mintedToken = result.token;
+      mintedRecordId = (await apiTokens.verifyToken(mintedToken)).id;
+    });
+
+    test('minted token exports until expiry, 401 after', async () => {
+      await seedDoc(testUserId, 'Minted Token Doc');
+
+      const okRes = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${mintedToken}`);
+      expect(okRes.status).toBe(200);
+      expect(okRes.text).toContain('# Hello');
+
+      await pool.query(
+        "UPDATE mcp_api_tokens SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = $1",
+        [mintedRecordId]
+      );
+
+      const expiredRes = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${mintedToken}`);
+      expect(expiredRes.status).toBe(401);
+    });
+
+    test('minted token is read-only by default: 403 on a mutating route', async () => {
+      const res = await request(app)
+        .post(`/api/docs/${docId}/touch`)
+        .set('Authorization', `Bearer ${mintedToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('INSUFFICIENT_SCOPE');
+    });
+
+    test('revoking the parent PAT revokes the minted token', async () => {
+      await seedDoc(testUserId, 'Cascade Doc');
+      const parentRecord = await apiTokens.getTokenById(
+        (await apiTokens.getTokenById(mintedRecordId)).minted_by_api_token_id
+      );
+
+      await apiTokens.revokeToken(parentRecord.id, testUserId);
+
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export`)
+        .set('Authorization', `Bearer ${mintedToken}`);
+      expect(res.status).toBe(401);
+
+      // Re-create the parent PAT for any later tests that use patDefault
+      patDefault = (await apiTokens.createToken(testUserId, 'test default')).token;
+    });
   });
 });

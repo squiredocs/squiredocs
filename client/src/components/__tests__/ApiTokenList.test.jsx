@@ -48,7 +48,7 @@ describe('ApiTokenList', () => {
           {
             id: '1',
             name: 'CLI Token',
-            tokenPrefix: 'sqd_abcd',
+            tokenPrefix: 'sk_sqd_abcd',
             scopes: ['documents:read', 'documents:write'],
             createdAt: new Date().toISOString(),
             lastUsedAt: new Date().toISOString(),
@@ -60,7 +60,7 @@ describe('ApiTokenList', () => {
     render(<ApiTokenList />);
     await waitFor(() => {
       expect(screen.getByText('CLI Token')).toBeDefined();
-      expect(screen.getByText('sqd_abcd...')).toBeDefined();
+      expect(screen.getByText('sk_sqd_abcd...')).toBeDefined();
     });
   });
 
@@ -89,10 +89,10 @@ describe('ApiTokenList', () => {
     it('submits form and shows token reveal', async () => {
       mockApi.post.mockResolvedValue({
         data: {
-          token: 'sqd_fulltoken1234567890abcdefghij12345678',
+          token: 'sk_sqd_fulltoken1234567890abcdefghij12345678',
           id: 'new-id',
           name: 'New Token',
-          tokenPrefix: 'sqd_full',
+          tokenPrefix: 'sk_sqd_full',
           scopes: ['documents:read', 'documents:write'],
           createdAt: new Date().toISOString(),
         },
@@ -109,17 +109,17 @@ describe('ApiTokenList', () => {
 
       await waitFor(() => {
         expect(screen.getByText("Copy this token now — you won't be able to see it again.")).toBeDefined();
-        expect(screen.getByText('sqd_fulltoken1234567890abcdefghij12345678')).toBeDefined();
+        expect(screen.getByText('sk_sqd_fulltoken1234567890abcdefghij12345678')).toBeDefined();
       });
     });
 
     it('token reveal shows full token in monospace', async () => {
       mockApi.post.mockResolvedValue({
         data: {
-          token: 'sqd_mono1234567890abcdefghij1234567890ab',
+          token: 'sk_sqd_mono1234567890abcdefghij1234567890ab',
           id: 'mono-id',
           name: 'Mono Token',
-          tokenPrefix: 'sqd_mono',
+          tokenPrefix: 'sk_sqd_mono',
           scopes: ['documents:read', 'documents:write'],
           createdAt: new Date().toISOString(),
         },
@@ -135,7 +135,7 @@ describe('ApiTokenList', () => {
       fireEvent.click(screen.getByText('Create'));
 
       await waitFor(() => {
-        const tokenEl = screen.getByText('sqd_mono1234567890abcdefghij1234567890ab');
+        const tokenEl = screen.getByText('sk_sqd_mono1234567890abcdefghij1234567890ab');
         expect(tokenEl.tagName.toLowerCase()).toBe('code');
       });
     });
@@ -143,10 +143,10 @@ describe('ApiTokenList', () => {
     it('copy button calls navigator.clipboard.writeText', async () => {
       mockApi.post.mockResolvedValue({
         data: {
-          token: 'sqd_copy1234567890abcdefghij1234567890ab',
+          token: 'sk_sqd_copy1234567890abcdefghij1234567890ab',
           id: 'copy-id',
           name: 'Copy Token',
-          tokenPrefix: 'sqd_copy',
+          tokenPrefix: 'sk_sqd_copy',
           scopes: ['documents:read', 'documents:write'],
           createdAt: new Date().toISOString(),
         },
@@ -165,17 +165,17 @@ describe('ApiTokenList', () => {
       fireEvent.click(screen.getByText('Copy'));
 
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        'sqd_copy1234567890abcdefghij1234567890ab'
+        'sk_sqd_copy1234567890abcdefghij1234567890ab'
       );
     });
 
     it('"Done" button dismisses reveal and adds token to list', async () => {
       mockApi.post.mockResolvedValue({
         data: {
-          token: 'sqd_done1234567890abcdefghij1234567890ab',
+          token: 'sk_sqd_done1234567890abcdefghij1234567890ab',
           id: 'done-id',
           name: 'Done Token',
-          tokenPrefix: 'sqd_done',
+          tokenPrefix: 'sk_sqd_done',
           scopes: ['documents:read', 'documents:write'],
           createdAt: new Date().toISOString(),
         },
@@ -216,10 +216,10 @@ describe('ApiTokenList', () => {
       // Resolve to clean up
       resolvePost({
         data: {
-          token: 'sqd_slow',
+          token: 'sk_sqd_slow',
           id: 'slow-id',
           name: 'Slow Token',
-          tokenPrefix: 'sqd_slow',
+          tokenPrefix: 'sk_sqd_slow',
           scopes: ['documents:read', 'documents:write'],
           createdAt: new Date().toISOString(),
         },
@@ -254,7 +254,7 @@ describe('ApiTokenList', () => {
             {
               id: 'revoke-1',
               name: 'To Revoke',
-              tokenPrefix: 'sqd_rev1',
+              tokenPrefix: 'sk_sqd_rev1',
               scopes: ['documents:read'],
               createdAt: new Date().toISOString(),
               lastUsedAt: null,
@@ -283,7 +283,7 @@ describe('ApiTokenList', () => {
             {
               id: '1',
               name: 'Display Token',
-              tokenPrefix: 'sqd_xyz1',
+              tokenPrefix: 'sk_sqd_xyz1',
               scopes: ['documents:read'],
               createdAt: new Date().toISOString(),
               lastUsedAt: null,
@@ -294,7 +294,7 @@ describe('ApiTokenList', () => {
 
       render(<ApiTokenList />);
       await waitFor(() => {
-        expect(screen.getByText('sqd_xyz1...')).toBeDefined();
+        expect(screen.getByText('sk_sqd_xyz1...')).toBeDefined();
       });
     });
 
@@ -305,7 +305,7 @@ describe('ApiTokenList', () => {
             {
               id: '1',
               name: 'Unused Token',
-              tokenPrefix: 'sqd_unus',
+              tokenPrefix: 'sk_sqd_unus',
               scopes: ['documents:read'],
               createdAt: new Date().toISOString(),
               lastUsedAt: null,
@@ -327,7 +327,7 @@ describe('ApiTokenList', () => {
             {
               id: '1',
               name: 'Used Token',
-              tokenPrefix: 'sqd_used',
+              tokenPrefix: 'sk_sqd_used',
               scopes: ['documents:read'],
               createdAt: new Date().toISOString(),
               lastUsedAt: new Date().toISOString(),
@@ -340,6 +340,53 @@ describe('ApiTokenList', () => {
       await waitFor(() => {
         expect(screen.getByText(/Last used/)).toBeDefined();
       });
+    });
+
+    it('shows an expiry line for expiring tokens (e.g. agent-minted)', async () => {
+      mockApi.get.mockResolvedValue({
+        data: {
+          tokens: [
+            {
+              id: '1',
+              name: 'Minted by Claude via MCP',
+              tokenPrefix: 'sk_sqd_mint',
+              scopes: ['documents:read'],
+              createdAt: new Date().toISOString(),
+              lastUsedAt: null,
+              expiresAt: new Date(Date.now() + 55 * 60 * 1000).toISOString(),
+            },
+          ],
+        },
+      });
+
+      render(<ApiTokenList />);
+      await waitFor(() => {
+        expect(screen.getByText(/Expires in \d+ minutes?/)).toBeDefined();
+      });
+    });
+
+    it('shows no expiry line for non-expiring tokens', async () => {
+      mockApi.get.mockResolvedValue({
+        data: {
+          tokens: [
+            {
+              id: '1',
+              name: 'Permanent PAT',
+              tokenPrefix: 'sk_sqd_perm',
+              scopes: ['documents:read'],
+              createdAt: new Date().toISOString(),
+              lastUsedAt: null,
+              expiresAt: null,
+            },
+          ],
+        },
+      });
+
+      render(<ApiTokenList />);
+      await waitFor(() => {
+        expect(screen.getByText('Permanent PAT')).toBeDefined();
+      });
+      expect(screen.queryByText(/Expires/)).toBeNull();
     });
   });
 });

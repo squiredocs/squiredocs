@@ -8,12 +8,14 @@ jest.mock('../../auth/registered-agents');
 jest.mock('../../auth/delegation');
 jest.mock('../../auth/jwt');
 jest.mock('../../auth/pkce');
+jest.mock('../../auth/api-tokens');
 
 const oauthFlow = require('../../auth/oauth-flow');
 const registeredAgents = require('../../auth/registered-agents');
 const delegation = require('../../auth/delegation');
 const jwt = require('../../auth/jwt');
 const pkce = require('../../auth/pkce');
+const apiTokens = require('../../auth/api-tokens');
 
 describe('OAuth Flow', () => {
   let mockPool;
@@ -99,6 +101,8 @@ describe('OAuth Flow', () => {
     });
 
     delegation.getActiveDelegation.mockResolvedValue(null);
+
+    apiTokens.revokeMintedTokens.mockResolvedValue(0);
   });
 
   describe('handleAuthorize', () => {
@@ -788,7 +792,7 @@ describe('OAuth Flow', () => {
   describe('handleRevoke', () => {
     test('revokes refresh token', async () => {
       mockReq.body = { token: 'refresh-token-123' };
-      mockPool.query.mockResolvedValue({ rowCount: 1 });
+      mockPool.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'delegation-1' }] });
 
       await oauthFlow.handleRevoke(mockReq, mockRes);
 
@@ -799,12 +803,23 @@ describe('OAuth Flow', () => {
       expect(mockRes.json).toHaveBeenCalledWith({ success: true });
     });
 
-    test('returns success even if token not found', async () => {
-      mockReq.body = { token: 'unknown-token' };
-      mockPool.query.mockResolvedValue({ rowCount: 0 });
+    test('cascades to minted API tokens when a delegation is revoked', async () => {
+      mockReq.body = { token: 'refresh-token-123' };
+      mockPool.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'delegation-1' }] });
 
       await oauthFlow.handleRevoke(mockReq, mockRes);
 
+      expect(apiTokens.revokeMintedTokens).toHaveBeenCalledWith({ delegationId: 'delegation-1' });
+      expect(mockRes.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    test('returns success even if token not found', async () => {
+      mockReq.body = { token: 'unknown-token' };
+      mockPool.query.mockResolvedValue({ rowCount: 0, rows: [] });
+
+      await oauthFlow.handleRevoke(mockReq, mockRes);
+
+      expect(apiTokens.revokeMintedTokens).not.toHaveBeenCalled();
       expect(mockRes.json).toHaveBeenCalledWith({ success: true });
     });
 
@@ -814,6 +829,30 @@ describe('OAuth Flow', () => {
       await oauthFlow.handleRevoke(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('handleDeleteDelegation', () => {
+    test('cascades to minted API tokens on delete', async () => {
+      mockReq.user = { userId: 'user-123' };
+      mockReq.params = { id: 'delegation-9' };
+      mockPool.query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'delegation-9' }] });
+
+      await oauthFlow.handleDeleteDelegation(mockReq, mockRes);
+
+      expect(apiTokens.revokeMintedTokens).toHaveBeenCalledWith({ delegationId: 'delegation-9' });
+      expect(mockRes.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    test('404 without cascade when delegation not found', async () => {
+      mockReq.user = { userId: 'user-123' };
+      mockReq.params = { id: 'missing' };
+      mockPool.query.mockResolvedValue({ rowCount: 0, rows: [] });
+
+      await oauthFlow.handleDeleteDelegation(mockReq, mockRes);
+
+      expect(apiTokens.revokeMintedTokens).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(404);
     });
   });
 });

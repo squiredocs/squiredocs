@@ -55,11 +55,11 @@ describe('API Token Routes', () => {
   describe('POST /mcp/auth/api-tokens', () => {
     test('creates token and returns plaintext + metadata', async () => {
       apiTokens.createToken.mockResolvedValue({
-        token: 'sqd_abcdefghij1234567890abcdefghij12345678',
+        token: 'sk_sqd_abcdefghij1234567890abcdefghij12345678',
         record: {
           id: 'token-id-1',
           name: 'My Token',
-          token_prefix: 'sqd_abcd',
+          token_prefix: 'sk_sqd_abcd',
           scopes: ['documents:read', 'documents:write'],
           created_at: '2024-01-01T00:00:00Z',
         },
@@ -71,10 +71,10 @@ describe('API Token Routes', () => {
         .send({ name: 'My Token' });
 
       expect(res.status).toBe(200);
-      expect(res.body.token).toBe('sqd_abcdefghij1234567890abcdefghij12345678');
+      expect(res.body.token).toBe('sk_sqd_abcdefghij1234567890abcdefghij12345678');
       expect(res.body.id).toBe('token-id-1');
       expect(res.body.name).toBe('My Token');
-      expect(res.body.tokenPrefix).toBe('sqd_abcd');
+      expect(res.body.tokenPrefix).toBe('sk_sqd_abcd');
       expect(res.body.scopes).toEqual(['documents:read', 'documents:write']);
       expect(apiTokens.createToken).toHaveBeenCalledWith('test-user-id-123', 'My Token', {});
     });
@@ -101,11 +101,11 @@ describe('API Token Routes', () => {
 
     test('accepts custom scopes', async () => {
       apiTokens.createToken.mockResolvedValue({
-        token: 'sqd_test',
+        token: 'sk_sqd_test',
         record: {
           id: 'token-id-2',
           name: 'Read Only',
-          token_prefix: 'sqd_test',
+          token_prefix: 'sk_sqd_test',
           scopes: ['documents:read'],
           created_at: '2024-01-01T00:00:00Z',
         },
@@ -126,11 +126,11 @@ describe('API Token Routes', () => {
 
     test('uses default scopes when none provided', async () => {
       apiTokens.createToken.mockResolvedValue({
-        token: 'sqd_test',
+        token: 'sk_sqd_test',
         record: {
           id: 'token-id-3',
           name: 'Default Scopes',
-          token_prefix: 'sqd_test',
+          token_prefix: 'sk_sqd_test',
           scopes: ['documents:read', 'documents:write'],
           created_at: '2024-01-01T00:00:00Z',
         },
@@ -164,7 +164,7 @@ describe('API Token Routes', () => {
         {
           id: 'token-1',
           name: 'Token A',
-          token_prefix: 'sqd_aaaa',
+          token_prefix: 'sk_sqd_aaaa',
           scopes: ['documents:read', 'documents:write'],
           created_at: '2024-01-01T00:00:00Z',
           last_used_at: '2024-01-02T00:00:00Z',
@@ -178,7 +178,7 @@ describe('API Token Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.tokens).toHaveLength(1);
       expect(res.body.tokens[0].name).toBe('Token A');
-      expect(res.body.tokens[0].tokenPrefix).toBe('sqd_aaaa');
+      expect(res.body.tokens[0].tokenPrefix).toBe('sk_sqd_aaaa');
       expect(res.body.tokens[0].lastUsedAt).toBe('2024-01-02T00:00:00Z');
     });
 
@@ -197,7 +197,7 @@ describe('API Token Routes', () => {
         {
           id: 'token-1',
           name: 'Token',
-          token_prefix: 'sqd_aaaa',
+          token_prefix: 'sk_sqd_aaaa',
           scopes: ['documents:read'],
           created_at: '2024-01-01T00:00:00Z',
           last_used_at: null,

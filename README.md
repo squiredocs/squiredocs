@@ -482,7 +482,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - **Sandboxed TypeScript execution** - Scripts run in an `isolated-vm` V8 isolate (128 MB memory limit) with zero Node.js API access, on a dedicated worker thread
 - **Type-safe editing** - Full TypeScript support with type definitions
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
-- **API token authentication** - Personal access tokens (prefixed `sqd_`) as a simpler alternative to OAuth for programmatic access. Tokens work on the REST `/api` routes too, with scope enforcement: reads require `documents:read`, mutations require `documents:write`
+- **API token authentication** - Personal access tokens (prefixed `sk_sqd_`; legacy `sqd_` tokens remain valid) as a simpler alternative to OAuth for programmatic access. Tokens work on the REST `/api` routes too, with scope enforcement: reads require `documents:read`, mutations require `documents:write`. MCP-connected agents can also self-mint temporary tokens (scoped at or below their own grant, auto-expiring, cascade-revoked with their minting credential) via the `create_access_token` tool
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
 - **Atomic operations** - Entire scripts execute as single undo step
@@ -552,12 +552,12 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 
 **Alternative: API Token Authentication**
 
-For programmatic or headless access, users can create personal API tokens from the Settings page instead of going through the OAuth flow. Tokens are prefixed with `sqd_` and stored as SHA-256 hashes. Pass the token as a Bearer token in the `Authorization` header.
+For programmatic or headless access, users can create personal API tokens from the Settings page instead of going through the OAuth flow. Tokens are prefixed with `sk_sqd_` (tokens created before the prefix change use `sqd_` and remain valid) and stored as SHA-256 hashes. Pass the token as a Bearer token in the `Authorization` header. An MCP-connected agent that has no token can mint a temporary one itself with the `create_access_token` tool — capped at the agent's own scopes (default `documents:read`), expiring after at most 24 hours, and revoked automatically when the minting credential is revoked.
 
 API tokens also authenticate against the REST `/api` routes, so scripts can move document content over plain HTTP without an MCP client. For example, exporting a document as Markdown is one curl:
 
 ```bash
-curl -H "Authorization: Bearer sqd_..." \
+curl -H "Authorization: Bearer sk_sqd_..." \
   "https://squiredocs.com/api/docs/<docId>/export?format=markdown" -o doc.md
 ```
 

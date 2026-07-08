@@ -9,8 +9,10 @@ process.env.MCP_JWT_SECRET = 'test-mcp-secret';
 const { generateAgentToken } = require('../../auth/jwt');
 const apiTokens = require('../../auth/api-tokens');
 
-// Mock api-tokens module
+// Mock api-tokens module (keep the real isApiToken prefix check — the
+// middleware gates on it before hitting verifyToken)
 jest.mock('../../auth/api-tokens', () => ({
+  ...jest.requireActual('../../auth/api-tokens'),
   verifyToken: jest.fn(),
   init: jest.fn(),
 }));
@@ -42,7 +44,7 @@ const mockApiTokenRecord = {
   id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
   user_id: '123e4567-e89b-12d3-a456-426614174001',
   name: 'My CLI Token',
-  token_prefix: 'sqd_abcd',
+  token_prefix: 'sk_sqd_abcd',
   scopes: ['documents:read', 'documents:write'],
   created_at: new Date(),
   last_used_at: null,
@@ -69,18 +71,18 @@ describe('requireAgentAuth with API tokens', () => {
 
   test('accepts valid API token as Bearer token', async () => {
     apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
-    const { req, res, next } = createMocks('Bearer sqd_abcdefghij1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_abcdefghij1234567890abcdefghij12345678');
 
     await requireAgentAuth(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(req.agentToken).toBeDefined();
-    expect(apiTokens.verifyToken).toHaveBeenCalledWith('sqd_abcdefghij1234567890abcdefghij12345678');
+    expect(apiTokens.verifyToken).toHaveBeenCalledWith('sk_sqd_abcdefghij1234567890abcdefghij12345678');
   });
 
   test('sets req.agentToken with correct shape', async () => {
     apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
-    const { req, res, next } = createMocks('Bearer sqd_abcdefghij1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_abcdefghij1234567890abcdefghij12345678');
 
     await requireAgentAuth(req, res, next);
 
@@ -90,14 +92,14 @@ describe('requireAgentAuth with API tokens', () => {
       agentName: mockApiTokenRecord.name,
       scopes: mockApiTokenRecord.scopes,
       isAgent: true,
-      rawToken: 'sqd_abcdefghij1234567890abcdefghij12345678',
+      rawToken: 'sk_sqd_abcdefghij1234567890abcdefghij12345678',
       apiTokenId: mockApiTokenRecord.id,
     });
   });
 
   test('agentId is formatted as "api-token:{id}"', async () => {
     apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
-    const { req, res, next } = createMocks('Bearer sqd_abcdefghij1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_abcdefghij1234567890abcdefghij12345678');
 
     await requireAgentAuth(req, res, next);
 
@@ -106,7 +108,7 @@ describe('requireAgentAuth with API tokens', () => {
 
   test('returns 401 for revoked API token', async () => {
     apiTokens.verifyToken.mockResolvedValue(null);
-    const { req, res, next } = createMocks('Bearer sqd_revokedtoken1234567890abcdefghij12345');
+    const { req, res, next } = createMocks('Bearer sk_sqd_revokedtoken1234567890abcdefghij12345');
 
     await requireAgentAuth(req, res, next);
 
@@ -120,7 +122,7 @@ describe('requireAgentAuth with API tokens', () => {
 
   test('returns 401 for unknown token (neither JWT nor API token)', async () => {
     apiTokens.verifyToken.mockResolvedValue(null);
-    const { req, res, next } = createMocks('Bearer sqd_unknown1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_unknown1234567890abcdefghij12345678');
 
     await requireAgentAuth(req, res, next);
 
@@ -130,7 +132,7 @@ describe('requireAgentAuth with API tokens', () => {
 
   test('tries JWT first, falls back to API token lookup', async () => {
     apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
-    const { req, res, next } = createMocks('Bearer sqd_fallback1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_fallback1234567890abcdefghij12345678');
 
     await requireAgentAuth(req, res, next);
 
@@ -147,6 +149,16 @@ describe('requireAgentAuth with API tokens', () => {
     expect(apiTokens.verifyToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
   });
+
+  test('legacy sqd_-prefixed tokens are still accepted (dual-prefix)', async () => {
+    apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
+    const { req, res, next } = createMocks('Bearer sqd_legacytoken1234567890abcdefghij123456');
+
+    await requireAgentAuth(req, res, next);
+
+    expect(apiTokens.verifyToken).toHaveBeenCalledWith('sqd_legacytoken1234567890abcdefghij123456');
+    expect(next).toHaveBeenCalled();
+  });
 });
 
 describe('optionalAgentAuth with API tokens', () => {
@@ -156,7 +168,7 @@ describe('optionalAgentAuth with API tokens', () => {
 
   test('sets req.agentToken for valid API token', async () => {
     apiTokens.verifyToken.mockResolvedValue(mockApiTokenRecord);
-    const { req, res, next } = createMocks('Bearer sqd_optional1234567890abcdefghij12345678');
+    const { req, res, next } = createMocks('Bearer sk_sqd_optional1234567890abcdefghij12345678');
 
     await optionalAgentAuth(req, res, next);
 
@@ -167,7 +179,7 @@ describe('optionalAgentAuth with API tokens', () => {
 
   test('continues without error for invalid token', async () => {
     apiTokens.verifyToken.mockResolvedValue(null);
-    const { req, res, next } = createMocks('Bearer sqd_invalid1234567890abcdefghij1234567');
+    const { req, res, next } = createMocks('Bearer sk_sqd_invalid1234567890abcdefghij1234567');
 
     await optionalAgentAuth(req, res, next);
 

@@ -137,6 +137,15 @@ async function revokeDelegation(delegationId) {
     [delegationId]
   );
 
+  if (result.rowCount > 0) {
+    // Cascade: tokens minted via create_access_token die with their
+    // delegation. Required at every revocation site because revocation is
+    // done with raw SQL in three places (here and both oauth-flow handlers).
+    const apiTokens = require('./api-tokens'); // lazy: avoids import cycle at module load
+    await apiTokens.revokeMintedTokens({ delegationId })
+      .catch((err) => console.error('[delegation] minted-token cascade failed:', err));
+  }
+
   return result.rowCount > 0;
 }
 

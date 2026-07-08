@@ -19,6 +19,9 @@ const redo = require('./redo');
 // Document modification
 const modify = require('./modify');
 
+// Temporary REST API token minting (scoped <= caller, auto-expiring)
+const createAccessToken = require('./create-access-token');
+
 // Documentation for the script-based tools (modify, compare_document_versions)
 const getToolDocumentation = require('./get-tool-documentation');
 
@@ -50,6 +53,9 @@ const tools = {
 
   // Full API docs for the script-based tools (MCP clients truncate descriptions)
   get_tool_documentation: getToolDocumentation,
+
+  // Temporary API token minting for shell/REST access (e.g. export API)
+  create_access_token: createAccessToken,
 
   // Version history tools
   list_document_versions: listDocumentVersions,
@@ -114,6 +120,8 @@ const TOOL_SCOPES = {
   read_document_version: 'documents:read',
   compare_document_versions: 'documents:read',
   get_tool_documentation: 'documents:read',
+  // Minting is additionally capped at the caller's own scopes in the handler
+  create_access_token: 'documents:read',
 };
 
 /**

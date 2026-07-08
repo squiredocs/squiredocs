@@ -7,12 +7,12 @@ const { verifyAgentToken, extractAgentToken } = require('./jwt');
 const apiTokens = require('./api-tokens');
 
 /**
- * Try to authenticate via API token (sqd_ prefix)
+ * Try to authenticate via API token (sk_sqd_ prefix, or legacy sqd_)
  * @param {string} token - Raw token string
  * @returns {object|null} agentToken-shaped object or null
  */
 async function tryApiToken(token) {
-  if (!token || token.startsWith('eyJ')) return null;
+  if (!apiTokens.isApiToken(token)) return null;
   const record = await apiTokens.verifyToken(token);
   if (!record) return null;
   return {
@@ -29,7 +29,7 @@ async function tryApiToken(token) {
 /**
  * Middleware to require agent authentication
  * Extracts and verifies agent JWT from Authorization header or query parameter.
- * Falls back to API token (sqd_) verification if JWT fails.
+ * Falls back to API token (sk_sqd_/legacy sqd_) verification if JWT fails.
  * Sets req.agentToken with decoded token payload on success.
  */
 async function requireAgentAuth(req, res, next) {

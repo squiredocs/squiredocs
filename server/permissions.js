@@ -43,7 +43,7 @@ async function extractUser({ authHeader, token, queryToken }) {
         return verifyAgentToken(tokenString);
       } catch (e2) {
         // Not a valid agent token either, try as API token
-        if (tokenString && tokenString.startsWith('sqd_')) {
+        if (apiTokens.isApiToken(tokenString)) {
           try {
             const record = await apiTokens.verifyToken(tokenString);
             if (record) {

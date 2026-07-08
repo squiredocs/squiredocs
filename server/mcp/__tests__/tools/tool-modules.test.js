@@ -206,6 +206,8 @@ describe('Tool Registry Integration', () => {
       'modify',
       // Script-tool documentation
       'get_tool_documentation',
+      // Temporary API token minting
+      'create_access_token',
       // Version history tools
       'list_document_versions',
       'read_document_version',

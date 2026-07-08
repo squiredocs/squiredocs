@@ -47,6 +47,7 @@ function checkRedirectUri(agent, redirectUri) {
 const { validateCodeChallenge, generateAuthCode, hashAuthCode, validateCodeVerifier } = require('./pkce');
 const { generateAgentToken } = require('./jwt');
 const { createDelegation, getActiveDelegation } = require('./delegation');
+const apiTokens = require('./api-tokens');
 
 let pool = null;
 
@@ -507,6 +508,12 @@ async function handleRevoke(req, res) {
     [tokenHash]
   );
 
+  // Cascade: tokens minted via create_access_token die with their delegation.
+  if (result.rows.length > 0) {
+    await apiTokens.revokeMintedTokens({ delegationId: result.rows[0].id })
+      .catch((err) => console.error('[oauth] minted-token cascade failed on revoke:', err));
+  }
+
   // Always return 200 per RFC 7009
   res.json({ success: true });
 }
@@ -578,6 +585,10 @@ async function handleDeleteDelegation(req, res) {
   if (result.rowCount === 0) {
     return res.status(404).json({ error: 'Delegation not found' });
   }
+
+  // Cascade: tokens minted via create_access_token die with their delegation.
+  await apiTokens.revokeMintedTokens({ delegationId: id })
+    .catch((err) => console.error('[oauth] minted-token cascade failed on delete:', err));
 
   res.json({ success: true });
 }

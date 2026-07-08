@@ -174,8 +174,9 @@ const SERVER_INSTRUCTIONS =
   + '{ tool: "compare_document_versions" }) before writing your first script. '
   + 'Read documents with read_document (optionally XPath-filtered); build '
   + 'documents incrementally with multiple small modify calls. For bulk or '
-  + 'scripted markdown export (content over HTTP via curl + an sqd_ API '
-  + 'token, not through model context), a REST endpoint exists — see '
+  + 'scripted markdown export (content over HTTP via curl + an sk_sqd_ API '
+  + 'token, not through model context), a REST endpoint exists — mint a '
+  + 'token yourself with create_access_token, or see '
   + 'get_tool_documentation({ tool: "export_api" }).';
 
 /**
