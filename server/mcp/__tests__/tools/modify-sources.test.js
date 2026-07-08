@@ -495,10 +495,15 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
       expect(newUrl).toMatch(new RegExp(`^/api/docs/${targetGuid}/images/`));
 
       // Both cloned nodes point at the single target-doc copy (the rewrite is
-      // the handler's final mutation — poll until it reaches the DB)
+      // the handler's final mutation — poll until it reaches the DB). The
+      // predicate must require the nodes to EXIST, not just satisfy every():
+      // before the modify persists, the DB view of the doc is empty and an
+      // every() over zero nodes passes vacuously.
       const targetDoc = await waitForDocState(targetGuid,
-        f => f.toArray().filter(n => n.nodeName === 'image')
-          .every(n => n.getAttribute('src') === newUrl),
+        f => {
+          const imgs = f.toArray().filter(n => n.nodeName === 'image');
+          return imgs.length === 2 && imgs.every(n => n.getAttribute('src') === newUrl);
+        },
         'rewritten image srcs');
       const frag = targetDoc.get('default', Y.XmlFragment);
       const imageNodes = frag.toArray().filter(n => n.nodeName === 'image');
@@ -560,10 +565,16 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
       expect(result.message).toMatch(/removed/);
 
       // Both image nodes stripped; the paragraph survives (strips are the
-      // handler's final mutation — poll until they reach the DB)
+      // handler's final mutation — poll until they reach the DB). "Zero image
+      // nodes" alone is vacuously true while the doc's updates haven't
+      // persisted yet (empty DB view) — also require the paragraph content,
+      // which proves the modify actually landed. This raced in CI (run
+      // 28895138424): the poll returned the pre-persist empty doc and the
+      // 'kept' assertion read "".
       const targetDoc = await waitForDocState(targetGuid,
-        f => f.toArray().filter(n => n.nodeName === 'image').length === 0,
-        'stripped image nodes');
+        f => toMarkdown(f).includes('kept')
+          && f.toArray().filter(n => n.nodeName === 'image').length === 0,
+        'stripped image nodes with content persisted');
       const frag = targetDoc.get('default', Y.XmlFragment);
       expect(toMarkdown(frag)).toContain('kept');
       targetDoc.destroy();
