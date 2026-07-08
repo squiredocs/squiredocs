@@ -82,12 +82,13 @@ PARAMETERS:
 - timeout: Execution timeout in ms (optional, default 5000, max 30000)
 - sourceDocGuids: Up to 10 other doc UUIDs exposed read-only as \`sources\`;
   copy across docs with cloneBlocks() (see "working-with-source-documents")
+- echoContent: true to echo the full updated document (default false)
 
-RETURNS: changed, content (the full updated document — no need to re-read
-before the next modify), clock, operationCount, summary; conflict + editedBy
-when someone else edited since you last read it (read the returned content,
-merge, retry). Script errors include line numbers and hints — if one directs
-you to get_tool_documentation, fetch the docs before retrying.`;
+RETURNS: changed, diff (verify your edit with it), clock, operationCount,
+summary; content only with echoContent: true. conflict + editedBy on
+concurrent edits (re-read the doc, merge, retry). Script errors include
+line numbers and hints — follow them (they may point to
+get_tool_documentation).`;
 
 const chatDescription = MODIFY_DOCUMENTATION;
 
@@ -119,6 +120,14 @@ const inputSchema = {
         + 'matches array order). Use with cloneBlocks() to copy or merge content from '
         + 'other documents (e.g. concatenate docs) without re-typing it. Viewer access '
         + 'suffices. Must not include docGuid.',
+    },
+    echoContent: {
+      type: 'boolean',
+      default: false,
+      description: 'Echo the full updated document content in the result. Default '
+        + 'false: the result contains diff, summary, and clock but not content — '
+        + 'use read_document if you need the full document. Even when true, content '
+        + 'over 60,000 characters is omitted.',
     },
   },
   required: ['docGuid', 'script'],
@@ -245,6 +254,7 @@ async function handlerImpl(args, agentToken) {
   }
 
   const { docGuid, script, timeout = 5000 } = args;
+  const echoContent = args.echoContent === true;
 
   // Validate script before execution
   validateScript(script);
@@ -327,20 +337,27 @@ async function handlerImpl(args, agentToken) {
           editedBy,
           clock: currentClock,
           message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
-            + 'Your change was NOT applied, to avoid overwriting their edits. The current document '
-            + 'content is included below. Read it, fold in their changes, then retry your modify.',
+            + 'Your change was NOT applied, to avoid overwriting their edits. '
+            + (echoContent
+              ? 'The current document content is included below. Read it, fold in their changes, '
+                + 'then retry your modify.'
+              : 'Re-read the document with read_document, fold in their changes, then retry your modify.'),
         };
-        try {
-          const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
-          if (JSON.stringify(serialized.content).length <= MAX_ECHO_CONTENT_CHARS) {
-            conflict.content = serialized.content;
-            conflict.blockCount = serialized.blockCount;
-            conflict.characterCount = serialized.characterCount;
-          } else {
-            conflict.contentOmitted = true;
+        if (echoContent) {
+          try {
+            const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
+            if (JSON.stringify(serialized.content).length <= MAX_ECHO_CONTENT_CHARS) {
+              conflict.content = serialized.content;
+              conflict.blockCount = serialized.blockCount;
+              conflict.characterCount = serialized.characterCount;
+            } else {
+              conflict.contentOmitted = true;
+            }
+          } catch (e) {
+            console.error('[modify] conflict content serialization failed:', e.message);
           }
-        } catch (e) {
-          console.error('[modify] conflict content serialization failed:', e.message);
+        } else {
+          conflict.contentOmitted = true;
         }
         return conflict;
       }
@@ -445,13 +462,15 @@ async function handlerImpl(args, agentToken) {
         } catch (e) {
           console.error('[modify] diff computation failed:', e.message);
         }
-        try {
-          const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
-          content = serialized.content;
-          characterCount = serialized.characterCount;
-          updatedBlockCount = serialized.blockCount;
-        } catch (e) {
-          console.error('[modify] content serialization failed:', e.message);
+        if (echoContent) {
+          try {
+            const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');
+            content = serialized.content;
+            characterCount = serialized.characterCount;
+            updatedBlockCount = serialized.blockCount;
+          } catch (e) {
+            console.error('[modify] content serialization failed:', e.message);
+          }
         }
         // Diagram blocks only render in the browser, so a Mermaid syntax error
         // or SVG content the editor's sanitizer strips would otherwise be
@@ -478,6 +497,11 @@ async function handlerImpl(args, agentToken) {
       };
       if (sourceGuids.length > 0) {
         response.sourceDocGuids = sourceGuids;
+      }
+      if (changed && !echoContent) {
+        response.contentOmitted = true;
+        response.message = 'Document updated. The diff shows what changed; use read_document '
+          + '(or pass echoContent: true) if you need the full current content.';
       }
       if (changed && content !== null) {
         response.blockCount = updatedBlockCount;

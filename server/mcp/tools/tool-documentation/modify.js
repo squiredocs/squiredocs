@@ -469,6 +469,10 @@ PARAMETERS
 - timeout: Execution timeout in milliseconds (optional, default: 5000, max: 30000)
 - sourceDocGuids: Up to 10 other document UUIDs exposed read-only to the
   script as the \`sources\` global (optional; see WORKING WITH SOURCE DOCUMENTS)
+- echoContent: Echo the full updated document content in the result (optional,
+  default: false). Leave it off for normal editing — the returned diff is
+  enough to verify your change, and skipping the echo keeps responses small
+  across a long editing session.
 
 ═══════════════════════════════════════════════════════════════════════════
 RETURNS
@@ -478,10 +482,11 @@ RETURNS
 - message: Diagnostic guidance when changed is false (explains likely cause and next steps)
 - operationCount: Number of Yjs operations performed
 - summary: Object mapping operation types to counts
-- content: The full updated document (structured format, same as read_document) when changed is true. This reflects the document AFTER your edit, so you do not need to re-read it before the next modify.
-- blockCount / characterCount: Size of the updated document
+- content: The full updated document (structured format, same as read_document), only when echoContent: true was passed and the document is under 60,000 characters. This reflects the document AFTER your edit.
+- contentOmitted: true when the content was not echoed (echoContent off, or the document is too large). Use read_document if you need the full current content.
+- blockCount / characterCount: Size of the updated document (present only with echoContent: true)
 - clock: The document's update counter, so you can track its version
-- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it) and the current content. Read it, fold in their changes, and retry.
+- conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it). Re-read the document with read_document (or retry with echoContent: true to get the current content inline), fold in their changes, and retry.
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
 - svgErrors: Present only if the document contains SVG block(s) with problems: content the editor's sanitizer will strip (scripts, event handlers, foreignObject, external references), a missing <svg> root, or malformed XML. Same { block, error, source } shape as mermaidErrors. The edit was still applied; fix the reported block(s) in a follow-up modify.
 - sourceDocGuids: Echo of the source documents that were exposed to the script
@@ -704,10 +709,12 @@ await modify({
 QUICK REFERENCE: Key behaviors & techniques
 ═══════════════════════════════════════════════════════════════════════════
 
-⭐ VERIFY YOUR CHANGES: the modify result includes the updated document content
-— confirm it matches your intent (location, formatting, list nesting). For a
-targeted check, use read_document with an xpath, e.g.:
+⭐ VERIFY YOUR CHANGES: the modify result includes a diff of what your edit
+changed — confirm it matches your intent (location, formatting, list nesting).
+For a targeted check of the surrounding document, use read_document with an
+xpath, e.g.:
   "//heading[contains(., 'Summary')]/following-sibling::*[position()<=3]"
+Or pass echoContent: true to get the full updated document back inline.
 
 SCRIPT EXECUTION BEHAVIOR:
 • All changes batched in single transaction → entire script = one undo step

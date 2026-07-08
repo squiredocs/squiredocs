@@ -385,13 +385,14 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
           const result = await toolRegistry.executeTool(name, args, syntheticAgentToken);
 
           // Advance the observed-clock baseline as the agent sees fresh document
-          // state. read_document and modify (success OR conflict) echo content at
-          // result.clock, so after either the agent has "seen" that clock. Without
-          // this, the baseline stays frozen at request start and a modify conflict
-          // can never clear mid-turn: every retry resends the same stale _baseClock
-          // and re-trips the same conflict. (Cross-turn, getObservedClocks recovers
-          // it from history; this makes reconciliation work within a turn too.)
-          if (observedClockHolder?.byDoc && args?.docGuid && SNAPSHOT_TOOLS.has(name)) {
+          // state (read_document result, modify success, or a modify conflict that
+          // echoed the current content). Without this, the baseline stays frozen at
+          // request start and a conflict can never clear mid-turn. A conflict WITHOUT
+          // echoed content must NOT advance the baseline: the agent hasn't seen the
+          // other author's edits, so a blind retry should re-trip the guard until it
+          // calls read_document (which advances the clock).
+          const sawContent = !(result?.conflict === true && result?.content === undefined);
+          if (observedClockHolder?.byDoc && args?.docGuid && SNAPSHOT_TOOLS.has(name) && sawContent) {
             const clk = result?.clock;
             if (typeof clk === 'number') {
               const prev = observedClockHolder.byDoc.get(args.docGuid);

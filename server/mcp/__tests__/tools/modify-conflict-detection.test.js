@@ -218,6 +218,46 @@ describe('modify conflict detection (content-aware gating)', () => {
 
     expect(result.conflict).toBe(true);
     expect(result.editedBy).toEqual(expect.arrayContaining(['Modify Conflict Test User']));
+    // Default (no echoContent): no content echo, message points at read_document
+    expect(result.content).toBeUndefined();
+    expect(result.contentOmitted).toBe(true);
+    expect(result.message).toContain('read_document');
+    expect(result.message).not.toContain('included below');
+  }, 30000);
+
+  test('conflict with echoContent: true includes the current content', async () => {
+    const modify = toolRegistry.getTool('modify');
+    const { docGuid, baseClock } = await seedDoc('Echoed Conflict Test');
+
+    injectForeignUpdate(docGuid, (ydoc) => {
+      const frag = ydoc.get('default', Y.XmlFragment);
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'sam typed this too');
+      p.insert(0, [t]);
+      frag.insert(frag.length, [p]);
+    });
+    await flushPersistence();
+
+    const result = await modify.handler({
+      docGuid,
+      _baseClock: baseClock,
+      echoContent: true,
+      script: `
+        export default function edit(doc) {
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'agent-overwrite');
+          p.insert(0, [t]);
+          doc.insert(doc.length, [p]);
+        }
+      `,
+    }, agentToken());
+
+    expect(result.conflict).toBe(true);
+    expect(result.content).toBeDefined();
+    expect(result.contentOmitted).toBeUndefined();
+    expect(result.message).toContain('included below');
   }, 30000);
 
   test('foreign update that touches BOTH meta and content triggers conflict', async () => {

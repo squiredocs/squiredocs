@@ -3,7 +3,8 @@
  *
  * The assistant accumulates full-document snapshots two ways:
  *   - read_document / read_document_version results
- *   - modify results, which echo the updated document content
+ *   - modify results that echo the updated document content (only when the
+ *     caller passed echoContent: true; the default result carries no snapshot)
  *
  * Keeping every snapshot in context wastes the window and lets the model act
  * on a stale copy. We keep only the most recent full-document snapshot per

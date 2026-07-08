@@ -168,8 +168,31 @@ describe('chat-tools', () => {
       expect(holder.byDoc.get(DOC)).toBe(54);
     });
 
-    it('advances the holder from a modify conflict result clock', async () => {
-      mockExecuteTool.mockResolvedValue({ changed: false, conflict: true, clock: 54 });
+    it('advances the holder from a modify conflict that echoed content', async () => {
+      mockExecuteTool.mockResolvedValue({ changed: false, conflict: true, clock: 54, content: [] });
+      const holder = { byDoc: new Map([[DOC, 50]]) };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      await findExecute('Modify a doc')({ docGuid: DOC });
+      expect(holder.byDoc.get(DOC)).toBe(54);
+    });
+
+    it('does NOT advance the holder from a content-less modify conflict', async () => {
+      // Without the echoed content the agent has not seen the other author's
+      // edits — a blind retry must re-trip the conflict guard until it
+      // read_documents (which advances the clock).
+      mockExecuteTool.mockResolvedValue({
+        changed: false, conflict: true, clock: 54, contentOmitted: true,
+      });
+      const holder = { byDoc: new Map([[DOC, 50]]) };
+      buildTools(fakeToken, { observedClockHolder: holder });
+
+      await findExecute('Modify a doc')({ docGuid: DOC });
+      expect(holder.byDoc.get(DOC)).toBe(50);
+    });
+
+    it('advances the holder from a modify success without echoed content', async () => {
+      mockExecuteTool.mockResolvedValue({ changed: true, clock: 54, contentOmitted: true });
       const holder = { byDoc: new Map([[DOC, 50]]) };
       buildTools(fakeToken, { observedClockHolder: holder });
 
