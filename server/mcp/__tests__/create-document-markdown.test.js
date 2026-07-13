@@ -161,6 +161,29 @@ describe('create_document with markdown', () => {
     expect(fragment.get(0).nodeName).toBe('paragraph');
   });
 
+  test('F1: body that is only a data: image falls back to an anchored doc, no orphan', async () => {
+    // deriveImportTitle counts the image block BEFORE the image policy, so this
+    // takes the seed-and-import path; prepareImport then drops the data: image
+    // and would throw EMPTY_IMPORT. The tool must NOT surface an error while
+    // leaving an empty untitled doc behind — it falls back to the anchor-only
+    // shape and reports the dropped image.
+    const result = await call({ markdown: '![ ](data:image/png;base64,AAAA)' });
+    expect(result.docGuid).toBeTruthy();
+    expect(result.title).toBe('Untitled');
+    expect(result.blocks).toEqual({ imported: 0 });
+    expect(result.images.rejected).toHaveLength(1);
+    expect(result.images.rejected[0].reason).toBe('data-url');
+
+    // The created doc is a real anchored doc, not a bodyless orphan.
+    const fragment = fragmentOf(result.docGuid);
+    expect(fragment.length).toBe(1);
+    expect(fragment.get(0).nodeName).toBe('paragraph');
+
+    // And the document row exists (was not rolled back).
+    const row = await pool.query('SELECT title FROM documents WHERE id = $1', [result.docGuid]);
+    expect(row.rows[0].title).toBe('Untitled');
+  });
+
   test('title-only call unchanged (regression): empty anchor paragraph, no blocks field', async () => {
     const result = await call({ title: 'Just A Title' });
     expect(result.title).toBe('Just A Title');

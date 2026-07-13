@@ -163,22 +163,41 @@ function createImportRouter(persistence) {
           agentName: req.user.agentName || null,
         });
         const ydoc = documentService.getSharedDoc(docId);
-        const report = await importMarkdown(ydoc, markdown, {
-          mode: 'append',
-          actor: actorFrom(req.user),
-          imageContext: { docId },
-        });
-        blocks = report.blocks;
-        images = report.images;
-        minRows = 2; // seed + import
+        try {
+          const report = await importMarkdown(ydoc, markdown, {
+            mode: 'append',
+            actor: actorFrom(req.user),
+            imageContext: { docId },
+          });
+          blocks = report.blocks;
+          images = report.images;
+          minRows = 2; // seed + import
+        } catch (error) {
+          if (!(error instanceof ImportError && error.code === 'EMPTY_IMPORT')) throw error;
+          // deriveImportTitle counted image block(s) BEFORE the image policy;
+          // prepareImport then dropped them all, so nothing remained to import.
+          // The doc row + empty Yjs doc already exist — rather than return 400
+          // and leave an orphaned untitled empty doc (F1), fall back to the
+          // frontmatter-only shape: seed the anchor paragraph and return 201
+          // with the itemized dropped-image report so nothing vanishes silently.
+          await documentService.updateDocument(
+            docId,
+            (liveDoc) => {
+              const liveFragment = liveDoc.get('default', Y.XmlFragment);
+              if (liveFragment.length === 0) {
+                liveFragment.insert(0, [buildYjsNode({ type: 'paragraph' })]);
+              }
+            },
+            { userId, agentName: req.user.agentName || null }
+          );
+          if (error.images) images = error.images;
+          minRows = 2; // seed + anchor
+        }
       }
 
       const clock = await waitForClock(persistence, docId, minRows);
       return res.status(201).json({ docId, title, url: `/d/${docId}`, clock, blocks, images });
     } catch (error) {
-      if (error instanceof ImportError && error.code === 'EMPTY_IMPORT') {
-        return res.status(400).json({ error: error.message });
-      }
       console.error('Error importing document (create):', error);
       notifyException(error, { req, source: 'api' });
       return res.status(500).json({ error: 'Failed to import document' });

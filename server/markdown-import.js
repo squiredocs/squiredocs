@@ -52,10 +52,14 @@ const {
 
 /** Error with a stable `code` the surfaces map to HTTP statuses. */
 class ImportError extends Error {
-  constructor(code, message) {
+  constructor(code, message, images = null) {
     super(message);
     this.name = 'ImportError';
     this.code = code;
+    // EMPTY_IMPORT carries the itemized image report so the create surfaces can
+    // surface the dropped image(s) when they fall back to the anchor-only doc
+    // (F1) instead of losing them with the thrown error.
+    if (images) this.images = images;
   }
 }
 
@@ -106,9 +110,12 @@ async function prepareImport(markdown, imageContext) {
 
   const hasImages = pmJson.content.some((b) => b && b.type === 'image');
   if (!hasRealContent(pmJson) && !hasImages) {
+    // `rejected` already itemizes any data: images the policy stripped here
+    // (the common cause of a body that looked non-empty pre-policy — F1).
     throw new ImportError(
       'EMPTY_IMPORT',
-      'Nothing to import: the markdown is empty (or empty once frontmatter is removed).'
+      'Nothing to import: the markdown is empty (or empty once frontmatter is removed).',
+      { rehosted: [], copied: [], degraded: [], rejected }
     );
   }
 
@@ -146,7 +153,8 @@ async function prepareImport(markdown, imageContext) {
   if (nodes.length === 0) {
     throw new ImportError(
       'EMPTY_IMPORT',
-      'Nothing to import: no content remained after image policy was applied.'
+      'Nothing to import: no content remained after image policy was applied.',
+      images
     );
   }
 

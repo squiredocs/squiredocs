@@ -5,11 +5,12 @@
  * Uses the same application logic as regular user document creation.
  * Content should be added separately via the modify tool.
  */
+const Y = require('yjs');
 const documentService = require('../../document-service');
 const agentPresence = require('../agent-presence');
 const onboarding = require('../../onboarding');
 const { buildYjsNode } = require('../yjs/node-builder');
-const { importMarkdown, deriveImportTitle } = require('../../markdown-import');
+const { importMarkdown, deriveImportTitle, ImportError } = require('../../markdown-import');
 
 // create_document delegates record creation + Yjs seeding to
 // documentService.createSeededDocument (which uses the documents +
@@ -112,11 +113,34 @@ async function handler(args, agentToken) {
   let importReport = null;
   if (seedContent) {
     const ydoc = documentService.getSharedDoc(docGuid);
-    importReport = await importMarkdown(ydoc, markdown, {
-      mode: 'append',
-      actor: { userId, agentName: agentToken.agentName || null },
-      imageContext: { docId: docGuid },
-    });
+    try {
+      importReport = await importMarkdown(ydoc, markdown, {
+        mode: 'append',
+        actor: { userId, agentName: agentToken.agentName || null },
+        imageContext: { docId: docGuid },
+      });
+    } catch (error) {
+      if (!(error instanceof ImportError && error.code === 'EMPTY_IMPORT')) throw error;
+      // deriveImportTitle counted image block(s) BEFORE the image policy;
+      // prepareImport then dropped them all. The doc was already created with an
+      // empty body — rather than throw and orphan an empty untitled doc (F1),
+      // seed the anchor paragraph (frontmatter-only shape) and report the
+      // dropped image(s) so nothing vanishes silently.
+      await documentService.updateDocument(
+        docGuid,
+        (liveDoc) => {
+          const liveFragment = liveDoc.get('default', Y.XmlFragment);
+          if (liveFragment.length === 0) {
+            liveFragment.insert(0, [buildYjsNode({ type: 'paragraph' })]);
+          }
+        },
+        { userId, agentName: agentToken.agentName || null }
+      );
+      importReport = {
+        blocks: { imported: 0 },
+        images: error.images || { rehosted: [], copied: [], degraded: [], rejected: [] },
+      };
+    }
   }
 
   console.log(`[create_document] created docGuid=${docGuid}`);
