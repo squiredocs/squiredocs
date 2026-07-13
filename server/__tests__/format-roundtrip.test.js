@@ -703,6 +703,57 @@ describe('portable flavor (registry-derived, SC-002/SC-003/SC-006)', () => {
     expect(toMarkdown(frag)).toContain('```mermaid');
     doc.destroy();
   });
+
+  // FR-012 across an op boundary: two neighbouring segments whose
+  // portable-effective wraps coincide must merge into ONE delimiter pair.
+  // underline degrades to italic `_`, so underline"foo" + italic"bar" would
+  // naively emit `_foo__bar_`, which re-parses as italic "foo__bar" with a
+  // LITERAL `__` injected into the text (content corruption). The merge emits
+  // `_foobar_`, re-parsing to italic "foobar" with the text intact.
+  test('adjacent segments with identical portable wraps do not double delimiters', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const para = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'foo', { underline: true });
+      t.insert(3, 'bar', { italic: true });
+      para.insert(0, [t]);
+      frag.insert(0, [para]);
+    });
+    const md = toMarkdown(frag, { flavor: 'portable' });
+    expect(md).toBe('_foobar_');
+    expect(md).not.toContain('__'); // no doubled delimiter
+    // Round-trips with text content intact (no literal underscores leak).
+    const pm = markdownToPm(md);
+    const runs = pm.content[0].content;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].text).toBe('foobar');
+    expect(runs[0].marks.map((m) => m.type)).toEqual(['italic']);
+    // Squire flavor is untouched: distinct delimiters, no merge.
+    expect(toMarkdown(frag)).toBe('<u>foo</u>_bar_');
+    doc.destroy();
+  });
+
+  // highlight → bold `**`; adjacent to a native bold run it likewise merges.
+  test('adjacent highlight+bold merge to a single bold delimiter pair', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const para = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'hi', { highlight: true });
+      t.insert(2, 'there', { bold: true });
+      para.insert(0, [t]);
+      frag.insert(0, [para]);
+    });
+    const md = toMarkdown(frag, { flavor: 'portable' });
+    expect(md).toBe('**hithere**');
+    const pm = markdownToPm(md);
+    expect(pm.content[0].content).toHaveLength(1);
+    expect(pm.content[0].content[0].text).toBe('hithere');
+    doc.destroy();
+  });
 });
 
 // ---------------------------------------------------------------------------

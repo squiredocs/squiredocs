@@ -84,58 +84,87 @@ function toMarkdownNodes(nodes, options = {}) {
   const portable = flavor === 'portable';
   const parts = [];
 
+  // Compute the ordered wrap pairs a delta op emits (innermost first). Every
+  // decoration — mark, textStyle span, link — reduces to a {pre, post} pair,
+  // so the emission plan is a list of pairs plus a stable key describing it.
+  // Degradation and same-op collapse (FR-011/FR-012) are resolved here.
+  function inlinePlan(a) {
+    const pairs = [];
+    // Portable: identical delimiter pairs collapse to one emission (FR-012).
+    // Pre-seed with the pairs the op's native marks will emit so a degraded
+    // mark whose target coincides never doubles delimiters within the op.
+    let emittedPairs = null;
+    if (portable) {
+      emittedPairs = new Set();
+      for (const m of INLINE_MARKS) {
+        if (a[m.yjsAttr] && !m.portable && m.wrap) {
+          emittedPairs.add(m.wrap[0] + '\u0000' + m.wrap[1]);
+        }
+      }
+    }
+    // Marks from registry (innermost first)
+    for (const m of INLINE_MARKS) {
+      if (!a[m.yjsAttr]) continue;
+      if (portable && m.portable) {
+        // Degradation declared in the registry (FR-011): substitute the
+        // declared markdown wrap for the HTML tag. Still counts as lossy even
+        // when the delimiters collapse with a native mark's.
+        if (lossy) lossy.add(m.name);
+        const key = m.portable.wrap[0] + '\u0000' + m.portable.wrap[1];
+        if (!emittedPairs.has(key)) {
+          emittedPairs.add(key);
+          pairs.push({ pre: m.portable.wrap[0], post: m.portable.wrap[1] });
+        }
+        continue;
+      }
+      if (m.wrap) pairs.push({ pre: m.wrap[0], post: m.wrap[1] });
+      else pairs.push({ pre: `<${m.htmlTag}>`, post: `</${m.htmlTag}>` });
+    }
+    // textStyle: CSS from registry-derived STYLE_PROPS
+    const ts = typeof a.textStyle === 'object' && a.textStyle;
+    if (ts) {
+      const css = attrsToCSS(ts);
+      if (css) {
+        if (portable && TEXTSTYLE_PORTABLE.drop) {
+          // Styling dropped, text preserved (FR-010).
+          if (lossy) lossy.add('textStyle');
+        } else {
+          pairs.push({ pre: `<span style="${css}">`, post: '</span>' });
+        }
+      }
+    }
+    // link (custom — not a simple wrap/tag, but still a pre/post pair)
+    if (a.link) {
+      const href = typeof a.link === 'object' ? a.link.href : a.link;
+      pairs.push({ pre: '[', post: `](${href})` });
+    }
+    return { pairs, key: JSON.stringify(pairs) };
+  }
+
   function renderInline(textNode) {
     const delta = textNode.toDelta();
-    let out = '';
+    // Build per-op emission plans. In portable flavor, merge adjacent ops
+    // whose portable-effective wrap set is identical BEFORE wrapping: two
+    // neighbours that both degrade/collapse to the same delimiter (e.g.
+    // underline"foo" + italic"bar" → both `_..._`) would otherwise emit
+    // `_foo__bar_`, which re-parses as italic "foo__bar" with a literal `__`
+    // in the text (FR-012, content-never-lost). Squire is untouched — its
+    // marks emit distinct delimiters, so per-op wrapping stays byte-identical.
+    const units = [];
     for (const op of delta) {
       if (typeof op.insert !== 'string') continue;
-      let seg = op.insert;
-      const a = op.attributes || {};
-      // Portable flavor: identical delimiter pairs collapse to one emission
-      // (FR-012). Pre-compute the pairs the segment's native marks will emit
-      // so a degraded mark whose target coincides never doubles delimiters.
-      let emittedPairs = null;
-      if (portable) {
-        emittedPairs = new Set();
-        for (const m of INLINE_MARKS) {
-          if (a[m.yjsAttr] && !m.portable && m.wrap) {
-            emittedPairs.add(m.wrap[0] + '\u0000' + m.wrap[1]);
-          }
-        }
+      const plan = inlinePlan(op.attributes || {});
+      const last = units[units.length - 1];
+      if (portable && last && last.key === plan.key) {
+        last.text += op.insert;
+      } else {
+        units.push({ text: op.insert, pairs: plan.pairs, key: plan.key });
       }
-      // Apply marks from registry (innermost first)
-      for (const m of INLINE_MARKS) {
-        if (!a[m.yjsAttr]) continue;
-        if (portable && m.portable) {
-          // Degradation declared in the registry (FR-011): substitute the
-          // declared markdown wrap for the HTML tag. Still counts as lossy
-          // even when the delimiters collapse with a native mark's.
-          if (lossy) lossy.add(m.name);
-          const key = m.portable.wrap[0] + '\u0000' + m.portable.wrap[1];
-          if (!emittedPairs.has(key)) {
-            emittedPairs.add(key);
-            seg = m.portable.wrap[0] + seg + m.portable.wrap[1];
-          }
-          continue;
-        }
-        if (m.wrap) seg = m.wrap[0] + seg + m.wrap[1];
-        else seg = `<${m.htmlTag}>${seg}</${m.htmlTag}>`;
-      }
-      // textStyle: CSS from registry-derived STYLE_PROPS
-      const ts = typeof a.textStyle === 'object' && a.textStyle;
-      if (ts) {
-        const css = attrsToCSS(ts);
-        if (css) {
-          if (portable && TEXTSTYLE_PORTABLE.drop) {
-            // Styling dropped, text preserved (FR-010).
-            if (lossy) lossy.add('textStyle');
-          } else {
-            seg = `<span style="${css}">${seg}</span>`;
-          }
-        }
-      }
-      // link (custom — not a simple wrap/tag)
-      if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
+    }
+    let out = '';
+    for (const u of units) {
+      let seg = u.text;
+      for (const { pre, post } of u.pairs) seg = pre + seg + post;
       out += seg;
     }
     return out;
