@@ -93,7 +93,12 @@ const {
 const { markdownToPm } = require('../shared/markdown');
 const { INLINE_MARKS } = require('../shared/format-registry');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
-const { reconstructImages, sanitizeLinkMarks } = require('./markdown-import');
+const {
+  reconstructImages,
+  sanitizeLinkMarks,
+  rejectDataImages,
+  stageImagePass,
+} = require('./markdown-import');
 const { ORIGIN_DB_LOAD } = require('./origin');
 const searchIndexer = require('./search-indexer');
 
@@ -316,6 +321,39 @@ function canonicalizePushed(body, { flavor = 'squire' } = {}) {
 }
 
 /**
+ * Async counterpart to canonicalizePushed that applies the FULL import image
+ * policy before serializing (F1). Runs the exact staged pipeline prepareImport
+ * uses: parse → reconstructImages → sanitizeLinkMarks → rejectDataImages →
+ * materialize → staged external rehost/degrade + access-checked cross-doc
+ * reconciliation (with the acting user as `imageContext.userId`) → serialize the
+ * POST-POLICY nodes. So the canonical string that drives the diff — and thus
+ * every structural fragment re-parsed during replay (mdToNodes) — carries only
+ * vetted srcs: app URLs, degraded links, or dropped alt text. A `data:` payload,
+ * an unfetched external src, or a cross-doc ref the pusher can't read never
+ * reaches the fork. Returns { markdown, images } (images: 002 report shape).
+ */
+async function canonicalizePushedStaged(body, { flavor = 'squire', imageContext } = {}) {
+  let pmJson = markdownToPm(body);
+  pmJson = reconstructImages(pmJson);
+  pmJson = sanitizeLinkMarks(pmJson);
+  const rejected = rejectDataImages(pmJson);
+  const detached = pmJsonToNodes(pmJson);
+  if (detached.length === 0) {
+    return { markdown: '', images: { rehosted: [], copied: [], degraded: [], rejected } };
+  }
+  const { nodes, images } = await stageImagePass(detached, imageContext, rejected);
+  if (nodes.length === 0) return { markdown: '', images };
+  const scratch = new Y.Doc();
+  try {
+    const frag = scratch.get('default', Y.XmlFragment);
+    scratch.transact(() => frag.insert(0, nodes));
+    return { markdown: toMarkdownNodes(frag.toArray(), { flavor }), images };
+  } finally {
+    scratch.destroy();
+  }
+}
+
+/**
  * Resolve `./assets/…` image references in a pushed body back to their document
  * image app-URLs via the file's `squire.images` map (relPath → imageId), so a
  * bundle-exported file diffs against the doc's app-URL baseline and unchanged
@@ -335,12 +373,21 @@ function resolveImageRefs(body, imageMap, docGuid) {
   return out;
 }
 
-/** Parse a markdown fragment into detached Yjs nodes (import canonicalization). */
+/**
+ * Parse a markdown fragment into detached Yjs nodes (import canonicalization).
+ * Runs the SYNCHRONOUS portion of the import image policy — reconstructImages →
+ * sanitizeLinkMarks → rejectDataImages — as defense-in-depth (F1): the async
+ * rehost/cross-doc passes already ran up front in canonicalizePushedStaged, so
+ * every fragment re-parsed here is post-policy, but stripping any stray `data:`
+ * image guarantees one can never be materialized into the fork even if a raw
+ * src ever reached this path.
+ */
 function mdToNodes(md) {
   if (md.trim() === '') return [];
   let pm = markdownToPm(md);
   pm = reconstructImages(pm);
   pm = sanitizeLinkMarks(pm);
+  rejectDataImages(pm); // mutates pm.content in place; drops data: image nodes
   return pmJsonToNodes(pm);
 }
 
@@ -969,9 +1016,12 @@ async function applySyncPush(persistence, docGuid, opts) {
   const { fork, fragment, baselineSV, canonicalMd, sourceMap } = baseline;
   try {
     // Resolve ./assets/ image refs back to app URLs (bundle round-trip) before
-    // diffing, so unchanged images don't register as edits.
+    // diffing, so unchanged images don't register as edits. Then canonicalize
+    // through the FULL staged image policy (F1) so the diff string and every
+    // replayed fragment carry only vetted image srcs.
     const resolvedBody = resolveImageRefs(body, imageMap, docGuid);
-    const pushedMd = canonicalizePushed(resolvedBody, { flavor });
+    const { markdown: pushedMd, images } = await canonicalizePushedStaged(
+      resolvedBody, { flavor, imageContext: { docId: docGuid, userId } });
 
     // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
     if (pushedMd === canonicalMd) {
@@ -980,6 +1030,7 @@ async function applySyncPush(persistence, docGuid, opts) {
       return {
         docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
         markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+        images,
       };
     }
 
@@ -1025,7 +1076,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     const currentClock = await readCurrentClock(persistence, docGuid);
     const markdown = await reExport(persistence, docGuid, currentClock, flavor);
 
-    return { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations };
+    return { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations, images };
   } finally {
     fork.destroy();
   }
@@ -1053,6 +1104,7 @@ module.exports = {
   syntheticClientId,
   buildBaseline,
   canonicalizePushed,
+  canonicalizePushedStaged,
   resolveImageRefs,
   mdToNodes,
   // T007

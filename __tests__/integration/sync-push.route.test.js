@@ -24,6 +24,7 @@ const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter, setCanReconstruct } = require('../../server/api/docs-import');
+const { setExternalImagePass } = require('../../server/markdown-import');
 const { getVersionTimeline, createAuthor } = require('../../server/version-history');
 
 const pendingOperations = [];
@@ -95,6 +96,8 @@ describe('sync-push route (mode=sync)', () => {
     app = express();
     app.use(createImportRouter(persistence));
   });
+
+  afterEach(() => setExternalImagePass(null));
 
   afterAll(async () => {
     await drain();
@@ -432,6 +435,86 @@ describe('sync-push route (mode=sync)', () => {
     await drain();
     expect(res.status).toBe(200);
     expect(res.body.noop).toBe(true); // foreign frontmatter is ignored, not a diff
+  });
+
+  // ------------------------------------------------------------------------
+  // F1 (image policy): materialized sync nodes run the SAME staged image
+  // pipeline import uses — data: rejected, external rehosted/degraded, cross-doc
+  // access-checked. The receipt itemizes what the policy did (002 report shape).
+  // ------------------------------------------------------------------------
+  test('data: image in a push is dropped to alt text and itemized in the receipt', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nintro paragraph');
+    const evil = '![evil](data:image/svg+xml;base64,AAAA)';
+    const res = await put(docId, fileFor(docId, clock, body + '\n\n' + evil));
+    await drain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.noop).toBe(false);
+    // itemized in the receipt's image report
+    expect(res.body.images.rejected).toEqual([
+      { src: 'data:image/svg+xml;base64,AAAA', reason: 'data-url' },
+    ]);
+    // the data: payload never entered the document; the alt survives as text
+    const after = await currentBody(docId);
+    expect(after).not.toContain('data:image');
+    expect(after).toContain('evil');
+    // receipt re-export likewise carries no data: src
+    expect(res.body.markdown).not.toContain('data:image');
+  });
+
+  test('external image src degrades to a link when storage is disabled; itemized as degraded', async () => {
+    // Force the storage-disabled policy path deterministically (no network).
+    const s3Images = require('../../server/s3-images');
+    const spy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(false);
+    try {
+      const { docId, clock, body } = await seedDoc('# Doc\n\nintro');
+      const res = await put(docId, fileFor(docId, clock,
+        body + '\n\n![pix](https://evil.example/track.png)'));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.images.degraded).toEqual([
+        { src: 'https://evil.example/track.png', reason: 'storage-disabled' },
+      ]);
+      const after = await currentBody(docId);
+      // no image node with the tracking URL as its src survived; it degraded to
+      // a link on the alt text (never a browser-loaded external image).
+      expect(after).not.toContain('![pix](https://evil.example/track.png)');
+      expect(after).toContain('[pix](https://evil.example/track.png)');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('external image is rehosted to an app URL when the rehost pass succeeds; itemized as rehosted', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nintro here');
+    // Same-doc app URL — a successful fetch-and-store yields THIS doc's URL, so
+    // cross-doc reconciliation leaves it untouched.
+    const appUrl = `/api/docs/${docId}/images/${'a'.repeat(8)}-aaaa-aaaa-aaaa-aaaaaaaaaaaa`;
+    // Inject a deterministic external pass (no network): rewrite the src to the
+    // app URL, exactly as a successful fetch-and-store would.
+    setExternalImagePass(async (stagingFragment) => {
+      const { findByNodeName } = require('../../server/mcp/sandbox/helpers');
+      const imgs = findByNodeName(stagingFragment, 'image');
+      const rehosted = [];
+      for (const node of imgs) {
+        const src = node.getAttribute('src');
+        node.setAttribute('src', appUrl);
+        rehosted.push({ src, url: appUrl });
+      }
+      return { rehosted, degraded: [] };
+    });
+    const res = await put(docId, fileFor(docId, clock,
+      body + '\n\n![diagram](https://cdn.example/d.png)'));
+    await drain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.images.rehosted).toEqual([
+      { src: 'https://cdn.example/d.png', url: appUrl },
+    ]);
+    const after = await currentBody(docId);
+    expect(after).toContain(appUrl);
+    expect(after).not.toContain('https://cdn.example/d.png');
   });
 
   test('unparseable markdown degrades (never-lose-content), push proceeds', async () => {

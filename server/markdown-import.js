@@ -89,6 +89,53 @@ function setExternalImagePass(fn) {
 }
 
 /**
+ * Run the staged image pass over detached PM nodes: the SSRF-safe external
+ * rehost/degrade pass (US4) then the access-checked cross-doc reconciliation
+ * (FR-020), on a scratch Y.Doc so the live document is never touched (contract
+ * §Invariants). Returns cloned post-policy nodes + the itemized image report.
+ * `rejected` seeds the report with any data: images the caller already stripped
+ * (FR-019).
+ *
+ * Shared by prepareImport (002) and the two-way-sync engine (004) so both
+ * materialize image content through IDENTICAL policy — no surface reimplements
+ * it (FR-001).
+ *
+ * @param {Array} detachedNodes - detached Y nodes (from pmJsonToNodes)
+ * @param {{ docId: string, userId: string }} imageContext
+ * @param {Array} [rejected] - report entries for data: images stripped upstream
+ * @returns {Promise<{ nodes: Array, images: object }>}
+ */
+async function stageImagePass(detachedNodes, imageContext, rejected = []) {
+  const staging = new Y.Doc();
+  const images = { rehosted: [], copied: [], degraded: [], rejected: [...rejected] };
+  try {
+    const stagingFragment = staging.get('staging', Y.XmlFragment);
+    staging.transact(() => stagingFragment.insert(0, detachedNodes));
+
+    // External http(s) srcs: rehost (US4) or degrade — never left external.
+    const external = await externalImagePass(stagingFragment, imageContext);
+    images.rehosted = external.rehosted || [];
+    images.degraded = external.degraded || [];
+
+    // Cross-document app URLs: existing access-checked copy-or-strip (FR-020).
+    const reconciled = await reconcileCrossDocImages(
+      stagingFragment,
+      imageContext.docId,
+      imageContext.userId
+    );
+    images.copied = reconciled.copied;
+    for (const r of reconciled.removed) {
+      images.rejected.push({ src: r.src, reason: 'source document not accessible' });
+    }
+
+    const nodes = cloneNodes(stagingFragment, { XmlElement: Y.XmlElement, XmlText: Y.XmlText });
+    return { nodes, images };
+  } finally {
+    staging.destroy();
+  }
+}
+
+/**
  * Prepare markdown for import: full pipeline up to (but excluding) the live
  * document transaction. Returns detached nodes ready for a single insert, plus
  * the report pieces. Used by importMarkdown and by the create surfaces (which
@@ -122,33 +169,7 @@ async function prepareImport(markdown, imageContext) {
   // Stage into a scratch doc so the async image pass mutates detached state,
   // never the live document (one live transaction, applied later).
   const detached = pmJsonToNodes(pmJson);
-  const staging = new Y.Doc();
-  let nodes;
-  const images = { rehosted: [], copied: [], degraded: [], rejected };
-  try {
-    const stagingFragment = staging.get('staging', Y.XmlFragment);
-    staging.transact(() => stagingFragment.insert(0, detached));
-
-    // External http(s) srcs: rehost (US4) or degrade — never left external.
-    const external = await externalImagePass(stagingFragment, imageContext);
-    images.rehosted = external.rehosted || [];
-    images.degraded = external.degraded || [];
-
-    // Cross-document app URLs: existing access-checked copy-or-strip (FR-020).
-    const reconciled = await reconcileCrossDocImages(
-      stagingFragment,
-      imageContext.docId,
-      imageContext.userId
-    );
-    images.copied = reconciled.copied;
-    for (const r of reconciled.removed) {
-      images.rejected.push({ src: r.src, reason: 'source document not accessible' });
-    }
-
-    nodes = cloneNodes(stagingFragment, { XmlElement: Y.XmlElement, XmlText: Y.XmlText });
-  } finally {
-    staging.destroy();
-  }
+  const { nodes, images } = await stageImagePass(detached, imageContext, rejected);
 
   if (nodes.length === 0) {
     throw new ImportError(
@@ -286,6 +307,7 @@ async function importMarkdown(ydoc, markdown, options = {}) {
 module.exports = {
   importMarkdown,
   prepareImport,
+  stageImagePass,
   deriveImportTitle,
   sanitizeLinkMarks,
   reconstructImages,
