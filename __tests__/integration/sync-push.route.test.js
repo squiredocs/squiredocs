@@ -1,0 +1,196 @@
+/**
+ * API-level sync-push tests (feature 004) — PUT /api/docs/:docId/import?mode=sync.
+ *
+ * Exercises the real import router end to end: requireAuth (JWT + sk_sqd_ tokens,
+ * scope enforcement), the editor-role gate, the Yjs-backed document service, and
+ * the sync engine (baseline replay, store-then-apply, receipt shaping).
+ *
+ * US1 (T011): text/structural push, receipt shape, live visibility, auth matrix.
+ * US2/US3/US4/US5 blocks are appended by later tasks.
+ */
+const request = require('supertest');
+const express = require('express');
+const Y = require('yjs');
+
+const { createPool, createPersistence } = require('../../server/__tests__/helpers/db');
+const pool = createPool();
+const persistence = createPersistence();
+
+const documents = require('../../server/documents');
+const documentService = require('../../server/document-service');
+const apiTokens = require('../../server/mcp/auth/api-tokens');
+const { generateAccessToken } = require('../../server/auth/jwt');
+const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
+const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
+const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
+const { createImportRouter } = require('../../server/api/docs-import');
+
+const pendingOperations = [];
+
+/** Build a pushed file: squire frontmatter (docGuid+clock) + body. */
+function fileFor(docId, clock, body, extra = {}) {
+  const fm = buildFrontmatter({
+    docGuid: docId, title: 'T', clock,
+    exportedAt: '2026-01-01T00:00:00Z', lastModifiedBy: '', flavor: 'squire',
+    ...extra,
+  });
+  return fm + '\n' + body;
+}
+
+async function drain() { await Promise.all(pendingOperations.splice(0)); }
+async function currentBody(docId) {
+  const doc = await persistence.getYDoc(docId);
+  const md = toMarkdown(doc.get('default', Y.XmlFragment));
+  doc.destroy();
+  return md;
+}
+async function maxClock(docId) {
+  const r = await pool.query('SELECT MAX(clock)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId]);
+  return r.rows[0].c;
+}
+
+describe('sync-push route (mode=sync)', () => {
+  let app;
+  let ownerId; let otherId;
+  let patDefault; let patReadOnly; let otherJwt;
+  const createdDocIds = [];
+
+  beforeAll(async () => {
+    setPersistence({
+      bindState: async (docName, ydoc) => {
+        const docGuid = docName.startsWith('s/') ? docName.slice(2) : docName;
+        ydoc.on('update', (update, origin) => {
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          pendingOperations.push(
+            persistence.storeUpdate(docGuid, update, parsed.userId, parsed.agentName)
+              .catch((err) => console.error(`persist error for ${docGuid}:`, err))
+          );
+        });
+        try {
+          const persisted = await persistence.getYDoc(docGuid);
+          Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persisted), ORIGIN_DB_LOAD);
+        } catch { /* fresh doc */ }
+      },
+      writeState: async () => {},
+      provider: persistence,
+    });
+    documentService.init(getYDoc, (docName) => (docName.startsWith('s/') ? docName.slice(2) : docName));
+    documents.init(pool);
+    apiTokens.init(pool);
+
+    const u1 = await pool.query(
+      `INSERT INTO users (google_id, email, name) VALUES ('sync-1','sync-api-1@example.com','Sync One')
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id, email, name, is_admin`);
+    ownerId = u1.rows[0].id;
+    const u2 = await pool.query(
+      `INSERT INTO users (google_id, email, name) VALUES ('sync-2','sync-api-2@example.com','Sync Two')
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING id, email, name, is_admin`);
+    otherId = u2.rows[0].id;
+    otherJwt = generateAccessToken(u2.rows[0]);
+    patDefault = (await apiTokens.createToken(ownerId, 'sync default')).token;
+    patReadOnly = (await apiTokens.createToken(ownerId, 'sync ro', { scopes: ['documents:read'] })).token;
+
+    app = express();
+    app.use(createImportRouter(persistence));
+  });
+
+  afterAll(async () => {
+    await drain();
+    for (const id of createdDocIds) {
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [id]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [id]);
+    }
+    await pool.query('DELETE FROM mcp_api_tokens WHERE user_id IN ($1,$2)', [ownerId, otherId]);
+    await pool.query('DELETE FROM users WHERE id IN ($1,$2)', [ownerId, otherId]);
+    await persistence.destroy();
+    await pool.end();
+  });
+
+  /** Seed a document owned by ownerId with the given markdown body. */
+  async function seedDoc(body) {
+    const docId = await documentService.createSeededDocument({
+      userId: ownerId, title: 'Doc',
+      nodes: require('../../server/mcp/yjs/pm-json-to-nodes').pmJsonToNodes(
+        require('../../shared/markdown').markdownToPm(body)
+      ),
+    });
+    createdDocIds.push(docId);
+    await drain();
+    return { docId, clock: await maxClock(docId), body: await currentBody(docId) };
+  }
+
+  function put(docId, body, { auth = `Bearer ${patDefault}`, query = '?mode=sync', headers = {} } = {}) {
+    let req = request(app).put(`/api/docs/${docId}/import${query}`);
+    if (auth) req = req.set('Authorization', auth);
+    req = req.set('Content-Type', 'text/markdown');
+    for (const [k, v] of Object.entries(headers)) req = req.set(k, v);
+    return req.send(body);
+  }
+
+  test('scenario 1: single-sentence text edit — receipt shape, live visibility', async () => {
+    const { docId, clock, body } = await seedDoc('# Notes\n\nRetries use exponential backoff here.\n\nKeep this line.');
+    // open the shared doc first (a "connected live editor")
+    const shared = documentService.getSharedDoc(docId);
+
+    const edited = body.replace('exponential backoff', 'fixed 5s intervals');
+    const res = await put(docId, fileFor(docId, clock, edited));
+    await drain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.noop).toBe(false);
+    expect(res.body.clock).toBeGreaterThan(clock);
+    expect(res.body.operations.textHunks).toBeGreaterThanOrEqual(1);
+    expect(res.body.operations.structuralHunks).toBe(0);
+    expect(res.body.overlaps).toEqual([]);
+    // receipt re-export carries the edit + refreshed frontmatter
+    expect(res.body.markdown).toContain('fixed 5s intervals');
+    expect(res.body.markdown).toContain('squire:');
+    expect(res.body.markdown).toContain('Keep this line.');
+    // live shared doc reflects the edit through the normal update path
+    expect(toMarkdown(shared.get('default', Y.XmlFragment))).toContain('fixed 5s intervals');
+    // version history: a Repo Sync entry authored by the token owner
+    const rows = await pool.query(
+      "SELECT user_id, agent_name FROM yjs_updates WHERE doc_guid=$1 AND agent_name='Repo Sync'", [docId]);
+    expect(rows.rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows.rows[0].user_id).toBe(ownerId);
+  });
+
+  test('scenario 2: heading+paragraph insertion; scenario 3: block deletion recoverable', async () => {
+    const { docId, clock, body } = await seedDoc('# A\n\npara one\n\npara two');
+    // insert a new section between blocks
+    const edited = body.replace('para one\n\n', 'para one\n\n## New\n\nmore\n\n');
+    const res = await put(docId, fileFor(docId, clock, edited));
+    await drain();
+    expect(res.status).toBe(200);
+    expect(res.body.markdown).toContain('## New');
+    expect(await currentBody(docId)).toContain('## New');
+
+    // block deletion (from the new baseline)
+    const clock2 = res.body.clock;
+    const body2 = await currentBody(docId);
+    const del = body2.replace('\n\npara two', '');
+    const res2 = await put(docId, fileFor(docId, clock2, del));
+    await drain();
+    expect(res2.status).toBe(200);
+    expect(await currentBody(docId)).not.toContain('para two');
+    // recoverable: the deleted content still exists in the update log history
+    const hist = await persistence.getYDocAtClock(docId, clock2);
+    expect(toMarkdown(hist.get('default', Y.XmlFragment))).toContain('para two');
+    hist.destroy();
+  });
+
+  test('auth: read-only scoped token → 403 (documents:write required)', async () => {
+    const { docId, clock, body } = await seedDoc('# X\n\nbody');
+    const res = await put(docId, fileFor(docId, clock, body.replace('body', 'edit')),
+      { auth: `Bearer ${patReadOnly}` });
+    expect(res.status).toBe(403);
+  });
+
+  test('auth: user without editor role → 403', async () => {
+    const { docId, clock, body } = await seedDoc('# Y\n\nbody');
+    const res = await put(docId, fileFor(docId, clock, body.replace('body', 'edit')),
+      { auth: `Bearer ${otherJwt}` });
+    expect(res.status).toBe(403);
+  });
+});

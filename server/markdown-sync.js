@@ -85,13 +85,16 @@ const crypto = require('crypto');
 const Y = require('yjs');
 const { diffChars, diffLines } = require('diff');
 const {
+  toMarkdown,
   toMarkdownNodes,
   toMarkdownWithSourceMap,
+  buildFrontmatter,
 } = require('./mcp/yjs/serialization');
 const { markdownToPm } = require('../shared/markdown');
 const { INLINE_MARKS } = require('../shared/format-registry');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
 const { reconstructImages, sanitizeLinkMarks } = require('./markdown-import');
+const { createOrigin } = require('./origin');
 
 // Fixed attribution identity for CI/repo-originated pushes (research R4). Version
 // history renders "Repo Sync (<token owner>)" via createAuthor's agent path.
@@ -693,8 +696,155 @@ function applyHunks(fragment, plan, sourceMap, baselineMd) {
   return { ...plan.counts };
 }
 
+// ===========================================================================
+// Overlap detection hook (implemented in T013 / US2). Advisory only.
+// ===========================================================================
+let detectOverlaps = async () => [];
+/** Wire the overlap detector (T013). */
+function setOverlapDetector(fn) { detectOverlaps = fn || (async () => []); }
+
+// ===========================================================================
+// T009 — applySyncPush orchestration (research R8, store-then-apply)
+// ===========================================================================
+
+/** Current max clock for a doc (−0 when empty), read from the update log. */
+async function readCurrentClock(persistence, docGuid) {
+  const result = await persistence.pool.query(
+    'SELECT MAX(clock)::int AS clock FROM yjs_updates WHERE doc_guid = $1',
+    [docGuid]
+  );
+  return result.rows[0].clock == null ? 0 : result.rows[0].clock;
+}
+
+/** Last-modifier identity string for frontmatter (email or agent name). */
+async function readLastModifiedBy(persistence, docGuid) {
+  const result = await persistence.pool.query(
+    `SELECT yu.agent_name, usr.email
+     FROM yjs_updates yu LEFT JOIN users usr ON yu.user_id = usr.id
+     WHERE yu.doc_guid = $1 ORDER BY yu.clock DESC LIMIT 1`,
+    [docGuid]
+  );
+  const row = result.rows[0];
+  return row ? (row.email || row.agent_name || '') : '';
+}
+
+/**
+ * Canonical re-export of the document's state at `clock` in the pushed flavor
+ * with refreshed frontmatter — the next baseline (FR-014, contract Consistency
+ * rule: the embedded frontmatter clock equals the clock of the exact serialized
+ * state, read atomically as getYDocAtClock(clock)).
+ */
+async function reExport(persistence, docGuid, clock, flavor) {
+  const stateDoc = await persistence.getYDocAtClock(docGuid, clock);
+  try {
+    const fragment = stateDoc.get('default', Y.XmlFragment);
+    const lossy = new Set();
+    const body = toMarkdown(fragment, { flavor, lossy });
+    const title = stateDoc.getMap('meta').get('title') || 'Untitled';
+    const lastModifiedBy = await readLastModifiedBy(persistence, docGuid);
+    const fm = buildFrontmatter({
+      docGuid,
+      title,
+      clock,
+      exportedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      lastModifiedBy,
+      flavor,
+      lossy,
+    });
+    return fm + '\n' + body;
+  } finally {
+    stateDoc.destroy();
+  }
+}
+
+/**
+ * Apply a validated sync push (auth/baseline validation happens upstream in the
+ * route, T010/T026). Reconstructs the baseline, canonicalizes the pushed body,
+ * short-circuits true no-ops (T018/D7), else replays edits as one CRDT update
+ * and stores-then-applies it through the normal path (broadcast + persistence).
+ *
+ * @param {object} persistence
+ * @param {string} docGuid
+ * @param {object} opts
+ * @param {string} opts.body          - pushed markdown BODY (frontmatter stripped)
+ * @param {number} opts.baselineClock - validated baseline clock
+ * @param {'squire'|'portable'} [opts.flavor='squire']
+ * @param {string} opts.userId
+ * @param {string|null} [opts.agentName] - defaults to SYNC_AGENT_NAME
+ * @param {object|null} [opts.onBehalfOf] - provenance metadata (T021)
+ * @param {Function} opts.getSharedDoc  - docGuid → live shared Y.Doc
+ * @returns {Promise<object>} receipt (contract sync-push.md)
+ */
+async function applySyncPush(persistence, docGuid, opts) {
+  const {
+    body,
+    baselineClock,
+    flavor = 'squire',
+    userId,
+    agentName = SYNC_AGENT_NAME,
+    onBehalfOf = null,
+    getSharedDoc,
+  } = opts;
+
+  const baseline = await buildBaseline(persistence, docGuid, baselineClock, { flavor });
+  const { fork, fragment, baselineSV, canonicalMd, sourceMap } = baseline;
+  try {
+    const pushedMd = canonicalizePushed(body, { flavor });
+
+    // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
+    if (pushedMd === canonicalMd) {
+      const currentClock = await readCurrentClock(persistence, docGuid);
+      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
+      return {
+        docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
+        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+      };
+    }
+
+    // Pin the synthetic clientID BEFORE any op is created (FR-011).
+    fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
+
+    const hunks = computeHunks(canonicalMd, pushedMd);
+    const plan = planPush(hunks, sourceMap, canonicalMd);
+    let operations;
+    fork.transact(() => {
+      operations = applyHunks(fragment, plan, sourceMap, canonicalMd);
+    });
+    const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
+
+    // Overlap flags (advisory, computed from the pre-replay baseline snapshot).
+    const overlaps = await detectOverlaps(persistence, docGuid, {
+      baselineClock, baselineFork: fork, plan, sourceMap, getSharedDoc, flavor,
+    });
+
+    // Store-then-apply (R8): storeUpdate yields the receipt clock; applying to
+    // the shared doc broadcasts + re-persists (ON CONFLICT DO NOTHING dedupes).
+    const clock = await persistence.storeUpdate(docGuid, pushUpdate, userId, agentName, onBehalfOf);
+    try {
+      const sharedDoc = getSharedDoc(docGuid);
+      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, createOrigin(userId, agentName));
+    } catch (err) {
+      // Broadcast failure is non-fatal — the update is already persisted.
+      console.error(`[sync] broadcast to shared doc ${docGuid} failed:`, err.message);
+    }
+
+    // Receipt re-export: current state atomically (may exceed the receipt clock
+    // under concurrent edits — contract Consistency rule).
+    const currentClock = await readCurrentClock(persistence, docGuid);
+    const markdown = await reExport(persistence, docGuid, currentClock, flavor);
+
+    return { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations };
+  } finally {
+    fork.destroy();
+  }
+}
+
 module.exports = {
   SYNC_AGENT_NAME,
+  setOverlapDetector,
+  applySyncPush,
+  reExport,
+  readCurrentClock,
   // T004
   resolveMd,
   classifyRange,
