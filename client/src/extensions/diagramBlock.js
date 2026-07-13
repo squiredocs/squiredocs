@@ -8,8 +8,8 @@ import { altSourcePrefix, decodeSourceFromAlt } from './diagramShared';
 // the rendering shell (DiagramNodeView), rasterization, and the copy/cut
 // clipboard handling (DiagramClipboard) are shared.
 //
-// (Markdown fence labels — `mermaid` — are owned server-side in
-// markdown-to-pm.js / yjs/serialization.js, not by this config.)
+// (Markdown fence labels — `mermaid` — are owned by the shared parser in
+// shared/markdown/ and server-side yjs/serialization.js, not by this config.)
 //
 // config:
 //   name               node name + data-type + capitalized into the insert command

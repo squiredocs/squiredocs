@@ -8,8 +8,8 @@
 
 const Y = require('yjs');
 const { toMarkdown } = require('../mcp/yjs/serialization');
-const { markdownToPm } = require('../markdown-to-pm');
-const { INLINE_MARKS, STYLE_PROPS } = require('../format-registry');
+const { markdownToPm } = require('../../shared/markdown');
+const { INLINE_MARKS, STYLE_PROPS } = require('../../shared/format-registry');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -183,7 +183,7 @@ describe('Format round-trip', () => {
     });
 
     test('codeBlock with language=svg is treated as svg', () => {
-      const { markdownToPm } = require('../markdown-to-pm');
+      const { markdownToPm } = require('../../shared/markdown');
       const pm = markdownToPm('```svg\n<svg><circle r="4"/></svg>\n```');
       const str = JSON.stringify(pm);
       expect(str).toContain('"type":"svg"');
@@ -194,7 +194,7 @@ describe('Format round-trip', () => {
     test('codeBlock with language=mermaid is treated as mermaid', () => {
       // Documents authored by AI agents may emit a ```mermaid fence; parser
       // should route that to the mermaid node, not a generic codeBlock.
-      const { markdownToPm } = require('../markdown-to-pm');
+      const { markdownToPm } = require('../../shared/markdown');
       const pm = markdownToPm('```mermaid\nflowchart LR; A-->B\n```');
       const str = JSON.stringify(pm);
       expect(str).toContain('"type":"mermaid"');

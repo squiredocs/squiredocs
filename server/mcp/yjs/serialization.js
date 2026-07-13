@@ -6,7 +6,7 @@
  */
 const Y = require('yjs');
 const { getNodeTextLength } = require('./cursor-operations');
-const { INLINE_MARKS, attrsToCSS } = require('../../format-registry');
+const { INLINE_MARKS, attrsToCSS } = require('../../../shared/format-registry');
 const {
   isInlineContentBlock,
   isCodeLikeBlock,

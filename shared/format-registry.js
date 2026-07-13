@@ -15,7 +15,7 @@
  *   → STYLE_PROPS auto-derives it (zero changes here)
  */
 
-const { schema } = require('../shared/prosemirror-schema');
+const { schema } = require('./prosemirror-schema');
 
 // ---------------------------------------------------------------------------
 // Schema derivation helpers
@@ -55,20 +55,32 @@ const INLINE_NEWLINE = '\x00';
  * Inline mark definitions in serialization order.
  *
  * - wrap: [open, close] markdown delimiters (for md-syntax marks)
+ * - altWrap: alternate delimiters the TOLERANT parser also accepts (never
+ *     emitted by the serializer; ignored by buildInlineRegex and toMarkdown).
+ *     e.g. bold accepts both `**` (wrap) and `__` (altWrap); italic `_`/`*`.
  * - htmlTag: HTML tag name derived from schema (for HTML-in-markdown marks)
  * - yjsAttr: YJS delta attribute key (may differ from ProseMirror mark name)
  * - contentPattern: custom regex for content capture (default: .+?)
  */
 const INLINE_MARKS = [
   { name: 'code',        yjsAttr: 'code',          wrap: ['`', '`'], contentPattern: '[^`]+' },
-  { name: 'bold',        yjsAttr: 'bold',           wrap: ['**', '**'] },
-  { name: 'italic',      yjsAttr: 'italic',         wrap: ['_', '_'] },
+  { name: 'bold',        yjsAttr: 'bold',           wrap: ['**', '**'], altWrap: ['__'] },
+  { name: 'italic',      yjsAttr: 'italic',         wrap: ['_', '_'],   altWrap: ['*'] },
   { name: 'strike',      yjsAttr: 'strike',         wrap: ['~~', '~~'] },
   { name: 'underline',   yjsAttr: 'underline',      htmlTag: deriveTag('underline') },
   { name: 'highlight',   yjsAttr: 'highlight',      htmlTag: deriveTag('highlight') },
   { name: 'subscript',   yjsAttr: 'subscript',      htmlTag: deriveTag('subscript') },
   { name: 'superscript', yjsAttr: 'superscript',    htmlTag: deriveTag('superscript') },
 ];
+
+/**
+ * CommonMark/GFM emphasis delimiter characters that participate in the
+ * tolerant parser's delimiter-stack algorithm (flanking rules). Code spans
+ * (backtick) are NOT emphasis — they are matched verbatim in a separate pass —
+ * so backtick is deliberately excluded here. This set is format knowledge and
+ * lives in the registry (Constitution IV), never in the parser.
+ */
+const EMPHASIS_DELIMITER_CHARS = new Set(['*', '_', '~']);
 
 /**
  * HTML tags used for inline marks (for continuation-line detection).
@@ -181,6 +193,65 @@ function buildInlineRegex() {
   return { regex: new RegExp(fullPattern, 'g'), entries };
 }
 
+// ---------------------------------------------------------------------------
+// Tolerant-parser derived metadata (feature 001 — additive; the strict path
+// and buildInlineRegex are untouched)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emphasis delimiter specs for the tolerant delimiter-stack matcher.
+ *
+ * Derives `{ char, length, markName, intraword }` tuples from each mark's
+ * `wrap` and `altWrap` delimiters, keeping only single-character runs whose
+ * char is a recognized emphasis delimiter (`* _ ~`) — so `code` (backtick,
+ * verbatim, matched in its own pass) is excluded. Per CommonMark, `_` cannot
+ * open/close intra-word, so `_` specs carry `intraword: false`.
+ *
+ * Registry-driven (FR-015): a future emphasis mark is a registry entry, not
+ * parser code.
+ *
+ * @returns {Array<{ char: string, length: number, markName: string, intraword: boolean }>}
+ */
+function getEmphasisSpec() {
+  const specs = [];
+  const seen = new Set();
+  for (const m of INLINE_MARKS) {
+    const delimiters = [];
+    if (m.wrap) delimiters.push(m.wrap[0]);
+    if (m.altWrap) delimiters.push(...m.altWrap);
+    for (const delim of delimiters) {
+      // Only same-character runs of an emphasis delimiter qualify.
+      const char = delim[0];
+      if (!EMPHASIS_DELIMITER_CHARS.has(char)) continue;
+      if (![...delim].every(c => c === char)) continue;
+      const key = `${m.name}:${delim}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      specs.push({
+        char,
+        length: delim.length,
+        markName: m.name,
+        intraword: char !== '_',
+      });
+    }
+  }
+  return specs;
+}
+
+/**
+ * Inline-HTML whitelist for the tolerant HTML tokenizer (FR-010), derived from
+ * the registry rather than hardcoded so new registry marks join automatically.
+ *
+ * @returns {{ tags: Array<{ tag: string, markName: string }>, span: { styleProps: typeof STYLE_PROPS }, br: boolean }}
+ */
+function getHtmlWhitelist() {
+  return {
+    tags: INLINE_MARKS.filter(m => m.htmlTag).map(m => ({ tag: m.htmlTag, markName: m.name })),
+    span: { styleProps: STYLE_PROPS },
+    br: true,
+  };
+}
+
 module.exports = {
   INLINE_MARKS,
   STYLE_PROPS,
@@ -189,4 +260,6 @@ module.exports = {
   attrsToCSS,
   cssToAttrs,
   buildInlineRegex,
+  getEmphasisSpec,
+  getHtmlWhitelist,
 };

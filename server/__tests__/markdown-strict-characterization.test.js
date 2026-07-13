@@ -6,18 +6,17 @@
  * If any case here fails, strict mode has drifted — the diff engine's shipped
  * behavior (and the Redis diff cache keyed by CACHE_VERSION) would regress.
  *
- * NOTE: until Phase 2 (T006) this requires the pre-move `../markdown-to-pm`
- * and calls the 2-arg signature; T006 repoints it to `../../shared/markdown`
- * with `{ strict: true }`.
+ * Strict mode is selected via `{ strict: true }` against the relocated
+ * shared entry `shared/markdown/index.js`.
  */
 
 const cases = require('./fixtures/markdown/strict-characterization.json');
-const { markdownToPm } = require('../markdown-to-pm');
+const { markdownToPm } = require('../../shared/markdown');
 
 describe('strict-mode characterization snapshot (CN-2 byte-identity)', () => {
   for (const c of cases) {
     test(c.name, () => {
-      const actual = markdownToPm(c.input, c.diffMark);
+      const actual = markdownToPm(c.input, c.diffMark, { strict: true });
       expect(actual).toEqual(c.expected);
     });
   }

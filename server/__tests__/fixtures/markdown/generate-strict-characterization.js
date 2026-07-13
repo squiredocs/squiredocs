@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const Y = require('yjs');
 const { toMarkdown } = require('../../../mcp/yjs/serialization');
-const { STYLE_PROPS } = require('../../../format-registry');
+const { STYLE_PROPS } = require('../../../../shared/format-registry');
 
 // Prefer the frozen strict parser once it exists; otherwise the pre-move parser.
 function resolveParser() {
@@ -61,7 +61,7 @@ function styledParagraph(text, attrs) {
 const canonical = [];
 
 // Every registry inline mark (via yjsAttr → serializer wrap/tag).
-const { INLINE_MARKS } = require('../../../format-registry');
+const { INLINE_MARKS } = require('../../../../shared/format-registry');
 for (const m of INLINE_MARKS) {
   canonical.push({
     name: `inline-mark-${m.name}`,
