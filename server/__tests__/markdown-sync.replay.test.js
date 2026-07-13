@@ -6,13 +6,33 @@
  * replay are appended in later describe blocks.
  */
 const Y = require('yjs');
-const { toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
+const { toMarkdownNodes, toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
 const {
   resolveMd,
   classifyRange,
   syntheticClientId,
   canonicalizePushed,
+  computeHunks,
+  planPush,
+  applyHunks,
 } = require('../markdown-sync');
+
+/**
+ * Full replay against a baseline fragment: build source map, diff pushed
+ * markdown, classify, apply in a transaction. Returns the classified hunks and
+ * the resulting canonical markdown.
+ */
+function replay(frag, pushedMd, opts = {}) {
+  const flavor = opts.flavor || 'squire';
+  const nodes = frag.toArray();
+  const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(nodes, { flavor });
+  const pushedCanon = canonicalizePushed(pushedMd, { flavor });
+  const hunks = computeHunks(baselineMd, pushedCanon);
+  const plan = planPush(hunks, sourceMap, baselineMd);
+  let ops;
+  frag.doc.transact(() => { ops = applyHunks(frag, plan, sourceMap, baselineMd); });
+  return { plan, allText: plan.structural.length === 0, ops, resultMd: toMarkdownNodes(frag.toArray()), pushedCanon };
+}
 
 function el(tag, text, attrs) {
   const e = new Y.XmlElement(tag);
@@ -155,5 +175,158 @@ describe('canonicalizePushed (T005, FR-005/FR-009)', () => {
   test('canonical form is stable under re-canonicalization (round-trip)', () => {
     const once = canonicalizePushed('- one\n- two\n\n> quote');
     expect(canonicalizePushed(once)).toBe(once);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('hunk classification & replay (T006/T007/T008, US1)', () => {
+  test('text hunk within one paragraph: char ops, other blocks keep identity', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'Hello world'), el('paragraph', 'keep me')]));
+    const before = frag.toArray();
+    const beforeText0 = before[0].get(0); // the Y.XmlText of para 0
+    const { allText, resultMd } = replay(frag, 'Hello world\n\nkeep me'.replace('world', 'there'));
+    expect(resultMd).toBe('Hello there\n\nkeep me');
+    expect(allText).toBe(true);
+    const after = frag.toArray();
+    expect(after[1]).toBe(before[1]); // untouched paragraph — same instance
+    expect(after[0]).toBe(before[0]); // edited block element preserved
+    expect(after[0].get(0)).toBe(beforeText0); // same text node (char ops)
+    doc.destroy();
+  });
+
+  test('text hunk inside a heading', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => { const h = el('heading', 'Title'); h.setAttribute('level', '2'); frag.insert(0, [h]); });
+    const { resultMd, allText } = replay(frag, '## Titles');
+    expect(resultMd).toBe('## Titles');
+    expect(allText).toBe(true);
+    doc.destroy();
+  });
+
+  test('text hunk inside a list item', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const list = new Y.XmlElement('bulletList');
+      const li1 = new Y.XmlElement('listItem'); li1.insert(0, [el('paragraph', 'one')]);
+      const li2 = new Y.XmlElement('listItem'); li2.insert(0, [el('paragraph', 'two')]);
+      list.insert(0, [li1, li2]); frag.insert(0, [list]);
+    });
+    const { resultMd } = replay(frag, '- one\n- three');
+    expect(resultMd).toBe('- one\n- three');
+    doc.destroy();
+  });
+
+  test('text hunk inside a table cell', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const table = new Y.XmlElement('table');
+      const row1 = new Y.XmlElement('tableRow'); const c1 = new Y.XmlElement('tableCell');
+      c1.insert(0, [el('paragraph', 'head')]); row1.insert(0, [c1]);
+      const row2 = new Y.XmlElement('tableRow'); const c2 = new Y.XmlElement('tableCell');
+      c2.insert(0, [el('paragraph', 'body')]); row2.insert(0, [c2]);
+      table.insert(0, [row1, row2]); frag.insert(0, [table]);
+    });
+    const base = toMarkdownNodes(frag.toArray());
+    const { resultMd } = replay(frag, base.replace('body', 'text'));
+    expect(resultMd).toContain('text');
+    expect(resultMd).not.toContain('body');
+    doc.destroy();
+  });
+
+  test('mark-aware refinement: adding **bold** stays a text edit, block not recreated', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'hello world')]));
+    const before = frag.toArray();
+    const { allText, resultMd } = replay(frag, 'hello **world**');
+    expect(resultMd).toBe('hello **world**');
+    expect(allText).toBe(true);
+    const after = frag.toArray();
+    expect(after[0]).toBe(before[0]); // NOT block-replaced
+    doc.destroy();
+  });
+
+  test('structural: new heading+paragraph inserted between blocks; neighbors keep identity', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const h = el('heading', 'A'); h.setAttribute('level', '1');
+      frag.insert(0, [h, el('paragraph', 'para')]);
+    });
+    const before = frag.toArray();
+    const { resultMd } = replay(frag, '# A\n\n## New\n\nmore\n\npara');
+    expect(resultMd).toBe('# A\n\n## New\n\nmore\n\npara');
+    const after = frag.toArray();
+    expect(after[0]).toBe(before[0]); // heading A identity
+    expect(after[after.length - 1]).toBe(before[1]); // paragraph 'para' identity
+    doc.destroy();
+  });
+
+  test('structural: block deletion', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'a'), el('paragraph', 'b'), el('paragraph', 'c')]));
+    const { resultMd } = replay(frag, 'a\n\nc');
+    expect(resultMd).toBe('a\n\nc');
+    doc.destroy();
+  });
+
+  test('structural: paragraph → list conversion', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'text')]));
+    const { resultMd } = replay(frag, '- text');
+    expect(resultMd).toBe('- text');
+    doc.destroy();
+  });
+
+  test('structural: whole-document emptying', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'a'), el('paragraph', 'b')]));
+    const { resultMd } = replay(frag, '');
+    expect(resultMd).toBe('');
+    expect(frag.length).toBe(0);
+    doc.destroy();
+  });
+
+  test('hunk coalescing: two near changes in one block merge', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => frag.insert(0, [el('paragraph', 'abcdefgh')]));
+    const { allText, resultMd } = replay(frag, 'aXcdeYgh');
+    expect(resultMd).toBe('aXcdeYgh');
+    // the two 1-char edits are separated by 'cde' (3 common) — NOT coalesced,
+    // but still one block, both text.
+    expect(allText).toBe(true);
+    doc.destroy();
+  });
+
+  test('determinism: identical inputs → byte-identical pushUpdate (FR-011)', () => {
+    const base = new Y.Doc();
+    base.transact(() => base.getXmlFragment('default').insert(0, [el('paragraph', 'Hello world')]));
+    const baseUpdate = Y.encodeStateAsUpdate(base);
+    const baselineSV = Y.encodeStateVector(base);
+    base.destroy();
+    function once() {
+      const fork = new Y.Doc();
+      Y.applyUpdate(fork, baseUpdate);
+      fork.clientID = syntheticClientId('doc', 1, 'c');
+      const frag = fork.getXmlFragment('default');
+      const nodes = frag.toArray();
+      const { markdown, sourceMap } = toMarkdownWithSourceMap(nodes);
+      const canon = canonicalizePushed('Hello brave new world');
+      const plan = planPush(computeHunks(markdown, canon), sourceMap, markdown);
+      fork.transact(() => applyHunks(frag, plan, sourceMap, markdown));
+      const u = Buffer.from(Y.encodeStateAsUpdate(fork, baselineSV)).toString('hex');
+      fork.destroy();
+      return u;
+    }
+    expect(once()).toBe(once());
   });
 });

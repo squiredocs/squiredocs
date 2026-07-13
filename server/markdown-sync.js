@@ -83,11 +83,13 @@
 
 const crypto = require('crypto');
 const Y = require('yjs');
+const { diffChars, diffLines } = require('diff');
 const {
   toMarkdownNodes,
   toMarkdownWithSourceMap,
 } = require('./mcp/yjs/serialization');
 const { markdownToPm } = require('../shared/markdown');
+const { INLINE_MARKS } = require('../shared/format-registry');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
 const { reconstructImages, sanitizeLinkMarks } = require('./markdown-import');
 
@@ -293,6 +295,404 @@ function canonicalizePushed(body, { flavor = 'squire' } = {}) {
   }
 }
 
+/** Parse a markdown fragment into detached Yjs nodes (import canonicalization). */
+function mdToNodes(md) {
+  if (md.trim() === '') return [];
+  let pm = markdownToPm(md);
+  pm = reconstructImages(pm);
+  pm = sanitizeLinkMarks(pm);
+  return pmJsonToNodes(pm);
+}
+
+// ===========================================================================
+// T007 — Diff → anchored hunks → classification (research R3)
+// ===========================================================================
+
+// Coalesce two same-block text hunks separated by fewer than this many common
+// characters into one (implementation-tunable; not protocol surface).
+const COALESCE_DISTANCE = 3;
+
+// diffChars edit-distance cap; over it we fall back to coarse line hunking (R11).
+const MAX_EDIT_LENGTH = 200000;
+
+/**
+ * Character-diff baseline vs pushed canonical markdown into anchored hunks
+ * `{ oldStart, oldEnd, newText }` in BASELINE coordinates (adjacency-0
+ * clustering), then coalesce near-adjacent hunks that stay within one block.
+ */
+function computeHunks(baselineMd, pushedMd) {
+  let parts = diffChars(baselineMd, pushedMd, { maxEditLength: MAX_EDIT_LENGTH });
+  if (!parts) {
+    // Cap exceeded (R11): coarse line-level hunking, then character diff within
+    // each changed line cluster. Bounded work, same downstream pipeline.
+    parts = coarseDiff(baselineMd, pushedMd);
+  }
+  const raw = [];
+  let oldPos = 0;
+  let cur = null;
+  for (const part of parts) {
+    if (part.added) {
+      if (!cur) cur = { oldStart: oldPos, oldEnd: oldPos, newText: '' };
+      cur.newText += part.value;
+    } else if (part.removed) {
+      if (!cur) cur = { oldStart: oldPos, oldEnd: oldPos, newText: '' };
+      cur.oldEnd = oldPos + part.value.length;
+      oldPos += part.value.length;
+    } else {
+      if (cur) { raw.push(cur); cur = null; }
+      oldPos += part.value.length;
+    }
+  }
+  if (cur) raw.push(cur);
+
+  // Within-block coalescing.
+  const merged = [];
+  for (const h of raw) {
+    const last = merged[merged.length - 1];
+    if (last) {
+      const gap = h.oldStart - last.oldEnd;
+      if (gap >= 0 && gap < COALESCE_DISTANCE) {
+        const gapText = baselineMd.slice(last.oldEnd, h.oldStart);
+        if (!gapText.includes('\n\n')) {
+          last.oldEnd = h.oldEnd;
+          last.newText = last.newText + gapText + h.newText;
+          continue;
+        }
+      }
+    }
+    merged.push({ ...h });
+  }
+  return merged;
+}
+
+/** Coarse fallback: diffLines, then diffChars within changed line clusters (R11). */
+function coarseDiff(baselineMd, pushedMd) {
+  const lineParts = diffLines(baselineMd, pushedMd);
+  // Re-expand into a char-part stream the hunk walker understands, char-diffing
+  // only inside adjacent removed+added line clusters.
+  const out = [];
+  for (let i = 0; i < lineParts.length; i++) {
+    const p = lineParts[i];
+    if (!p.added && !p.removed) { out.push({ value: p.value }); continue; }
+    if (p.removed && lineParts[i + 1] && lineParts[i + 1].added) {
+      const sub = diffChars(p.value, lineParts[i + 1].value) || [
+        { removed: true, value: p.value }, { added: true, value: lineParts[i + 1].value },
+      ];
+      for (const s of sub) out.push(s);
+      i++;
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/** True if inserted text would introduce or split block structure. */
+function newTextBreaksBlock(s) {
+  if (s.includes('\n')) return true;
+  return /^\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?|```|~~~|-{3,}$|\|)/.test(s);
+}
+
+/** True if inserted text carries inline mark syntax (so it isn't literal text). */
+function newTextHasInlineMarkSyntax(s) {
+  return /[*_~`]|<\/?[a-zA-Z]|\]\(/.test(s);
+}
+
+/** Attributes of the character at index `off` in a delta (or {} if none). */
+function marksAtChar(delta, off) {
+  let pos = 0;
+  for (const op of delta) {
+    const t = typeof op.insert === 'string' ? op.insert : '';
+    if (off >= pos && off < pos + t.length) return op.attributes || {};
+    pos += t.length;
+  }
+  return {};
+}
+
+/**
+ * Plan a push: classify hunks against the baseline source map (research R3,
+ * FR-007 prefer-text) BLOCK-CENTRICALLY — hunks that fall within one block's
+ * text are grouped by block, so a block whose edit involves inline-mark syntax
+ * (whose delimiters diff as separate hunks) reconciles as one whole-block
+ * inline update rather than conflicting per-hunk. Returns:
+ *   { textBlocks:   [{ block, hunks }]                 — surgical char ops
+ *     reconcileBlocks: [{ block, textNode, targetDelta }] — in-place inline
+ *     structural:   [ hunk+{blocks} ]                  — fork block replacement
+ *     counts: { textHunks, structuralHunks } }
+ */
+function planPush(hunks, sourceMap, baselineMd) {
+  const groups = new Map(); // blockNode -> { block, hunks[] }
+  const structural = [];
+  for (const h of hunks) {
+    const cls = classifyRange(sourceMap, h.oldStart, h.oldEnd);
+    if (cls.kind === 'text' && cls.block) {
+      const key = cls.block.blockNode;
+      if (!groups.has(key)) groups.set(key, { block: cls.block, hunks: [] });
+      groups.get(key).hunks.push({ ...h, segments: cls.segments });
+    } else {
+      structural.push({ ...h, blocks: cls.blocks || [] });
+    }
+  }
+
+  const textBlocks = [];
+  const reconcileBlocks = [];
+  let textHunks = 0;
+  for (const { block, hunks: bh } of groups.values()) {
+    const allPlain = bh.every(
+      (h) => !newTextBreaksBlock(h.newText) && !newTextHasInlineMarkSyntax(h.newText)
+    );
+    if (allPlain) {
+      textBlocks.push({ block, hunks: bh });
+      textHunks += bh.length;
+    } else {
+      const rec = reconcileBlockPlan(block, bh, baselineMd);
+      if (rec) {
+        reconcileBlocks.push(rec);
+        textHunks += bh.length;
+      } else if (isEdgeBlockInsertion(bh, block)) {
+        // A pure insertion of whole blocks at this block's leading/trailing edge
+        // inserts AROUND the block (preserving its CRDT identity), not a replace.
+        structural.push({ ...bh[0], blocks: [] });
+      } else {
+        for (const h of bh) structural.push({ ...h, blocks: [block] });
+      }
+    }
+  }
+  return {
+    textBlocks,
+    reconcileBlocks,
+    structural,
+    counts: { textHunks, structuralHunks: structural.length },
+  };
+}
+
+/**
+ * True when a block group is a single pure insertion of complete blocks at the
+ * block's leading edge (newText ends with a block separator) or trailing edge
+ * (newText begins with one) — inserted around the block, not replacing it.
+ */
+function isEdgeBlockInsertion(blockHunks, block) {
+  if (blockHunks.length !== 1) return false;
+  const h = blockHunks[0];
+  if (h.oldStart !== h.oldEnd) return false; // not a pure insertion
+  if (h.oldStart === block.mdStart && h.newText.endsWith('\n\n')) return true;
+  if (h.oldStart === block.mdEnd && h.newText.startsWith('\n\n')) return true;
+  return false;
+}
+
+/**
+ * Build an in-place inline reconciliation for one block whose combined edit
+ * (all its hunks) keeps its type + single-text-node shape. Returns
+ * { block, textNode, targetDelta } or null (→ caller falls to structural).
+ */
+function reconcileBlockPlan(block, blockHunks, baselineMd) {
+  const blockNode = block.blockNode;
+  if (!(blockNode instanceof Y.XmlElement)) return null;
+  const textChildren = blockNode.toArray().filter((c) => c instanceof Y.XmlText);
+  const elemChildren = blockNode.toArray().filter((c) => c instanceof Y.XmlElement);
+  if (textChildren.length !== 1 || elemChildren.length !== 0) return null;
+
+  let s = '';
+  let cur = block.mdStart;
+  for (const h of blockHunks.slice().sort((a, b) => a.oldStart - b.oldStart)) {
+    s += baselineMd.slice(cur, h.oldStart) + h.newText;
+    cur = h.oldEnd;
+  }
+  s += baselineMd.slice(cur, block.mdEnd);
+
+  let pm = markdownToPm(s);
+  pm = sanitizeLinkMarks(pm);
+  if (!pm.content || pm.content.length !== 1) return null;
+  const nb = pm.content[0];
+  if (nb.type !== blockNode.nodeName) return null;
+  if (blockNode.nodeName === 'heading') {
+    const oldLevel = String(blockNode.getAttribute('level') || '1');
+    if (String(nb.attrs && nb.attrs.level) !== oldLevel) return null;
+  }
+  const targetDelta = pmInlineToDelta(nb.content || []);
+  if (targetDelta === null) return null;
+  return { block, textNode: textChildren[0], targetDelta };
+}
+
+/** ProseMirror inline content → a Yjs delta (or null if it isn't pure text). */
+function pmInlineToDelta(content) {
+  const delta = [];
+  for (const n of content) {
+    if (n.type !== 'text' || typeof n.text !== 'string') return null;
+    const attrs = {};
+    for (const mk of n.marks || []) {
+      if (mk.type === 'link') attrs.link = { href: (mk.attrs && mk.attrs.href) || '' };
+      else if (mk.type === 'textStyle') attrs.textStyle = mk.attrs || {};
+      else attrs[mk.type] = true;
+    }
+    delta.push(Object.keys(attrs).length ? { insert: n.text, attributes: attrs } : { insert: n.text });
+  }
+  return delta;
+}
+
+// ===========================================================================
+// T008 — Replay hunks onto the fork (research R3)
+// ===========================================================================
+
+// All inline mark attributes, for clearing before re-applying target marks.
+const CLEAR_ATTRS = {};
+for (const m of INLINE_MARKS) CLEAR_ATTRS[m.yjsAttr] = null;
+CLEAR_ATTRS.link = null;
+CLEAR_ATTRS.textStyle = null;
+
+/** Reconcile a Y.XmlText's content to `targetDelta` with minimal text ops + reformat. */
+function reconcileTextNode(textNode, targetDelta) {
+  const oldPlain = textNode.toDelta().map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
+  const newPlain = targetDelta.map((op) => op.insert).join('');
+  const parts = diffChars(oldPlain, newPlain) || [
+    { removed: true, value: oldPlain }, { added: true, value: newPlain },
+  ];
+  let pos = 0;
+  for (const part of parts) {
+    if (part.added) { textNode.insert(pos, part.value); pos += part.value.length; }
+    else if (part.removed) { textNode.delete(pos, part.value.length); }
+    else { pos += part.value.length; }
+  }
+  const len = newPlain.length;
+  if (len > 0) {
+    textNode.format(0, len, CLEAR_ATTRS);
+    let o = 0;
+    for (const op of targetDelta) {
+      const t = op.insert;
+      if (op.attributes && Object.keys(op.attributes).length > 0) {
+        textNode.format(o, t.length, op.attributes);
+      }
+      o += t.length;
+    }
+  }
+}
+
+/** Array index of the block object whose extent contains `offset`, or -1. */
+function blockArrayIndexAt(blocks, offset) {
+  for (let i = 0; i < blocks.length; i++) {
+    if (offset < blocks[i].mdEnd && offset >= blocks[i].mdStart) return i;
+  }
+  return -1;
+}
+
+/** Group structural hunks into fork-fragment operations (block-node identity). */
+function structuralOps(structural, sourceMap, baselineMd) {
+  const blocks = sourceMap.blocks;
+  const idxOf = new Map();
+  blocks.forEach((b, i) => idxOf.set(b, i));
+
+  const items = [];
+  const insertions = [];
+  for (const h of structural.slice().sort((a, b) => a.oldStart - b.oldStart)) {
+    const touched = (h.blocks || [])
+      .map((b) => idxOf.get(b))
+      .filter((i) => i !== undefined)
+      .sort((a, b) => a - b);
+    if (touched.length === 0) {
+      // Boundary insertion between blocks. Anchor on the preceding block.
+      let afterIdx = -1;
+      for (let i = 0; i < blocks.length; i++) if (blocks[i].mdEnd <= h.oldStart) afterIdx = i;
+      insertions.push({ afterBlock: afterIdx === -1 ? null : blocks[afterIdx], newText: h.newText });
+    } else {
+      items.push({ first: touched[0], last: touched[touched.length - 1], hunk: h });
+    }
+  }
+
+  items.sort((a, b) => a.first - b.first);
+  const replacements = [];
+  for (const it of items) {
+    const prev = replacements[replacements.length - 1];
+    if (prev && it.first <= prev.last + 1) {
+      prev.last = Math.max(prev.last, it.last);
+      prev.hunks.push(it.hunk);
+    } else {
+      replacements.push({ first: it.first, last: it.last, hunks: [it.hunk] });
+    }
+  }
+  return { replacements, insertions };
+}
+
+/**
+ * Apply a push plan (from planPush) to the fork fragment. Caller MUST wrap this
+ * in the fork's transaction (after pinning the synthetic clientID). Returns
+ * operation counts. Structural replacement uses block-node identity for live
+ * indices (order-stable); plain text hunks track a per-node offset shift.
+ */
+function applyHunks(fragment, plan, sourceMap, baselineMd) {
+  const { textBlocks, reconcileBlocks, structural } = plan;
+  const { replacements, insertions } = structuralOps(structural, sourceMap, baselineMd);
+
+  // Blocks replaced structurally — skip in-block edits that land inside them.
+  const replacedNodes = new Set();
+  for (const g of replacements) {
+    for (let i = g.first; i <= g.last; i++) replacedNodes.add(sourceMap.blocks[i].blockNode);
+  }
+
+  // 1) Whole-block inline reconciliations (in place).
+  for (const rec of reconcileBlocks) {
+    if (replacedNodes.has(rec.block.blockNode)) continue;
+    reconcileTextNode(rec.textNode, rec.targetDelta);
+  }
+
+  // 2) Plain text hunks — surgical char ops, per-node offset shift.
+  for (const tb of textBlocks) {
+    if (replacedNodes.has(tb.block.blockNode)) continue;
+    const shift = new Map();
+    for (const h of tb.hunks.slice().sort((a, b) => a.oldStart - b.oldStart)) {
+      const seg0 = h.segments[0];
+      const segN = h.segments[h.segments.length - 1];
+      const textNode = seg0.textNode;
+      const startOff = seg0.textOff;
+      const oldLen = (segN.textOff + segN.length) - seg0.textOff;
+      const d = shift.get(textNode) || 0;
+      const at = startOff + d;
+      if (oldLen > 0) textNode.delete(at, oldLen);
+      if (h.newText.length > 0) {
+        const delta = textNode.toDelta();
+        const anchor = oldLen > 0 ? at : Math.max(at - 1, 0);
+        const attrs = marksAtChar(delta, anchor);
+        if (attrs && Object.keys(attrs).length > 0) textNode.insert(at, h.newText, attrs);
+        else textNode.insert(at, h.newText);
+      }
+      shift.set(textNode, d + (h.newText.length - oldLen));
+    }
+  }
+
+  // 3) Structural replacements — block-node identity for live indices.
+  for (const g of replacements) {
+    const firstBlock = sourceMap.blocks[g.first];
+    const lastBlock = sourceMap.blocks[g.last];
+    const idx = fragment.toArray().indexOf(firstBlock.blockNode);
+    const idxLast = fragment.toArray().indexOf(lastBlock.blockNode);
+    if (idx === -1 || idxLast === -1) continue;
+    const count = idxLast - idx + 1;
+    let s = '';
+    let cur = firstBlock.mdStart;
+    for (const hh of g.hunks.slice().sort((a, b) => a.oldStart - b.oldStart)) {
+      s += baselineMd.slice(cur, hh.oldStart) + hh.newText;
+      cur = hh.oldEnd;
+    }
+    s += baselineMd.slice(cur, lastBlock.mdEnd);
+    const newNodes = mdToNodes(s);
+    fragment.delete(idx, count);
+    if (newNodes.length > 0) fragment.insert(idx, newNodes);
+  }
+
+  // 4) Boundary insertions between blocks.
+  for (const ins of insertions) {
+    const newNodes = mdToNodes(ins.newText);
+    if (newNodes.length === 0) continue;
+    let at = 0;
+    if (ins.afterBlock) {
+      const pos = fragment.toArray().indexOf(ins.afterBlock.blockNode);
+      at = pos === -1 ? fragment.length : pos + 1;
+    }
+    fragment.insert(at, newNodes);
+  }
+
+  return { ...plan.counts };
+}
+
 module.exports = {
   SYNC_AGENT_NAME,
   // T004
@@ -305,4 +705,11 @@ module.exports = {
   syntheticClientId,
   buildBaseline,
   canonicalizePushed,
+  mdToNodes,
+  // T007
+  computeHunks,
+  planPush,
+  // T008
+  applyHunks,
+  reconcileTextNode,
 };
