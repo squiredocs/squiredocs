@@ -23,8 +23,8 @@
 
 **Purpose**: Verify the 001 contract and stage shared fixtures.
 
-- [ ] T001 Verify feature-001 deliverables this feature consumes: `shared/markdown-to-pm.js` exists and exports `markdownToPm` with tolerant default + never-lose-content + HTML whitelist, and is client-safe (no Node built-ins — required for the sandbox bundle). Also confirm `shared/format-registry.js` relocation and that `server/diff-service.js` still passes. If any check fails, STOP and report the blocker (spec §Depends on).
-- [ ] T002 [P] Create import test fixtures in `server/__tests__/fixtures/import/`: a realistic ADR/README sample, frontmatter variants (squire-only, mixed, malformed, non-squire-only, frontmatter-only), image-bearing markdown (external/`data:`/app-URL/duplicated srcs), dangerous-link samples (`javascript:`/`data:`/`vbscript:`/`file:` hrefs), CRLF+BOM sample, and an unsupported-construct (footnote) sample.
+- [x] T001 Verify feature-001 deliverables this feature consumes: `shared/markdown-to-pm.js` exists and exports `markdownToPm` with tolerant default + never-lose-content + HTML whitelist, and is client-safe (no Node built-ins — required for the sandbox bundle). Also confirm `shared/format-registry.js` relocation and that `server/diff-service.js` still passes. If any check fails, STOP and report the blocker (spec §Depends on).
+- [x] T002 [P] Create import test fixtures in `server/__tests__/fixtures/import/`: a realistic ADR/README sample, frontmatter variants (squire-only, mixed, malformed, non-squire-only, frontmatter-only), image-bearing markdown (external/`data:`/app-URL/duplicated srcs), dangerous-link samples (`javascript:`/`data:`/`vbscript:`/`file:` hrefs), CRLF+BOM sample, and an unsupported-construct (footnote) sample.
 
 **Checkpoint**: 001 contract confirmed; fixtures available to every suite.
 
