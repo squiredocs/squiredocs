@@ -90,9 +90,12 @@ class PostgresPersistence {
    * @param {Uint8Array} update - Yjs update binary data
    * @param {string|null} userId - User ID who made this update (for version history)
    * @param {string|null} agentName - Agent name if update was made by an AI agent
+   * @param {object|null} onBehalfOf - Optional provenance metadata for sync pushes
+   *   ({name?, email?, commit?, url?}); persisted to on_behalf_of JSONB (feature
+   *   004, D8). Null for every non-sync caller.
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docGuid, update, userId = null, agentName = null) {
+  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null) {
     await this._init();
 
     const MAX_RETRIES = 5;
@@ -119,8 +122,8 @@ class PostgresPersistence {
         // Store the update with user_id and agent_name for version history tracking.
         // ON CONFLICT DO NOTHING means rowCount === 0 if another writer claimed this clock.
         const result = await client.query(
-          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (doc_guid, clock) DO NOTHING',
-          [docGuid, nextClock, Buffer.from(update), userId, agentName]
+          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (doc_guid, clock) DO NOTHING',
+          [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf)]
         );
 
         if (result.rowCount > 0) {
@@ -354,6 +357,8 @@ class PostgresPersistence {
       userEmail: row.user_email,
       userPicture: row.user_picture,
       agentName: row.agent_name,
+      // on-behalf-of provenance for sync pushes (feature 004, D8); null otherwise
+      onBehalfOf: row.on_behalf_of != null ? row.on_behalf_of : null,
     };
     if (includeData && row.update_data) {
       result.updateData = new Uint8Array(row.update_data);
@@ -399,7 +404,7 @@ class PostgresPersistence {
       }
 
       const result = await client.query(
-        `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name,
+        `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id

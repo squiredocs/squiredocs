@@ -375,6 +375,397 @@ function toMarkdown(xmlFragment, options) {
 }
 
 /**
+ * ============================================================================
+ * SOURCE MAP (feature 004, research R1) — toMarkdownWithSourceMap
+ * ============================================================================
+ *
+ * Emits the SAME markdown as toMarkdownNodes plus a source map that ties every
+ * emitted document-text character back to its Y.XmlText node and offset. The
+ * fast path above is untouched and stays byte-identical/allocation-free; this
+ * path is only used by the sync engine.
+ *
+ * Strategy: mirror the block renderers on a per-character "chunk"
+ * ({ text, map }, map[i] = {node,off} | null-for-syntax). All the serializer's
+ * string tricks (blockquote `> ` prefixing, list indentation, `|`→`\|`
+ * escaping, hardBreak `\\\n`→`<br>`) become chunk slices/concats that carry the
+ * map correctly. The final assembled markdown is produced by calling
+ * toMarkdownNodes itself (guaranteed byte-identical), and each top-level block's
+ * chunk text is located in it sequentially to resolve absolute offsets — so the
+ * cross-block join/normalize never has to be modelled here. A per-op run is the
+ * CRDT-relevant granularity (a maximal same-marks span).
+ */
+
+/**
+ * Module-scope copy of the fast path's inline emission plan (kept in sync with
+ * toMarkdownNodes' closure `inlinePlan`; the byte-identity assertion in
+ * server/__tests__/serialization.sourcemap.test.js and the registry-driven
+ * round-trip suite fail loudly if the two ever drift). Pure function of the op
+ * attributes and flavor.
+ */
+function computeInlinePlan(a, portable, lossy) {
+  const pairs = [];
+  let emittedPairs = null;
+  if (portable) {
+    emittedPairs = new Set();
+    for (const m of INLINE_MARKS) {
+      if (a[m.yjsAttr] && !m.portable && m.wrap) {
+        emittedPairs.add(m.wrap[0] + ' ' + m.wrap[1]);
+      }
+    }
+  }
+  for (const m of INLINE_MARKS) {
+    if (!a[m.yjsAttr]) continue;
+    if (portable && m.portable) {
+      if (lossy) lossy.add(m.name);
+      const key = m.portable.wrap[0] + ' ' + m.portable.wrap[1];
+      if (!emittedPairs.has(key)) {
+        emittedPairs.add(key);
+        pairs.push({ pre: m.portable.wrap[0], post: m.portable.wrap[1] });
+      }
+      continue;
+    }
+    if (m.wrap) pairs.push({ pre: m.wrap[0], post: m.wrap[1] });
+    else pairs.push({ pre: `<${m.htmlTag}>`, post: `</${m.htmlTag}>` });
+  }
+  const ts = typeof a.textStyle === 'object' && a.textStyle;
+  if (ts) {
+    const css = attrsToCSS(ts);
+    if (css) {
+      if (portable && TEXTSTYLE_PORTABLE.drop) {
+        if (lossy) lossy.add('textStyle');
+      } else {
+        pairs.push({ pre: `<span style="${css}">`, post: '</span>' });
+      }
+    }
+  }
+  if (a.link) {
+    const href = typeof a.link === 'object' ? a.link.href : a.link;
+    pairs.push({ pre: '[', post: `](${href})` });
+  }
+  return { pairs, key: JSON.stringify(pairs) };
+}
+
+// ---- Chunk primitives: text + per-character source map -------------------
+function cText(s) {
+  return { text: s, map: new Array(s.length).fill(null) };
+}
+function cConcat(list) {
+  let text = '';
+  const map = [];
+  for (const c of list) {
+    text += c.text;
+    for (const e of c.map) map.push(e);
+  }
+  return { text, map };
+}
+function cSlice(c, a, b) {
+  return { text: c.text.slice(a, b), map: c.map.slice(a, b) };
+}
+function cTrimTrailingNewlines(c) {
+  const m = c.text.match(/\n+$/);
+  if (!m) return c;
+  return cSlice(c, 0, c.text.length - m[0].length);
+}
+/** Replace every literal occurrence of `needle` (a syntax sequence) with `repl`. */
+function cReplaceLiteral(c, needle, repl) {
+  const out = [];
+  let i = 0;
+  for (;;) {
+    const idx = c.text.indexOf(needle, i);
+    if (idx === -1) { out.push(cSlice(c, i, c.text.length)); break; }
+    out.push(cSlice(c, i, idx));
+    out.push(cText(repl));
+    i = idx + needle.length;
+  }
+  return cConcat(out);
+}
+/** Insert a syntax `\` before every `|`; the `|` keeps its (text) map entry. */
+function cEscapePipes(c) {
+  const out = [];
+  let start = 0;
+  for (let i = 0; i < c.text.length; i++) {
+    if (c.text[i] === '|') {
+      out.push(cSlice(c, start, i));
+      out.push(cText('\\'));
+      out.push(cSlice(c, i, i + 1));
+      start = i + 1;
+    }
+  }
+  out.push(cSlice(c, start, c.text.length));
+  return cConcat(out);
+}
+/** Mirror `s.split('\n').map(l => l===''?'':indent+l).join('\n')` on a chunk. */
+function cIndentLines(c, indent) {
+  const out = [];
+  let lineStart = 0;
+  for (let p = 0; p <= c.text.length; p++) {
+    if (p === c.text.length || c.text[p] === '\n') {
+      const line = cSlice(c, lineStart, p);
+      out.push(line.text === '' ? line : cConcat([cText(indent), line]));
+      if (p < c.text.length) out.push(cText('\n'));
+      lineStart = p + 1;
+    }
+  }
+  return cConcat(out);
+}
+
+/**
+ * Serialize nodes to markdown AND a source map. Byte-identical markdown to
+ * toMarkdownNodes(nodes, options).
+ *
+ * @param {Array<Y.XmlElement|Y.XmlText>} nodes
+ * @param {{flavor?: 'squire'|'portable', lossy?: Set<string>|null}} [options]
+ * @returns {{ markdown: string, sourceMap: { runs: Array, blocks: Array } }}
+ *   runs:   [{ mdStart, mdEnd, textNode, textOff }]  (sorted, non-overlapping)
+ *   blocks: [{ mdStart, mdEnd, blockIndex, blockNode }]  (top-level extents)
+ */
+function toMarkdownWithSourceMap(nodes, options = {}) {
+  const { flavor = 'squire', lossy = null } = options || {};
+  const portable = flavor === 'portable';
+  const parts = []; // array of chunks
+
+  function renderInlineC(textNode) {
+    const delta = textNode.toDelta();
+    const units = [];
+    let plainOff = 0;
+    for (const op of delta) {
+      if (typeof op.insert !== 'string') continue;
+      const plan = computeInlinePlan(op.attributes || {}, portable, lossy);
+      const last = units[units.length - 1];
+      if (portable && last && last.key === plan.key) {
+        last.text += op.insert;
+      } else {
+        units.push({ text: op.insert, pairs: plan.pairs, key: plan.key, off: plainOff });
+      }
+      plainOff += op.insert.length;
+    }
+    const chunks = [];
+    for (const u of units) {
+      let seg = u.text;
+      let preLen = 0;
+      for (const { pre, post } of u.pairs) { seg = pre + seg + post; preLen += pre.length; }
+      const map = new Array(seg.length).fill(null);
+      for (let i = 0; i < u.text.length; i++) map[preLen + i] = { node: textNode, off: u.off + i };
+      chunks.push({ text: seg, map });
+    }
+    return cConcat(chunks);
+  }
+
+  function getChildTextC(node) {
+    const chunks = [];
+    for (const child of node.toArray()) {
+      if (child instanceof Y.XmlText) {
+        chunks.push(renderInlineC(child));
+      } else if (child instanceof Y.XmlElement) {
+        if (child.nodeName === 'hardBreak') chunks.push(cText('\\\n'));
+        else chunks.push(getChildTextC(child));
+      }
+    }
+    return cConcat(chunks);
+  }
+
+  function processNodeC(node, indent) {
+    if (node instanceof Y.XmlText) { parts.push(renderInlineC(node)); return; }
+    if (!(node instanceof Y.XmlElement)) return;
+    const tag = node.nodeName;
+
+    if (tag === 'paragraph') {
+      parts.push(cConcat([getChildTextC(node), cText('\n')]));
+    } else if (tag === 'heading') {
+      const level = parseInt(node.getAttribute('level') || '1', 10);
+      const text = cReplaceLiteral(getChildTextC(node), '\\\n', '<br>');
+      parts.push(cConcat([cText('#'.repeat(level) + ' '), text, cText('\n')]));
+    } else if (tag === 'codeBlock') {
+      const lang = node.getAttribute('language') || '';
+      parts.push(cConcat([cText('```' + lang + '\n'), getChildTextC(node), cText('\n```\n')]));
+    } else if (tag === 'mermaid') {
+      parts.push(cConcat([cText('```mermaid\n'), getChildTextC(node), cText('\n```\n')]));
+    } else if (tag === 'svg') {
+      parts.push(cConcat([cText('```svg\n'), getChildTextC(node), cText('\n```\n')]));
+    } else if (tag === 'blockquote') {
+      const saved = parts.splice(0);
+      for (const child of node.toArray()) processNodeC(child, indent);
+      const innerLines = parts.splice(0);
+      parts.push(...saved);
+      for (const line of innerLines) {
+        parts.push(cConcat([cText('> '), cReplaceLiteral(line, '\\\n', '\\\n> ')]));
+      }
+    } else if (tag === 'bulletList') {
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
+          renderListItemC(child, indent, '- ');
+        }
+      }
+    } else if (tag === 'orderedList') {
+      let num = 1;
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
+          renderListItemC(child, indent, `${num}. `);
+          num++;
+        }
+      }
+    } else if (tag === 'taskList') {
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'taskItem') {
+          const checked = child.getAttribute('checked');
+          const marker = (checked === true || checked === 'true') ? '- [x] ' : '- [ ] ';
+          renderListItemC(child, indent, marker);
+        }
+      }
+    } else if (tag === 'horizontalRule') {
+      parts.push(cText('---\n'));
+    } else if (tag === 'image') {
+      const src = node.getAttribute('src') || '';
+      const alt = node.getAttribute('alt') || '';
+      const escapedAlt = alt.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+      parts.push(cText(`![${escapedAlt}](${src})\n`));
+    } else if (tag === 'table') {
+      renderTableC(node);
+    } else {
+      for (const child of node.toArray()) processNodeC(child, indent);
+    }
+  }
+
+  function renderListItemC(node, indent, marker) {
+    const children = node.toArray();
+    const childIndent = indent + ' '.repeat(marker.length);
+    const isTask = node.nodeName === 'taskItem';
+    const blockSep = isTask ? '\n' : '';
+    let first = true;
+    for (const child of children) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (isListContainer(child.nodeName)) {
+        processNodeC(child, childIndent);
+      } else if (isTask && child.nodeName !== 'paragraph') {
+        const saved = parts.splice(0);
+        processNodeC(child, childIndent);
+        let rendered = cTrimTrailingNewlines(cConcat(parts.splice(0)));
+        parts.push(...saved);
+        const shifted = cIndentLines(rendered, childIndent);
+        if (first) {
+          parts.push(cConcat([cText(indent + marker.replace(/\s+$/, '') + '\n' + blockSep), shifted, cText('\n')]));
+          first = false;
+        } else {
+          parts.push(cConcat([cText(blockSep), shifted, cText('\n')]));
+        }
+      } else {
+        const text = cReplaceLiteral(getChildTextC(child), '\\\n', '\\\n' + childIndent);
+        if (first) {
+          parts.push(cConcat([cText(indent + marker), text, cText('\n')]));
+          first = false;
+        } else {
+          parts.push(cConcat([cText(blockSep + childIndent), text, cText('\n')]));
+        }
+      }
+    }
+  }
+
+  function renderTableC(tableNode) {
+    const rows = [];
+    for (const child of tableNode.toArray()) {
+      if (child instanceof Y.XmlElement && child.nodeName === 'tableRow') {
+        const cells = [];
+        for (const cell of child.toArray()) {
+          if (cell instanceof Y.XmlElement) {
+            let ct = cEscapePipes(getChildTextC(cell));
+            ct = cReplaceLiteral(ct, '\\\n', '<br>');
+            cells.push(ct);
+          }
+        }
+        rows.push(cells);
+      }
+    }
+    if (rows.length === 0) return;
+    const rowLine = (cells) => {
+      const chunks = [cText('| ')];
+      for (let i = 0; i < cells.length; i++) {
+        if (i > 0) chunks.push(cText(' | '));
+        chunks.push(cells[i]);
+      }
+      chunks.push(cText(' |\n'));
+      return cConcat(chunks);
+    };
+    parts.push(rowLine(rows[0]));
+    parts.push(cText('| ' + rows[0].map(() => '---').join(' | ') + ' |\n'));
+    for (let i = 1; i < rows.length; i++) parts.push(rowLine(rows[i]));
+  }
+
+  // The authoritative markdown (byte-identical) and per-block chunks.
+  const finalMd = toMarkdownNodes(nodes, options);
+  const placed = [];
+  let assembled = '';
+  let bi = 0;
+  for (const node of nodes) {
+    processNodeC(node, '');
+    const rendered = cTrimTrailingNewlines(cConcat(parts.splice(0)));
+    if (rendered.text !== '') {
+      if (assembled !== '') assembled += '\n\n';
+      placed.push({ chunk: rendered, node, blockIndex: bi, base: assembled.length });
+      assembled += rendered.text;
+    }
+    bi++;
+  }
+
+  // `assembled` mirrors toMarkdownNodes' `blocks.join('\n\n')`; the fast path then
+  // applies `.replace(/\n{3,}/g,'\n\n').trim()`. Per-block trailing-newline
+  // stripping means the collapse is a no-op (blocks never start with \n), so
+  // finalMd === assembled.trim(): a constant leading-trim shift plus a
+  // trailing-clip. Compute offsets directly (robust to blocks that end/begin in
+  // whitespace, which an indexOf-locate would mislocate). Guard the collapse.
+  const collapsed = assembled.replace(/\n{3,}/g, '\n\n');
+  const L = collapsed.length - collapsed.replace(/^\s+/, '').length; // leading trim
+  const runs = [];
+  const blocks = [];
+  const consistent = collapsed === assembled && collapsed.trim() === finalMd;
+  if (consistent) {
+    for (const p of placed) {
+      const base = p.base - L;
+      const map = p.chunk.map;
+      let i = 0;
+      while (i < map.length) {
+        if (map[i] === null) { i++; continue; }
+        const tn = map[i].node;
+        const off0 = map[i].off;
+        let j = i + 1;
+        while (j < map.length && map[j] !== null && map[j].node === tn && map[j].off === map[j - 1].off + 1) j++;
+        const s = base + i;
+        const e = base + j;
+        const cs = Math.max(0, s);
+        const ce = Math.min(finalMd.length, e);
+        if (ce > cs) runs.push({ mdStart: cs, mdEnd: ce, textNode: tn, textOff: off0 + (cs - s) });
+        i = j;
+      }
+      const bs = Math.max(0, base);
+      const be = Math.min(finalMd.length, base + p.chunk.text.length);
+      if (be > bs) blocks.push({ mdStart: bs, mdEnd: be, blockIndex: p.blockIndex, blockNode: p.node });
+    }
+  } else {
+    // Rare surprise (an internal \n{3,} collapse shifted mid-document offsets):
+    // fall back to sequential indexOf against finalMd.
+    let cursor = 0;
+    for (const p of placed) {
+      const base = finalMd.indexOf(p.chunk.text, cursor);
+      if (base === -1) continue;
+      const map = p.chunk.map;
+      let i = 0;
+      while (i < map.length) {
+        if (map[i] === null) { i++; continue; }
+        const tn = map[i].node;
+        const off0 = map[i].off;
+        let j = i + 1;
+        while (j < map.length && map[j] !== null && map[j].node === tn && map[j].off === map[j - 1].off + 1) j++;
+        runs.push({ mdStart: base + i, mdEnd: base + j, textNode: tn, textOff: off0 });
+        i = j;
+      }
+      blocks.push({ mdStart: base, mdEnd: base + p.chunk.text.length, blockIndex: p.blockIndex, blockNode: p.node });
+      cursor = base + p.chunk.text.length;
+    }
+  }
+
+  return { markdown: finalMd, sourceMap: { runs, blocks } };
+}
+
+/**
  * Serialize a Yjs XmlFragment to structured JSON format
  * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
  * @returns {Array} Array of structured nodes
@@ -775,6 +1166,7 @@ module.exports = {
   loadYDoc,
   // Node-level serialization (new)
   toMarkdownNodes,
+  toMarkdownWithSourceMap,
   toStructuredNode,
   toTextNode,
   extractTextWithMarks,

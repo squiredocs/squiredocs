@@ -101,6 +101,7 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
         timestamp: update.createdAt,
         lastUpdateTime: updateTime,
         authors: new Map(), // userId -> user info
+        onBehalfOf: [], // sync-push provenance (feature 004, D8); plain text
       };
       versions.push(currentVersion);
     } else {
@@ -115,6 +116,11 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 
     if (update.userId && !currentVersion.authors.has(authorKey)) {
       currentVersion.authors.set(authorKey, createAuthor(update));
+    }
+
+    // Collect on-behalf-of provenance from sync-push updates in this version.
+    if (update.onBehalfOf && typeof update.onBehalfOf === 'object') {
+      currentVersion.onBehalfOf.push(update.onBehalfOf);
     }
   }
 
@@ -470,6 +476,8 @@ async function getVersionTimeline(persistence, docGuid) {
     authors: v.authors || [],
     isNamed: v.isNamed || false,
     isCurrent: v.isCurrent || false,
+    // Sync-push provenance (feature 004, D8), rendered strictly as plain text.
+    onBehalfOf: v.onBehalfOf || [],
   }));
 
   // Client handles grouping by month for proper local timezone handling

@@ -870,3 +870,71 @@ describe('frontmatter strip/preserve round-trip (FR-023, SC-005)', () => {
     expect(parsed).toEqual({ body, squire: null, foreignRaw: null });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Feature 004 — Two-way sync round-trip invariant (T019, FR-016/SC-001/SC-009)
+// ---------------------------------------------------------------------------
+describe('sync round-trip invariant (push(export(doc)) is a no-op)', () => {
+  const { toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
+  const { canonicalizePushed, computeHunks, planPush } = require('../markdown-sync');
+
+  const elx = (tag, text, attrs) => {
+    const e = new Y.XmlElement(tag);
+    if (text !== undefined) { const t = new Y.XmlText(); t.insert(0, text, attrs); e.insert(0, [t]); }
+    return e;
+  };
+  const li = (txt) => { const x = new Y.XmlElement('listItem'); x.insert(0, [elx('paragraph', txt)]); return x; };
+  const ti = (checked, txt) => { const x = new Y.XmlElement('taskItem'); x.setAttribute('checked', checked); x.insert(0, [elx('paragraph', txt)]); return x; };
+  const cell = (txt) => { const c = new Y.XmlElement('tableCell'); c.insert(0, [elx('paragraph', txt)]); return c; };
+  const row = (...cells) => { const r = new Y.XmlElement('tableRow'); r.insert(0, cells.map(cell)); return r; };
+
+  // Registry-driven corpus: one doc per inline mark + representative block types.
+  const corpus = {};
+  for (const mark of INLINE_MARKS) {
+    corpus[`mark:${mark.name}`] = () => [elx('paragraph', 'styled', { [mark.yjsAttr]: true })];
+  }
+  corpus['headings'] = () => [1, 2, 3].map((lvl) => { const h = elx('heading', `H${lvl}`); h.setAttribute('level', String(lvl)); return h; });
+  corpus['code + mermaid'] = () => { const cb = elx('codeBlock', 'const x=1;'); cb.setAttribute('language', 'js'); return [cb, elx('mermaid', 'graph TD')]; };
+  corpus['bullet + ordered lists'] = () => { const b = new Y.XmlElement('bulletList'); b.insert(0, [li('one'), li('two')]); const o = new Y.XmlElement('orderedList'); o.insert(0, [li('a'), li('b')]); return [b, o]; };
+  corpus['nested list'] = () => { const outer = new Y.XmlElement('bulletList'); const item = li('parent'); const inner = new Y.XmlElement('bulletList'); inner.insert(0, [li('child')]); item.insert(1, [inner]); outer.insert(0, [item]); return [outer]; };
+  corpus['task list'] = () => { const tl = new Y.XmlElement('taskList'); tl.insert(0, [ti(false, 'todo'), ti(true, 'done')]); return [tl]; };
+  corpus['blockquote + hr'] = () => { const bq = new Y.XmlElement('blockquote'); bq.insert(0, [elx('paragraph', 'quoted')]); return [bq, new Y.XmlElement('horizontalRule')]; };
+  corpus['table'] = () => { const t = new Y.XmlElement('table'); t.insert(0, [row('h1', 'h2'), row('a', 'b')]); return [t]; };
+  corpus['link'] = () => { const p = new Y.XmlElement('paragraph'); const t = new Y.XmlText(); t.insert(0, 'label', { link: { href: 'https://example.com' } }); p.insert(0, [t]); return [p]; };
+  corpus['mixed document'] = () => { const h = elx('heading', 'Title'); h.setAttribute('level', '1'); const b = new Y.XmlElement('bulletList'); b.insert(0, [li('x'), li('y')]); return [h, elx('paragraph', 'intro para'), b, elx('paragraph', 'outro para')]; };
+
+  for (const [name, build] of Object.entries(corpus)) {
+    for (const flavor of ['squire', 'portable']) {
+      test(`${name} — push(export) is a no-op [${flavor}]`, () => {
+        const doc = new Y.Doc();
+        doc.transact(() => doc.getXmlFragment('default').insert(0, build()));
+        const nodes = doc.getXmlFragment('default').toArray();
+        const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(nodes, { flavor });
+
+        // (a) push(export) — empty canonical diff, zero ops, no version entry
+        const pushed = canonicalizePushed(baselineMd, { flavor });
+        expect(pushed).toBe(baselineMd);
+        expect(computeHunks(baselineMd, pushed)).toHaveLength(0);
+        const plan = planPush(computeHunks(baselineMd, pushed), sourceMap, baselineMd);
+        expect(plan.counts).toEqual({ textHunks: 0, structuralHunks: 0 });
+
+        // (c) repeated pull→push cycle (≥3 iterations) stays a no-op (SC-009)
+        let md = baselineMd;
+        for (let i = 0; i < 3; i++) {
+          const next = canonicalizePushed(md, { flavor });
+          expect(next).toBe(md); // phantom-edit guard
+          md = next;
+        }
+        doc.destroy();
+      });
+    }
+  }
+
+  test('export → import → export is byte-stable in squire flavor (FR-016)', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => doc.getXmlFragment('default').insert(0, corpus['mixed document']()));
+    const md = toMarkdown(doc.getXmlFragment('default'));
+    expect(reserialize(md)).toBe(md); // import(export) re-exports identically
+    doc.destroy();
+  });
+});

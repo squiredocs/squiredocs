@@ -310,3 +310,14 @@
   color: #1f2937;
   font-weight: var(--font-medium);
 }
+
+/* On-behalf-of provenance for sync (Repo Sync) pushes — feature 004, D8.
+   Plain-text, muted; never a link (untrusted metadata rendered inertly). */
+.hierarchy-onbehalfof {
+  margin-top: 2px;
+}
+.hierarchy-onbehalfof-line {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  overflow-wrap: anywhere;
+}

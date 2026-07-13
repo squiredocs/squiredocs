@@ -22,11 +22,90 @@ const documents = require('../documents');
 const documentService = require('../document-service');
 const { notifyException } = require('../exception-notifier');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
+const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
+const { applySyncPush, validateSyncBaseline, SYNC_AGENT_NAME } = require('../markdown-sync');
 const {
   importMarkdown,
   deriveImportTitle,
   ImportError,
 } = require('../markdown-import');
+
+// ---------------------------------------------------------------------------
+// mode=sync (feature 004) — contracts/sync-push.md
+// ---------------------------------------------------------------------------
+
+const ON_BEHALF_OF_FIELDS = ['name', 'email', 'commit', 'url'];
+const ON_BEHALF_OF_MAX = 256;
+
+/**
+ * Reconstructibility hook (D1 forward guard). Today the full update log is
+ * retained, so every valid clock is reconstructible → always true. A future
+ * compaction feature narrows this; tests inject a false to exercise the 410.
+ */
+let canReconstruct = async () => true;
+function setCanReconstruct(fn) { canReconstruct = fn || (async () => true); }
+
+/** Parse on-behalf-of provenance from headers / query (mode=sync only, D6). */
+function parseOnBehalfOf(req) {
+  const out = {};
+  for (const field of ON_BEHALF_OF_FIELDS) {
+    const cap = field[0].toUpperCase() + field.slice(1);
+    let v = req.get(`X-Squire-On-Behalf-Of-${cap}`);
+    if (v == null) {
+      const q = req.query[`onBehalfOf${cap}`];
+      if (typeof q === 'string') v = q;
+    }
+    if (typeof v === 'string' && v.length > 0) {
+      out[field] = v.slice(0, ON_BEHALF_OF_MAX); // length-cap (D6)
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * Handle a mode=sync push: validate baseline/identity, dispatch to the sync
+ * engine, shape the receipt. Auth/editor-role were already enforced by the
+ * caller (no privileged path — FR-003).
+ */
+const REJECTION_MESSAGES = {
+  sync_doc_mismatch: 'The file\'s frontmatter names a different document than the request target.',
+  sync_baseline_missing: 'No baseline clock: provide squire.clock frontmatter or the baselineClock parameter.',
+  sync_baseline_invalid: 'The baseline clock is malformed, negative, or beyond the document\'s current clock.',
+  sync_baseline_unavailable: 'The document can no longer be reconstructed at that baseline clock.',
+};
+
+async function handleSyncPush(persistence, req, res, docId, user) {
+  const markdown = typeof req.body === 'string' ? req.body : '';
+  const { squire, body } = parseFrontmatter(markdown);
+
+  // Baseline/identity validation (FR-002/FR-015, R6) — all before fork/replay,
+  // so a rejected push leaves no trace (no mutation, no version entry).
+  const v = await validateSyncBaseline(persistence, docId, {
+    squire, paramClock: req.query.baselineClock, canReconstruct,
+  });
+  if (v.error) {
+    const b = {
+      error: v.error,
+      message: REJECTION_MESSAGES[v.error],
+      guidance: 'Re-pull the document (re-export) and re-apply your edits on a fresh baseline.',
+    };
+    if (v.currentClock !== undefined) b.currentClock = v.currentClock;
+    return res.status(v.status).json(b);
+  }
+  const { baselineClock, flavor } = v;
+
+  const receipt = await applySyncPush(persistence, docId, {
+    body, // frontmatter-stripped body — the engine diffs against the doc's body
+    baselineClock,
+    flavor,
+    userId: user.userId,
+    agentName: SYNC_AGENT_NAME,
+    onBehalfOf: parseOnBehalfOf(req),
+    imageMap: squire && squire.images ? squire.images : null,
+    getSharedDoc: documentService.getSharedDoc,
+  });
+  return res.status(200).json(receipt);
+}
 
 // CN-1: markdown bodies are capped at 5 MB, rejected before parsing.
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -218,11 +297,15 @@ function createImportRouter(persistence) {
         return res.status(403).json({ error: 'You do not have access to this document' });
       }
 
-      // Mode: append (default) | replace; anything else → 400 (CN-3, FR-015 —
-      // insertAfterXPath is a module capability, never a REST mode).
+      // Mode: append (default) | replace | sync (feature 004). The sync push has
+      // its own contract (baseline replay); auth above is the same trust
+      // boundary — no privileged path (FR-003).
       const mode = req.query.mode === undefined ? 'append' : String(req.query.mode);
+      if (mode === 'sync') {
+        return await handleSyncPush(persistence, req, res, docId, req.user);
+      }
       if (mode !== 'append' && mode !== 'replace') {
-        return res.status(400).json({ error: `Unknown import mode: ${mode} (use append or replace)` });
+        return res.status(400).json({ error: `Unknown import mode: ${mode} (use append or replace or sync)` });
       }
 
       const markdown = typeof req.body === 'string' ? req.body : '';
@@ -262,4 +345,9 @@ function createImportRouter(persistence) {
   return router;
 }
 
-module.exports = { createImportRouter, MAX_IMPORT_BYTES };
+module.exports = {
+  createImportRouter,
+  MAX_IMPORT_BYTES,
+  parseOnBehalfOf,
+  setCanReconstruct,
+};

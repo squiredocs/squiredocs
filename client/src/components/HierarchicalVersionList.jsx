@@ -66,9 +66,36 @@ function AuthorList({ authors, maxDisplay = null }) {
 }
 
 /**
+ * On-behalf-of provenance for sync (Repo Sync) pushes — feature 004, D8.
+ * Rendered STRICTLY as plain text (never as markup or a live link): a value
+ * from untrusted push metadata is displayed inertly. React escapes it by
+ * default, so a hostile string renders as literal characters.
+ */
+function OnBehalfOfList({ onBehalfOf }) {
+  if (!onBehalfOf || onBehalfOf.length === 0) return null;
+  return (
+    <div className="hierarchy-onbehalfof">
+      {onBehalfOf.map((p, i) => {
+        const parts = [];
+        if (p.name) parts.push(p.name);
+        if (p.email) parts.push(p.email);
+        if (p.commit) parts.push(p.commit);
+        if (p.url) parts.push(p.url); // shown as text, not a link (D6)
+        if (parts.length === 0) return null;
+        return (
+          <div key={i} className="hierarchy-onbehalfof-line" title="On behalf of">
+            on behalf of {parts.join(' · ')}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Shared content display for both versions and updates
  */
-function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) {
+function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, onBehalfOf }) {
   return (
     <>
       {name && <div className="hierarchy-version-name">{name}</div>}
@@ -76,6 +103,7 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors }) 
       {subtitle && <div className="hierarchy-item-subtitle">{subtitle}</div>}
       {badge && <div className="hierarchy-version-badge">{badge}</div>}
       <AuthorList authors={authors} maxDisplay={maxAuthors} />
+      <OnBehalfOfList onBehalfOf={onBehalfOf} />
     </>
   );
 }
@@ -236,6 +264,7 @@ function HistoryItem({
             badge={item.isCurrent ? 'Current' : null}
             authors={item.authors}
             maxAuthors={3}
+            onBehalfOf={item.onBehalfOf}
           />
         </div>
         <ItemMenu
