@@ -391,4 +391,23 @@ describe('post-merge review regressions', () => {
     // valid refs still decode
     expect(plainText(parse('&#65;'))).toBe('A');
   });
+
+  // F6 — an item indented 1-2 spaces deeper than the list marker joins the same
+  // list instead of becoming a stray sibling list.
+  test('F6: 1-space-deeper items stay in one list', () => {
+    const doc = parse('- a\n - b');
+    expect(blockTypes(doc)).toEqual(['bulletList']);
+    expect(doc.content[0].content.length).toBe(2);
+
+    const ordered = parse('1. a\n 2. b');
+    expect(blockTypes(ordered)).toEqual(['orderedList']);
+    expect(ordered.content[0].content.length).toBe(2);
+
+    // genuinely nested items (at the content indent) still nest
+    const nested = parse('- a\n  - b');
+    expect(blockTypes(nested)).toEqual(['bulletList']);
+    expect(nested.content[0].content.length).toBe(1);
+    expect(findAll(nested, (n) => n.type === 'bulletList').length).toBe(2);
+    [doc, ordered, nested].forEach(expectValid);
+  });
 });

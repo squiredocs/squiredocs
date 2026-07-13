@@ -381,9 +381,14 @@ function parseList(lines, start, diffMark, depth) {
   let i = start;
   const n = lines.length;
 
+  // An item indented up to 2 spaces deeper than the list's marker (but not deep
+  // enough to nest as this item's content) still belongs to this list rather
+  // than starting a stray sibling list (F6).
+  const sameList = (x) => x && x.ordered === ordered && x.indent >= listIndent && x.indent <= listIndent + 2;
+
   while (i < n) {
     const li = tryListItem(lines[i]);
-    if (!li || li.ordered !== ordered || li.indent !== listIndent) break;
+    if (!sameList(li)) break;
 
     const contentLines = [li.content];
     const contentIndent = li.markerWidth;
@@ -429,7 +434,7 @@ function parseList(lines, start, diffMark, depth) {
     let j = i;
     while (j < n && lines[j].trim() === '') j++;
     const bridge = j < n ? tryListItem(lines[j]) : null;
-    if (bridge && bridge.ordered === ordered && bridge.indent === listIndent) {
+    if (sameList(bridge)) {
       i = j;
     } else {
       break;
