@@ -112,11 +112,14 @@ describe('US1 — real-world markdown parses into correct structure', () => {
     expect(plainText(doc)).toBe('*not emphasis* and & and A');
   });
 
-  test('AS-7: GFM task list degrades to bullets with marker preserved (CN-3)', () => {
+  test('AS-7: GFM task list parses to real task items (feature 003 flipped the CN-3 seam)', () => {
     const doc = parse('- [ ] todo\n- [x] done');
-    expect(doc.content[0].type).toBe('bulletList');
-    expect(plainText(doc.content[0].content[0])).toBe('[ ] todo');
-    expect(plainText(doc.content[0].content[1])).toBe('[x] done');
+    expect(doc.content[0].type).toBe('taskList');
+    expect(doc.content[0].content[0].type).toBe('taskItem');
+    expect(doc.content[0].content[0].attrs.checked).toBe(false);
+    expect(doc.content[0].content[1].attrs.checked).toBe(true);
+    expect(plainText(doc.content[0].content[0])).toBe('todo');
+    expect(plainText(doc.content[0].content[1])).toBe('done');
     expectValid(doc);
   });
 

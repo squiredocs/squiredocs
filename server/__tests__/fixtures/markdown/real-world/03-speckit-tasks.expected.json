@@ -6,7 +6,7 @@
         "level": 1
       }
     },
-    "bulletList",
+    "taskList",
     {
       "type": "heading",
       "attrs": {
