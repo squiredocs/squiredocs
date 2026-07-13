@@ -71,7 +71,7 @@
 
 - [x] T016 [US2] Implement `PUT /api/docs/:docId/import` in `server/api/docs-import.js`: same body/type/size/empty gates as POST; `mode` query `append` (default) | `replace`, anything else 400 (FR-013, CN-3); editor-role gate `documents.hasRole(docId, userId, 'editor')` ⇒ else 403 with export-parity message; call `importMarkdown`; 200 response `{ docId, mode, clock, blocks, images }` — additive-extensible, nothing precluding 004's fields (FR-014, CN-12).
 - [x] T017 [US2] Extend `__tests__/integration/docs-import-api.test.js` with the PUT matrix: append preserves prior content + prior attribution and returns new clock; replace = exactly the new blocks, one undo step, attributed to acting principal; viewer 403; `documents:read`-only token 403 INSUFFICIENT_SCOPE; unknown mode 400; empty body 400 with doc unchanged; missing doc 403; owner passes the editor gate; `text/plain` accepted.
-- [ ] T018 [US2] Concurrency test (SC-006) in `__tests__/integration/docs-import-concurrency.test.js`: apply simulated collaborator updates to the shared ydoc while an `append` import runs; assert both edit streams present afterward (append is pure insertion); also assert double-fired identical appends both apply (edge case: concurrent identical imports).
+- [x] T018 [US2] Concurrency test (SC-006) in `__tests__/integration/docs-import-concurrency.test.js`: apply simulated collaborator updates to the shared ydoc while an `append` import runs; assert both edit streams present afterward (append is pure insertion); also assert double-fired identical appends both apply (edge case: concurrent identical imports).
 
 **Checkpoint**: REST story complete — export finally has its import counterpart.
 
