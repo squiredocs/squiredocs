@@ -390,7 +390,6 @@ await list_document_versions({
 | `POST /api/docs/:docId/versions` | Create named version |
 | `POST /api/docs/:docId/restore` | Restore to previous version |
 | `GET /api/docs/:docId/export?format=markdown` | Export document as a Markdown file download. Options: `flavor=squire\|portable` (default `squire`), `frontmatter=true\|false` (default off), `format=bundle` for a zip of markdown + image assets with relative references (bundle defaults to `portable` + frontmatter, overridable) |
-| `GET /api/docs/:docId/export?format=markdown` | Export document as a Markdown file download |
 | `POST /api/docs/import` | Create a new document from a `text/markdown` body (owner = acting user) |
 | `PUT /api/docs/:docId/import?mode=append\|replace` | Import markdown into an existing document (editor role required) |
 
