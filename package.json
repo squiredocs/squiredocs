@@ -81,9 +81,13 @@
       "**/__tests__/**/*.test.js",
       "**/?(*.)+(spec|test).js"
     ],
+    "modulePathIgnorePatterns": [
+      "/.claude/worktrees/"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "/client/"
+      "/client/",
+      "/.claude/worktrees/"
     ],
     "transform": {
       "\\.[jt]sx?$": [
