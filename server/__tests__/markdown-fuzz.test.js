@@ -215,6 +215,14 @@ describe('performance guards (SC-006)', () => {
       '<u>'.repeat(20000),
       ('- '.repeat(1) + 'x\n').repeat(2000),
       '#'.repeat(64 * 1024),
+      // Flood-plus-closer families (F2): openers that never balance despite a
+      // closer existing ahead. These were O(n^2) (seconds) before the balanced
+      // open→close maps made every opener lookup O(1).
+      '['.repeat(64 * 1024) + '](x)',
+      '['.repeat(128 * 1024) + '](x)',
+      '[]('.repeat(30000) + 'x)',
+      '<span style="c">'.repeat(4000) + '</span>',
+      '<u>'.repeat(20000) + '</u>',
     ];
     let worst = 0;
     for (const f of floods) {

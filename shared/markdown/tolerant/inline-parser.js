@@ -94,6 +94,73 @@ function insertBefore(list, ref, node) {
   ref.prev = node;
 }
 
+// --- Balanced-close precomputation (SC-006 linear-scan guards) --------------
+//
+// A left-to-right tokenizer that re-scans for a balanced close at every opener
+// is O(n^2) when closers exist ahead but never balance (e.g.
+// '['.repeat(65536)+'](x)', or '<span ...>'.repeat(k)+'</span>'). We instead
+// pair every opener with its balanced closer in a single O(n) stack pass, so
+// each opener's lookup is O(1) (F2). Escaped `\[ \] \( \)` are skipped so the
+// pairing matches the tokenizer's own escape handling.
+
+function computeDelimBalance(src, openCh, closeCh) {
+  const map = new Map();
+  const stack = [];
+  const n = src.length;
+  for (let j = 0; j < n; j++) {
+    const c = src[j];
+    if (c === '\\') { j++; continue; }
+    if (c === openCh) stack.push(j);
+    else if (c === closeCh && stack.length) map.set(stack.pop(), j);
+  }
+  return map;
+}
+
+// Map each `<tag>` opener position to its balanced `</tag>` position.
+function computeStringBalance(src, openStr, closeStr) {
+  const map = new Map();
+  const stack = [];
+  const n = src.length;
+  for (let j = 0; j < n;) {
+    if (src.startsWith(closeStr, j)) {
+      if (stack.length) map.set(stack.pop(), j);
+      j += closeStr.length;
+    } else if (src.startsWith(openStr, j)) {
+      stack.push(j);
+      j += openStr.length;
+    } else {
+      j++;
+    }
+  }
+  return map;
+}
+
+// Map each `<span[\s>]` opener position to its balanced `</span>` position.
+// Mirrors the (case-insensitive) open/close detection the old scanner used.
+function computeSpanBalance(src) {
+  const lower = src.toLowerCase();
+  const map = new Map();
+  const stack = [];
+  const n = src.length;
+  for (let j = 0; j < n;) {
+    if (lower.startsWith('</span>', j)) {
+      if (stack.length) map.set(stack.pop(), j);
+      j += 7;
+    } else if (lower.startsWith('<span', j)) {
+      const c = lower[j + 5];
+      if (c === '>' || (c !== undefined && /\s/.test(c))) {
+        stack.push(j);
+        j += 5;
+      } else {
+        j++;
+      }
+    } else {
+      j++;
+    }
+  }
+  return map;
+}
+
 // --- Emphasis processing (CommonMark delimiter stack) -----------------------
 
 function makeDelim(src, i, ch, len) {
@@ -233,14 +300,14 @@ function parseToTree(src) {
   const n = src.length;
   let i = 0;
 
-  // Precomputed last positions so the link/tag scanners bail in O(1) when no
-  // matching close exists ahead — prevents O(n^2) blowup on bracket/tag floods
-  // (SC-006). The string is immutable within this call.
-  const lastCloseBracket = src.lastIndexOf(']');
-  const lastCloseParen = src.lastIndexOf(')');
-  const lastSpanClose = src.lastIndexOf('</span>');
-  const lastTagClose = new Map();
-  for (const tag of TAG_MARK.keys()) lastTagClose.set(tag, src.lastIndexOf(`</${tag}>`));
+  // Balanced open→close maps, precomputed once so every opener's lookup is O(1)
+  // (prevents O(n^2) blowup on bracket/paren/tag floods, SC-006/F2). The string
+  // is immutable within this call.
+  const bracketBalance = computeDelimBalance(src, '[', ']');
+  const parenBalance = computeDelimBalance(src, '(', ')');
+  const spanBalance = computeSpanBalance(src);
+  const tagBalance = new Map();
+  for (const tag of TAG_MARK.keys()) tagBalance.set(tag, computeStringBalance(src, `<${tag}>`, `</${tag}>`));
 
   function flush() {
     if (buf) {
@@ -267,10 +334,10 @@ function parseToTree(src) {
 
     // <span style="...">...</span>
     const spanMatch = /^<span style="([^"]*)">/i.exec(rest);
-    if (spanMatch && lastSpanClose >= i) {
-      const contentStart = i + spanMatch[0].length;
-      const closeIdx = findBalancedSpanClose(contentStart);
+    if (spanMatch) {
+      const closeIdx = spanBalance.has(i) ? spanBalance.get(i) : -1;
       if (closeIdx !== -1) {
+        const contentStart = i + spanMatch[0].length;
         const attrs = cssToAttrs(spanMatch[1]);
         const recognized = STYLE_PROPS.some((p) => attrs[p.attr] !== undefined);
         if (recognized) {
@@ -287,11 +354,12 @@ function parseToTree(src) {
 
     // Whitelist mark tags: <u>, <mark>, <sub>, <sup>
     const tagMatch = /^<([a-zA-Z][a-zA-Z0-9]*)>/.exec(rest);
-    if (tagMatch && TAG_MARK.has(tagMatch[1]) && lastTagClose.get(tagMatch[1]) >= i) {
+    if (tagMatch && TAG_MARK.has(tagMatch[1])) {
       const tag = tagMatch[1];
-      const contentStart = i + tagMatch[0].length;
-      const closeIdx = findBalancedTagClose(contentStart, tag);
+      const balance = tagBalance.get(tag);
+      const closeIdx = balance && balance.has(i) ? balance.get(i) : -1;
       if (closeIdx !== -1) {
+        const contentStart = i + tagMatch[0].length;
         const inner = parseToTree(src.slice(contentStart, closeIdx));
         pushWrap({ type: TAG_MARK.get(tag) }, inner);
         return closeIdx + `</${tag}>`.length;
@@ -315,89 +383,27 @@ function parseToTree(src) {
     return -1;
   }
 
-  function findBalancedTagClose(pos, tag) {
-    const open = `<${tag}>`;
-    const close = `</${tag}>`;
-    let depth = 1;
-    let j = pos;
-    while (j < n) {
-      if (src.startsWith(open, j)) {
-        depth++;
-        j += open.length;
-      } else if (src.startsWith(close, j)) {
-        depth--;
-        if (depth === 0) return j;
-        j += close.length;
-      } else {
-        j++;
-      }
-    }
-    return -1;
-  }
-
-  function findBalancedSpanClose(pos) {
-    let depth = 1;
-    let j = pos;
-    while (j < n) {
-      if (/^<span[\s>]/i.test(src.slice(j))) {
-        depth++;
-        j += 5;
-      } else if (src.startsWith('</span>', j)) {
-        depth--;
-        if (depth === 0) return j;
-        j += '</span>'.length;
-      } else {
-        j++;
-      }
-    }
-    return -1;
-  }
-
   // Link [text](href). Returns next index or -1.
   function tryLink() {
-    if (lastCloseBracket < i || lastCloseParen < i) return -1;
-    let depth = 1;
-    let j = i + 1;
-    while (j < n) {
-      const c = src[j];
-      if (c === '\\') {
-        j += 2;
-        continue;
-      }
-      if (c === '[') depth++;
-      else if (c === ']') {
-        depth--;
-        if (depth === 0) break;
-      }
-      j++;
-    }
-    if (j >= n || src[j + 1] !== '(') return -1;
-    const textSrc = src.slice(i + 1, j);
-    let k = j + 2;
-    let pdepth = 1;
+    // Balanced `]` for the `[` at i, and it must be followed by `(...)`.
+    const close = bracketBalance.has(i) ? bracketBalance.get(i) : -1;
+    if (close === -1 || src[close + 1] !== '(') return -1;
+    const openParen = close + 1;
+    const closeParen = parenBalance.has(openParen) ? parenBalance.get(openParen) : -1;
+    if (closeParen === -1) return -1;
+    const textSrc = src.slice(i + 1, close);
+    // Destination text, unescaping backslashes (matches the strict dialect).
     let href = '';
-    while (k < n) {
-      const c = src[k];
-      if (c === '\\') {
+    for (let k = openParen + 1; k < closeParen; k++) {
+      if (src[k] === '\\') {
         href += src[k + 1] !== undefined ? src[k + 1] : '';
-        k += 2;
-        continue;
-      }
-      if (c === '(') {
-        pdepth++;
-        href += c;
-      } else if (c === ')') {
-        pdepth--;
-        if (pdepth === 0) break;
-        href += c;
+        k++;
       } else {
-        href += c;
+        href += src[k];
       }
-      k++;
     }
-    if (k >= n) return -1;
     pushWrap({ type: 'link', attrs: { href: href.trim() } }, parseToTree(textSrc));
-    return k + 1;
+    return closeParen + 1;
   }
 
   // Bare autolink (GFM www/url). Returns next index or -1.
