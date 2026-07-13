@@ -61,10 +61,13 @@ function decodeEntity(ref) {
     let cp;
     if (body[0] === 'x' || body[0] === 'X') {
       const hex = body.slice(1);
-      if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
+      // CommonMark caps numeric refs at 6 hex digits; longer runs are not a
+      // valid reference and stay literal text (never U+FFFD — F5).
+      if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) return null;
       cp = parseInt(hex, 16);
     } else {
-      if (!/^[0-9]+$/.test(body)) return null;
+      // …and at 7 decimal digits; longer runs stay literal text (F5).
+      if (!/^[0-9]{1,7}$/.test(body)) return null;
       cp = parseInt(body, 10);
     }
     return codePointToString(cp);

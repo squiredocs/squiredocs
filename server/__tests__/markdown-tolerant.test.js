@@ -381,4 +381,14 @@ describe('post-merge review regressions', () => {
     expect(doc.content[0].content.length).toBe(3);
     expectValid(doc);
   });
+
+  // F5 — numeric refs beyond the CommonMark digit cap stay literal (not U+FFFD).
+  test('F5: over-long numeric entity refs stay literal text', () => {
+    expect(plainText(parse('x &#99999999; y'))).toBe('x &#99999999; y'); // 8 dec digits
+    expect(plainText(parse('x &#x1000000; y'))).toBe('x &#x1000000; y'); // 7 hex digits
+    // in-cap but out-of-range value still decodes to the replacement char
+    expect(plainText(parse('&#9999999;'))).toBe('�'); // 7 dec digits, > 0x10FFFF
+    // valid refs still decode
+    expect(plainText(parse('&#65;'))).toBe('A');
+  });
 });
