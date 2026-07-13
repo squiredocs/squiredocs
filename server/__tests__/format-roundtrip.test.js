@@ -536,6 +536,48 @@ describe('taskList round-trip (FR-004/FR-005/FR-006, SC-001)', () => {
     expect(toMarkdown(frag, { flavor: 'portable' })).toBe(toMarkdown(frag));
   });
 
+  test.each(['squire', 'portable'])(
+    'multi-block task item (paragraph + codeBlock) round-trips structure-stable (%s)',
+    (flavor) => {
+      const ydoc = docFromPm({ type: 'doc', content: [
+        taskList(taskItem(false, [
+          p('run this'),
+          { type: 'codeBlock', content: [{ type: 'text', text: 'const x = 1;' }] },
+        ])),
+      ] });
+      const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor });
+      // The fenced block survives (not flattened to plain text).
+      expect(md).toContain('```');
+      const pm = markdownToPm(md);
+      const item = pm.content[0].content[0];
+      expect(item.type).toBe('taskItem');
+      expect(item.content.map((n) => n.type)).toEqual(['paragraph', 'codeBlock']);
+      const code = item.content.find((n) => n.type === 'codeBlock');
+      expect(JSON.stringify(code.content)).toContain('const x = 1;');
+      // Byte-stable across further round-trips.
+      expect(reserialize(md, { flavor })).toBe(md);
+      ydoc.destroy();
+    }
+  );
+
+  test.each(['squire', 'portable'])(
+    'task item with a blockquote child keeps the quote structure (%s)',
+    (flavor) => {
+      const ydoc = docFromPm({ type: 'doc', content: [
+        taskList(taskItem(true, [
+          p('review'),
+          { type: 'blockquote', content: [p('a noted caveat')] },
+        ])),
+      ] });
+      const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor });
+      const pm = markdownToPm(md);
+      const item = pm.content[0].content[0];
+      expect(item.content.map((n) => n.type)).toEqual(['paragraph', 'blockquote']);
+      expect(reserialize(md, { flavor })).toBe(md);
+      ydoc.destroy();
+    }
+  );
+
   test('structured output exposes checked booleans; plain text keeps item text (FR-005)', () => {
     const ydoc = docFromPm({ type: 'doc', content: [
       taskList(taskItem(false, [p('todo')]), taskItem(true, [p('done')])),

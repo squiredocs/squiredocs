@@ -277,22 +277,47 @@ function toMarkdownNodes(nodes, options = {}) {
     // items re-parse to the same structure (FR-006; CommonMark needs the
     // blank line to keep the paragraphs distinct). listItem keeps its
     // pre-feature form (FR-022 byte-compat).
-    const blockSep = node.nodeName === 'taskItem' ? '\n' : '';
+    const isTask = node.nodeName === 'taskItem';
+    const blockSep = isTask ? '\n' : '';
     let first = true;
     for (const child of children) {
-      if (child instanceof Y.XmlElement) {
-        if (isListContainer(child.nodeName)) {
-          processNode(child, childIndent);
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (isListContainer(child.nodeName)) {
+        processNode(child, childIndent);
+      } else if (isTask && child.nodeName !== 'paragraph') {
+        // Multi-block task item (FR-006): render structural child blocks
+        // (codeBlock, blockquote, table, heading, …) through processNode so
+        // fences and structure survive re-parsing, then shift the whole
+        // rendering to the content column. Capture the block's output by
+        // splicing the shared `parts` array (same technique as blockquote).
+        // Plain listItem never reaches this branch — its byte-compat form
+        // (FR-022) is untouched.
+        const saved = parts.splice(0);
+        processNode(child, childIndent);
+        const rendered = parts.splice(0).join('').replace(/\n+$/, '');
+        parts.push(...saved);
+        const shifted = rendered
+          .split('\n')
+          .map((line) => (line === '' ? '' : childIndent + line))
+          .join('\n');
+        if (first) {
+          // A task item whose first block is not a paragraph: emit the marker
+          // on its own line, then the block at the content column.
+          parts.push(indent + marker.replace(/\s+$/, '') + '\n' + blockSep + shifted + '\n');
+          first = false;
         } else {
-          // Hard-break continuation lines must reach the content column to
-          // stay inside this item (FR-007).
-          const text = getChildText(child).replace(/\\\n/g, '\\\n' + childIndent);
-          if (first) {
-            parts.push(indent + marker + text + '\n');
-            first = false;
-          } else {
-            parts.push(blockSep + childIndent + text + '\n');
-          }
+          parts.push(blockSep + shifted + '\n');
+        }
+      } else {
+        // Paragraph (or any listItem child): inline text. Hard-break
+        // continuation lines must reach the content column to stay inside
+        // this item (FR-007).
+        const text = getChildText(child).replace(/\\\n/g, '\\\n' + childIndent);
+        if (first) {
+          parts.push(indent + marker + text + '\n');
+          first = false;
+        } else {
+          parts.push(blockSep + childIndent + text + '\n');
         }
       }
     }
