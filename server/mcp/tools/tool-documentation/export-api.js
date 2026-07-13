@@ -157,6 +157,55 @@ IMPORT into an existing document:
   posture as export: no existence oracle). Unknown mode → 400. 200 →
   { docId, mode, clock, blocks, images } — additive-extensible.
 
+TWO-WAY SYNC (push repo edits back — mode=sync):
+
+  PUT /api/docs/:docId/import?mode=sync[&baselineClock=<int>]
+
+  Pushes an edited repo file back to Squire. Its edits replay as native CRDT
+  operations anchored at the file's export-time baseline, exactly as if the
+  repo editor were a collaborator who went offline at that clock, edited, and
+  reconnected — so concurrent live edits merge deterministically (no conflict
+  states, no retry, no clobber). Unlike replace, sync preserves the CRDT
+  identity, marks, undo history, and attribution of every untouched block.
+
+  1. Pull with frontmatter (the baseline):
+       curl ... "…/export?format=markdown&frontmatter=true" > doc.md
+     The 'squire: clock' frontmatter is the baseline. Edit doc.md, then:
+  2. Push:
+       curl -sf -X PUT -H "Authorization: Bearer $SQUIRE_TOKEN" \\
+         -H "Content-Type: text/markdown" --data-binary @doc.md \\
+         "https://squiredocs.com/api/docs/<docId>/import?mode=sync"
+
+  Baseline: taken from 'squire: clock' (or the baselineClock param, which
+  overrides). The frontmatter 'squire: docGuid', if present, must equal the
+  target. Provenance: the version entry is authored by the token identity
+  ("Repo Sync (<user>)"); optional on-behalf-of metadata may be supplied via
+  headers X-Squire-On-Behalf-Of-{Name,Email,Commit,Url} (each ≤256 chars,
+  surfaced in version history strictly as plain text).
+
+  200 receipt (content-changing):
+    { docId, mode:"sync", noop:false, clock,
+      markdown,      // canonical re-export of the post-push doc + refreshed
+                     // frontmatter — ALWAYS rewrite your local file from this;
+                     // it is the next valid baseline
+      overlaps:[ { blockIndex, blockType, excerpt, docSide, pushSide } ],
+                     // advisory: blocks changed on BOTH sides since baseline —
+                     // never block/alter the push; review in version history
+      operations:{ textHunks, structuralHunks } }
+
+  200 no-op: a byte-identical / formatting-only / lossy-degradation-only push
+  stores nothing, creates no version entry, and returns { noop:true, clock:
+  <current>, markdown:<current re-export> } — so pull→push loops never
+  generate phantom edits.
+
+  Rejections (leave the document untouched, no version entry):
+    400 sync_baseline_missing     no squire.clock and no baselineClock param
+    400 sync_baseline_invalid     malformed / negative / beyond current clock (+ currentClock)
+    410 sync_baseline_unavailable a clock the server can no longer reconstruct
+    409 sync_doc_mismatch         frontmatter docGuid ≠ the target (identity, NOT an edit conflict)
+  The server never falls back to whole-document replacement — mode=replace
+  remains the explicit opt-in for clobber writes.
+
 IMAGE REPORT (both routes, the "images" field):
   {
     "rehosted": [{ "src": "<external URL>", "url": "<app image URL>" }],
