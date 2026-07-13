@@ -336,6 +336,13 @@ Version history includes visual diff highlighting to show what changed between v
 - **Formatting-change detection**: When the text content is identical but formatting has changed (e.g., bold, italic, color, font size), the diff displays a "Formatting changes only" notice and highlights the affected spans
 - **Toggle**: Diff highlighting can be toggled off to view the plain document at that version
 
+**Markdown parsing & format pipeline**: The markdown → ProseMirror parser and the format registry live under `shared/` (client- and server-safe, no Node built-ins), so one grammar can serve the server and, in future, editor paste. `markdownToPm(markdown, diffMark, { strict })` has two modes:
+
+- **Tolerant (default)** — a bounded, in-house CommonMark + GFM subset (emphasis variants, loose/lazy/multi-paragraph and nested lists, setext headings, indented + fenced code, autolinks, backslash escapes, HTML entities, hard breaks, a registry-derived inline-HTML whitelist, and task-list recognition). It enforces a **never-lose-content** rule: any input parses to a schema-valid document without throwing, and every word of the input survives — worst case, unknown constructs degrade to literal-text paragraphs. This is what import surfaces and agent-authored markdown use.
+- **Strict** — a frozen, byte-identical copy of the pre-existing exact-dialect parser, used by the version-diff engine so partial hunk fragments (e.g. a fragment ending in `---`) keep parsing exactly as before; the Redis diff cache (`CACHE_VERSION`) stays valid.
+
+Inline-format knowledge (delimiters, HTML tags, style props) lives only in `shared/format-registry.js`, so adding a mark extends the serializer, both parser modes, and the round-trip suite with zero parser edits. The full supported-grammar and degradation-ladder tables are in [`specs/001-general-markdown-parser/data-model.md`](specs/001-general-markdown-parser/data-model.md).
+
 ### Enhanced Features
 
 **Nested Sub-versions**: Optionally drill down into individual edit groups within a version using the `includeSubversions` parameter. Sub-versions use a 10-second grouping threshold for granular change tracking.
@@ -898,6 +905,16 @@ paragraphs.forEach((node, index) => {
 │   │   │   └── SettingsPage.jsx   # Settings: agents, API tokens, BYOK keys
 │   │   └── main.jsx          # Entry point
 │   └── package.json
+├── shared/                   # Client/server-safe modules (no Node built-ins)
+│   ├── prosemirror-schema.js # The single ProseMirror schema (marks + nodes)
+│   ├── format-registry.js    # Single source of truth for inline-mark syntax
+│   │                         #   (delimiters, HTML tags, style props) + derived
+│   │                         #   tolerant-parser metadata
+│   ├── svg-sanitizer.mjs     # Strict SVG sanitize policy (shared by editor + server)
+│   └── markdown/             # Markdown → ProseMirror parser
+│       ├── index.js          # markdownToPm(md, diffMark, { strict }) dispatch
+│       ├── strict-parser.js  # Frozen exact-dialect parser (diff engine)
+│       └── tolerant/         # Tolerant CommonMark + GFM subset parser
 ├── migrations/               # Database migrations
 ├── script/                   # Utility scripts
 │   ├── generate-mcp-secrets.sh  # Generate MCP OAuth secrets

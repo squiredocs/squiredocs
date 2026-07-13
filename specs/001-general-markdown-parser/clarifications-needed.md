@@ -98,3 +98,21 @@ Decisions the design docs (`design/markdown-import-two-way-sync.md`, `design/doc
 
 - **Finding**: A table cell containing a literal `|` is serialized as `\|`, but the current parser splits rows on **every** `|` (the `\|` is never reassembled). This pre-existing quirk is faithfully reproduced by the tolerant table path, so strict and tolerant remain byte-identical on canonical table input (verified). Not fixed in M1 because a fix would change the canonical parse (US3 AS-3) and CN-8 scopes table work out of M1.
 - **Owed at merge**: none. Candidate for a future GFM-tables design amendment (CN-8 already flags table tolerance as a design silence).
+
+---
+
+## OWED AT MERGE — T022 design-doc amendment (the implementer could not perform this from the worktree)
+
+**Status: OUTSTANDING. The merge queue MUST perform this — it cannot be silently dropped (Constitution VI, CN-10).**
+
+- **What**: The current-state statements in two exported design docs are now stale and MUST be amended in their **Squire source documents** (never hand-edit files under `design/`), then re-exported via `node design/sync.mjs` and committed:
+  - `design/document-model-format-pipeline.md` — the parser no longer lives at `server/markdown-to-pm.js` (now `shared/markdown/`, with `shared/format-registry.js`), and it no longer "parses only the dialect `toMarkdown` emits" (tolerant CommonMark + GFM subset is the default; a frozen strict mode serves the diff engine).
+  - `design/markdown-import-two-way-sync.md` — the M1 current-state bullets: the general parser + shared relocation are now DONE (feature 001), so the "planned" framing should reflect shipped state.
+- **Why the implementer didn't do it**: Amending requires editing the Squire source documents and running `design/sync.mjs`, which is not available from this pipeline worktree (no Squire access). The implementer is also barred from hand-editing `design/` exports.
+- **README (T021)**: DONE in this branch (merges atomically with the code) — only the Squire-sourced `design/` amendment remains.
+
+### T023 final-gate observations (SC-006 timings, recorded per T023)
+
+- 100 KB representative document parse: ~32–46 ms (budget < 1 s). 
+- Worst pathological 64 KB fuzz case: ~10–14 ms (guard < 5 s).
+- Deletions confirmed: `server/markdown-to-pm.js`, `server/format-registry.js` removed; zero stale requires (`grep` clean).
