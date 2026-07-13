@@ -25,7 +25,7 @@ promotion-notes.md before proceeding — that contradicts the plan.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `archiver` and promote `js-yaml` to direct runtime dependencies in `package.json` (npm install; verify `require('archiver')` and `require('js-yaml')` resolve in the server context). Justification recorded in plan.md Complexity Tracking — archiver is a zip container writer, not a format/serialization library.
+- [X] T001 Add `archiver` and promote `js-yaml` to direct runtime dependencies in `package.json` (npm install; verify `require('archiver')` and `require('js-yaml')` resolve in the server context). Justification recorded in plan.md Complexity Tracking — archiver is a zip container writer, not a format/serialization library.
 
 ---
 
