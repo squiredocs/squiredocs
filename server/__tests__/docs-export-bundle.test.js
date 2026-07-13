@@ -74,7 +74,7 @@ function binaryBody(req) {
 
 const imageUrl = (docId, imageId) => `/api/docs/${docId}/images/${imageId}`;
 
-function buildImageDocUpdate(title, imageSrcs) {
+function buildImageDocUpdate(title, imageSrcs, alt = 'pic') {
   const ydoc = new Y.Doc();
   const frag = ydoc.get('default', Y.XmlFragment);
   ydoc.transact(() => {
@@ -87,7 +87,7 @@ function buildImageDocUpdate(title, imageSrcs) {
     for (const src of imageSrcs) {
       const img = new Y.XmlElement('image');
       img.setAttribute('src', src);
-      img.setAttribute('alt', 'pic');
+      img.setAttribute('alt', alt);
       blocks.push(img);
     }
     frag.insert(0, blocks);
@@ -176,9 +176,9 @@ describe('API: GET /api/docs/:docId/export?format=bundle', () => {
     });
   }
 
-  async function seedDoc(title, imageSrcs) {
+  async function seedDoc(title, imageSrcs, alt) {
     await ensureDoc();
-    await persistence.storeUpdate(docId, buildImageDocUpdate(title, imageSrcs), userId);
+    await persistence.storeUpdate(docId, buildImageDocUpdate(title, imageSrcs, alt), userId);
   }
 
   async function fetchBundle(query = 'format=bundle', token = authToken) {
@@ -229,6 +229,29 @@ describe('API: GET /api/docs/:docId/export?format=bundle', () => {
     for (const rel of Object.keys(squire.images)) {
       expect(md).toContain(`](${rel})`);
     }
+  });
+
+  test('bracketed alt text: image is still escaped, rewritten, and bundled (F4)', async () => {
+    const img = crypto.randomUUID();
+    await seedImageRow(img, 'image/png');
+    // Alt with literal brackets would close the `![...]` span early and hide
+    // the reference from the scanner unless the serializer escapes them.
+    await seedDoc('Charts', [imageUrl(docId, img)], 'chart [v2]');
+
+    const res = await fetchBundle();
+    expect(res.status).toBe(200);
+    const entries = readZip(res.body);
+    const slug = slugifyDocTitle('Charts');
+    // The asset was collected (proves the scanner matched the escaped ref).
+    expect(Object.keys(entries)).toContain(`assets/${slug}/${img}.png`);
+
+    const md = entries['Charts.md'].toString('utf8');
+    // Alt is escaped and well-formed; the ref is rewritten to the bundle path.
+    expect(md).toContain(`![chart \\[v2\\]](./assets/${slug}/${img}.png)`);
+    expect(md).not.toContain(`/api/docs/${docId}/images/`);
+
+    const { squire } = parseFrontmatter(md);
+    expect(squire.images).toEqual({ [`./assets/${slug}/${img}.png`]: img });
   });
 
   test('duplicate references: one asset, one map entry, all refs rewritten', async () => {

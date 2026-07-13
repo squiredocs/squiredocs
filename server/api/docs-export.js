@@ -121,8 +121,12 @@ function escapeRegex(s) {
 async function collectBundleAssets(markdown, docId, docSlug) {
   const images = {};
   const assets = [];
+  // Alt text may contain backslash-escaped brackets (serializer F4), so the
+  // alt span is "any escaped char or any non-]/non-\ char" rather than a naive
+  // [^\]]* that a literal `]` inside the alt would terminate early.
+  const ALT = '(?:\\\\.|[^\\]\\\\])*';
   const scanRe = new RegExp(
-    `!\\[[^\\]]*\\]\\(${escapeRegex(`/api/docs/${docId}/images/`)}([0-9a-fA-F-]{36})\\)`,
+    `!\\[${ALT}\\]\\(${escapeRegex(`/api/docs/${docId}/images/`)}([0-9a-fA-F-]{36})\\)`,
     'g'
   );
   const ids = [...new Set([...markdown.matchAll(scanRe)].map((m) => m[1]))];
@@ -142,7 +146,7 @@ async function collectBundleAssets(markdown, docId, docSlug) {
     const relPath = `./assets/${docSlug}/${imageId}.${ext}`;
     const appUrl = `/api/docs/${docId}/images/${imageId}`;
     // Rewrite image references only (not arbitrary link hrefs).
-    const refRe = new RegExp(`(!\\[[^\\]]*\\]\\()${escapeRegex(appUrl)}(\\))`, 'g');
+    const refRe = new RegExp(`(!\\[${ALT}\\]\\()${escapeRegex(appUrl)}(\\))`, 'g');
     rewritten = rewritten.replace(refRe, `$1${relPath}$2`);
     images[relPath] = imageId;
     assets.push({ name: `assets/${docSlug}/${imageId}.${ext}`, data });

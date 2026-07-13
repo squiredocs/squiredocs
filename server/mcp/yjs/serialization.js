@@ -257,7 +257,12 @@ function toMarkdownNodes(nodes, options = {}) {
     } else if (tag === 'image') {
       const src = node.getAttribute('src') || '';
       const alt = node.getAttribute('alt') || '';
-      parts.push(`![${alt}](${src})\n`);
+      // Escape backslashes and brackets in alt text so a bracketed alt (e.g.
+      // "chart [v2]") stays well-formed — otherwise the inner `]` closes the
+      // alt span early and the bundle image scanner can't match the reference
+      // (F4). Backslash first so already-escaped runs aren't double-counted.
+      const escapedAlt = alt.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+      parts.push(`![${escapedAlt}](${src})\n`);
     } else if (tag === 'table') {
       renderTable(node);
     } else {
