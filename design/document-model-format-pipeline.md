@@ -13,12 +13,12 @@ The document’s shape and the machinery that converts it between representation
 
 ## The format registry
 
-`server/format-registry.js` is the single source of truth for inline-mark syntax: each mark declares its markdown delimiters or HTML tag once, and style props are auto-derived from the schema. The markdown serializer, the markdown parser, and the inline-token regex are all registry-driven — adding a mark is one entry plus a client extension, and the round-trip test suite (`server/__tests__/format-roundtrip.test.js`) covers it by construction. This is the pattern the constitution’s Principle IV protects.
+`shared/format-registry.js` (relocated from server/ when the parser generalized, 2026-07-13) is the single source of truth for inline-mark syntax: each mark declares its markdown delimiters or HTML tag once, and style props are auto-derived from the schema. The markdown serializer, both parser modes, and the inline-token regex are all registry-driven — adding a mark is one entry plus a client extension, and the round-trip test suite (`server/__tests__/format-roundtrip.test.js`) covers it by construction. This is the pattern the constitution’s Principle IV protects.
 
 ## Serialization surfaces
 
 - **Yjs → Markdown: **`server/mcp/yjs/serialization.js` (`toMarkdown`), a custom serializer walking the Yjs tree. Diagram blocks become ```mermaid/```svg fences; underline/highlight/sub/sup and style spans emit as inline HTML (Squire-flavor, not portable CommonMark). Consumed by the editor’s Export as Markdown, MCP read tools, the REST export API, and design/sync.
-- **Markdown → ProseMirror: **`server/markdown-to-pm.js` parses only the dialect toMarkdown emits; its sole production caller is the diff engine. There is no general markdown import — that gap and the plan to close it are the subject of [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0).
+- **Markdown → ProseMirror: **`shared/markdown/` (amended 2026-07-13, feature 001): `markdownToPm(markdown, diffMark, { strict })` dispatches between two modes — `strict` (the original exact-dialect parser, frozen as `strict-parser.js` and proven byte-identical by a characterization snapshot; the version-diff engine pins to it) and the default `tolerant` mode — a registry-driven CommonMark+GFM subset parser (emphasis variants, loose/lazy lists, setext, indented code, autolinks, escapes/entities, HTML whitelist) with a never-lose-content guarantee enforced by fuzz tests. General import _surfaces_ (REST/MCP/paste) remain feature 002 — see [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0).
 - **Yjs → HTML: **`server/mcp/yjs/html-serialization.js` (DOMSerializer-based) exists but is currently referenced only by its own tests.
 - **Structured JSON: **the MCP read tools’ default format — a lossless tree used by agents before targeted edits.
 

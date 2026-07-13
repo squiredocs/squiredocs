@@ -14,8 +14,8 @@ This proposal closes that gap in two parts. **Part 1** generalizes the parser to
 ## Current State (grounded in the code)
 
 - **Export: **`server/mcp/yjs/serialization.js` — a custom, hand-written serializer (`toMarkdown` / `toMarkdownNodes`). No third-party markdown library anywhere on the server.
-- **Format registry: **`server/format-registry.js` — single source of truth for inline marks and style props, shared by both the serializer and the parser. This is the architectural asset the proposal builds on.
-- **Parser: **`server/markdown-to-pm.js` (`markdownToPm`) — handles headings, fenced code (with mermaid/svg routing), pipe tables, blockquotes, nested lists, and all registry inline marks, but only the exact dialect `toMarkdown` emits. Sole caller: `server/diff-service.js`.
+- **Format registry: **`shared/format-registry.js` (M1 shipped 2026-07-13: relocated from server/) — single source of truth for inline marks and style props, shared by the serializer and both parser modes. This is the architectural asset the proposal builds on.
+- **Parser: **`shared/markdown/` (M1 shipped 2026-07-13, feature 001 — supersedes the original description): `markdownToPm(markdown, diffMark, { strict })` — default tolerant CommonMark+GFM subset (emphasis variants, loose/lazy lists, setext, indented code, autolinks, escapes/entities, registry-derived HTML whitelist, never-lose-content guarantee); `strict: true` preserves the original exact dialect byte-identically (characterization-pinned) for the diff engine, which remains its caller.
 - **REST API: **`GET /api/docs/:docId/export` (`server/api/docs-export.js`), markdown only, single-doc, authenticated by session or `sk_sqd_` tokens. No import counterpart.
 - **MCP: **`read_document` emits markdown; `modify` accepts only structured blocks via `appendBlocks`. The modify tool documentation ships a manual regex example for converting markdown-ish text — evidence that agents need a real helper.
 - **Editor: **markdown typing shortcuts come from TipTap StarterKit defaults only. No markdown paste handling (`client/src/extensions/ImageNode.js` handles image paste only), no source view, no copy-as-markdown.
