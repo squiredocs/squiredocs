@@ -1,0 +1,1967 @@
+[
+  {
+    "name": "inline-mark-code",
+    "input": "`hello`",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "code"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-bold",
+    "input": "**hello**",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-bold--diffInsert",
+    "input": "**hello**",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-bold--diffDelete",
+    "input": "**hello**",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-italic",
+    "input": "_hello_",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-strike",
+    "input": "~~hello~~",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "strike"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-underline",
+    "input": "<u>hello</u>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "underline"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-highlight",
+    "input": "<mark>hello</mark>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "highlight"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-subscript",
+    "input": "<sub>hello</sub>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "subscript"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "inline-mark-superscript",
+    "input": "<sup>hello</sup>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello",
+              "marks": [
+                {
+                  "type": "superscript"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-prop-color",
+    "input": "<span style=\"color:#ff0000\">styled</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "styled",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "color": "#ff0000"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-prop-backgroundColor",
+    "input": "<span style=\"background-color:#00ff00\">styled</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "styled",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "backgroundColor": "#00ff00"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-prop-fontSize",
+    "input": "<span style=\"font-size:18px\">styled</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "styled",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "fontSize": "18px"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-prop-fontFamily",
+    "input": "<span style=\"font-family:Georgia\">styled</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "styled",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "fontFamily": "Georgia"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-prop-lineHeight",
+    "input": "<span style=\"line-height:1.8\">styled</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "styled",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "lineHeight": "1.8"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-multi",
+    "input": "<span style=\"color:#333;font-size:20px;line-height:1.5\">multi</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "multi",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "color": "#333",
+                    "fontSize": "20px",
+                    "lineHeight": "1.5"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-multi--diffInsert",
+    "input": "<span style=\"color:#333;font-size:20px;line-height:1.5\">multi</span>",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "multi",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "color": "#333",
+                    "fontSize": "20px",
+                    "lineHeight": "1.5"
+                  }
+                },
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "style-multi--diffDelete",
+    "input": "<span style=\"color:#333;font-size:20px;line-height:1.5\">multi</span>",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "multi",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "color": "#333",
+                    "fontSize": "20px",
+                    "lineHeight": "1.5"
+                  }
+                },
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "link",
+    "input": "[click here](https://example.com)",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "click here",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "link--diffInsert",
+    "input": "[click here](https://example.com)",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "click here",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com"
+                  }
+                },
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "link--diffDelete",
+    "input": "[click here](https://example.com)",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "click here",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com"
+                  }
+                },
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "nested-bold-italic",
+    "input": "_**both**_",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "both",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "styled-newline",
+    "input": "<span style=\"font-size:17px\">line1\nline2</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "line1\nline2",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "fontSize": "17px"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-heading",
+    "input": "## Title",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Title"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-heading--diffInsert",
+    "input": "## Title",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Title",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-heading--diffDelete",
+    "input": "## Title",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Title",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-codeblock-language",
+    "input": "```js\nconst x = 1;\n```",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-codeblock-language--diffInsert",
+    "input": "```js\nconst x = 1;\n```",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-codeblock-language--diffDelete",
+    "input": "```js\nconst x = 1;\n```",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-codeblock-nolang",
+    "input": "```\nplain code\n```",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "content": [
+            {
+              "type": "text",
+              "text": "plain code"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-mermaid",
+    "input": "```mermaid\ngraph TD\n  A --> B\n```",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "mermaid",
+          "content": [
+            {
+              "type": "text",
+              "text": "graph TD\n  A --> B"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-svg",
+    "input": "```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"5\" height=\"5\"/></svg>\n```",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "svg",
+          "content": [
+            {
+              "type": "text",
+              "text": "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"5\" height=\"5\"/></svg>"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-bulletlist",
+    "input": "- alpha\n- beta",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-bulletlist--diffInsert",
+    "input": "- alpha\n- beta",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha",
+                      "marks": [
+                        {
+                          "type": "diffInsert"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "beta",
+                      "marks": [
+                        {
+                          "type": "diffInsert"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-bulletlist--diffDelete",
+    "input": "- alpha\n- beta",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha",
+                      "marks": [
+                        {
+                          "type": "diffDelete"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "beta",
+                      "marks": [
+                        {
+                          "type": "diffDelete"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-bulletlist-nested",
+    "input": "- parent\n  - child",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "parent"
+                    }
+                  ]
+                },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        {
+                          "type": "paragraph",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "child"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-orderedlist",
+    "input": "1. first",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 1
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "first"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-blockquote",
+    "input": "> quoted",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "quoted"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-blockquote--diffInsert",
+    "input": "> quoted",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "quoted",
+                  "marks": [
+                    {
+                      "type": "diffInsert"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-blockquote--diffDelete",
+    "input": "> quoted",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "quoted",
+                  "marks": [
+                    {
+                      "type": "diffDelete"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-horizontalrule",
+    "input": "above\n\n---\n\nbelow",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "above"
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "below"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-horizontalrule--diffInsert",
+    "input": "above\n\n---\n\nbelow",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "above",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "below",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-horizontalrule--diffDelete",
+    "input": "above\n\n---\n\nbelow",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "above",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "below",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-table",
+    "input": "| data |\n| --- |",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "data"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-table--diffInsert",
+    "input": "| data |\n| --- |",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "data",
+                          "marks": [
+                            {
+                              "type": "diffInsert"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-table--diffDelete",
+    "input": "| data |\n| --- |",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "data",
+                          "marks": [
+                            {
+                              "type": "diffDelete"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-table-escaped-pipe",
+    "input": "| a \\| b |\n| --- |",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "a \\"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "b"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "block-paragraph",
+    "input": "a plain paragraph",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "a plain paragraph"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-ends-in-hr",
+    "input": "paragraph line\n---",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "paragraph line"
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-ends-in-hr--diffInsert",
+    "input": "paragraph line\n---",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "paragraph line",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-ends-in-hr--diffDelete",
+    "input": "paragraph line\n---",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "paragraph line",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-canonical-hr",
+    "input": "paragraph\n\n---\n",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "paragraph"
+            }
+          ]
+        },
+        {
+          "type": "horizontalRule"
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-partial-list",
+    "input": "- alpha\n- beta",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-unclosed-fence",
+    "input": "```js\nconst x = 1;",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-unclosed-fence--diffInsert",
+    "input": "```js\nconst x = 1;",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-unclosed-fence--diffDelete",
+    "input": "```js\nconst x = 1;",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "js"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "const x = 1;",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-span-continuation",
+    "input": "<span style=\"color:#333\">line one\nline two</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "line one\nline two",
+              "marks": [
+                {
+                  "type": "textStyle",
+                  "attrs": {
+                    "color": "#333"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-lone-closing-tag",
+    "input": "</span>",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "</span>"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-partial-ordered",
+    "input": "1. first\n2. second",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "orderedList",
+          "attrs": {
+            "start": 1
+          },
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "first"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "second"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "fragment-heading-only",
+    "input": "## just a heading",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "just a heading"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-empty",
+    "input": "",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph"
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-whitespace-only",
+    "input": "   \n  \n",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph"
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-crlf",
+    "input": "line one\r\nline two\r\n",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "line one\r"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "line two\r"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-image-markdown",
+    "input": "![alt text](https://example.com/x.png)",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "!"
+            },
+            {
+              "type": "text",
+              "text": "alt text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/x.png"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-image-markdown--diffInsert",
+    "input": "![alt text](https://example.com/x.png)",
+    "diffMark": "diffInsert",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "!",
+              "marks": [
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "alt text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/x.png"
+                  }
+                },
+                {
+                  "type": "diffInsert"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-image-markdown--diffDelete",
+    "input": "![alt text](https://example.com/x.png)",
+    "diffMark": "diffDelete",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "!",
+              "marks": [
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "alt text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/x.png"
+                  }
+                },
+                {
+                  "type": "diffDelete"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-plain-text",
+    "input": "just some words",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "just some words"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
