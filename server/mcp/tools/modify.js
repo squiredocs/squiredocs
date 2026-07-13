@@ -13,7 +13,11 @@ const documents = require('../../documents');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks, validateSvgBlocks } = require('../diagram-validate');
-const { sanitizeImageSrcs, reconcileCrossDocImages } = require('../image-validate');
+const {
+  sanitizeImageSrcs,
+  reconcileCrossDocImages,
+  rehostImportOriginImages,
+} = require('../image-validate');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
@@ -411,6 +415,25 @@ async function handlerImpl(args, agentToken) {
       sources,
     });
 
+    // Import-origin rehost (feature 002, FR-021): image nodes that entered via
+    // fromMarkdown carry a transient marker on their external src. Fetch-and-
+    // rehost those (or degrade to a plain link) BEFORE the strip guardrail, so
+    // import-origin externals become app URLs instead of being stripped.
+    // Directly authored external srcs (no marker) fall through to the strip.
+    let imagesRehosted = [];
+    let imagesDegraded = [];
+    try {
+      const rehostReport = await rehostImportOriginImages(
+        xmlFragment,
+        docGuid,
+        agentToken.userId
+      );
+      imagesRehosted = rehostReport.rehosted;
+      imagesDegraded = rehostReport.degraded;
+    } catch (e) {
+      console.error('[modify] import-origin image rehost failed:', e.message);
+    }
+
     // Guardrail: strip any image whose src isn't an app image URL (agents may
     // reference existing images but not inject external/data srcs). Runs before
     // diff/content so the response reflects the sanitized document. Mutates the
@@ -540,6 +563,16 @@ async function handlerImpl(args, agentToken) {
       }
       if (imagesCopied.length > 0) {
         response.imagesCopied = imagesCopied;
+      }
+      if (imagesRehosted.length > 0) {
+        response.imagesRehosted = imagesRehosted;
+      }
+      if (imagesDegraded.length > 0) {
+        response.imagesDegraded = imagesDegraded;
+        const n = imagesDegraded.length;
+        const warning = `${n} import-origin image${n > 1 ? 's' : ''} could not be rehosted `
+          + 'and degraded to plain links. See imagesDegraded for the reason(s).';
+        response.message = response.message ? `${response.message} ${warning}` : warning;
       }
       if (imageErrors.length > 0) {
         response.imageErrors = imageErrors;

@@ -15,6 +15,7 @@
 
 const Y = require('yjs');
 const helpers = require('./helpers');
+const { buildFromMarkdown } = require('./from-markdown');
 const { xpath: xpathQuery, xpathFirst: xpathFirstQuery } = require('./xpath');
 const { wrapForTracking, wrapReadOnly } = require('./yjs-interceptor');
 const { OperationTracker } = require('./operation-tracker');
@@ -328,6 +329,14 @@ globalThis.__setup = function(snapshotBytes, sourceDescriptors) {
       return helpers.cloneNodes(input, { XmlElement: WXE, XmlText: WXT });
     };
   })(WrappedXmlElement, WrappedXmlText);
+
+  // fromMarkdown: convert markdown to detached, tracked nodes (same contract
+  // as cloneBlocks output). Synchronous, never throws; external image srcs are
+  // tagged for the host-side rehost post-pass (see from-markdown.js).
+  globalThis.fromMarkdown = buildFromMarkdown({
+    XmlElement: WrappedXmlElement,
+    XmlText: WrappedXmlText,
+  });
 
   // Console
   globalThis.console = {

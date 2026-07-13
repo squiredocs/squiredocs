@@ -1,0 +1,290 @@
+/**
+ * Markdown import module (feature 002) — the single code path every import
+ * surface wraps (FR-001). No surface parses or materializes on its own.
+ *
+ * Pipeline (contracts/import-module.md):
+ *   normalize → frontmatter (markdown-import-frontmatter) → markdownToPm
+ *   (feature 001, tolerant, exclusively — FR-003) → image reconstruction →
+ *   link-href sanitation (FR-022) → `data:` image rejection (FR-019) →
+ *   materialize (pm-json-to-nodes) → staged image pass (rehost/degrade,
+ *   cross-doc reconciliation) → ONE attributed documentService.updateDocument
+ *   transaction applying the mode.
+ *
+ * Two deliberate notes against the contract's step ordering:
+ *
+ * - IMAGE RECONSTRUCTION: the shipped 001 parser has no image grammar — it
+ *   degrades `![alt](src)` to a literal `!` text run plus a link mark on the
+ *   alt text (001 data-model: "image nodes are 002 scope"). This module
+ *   reconstructs block-level image nodes from that canonical degradation shape
+ *   for TOP-LEVEL paragraphs (the schema's image node is a block atom, so an
+ *   image cannot live inside list items/table cells — nested image markdown
+ *   stays in its degraded link form, which is exactly FR-018's degradation
+ *   form). This is a PM-JSON transform, not a markdown parse: grammar
+ *   knowledge stays in the parser.
+ *
+ * - IMAGE PASS RUNS ON A STAGING FRAGMENT, BEFORE THE LIVE TRANSACTION: the
+ *   contract sequences the rehost pass "after materialization"; running it
+ *   after the live-doc mutation would add extra transactions (breaking the
+ *   one-undo-boundary / one-version-entry invariant, FR-004) and transiently
+ *   store external srcs (violating SC-003's letter). Instead the detached
+ *   nodes are staged into a scratch Y.Doc, the full image pass (rehost or
+ *   degrade + existing cross-doc reconciliation) runs there, and the final
+ *   nodes land in the live doc in ONE transaction. Every contract invariant
+ *   (§Invariants) holds strictly stronger this way.
+ */
+
+const Y = require('yjs');
+const documentService = require('./document-service');
+const { consumeFrontmatter } = require('./markdown-import-frontmatter');
+const { markdownToPm } = require('../shared/markdown');
+const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
+const { reconcileCrossDocImages } = require('./mcp/image-validate');
+const { rehostImagesInFragment } = require('./image-rehost');
+const { xpathFirst } = require('./mcp/sandbox/xpath');
+const { cloneNodes } = require('./mcp/sandbox/helpers');
+const {
+  sanitizeLinkMarks,
+  reconstructImages,
+  rejectDataImages,
+  hasRealContent,
+  isAllowedLinkHref,
+} = require('./mcp/yjs/pm-json-transforms');
+
+/** Error with a stable `code` the surfaces map to HTTP statuses. */
+class ImportError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'ImportError';
+    this.code = code;
+  }
+}
+
+const MODES = ['append', 'replace', 'insertAfterXPath'];
+
+// ---------------------------------------------------------------------------
+// Staged image pass
+// ---------------------------------------------------------------------------
+
+/**
+ * The external-image pass used by importMarkdown: the SSRF-safe
+ * fetch-and-rehost pipeline from server/image-rehost.js (US4/T021 — this
+ * replaced the Phase-2 baseline degrade-only pass). External http(s) srcs are
+ * fetched under the contracts/image-rehost.md policy and rewritten to app
+ * URLs; every failure (SSRF block, size, type, budget, storage disabled)
+ * degrades the node to a plain link and is itemized. Non-http(s) leftovers
+ * degrade to plain text (a dangerous href is never re-emitted).
+ */
+const defaultExternalImagePass = (stagingFragment, ctx) =>
+  rehostImagesInFragment(stagingFragment, ctx);
+
+let externalImagePass = defaultExternalImagePass;
+
+/** Test/wiring seam: swap the external-image pass implementation. */
+function setExternalImagePass(fn) {
+  externalImagePass = fn || defaultExternalImagePass;
+}
+
+/**
+ * Prepare markdown for import: full pipeline up to (but excluding) the live
+ * document transaction. Returns detached nodes ready for a single insert, plus
+ * the report pieces. Used by importMarkdown and by the create surfaces (which
+ * seed the nodes through createSeededDocument's single birth transaction).
+ *
+ * @param {string} markdown
+ * @param {{ docId: string, userId: string }} imageContext - target document
+ *   (must already exist — image copies/rehosts attach to it) and acting user.
+ * @returns {Promise<{ nodes: Array, images: object, frontmatter: object }>}
+ * @throws {ImportError} EMPTY_IMPORT when nothing real would be imported.
+ */
+async function prepareImport(markdown, imageContext) {
+  const fm = consumeFrontmatter(markdown);
+
+  let pmJson = markdownToPm(fm.content);
+  pmJson = reconstructImages(pmJson);
+  pmJson = sanitizeLinkMarks(pmJson);
+  const rejected = rejectDataImages(pmJson);
+
+  const hasImages = pmJson.content.some((b) => b && b.type === 'image');
+  if (!hasRealContent(pmJson) && !hasImages) {
+    throw new ImportError(
+      'EMPTY_IMPORT',
+      'Nothing to import: the markdown is empty (or empty once frontmatter is removed).'
+    );
+  }
+
+  // Stage into a scratch doc so the async image pass mutates detached state,
+  // never the live document (one live transaction, applied later).
+  const detached = pmJsonToNodes(pmJson);
+  const staging = new Y.Doc();
+  let nodes;
+  const images = { rehosted: [], copied: [], degraded: [], rejected };
+  try {
+    const stagingFragment = staging.get('staging', Y.XmlFragment);
+    staging.transact(() => stagingFragment.insert(0, detached));
+
+    // External http(s) srcs: rehost (US4) or degrade — never left external.
+    const external = await externalImagePass(stagingFragment, imageContext);
+    images.rehosted = external.rehosted || [];
+    images.degraded = external.degraded || [];
+
+    // Cross-document app URLs: existing access-checked copy-or-strip (FR-020).
+    const reconciled = await reconcileCrossDocImages(
+      stagingFragment,
+      imageContext.docId,
+      imageContext.userId
+    );
+    images.copied = reconciled.copied;
+    for (const r of reconciled.removed) {
+      images.rejected.push({ src: r.src, reason: 'source document not accessible' });
+    }
+
+    nodes = cloneNodes(stagingFragment, { XmlElement: Y.XmlElement, XmlText: Y.XmlText });
+  } finally {
+    staging.destroy();
+  }
+
+  if (nodes.length === 0) {
+    throw new ImportError(
+      'EMPTY_IMPORT',
+      'Nothing to import: no content remained after image policy was applied.'
+    );
+  }
+
+  const frontmatter = {};
+  if (fm.squire && fm.squire.title) frontmatter.title = fm.squire.title;
+
+  return { nodes, images, frontmatter };
+}
+
+/**
+ * Title derivation support for the create surfaces (FR-008/FR-012): squire
+ * frontmatter title → first heading text → null. Also reports whether the
+ * markdown has any real body once frontmatter is stripped (the create
+ * surfaces seed an empty anchor document for frontmatter-only input — spec
+ * §Edge Cases — while PUT rejects it, CN-11).
+ *
+ * Kept in the module so no surface parses markdown itself (FR-001); the
+ * create flow pays one extra parse because image staging needs the document
+ * row to exist (document_images FK) before prepareImport can run.
+ *
+ * @param {string} markdown
+ * @returns {{ title: string|null, hasBody: boolean }}
+ */
+function deriveImportTitle(markdown) {
+  const fm = consumeFrontmatter(markdown);
+  const pmJson = reconstructImages(markdownToPm(fm.content));
+  let firstHeading = null;
+  for (const block of pmJson.content || []) {
+    if (block && block.type === 'heading' && Array.isArray(block.content)) {
+      const text = block.content
+        .filter((n) => n && n.type === 'text' && typeof n.text === 'string')
+        .map((n) => n.text)
+        .join('')
+        .trim();
+      firstHeading = text || null;
+      break;
+    }
+  }
+  const hasBody =
+    hasRealContent(pmJson) || (pmJson.content || []).some((b) => b && b.type === 'image');
+  return {
+    title: (fm.squire && fm.squire.title) || firstHeading || null,
+    hasBody,
+  };
+}
+
+/** Find the index of the top-level block containing (or being) `element`. */
+function topLevelIndexOf(fragment, element) {
+  let node = element;
+  while (node && node.parent && node.parent !== fragment) {
+    node = node.parent;
+  }
+  if (!node || node.parent !== fragment) return -1;
+  return fragment.toArray().indexOf(node);
+}
+
+/**
+ * Import markdown into a live document (contracts/import-module.md).
+ *
+ * @param {Y.Doc} ydoc - live shared doc (documentService.getSharedDoc — the
+ *   same instance updateDocument uses; callers must hand a LOADED doc for
+ *   `replace`).
+ * @param {string} markdown - untrusted markdown (already size-capped upstream)
+ * @param {object} options
+ * @param {'append'|'replace'|'insertAfterXPath'} options.mode
+ * @param {string} [options.insertAfterXPath] - required iff mode==='insertAfterXPath'
+ * @param {{ userId: string, agentName?: string|null }} options.actor
+ * @param {{ docId: string }} options.imageContext
+ * @returns {Promise<{ blocks: {imported: number}, images: object, frontmatter: object }>}
+ */
+async function importMarkdown(ydoc, markdown, options = {}) {
+  const { mode, insertAfterXPath, actor, imageContext } = options;
+  if (!MODES.includes(mode)) {
+    throw new ImportError('INVALID_MODE', `Unknown import mode: ${String(mode)}`);
+  }
+  if (mode === 'insertAfterXPath' && (typeof insertAfterXPath !== 'string' || !insertAfterXPath)) {
+    throw new ImportError('INVALID_MODE', 'insertAfterXPath mode requires an insertAfterXPath query');
+  }
+  if (!actor || !actor.userId) throw new ImportError('INVALID_ACTOR', 'options.actor.userId is required');
+  if (!imageContext || !imageContext.docId) {
+    throw new ImportError('INVALID_CONTEXT', 'options.imageContext.docId is required');
+  }
+
+  const fragment = ydoc.get('default', Y.XmlFragment);
+
+  // Resolve the XPath target before anything else: no match ⇒ error without
+  // any mutation (FR-002). Re-resolved inside the transaction below.
+  if (mode === 'insertAfterXPath') {
+    const match = xpathFirst(insertAfterXPath, fragment);
+    if (!match || topLevelIndexOf(fragment, match) === -1) {
+      throw new ImportError('XPATH_NO_MATCH', `No element matches XPath: ${insertAfterXPath}`);
+    }
+  }
+
+  const { nodes, images, frontmatter } = await prepareImport(
+    markdown,
+    { docId: imageContext.docId, userId: actor.userId }
+  );
+
+  // ONE transaction — one undo boundary, one attributed version entry (FR-004).
+  await documentService.updateDocument(
+    imageContext.docId,
+    (liveDoc) => {
+      const liveFragment = liveDoc.get('default', Y.XmlFragment);
+      if (mode === 'append') {
+        liveFragment.insert(liveFragment.length, nodes);
+      } else if (mode === 'replace') {
+        // Block-level deletes + inserts against the SAME fragment — never
+        // recreate the fragment or doc (plan.md Complexity Tracking).
+        if (liveFragment.length > 0) liveFragment.delete(0, liveFragment.length);
+        liveFragment.insert(0, nodes);
+      } else {
+        // Re-resolve inside the transaction; throwing here aborts before any
+        // mutation (nothing has been inserted or deleted yet).
+        const match = xpathFirst(insertAfterXPath, liveFragment);
+        const idx = match ? topLevelIndexOf(liveFragment, match) : -1;
+        if (idx === -1) {
+          throw new ImportError('XPATH_NO_MATCH', `No element matches XPath: ${insertAfterXPath}`);
+        }
+        liveFragment.insert(idx + 1, nodes);
+      }
+    },
+    { userId: actor.userId, agentName: actor.agentName || null }
+  );
+
+  return { blocks: { imported: nodes.length }, images, frontmatter };
+}
+
+module.exports = {
+  importMarkdown,
+  prepareImport,
+  deriveImportTitle,
+  sanitizeLinkMarks,
+  reconstructImages,
+  rejectDataImages,
+  hasRealContent,
+  isAllowedLinkHref,
+  setExternalImagePass,
+  ImportError,
+  MODES,
+};

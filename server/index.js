@@ -38,6 +38,7 @@ const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
+const { createImportRouter } = require('./api/docs-import');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
@@ -1096,6 +1097,10 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
 
 // API: Export a document as Markdown (downloadable file) — see api/docs-export.js
 app.use(createExportRouter(persistenceProvider));
+
+// API: Import markdown — POST /api/docs/import (create) and
+// PUT /api/docs/:docId/import (append|replace) — see api/docs-import.js
+app.use(createImportRouter(persistenceProvider));
 
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {

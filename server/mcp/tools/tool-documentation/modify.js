@@ -256,6 +256,27 @@ cloneBlocks(input)  ⭐ COPY CONTENT BETWEEN DOCUMENTS
       doc.insert(doc.length, cloneBlocks(sources[guid]));           // whole doc
       doc.insert(0, cloneBlocks(xpath('//table', sources[guid])));  // just tables
 
+fromMarkdown(md)  ⭐ CONVERT MARKDOWN TO BLOCKS
+  - Parses a markdown string into fresh, detached nodes with the SAME contract
+    as cloneBlocks output — insert them anywhere with doc.insert / appendBlocks
+    positioning; they stream live like any other mutation
+  - Covers the full supported grammar: headings, paragraphs, ordered/bullet
+    lists (nested), tables, fenced code, mermaid/svg blocks, links, and inline
+    marks (bold/italic/code/strike/…)
+  - Secure by default: link hrefs are sanitized to an allowlist
+    (http/https/mailto/app-relative — javascript:/data:/vbscript:/file: links
+    lose their mark, text kept); data: images are dropped; external images are
+    fetched and rehosted into this document after the script runs (failures
+    degrade to a plain link)
+  - Never throws: fromMarkdown('') returns []; input it cannot structure
+    becomes literal-text paragraphs (never-lose-content)
+  - Synchronous; no network happens inside the script (rehosting is a
+    host-side post-pass)
+  - Example:
+      const nodes = fromMarkdown("## Notes\\n- item **bold**");
+      const h = xpathFirst('//heading[@level=1]');
+      doc.insert(doc.toArray().indexOf(h) + 1, nodes);  // insert after the H1
+
 ───────────────────────────────────────────────────────────────────────────
 XPATH QUERY FUNCTIONS (Recommended for element selection!)
 ───────────────────────────────────────────────────────────────────────────
@@ -570,60 +591,25 @@ await modify({
   \`
 });
 
-// Example 4: Transform block types in place (e.g., markdown → proper blocks)
-// ⭐ KEY PATTERN: Convert existing blocks without deleting the whole document
+// Example 4: Convert markdown to blocks with fromMarkdown()
+// ⭐ KEY PATTERN: never hand-roll markdown parsing. fromMarkdown(md) returns
+// detached, ready-to-insert nodes (SAME contract as cloneBlocks) covering the
+// full supported grammar — headings, lists, tables, code/mermaid fences,
+// links, and inline formatting — with link hrefs sanitized and images handled
+// by the import policy. Place the result with the positioning primitives you
+// already know (doc.insert, appendBlocks-style xpath targeting).
 await modify({
   docGuid: "abc-123",
   script: \`
     export default function edit(doc) {
-      const blocks = doc.toArray();
+      // Convert markdown, then insert right after a located heading.
+      const nodes = fromMarkdown("## Notes\\n\\n- item **bold**\\n- item _italic_");
+      const anchor = xpathFirst('//heading[@level=1]');
+      const idx = anchor ? doc.toArray().indexOf(anchor) + 1 : doc.length;
+      doc.insert(idx, nodes);
 
-      // Iterate BACKWARD when replacing blocks (avoids index shifting)
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        const block = blocks[i];
-        if (!(block instanceof Y.XmlElement) || block.nodeName !== 'paragraph') continue;
-
-        const textNode = findTextNode(block);
-        if (!textNode) continue;
-        const content = extractText(textNode);
-
-        // Detect markdown heading pattern: # Title, ## Subtitle, ### Section
-        const headingMatch = content.match(/^(#{1,3})\\s+(.+)$/);
-        if (headingMatch) {
-          const level = headingMatch[1].length;
-          const text = headingMatch[2];
-
-          // Create new heading block with same content
-          const heading = new Y.XmlElement('heading');
-          heading.setAttribute('level', level);
-          const newText = new Y.XmlText();
-          newText.insert(0, text);
-          heading.insert(0, [newText]);
-
-          // Replace in place: delete old, insert new at same position
-          doc.delete(i, 1);
-          doc.insert(i, [heading]);
-        }
-
-        // Detect markdown bullet: - Item or * Item
-        const bulletMatch = content.match(/^[-*]\\s+(.+)$/);
-        if (bulletMatch) {
-          const text = bulletMatch[1];
-
-          // Create bullet list with single item
-          const list = new Y.XmlElement('bulletList');
-          const item = new Y.XmlElement('listItem');
-          const para = new Y.XmlElement('paragraph');
-          const newText = new Y.XmlText();
-          newText.insert(0, text);
-          para.insert(0, [newText]);
-          item.insert(0, [para]);
-          list.insert(0, [item]);
-
-          doc.delete(i, 1);
-          doc.insert(i, [list]);
-        }
-      }
+      // fromMarkdown('') returns []; unstructurable input degrades to literal
+      // paragraphs — it never throws on content it merely cannot structure.
     }
   \`
 });

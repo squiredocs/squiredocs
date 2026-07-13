@@ -9,6 +9,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
 - **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
 - **Markdown Export**: Export any document you can view as a Markdown (`.md`) file from the editor's tools menu (uses the same Yjs→Markdown serializer that powers version-history diffs). The REST route supports repo-friendly options: `flavor=portable` degrades HTML-only marks for clean GitHub rendering (underline→emphasis, highlight→bold, styled spans→plain text — declared per mark in the format registry), `frontmatter=true` prepends a self-describing `squire:` YAML block (docGuid, title, clock, exportedAt, lastModifiedBy, flavor, lossy list), and `format=bundle` downloads a zip with image assets under `assets/<docSlug>/` and references rewritten to relative paths (bundle defaults: portable + frontmatter, both overridable). Defaults are unchanged — a plain export is byte-identical to before. Task lists export as GFM `- [ ]`/`- [x]` and hard line breaks as trailing backslashes in every flavor
+- **Markdown Import**: Push markdown *into* Squire — create a fully populated document in one call (`create_document({ markdown })` or `POST /api/docs/import`), append or replace an existing document over REST (`PUT /api/docs/:docId/import`), or convert markdown to blocks inside a `modify` script with the `fromMarkdown()` sandbox helper. All surfaces share one import module; external images are fetched and rehosted server-side under an SSRF-safe policy, link hrefs are protocol-allowlisted, and a leading `squire:` frontmatter block is consumed defensively. See [Markdown Import Surfaces](#markdown-import-surfaces).
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
 - **Rich Text Formatting**: Bold, italic, underline, strikethrough, headings (H1-H3), lists, interactive task lists (GFM checklists — checkbox toggles are collaborative, attributed edits), and code snippets
 - **Diagram Blocks**: Insert **Mermaid** (`◇`) diagram-as-code blocks or raw **SVG** (`⬡`) blocks from the toolbar that render live as you type. SVG blocks are sanitized at render time (DOMPurify with a strict policy — no scripts, event handlers, `foreignObject`, or external references; see `shared/svg-sanitizer.mjs`) so agent- or collaborator-authored markup can't execute script or phone home. Copying a diagram places a rasterized PNG on the clipboard so it pastes as an image into Google Docs/Notion, and the source round-trips back into an editable block on paste. Diagrams serialize to fenced code blocks (` ```mermaid `, ` ```svg `) for Markdown export and AI-agent editing.
@@ -343,6 +344,21 @@ Version history includes visual diff highlighting to show what changed between v
 
 Inline-format knowledge (delimiters, HTML tags, style props) lives only in `shared/format-registry.js`, so adding a mark extends the serializer, both parser modes, and the round-trip suite with zero parser edits. The full supported-grammar and degradation-ladder tables are in [`specs/001-general-markdown-parser/data-model.md`](specs/001-general-markdown-parser/data-model.md).
 
+### Markdown Import Surfaces
+
+Import is the inverse of export: it turns untrusted markdown into rich document blocks through a single server-side module (`server/markdown-import.js`), so every surface enforces the same invariants. Four surfaces wrap it:
+
+- **MCP `create_document({ markdown })`** — one call creates a fully populated, titled, attributed document. Title precedence: explicit `title` → frontmatter `squire: title` → first heading → `Untitled` (a title-donor heading stays in the body).
+- **REST `POST /api/docs/import`** — same one-call create over HTTP with an `sk_sqd_` token (owner = the acting user).
+- **REST `PUT /api/docs/:docId/import?mode=append|replace`** — import into an existing document (default `append`; `replace` swaps the body in a single attributed undo step). Requires the editor role. This route is also the transport the planned two-way sync extends.
+- **MCP `fromMarkdown(md)` sandbox helper** — convert markdown to detached nodes inside a `modify` script and place them with the positioning primitives you already use (same contract as `cloneBlocks`).
+
+Security posture (constitution Principle V — import is an untrusted ingestion surface): every surface requires an authenticated principal (`documents:write` for scoped tokens; PUT also requires editor role); markdown bodies are capped at 5 MB and rejected before parsing; unsupported content types → 415. Content is parsed only via feature 001's tolerant parser (never executed as HTML beyond the registry whitelist). Link hrefs are protocol-allowlisted (`http`/`https`/`mailto`/app-relative — `javascript:`/`data:`/`vbscript:`/`file:` lose the link mark, text kept).
+
+**Image fetch-and-rehost policy**: external `http(s)` image references are fetched server-side and rehosted into the app's image storage (attributed to the acting user), then rewritten to app URLs — so imported documents stay self-contained and never make viewers' browsers load attacker-chosen URLs. The fetch is SSRF-safe (`server/image-rehost.js`): `http`/`https` only; the resolved address of the initial request and **every redirect hop** is validated against private/loopback/link-local/metadata/CGNAT/unique-local/multicast ranges (v4, v6, and IPv4-mapped/NAT64 forms), with the connection **pinned to the validated IP** (no DNS-rebind window); 3-redirect cap, 10 s timeout, the existing 15 MB byte cap enforced while streaming, and the existing png/jpeg/gif/webp MIME allowlist. Up to 20 unique images are fetched per import (deduplicated). Every failure — SSRF block, size, type, budget, or storage unconfigured — degrades to a plain link and is itemized in the response `images` report rather than failing the import. `data:` image srcs are rejected outright (dropped to alt text). After any import the stored document contains **zero** external and **zero** `data:` image srcs.
+
+**Frontmatter**: a leading `---` YAML block is consumed defensively — recognized `squire:` fields are used (currently `title`), unknown keys are ignored, and any non-`squire:` keys are preserved as a leading fenced `yaml` code block so nothing is lost. Malformed YAML is treated as ordinary content; frontmatter never fails an import and never executes.
+
 ### Enhanced Features
 
 **Nested Sub-versions**: Optionally drill down into individual edit groups within a version using the `includeSubversions` parameter. Sub-versions use a 10-second grouping threshold for granular change tracking.
@@ -374,6 +390,11 @@ await list_document_versions({
 | `POST /api/docs/:docId/versions` | Create named version |
 | `POST /api/docs/:docId/restore` | Restore to previous version |
 | `GET /api/docs/:docId/export?format=markdown` | Export document as a Markdown file download. Options: `flavor=squire\|portable` (default `squire`), `frontmatter=true\|false` (default off), `format=bundle` for a zip of markdown + image assets with relative references (bundle defaults to `portable` + frontmatter, overridable) |
+| `GET /api/docs/:docId/export?format=markdown` | Export document as a Markdown file download |
+| `POST /api/docs/import` | Create a new document from a `text/markdown` body (owner = acting user) |
+| `PUT /api/docs/:docId/import?mode=append\|replace` | Import markdown into an existing document (editor role required) |
+
+The import routes require `documents:write`, accept `text/markdown`/`text/plain` bodies capped at 5 MB, and return an itemized image report; see [Markdown Import Surfaces](#markdown-import-surfaces) or `get_tool_documentation({ tool: "export_api" })`.
 
 ## In-App AI Assistant
 

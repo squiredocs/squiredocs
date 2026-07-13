@@ -120,6 +120,55 @@ const changed = await list_documents({ updatedSince: "2026-07-01T00:00:00Z" });
 
 lastModifiedAt reflects actual content edits (the Yjs update log), unlike
 updatedAt, which is also bumped when a document is merely opened.
+
+═══════════════════════════════════════════════════════════════════════════
+IMPORT MARKDOWN (the inverse of export)
+═══════════════════════════════════════════════════════════════════════════
+
+Two routes push markdown INTO Squire, over the same auth model as export.
+Both require documents:write (GET needs read; mutating methods need write) and
+take a raw markdown body — Content-Type text/markdown or text/plain (UTF-8);
+any other type → 415. Bodies over 5 MB → 413 (rejected before parsing). An
+empty/whitespace-only body (or one that is only frontmatter, for PUT) → 400.
+
+CREATE a new document from markdown:
+
+  POST /api/docs/import[?title=<title>]
+
+  curl -sf -X POST -H "Authorization: Bearer $SQUIRE_TOKEN" \\
+    -H "Content-Type: text/markdown" --data-binary @doc.md \\
+    "https://squiredocs.com/api/docs/import"
+
+  Title precedence: ?title= → frontmatter 'squire: title' → the first heading
+  → "Untitled" (a title-donor heading stays in the body). The acting user
+  owns the new document. 201 → { docId, title, url, clock, images }.
+
+IMPORT into an existing document:
+
+  PUT /api/docs/:docId/import?mode=append|replace   (default append)
+
+  curl -sf -X PUT -H "Authorization: Bearer $SQUIRE_TOKEN" \\
+    -H "Content-Type: text/markdown" --data-binary @section.md \\
+    "https://squiredocs.com/api/docs/<docId>/import?mode=append"
+
+  append inserts after existing content; replace makes the body exactly the
+  imported blocks (one undo step, attributed). Requires the editor role on the
+  document (owner qualifies); viewer / no access / unknown doc → 403 (same
+  posture as export: no existence oracle). Unknown mode → 400. 200 →
+  { docId, mode, clock, blocks, images } — additive-extensible.
+
+IMAGE REPORT (both routes, the "images" field):
+  {
+    "rehosted": [{ "src": "<external URL>", "url": "<app image URL>" }],
+    "copied":   [{ "from": "<other-doc app URL>", "to": "<app URL>" }],
+    "degraded": [{ "src": "<external URL>", "reason": "<why>" }],
+    "rejected": [{ "src": "data:…", "reason": "data-url" }]
+  }
+  External http(s) images are fetched server-side (SSRF-safe) and rehosted
+  into the document; failures (blocked address, too large, wrong type, budget,
+  storage disabled) degrade to a plain link and are itemized — an image
+  problem never fails the import. data: images are dropped to their alt text.
+  After import the stored document contains zero external and zero data: srcs.
 `;
 
 module.exports = { EXPORT_API_DOCUMENTATION };

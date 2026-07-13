@@ -9,6 +9,7 @@ const documentService = require('../../document-service');
 const agentPresence = require('../agent-presence');
 const onboarding = require('../../onboarding');
 const { buildYjsNode } = require('../yjs/node-builder');
+const { importMarkdown, deriveImportTitle } = require('../../markdown-import');
 
 // create_document delegates record creation + Yjs seeding to
 // documentService.createSeededDocument (which uses the documents +
@@ -22,30 +23,31 @@ function init() {}
  */
 const name = 'create_document';
 
-const description = `Create a new document with a title.
+const description = `Create a new document, optionally seeded from markdown.
 
-After creation, add content INCREMENTALLY via multiple modify calls.
-Sessions are created automatically when you call modify or read_document.
+ONE-CALL CREATION FROM MARKDOWN (preferred when you already have content):
+  create_document({ markdown: "# Title\\n\\nBody..." })
+The markdown is imported as rich blocks (headings, lists, tables, code and
+mermaid fences, links, inline formatting). Title precedence: explicit title
+argument → frontmatter squire: title → first heading text → "Untitled"; a
+heading used for the title stays in the body. External images are handled by
+the import image policy and itemized in the returned images report.
 
-RECOMMENDED WORKFLOW:
+At least one of title / markdown is required.
+
+For an EMPTY document, pass just a title, then add content INCREMENTALLY via
+multiple modify calls (sessions are created automatically when you call
+modify or read_document):
 1. create_document({ title: "My Doc" })     → Creates empty document
 2. modify({ script: "add heading..." })     → Add title/heading first
-3. modify({ script: "add intro..." })       → Add introduction paragraph
-4. modify({ script: "add section 1..." })   → Add first section
-5. modify({ script: "add section 2..." })   → Add next section
+3. modify({ script: "add section 1..." })   → Add first section
 
-WHY INCREMENTAL:
+WHY INCREMENTAL (for authoring new content):
 - User sees content appear progressively (better UX)
 - Each change syncs immediately to all viewers
 - Smaller scripts are more reliable
 - Easier to recover from errors (partial content preserved)
-- Natural undo boundaries (each modify = one undo step)
-
-EFFICIENT PATTERNS:
-- Author section by section (heading + content together)
-- Build lists item by item for long lists
-- Add all headings first, then fill in content
-- Format similar items in batches (all TODOs, all links, etc.)`;
+- Natural undo boundaries (each modify = one undo step)`;
 
 
 const inputSchema = {
@@ -53,10 +55,17 @@ const inputSchema = {
   properties: {
     title: {
       type: 'string',
-      description: 'The title for the new document',
+      description: 'The title for the new document. Optional when markdown is '
+        + 'given (title is then derived from frontmatter or the first heading).',
+    },
+    markdown: {
+      type: 'string',
+      description: 'Optional markdown to seed the document with. Imported as '
+        + 'rich blocks via the shared import pipeline; the first heading stays '
+        + 'in the body.',
     },
   },
-  required: ['title'],
+  required: [],
 };
 
 /**
@@ -67,21 +76,48 @@ const inputSchema = {
  * @returns {Promise<object>} { docGuid, title, message }
  */
 async function handler(args, agentToken) {
-  const { title } = args;
+  const { title: explicitTitle, markdown } = args;
   const userId = agentToken.userId;
 
-  // Create the document and seed it with a single empty paragraph. The empty
-  // paragraph isn't decorative: it gives the agent's presence cursor a text
-  // node to anchor to (an empty body has nowhere to render a cursor) and lets
-  // the presence session finalize immediately instead of waiting on the
-  // empty-document content timeout. A plain paragraph — not a heading — keeps
-  // the body clear of the title, which lives in `meta` and renders separately.
+  const hasMarkdown = typeof markdown === 'string' && markdown.trim() !== '';
+  const hasTitle = typeof explicitTitle === 'string';
+  if (!hasTitle && !hasMarkdown) {
+    throw new Error('create_document requires at least one of: title, markdown');
+  }
+
+  // Title precedence (FR-008): explicit title → frontmatter squire: title →
+  // first heading text → "Untitled". A title-donor heading stays in the body.
+  // Title-only calls keep their legacy behavior exactly (including '' titles).
+  const derived = hasMarkdown ? deriveImportTitle(markdown) : { title: null, hasBody: false };
+  const title = hasMarkdown ? explicitTitle || derived.title || 'Untitled' : explicitTitle;
+
+  // Seeding: with markdown, the imported content itself anchors the agent's
+  // presence cursor. Without markdown (or when the markdown is frontmatter
+  // only), seed a single empty paragraph — it isn't decorative: it gives the
+  // presence cursor a text node to anchor to (an empty body has nowhere to
+  // render a cursor) and lets the presence session finalize immediately
+  // instead of waiting on the empty-document content timeout. A plain
+  // paragraph — not a heading — keeps the body clear of the title, which
+  // lives in `meta` and renders separately.
+  const seedContent = hasMarkdown && derived.hasBody;
   const docGuid = await documentService.createSeededDocument({
     userId,
     title,
-    nodes: [buildYjsNode({ type: 'paragraph' })],
+    nodes: seedContent ? [] : [buildYjsNode({ type: 'paragraph' })],
     agentName: agentToken.agentName,
   });
+
+  // Import through the single module path (FR-001). The create + import
+  // updates land in one version-history session (same author, same instant).
+  let importReport = null;
+  if (seedContent) {
+    const ydoc = documentService.getSharedDoc(docGuid);
+    importReport = await importMarkdown(ydoc, markdown, {
+      mode: 'append',
+      actor: { userId, agentName: agentToken.agentName || null },
+      imageContext: { docId: docGuid },
+    });
+  }
 
   console.log(`[create_document] created docGuid=${docGuid}`);
 
@@ -103,12 +139,18 @@ async function handler(args, agentToken) {
     .catch((err) => console.warn(`[create_document] presence setup failed for ${docGuid}: ${err.message}`));
 
   const baseUrl = agentToken.baseUrl || '';
-  return {
+  const result = {
     docGuid,
     title,
     url: `${baseUrl}/d/${docGuid}`,
     message: `Created document "${title}"`,
   };
+  if (importReport) {
+    result.blocks = importReport.blocks;
+    result.images = importReport.images;
+    result.message = `Created document "${title}" with ${importReport.blocks.imported} imported block(s)`;
+  }
+  return result;
 }
 
 module.exports = {
