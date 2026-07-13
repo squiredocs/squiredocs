@@ -359,6 +359,43 @@ async function prepareImport(markdown, imageContext) {
   return { nodes, images, frontmatter };
 }
 
+/**
+ * Title derivation support for the create surfaces (FR-008/FR-012): squire
+ * frontmatter title → first heading text → null. Also reports whether the
+ * markdown has any real body once frontmatter is stripped (the create
+ * surfaces seed an empty anchor document for frontmatter-only input — spec
+ * §Edge Cases — while PUT rejects it, CN-11).
+ *
+ * Kept in the module so no surface parses markdown itself (FR-001); the
+ * create flow pays one extra parse because image staging needs the document
+ * row to exist (document_images FK) before prepareImport can run.
+ *
+ * @param {string} markdown
+ * @returns {{ title: string|null, hasBody: boolean }}
+ */
+function deriveImportTitle(markdown) {
+  const fm = consumeFrontmatter(markdown);
+  const pmJson = reconstructImages(markdownToPm(fm.content));
+  let firstHeading = null;
+  for (const block of pmJson.content || []) {
+    if (block && block.type === 'heading' && Array.isArray(block.content)) {
+      const text = block.content
+        .filter((n) => n && n.type === 'text' && typeof n.text === 'string')
+        .map((n) => n.text)
+        .join('')
+        .trim();
+      firstHeading = text || null;
+      break;
+    }
+  }
+  const hasBody =
+    hasRealContent(pmJson) || (pmJson.content || []).some((b) => b && b.type === 'image');
+  return {
+    title: (fm.squire && fm.squire.title) || firstHeading || null,
+    hasBody,
+  };
+}
+
 /** Find the index of the top-level block containing (or being) `element`. */
 function topLevelIndexOf(fragment, element) {
   let node = element;
@@ -444,6 +481,7 @@ async function importMarkdown(ydoc, markdown, options = {}) {
 module.exports = {
   importMarkdown,
   prepareImport,
+  deriveImportTitle,
   sanitizeLinkMarks,
   reconstructImages,
   rejectDataImages,

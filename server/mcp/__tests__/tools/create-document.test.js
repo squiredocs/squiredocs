@@ -115,8 +115,11 @@ describe('create_document tool', () => {
       expect(createDocument.inputSchema.type).toBe('object');
     });
 
-    test('requires title parameter', () => {
-      expect(createDocument.inputSchema.required).toContain('title');
+    test('title is optional (markdown seeding, feature 002) but present in schema', () => {
+      // Since feature 002, at-least-one-of title/markdown is enforced in the
+      // handler; the schema no longer hard-requires title.
+      expect(createDocument.inputSchema.required).toEqual([]);
+      expect(createDocument.inputSchema.properties.markdown).toBeDefined();
     });
 
     test('does not have content parameter', () => {
