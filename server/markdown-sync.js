@@ -83,7 +83,7 @@
 
 const crypto = require('crypto');
 const Y = require('yjs');
-const { diffChars, diffLines } = require('diff');
+const { diffChars, diffLines, diffArrays } = require('diff');
 const {
   toMarkdown,
   toMarkdownNodes,
@@ -697,11 +697,101 @@ function applyHunks(fragment, plan, sourceMap, baselineMd) {
 }
 
 // ===========================================================================
-// Overlap detection hook (implemented in T013 / US2). Advisory only.
+// T013 — Overlap detection (research R5, US2). Strictly advisory (FR-012):
+// computed AFTER the push is applied, never gates it.
 // ===========================================================================
-let detectOverlaps = async () => [];
-/** Wire the overlap detector (T013). */
+
+let detectOverlaps = defaultDetectOverlaps;
+/** Override the overlap detector (tests disable it to prove flags never gate). */
 function setOverlapDetector(fn) { detectOverlaps = fn || (async () => []); }
+
+function buffersEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** First ~80 chars of a block's text content, whitespace-collapsed, plain. */
+function blockExcerpt(md) {
+  return md.replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+/** Doc-side changed baseline blocks (array index → 'edited'|'deleted') via block LCS. */
+function docSideChanges(baseMds, curMds) {
+  const parts = diffArrays(baseMds, curMds);
+  const changed = new Map();
+  let baseIdx = 0;
+  for (let k = 0; k < parts.length; k++) {
+    const p = parts[k];
+    if (p.removed) {
+      const replaced = parts[k + 1] && parts[k + 1].added;
+      for (let j = 0; j < p.value.length; j++) changed.set(baseIdx++, replaced ? 'edited' : 'deleted');
+    } else if (p.added) {
+      /* current-only block — no baseline advance */
+    } else {
+      baseIdx += p.value.length;
+    }
+  }
+  return changed;
+}
+
+/** Push-touched baseline blocks (array index → 'text'|'structural'|'deleted'). */
+function pushTouchedBlocks(plan, baseBlocks) {
+  const idxOf = new Map();
+  baseBlocks.forEach((b, i) => idxOf.set(b, i));
+  const touched = new Map();
+  for (const tb of plan.textBlocks) { const i = idxOf.get(tb.block); if (i !== undefined) touched.set(i, 'text'); }
+  for (const rb of plan.reconcileBlocks) { const i = idxOf.get(rb.block); if (i !== undefined) touched.set(i, 'text'); }
+  for (const h of plan.structural) {
+    const side = h.newText === '' ? 'deleted' : 'structural';
+    for (const b of h.blocks || []) { const i = idxOf.get(b); if (i !== undefined) touched.set(i, side); }
+  }
+  return touched;
+}
+
+/**
+ * Compute advisory overlap flags: baseline blocks changed on the document side
+ * (state-vector fast path + block-level canonical-md LCS vs the current live
+ * snapshot) intersected with blocks the push touched (recorded during planning).
+ */
+async function defaultDetectOverlaps(persistence, docGuid, ctx) {
+  const { baselineSV, canonicalMd, sourceMap, plan, getSharedDoc, flavor = 'squire' } = ctx;
+  const baseBlocks = sourceMap.blocks;
+  if (baseBlocks.length === 0) return [];
+
+  let currentDoc = null;
+  let ownsDoc = false;
+  try { currentDoc = getSharedDoc && getSharedDoc(docGuid); } catch { currentDoc = null; }
+  if (!currentDoc) { currentDoc = await persistence.getYDoc(docGuid); ownsDoc = true; }
+  try {
+    const currentSV = Y.encodeStateVector(currentDoc);
+    if (buffersEqual(currentSV, baselineSV)) return []; // clock-equal push — no doc-side change
+
+    const baseMds = baseBlocks.map((b) => canonicalMd.slice(b.mdStart, b.mdEnd));
+    const cur = toMarkdownWithSourceMap(currentDoc.get('default', Y.XmlFragment).toArray(), { flavor });
+    const curMds = cur.sourceMap.blocks.map((b) => cur.markdown.slice(b.mdStart, b.mdEnd));
+
+    const docSide = docSideChanges(baseMds, curMds);
+    const pushSide = pushTouchedBlocks(plan, baseBlocks);
+
+    const flags = [];
+    for (const [i, ds] of docSide) {
+      if (!pushSide.has(i)) continue;
+      const b = baseBlocks[i];
+      flags.push({
+        blockIndex: b.blockIndex,
+        blockType: b.blockNode instanceof Y.XmlElement ? b.blockNode.nodeName : 'text',
+        excerpt: blockExcerpt(baseMds[i]),
+        docSide: ds,
+        pushSide: pushSide.get(i),
+      });
+    }
+    flags.sort((a, b) => a.blockIndex - b.blockIndex);
+    return flags;
+  } finally {
+    if (ownsDoc) currentDoc.destroy();
+  }
+}
 
 // ===========================================================================
 // T009 — applySyncPush orchestration (research R8, store-then-apply)
@@ -812,9 +902,10 @@ async function applySyncPush(persistence, docGuid, opts) {
     });
     const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
 
-    // Overlap flags (advisory, computed from the pre-replay baseline snapshot).
+    // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
+    // "current" snapshot reflects only concurrent doc-side edits, not our own.
     const overlaps = await detectOverlaps(persistence, docGuid, {
-      baselineClock, baselineFork: fork, plan, sourceMap, getSharedDoc, flavor,
+      baselineClock, baselineSV, canonicalMd, plan, sourceMap, getSharedDoc, flavor,
     });
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock; applying to
@@ -845,6 +936,10 @@ module.exports = {
   applySyncPush,
   reExport,
   readCurrentClock,
+  // T013
+  detectOverlaps: defaultDetectOverlaps,
+  docSideChanges,
+  pushTouchedBlocks,
   // T004
   resolveMd,
   classifyRange,
