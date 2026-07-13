@@ -865,6 +865,46 @@ async function reExport(persistence, docGuid, clock, flavor) {
 }
 
 /**
+ * Resolve and validate a sync push's baseline (research R6, FR-015/US5). Pure
+ * except for the current-clock read. Validation ordering: docGuid identity →
+ * baseline presence (D3 precedence: explicit param overrides frontmatter) →
+ * baseline validity vs current clock → reconstructibility (D1 forward guard).
+ * Returns either { error, status, currentClock? } or { baselineClock, flavor }.
+ * All checks run BEFORE fork construction, so a rejected push leaves no trace.
+ *
+ * @param {object} persistence
+ * @param {string} docGuid
+ * @param {object} opts
+ * @param {object|null} opts.squire      - parsed squire frontmatter block
+ * @param {*} [opts.paramClock]          - explicit baselineClock request param
+ * @param {Function} [opts.canReconstruct] - (persistence, docGuid, clock) → Promise<bool>
+ */
+async function validateSyncBaseline(persistence, docGuid, { squire, paramClock, canReconstruct } = {}) {
+  // Doc identity (FR-002) — before any processing.
+  if (squire && squire.docGuid != null && String(squire.docGuid) !== String(docGuid)) {
+    return { error: 'sync_doc_mismatch', status: 409 };
+  }
+  // Baseline resolution (D3): explicit param overrides frontmatter clock.
+  let baselineClock;
+  if (paramClock !== undefined && paramClock !== null && paramClock !== '') {
+    baselineClock = Number(paramClock);
+  } else if (squire && squire.clock !== undefined) {
+    baselineClock = Number(squire.clock);
+  }
+  if (baselineClock === undefined) return { error: 'sync_baseline_missing', status: 400 };
+
+  const currentClock = await readCurrentClock(persistence, docGuid);
+  if (!Number.isInteger(baselineClock) || baselineClock < 0 || baselineClock > currentClock) {
+    return { error: 'sync_baseline_invalid', status: 400, currentClock };
+  }
+  if (canReconstruct && !(await canReconstruct(persistence, docGuid, baselineClock))) {
+    return { error: 'sync_baseline_unavailable', status: 410, currentClock };
+  }
+  const flavor = (squire && squire.flavor === 'portable') ? 'portable' : 'squire';
+  return { baselineClock, flavor, currentClock };
+}
+
+/**
  * Apply a validated sync push (auth/baseline validation happens upstream in the
  * route, T010/T026). Reconstructs the baseline, canonicalizes the pushed body,
  * short-circuits true no-ops (T018/D7), else replays edits as one CRDT update
@@ -961,6 +1001,7 @@ module.exports = {
   sanitizeOnBehalfOf,
   setOverlapDetector,
   applySyncPush,
+  validateSyncBaseline,
   reExport,
   readCurrentClock,
   // T013

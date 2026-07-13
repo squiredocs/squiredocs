@@ -23,7 +23,7 @@ const { generateAccessToken } = require('../../server/auth/jwt');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
-const { createImportRouter } = require('../../server/api/docs-import');
+const { createImportRouter, setCanReconstruct } = require('../../server/api/docs-import');
 const { getVersionTimeline, createAuthor } = require('../../server/version-history');
 
 const pendingOperations = [];
@@ -320,5 +320,73 @@ describe('sync-push route (mode=sync)', () => {
     const after = await currentBody(docId);
     expect(after).toContain('LIVE');
     expect(after).toContain('CHANGED');
+  });
+
+  // ------------------------------------------------------------------------
+  // US5 (T025): stale/invalid baselines rejected; zero mutation (SC-008)
+  // ------------------------------------------------------------------------
+  async function expectNoMutation(docId, fn) {
+    const beforeRows = (await pool.query('SELECT COUNT(*)::int c, MAX(clock)::int m FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0];
+    const res = await fn();
+    await drain();
+    const afterRows = (await pool.query('SELECT COUNT(*)::int c, MAX(clock)::int m FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0];
+    expect(afterRows.c).toBe(beforeRows.c); // no update stored
+    expect(afterRows.m).toBe(beforeRows.m); // clock unchanged
+    return res;
+  }
+
+  test('baseline beyond current clock → 400 sync_baseline_invalid + guidance + currentClock; no mutation', async () => {
+    const { docId, body } = await seedDoc('# Doc\n\nstale test');
+    const res = await expectNoMutation(docId, () =>
+      put(docId, fileFor(docId, 999999, body), { query: '?mode=sync&baselineClock=999999' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sync_baseline_invalid');
+    expect(res.body.guidance).toMatch(/re-pull/i);
+    expect(typeof res.body.currentClock).toBe('number');
+  });
+
+  test('negative baseline → 400 sync_baseline_invalid', async () => {
+    const { docId, body } = await seedDoc('# Doc\n\nneg');
+    const res = await expectNoMutation(docId, () =>
+      put(docId, fileFor(docId, 0, body), { query: '?mode=sync&baselineClock=-3' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sync_baseline_invalid');
+  });
+
+  test('no baseline (frontmatter stripped, no param) → 400 sync_baseline_missing', async () => {
+    const { docId } = await seedDoc('# Doc\n\nno baseline');
+    const res = await expectNoMutation(docId, () =>
+      put(docId, 'no frontmatter here')); // no squire block, no param
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sync_baseline_missing');
+  });
+
+  test('frontmatter docGuid ≠ target → 409 sync_doc_mismatch; rejected before processing', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nmismatch');
+    const wrongFile = fileFor('00000000-0000-0000-0000-000000000000', clock, body.replace('mismatch', 'x'));
+    const res = await expectNoMutation(docId, () => put(docId, wrongFile));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('sync_doc_mismatch');
+  });
+
+  test('forced-unavailable baseline → 410 sync_baseline_unavailable; no mutation', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nunavailable');
+    setCanReconstruct(async () => false);
+    try {
+      const res = await expectNoMutation(docId, () => put(docId, fileFor(docId, clock, body.replace('unavailable', 'x'))));
+      expect(res.status).toBe(410);
+      expect(res.body.error).toBe('sync_baseline_unavailable');
+    } finally {
+      setCanReconstruct(null); // restore default (always true)
+    }
+  });
+
+  test('rejections never whole-document-replace as a fallback', async () => {
+    // grep-level guard on the route + engine sources.
+    const fs = require('fs');
+    const path = require('path');
+    const route = fs.readFileSync(path.join(__dirname, '..', '..', 'server', 'api', 'docs-import.js'), 'utf8');
+    // the sync handler must not fall through to mode=replace on a rejection
+    expect(/sync[\s\S]*mode\s*=\s*['"]replace['"]/i.test(route)).toBe(false);
   });
 });

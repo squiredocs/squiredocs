@@ -23,7 +23,7 @@ const documentService = require('../document-service');
 const { notifyException } = require('../exception-notifier');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
 const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
-const { applySyncPush, SYNC_AGENT_NAME } = require('../markdown-sync');
+const { applySyncPush, validateSyncBaseline, SYNC_AGENT_NAME } = require('../markdown-sync');
 const {
   importMarkdown,
   deriveImportTitle,
@@ -62,61 +62,38 @@ function parseOnBehalfOf(req) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** A sync rejection body (FR-015, R6). */
-function syncError(res, status, code, message) {
-  return res.status(status).json({
-    error: code,
-    message,
-    guidance: 'Re-pull the document (re-export) and re-apply your edits on a fresh baseline.',
-  });
-}
-
 /**
  * Handle a mode=sync push: validate baseline/identity, dispatch to the sync
  * engine, shape the receipt. Auth/editor-role were already enforced by the
  * caller (no privileged path — FR-003).
  */
+const REJECTION_MESSAGES = {
+  sync_doc_mismatch: 'The file\'s frontmatter names a different document than the request target.',
+  sync_baseline_missing: 'No baseline clock: provide squire.clock frontmatter or the baselineClock parameter.',
+  sync_baseline_invalid: 'The baseline clock is malformed, negative, or beyond the document\'s current clock.',
+  sync_baseline_unavailable: 'The document can no longer be reconstructed at that baseline clock.',
+};
+
 async function handleSyncPush(persistence, req, res, docId, user) {
   const markdown = typeof req.body === 'string' ? req.body : '';
   const { squire, body } = parseFrontmatter(markdown);
 
-  // Doc identity (FR-002): reject a file that names a different document.
-  if (squire && squire.docGuid != null && String(squire.docGuid) !== String(docId)) {
-    return syncError(res, 409, 'sync_doc_mismatch',
-      'The file\'s frontmatter names a different document than the request target.');
-  }
-
-  // Baseline resolution (D3): explicit param overrides frontmatter clock.
-  let baselineClock;
-  if (req.query.baselineClock !== undefined) baselineClock = Number(req.query.baselineClock);
-  else if (squire && squire.clock !== undefined) baselineClock = Number(squire.clock);
-
-  if (baselineClock === undefined) {
-    return syncError(res, 400, 'sync_baseline_missing',
-      'No baseline clock: provide squire.clock frontmatter or the baselineClock parameter.');
-  }
-  const currentClock = (await persistence.pool.query(
-    'SELECT MAX(clock)::int AS clock FROM yjs_updates WHERE doc_guid = $1', [docId]
-  )).rows[0].clock;
-  if (!Number.isInteger(baselineClock) || baselineClock < 0 ||
-      currentClock == null || baselineClock > currentClock) {
-    return res.status(400).json({
-      error: 'sync_baseline_invalid',
-      message: 'The baseline clock is malformed, negative, or beyond the document\'s current clock.',
+  // Baseline/identity validation (FR-002/FR-015, R6) — all before fork/replay,
+  // so a rejected push leaves no trace (no mutation, no version entry).
+  const v = await validateSyncBaseline(persistence, docId, {
+    squire, paramClock: req.query.baselineClock, canReconstruct,
+  });
+  if (v.error) {
+    const b = {
+      error: v.error,
+      message: REJECTION_MESSAGES[v.error],
       guidance: 'Re-pull the document (re-export) and re-apply your edits on a fresh baseline.',
-      currentClock: currentClock == null ? 0 : currentClock,
-    });
+    };
+    if (v.currentClock !== undefined) b.currentClock = v.currentClock;
+    return res.status(v.status).json(b);
   }
-  if (!(await canReconstruct(persistence, docId, baselineClock))) {
-    return res.status(410).json({
-      error: 'sync_baseline_unavailable',
-      message: 'The document can no longer be reconstructed at that baseline clock.',
-      guidance: 'Re-pull the document (re-export) and re-apply your edits on a fresh baseline.',
-      currentClock,
-    });
-  }
+  const { baselineClock, flavor } = v;
 
-  const flavor = (squire && squire.flavor === 'portable') ? 'portable' : 'squire';
   const receipt = await applySyncPush(persistence, docId, {
     body, // frontmatter-stripped body — the engine diffs against the doc's body
     baselineClock,
