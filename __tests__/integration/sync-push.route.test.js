@@ -221,6 +221,33 @@ describe('sync-push route (mode=sync)', () => {
     expect(res.body.overlaps.some((o) => o.docSide === 'edited')).toBe(true);
   });
 
+  // ------------------------------------------------------------------------
+  // US3 (T017): no-op pushes store nothing, create no version entry
+  // ------------------------------------------------------------------------
+  test('byte-identical re-push is a no-op: clock unchanged, no new update row', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nunchanged body here');
+    const rowsBefore = (await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+    const res = await put(docId, fileFor(docId, clock, body));
+    await drain();
+    expect(res.status).toBe(200);
+    expect(res.body.noop).toBe(true);
+    expect(res.body.clock).toBe(clock); // current clock, unchanged
+    expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+    expect(res.body.markdown).toContain('unchanged body here'); // current re-export
+    const rowsAfter = (await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+    expect(rowsAfter).toBe(rowsBefore); // no update stored
+  });
+
+  test('formatting-only push (delimiter style) is a no-op', async () => {
+    const { docId, clock } = await seedDoc('# Doc\n\ntext with **bold** word');
+    const rowsBefore = (await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+    // __bold__ is the same as **bold** after canonicalization
+    const res = await put(docId, fileFor(docId, clock, '# Doc\n\ntext with __bold__ word'));
+    await drain();
+    expect(res.body.noop).toBe(true);
+    expect((await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(rowsBefore);
+  });
+
   test('disjoint concurrent edits: no overlap flagged', async () => {
     const { docId, clock, body } = await seedDoc('# Doc\n\npara one text\n\npara two text');
     const shared = documentService.getSharedDoc(docId);

@@ -330,3 +330,49 @@ describe('hunk classification & replay (T006/T007/T008, US1)', () => {
     expect(once()).toBe(once());
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('no-op detection (T017/T018, US3, FR-009)', () => {
+  function canonicalOf(build, flavor = 'squire') {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => build(frag));
+    const { markdown } = toMarkdownWithSourceMap(frag.toArray(), { flavor });
+    doc.destroy();
+    return markdown;
+  }
+  /** Zero hunks / no plan ops when pushing `pushedMd` at a baseline of `baselineMd`. */
+  function isNoOp(baselineMd, pushedBody, flavor = 'squire') {
+    const pushed = canonicalizePushed(pushedBody, { flavor });
+    return pushed === baselineMd && computeHunks(baselineMd, pushed).length === 0;
+  }
+
+  test('byte-identical re-push is a no-op', () => {
+    const base = canonicalOf((f) => f.insert(0, [el('paragraph', 'hello world'), el('heading', 'H')]));
+    expect(isNoOp(base, base)).toBe(true);
+  });
+
+  test('delimiter-style change (**x** vs __x__) canonicalizes to a no-op', () => {
+    const base = canonicalOf((f) => f.insert(0, [el('paragraph', 'a', { bold: true })]));
+    expect(base).toBe('**a**');
+    expect(isNoOp(base, '__a__')).toBe(true); // __ is bold altWrap
+  });
+
+  test('whitespace reflow that canonicalizes away is a no-op', () => {
+    const base = canonicalOf((f) => f.insert(0, [el('paragraph', 'one two'), el('paragraph', 'three')]));
+    expect(isNoOp(base, 'one two\n\n\n\nthree   ')).toBe(true);
+  });
+
+  test('portable lossy-degradation-only push is a no-op (FR-010)', () => {
+    // underline degrades to italic delimiters in portable; pushing the exported
+    // portable file back is a no-op against the portable baseline.
+    const basePortable = canonicalOf((f) => f.insert(0, [el('paragraph', 'x', { underline: true })]), 'portable');
+    expect(basePortable).toBe('_x_');
+    expect(isNoOp(basePortable, '_x_', 'portable')).toBe(true);
+  });
+
+  test('a genuine edit is NOT a no-op', () => {
+    const base = canonicalOf((f) => f.insert(0, [el('paragraph', 'hello world')]));
+    expect(isNoOp(base, 'hello there')).toBe(false);
+  });
+});
