@@ -7,9 +7,14 @@
  */
 
 const Y = require('yjs');
-const { toMarkdown } = require('../mcp/yjs/serialization');
+const fs = require('fs');
+const path = require('path');
+const { prosemirrorJSONToYDoc } = require('y-prosemirror');
+const { toMarkdown, toStructured, toPlainText } = require('../mcp/yjs/serialization');
 const { markdownToPm } = require('../../shared/markdown');
-const { INLINE_MARKS, STYLE_PROPS } = require('../../shared/format-registry');
+const { INLINE_MARKS, STYLE_PROPS, TEXTSTYLE_PORTABLE } = require('../../shared/format-registry');
+const { schema } = require('../../shared/prosemirror-schema');
+const { buildBaselineDoc } = require('./helpers/baseline-doc');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -432,4 +437,289 @@ describe('canonical equivalence (tolerant === strict on serializer output)', () 
       });
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// Feature 003 — Portable Export
+// ---------------------------------------------------------------------------
+
+/** markdown → PM JSON (tolerant) → Y.Doc (shared schema) → markdown. */
+function reserialize(md, options) {
+  const pm = markdownToPm(md);
+  const ydoc = prosemirrorJSONToYDoc(schema, pm, 'default');
+  const out = toMarkdown(ydoc.getXmlFragment('default'), options);
+  ydoc.destroy();
+  return out;
+}
+
+/** Yjs fragment builder from PM-style JSON via the shared schema. */
+function docFromPm(pmDoc) {
+  return prosemirrorJSONToYDoc(schema, pmDoc, 'default');
+}
+
+const p = (text, marks) => ({
+  type: 'paragraph',
+  content: text === undefined ? undefined : [{ type: 'text', text, ...(marks ? { marks } : {}) }],
+});
+const taskItem = (checked, content) => ({ type: 'taskItem', attrs: { checked }, content });
+const taskList = (...items) => ({ type: 'taskList', content: items });
+
+describe('taskList round-trip (FR-004/FR-005/FR-006, SC-001)', () => {
+  test('flat list: GFM markers, checked state, byte-stable', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      taskList(taskItem(false, [p('todo')]), taskItem(true, [p('done')])),
+    ] });
+    const md = toMarkdown(ydoc.getXmlFragment('default'));
+    expect(md).toBe('- [ ] todo\n- [x] done');
+
+    const pm = markdownToPm(md);
+    expect(pm.content[0].type).toBe('taskList');
+    expect(pm.content[0].content.map((i) => i.attrs.checked)).toEqual([false, true]);
+
+    expect(reserialize(md)).toBe(md); // byte-stable
+  });
+
+  test('nested task-in-task: 6-column continuation, byte-stable', () => {
+    const md = '- [ ] parent\n      - [x] child';
+    const pm = markdownToPm(md);
+    const parent = pm.content[0].content[0];
+    expect(parent.type).toBe('taskItem');
+    const nested = parent.content.find((n) => n.type === 'taskList');
+    expect(nested.content[0].attrs.checked).toBe(true);
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('task-in-bullet and bullet-in-task nesting re-parse to the same structure', () => {
+    for (const md of ['- parent\n  - [ ] child', '- [ ] parent\n      - plainchild']) {
+      const once = reserialize(md);
+      expect(once).toBe(md);
+      expect(reserialize(once)).toBe(once);
+    }
+  });
+
+  test('mixed task/plain items split into homogeneous lists; no literal [x] leaks', () => {
+    const pm = markdownToPm('- [ ] task\n- plain');
+    expect(pm.content.map((b) => b.type)).toEqual(['taskList', 'bulletList']);
+    expect(JSON.stringify(pm)).not.toContain('[x]');
+    expect(JSON.stringify(pm)).not.toContain('[ ]');
+  });
+
+  test('multi-paragraph task item (6-space continuation) is byte-stable', () => {
+    const md = '- [ ] first\n\n      second para';
+    const pm = markdownToPm(md);
+    const item = pm.content[0].content[0];
+    expect(item.content.filter((n) => n.type === 'paragraph')).toHaveLength(2);
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('empty task item serializes a valid marker line and re-parses', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [taskList(taskItem(false, [p()]))] });
+    const md = toMarkdown(ydoc.getXmlFragment('default'));
+    expect(md).toBe('- [ ]');
+    const pm = markdownToPm(md);
+    expect(pm.content[0].type).toBe('taskList');
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('- [X] parses checked and canonically re-emits lowercase x (RD-8)', () => {
+    const pm = markdownToPm('- [X] shout');
+    expect(pm.content[0].content[0].attrs.checked).toBe(true);
+    expect(reserialize('- [X] shout')).toBe('- [x] shout');
+    expect(reserialize('- [x] shout')).toBe('- [x] shout');
+  });
+
+  test('markers identical across flavors (FR-004)', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      taskList(taskItem(true, [p('same')])),
+    ] });
+    const frag = ydoc.getXmlFragment('default');
+    expect(toMarkdown(frag, { flavor: 'portable' })).toBe(toMarkdown(frag));
+  });
+
+  test('structured output exposes checked booleans; plain text keeps item text (FR-005)', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      taskList(taskItem(false, [p('todo')]), taskItem(true, [p('done')])),
+    ] });
+    const frag = ydoc.getXmlFragment('default');
+    const structured = toStructured(frag);
+    expect(structured[0].type).toBe('taskList');
+    expect(structured[0].children.map((c) => c.checked)).toEqual([false, true]);
+    const text = toPlainText(frag);
+    expect(text).toContain('todo');
+    expect(text).toContain('done');
+  });
+});
+
+describe('hardBreak round-trip (FR-007/FR-008, SC-007)', () => {
+  test('paragraph hard break emits trailing backslash and is byte-stable', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'line1' }, { type: 'hardBreak' }, { type: 'text', text: 'line2' },
+      ] },
+    ] });
+    const md = toMarkdown(ydoc.getXmlFragment('default'));
+    expect(md).toBe('line1\\\nline2');
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('both input forms parse to hardBreak; backslash is canonical (RD-7)', () => {
+    for (const input of ['line1\\\nline2', 'line1<br>line2', 'line1<br/>line2']) {
+      const pm = markdownToPm(input);
+      expect(JSON.stringify(pm)).toContain('"type":"hardBreak"');
+      expect(reserialize(input)).toBe('line1\\\nline2');
+    }
+  });
+
+  test('hard break inside a list item keeps the continuation in the item', () => {
+    const md = '- item1\\\n  cont';
+    const pm = markdownToPm(md);
+    const item = pm.content[0].content[0];
+    expect(JSON.stringify(item)).toContain('"type":"hardBreak"');
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('hard break inside a task item indents to the content column', () => {
+    const md = '- [ ] line1\\\n      line2';
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('hard break inside a blockquote re-prefixes the continuation', () => {
+    const md = '> line1\\\n> line2';
+    const pm = markdownToPm(md);
+    expect(JSON.stringify(pm.content[0])).toContain('"type":"hardBreak"');
+    expect(reserialize(md)).toBe(md);
+  });
+
+  test('identical in both flavors; never dropped (FR-007)', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'a' }, { type: 'hardBreak' }, { type: 'text', text: 'b' },
+      ] },
+    ] });
+    const frag = ydoc.getXmlFragment('default');
+    expect(toMarkdown(frag, { flavor: 'portable' })).toBe(toMarkdown(frag));
+    expect(toMarkdown(frag)).toContain('\\');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Portable flavor — coverage DERIVED from registry declarations (FR-011,
+// FR-023, SC-006): a future mark with a `portable` declaration gains these
+// cases with zero test-file edits.
+// ---------------------------------------------------------------------------
+
+describe('portable flavor (registry-derived, SC-002/SC-003/SC-006)', () => {
+  function markedDoc(markEntries) {
+    // one paragraph per mark name, text = mark name
+    return docFromPm({ type: 'doc', content: markEntries.map((m) =>
+      p(`${m.name} text`, [{ type: m.name }])) });
+  }
+
+  const degradable = INLINE_MARKS.filter((m) => m.portable);
+  const nonDegrading = INLINE_MARKS.filter((m) => !m.portable);
+
+  for (const m of degradable) {
+    describe(`degradable mark: ${m.name}`, () => {
+      test('portable output has no HTML tag, contains the declared wrap, and reports lossy', () => {
+        const ydoc = markedDoc([m]);
+        const lossy = new Set();
+        const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor: 'portable', lossy });
+        expect(md).not.toContain(`<${m.htmlTag}>`);
+        expect(md).not.toContain(`</${m.htmlTag}>`);
+        expect(md).toBe(`${m.portable.wrap[0]}${m.name} text${m.portable.wrap[1]}`);
+        expect([...lossy]).toEqual([m.name]);
+      });
+
+      test('portable output parses back to a valid document with the degraded form', () => {
+        const ydoc = markedDoc([m]);
+        const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor: 'portable' });
+        const pm = markdownToPm(md);
+        expect(() => schema.nodeFromJSON(pm).check()).not.toThrow();
+        // Text content survives (styling degraded, content never lost)
+        expect(JSON.stringify(pm)).toContain(`${m.name} text`);
+      });
+
+      if (m.portable.collapsesWith) {
+        test(`collapses with ${m.portable.collapsesWith}: single delimiter pair (FR-012)`, () => {
+          const native = INLINE_MARKS.find((n) => n.name === m.portable.collapsesWith);
+          const ydoc = docFromPm({ type: 'doc', content: [
+            p('both marks', [{ type: m.name }, { type: native.name }]),
+          ] });
+          const lossy = new Set();
+          const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor: 'portable', lossy });
+          const [open, close] = m.portable.wrap;
+          expect(md).toBe(`${open}both marks${close}`);
+          // never doubled delimiters
+          expect(md).not.toContain(open + open);
+          // still counted as an actual degradation
+          expect(lossy.has(m.name)).toBe(true);
+        });
+      }
+    });
+  }
+
+  for (const m of nonDegrading) {
+    test(`non-degrading mark ${m.name}: squire and portable outputs identical`, () => {
+      const ydoc = markedDoc([m]);
+      const frag = ydoc.getXmlFragment('default');
+      expect(toMarkdown(frag, { flavor: 'portable' })).toBe(toMarkdown(frag));
+    });
+  }
+
+  test('textStyle drops styling, keeps text, reports lossy (registry TEXTSTYLE_PORTABLE)', () => {
+    expect(TEXTSTYLE_PORTABLE.drop).toBe(true);
+    const ydoc = docFromPm({ type: 'doc', content: [
+      p('colored words', [{ type: 'textStyle', attrs: { color: '#ff0000' } }]),
+    ] });
+    const lossy = new Set();
+    const md = toMarkdown(ydoc.getXmlFragment('default'), { flavor: 'portable', lossy });
+    expect(md).toBe('colored words');
+    expect(md).not.toContain('<span');
+    expect([...lossy]).toEqual(['textStyle']);
+  });
+
+  test('document with no degradable marks: identical output, empty lossy (SC-003)', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [
+      p('bold words', [{ type: 'bold' }]),
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Title' }] },
+    ] });
+    const frag = ydoc.getXmlFragment('default');
+    const lossy = new Set();
+    expect(toMarkdown(frag, { flavor: 'portable', lossy })).toBe(toMarkdown(frag));
+    expect(lossy.size).toBe(0);
+  });
+
+  test('diagram fences identical across flavors (FR-013)', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const m = new Y.XmlElement('mermaid');
+      const t = new Y.XmlText();
+      t.insert(0, 'graph TD\n  A --> B');
+      m.insert(0, [t]);
+      frag.insert(0, [m]);
+    });
+    expect(toMarkdown(frag, { flavor: 'portable' })).toBe(toMarkdown(frag));
+    expect(toMarkdown(frag)).toContain('```mermaid');
+    doc.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FR-022 / SC-003 byte-compat regression: default-option export of the
+// baseline document equals its pre-feature snapshot exactly.
+// ---------------------------------------------------------------------------
+
+describe('byte-compat with the pre-feature serializer (FR-022, SC-003)', () => {
+  test('default-option toMarkdown of the baseline doc equals the pre-feature fixture', () => {
+    const { doc, fragment } = buildBaselineDoc();
+    const baseline = fs.readFileSync(
+      path.join(__dirname, 'fixtures/pre-feature-export-baseline.md'), 'utf8');
+    expect(toMarkdown(fragment)).toBe(baseline);
+    // squire flavor explicitly requested is the same bytes
+    expect(toMarkdown(fragment, { flavor: 'squire' })).toBe(baseline);
+    // and an empty options object changes nothing
+    expect(toMarkdown(fragment, {})).toBe(baseline);
+    doc.destroy();
+  });
 });

@@ -842,6 +842,111 @@ describe('Sandbox Helpers', () => {
       });
     });
 
+    describe('task lists (feature 003, FR-003)', () => {
+      it('should create a task list with default-unchecked items', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'taskList', items: ['First task', 'Second task'] }
+        ]);
+
+        expect(fragment.length).toBe(1);
+        const list = fragment.get(0);
+        expect(list.nodeName).toBe('taskList');
+        expect(list.length).toBe(2);
+
+        const items = list.toArray();
+        expect(items[0].nodeName).toBe('taskItem');
+        expect(items[0].getAttribute('checked')).toBe('false');
+        expect(items[1].getAttribute('checked')).toBe('false');
+        expect(helpers.getTextContent(items[0])).toBe('First task');
+        expect(helpers.getTextContent(items[1])).toBe('Second task');
+      });
+
+      it('should honor explicit checked flags (coercing truthy/falsy)', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'taskList', items: [
+            { content: 'done', checked: true },
+            { content: 'todo', checked: false },
+            { content: 'coerced', checked: 1 },
+          ]}
+        ]);
+
+        const items = fragment.get(0).toArray();
+        expect(items.map((i) => i.getAttribute('checked'))).toEqual(['true', 'false', 'true']);
+      });
+
+      it('should accept formatted content segments', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'taskList', items: [
+            ['Plain and ', { text: 'bold', attrs: { bold: true } }]
+          ]}
+        ]);
+
+        const item = fragment.get(0).get(0);
+        expect(helpers.getTextContent(item)).toBe('Plain and bold');
+        const text = helpers.findTextNode(item.get(0));
+        expect(text.toDelta()[1].attributes).toEqual({ bold: true });
+      });
+
+      it('should nest items, defaulting nested type to taskList', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'taskList', items: [
+            { content: 'parent', checked: true, items: ['child task'] }
+          ]}
+        ]);
+
+        const parent = fragment.get(0).get(0);
+        expect(parent.getAttribute('checked')).toBe('true');
+        const nested = parent.get(1);
+        expect(nested.nodeName).toBe('taskList');
+        expect(nested.get(0).nodeName).toBe('taskItem');
+        expect(nested.get(0).getAttribute('checked')).toBe('false');
+        expect(helpers.getTextContent(nested.get(0))).toBe('child task');
+      });
+
+      it('should allow explicit nested type overrides in both directions', () => {
+        helpers.appendBlocks(fragment, [
+          { type: 'taskList', items: [
+            { content: 'task parent', items: ['bullet child'], type: 'bulletList' }
+          ]},
+          { type: 'bulletList', items: [
+            { content: 'bullet parent', items: ['task child'], type: 'taskList' }
+          ]}
+        ]);
+
+        const taskParent = fragment.get(0).get(0);
+        expect(taskParent.get(1).nodeName).toBe('bulletList');
+        expect(taskParent.get(1).get(0).nodeName).toBe('listItem');
+
+        const bulletParent = fragment.get(1).get(0);
+        expect(bulletParent.get(1).nodeName).toBe('taskList');
+        expect(bulletParent.get(1).get(0).nodeName).toBe('taskItem');
+      });
+
+      it('should reject missing or empty items with the list-type error style', () => {
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'taskList' }])
+        ).toThrow(/taskList requires items/);
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'taskList', items: [] }])
+        ).toThrow(/taskList items must be a non-empty array/);
+      });
+
+      it('should reject invalid item shapes with the existing content-segment errors', () => {
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'taskList', items: [{ bogus: true }] }])
+        ).toThrow(/content must be a string or array of segments/);
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'taskList', items: [[42]] }])
+        ).toThrow(/invalid content segment/);
+      });
+
+      it('lists the taskList type in the unknown-type error', () => {
+        expect(() =>
+          helpers.appendBlocks(fragment, [{ type: 'nope' }])
+        ).toThrow(/Supported: paragraph, heading, bulletList, orderedList, taskList,/);
+      });
+    });
+
     describe('positioning', () => {
       beforeEach(() => {
         // Create initial content
