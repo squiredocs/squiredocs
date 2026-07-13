@@ -72,6 +72,28 @@ half-sentence in design §2.2 if promoted.
 - **004 — `clock` in frontmatter** is the max `yjs_updates.clock` (same as
   `list_documents`); a never-edited document exports `clock: 0` with
   `lastModifiedBy: ""`.
+- **002/004 — parsed frontmatter is bounded-traversal DATA, not a graph to
+  expand (alias-amplification)**: `parseFrontmatter` loads YAML with
+  `JSON_SCHEMA` (no custom types, no code eval), but standard YAML aliases are
+  still expanded by js-yaml at parse time. The 64 KB source cap (RD-9) bounds
+  the *input* bytes, not the *expanded* structure — a "billion laughs" style
+  block of nested anchors/aliases stays under 64 KB yet can expand to a much
+  larger in-memory tree. This is safe HERE because we only read a handful of
+  fixed scalar paths under `squire:` and re-emit foreign lines verbatim (raw
+  text, never re-serialized from the expanded tree). Consumers (002 import,
+  004 sync) MUST treat the parsed object the same way: read known scalar
+  fields with bounded traversal; never deep-walk, deep-clone, deep-merge, or
+  recursively re-serialize the whole parsed value, and never expand it into
+  application state. If a consumer needs a hard guarantee, cap node count
+  during a bounded walk rather than trusting the byte cap.
+- **004 — bundle export buffers assets in memory**: `collectBundleAssets`
+  fetches every referenced image fully into a Buffer and holds all of them in
+  an array before the archiver streams them (`server/api/docs-export.js`).
+  Fine for today's typical docs, but an image-heavy document scales bundle
+  memory with total asset bytes. If docs grow image-heavy, stream each entry
+  into the archiver as it is fetched (append a readable stream per asset and
+  finalize incrementally) so peak memory stays bounded to one asset at a time
+  rather than the whole bundle.
 
 ## 001-seam verification (T026 / analyze items)
 
