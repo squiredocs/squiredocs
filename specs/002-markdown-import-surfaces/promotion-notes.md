@@ -92,3 +92,35 @@ merge and re-sync with `node design/sync.mjs`.
   It now bundles `prosemirror-model` + `y-prosemirror` (≈1.06 MB → 1.6 MB). On
   a merge conflict, the queue should regenerate it rather than hand-merge.
 - **Zero new runtime dependencies** were added.
+
+## Post-merge review findings — latent risks (reviewer, ledgered)
+
+Surfaced during the post-merge adversarial review. None block; each is a
+latent scaling/robustness item to promote if the surface grows.
+
+- **Aggregate image-pass deadline is unbounded in aggregate.** The external
+  image pass fetches images serially, each under its own per-image timeout
+  (~10s). A body with the maximum number of external images therefore has a
+  serial worst case around 20×10s ≈ 200s — well past any reasonable request
+  deadline. Today the 5 MB body cap and typical image counts keep this
+  theoretical, but there is no *aggregate* budget/deadline across the pass.
+  Promote a whole-pass time (or concurrency) budget if large multi-image
+  imports become common.
+
+- **Stored-image orphan rows on a late `insertAfterXPath` abort (latent).**
+  The staged image pass rehosts/copies images into `document_images` (real
+  rows + stored bytes) BEFORE the single live transaction. For
+  `insertAfterXPath`, the XPath is re-resolved inside that transaction and can
+  still abort (e.g. the anchor was concurrently deleted) — after the image rows
+  were already written. Those rows are then orphaned (referenced by no live
+  node). Harmless (unreferenced, access-checked) but real storage litter. A
+  future cleanup would either move image staging strictly after the anchor is
+  pinned, or sweep unreferenced `document_images` rows.
+
+- **Rehost micro-transactions are unattributed.** The image rehost/copy writes
+  land as their own storage-layer operations, distinct from the single
+  attributed `updateDocument` import transaction. They carry no actor
+  attribution of their own (attribution lives on the content transaction). Fine
+  today — the import itself is attributed and the image rows are content-linked
+  — but if per-asset provenance/audit is ever required, the rehost writes would
+  need to carry the acting user/agent.
