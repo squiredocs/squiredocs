@@ -84,7 +84,6 @@ function buildFromMarkdown({ XmlElement, XmlText }) {
           return para;
         });
     }
-    tagImportOriginImages(nodes, XmlElement);
     return nodes;
   };
 }

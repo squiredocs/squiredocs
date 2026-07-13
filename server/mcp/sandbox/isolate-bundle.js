@@ -28961,7 +28961,6 @@ ${err.toString()}`);
               return para;
             });
           }
-          tagImportOriginImages(nodes, XmlElement);
           return nodes;
         };
       }
