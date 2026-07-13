@@ -11,32 +11,12 @@
  * needs identically.
  */
 
-/** Strip C0 controls / whitespace, then read a URL scheme (lowercased). */
-function schemeOf(href) {
-  if (typeof href !== 'string') return null;
-  // Browsers ignore control and whitespace characters when parsing a scheme;
-  // strip them everywhere so `jav\tascript:` can't sneak through.
-  const cleaned = href.replace(/[\u0000-\u0020\u007f\s]+/g, '');
-  const m = cleaned.match(/^([a-z][a-z0-9+.-]*):/i);
-  return m ? m[1].toLowerCase() : null;
-}
-
-/** Cleaned href (control/whitespace-stripped) for prefix checks. */
-function cleanedHref(href) {
-  return typeof href === 'string' ? href.replace(/[\u0000-\u0020\u007f\s]+/g, '') : '';
-}
-
-const ALLOWED_LINK_SCHEMES = new Set(['http', 'https', 'mailto']);
-
-/** Whether a link href passes the import protocol allowlist (FR-022, CN-9). */
-function isAllowedLinkHref(href) {
-  const scheme = schemeOf(href);
-  if (scheme) return ALLOWED_LINK_SCHEMES.has(scheme);
-  // Scheme-less: app-relative paths and fragments are allowed. `//host` is
-  // scheme-relative http(s), which the allowlist permits anyway.
-  const cleaned = cleanedHref(href);
-  return cleaned.startsWith('/') || cleaned.startsWith('#');
-}
+// The link-href allowlist (schemeOf/cleanedHref/isAllowedLinkHref) lives in
+// shared/link-protocol.js so import (here) and the modify post-script pass
+// (server/mcp/image-validate.js -> sanitizeLinkHrefs) validate through ONE
+// implementation (D-6, Sam 2026-07-13). This module is bundled into the
+// sandbox isolate; the shared module is pure (Node-free) and bundles cleanly.
+const { schemeOf, cleanedHref, isAllowedLinkHref } = require('../../../shared/link-protocol');
 
 /**
  * Drop link marks whose href protocol is outside the allowlist; keep the text

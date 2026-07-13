@@ -19,6 +19,7 @@ const {
   safeFetchImage,
   rehostImagesInFragment,
   MAX_UNIQUE_FETCHES,
+  DEFAULT_CONCURRENCY,
 } = require('../image-rehost');
 
 // ---------------------------------------------------------------------------
@@ -481,5 +482,127 @@ describe('rehostImagesInFragment', () => {
     });
     expect(report.rehosted).toHaveLength(1);
     expect(fragment.get(0).getAttribute('src')).toBe('/api/docs/doc-1/images/img-1');
+  });
+
+  // -------------------------------------------------------------------------
+  // Pass-level time budget + bounded concurrency (Sam P-1, 2026-07-13)
+  // -------------------------------------------------------------------------
+
+  /** A fake fetch that resolves after `delayFor(src)` ms and honors abort. */
+  function delayedFetch(delayFor) {
+    return (src, fetchOpts = {}) =>
+      new Promise((resolve, reject) => {
+        const t = setTimeout(
+          () => resolve({ data: Buffer.from('IMG'), mimeType: 'image/png' }),
+          delayFor(src)
+        );
+        const signal = fetchOpts.signal;
+        if (signal) {
+          if (signal.aborted) {
+            clearTimeout(t);
+            reject(new PolicyError('timeout', 'pre-aborted'));
+            return;
+          }
+          signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(t);
+              reject(new PolicyError('timeout', 'aborted by pass budget'));
+            },
+            { once: true }
+          );
+        }
+      });
+  }
+
+  test('time budget: remaining images degrade with reason time-budget-exhausted', async () => {
+    // img 0 completes fast; img 1 is in-flight when the 60 ms budget expires
+    // (aborted); img 2 is never even pulled from the queue.
+    const { fragment: frag } = docWithImages([
+      'https://cdn.example.com/0.png',
+      'https://cdn.example.com/1.png',
+      'https://cdn.example.com/2.png',
+    ]);
+    const out = await rehostImagesInFragment(
+      frag,
+      { docId: 'doc-1', userId: 'u1' },
+      {
+        concurrency: 1,
+        budgetMs: 60,
+        fetchImage: delayedFetch((src) => (src.endsWith('0.png') ? 0 : 5000)),
+      }
+    );
+    expect(out.rehosted).toEqual([
+      { src: 'https://cdn.example.com/0.png', url: '/api/docs/doc-1/images/img-1' },
+    ]);
+    expect(out.degraded).toEqual([
+      { src: 'https://cdn.example.com/1.png', reason: 'time-budget-exhausted' },
+      { src: 'https://cdn.example.com/2.png', reason: 'time-budget-exhausted' },
+    ]);
+    // Budgeted-out nodes degrade to plain links (href = original URL).
+    expect(frag.get(1).nodeName).toBe('paragraph');
+    expect(frag.get(1).get(0).toDelta()[0].attributes.link.href).toBe(
+      'https://cdn.example.com/1.png'
+    );
+  });
+
+  test(`concurrency: fetches run in parallel, bounded at ${DEFAULT_CONCURRENCY}`, async () => {
+    const srcs = Array.from({ length: 8 }, (_, i) => `https://cdn.example.com/c${i}.png`);
+    const { fragment } = docWithImages(srcs);
+    let active = 0;
+    let maxActive = 0;
+    const report = await rehostImagesInFragment(
+      fragment,
+      { docId: 'doc-1', userId: 'u1' },
+      {
+        budgetMs: 30_000,
+        fetchImage: async () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((r) => setTimeout(r, 20));
+          active -= 1;
+          return { data: Buffer.from('IMG'), mimeType: 'image/png' };
+        },
+      }
+    );
+    // Ran in parallel up to the bound, never past it.
+    expect(maxActive).toBe(DEFAULT_CONCURRENCY);
+    expect(report.rehosted).toHaveLength(8);
+    expect(report.degraded).toEqual([]);
+  });
+
+  test('SSRF holds under concurrency: a blocked target is never connected while others are in flight', async () => {
+    // Uses the REAL safeFetchImage (injected lookup/request) so the per-fetch
+    // validation + pinning runs concurrently across all workers.
+    const { lookup } = makeLookup({
+      'good0.example.com': ['93.184.216.34'],
+      'good1.example.com': ['93.184.216.34'],
+      'good2.example.com': ['93.184.216.34'],
+      'good3.example.com': ['93.184.216.34'],
+      'blocked.example.com': ['127.0.0.1'], // resolves to loopback ⇒ must be blocked
+    });
+    const { request, connections } = makeTransport({
+      '*': { status: 200, headers: PNG, body: 'IMG' },
+    });
+    const { fragment } = docWithImages([
+      'https://good0.example.com/a.png',
+      'https://blocked.example.com/evil.png',
+      'https://good1.example.com/b.png',
+      'https://good2.example.com/c.png',
+      'https://good3.example.com/d.png',
+    ]);
+    const report = await rehostImagesInFragment(
+      fragment,
+      { docId: 'doc-1', userId: 'u1' },
+      { concurrency: 4, fetchOptions: { lookup, request } }
+    );
+    // The blocked host is rejected at validation — the socket is never opened.
+    expect(connections.some((c) => c.host === 'blocked.example.com')).toBe(false);
+    expect(connections.filter((c) => c.host.startsWith('good')).length).toBe(4);
+    // Blocked node degrades; the four globals rehost.
+    expect(report.degraded).toEqual([
+      { src: 'https://blocked.example.com/evil.png', reason: 'blocked-address' },
+    ]);
+    expect(report.rehosted).toHaveLength(4);
   });
 });

@@ -39,6 +39,12 @@ async function handleUndoRedo(args, agentToken, persistenceProvider, opts) {
     };
   }
 
+  // Link-protocol allowlist (D-6) is NOT applied here by design: undo/redo
+  // replay previously-stored CRDT state — they never author a new href. Any
+  // href these reintroduce was already validated by the write boundary that
+  // first stored it (modify's sanitizeLinkHrefs, or the import pipeline). The
+  // only href sources are those write boundaries, so re-sanitizing on replay
+  // would be redundant work with no new input to inspect.
   opts.perform(undoManager);
 
   // Re-resolve cursor positions (they may have changed)

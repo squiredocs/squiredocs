@@ -82,7 +82,11 @@ async function handler(args, agentToken) {
     return null;
   };
 
-  // Perform restore
+  // Link-protocol allowlist (D-6) is NOT applied here by design: restore
+  // re-applies content from a previously-stored version — it authors no new
+  // href. Every href in that historical state already passed the write
+  // boundary (modify's sanitizeLinkHrefs or the import pipeline) when it was
+  // first stored, so restore has no fresh untrusted input to inspect.
   const result = await versionHistory.restoreVersion(
     persistenceProvider,
     docGuid,

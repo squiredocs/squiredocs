@@ -19,6 +19,14 @@
  *  - ≤ 20 unique external URLs fetched per import, deduplicated.
  *  - No cookies, no auth, no proxy env, fixed innocuous User-Agent.
  *
+ * Pass-level bounds (Sam P-1, 2026-07-13): the whole image pass runs the unique
+ * fetches with bounded concurrency (default 4, each still under the full
+ * per-fetch SSRF policy above) and under an aggregate wall-clock budget
+ * (default 30 s, IMPORT_IMAGE_PASS_BUDGET_MS). When the budget expires, any
+ * in-flight fetch is aborted and every not-yet-rehosted image degrades to a
+ * plain link, itemized with reason `time-budget-exhausted` (distinct from the
+ * 20-unique count budget's `budget-exhausted`).
+ *
  * Zero new dependencies: Node core dns/net/http/https only (research R4).
  */
 const dns = require('dns');
@@ -45,6 +53,23 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const MAX_UNIQUE_FETCHES = 20;
 const USER_AGENT = 'SquireDocs-ImageImport/1.0';
+
+/** Aggregate wall-clock budget for the whole image pass (all fetches). */
+const DEFAULT_PASS_BUDGET_MS = 30_000;
+/** How many unique images the pass fetches in parallel (contract permits 1–4). */
+const DEFAULT_CONCURRENCY = 4;
+
+/**
+ * Resolve the pass-level time budget: explicit override wins, then
+ * IMPORT_IMAGE_PASS_BUDGET_MS, then the 30 s default. An override of 0 is
+ * honored (immediate expiry — useful for tests).
+ */
+function resolvePassBudgetMs(override) {
+  if (Number.isFinite(override)) return override;
+  const env = parseInt(process.env.IMPORT_IMAGE_PASS_BUDGET_MS, 10);
+  if (Number.isFinite(env) && env > 0) return env;
+  return DEFAULT_PASS_BUDGET_MS;
+}
 
 // ---------------------------------------------------------------------------
 // T019 — address validation
@@ -264,6 +289,8 @@ function bareContentType(value) {
  * @param {number} [opts.maxRedirects]
  * @param {Function} [opts.lookup] - injected resolver (tests)
  * @param {Function} [opts.request] - injected transport (tests)
+ * @param {AbortSignal} [opts.signal] - external abort (e.g. the pass-level
+ *   time budget); composes with the per-fetch timeout without weakening it.
  * @returns {Promise<{ data: Buffer, mimeType: string }>}
  * @throws {PolicyError}
  */
@@ -276,6 +303,17 @@ async function safeFetchImage(rawUrl, opts = {}) {
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Compose an external abort (pass budget) with our own timeout — either one
+  // aborting this fetch is treated as a timeout by the loop below.
+  const externalSignal = opts.signal;
+  let onExternalAbort = null;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else {
+      onExternalAbort = () => controller.abort();
+      externalSignal.addEventListener('abort', onExternalAbort);
+    }
+  }
   let active = null;
 
   try {
@@ -360,6 +398,7 @@ async function safeFetchImage(rawUrl, opts = {}) {
     }
   } finally {
     clearTimeout(timer);
+    if (onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
     if (active) {
       try { active.destroy(); } catch (e) { /* already closed */ }
     }
@@ -416,18 +455,34 @@ function normalizeUrl(src) {
   }
 }
 
+/** Map a per-fetch error to a stable degradation reason. */
+function classifyFetchError(err) {
+  if (err instanceof PolicyError) return err.reason;
+  if (err && err.status === 413) return 'too-large';
+  if (err && err.status === 400) return 'bad-content-type';
+  return 'network-error';
+}
+
 /**
  * Rehost external http(s) image srcs found on the given image nodes.
  * Mutates node srcs in place (external → app URL) or degrades the node to a
  * plain link. Never throws for per-image failures (FR-018).
  *
+ * Unique fetches run with bounded concurrency (default 4) under an aggregate
+ * wall-clock budget (default 30 s / IMPORT_IMAGE_PASS_BUDGET_MS). When the
+ * budget expires, in-flight fetches are aborted and remaining images degrade
+ * with reason `time-budget-exhausted`.
+ *
  * @param {Y.XmlFragment|Y.XmlElement[]} target - fragment or just-imported nodes
  * @param {{ docId: string, userId: string }} ctx
- * @param {object} [opts] - test injection: { fetchImage }
+ * @param {object} [opts] - test/wiring injection: { fetchImage, fetchOptions,
+ *   budgetMs, concurrency }
  * @returns {Promise<{ rehosted: Array<{src, url}>, degraded: Array<{src, reason}> }>}
  */
 async function rehostImagesInFragment(target, ctx, opts = {}) {
   const fetchImage = opts.fetchImage || safeFetchImage;
+  const budgetMs = resolvePassBudgetMs(opts.budgetMs);
+  const concurrency = Number.isFinite(opts.concurrency) ? opts.concurrency : DEFAULT_CONCURRENCY;
   const rehosted = [];
   const degraded = [];
 
@@ -457,47 +512,92 @@ async function rehostImagesInFragment(target, ctx, opts = {}) {
   }
   if (groups.size === 0) return { rehosted, degraded };
 
+  // Ordered snapshot so the report stays deterministic under concurrency.
+  const ordered = [...groups.values()];
+
   // Storage off ⇒ nothing can be rehosted; degrade everything, fetch nothing.
   const storageEnabled = s3Images.isEnabled();
-
-  let fetched = 0;
-  for (const [, group] of groups) {
-    const { src, nodes } = group;
-    if (!storageEnabled) {
+  if (!storageEnabled) {
+    for (const { src, nodes } of ordered) {
       degraded.push({ src: reportSrc(src), reason: 'storage-disabled' });
       for (const node of nodes) degradeImageNode(node, { withLink: true });
-      continue;
     }
-    if (fetched >= MAX_UNIQUE_FETCHES) {
-      degraded.push({ src: reportSrc(src), reason: 'budget-exhausted' });
-      for (const node of nodes) degradeImageNode(node, { withLink: true });
-      continue;
-    }
-    fetched++;
-    try {
-      const { data, mimeType } = await fetchImage(src, opts.fetchOptions);
-      const filename = path.posix.basename(new URL(src).pathname) || null;
-      const stored = await documentImages.storeImage({
-        docId: ctx.docId,
-        uploaderId: ctx.userId,
-        data,
-        mimeType,
-        filename,
-      });
-      for (const node of nodes) node.setAttribute('src', stored.url);
-      rehosted.push({ src: reportSrc(src), url: stored.url });
-    } catch (err) {
-      const reason = err instanceof PolicyError
-        ? err.reason
-        : err && err.status === 413
-          ? 'too-large'
-          : err && err.status === 400
-            ? 'bad-content-type'
-            : 'network-error';
-      degraded.push({ src: reportSrc(src), reason });
-      for (const node of nodes) degradeImageNode(node, { withLink: true });
-    }
+    return { rehosted, degraded };
   }
+
+  // Count budget: only the first MAX_UNIQUE_FETCHES unique URLs are eligible to
+  // be fetched; the rest degrade with `budget-exhausted` (unchanged).
+  const fetchable = ordered.slice(0, MAX_UNIQUE_FETCHES);
+
+  // Pass-level time budget: aborts in-flight fetches and stops the pool from
+  // pulling new work once it expires. Per-group outcomes are recorded so the
+  // report is assembled in the original order below regardless of completion
+  // order. Each fetch keeps its own per-fetch SSRF policy fully intact — the
+  // shared signal only ADDS an abort path (validation/pinning are per-call,
+  // with no cross-fetch mutable state).
+  const budgetController = new AbortController();
+  const budgetTimer = setTimeout(() => budgetController.abort(), budgetMs);
+  const outcomes = new Map(); // group -> { type:'rehost', url } | { type:'degrade', reason }
+
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      if (budgetController.signal.aborted) return; // stop taking new work
+      const i = cursor++;
+      if (i >= fetchable.length) return;
+      const group = fetchable[i];
+      try {
+        const fetchOpts = { ...opts.fetchOptions, signal: budgetController.signal };
+        const { data, mimeType } = await fetchImage(group.src, fetchOpts);
+        const filename = path.posix.basename(new URL(group.src).pathname) || null;
+        const stored = await documentImages.storeImage({
+          docId: ctx.docId,
+          uploaderId: ctx.userId,
+          data,
+          mimeType,
+          filename,
+        });
+        for (const node of group.nodes) node.setAttribute('src', stored.url);
+        outcomes.set(group, { type: 'rehost', url: stored.url });
+      } catch (err) {
+        // A fetch that failed because the pass budget expired (its signal
+        // aborted mid-flight) is itemized distinctly from a real fetch failure.
+        const reason = budgetController.signal.aborted
+          ? 'time-budget-exhausted'
+          : classifyFetchError(err);
+        outcomes.set(group, { type: 'degrade', reason });
+        for (const node of group.nodes) degradeImageNode(node, { withLink: true });
+      }
+    }
+  };
+
+  try {
+    const poolSize = Math.max(1, Math.min(concurrency, fetchable.length));
+    await Promise.all(Array.from({ length: poolSize }, () => worker()));
+  } finally {
+    clearTimeout(budgetTimer);
+  }
+
+  // Assemble the report in original group order (stable, concurrency-agnostic).
+  ordered.forEach((group, idx) => {
+    if (idx >= MAX_UNIQUE_FETCHES) {
+      degraded.push({ src: reportSrc(group.src), reason: 'budget-exhausted' });
+      for (const node of group.nodes) degradeImageNode(node, { withLink: true });
+      return;
+    }
+    const outcome = outcomes.get(group);
+    if (!outcome) {
+      // Never pulled from the queue — the deadline hit before its turn.
+      degraded.push({ src: reportSrc(group.src), reason: 'time-budget-exhausted' });
+      for (const node of group.nodes) degradeImageNode(node, { withLink: true });
+      return;
+    }
+    if (outcome.type === 'rehost') {
+      rehosted.push({ src: reportSrc(group.src), url: outcome.url });
+    } else {
+      degraded.push({ src: reportSrc(group.src), reason: outcome.reason });
+    }
+  });
 
   return { rehosted, degraded };
 }
@@ -508,5 +608,7 @@ module.exports = {
   safeFetchImage,
   rehostImagesInFragment,
   MAX_UNIQUE_FETCHES,
+  DEFAULT_PASS_BUDGET_MS,
+  DEFAULT_CONCURRENCY,
   USER_AGENT,
 };

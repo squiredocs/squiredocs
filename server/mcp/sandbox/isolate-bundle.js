@@ -16842,6 +16842,7 @@ ${err.toString()}`);
           htmlTag: deriveTag("underline"),
           portable: { wrap: ["_", "_"], collapsesWith: "italic" }
         },
+        // legacy mark: editor affordance removed 2026-07-13 (Sam); kept for existing documents.
         {
           name: "highlight",
           yjsAttr: "highlight",
@@ -28779,9 +28780,9 @@ ${err.toString()}`);
     }
   });
 
-  // server/mcp/yjs/pm-json-transforms.js
-  var require_pm_json_transforms = __commonJS({
-    "server/mcp/yjs/pm-json-transforms.js"(exports, module) {
+  // shared/link-protocol.js
+  var require_link_protocol = __commonJS({
+    "shared/link-protocol.js"(exports, module) {
       function schemeOf(href) {
         if (typeof href !== "string") return null;
         const cleaned = href.replace(/[\u0000-\u0020\u007f\s]+/g, "");
@@ -28798,6 +28799,19 @@ ${err.toString()}`);
         const cleaned = cleanedHref(href);
         return cleaned.startsWith("/") || cleaned.startsWith("#");
       }
+      module.exports = {
+        schemeOf,
+        cleanedHref,
+        isAllowedLinkHref,
+        ALLOWED_LINK_SCHEMES
+      };
+    }
+  });
+
+  // server/mcp/yjs/pm-json-transforms.js
+  var require_pm_json_transforms = __commonJS({
+    "server/mcp/yjs/pm-json-transforms.js"(exports, module) {
+      var { schemeOf, cleanedHref, isAllowedLinkHref } = require_link_protocol();
       function sanitizeLinkMarks(pmJson) {
         function walk(node) {
           if (Array.isArray(node.marks)) {

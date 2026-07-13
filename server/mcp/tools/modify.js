@@ -17,6 +17,7 @@ const {
   sanitizeImageSrcs,
   reconcileCrossDocImages,
   rehostImportOriginImages,
+  sanitizeLinkHrefs,
 } = require('../image-validate');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
@@ -460,6 +461,19 @@ async function handlerImpl(args, agentToken) {
       console.error('[modify] cross-doc image reconciliation failed:', e.message);
     }
 
+    // Link-protocol guardrail (D-6): the same allowlist import enforces, applied
+    // to this write boundary. A script may format text with a javascript:/data:/
+    // vbscript: href; strip such link marks (keeping the text) so a dangerous
+    // href is never stored in the CRDT — not left to the client's render-time
+    // gate. Mutates the live fragment, so the fix persists with the rest of the
+    // edit; reported like imageErrors so the agent learns the allowed protocols.
+    let linkErrors = [];
+    try {
+      linkErrors = sanitizeLinkHrefs(xmlFragment);
+    } catch (e) {
+      console.error('[modify] link href validation failed:', e.message);
+    }
+
     // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
     const mdAfter = toMarkdown(xmlFragment);
@@ -581,6 +595,15 @@ async function handlerImpl(args, agentToken) {
           + 'app image URL (/api/docs/:docId/images/:imageId) or referenced a document the user '
           + 'cannot access. You can only reference images from this document or documents shared '
           + 'with the user; to add a new image from chat, use the insert_image tool.';
+        response.message = response.message ? `${response.message} ${warning}` : warning;
+      }
+      if (linkErrors.length > 0) {
+        response.linkErrors = linkErrors;
+        const n = linkErrors.length;
+        const warning = `${n} link${n > 1 ? 's' : ''} had ${n > 1 ? 'their' : 'its'} mark removed `
+          + '(the text was kept) because the href protocol is not allowed. Links may only use '
+          + 'http, https, mailto, or app-relative (/… or #…) hrefs — javascript:, data:, '
+          + 'vbscript:, and file: are blocked. See linkErrors for the offending href(s).';
         response.message = response.message ? `${response.message} ${warning}` : warning;
       }
 

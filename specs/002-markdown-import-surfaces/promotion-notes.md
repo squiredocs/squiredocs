@@ -58,7 +58,7 @@ merge and re-sync with `node design/sync.mjs`.
   decision.
 - **Status**: ledgered (clarifications-needed CN-8, RATIFIED-BY-DEFAULT).
 
-### 4. Frontmatter convergence with 003's shared module (post-merge)
+### 4. Frontmatter convergence with 003's shared module (post-merge) — CLOSED
 
 - **Context**: this branch was cut before feature 003 merged, so it ships its
   own defensive `squire:` consumer at `server/markdown-import-frontmatter.js`
@@ -81,6 +81,21 @@ merge and re-sync with `node design/sync.mjs`.
   scalar `title` string is surfaced). If convergence onto the shared module is
   done later, preserve these two properties (no re-emit round-trip reliance;
   no deep-expand of untrusted parsed YAML).
+- **Status: CLOSED (Sam P-3, 2026-07-13 — convergence implemented).** The
+  import path now consumes the canonical `shared/markdown/frontmatter.js`
+  (js-yaml JSON_SCHEMA, 64 KB pre-parse cap, fail-to-content, foreign-squire
+  strip guard) via `importFrontmatter` in `server/markdown-import.js`; the
+  line-based `server/markdown-import-frontmatter.js` and its dedicated test
+  file are deleted. An additive `scalarTitle(squire)` accessor was added to the
+  shared module (title read-out only — no parsing logic forked). The two
+  safety properties above are preserved: residue (`foreignRaw`) is still a
+  raw-string passthrough into an escape-proof fenced `yaml` code block (no
+  `buildFrontmatter` re-emit), and only the scalar title is read from the
+  parsed YAML (no deep-expand into logs/responses). Behavior-unique test cases
+  (hostile YAML, F2 JSON-escaped titles, residue fencing, cap) migrated to
+  `server/__tests__/import-frontmatter.test.js`, which also adds the
+  import-vs-sync cross-path agreement corpus (both surfaces now agree on
+  squire + stripped body for every fixture, by construction and by test).
 
 ## Notes for the merge queue
 
@@ -98,14 +113,19 @@ merge and re-sync with `node design/sync.mjs`.
 Surfaced during the post-merge adversarial review. None block; each is a
 latent scaling/robustness item to promote if the surface grows.
 
-- **Aggregate image-pass deadline is unbounded in aggregate.** The external
-  image pass fetches images serially, each under its own per-image timeout
-  (~10s). A body with the maximum number of external images therefore has a
-  serial worst case around 20×10s ≈ 200s — well past any reasonable request
-  deadline. Today the 5 MB body cap and typical image counts keep this
-  theoretical, but there is no *aggregate* budget/deadline across the pass.
-  Promote a whole-pass time (or concurrency) budget if large multi-image
-  imports become common.
+- **Aggregate image-pass deadline. CLOSED (Sam P-1, 2026-07-13 — budget +
+  concurrency implemented).** Previously the external image pass fetched images
+  serially, each under its own ~10s per-image timeout, giving a serial worst
+  case around 20×10s ≈ 200s with no *aggregate* bound. Now the pass runs the
+  unique fetches with **bounded concurrency = 4** and under a default **30s
+  aggregate wall-clock budget** (`IMPORT_IMAGE_PASS_BUDGET_MS` / `budgetMs`
+  option). On budget expiry, in-flight fetches are aborted (shared
+  `AbortSignal` composed with the per-fetch timeout) and remaining images
+  degrade to plain links with the distinct report reason
+  `time-budget-exhausted`. The per-fetch SSRF validation/pinning is per-call
+  with no cross-fetch shared mutable state, so it holds under concurrency
+  (covered by the concurrency SSRF test). Contract
+  (`contracts/image-rehost.md`) §5/§8 updated to normative.
 
 - **Stored-image orphan rows on a late `insertAfterXPath` abort (latent).**
   The staged image pass rehosts/copies images into `document_images` (real

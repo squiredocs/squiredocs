@@ -399,6 +399,10 @@ Text Marks (formatting):
   - bold, italic, underline, strike, code
   - subscript, superscript
   - link: { href: string }
+    href must use an allowed protocol: http, https, mailto, or an app-relative
+    path (/…) or fragment (#…). javascript:, data:, vbscript:, and file: hrefs
+    are stripped after your script runs (the link mark is removed, the text is
+    kept) and reported in the result's linkErrors.
 
 TextStyle Marks - IMPORTANT nested format required:
   These marks MUST be wrapped in a textStyle object:
@@ -519,6 +523,7 @@ RETURNS
   found after your edit. Each { from, to } records an image copied into this
   document with its src rewritten (e.g. cloned via cloneBlocks from a source doc).
 - imageErrors: Present only if your script left image node(s) with a non-app src. Those images were REMOVED (an array of { src }). Only reference existing app image URLs (/api/docs/:docId/images/:imageId); to add a new image from chat use the insert_image tool.
+- linkErrors: Present only if your script left link mark(s) with a disallowed href protocol. The link MARK was removed (the text was kept) — an array of { href, reason }. Link hrefs may only use http, https, mailto, or app-relative (/… or #…) schemes; javascript:, data:, vbscript:, and file: are stripped. Fix the reported href(s) with an allowed protocol if the link is intended.
 - error: Error message if execution failed
 
 ═══════════════════════════════════════════════════════════════════════════

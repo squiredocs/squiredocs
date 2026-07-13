@@ -12,6 +12,7 @@
  * removal persists with the rest of the edit, and reports what it removed so the
  * agent can self-correct.
  */
+const Y = require('yjs');
 const { findByNodeName } = require('./sandbox/helpers');
 const { isAppImageUrl, parseAppImageUrl } = require('../image-url');
 const documents = require('../documents');
@@ -19,6 +20,7 @@ const documentImages = require('../document-images');
 const s3Images = require('../s3-images');
 const { rehostImagesInFragment } = require('../image-rehost');
 const { IMPORT_ORIGIN_ATTR } = require('./sandbox/from-markdown');
+const { isAllowedLinkHref, schemeOf } = require('../../shared/link-protocol');
 
 /** @returns {boolean} whether src is an allowed app image URL */
 function isAllowedImageSrc(src) {
@@ -159,9 +161,75 @@ async function rehostImportOriginImages(xmlFragment, docId, userId) {
   return rehostImagesInFragment(tagged, { docId, userId });
 }
 
+/**
+ * Server-side guardrail for agent-written link marks (D-6, Sam 2026-07-13).
+ *
+ * The markdown-import path already validates link hrefs against a protocol
+ * allowlist (shared/link-protocol.js, run in every PM-JSON materialization
+ * path). This promotes that same allowlist to the modify WRITE boundary: a
+ * modify script can format text with a link mark carrying any href —
+ * javascript:/data:/vbscript:/file: included — which the CRDT would store,
+ * defused only by the client TipTap Link extension's render-time gate. Here we
+ * walk the live fragment and, for every link mark whose href is not allowed
+ * (http/https/mailto or scheme-less app-relative `/…`/`#…`), remove the mark
+ * and KEEP the text — the same lossless policy as import's sanitizeLinkMarks.
+ *
+ * Mutates the fragment in place so the fix persists with the rest of the edit,
+ * and reports each stripped mark so the agent gets teaching feedback (the
+ * constitution's instructive-errors preference), mirroring imageErrors.
+ *
+ * @param {Y.XmlFragment} xmlFragment - live document fragment to sanitize
+ * @returns {Array<{href: string|null, reason: string}>} one entry per stripped link mark
+ */
+function sanitizeLinkHrefs(xmlFragment) {
+  const errors = [];
+
+  function walk(node) {
+    if (node instanceof Y.XmlText) {
+      // Collect the disallowed link ranges from the ORIGINAL delta first, then
+      // clear them. Clearing a mark leaves the text length (and therefore every
+      // character offset) unchanged, so offsets computed here stay valid across
+      // the successive format() clears.
+      const delta = node.toDelta();
+      let offset = 0;
+      const toClear = [];
+      for (const op of delta) {
+        const len = typeof op.insert === 'string' ? op.insert.length : 1;
+        const link = op.attributes && op.attributes.link;
+        if (link) {
+          // TipTap stores the link mark as { href }, but tolerate a bare string.
+          const href = typeof link === 'string' ? link : (link && link.href);
+          if (!isAllowedLinkHref(href)) {
+            toClear.push({ offset, len, href: href || null });
+          }
+        }
+        offset += len;
+      }
+      for (const range of toClear) {
+        node.format(range.offset, range.len, { link: null });
+        const scheme = schemeOf(range.href);
+        errors.push({
+          href: range.href,
+          reason: scheme ? `disallowed link protocol "${scheme}:"` : 'disallowed link href',
+        });
+      }
+      return;
+    }
+    // Y.XmlElement extends Y.XmlFragment; both expose toArray(). Recurse into
+    // block/inline containers to reach every text node.
+    if (node instanceof Y.XmlFragment) {
+      for (const child of node.toArray()) walk(child);
+    }
+  }
+
+  walk(xmlFragment);
+  return errors;
+}
+
 module.exports = {
   sanitizeImageSrcs,
   isAllowedImageSrc,
   reconcileCrossDocImages,
   rehostImportOriginImages,
+  sanitizeLinkHrefs,
 };
