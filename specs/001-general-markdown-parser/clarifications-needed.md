@@ -83,3 +83,18 @@ Decisions the design docs (`design/markdown-import-two-way-sync.md`, `design/doc
 - **Question**: Who updates the now-stale current-state statements once M1 ships — `design/document-model-format-pipeline.md` (says the parser lives in `server/markdown-to-pm.js` and "parses only the dialect toMarkdown emits") and `README.md`?
 - **Why it matters**: Constitution Principle I (docs reflect reality) and Principle VI (exported design docs must be amended in Squire and re-synced, never hand-edited). This spec agent is barred from editing README/design exports.
 - **Disposition**: Deferred to the implementation/merge phase of the pipeline: amend the source Squire document for the format-pipeline doc, re-export via `design/sync.mjs`, and update `README.md` in the shipping commit. Recorded here so it cannot be forgotten; no product decision involved.
+
+---
+
+## Implementation findings (recorded during T009–T019, ledgered per no-silent-decisions)
+
+### IF-1: CommonMark flanking vs the serializer's space-padded marks (tolerant ≠ strict edge)
+
+- **Finding**: The strict parser matches emphasis with a non-flanking regex (`\*\*(.+?)\*\*`), so it accepts a mark applied to space-padded text, e.g. the serializer output `** x **` (a bold mark whose text has a leading/trailing space) parses as bold. The tolerant parser follows CommonMark left/right-flanking rules, under which `** x **` is **not** emphasis. So for the rare canonical input where a mark wraps text with a leading or trailing space, tolerant output diverges from strict.
+- **Assessment**: Accepted, not a regression. (a) It is an inherent, intended consequence of adopting CommonMark flanking — the design's explicit choice. (b) The only production consumer today, the diff engine, uses **strict** mode and is unaffected. (c) Realistic serializer output applies marks to trimmed text, which round-trips identically in both modes (the full registry-driven round-trip suite passes in both modes). (d) For import surfaces (002+, tolerant), rejecting `** x **` as emphasis is the CommonMark-correct behavior anyway. No content is ever lost — the delimiters degrade to literal text.
+- **Owed at merge**: none (behavioral, documented). If a future consumer needs Squire→tolerant round-trip of space-padded marks, revisit via a design amendment rather than weakening flanking.
+
+### IF-2: Pipe-in-cell tables are a pre-existing lossy round-trip (kept byte-identical)
+
+- **Finding**: A table cell containing a literal `|` is serialized as `\|`, but the current parser splits rows on **every** `|` (the `\|` is never reassembled). This pre-existing quirk is faithfully reproduced by the tolerant table path, so strict and tolerant remain byte-identical on canonical table input (verified). Not fixed in M1 because a fix would change the canonical parse (US3 AS-3) and CN-8 scopes table work out of M1.
+- **Owed at merge**: none. Candidate for a future GFM-tables design amendment (CN-8 already flags table tolerance as a design silence).

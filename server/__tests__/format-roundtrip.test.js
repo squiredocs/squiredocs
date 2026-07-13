@@ -29,20 +29,20 @@ function createStyledDoc(text, attrs) {
   return doc;
 }
 
-/** Round-trip: YJS → markdown → ProseMirror JSON string */
-function roundTrip(doc, diffMark = null) {
-  const fragment = doc.getXmlFragment('default');
-  const md = toMarkdown(fragment);
-  const pmJson = markdownToPm(md, diffMark);
-  doc.destroy();
-  return { md, pmJson, pmStr: JSON.stringify(pmJson) };
-}
-
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — run every registry-driven assertion in BOTH parser modes (TR-002).
 // ---------------------------------------------------------------------------
 
-describe('Format round-trip', () => {
+describe.each([false, true])('Format round-trip (strict=%s)', (strict) => {
+  /** Round-trip: YJS → markdown → ProseMirror JSON string, in the given mode. */
+  function roundTrip(doc, diffMark = null) {
+    const fragment = doc.getXmlFragment('default');
+    const md = toMarkdown(fragment);
+    const pmJson = markdownToPm(md, diffMark, { strict });
+    doc.destroy();
+    return { md, pmJson, pmStr: JSON.stringify(pmJson) };
+  }
+
   describe('inline marks (from registry)', () => {
     for (const mark of INLINE_MARKS) {
       test(`${mark.name} round-trips correctly`, () => {
@@ -344,4 +344,92 @@ describe('Format round-trip', () => {
       expect(pmJson.content.length).toBeGreaterThan(0);
     });
   });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical equivalence: for serializer output, tolerant structure MUST equal
+// strict structure (FR-012, FR-016, TR-002, SC-005, US3 AS-3). Tolerance
+// extends the accepted grammar; it never changes the meaning of the canonical
+// dialect.
+// ---------------------------------------------------------------------------
+
+describe('canonical equivalence (tolerant === strict on serializer output)', () => {
+  function buildFrag(build) {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => build(frag));
+    return { doc, frag };
+  }
+  function el(tag, text, attrs) {
+    const e = new Y.XmlElement(tag);
+    if (text !== undefined) {
+      const t = new Y.XmlText();
+      t.insert(0, text, attrs);
+      e.insert(0, [t]);
+    }
+    return e;
+  }
+
+  const corpus = {
+    // NOTE: mark text is not space-padded. A mark applied to text with a
+    // leading/trailing space (e.g. `** x **`) is emitted verbatim by the
+    // serializer but rejected as emphasis by CommonMark flanking rules, so it
+    // is one of the rare inputs where tolerant != strict. That divergence is a
+    // deliberate consequence of adopting CommonMark flanking (recorded in the
+    // clarifications ledger); the diff engine is unaffected (it uses strict).
+    'every inline mark': (frag) => {
+      for (const mark of INLINE_MARKS) {
+        frag.insert(frag.length, [el('paragraph', mark.name, { [mark.yjsAttr]: true })]);
+      }
+    },
+    'every style prop': (frag) => {
+      for (const prop of STYLE_PROPS) {
+        const value = prop.attr === 'color' ? '#ff0000'
+          : prop.attr === 'backgroundColor' ? '#00ff00'
+            : prop.attr === 'fontSize' ? '18px'
+              : prop.attr === 'fontFamily' ? 'Georgia'
+                : prop.attr === 'lineHeight' ? '1.8' : 'x';
+        frag.insert(frag.length, [el('paragraph', 'v', { textStyle: { [prop.attr]: value } })]);
+      }
+    },
+    'heading + code + diagrams': (frag) => {
+      const h = el('heading', 'Title'); h.setAttribute('level', '3');
+      const cb = el('codeBlock', 'const x=1;'); cb.setAttribute('language', 'js');
+      frag.insert(0, [h, cb, el('mermaid', 'graph TD'), el('svg', '<svg><rect/></svg>')]);
+    },
+    'lists nested + blockquote + hr + table': (frag) => {
+      const list = new Y.XmlElement('bulletList');
+      const li = new Y.XmlElement('listItem');
+      li.insert(0, [el('paragraph', 'parent')]);
+      const nested = new Y.XmlElement('bulletList');
+      const nli = new Y.XmlElement('listItem'); nli.insert(0, [el('paragraph', 'child')]);
+      nested.insert(0, [nli]); li.insert(1, [nested]); list.insert(0, [li]);
+      const bq = new Y.XmlElement('blockquote'); bq.insert(0, [el('paragraph', 'quoted')]);
+      const table = new Y.XmlElement('table'); const row = new Y.XmlElement('tableRow');
+      const cell = new Y.XmlElement('tableCell'); cell.insert(0, [el('paragraph', 'data')]);
+      row.insert(0, [cell]); table.insert(0, [row]);
+      frag.insert(0, [list, bq, new Y.XmlElement('horizontalRule'), table]);
+    },
+    'link + nested marks': (frag) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'link', { link: { href: 'https://example.com' } });
+      p.insert(0, [t]);
+      const p2 = el('paragraph', 'both', { bold: true, italic: true });
+      frag.insert(0, [p, p2]);
+    },
+  };
+
+  for (const [name, build] of Object.entries(corpus)) {
+    for (const diffMark of [null, 'diffInsert', 'diffDelete']) {
+      test(`${name} — tolerant === strict (diffMark=${diffMark})`, () => {
+        const { doc, frag } = buildFrag(build);
+        const md = toMarkdown(frag);
+        const tolerant = markdownToPm(md, diffMark);
+        const strict = markdownToPm(md, diffMark, { strict: true });
+        doc.destroy();
+        expect(tolerant).toEqual(strict);
+      });
+    }
+  }
 });
