@@ -58,6 +58,30 @@ merge and re-sync with `node design/sync.mjs`.
   decision.
 - **Status**: ledgered (clarifications-needed CN-8, RATIFIED-BY-DEFAULT).
 
+### 4. Frontmatter convergence with 003's shared module (post-merge)
+
+- **Context**: this branch was cut before feature 003 merged, so it ships its
+  own defensive `squire:` consumer at `server/markdown-import-frontmatter.js`
+  (per T003 / decision S1: "frontmatter handling in its own module"). Feature
+  003 has since merged a `shared/markdown/frontmatter.js` module that owns the
+  `squire:` frontmatter contract (spec §Depends on / FR-006).
+- **Convergence opportunity (maintainer, post-merge)**: fold this feature's
+  consumer onto `shared/markdown/frontmatter.js` (imported from that module
+  directly — 003's review notes it is NOT re-exported from the parser index)
+  so there is one frontmatter implementation. Deferred, not done here: the
+  shared module does not exist in this worktree, so switching would be
+  untested against code this branch cannot see.
+- **Safety already satisfied** (per 003's post-merge advisory): this feature
+  does NOT re-emit frontmatter via `buildFrontmatter` (residue is preserved as
+  a raw-string passthrough into a fenced `yaml` code block, so the
+  conservative-fallback "squire lines leak into foreignRaw" issue cannot arise
+  here), and it uses NO YAML library — the consumer is a minimal structural
+  scan, so js-yaml alias amplification is not reachable and no parsed YAML is
+  ever deep-walked / `JSON.stringify`-ed into logs or responses (only the
+  scalar `title` string is surfaced). If convergence onto the shared module is
+  done later, preserve these two properties (no re-emit round-trip reliance;
+  no deep-expand of untrusted parsed YAML).
+
 ## Notes for the merge queue
 
 - **No migration** was added (research R7 — rehosted images reuse
