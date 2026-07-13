@@ -123,6 +123,32 @@ describe('consumeFrontmatter', () => {
     expect(consumeFrontmatter("---\nsquire:\n  title: 'Single'\n---\nx\n").squire.title).toBe('Single');
   });
 
+  test('JSON-escaped double-quoted title decodes its escapes (F2: no export→import corruption)', () => {
+    // 003's buildFrontmatter JSON.stringify-s YAML-hostile scalars, so a title
+    // with embedded quotes is written `"Say \"hi\" loud"`. The consumer must
+    // JSON.parse it back to the original, not the literal backslash form.
+    const raw = '---\nsquire:\n  title: "Say \\"hi\\" loud"\n---\nBody.\n';
+    expect(consumeFrontmatter(raw).squire.title).toBe('Say "hi" loud');
+  });
+
+  test('export→import preserves a title with embedded quotes (F2 round trip)', () => {
+    const { buildFrontmatter } = require('../mcp/yjs/serialization');
+    const title = 'Say "hi" loud';
+    const file = buildFrontmatter({
+      docGuid: 'd1', title, clock: 1, exportedAt: '2026-07-13T00:00:00Z',
+      lastModifiedBy: '', flavor: 'squire',
+    }) + '\nBody.\n';
+    expect(consumeFrontmatter(file).squire.title).toBe(title);
+  });
+
+  test('unbalanced-quote scalar falls back to the raw inner slice without throwing', () => {
+    // `"a" "b"` starts and ends with a quote but is not valid JSON — the
+    // fallback slice keeps the value rather than dropping it.
+    const raw = '---\nsquire:\n  title: "a" "b"\n---\nx\n';
+    expect(() => consumeFrontmatter(raw)).not.toThrow();
+    expect(consumeFrontmatter(raw).squire.title).toBe('a" "b');
+  });
+
   test('hostile residue containing backtick fences cannot break out of the yaml block', () => {
     const result = consumeFrontmatter('---\nevil: "``` <script>alert(1)</script>"\n---\nBody.\n');
     expect(result.hadFrontmatter).toBe(true);

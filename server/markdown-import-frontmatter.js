@@ -83,10 +83,25 @@ function parseTopLevelEntries(lines) {
   return entries;
 }
 
-/** Strip matching surrounding quotes from a scalar value. */
+/**
+ * Strip matching surrounding quotes from a scalar value. Double-quoted scalars
+ * are JSON-parsed so escape sequences are decoded — 003's buildFrontmatter
+ * emits JSON-escaped double-quoted scalars (`yamlScalar` → `JSON.stringify`),
+ * so a title like `Say "hi" loud` is written `"Say \"hi\" loud"` and must
+ * re-import identically rather than as the literal `Say \"hi\" loud`. On any
+ * JSON.parse failure (non-JSON escapes, unbalanced content) we fall back to the
+ * raw inner slice — never throw, never lose the value (FR-006/007).
+ */
 function unquote(value) {
   const v = value.trim();
-  if (v.length >= 2 && ((v[0] === '"' && v.endsWith('"')) || (v[0] === "'" && v.endsWith("'")))) {
+  if (v.length >= 2 && v[0] === '"' && v.endsWith('"')) {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v.slice(1, -1);
+    }
+  }
+  if (v.length >= 2 && v[0] === "'" && v.endsWith("'")) {
     return v.slice(1, -1);
   }
   return v;
