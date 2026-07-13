@@ -116,7 +116,7 @@
 - [x] T031 [P] Update `README.md`: import surfaces (MCP param, sandbox helper, REST routes), image fetch-and-rehost policy summary, frontmatter behavior (Principle I / FR-024).
 - [x] T032 Record the design-doc amendment flags in `specs/002-markdown-import-surfaces/promotion-notes.md` for the maintainer's Squire-source edit + `design/sync.mjs` re-sync (never hand-edit `design/`): (a) CN-10 — §1.2 already carries the 2026-07-13 spec-phase correction on `documents:write`; confirm final wording matches shipped behavior, noting REST scope enforcement for mutating methods pre-existed in `requireAuth` (research R6); (b) CN-9 — link-href sanitization gap is import-only-protected; global guardrail proposed as follow-up amendment.
 - [x] T033 Performance validation (SC-005): timing assertions or a documented quickstart run — 1 MB no-image import < 5 s; 10-image import path exercised with fakes for determinism; note real-host numbers in the PR/commit description.
-- [ ] T034 Full serial backend suite + quickstart pass: run affected Jest suites `--runInBand`, then walk `specs/002-markdown-import-surfaces/quickstart.md` scenarios 1–6 in the dev pod; fix drift found.
+- [x] T034 Full serial backend suite + quickstart pass: run affected Jest suites `--runInBand`, then walk `specs/002-markdown-import-surfaces/quickstart.md` scenarios 1–6 in the dev pod; fix drift found.
 
 ---
 
