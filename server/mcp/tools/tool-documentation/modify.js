@@ -339,7 +339,7 @@ Y.XmlText (text content with formatting):
 TipTap Block Types:
   - 'paragraph', 'heading' (with level: 1-6)
   - 'bulletList', 'orderedList', 'listItem'
-  - 'taskList', 'taskItem' (GFM checklist; taskItem has checked: 'true'|'false' attribute)
+  - 'taskList', 'taskItem' (GFM checklist; taskItem has a boolean checked attribute)
   - 'codeBlock', 'blockquote', 'horizontalRule'
   - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
   - 'svg' (raw SVG block — child Y.XmlText holds the SVG markup, rendered sanitized:

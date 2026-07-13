@@ -855,8 +855,8 @@ describe('Sandbox Helpers', () => {
 
         const items = list.toArray();
         expect(items[0].nodeName).toBe('taskItem');
-        expect(items[0].getAttribute('checked')).toBe('false');
-        expect(items[1].getAttribute('checked')).toBe('false');
+        expect(items[0].getAttribute('checked')).toBe(false);
+        expect(items[1].getAttribute('checked')).toBe(false);
         expect(helpers.getTextContent(items[0])).toBe('First task');
         expect(helpers.getTextContent(items[1])).toBe('Second task');
       });
@@ -871,7 +871,7 @@ describe('Sandbox Helpers', () => {
         ]);
 
         const items = fragment.get(0).toArray();
-        expect(items.map((i) => i.getAttribute('checked'))).toEqual(['true', 'false', 'true']);
+        expect(items.map((i) => i.getAttribute('checked'))).toEqual([true, false, true]);
       });
 
       it('should accept formatted content segments', () => {
@@ -895,11 +895,11 @@ describe('Sandbox Helpers', () => {
         ]);
 
         const parent = fragment.get(0).get(0);
-        expect(parent.getAttribute('checked')).toBe('true');
+        expect(parent.getAttribute('checked')).toBe(true);
         const nested = parent.get(1);
         expect(nested.nodeName).toBe('taskList');
         expect(nested.get(0).nodeName).toBe('taskItem');
-        expect(nested.get(0).getAttribute('checked')).toBe('false');
+        expect(nested.get(0).getAttribute('checked')).toBe(false);
         expect(helpers.getTextContent(nested.get(0))).toBe('child task');
       });
 

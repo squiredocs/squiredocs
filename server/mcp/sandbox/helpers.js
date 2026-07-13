@@ -613,8 +613,11 @@ function appendBlocks(container, blocks, position = null, options = {}) {
   }
 
   /**
-   * Create a task item element. `checked` is stored as the string
-   * 'true'/'false' (Yjs attribute), defaulting to unchecked.
+   * Create a task item element. `checked` is stored as a real boolean Yjs
+   * attribute (defaulting to unchecked) — the same type y-prosemirror writes
+   * for editor edits, so the client TaskItem NodeView reads it directly.
+   * Storing the string 'false' here rendered every item CHECKED (the string
+   * 'false' is truthy in `checkbox.checked = node.attrs.checked`).
    */
   function createTaskItem(itemDef) {
     const taskItem = new XmlElement('taskItem');
@@ -632,7 +635,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       }
     }
 
-    taskItem.setAttribute('checked', checked ? 'true' : 'false');
+    taskItem.setAttribute('checked', !!checked);
     const para = createParagraph(content);
     taskItem.insert(0, [para]);
     if (nestedItems) {

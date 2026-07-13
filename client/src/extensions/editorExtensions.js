@@ -44,6 +44,39 @@ import { DiagramClipboard } from './DiagramClipboard';
  *   is always registered for schema consistency regardless of this option.
  * @returns {Array} Array of TipTap extensions
  */
+/**
+ * Coerce a taskItem `checked` attribute to a real boolean. New edits (editor
+ * and the MCP appendBlocks helper) store a boolean, but documents created
+ * before the fix persist the STRING 'true'/'false' in the Yjs attribute
+ * channel. TipTap's TaskItem NodeView renders `checkbox.checked =
+ * node.attrs.checked`, and the string 'false' is truthy — so legacy items all
+ * rendered CHECKED. Parse the legacy strings back to booleans on the read side.
+ */
+function coerceCheckedNode(node) {
+  const c = node.attrs.checked;
+  if (c === 'true' || c === 'false') {
+    return node.type.create({ ...node.attrs, checked: c === 'true' }, node.content, node.marks);
+  }
+  return node;
+}
+
+// GFM task items with a defensive read-side coercion of legacy string
+// `checked` attributes. Wraps the base NodeView so it always sees a boolean.
+const CoercedTaskItem = TaskItem.extend({
+  addNodeView() {
+    const parentNodeView = this.parent?.();
+    if (!parentNodeView) return undefined;
+    return (props) => {
+      const view = parentNodeView({ ...props, node: coerceCheckedNode(props.node) });
+      if (view && typeof view.update === 'function') {
+        const baseUpdate = view.update.bind(view);
+        view.update = (updatedNode, ...rest) => baseUpdate(coerceCheckedNode(updatedNode), ...rest);
+      }
+      return view;
+    };
+  },
+});
+
 const DiffInsert = Mark.create({
   name: 'diffInsert',
   parseHTML() { return [{ tag: 'ins' }]; },
@@ -66,7 +99,7 @@ export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null
     // GFM task lists (feature 003): checked state is a normal Yjs attribute
     // edit, so attribution/undo/version history work like any edit.
     TaskList,
-    TaskItem.configure({ nested: true }),
+    CoercedTaskItem.configure({ nested: true }),
     Subscript,
     Superscript,
     TextStyle,

@@ -12840,7 +12840,7 @@ ${err.toString()}`);
               nestedType = itemDef.type || "taskList";
             }
           }
-          taskItem.setAttribute("checked", checked ? "true" : "false");
+          taskItem.setAttribute("checked", !!checked);
           const para = createParagraph(content);
           taskItem.insert(0, [para]);
           if (nestedItems) {

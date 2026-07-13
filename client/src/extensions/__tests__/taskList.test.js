@@ -13,6 +13,8 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Editor } from '@tiptap/core';
+import Collaboration from '@tiptap/extension-collaboration';
+import * as Y from 'yjs';
 import { getBaseExtensions } from '../editorExtensions';
 import { schema as sharedSchema } from '../../../../shared/prosemirror-schema';
 
@@ -22,6 +24,43 @@ function createEditor(content) {
   editor = new Editor({
     extensions: getBaseExtensions(),
     content,
+  });
+  return editor;
+}
+
+/**
+ * Build a Y.Doc whose taskItems carry `checked` values written straight into
+ * the Yjs attribute channel — the real path by which existing documents hold
+ * their state. Values may be booleans (what edits store now) or the legacy
+ * strings 'true'/'false' that pre-fix documents persisted.
+ */
+function buildCheckedYDoc(values) {
+  const ydoc = new Y.Doc();
+  const fragment = ydoc.getXmlFragment('default');
+  ydoc.transact(() => {
+    const list = new Y.XmlElement('taskList');
+    const items = values.map((checked, i) => {
+      const item = new Y.XmlElement('taskItem');
+      item.setAttribute('checked', checked); // boolean OR legacy string
+      const para = new Y.XmlElement('paragraph');
+      const text = new Y.XmlText();
+      text.insert(0, `item ${i}`);
+      para.insert(0, [text]);
+      item.insert(0, [para]);
+      return item;
+    });
+    list.insert(0, items);
+    fragment.insert(0, [list]);
+  });
+  return ydoc;
+}
+
+function mountCollabEditor(ydoc) {
+  editor = new Editor({
+    extensions: [
+      ...getBaseExtensions(),
+      Collaboration.configure({ document: ydoc, field: 'default' }),
+    ],
   });
   return editor;
 }
@@ -108,6 +147,20 @@ describe('task lists in the shared editor extension set', () => {
     expect(html).toContain('data-type="taskItem"');
     expect(html).toContain('data-checked="true"');
     expect(html).toContain('data-checked="false"');
+  });
+
+  it('renders boolean AND legacy-string checked values from the Yjs channel correctly', () => {
+    // Order: boolean true, legacy 'true', boolean false, legacy 'false'.
+    // The legacy string 'false' is the regression: it is truthy, so the base
+    // NodeView (`checkbox.checked = node.attrs.checked`) rendered it CHECKED.
+    const ydoc = buildCheckedYDoc([true, 'true', false, 'false']);
+    mountCollabEditor(ydoc);
+    const checkboxes = [
+      ...editor.view.dom.querySelectorAll('input[type="checkbox"]'),
+    ];
+    expect(checkboxes).toHaveLength(4);
+    expect(checkboxes.map((c) => c.checked)).toEqual([true, true, false, false]);
+    ydoc.destroy();
   });
 
   it('editor JSON is schema-parity with shared/prosemirror-schema (server accepts it verbatim)', () => {
