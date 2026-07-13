@@ -723,3 +723,57 @@ describe('byte-compat with the pre-feature serializer (FR-022, SC-003)', () => {
     doc.destroy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Frontmatter strip/preserve round-trip (FR-023, SC-005) — the full-file
+// cycle: export with frontmatter → parseFrontmatter → re-export preserves
+// foreign keys byte-verbatim and the body exactly.
+// ---------------------------------------------------------------------------
+
+describe('frontmatter strip/preserve round-trip (FR-023, SC-005)', () => {
+  const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
+  const { buildFrontmatter } = require('../mcp/yjs/serialization');
+
+  test('export → parse → re-export: foreign keys verbatim, body byte-identical', () => {
+    // A document body exercising task lists and hard breaks
+    const ydoc = docFromPm({ type: 'doc', content: [
+      { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Doc' }] },
+      taskList(taskItem(true, [p('shipped')])),
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'a' }, { type: 'hardBreak' }, { type: 'text', text: 'b' },
+      ] },
+    ] });
+    const body = toMarkdown(ydoc.getXmlFragment('default'));
+
+    const foreign = 'speckit:\n  phase: implement\nlayout: doc';
+    const meta = {
+      docGuid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      title: 'Doc',
+      clock: 3,
+      exportedAt: '2026-07-13T00:00:00Z',
+      lastModifiedBy: 'sam@example.com',
+      flavor: 'squire',
+    };
+    const exported = buildFrontmatter(meta, foreign) + '\n' + body;
+
+    const parsed = parseFrontmatter(exported);
+    expect(parsed.body).toBe(body);
+    expect(parsed.foreignRaw).toBe(foreign);
+    expect(parsed.squire.docGuid).toBe(meta.docGuid);
+
+    // Re-export with a regenerated squire key, carrying foreignRaw through
+    const reExported = buildFrontmatter({ ...meta, clock: 4 }, parsed.foreignRaw) + '\n' + parsed.body;
+    expect(reExported.match(/^---$/gm)).toHaveLength(2); // single block
+    const again = parseFrontmatter(reExported);
+    expect(again.foreignRaw).toBe(foreign);           // byte-verbatim across cycles
+    expect(again.body).toBe(body);                    // body byte-identical
+    expect(again.squire.clock).toBe(4);
+  });
+
+  test('no frontmatter option: parser sees the bare body unchanged', () => {
+    const ydoc = docFromPm({ type: 'doc', content: [p('plain body')] });
+    const body = toMarkdown(ydoc.getXmlFragment('default'));
+    const parsed = parseFrontmatter(body);
+    expect(parsed).toEqual({ body, squire: null, foreignRaw: null });
+  });
+});
