@@ -144,7 +144,7 @@ mismatched docGuid; verify errors, guidance, and zero mutation.
 - [X] T028 [P] Hostile-input pass (Constitution V, spec edge cases) in `__tests__/integration/sync-push.route.test.js`: unparseable/hostile markdown degrades per never-lose-content and proceeds as a structural edit; whitelisted-only HTML inertness in pushed content; pushed file that empties the document replays as delete-all (recoverable via restore); non-Squire frontmatter preserved as content; `./assets/` image refs resolve via frontmatter map with unchanged refs producing zero ops.
 - [X] T029 Run the full serial backend verification (quickstart.md "Automated validation" list plus the existing suites touched: serialization, version-history, diff-service, import) and fix fallout; confirm `toMarkdown` output is byte-identical pre/post source-map change across the round-trip corpus.
 - [X] T030 [P] Documentation (Constitution I): update `ReadMe.md` (two-way sync capability, `mode=sync`, receipt, overlap flags, on-behalf-of) and the export/import API docs surface (`server/mcp/tools/tool-documentation/export_api.js` if 002/003 put route docs there — verify actual location) in the same commit as the implementation. If implementation falsified any design-doc mechanism, amend the source Squire doc per Constitution VI (flag to maintainer — exports are not hand-edited).
-- [ ] T031 Execute quickstart.md scenarios 1–5 manually against the dev pod as the final end-to-end validation; record results in the implementation report.
+- [X] T031 Execute quickstart.md scenarios 1–5 manually against the dev pod as the final end-to-end validation; record results in the implementation report.
 
 ---
 
