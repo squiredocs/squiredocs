@@ -6,11 +6,9 @@
  * `strict-characterization.json`. That snapshot is the byte-identity baseline
  * the strict parser must reproduce forever (feature 001, task T001).
  *
- * IMPORTANT: this script requires the parser via `resolveParser()` which prefers
- * the frozen `shared/markdown/strict-parser.js` if it exists (post-move) and
- * falls back to the pre-move `server/markdown-to-pm.js`. Re-running it MUST
- * produce a byte-identical file (T019): a non-empty `git diff` means strict
- * mode drifted.
+ * IMPORTANT: this script requires the FROZEN strict parser
+ * (`shared/markdown/strict-parser.js`). Re-running it MUST produce a
+ * byte-identical file (T019): a non-empty `git diff` means strict mode drifted.
  *
  * Run:  node server/__tests__/fixtures/markdown/generate-strict-characterization.js
  */
@@ -20,14 +18,8 @@ const path = require('path');
 const Y = require('yjs');
 const { toMarkdown } = require('../../../mcp/yjs/serialization');
 const { STYLE_PROPS } = require('../../../../shared/format-registry');
-
-// Prefer the frozen strict parser once it exists; otherwise the pre-move parser.
-function resolveParser() {
-  const strictPath = path.join(__dirname, '../../../../shared/markdown/strict-parser.js');
-  if (fs.existsSync(strictPath)) return require(strictPath).markdownToPm;
-  return require('../../../markdown-to-pm').markdownToPm;
-}
-const markdownToPm = resolveParser();
+// The frozen strict parser is the byte-identity baseline (CN-2).
+const { markdownToPm } = require('../../../../shared/markdown/strict-parser');
 
 // ---------------------------------------------------------------------------
 // Y.Doc builders — produce canonical markdown via the real serializer
