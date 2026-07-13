@@ -470,8 +470,12 @@ function ensureParagraphFirst(blocks) {
 
 function parseTable(tableLines, diffMark) {
   const rows = [];
-  for (const line of tableLines) {
-    if (/^\|[\s\-:|]+\|$/.test(line)) continue; // separator row
+  for (let li = 0; li < tableLines.length; li++) {
+    const line = tableLines[li];
+    // The GFM delimiter row lives at position 1 only. Dropping any all-dash/colon
+    // row (e.g. a body row that is literally `| - |`) lost content (F4); only
+    // the row directly under the header is the separator.
+    if (li === 1 && /^\|[\s\-:|]+\|$/.test(line)) continue; // separator row
     // Split on pipes and drop the empty segment before the leading pipe; drop a
     // trailing empty segment only if the row ended with a pipe. This keeps
     // canonical `| a | b |` identical to the old slice(1,-1) while NOT dropping

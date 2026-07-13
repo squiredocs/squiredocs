@@ -367,4 +367,18 @@ describe('post-merge review regressions', () => {
     // balanced parens in the destination are preserved
     expect(firstHref(parse('[a](http://x.com/a(b)c)'))).toBe('http://x.com/a(b)c');
   });
+
+  // F4 — only the row at GFM position 1 is the delimiter; a body row that is
+  // literally all dashes/colons must be preserved.
+  test('F4: an all-dash body row is kept, not treated as a separator', () => {
+    const doc = parse('| a |\n| --- |\n| - |\n| b |');
+    expect(doc.content[0].type).toBe('table');
+    const text = plainText(doc);
+    expect(text).toContain('a');
+    expect(text).toContain('-'); // the "| - |" body cell survives
+    expect(text).toContain('b');
+    // header + 2 body rows (separator at index 1 dropped)
+    expect(doc.content[0].content.length).toBe(3);
+    expectValid(doc);
+  });
 });
