@@ -25,6 +25,7 @@ const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter, setCanReconstruct } = require('../../server/api/docs-import');
 const { setExternalImagePass } = require('../../server/markdown-import');
+const { setOverlapDetector, detectOverlaps: realOverlapDetector } = require('../../server/markdown-sync');
 const { getVersionTimeline, createAuthor } = require('../../server/version-history');
 
 const pendingOperations = [];
@@ -435,6 +436,28 @@ describe('sync-push route (mode=sync)', () => {
     await drain();
     expect(res.status).toBe(200);
     expect(res.body.noop).toBe(true); // foreign frontmatter is ignored, not a diff
+  });
+
+  // ------------------------------------------------------------------------
+  // F4: overlap detection is strictly advisory — a failure must never gate the
+  // push; the receipt reports overlaps=[] + overlapsUnavailable:true instead.
+  // ------------------------------------------------------------------------
+  test('overlap detector failure does not gate the push; receipt marks it unavailable', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\noverlap advisory body');
+    setOverlapDetector(async () => { throw new Error('injected overlap failure'); });
+    try {
+      const res = await put(docId, fileFor(docId, clock, body.replace('body', 'edited')));
+      await drain();
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(false);
+      expect(res.body.overlaps).toEqual([]); // advisory defaulted, not gated
+      expect(res.body.overlapsUnavailable).toBe(true);
+      // the edit still landed durably
+      expect(res.body.clock).toBeGreaterThan(clock);
+      expect(await currentBody(docId)).toContain('edited');
+    } finally {
+      setOverlapDetector(realOverlapDetector); // restore the REAL detector
+    }
   });
 
   // ------------------------------------------------------------------------

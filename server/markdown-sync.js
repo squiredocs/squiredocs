@@ -1072,9 +1072,18 @@ async function applySyncPush(persistence, docGuid, opts) {
 
     // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
     // "current" snapshot reflects only concurrent doc-side edits, not our own.
-    const overlaps = await detectOverlaps(persistence, docGuid, {
-      baselineClock, baselineSV, canonicalMd, plan, sourceMap, getSharedDoc, flavor,
-    });
+    // Strictly advisory — it must NEVER gate the push (F4). Any failure defaults
+    // to no flags plus an explicit overlapsUnavailable marker on the receipt.
+    let overlaps = [];
+    let overlapsUnavailable = false;
+    try {
+      overlaps = await detectOverlaps(persistence, docGuid, {
+        baselineClock, baselineSV, canonicalMd, plan, sourceMap, getSharedDoc, flavor,
+      });
+    } catch (err) {
+      overlapsUnavailable = true;
+      console.error(`[sync] overlap detection failed for ${docGuid}:`, err.message);
+    }
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE
     // durable row carrying attribution + on-behalf-of provenance (FR-008 single
@@ -1104,7 +1113,9 @@ async function applySyncPush(persistence, docGuid, opts) {
     const currentClock = await readCurrentClock(persistence, docGuid);
     const markdown = await reExport(persistence, docGuid, currentClock, flavor);
 
-    return { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations, images };
+    const receipt = { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations, images };
+    if (overlapsUnavailable) receipt.overlapsUnavailable = true;
+    return receipt;
   } finally {
     fork.destroy();
   }
