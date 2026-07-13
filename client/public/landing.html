@@ -13,14 +13,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Squire Docs: Write with AI, right in your doc</title>
-  <meta name="description" content="The document editor you already know, with AI that drafts, edits, and researches right inside the page. Plans, reports, drafts: every change tracked, every version reversible." />
+  <meta name="description" content="Where engineering teams and their AI agents write specs together — design docs, ADRs, and PRDs with every edit attributed, that round-trip cleanly with your repo. Write with AI, right in your doc." />
   <meta property="og:title" content="Squire Docs: Write with AI, right in your doc" />
-  <meta property="og:description" content="The document editor you already know, with AI that works right inside the page. Every change tracked and reversible." />
+  <meta property="og:description" content="Engineering teams and their coding agents write design docs, ADRs, and specs in the same document — in real time, every edit attributed, round-tripping with your repo." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://squiredocs.com" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Squire Docs: Write with AI, right in your doc" />
-  <meta name="twitter:description" content="The document editor you already know, with AI that works right inside the page. Every change tracked and reversible." />
+  <meta name="twitter:description" content="Engineering teams and their coding agents write design docs, ADRs, and specs in the same document — in real time, every edit attributed, round-tripping with your repo." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <style>
     /* Critical above-the-fold CSS, inlined so the first paint is styled even
@@ -76,7 +76,7 @@
       <div class="landing-hero-content">
         <h1 class="landing-headline">Write with AI,<br>right in your doc</h1>
         <p class="landing-subheadline">
-          No more copying into a chatbot and pasting the answer back. Work with any AI agent directly in your document. Formatting intact, every change tracked.
+          No more copying into a chatbot and pasting the answer back. Your team and your coding agents write design docs, ADRs, and specs in the same document &mdash; formatting intact, every edit attributed.
         </p>
         <div class="landing-hero-screenshot">
           <img src="/hero-screenshot.png" alt="Squire Docs editor with the AI assistant panel open: inline diffs and suggestions, with a live collaborator editing the document" />
@@ -143,11 +143,77 @@
           </div>
           <div class="landing-connect-item">
             <h3>Use any model</h3>
-            <p>Connect your Anthropic, Gemini, or OpenAI account and use any model you choose.</p>
+            <p>Bring your own key from Anthropic, Google (Gemini), OpenAI, z.ai, or OpenRouter and use any model you choose.</p>
           </div>
           <div class="landing-connect-item">
             <h3>Connect any agent</h3>
-            <p>Connect external agents like Claude Code, OpenClaw or Codex to your documents.</p>
+            <p>Connect external agents like Claude Code, Codex, and Claude Desktop to your documents over MCP.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- For engineering teams -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">For spec-driven engineering teams</h2>
+        <p class="landing-section-text">Design docs, ADRs, and specs your whole team writes together &mdash; and your coding agents can read and update. Spec-driven development, without the copy-paste.</p>
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase-card">
+            <h3>Specs your agents can read</h3>
+            <p>Connect Claude Code, Codex, or Claude Desktop over MCP. Your coding agent reads the design doc and writes back to it &mdash; every edit attributed, nothing pasted over anonymously.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Design docs &amp; ADRs, together</h3>
+            <p>Architects, PMs, and engineers edit the same living spec in real time. The decision and its rationale stay in one place, not scattered across chat threads.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>From idea to implementation</h3>
+            <p>Turn a rough idea into a design doc your team signs off on and your agents execute against. The spec and the work stay in sync.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Attribution / provenance -->
+    <section class="landing-section">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Every edit has an author &mdash; even the agent's</h2>
+        <p class="landing-section-text">Human or AI, every change is attributed to whoever made it and reversible through version history. Agent-written content gets reviewed like a collaborator's work, not pasted over anonymously.</p>
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase-card">
+            <h3>Color-coded authorship</h3>
+            <p>See at a glance who wrote what. Every person and every agent gets their own color, right in the document.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Review, don't rubber-stamp</h3>
+            <p>Compare any two versions side by side and restore an earlier state with one click. Agent output is reviewed like any other contributor's.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>A full, attributed history</h3>
+            <p>Every version is named, dated, and credited. The record of how a decision was reached lives with the document.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Repo round-trip -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Your specs live in Squire <em>and</em> in your repo</h2>
+        <p class="landing-section-text">Import any markdown, export clean .md, and keep a two-way sync with the files in your repo. A push from the repo merges like an edit from a collaborator who was offline &mdash; attribution intact, no conflict dialogs. GFM task lists, tables, and mermaid diagrams render natively.</p>
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase-card">
+            <h3>Bring your markdown in</h3>
+            <p>Paste or import existing .md files and your agent's markdown output. They become collaborative, attributed documents.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Export clean markdown</h3>
+            <p>Every doc exports as portable .md. Your content is always yours to take with you.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Two-way repo sync</h3>
+            <p>Frontmatter carries each doc's identity, so a spec stays in sync between Squire and your repo. Edit in either place; changes merge cleanly.</p>
           </div>
         </div>
       </div>
@@ -192,20 +258,20 @@
     <!-- What you'll write -->
     <section class="landing-section" style="background: #f9fafb;">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">For the writing you already do</h2>
+        <h2 class="landing-section-title">From design docs to memos</h2>
         <p class="landing-section-text">Whatever leaves your desk as a document, Squire Docs helps you get it there faster.</p>
         <div class="landing-usecases-grid">
           <div class="landing-usecase-card">
-            <h3>Plans &amp; proposals</h3>
-            <p>Project plans, specs, and pitches. Go from a rough outline to a version your team can sign off on.</p>
+            <h3>Design docs &amp; ADRs</h3>
+            <p>Capture architecture decisions and their rationale in one place, with the diagrams inline and every change attributed.</p>
           </div>
           <div class="landing-usecase-card">
-            <h3>Reports &amp; research</h3>
-            <p>Status updates, briefs, and analyses. Pull your notes together and tighten the recommendation.</p>
+            <h3>Specs &amp; PRDs</h3>
+            <p>Turn a rough idea into a spec your team signs off on and your coding agents can execute against.</p>
           </div>
           <div class="landing-usecase-card">
-            <h3>Drafts &amp; memos</h3>
-            <p>Posts, announcements, and the email you keep rewriting. Get a strong first draft, then make it yours.</p>
+            <h3>Plans, reports &amp; memos</h3>
+            <p>Project plans, status updates, and the announcement you keep rewriting. A strong first draft, then make it yours.</p>
           </div>
         </div>
       </div>
