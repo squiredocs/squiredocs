@@ -22,6 +22,15 @@ const BASE_URL = process.env.SQUIRE_BASE_URL || 'https://squiredocs.com';
 const DOCS = {
   'f8f3a2ee-31bb-4d80-8306-25e186810885': 'index.md',
   'b6edb804-cf72-416d-9c97-063a23e669c0': 'markdown-import-two-way-sync.md',
+  'f7476460-5c97-422d-bf5f-ef0c4a1ad048': 'architecture-index.md',
+  '396c4ec7-9db5-4f91-b0c6-8c5faa9f0f65': 'collaboration-core.md',
+  '6e425e03-1670-4773-987a-584d3d04dea3': 'document-model-format-pipeline.md',
+  '697456a2-b42b-49b3-ae57-875d3e328809': 'agent-surface-mcp.md',
+  '75b5055d-f4f8-4b3c-8955-f6c3f7841fc7': 'in-app-ai-assistant.md',
+  '503fb6a8-d165-49c7-bc98-883a68b14540': 'authentication-and-sharing.md',
+  '187b0da3-1004-4273-82f8-062f6a903f14': 'content-search.md',
+  '9bb17cdc-0b56-4c87-8b4e-d3686029cb8a': 'media-and-diagram-blocks.md',
+  'c97e58df-4104-4e5d-8ab6-711a7b115696': 'infrastructure-and-environments.md',
 };
 
 const designDir = dirname(fileURLToPath(import.meta.url));
