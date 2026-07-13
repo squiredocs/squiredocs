@@ -296,19 +296,26 @@ describe('importMarkdown', () => {
   });
 
   test('report shape: blocks, images (all four arrays), frontmatter', async () => {
+    // Hermetic: force the storage-disabled degradation path so the default
+    // rehost pass never attempts DNS/network in unit tests.
+    const s3Images = require('../s3-images');
+    const enabledSpy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(false);
     const docGuid = await makeDoc();
     const report = await doImport(docGuid, '# Doc\n\ntext ![pic](https://ext.example.com/p.png)\n\n![gone](data:image/png;base64,AAAA)');
+    enabledSpy.mockRestore();
 
     expect(report.blocks).toEqual({ imported: expect.any(Number) });
+    // No S3 in the unit-test env ⇒ the rehost pass degrades externals with
+    // reason storage-disabled (parity with the cross-doc reconciler posture).
     expect(report.images).toEqual({
       rehosted: [],
       copied: [],
-      degraded: [{ src: 'https://ext.example.com/p.png', reason: 'rehost-unavailable' }],
+      degraded: [{ src: 'https://ext.example.com/p.png', reason: 'storage-disabled' }],
       rejected: [{ src: 'data:image/png;base64,AAAA', reason: 'data-url' }],
     });
     expect(report.frontmatter).toEqual({});
 
-    // Baseline pass degraded the external image to a plain link; data: image
+    // The rehost pass degraded the external image to a plain link; data: image
     // degraded to its alt text; the stored doc has no image srcs at all.
     const md = toMarkdown(liveFragment(docGuid));
     expect(md).toContain('[pic](https://ext.example.com/p.png)');

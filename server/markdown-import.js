@@ -39,9 +39,9 @@ const { consumeFrontmatter } = require('./markdown-import-frontmatter');
 const { markdownToPm } = require('../shared/markdown');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
 const { reconcileCrossDocImages } = require('./mcp/image-validate');
-const { isAppImageUrl } = require('./image-url');
+const { rehostImagesInFragment } = require('./image-rehost');
 const { xpathFirst } = require('./mcp/sandbox/xpath');
-const { findByNodeName, cloneNodes } = require('./mcp/sandbox/helpers');
+const { cloneNodes } = require('./mcp/sandbox/helpers');
 
 /** Error with a stable `code` the surfaces map to HTTP statuses. */
 class ImportError extends Error {
@@ -229,62 +229,23 @@ function hasRealContent(pmJson) {
 // Staged image pass
 // ---------------------------------------------------------------------------
 
-/** Replace an image node (in a staging fragment) with a degradation node. */
-function degradeImageNode(node, { withLink }) {
-  const parent = node.parent;
-  if (!parent) return;
-  const idx = parent.toArray().indexOf(node);
-  if (idx < 0) return;
-  const src = node.getAttribute('src') || '';
-  const alt = node.getAttribute('alt') || '';
-  const text = alt || src;
-  const para = new Y.XmlElement('paragraph');
-  const t = new Y.XmlText();
-  if (text) {
-    t.insert(0, text);
-    if (withLink) t.format(0, text.length, { link: { href: src } });
-  }
-  para.insert(0, [t]);
-  parent.delete(idx, 1);
-  parent.insert(idx, [para]);
-}
-
 /**
- * Phase-2 baseline external-image pass: every external http(s) src degrades
- * to a plain link (FR-018's degradation form) — fetch-and-rehost replaces
- * this implementation in US4 (server/image-rehost.js). Non-http(s), non-app
- * srcs degrade to plain text (no link — never re-emit a dangerous href).
- *
- * @param {Y.XmlFragment} stagingFragment
- * @param {{ docId: string, userId: string }} ctx
- * @returns {Promise<{ rehosted: [], degraded: Array<{src, reason}> }>}
+ * The external-image pass used by importMarkdown: the SSRF-safe
+ * fetch-and-rehost pipeline from server/image-rehost.js (US4/T021 — this
+ * replaced the Phase-2 baseline degrade-only pass). External http(s) srcs are
+ * fetched under the contracts/image-rehost.md policy and rewritten to app
+ * URLs; every failure (SSRF block, size, type, budget, storage disabled)
+ * degrades the node to a plain link and is itemized. Non-http(s) leftovers
+ * degrade to plain text (a dangerous href is never re-emitted).
  */
-async function baselineExternalImagePass(stagingFragment) {
-  const degraded = [];
-  for (const node of findByNodeName(stagingFragment, 'image')) {
-    const src = node.getAttribute('src');
-    if (isAppImageUrl(src)) continue;
-    const scheme = schemeOf(src);
-    if (scheme === 'http' || scheme === 'https') {
-      degraded.push({ src: reportSrc(src), reason: 'rehost-unavailable' });
-      degradeImageNode(node, { withLink: true });
-    } else {
-      // Anything else (app-relative non-image path, unexpected scheme) is not
-      // servable — degrade to plain text, never re-emitting the src as a href.
-      degraded.push({ src: reportSrc(src), reason: 'bad-scheme' });
-      degradeImageNode(node, { withLink: false });
-    }
-  }
-  return { rehosted: [], degraded };
-}
+const defaultExternalImagePass = (stagingFragment, ctx) =>
+  rehostImagesInFragment(stagingFragment, ctx);
 
-// The external-image pass used by importMarkdown. US4 (T021) replaces this
-// binding with the SSRF-safe fetch-and-rehost pass from server/image-rehost.js.
-let externalImagePass = baselineExternalImagePass;
+let externalImagePass = defaultExternalImagePass;
 
 /** Test/wiring seam: swap the external-image pass implementation. */
 function setExternalImagePass(fn) {
-  externalImagePass = fn || baselineExternalImagePass;
+  externalImagePass = fn || defaultExternalImagePass;
 }
 
 /**

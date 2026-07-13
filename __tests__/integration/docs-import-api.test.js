@@ -28,6 +28,10 @@ const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter, MAX_IMPORT_BYTES } = require('../../server/api/docs-import');
+const documentImages = require('../../server/document-images');
+const s3Images = require('../../server/s3-images');
+const { rehostImagesInFragment, PolicyError } = require('../../server/image-rehost');
+const { setExternalImagePass } = require('../../server/markdown-import');
 
 const FIXTURES = path.join(__dirname, '..', '..', 'server', '__tests__', 'fixtures', 'import');
 const readFixture = (name) => fs.readFileSync(path.join(FIXTURES, name), 'utf8');
@@ -72,6 +76,7 @@ describe('REST import API', () => {
     );
     documents.init(pool);
     apiTokens.init(pool);
+    documentImages.init(pool);
 
     const u1 = await pool.query(
       `INSERT INTO users (google_id, email, name)
@@ -404,6 +409,169 @@ describe('REST import API', () => {
     test('owner passes the editor gate', async () => {
       const res = await put(docId, '## Owner Appends', { auth: `Bearer ${ownerJwt}` });
       expect(res.status).toBe(200);
+    });
+  });
+
+  // ==========================================================================
+  // Image policy through the REST surfaces (T023 — SC-003, FR-016/018/020)
+  // ==========================================================================
+  describe('image policy through REST (T023)', () => {
+    let enabledSpy;
+    let putObjectSpy;
+    let copyObjectSpy;
+
+    beforeEach(() => {
+      // Deterministic: real rehost pass + real document_images rows, but the
+      // network is faked and S3 byte operations are no-ops.
+      enabledSpy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(true);
+      putObjectSpy = jest.spyOn(s3Images, 'putObject').mockResolvedValue(undefined);
+      copyObjectSpy = jest.spyOn(s3Images, 'copyObject').mockResolvedValue(undefined);
+      const fakeFetch = async (src) => {
+        if (src.includes('images.example.com')) {
+          return { data: Buffer.from('FAKE-PNG-BYTES'), mimeType: 'image/png' };
+        }
+        if (src.includes('unreachable')) throw new PolicyError('network-error', 'down');
+        if (src.includes('169.254.169.254') || src.includes('10.0.0.1')) {
+          throw new PolicyError('blocked-address', 'blocked');
+        }
+        throw new PolicyError('network-error', 'no fake route');
+      };
+      setExternalImagePass((frag, ctx) => rehostImagesInFragment(frag, ctx, { fetchImage: fakeFetch }));
+    });
+
+    afterEach(() => {
+      setExternalImagePass(null);
+      enabledSpy.mockRestore();
+      putObjectSpy.mockRestore();
+      copyObjectSpy.mockRestore();
+    });
+
+    const MIXED = [
+      '# Image Doc',
+      '',
+      '![diagram](https://images.example.com/diagram.png)',
+      '',
+      '![diagram again](https://images.example.com/diagram.png)',
+      '',
+      '![offline](https://unreachable.example.com/x.png)',
+      '',
+      '![metadata](http://169.254.169.254/latest/meta-data.png)',
+      '',
+      '![pixel](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg)',
+      '',
+    ].join('\n');
+
+    async function assertImagePolicy(docId, images) {
+      // 1 rehosted (deduped across 2 references), row attributed to the actor.
+      expect(images.rehosted).toHaveLength(1);
+      expect(images.rehosted[0].src).toBe('https://images.example.com/diagram.png');
+      const appUrl = images.rehosted[0].url;
+      expect(appUrl).toMatch(new RegExp(`^/api/docs/${docId}/images/`));
+      const row = await pool.query(
+        'SELECT uploader_id, mime_type FROM document_images WHERE doc_id = $1', [docId]
+      );
+      expect(row.rows).toHaveLength(1);
+      expect(row.rows[0].uploader_id).toBe(ownerId);
+      expect(row.rows[0].mime_type).toBe('image/png');
+
+      // Degradations itemized with reasons; data: rejected.
+      expect(images.degraded).toEqual(
+        expect.arrayContaining([
+          { src: 'https://unreachable.example.com/x.png', reason: 'network-error' },
+          { src: 'http://169.254.169.254/latest/meta-data.png', reason: 'blocked-address' },
+        ])
+      );
+      expect(images.rejected).toEqual([
+        expect.objectContaining({ reason: 'data-url' }),
+      ]);
+
+      // SC-003: re-export shows zero external and zero data: srcs; both
+      // references share the one rehosted copy.
+      const md = toMarkdown(fragmentOf(docId));
+      expect(md).not.toMatch(/!\[[^\]]*\]\((https?:)?\/\/(?!\/)/);
+      expect(md).not.toContain('](https://images.example.com');
+      expect(md).not.toContain('data:image');
+      expect(md.split(`](${appUrl})`).length - 1).toBe(2);
+      // Failures degraded to plain links, still present as text.
+      expect(md).toContain('[offline](https://unreachable.example.com/x.png)');
+      expect(md).toContain('[metadata](http://169.254.169.254/latest/meta-data.png)');
+    }
+
+    test('POST: mixed images rehost/degrade/reject; import still 201', async () => {
+      const res = await post(MIXED);
+      expect(res.status).toBe(201);
+      createdDocIds.push(res.body.docId);
+      await assertImagePolicy(res.body.docId, res.body.images);
+    });
+
+    test('PUT: mixed images rehost/degrade/reject; import still 200', async () => {
+      const created = await post('# Target');
+      expect(created.status).toBe(201);
+      const docId = created.body.docId;
+      createdDocIds.push(docId);
+
+      const res = await put(docId, MIXED);
+      expect(res.status).toBe(200);
+      await assertImagePolicy(docId, res.body.images);
+    });
+
+    test('cross-doc app URLs copy via the existing reconciliation (FR-020)', async () => {
+      // A source doc the acting user owns, with a real image row.
+      const source = await post('# Source Doc');
+      expect(source.status).toBe(201);
+      const sourceDocId = source.body.docId;
+      createdDocIds.push(sourceDocId);
+      const sourceImage = await documentImages.storeImage({
+        docId: sourceDocId,
+        uploaderId: ownerId,
+        data: Buffer.from('SRC-PNG'),
+        mimeType: 'image/png',
+        filename: 'src.png',
+      });
+
+      const res = await post(`# Copies\n\n![carried](${sourceImage.url})`);
+      expect(res.status).toBe(201);
+      const docId = res.body.docId;
+      createdDocIds.push(docId);
+
+      expect(res.body.images.copied).toEqual([
+        { from: sourceImage.url, to: expect.stringMatching(new RegExp(`^/api/docs/${docId}/images/`)) },
+      ]);
+      const md = toMarkdown(fragmentOf(docId));
+      expect(md).toContain(`![carried](${res.body.images.copied[0].to})`);
+      expect(md).not.toContain(sourceImage.url);
+      const rows = await pool.query('SELECT id FROM document_images WHERE doc_id = $1', [docId]);
+      expect(rows.rows).toHaveLength(1);
+    });
+
+    test('inaccessible cross-doc app URLs are stripped and reported', async () => {
+      // Source doc owned by the OTHER user, never shared.
+      const foreign = await request(app)
+        .post('/api/docs/import')
+        .set('Authorization', `Bearer ${otherJwt}`)
+        .set('Content-Type', 'text/markdown')
+        .send('# Foreign');
+      expect(foreign.status).toBe(201);
+      const foreignDocId = foreign.body.docId;
+      createdDocIds.push(foreignDocId);
+      const foreignImage = await documentImages.storeImage({
+        docId: foreignDocId,
+        uploaderId: otherId,
+        data: Buffer.from('FOREIGN'),
+        mimeType: 'image/png',
+        filename: 'f.png',
+      });
+
+      const res = await post(`# Stripper\n\nkeep text\n\n![secret](${foreignImage.url})`);
+      expect(res.status).toBe(201);
+      createdDocIds.push(res.body.docId);
+      expect(res.body.images.copied).toEqual([]);
+      expect(res.body.images.rejected).toEqual([
+        { src: foreignImage.url, reason: 'source document not accessible' },
+      ]);
+      const md = toMarkdown(fragmentOf(res.body.docId));
+      expect(md).not.toContain(foreignImage.url);
+      expect(md).toContain('keep text');
     });
   });
 });
