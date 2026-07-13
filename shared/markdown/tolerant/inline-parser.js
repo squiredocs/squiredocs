@@ -233,6 +233,15 @@ function parseToTree(src) {
   const n = src.length;
   let i = 0;
 
+  // Precomputed last positions so the link/tag scanners bail in O(1) when no
+  // matching close exists ahead — prevents O(n^2) blowup on bracket/tag floods
+  // (SC-006). The string is immutable within this call.
+  const lastCloseBracket = src.lastIndexOf(']');
+  const lastCloseParen = src.lastIndexOf(')');
+  const lastSpanClose = src.lastIndexOf('</span>');
+  const lastTagClose = new Map();
+  for (const tag of TAG_MARK.keys()) lastTagClose.set(tag, src.lastIndexOf(`</${tag}>`));
+
   function flush() {
     if (buf) {
       append(list, { kind: 'text', value: buf });
@@ -258,7 +267,7 @@ function parseToTree(src) {
 
     // <span style="...">...</span>
     const spanMatch = /^<span style="([^"]*)">/i.exec(rest);
-    if (spanMatch) {
+    if (spanMatch && lastSpanClose >= i) {
       const contentStart = i + spanMatch[0].length;
       const closeIdx = findBalancedSpanClose(contentStart);
       if (closeIdx !== -1) {
@@ -278,7 +287,7 @@ function parseToTree(src) {
 
     // Whitelist mark tags: <u>, <mark>, <sub>, <sup>
     const tagMatch = /^<([a-zA-Z][a-zA-Z0-9]*)>/.exec(rest);
-    if (tagMatch && TAG_MARK.has(tagMatch[1])) {
+    if (tagMatch && TAG_MARK.has(tagMatch[1]) && lastTagClose.get(tagMatch[1]) >= i) {
       const tag = tagMatch[1];
       const contentStart = i + tagMatch[0].length;
       const closeIdx = findBalancedTagClose(contentStart, tag);
@@ -346,6 +355,7 @@ function parseToTree(src) {
 
   // Link [text](href). Returns next index or -1.
   function tryLink() {
+    if (lastCloseBracket < i || lastCloseParen < i) return -1;
     let depth = 1;
     let j = i + 1;
     while (j < n) {
@@ -544,7 +554,17 @@ function parseToTree(src) {
 
 function makeTextNode(value, marks, diffMark) {
   const node = { type: 'text', text: value.replaceAll(INLINE_NEWLINE, '\n') };
-  const all = [...marks];
+  // Deduplicate marks: a ProseMirror node holds a mark SET, so nested same-type
+  // emphasis (e.g. `**x* *y*` producing italic-in-italic) must not list the
+  // mark twice. Keep first occurrence; distinguish by type + attrs.
+  const all = [];
+  const seen = new Set();
+  for (const m of marks) {
+    const key = m.attrs ? `${m.type}:${JSON.stringify(m.attrs)}` : m.type;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    all.push(m);
+  }
   if (diffMark) all.push({ type: diffMark });
   if (all.length > 0) node.marks = all;
   return node;

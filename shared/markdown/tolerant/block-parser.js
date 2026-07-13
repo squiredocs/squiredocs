@@ -299,7 +299,11 @@ function setextHeading(paraLines, level, diffMark) {
 }
 
 function fencedCodeNode(info, code, diffMark) {
-  const lang = info.split(/\s+/)[0] || '';
+  // Use the full (trimmed) info string as the language, exactly as the strict
+  // parser does — so canonical single-word fences stay identical and a
+  // multi-word info string is preserved in the language attr rather than
+  // dropped (canonical equivalence + never-lose-content).
+  const lang = info.trim();
   const diagramType = { mermaid: 'mermaid', svg: 'svg' }[lang.toLowerCase()];
   if (diagramType) {
     return codeBlockNode(code, null, diffMark, diagramType);
@@ -421,15 +425,34 @@ function buildListItem(contentLines, ordered, diffMark, depth) {
     return taskItemNode({ checked, contentNodes, diffMark });
   }
   const content = parseBlocks(contentLines, diffMark, depth + 1);
-  return { type: 'listItem', content: content.length ? content : [{ type: 'paragraph' }] };
+  return { type: 'listItem', content: ensureParagraphFirst(content) };
+}
+
+/**
+ * The schema requires `listItem` content to be `paragraph block*` (paragraph
+ * first). Tolerant parsing can yield an item whose first block is a heading,
+ * sub-list, or code block (e.g. an item that is only a nested list); prepend an
+ * empty paragraph so the document stays schema-valid without losing content.
+ */
+function ensureParagraphFirst(blocks) {
+  if (blocks.length === 0) return [{ type: 'paragraph' }];
+  if (blocks[0].type !== 'paragraph') return [{ type: 'paragraph' }, ...blocks];
+  return blocks;
 }
 
 function parseTable(tableLines, diffMark) {
   const rows = [];
   for (const line of tableLines) {
     if (/^\|[\s\-:|]+\|$/.test(line)) continue; // separator row
-    const cells = line.split('|').slice(1, -1).map((c) => c.trim());
-    rows.push(cells);
+    // Split on pipes and drop the empty segment before the leading pipe; drop a
+    // trailing empty segment only if the row ended with a pipe. This keeps
+    // canonical `| a | b |` identical to the old slice(1,-1) while NOT dropping
+    // the last cell of a pipe-leading row that omits the trailing pipe
+    // (never-lose-content, FR-013).
+    const parts = line.split('|').slice(1);
+    if (parts.length > 0 && parts[parts.length - 1].trim() === '') parts.pop();
+    const cells = parts.map((c) => c.trim());
+    if (cells.length > 0) rows.push(cells);
   }
   if (rows.length === 0) return null;
 

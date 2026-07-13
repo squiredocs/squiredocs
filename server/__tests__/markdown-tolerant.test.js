@@ -246,3 +246,59 @@ describe('Edge cases', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// US2 — no input ever loses content (degradation ladder, FR-013) — T016
+// ---------------------------------------------------------------------------
+
+describe('US2 — degradation ladder', () => {
+  test('AS-1: unknown HTML appears as literal visible text (FR-010)', () => {
+    for (const md of ['<div>x</div>', '<script>alert(1)</script>', '<custom-tag>y</custom-tag>', '<!-- a comment -->', '<section>\nblock html\n</section>']) {
+      const doc = parse(md);
+      // no mark applied from unknown tags
+      expect(marksOf(doc)).not.toContain('underline');
+      // the raw tag text survives somewhere in the document
+      const text = plainText(doc);
+      expect(text.length).toBeGreaterThan(0);
+      expectValid(doc);
+    }
+    expect(plainText(parse('<script>alert(1)</script>'))).toContain('alert(1)');
+    expect(plainText(parse('<custom-tag>y</custom-tag>'))).toContain('<custom-tag>');
+    expect(plainText(parse('<!-- a comment -->'))).toContain('a comment');
+  });
+
+  test('AS-2: unsupported constructs preserve their text', () => {
+    expect(plainText(parse('a footnote[^1] ref'))).toContain('[^1]');
+    expect(plainText(parse('math $x^2$ inline'))).toContain('$x^2$');
+    const callout = parse('> [!NOTE]\n> important body');
+    expect(callout.content[0].type).toBe('blockquote');
+    expect(plainText(callout)).toContain('[!NOTE]');
+    expect(plainText(callout)).toContain('important body');
+    [parse('a footnote[^1] ref'), parse('math $x^2$ inline'), callout].forEach(expectValid);
+  });
+
+  test('AS-3: unclosed fence and unbalanced tags terminate normally, text preserved', () => {
+    const fence = parse('```\nnever closed\nmore text');
+    expect(fence.content[0].type).toBe('codeBlock');
+    expect(plainText(fence)).toContain('never closed');
+    expect(plainText(fence)).toContain('more text');
+    expectValid(fence);
+
+    const tag = parse('<mark>highlighted but never closed');
+    expect(marksOf(tag)).not.toContain('highlight');
+    expect(plainText(tag)).toContain('highlighted but never closed');
+    expectValid(tag);
+  });
+
+  test('every degraded output validates against the schema', () => {
+    const inputs = [
+      '<div><span><b>x', '```\nunclosed', '- [ ] a\n\t\tweird', '> [!TIP] q', '$$block math$$',
+      '<u><mark>nested unclosed', '####### too many hashes', '\x00\x01 control chars',
+    ];
+    for (const md of inputs) {
+      const doc = parse(md);
+      expectValid(doc);
+      expect(doc.content.length).toBeGreaterThan(0);
+    }
+  });
+});
