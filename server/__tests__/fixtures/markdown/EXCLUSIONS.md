@@ -22,5 +22,6 @@ spec (Out of Scope) and are not enumerated here.
 | Autolinks | bare email autolinks (`foo@bar.com` without angle brackets) | CN-5: bare-email detection is intentionally excluded from v1 to avoid `@handle` false positives; angle-bracket email autolinks are covered. |
 | Setext | multi-line setext content exact whitespace | We join soft-wrapped heading lines with a space; the official examples keep a newline. Words preserved; asserted via `setext-03`. |
 | Links | reference-style links `[text][ref]` and link reference definitions | Unsupported construct (no reference resolution); degrades to literal text. |
+| Links | link titles `[text](url "title")` | Only the destination is kept; the optional title is dropped (never rendered in M1). Words in the title are not asserted (out of the never-lose-content contract — title text is decoration, not body content). |
 | Images | `![alt](src)` producing an image node | R9: images stay literal `!` + link mark in M1 (image ingestion is feature 002). |
 | GFM tables | rows without a leading pipe; alignment cell rendering | CN-8: only the pipe-leading dialect is in M1 scope; non-pipe rows degrade to paragraphs. |

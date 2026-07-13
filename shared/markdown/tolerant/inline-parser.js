@@ -393,15 +393,20 @@ function parseToTree(src) {
     if (closeParen === -1) return -1;
     const textSrc = src.slice(i + 1, close);
     // Destination text, unescaping backslashes (matches the strict dialect).
-    let href = '';
+    let dest = '';
     for (let k = openParen + 1; k < closeParen; k++) {
       if (src[k] === '\\') {
-        href += src[k + 1] !== undefined ? src[k + 1] : '';
+        dest += src[k + 1] !== undefined ? src[k + 1] : '';
         k++;
       } else {
-        href += src[k];
+        dest += src[k];
       }
     }
+    // Split off an optional CommonMark link title (`dest "title"` / `'…'` / `(…)`)
+    // so it never corrupts the href. The title text is dropped (EXCLUSIONS.md, F3).
+    let href = dest;
+    const titleMatch = /^(.*?)\s+(?:"[^"]*"|'[^']*'|\([^)]*\))\s*$/s.exec(dest);
+    if (titleMatch && titleMatch[1].trim() !== '') href = titleMatch[1];
     pushWrap({ type: 'link', attrs: { href: href.trim() } }, parseToTree(textSrc));
     return closeParen + 1;
   }

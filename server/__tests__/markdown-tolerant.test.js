@@ -357,4 +357,14 @@ describe('post-merge review regressions', () => {
     expect(hasNul(doc)).toBe(false);
     expectValid(doc);
   });
+
+  // F3 — a link title must not end up inside the href.
+  test('F3: link title is split off and does not corrupt the href', () => {
+    expect(firstHref(parse('[a](http://x.com "t")'))).toBe('http://x.com');
+    expect(firstHref(parse("[a](/url 'the title')"))).toBe('/url');
+    // no title → href unchanged
+    expect(firstHref(parse('[a](http://x.com)'))).toBe('http://x.com');
+    // balanced parens in the destination are preserved
+    expect(firstHref(parse('[a](http://x.com/a(b)c)'))).toBe('http://x.com/a(b)c');
+  });
 });
