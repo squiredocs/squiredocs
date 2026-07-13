@@ -376,3 +376,45 @@ describe('no-op detection (T017/T018, US3, FR-009)', () => {
     expect(isNoOp(base, 'hello there')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('performance guard (T027, SC-007, research R11)', () => {
+  test('~1 MB markdown push returns in well under 10 s', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    // ~1 MB of markdown: many paragraphs of ~1 KB each.
+    const line = 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(18); // ~1KB
+    doc.transact(() => {
+      const blocks = [];
+      for (let i = 0; i < 1000; i++) blocks.push(el('paragraph', `p${i} ${line}`));
+      frag.insert(0, blocks);
+    });
+    const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(frag.toArray());
+    expect(baselineMd.length).toBeGreaterThan(900 * 1024);
+
+    // edit one sentence deep in the document
+    const pushed = baselineMd.replace('p500 lorem', 'p500 EDITED');
+    const t0 = Date.now();
+    const canon = canonicalizePushed(pushed);
+    const plan = planPush(computeHunks(baselineMd, canon), sourceMap, baselineMd);
+    frag.doc.transact(() => applyHunks(frag, plan, sourceMap, baselineMd));
+    const elapsed = Date.now() - t0;
+
+    expect(elapsed).toBeLessThan(10000);
+    expect(toMarkdownNodes(frag.toArray())).toContain('p500 EDITED');
+    doc.destroy();
+  });
+
+  test('coarse fallback (diffLines→diffChars) handles a huge rewrite without error', () => {
+    // Force the maxEditLength cliff by rewriting a large body wholesale.
+    const bigA = Array.from({ length: 2500 }, (_, i) => `line ${i} original content here`).join('\n');
+    const bigB = Array.from({ length: 2500 }, (_, i) => `line ${i} REPLACED content now`).join('\n');
+    const doc = new Y.Doc();
+    doc.transact(() => doc.getXmlFragment('default').insert(0, [el('paragraph', 'anchor')]));
+    // computeHunks must not throw and must return hunks even past the char-diff cap.
+    const hunks = computeHunks(bigA, bigB);
+    expect(Array.isArray(hunks)).toBe(true);
+    expect(hunks.length).toBeGreaterThan(0);
+    doc.destroy();
+  });
+});

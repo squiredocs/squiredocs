@@ -333,7 +333,14 @@ function mdToNodes(md) {
 const COALESCE_DISTANCE = 3;
 
 // diffChars edit-distance cap; over it we fall back to coarse line hunking (R11).
-const MAX_EDIT_LENGTH = 200000;
+const MAX_EDIT_LENGTH = 10000;
+// Above this combined input size we skip the whole-document char diff entirely
+// (its O(N·D) cost is unbounded for large inputs) and go straight to line-level
+// coarse hunking — a small edit still yields a precise char hunk on its line.
+const COARSE_INPUT_THRESHOLD = 64 * 1024;
+// Within coarse mode, a changed line-cluster larger than this on either side is
+// replayed as a whole (structural) rather than char-diffed — bounds the work.
+const COARSE_CLUSTER_MAX = 16 * 1024;
 
 /**
  * Character-diff baseline vs pushed canonical markdown into anchored hunks
@@ -341,10 +348,13 @@ const MAX_EDIT_LENGTH = 200000;
  * clustering), then coalesce near-adjacent hunks that stay within one block.
  */
 function computeHunks(baselineMd, pushedMd) {
-  let parts = diffChars(baselineMd, pushedMd, { maxEditLength: MAX_EDIT_LENGTH });
+  let parts = null;
+  if (baselineMd.length + pushedMd.length <= COARSE_INPUT_THRESHOLD) {
+    parts = diffChars(baselineMd, pushedMd, { maxEditLength: MAX_EDIT_LENGTH });
+  }
   if (!parts) {
-    // Cap exceeded (R11): coarse line-level hunking, then character diff within
-    // each changed line cluster. Bounded work, same downstream pipeline.
+    // Large input or cap exceeded (R11): coarse line-level hunking, then
+    // character diff within small changed line clusters only. Bounded work.
     parts = coarseDiff(baselineMd, pushedMd);
   }
   const raw = [];
@@ -385,20 +395,21 @@ function computeHunks(baselineMd, pushedMd) {
   return merged;
 }
 
-/** Coarse fallback: diffLines, then diffChars within changed line clusters (R11). */
+/** Coarse fallback: diffLines, then diffChars within SMALL changed line clusters (R11). */
 function coarseDiff(baselineMd, pushedMd) {
   const lineParts = diffLines(baselineMd, pushedMd);
-  // Re-expand into a char-part stream the hunk walker understands, char-diffing
-  // only inside adjacent removed+added line clusters.
   const out = [];
   for (let i = 0; i < lineParts.length; i++) {
     const p = lineParts[i];
     if (!p.added && !p.removed) { out.push({ value: p.value }); continue; }
     if (p.removed && lineParts[i + 1] && lineParts[i + 1].added) {
-      const sub = diffChars(p.value, lineParts[i + 1].value) || [
-        { removed: true, value: p.value }, { added: true, value: lineParts[i + 1].value },
-      ];
-      for (const s of sub) out.push(s);
+      const add = lineParts[i + 1];
+      let sub = null;
+      if (p.value.length <= COARSE_CLUSTER_MAX && add.value.length <= COARSE_CLUSTER_MAX) {
+        sub = diffChars(p.value, add.value, { maxEditLength: MAX_EDIT_LENGTH });
+      }
+      if (sub) { for (const s of sub) out.push(s); }
+      else { out.push({ removed: true, value: p.value }); out.push({ added: true, value: add.value }); }
       i++;
     } else {
       out.push(p);

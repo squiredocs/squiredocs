@@ -109,10 +109,12 @@ describe('order-independence (T014, SC-004)', () => {
     const route = fs.readFileSync(path.join(__dirname, '..', 'api', 'docs-import.js'), 'utf8');
     // no compare-and-set / conflict-retry anywhere in the sync engine
     expect(/compareAndSet|compare-and-set/i.test(engine)).toBe(false);
-    expect(/\b409\b/.test(engine)).toBe(false);
-    // the ONLY 409 in the route is the identity mismatch (not an edit conflict)
-    for (const line of route.split('\n')) {
-      if (/\b409\b/.test(line)) expect(line).toMatch(/sync_doc_mismatch/);
+    // the ONLY 409 anywhere (engine or route) is the docGuid IDENTITY mismatch,
+    // never an edit conflict — the protocol has no conflict-based rejection.
+    for (const src of [engine, route]) {
+      for (const line of src.split('\n')) {
+        if (/\b409\b/.test(line)) expect(line).toMatch(/sync_doc_mismatch/);
+      }
     }
   });
 });

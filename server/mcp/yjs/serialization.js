@@ -692,36 +692,74 @@ function toMarkdownWithSourceMap(nodes, options = {}) {
 
   // The authoritative markdown (byte-identical) and per-block chunks.
   const finalMd = toMarkdownNodes(nodes, options);
-  const blockChunks = [];
+  const placed = [];
+  let assembled = '';
   let bi = 0;
   for (const node of nodes) {
     processNodeC(node, '');
     const rendered = cTrimTrailingNewlines(cConcat(parts.splice(0)));
-    if (rendered.text !== '') blockChunks.push({ chunk: rendered, node, blockIndex: bi });
+    if (rendered.text !== '') {
+      if (assembled !== '') assembled += '\n\n';
+      placed.push({ chunk: rendered, node, blockIndex: bi, base: assembled.length });
+      assembled += rendered.text;
+    }
     bi++;
   }
 
+  // `assembled` mirrors toMarkdownNodes' `blocks.join('\n\n')`; the fast path then
+  // applies `.replace(/\n{3,}/g,'\n\n').trim()`. Per-block trailing-newline
+  // stripping means the collapse is a no-op (blocks never start with \n), so
+  // finalMd === assembled.trim(): a constant leading-trim shift plus a
+  // trailing-clip. Compute offsets directly (robust to blocks that end/begin in
+  // whitespace, which an indexOf-locate would mislocate). Guard the collapse.
+  const collapsed = assembled.replace(/\n{3,}/g, '\n\n');
+  const L = collapsed.length - collapsed.replace(/^\s+/, '').length; // leading trim
   const runs = [];
   const blocks = [];
-  let cursor = 0;
-  for (const { chunk, node, blockIndex } of blockChunks) {
-    const base = finalMd.indexOf(chunk.text, cursor);
-    if (base === -1) {
-      throw new Error('toMarkdownWithSourceMap: block text not located in assembled markdown');
+  const consistent = collapsed === assembled && collapsed.trim() === finalMd;
+  if (consistent) {
+    for (const p of placed) {
+      const base = p.base - L;
+      const map = p.chunk.map;
+      let i = 0;
+      while (i < map.length) {
+        if (map[i] === null) { i++; continue; }
+        const tn = map[i].node;
+        const off0 = map[i].off;
+        let j = i + 1;
+        while (j < map.length && map[j] !== null && map[j].node === tn && map[j].off === map[j - 1].off + 1) j++;
+        const s = base + i;
+        const e = base + j;
+        const cs = Math.max(0, s);
+        const ce = Math.min(finalMd.length, e);
+        if (ce > cs) runs.push({ mdStart: cs, mdEnd: ce, textNode: tn, textOff: off0 + (cs - s) });
+        i = j;
+      }
+      const bs = Math.max(0, base);
+      const be = Math.min(finalMd.length, base + p.chunk.text.length);
+      if (be > bs) blocks.push({ mdStart: bs, mdEnd: be, blockIndex: p.blockIndex, blockNode: p.node });
     }
-    const map = chunk.map;
-    let i = 0;
-    while (i < map.length) {
-      if (map[i] === null) { i++; continue; }
-      const tn = map[i].node;
-      const off0 = map[i].off;
-      let j = i + 1;
-      while (j < map.length && map[j] !== null && map[j].node === tn && map[j].off === map[j - 1].off + 1) j++;
-      runs.push({ mdStart: base + i, mdEnd: base + j, textNode: tn, textOff: off0 });
-      i = j;
+  } else {
+    // Rare surprise (an internal \n{3,} collapse shifted mid-document offsets):
+    // fall back to sequential indexOf against finalMd.
+    let cursor = 0;
+    for (const p of placed) {
+      const base = finalMd.indexOf(p.chunk.text, cursor);
+      if (base === -1) continue;
+      const map = p.chunk.map;
+      let i = 0;
+      while (i < map.length) {
+        if (map[i] === null) { i++; continue; }
+        const tn = map[i].node;
+        const off0 = map[i].off;
+        let j = i + 1;
+        while (j < map.length && map[j] !== null && map[j].node === tn && map[j].off === map[j - 1].off + 1) j++;
+        runs.push({ mdStart: base + i, mdEnd: base + j, textNode: tn, textOff: off0 });
+        i = j;
+      }
+      blocks.push({ mdStart: base, mdEnd: base + p.chunk.text.length, blockIndex: p.blockIndex, blockNode: p.node });
+      cursor = base + p.chunk.text.length;
     }
-    blocks.push({ mdStart: base, mdEnd: base + chunk.text.length, blockIndex, blockNode: node });
-    cursor = base + chunk.text.length;
   }
 
   return { markdown: finalMd, sourceMap: { runs, blocks } };
