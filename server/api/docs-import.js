@@ -101,6 +101,7 @@ async function handleSyncPush(persistence, req, res, docId, user) {
     userId: user.userId,
     agentName: SYNC_AGENT_NAME,
     onBehalfOf: parseOnBehalfOf(req),
+    imageMap: squire && squire.images ? squire.images : null,
     getSharedDoc: documentService.getSharedDoc,
   });
   return res.status(200).json(receipt);

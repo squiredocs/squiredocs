@@ -315,6 +315,26 @@ function canonicalizePushed(body, { flavor = 'squire' } = {}) {
   }
 }
 
+/**
+ * Resolve `./assets/…` image references in a pushed body back to their document
+ * image app-URLs via the file's `squire.images` map (relPath → imageId), so a
+ * bundle-exported file diffs against the doc's app-URL baseline and unchanged
+ * refs produce zero ops (FR-010 spirit for images; spec Images edge case).
+ * Untrusted input — only rewrites references whose relPath is in the map.
+ */
+function resolveImageRefs(body, imageMap, docGuid) {
+  if (!imageMap || typeof imageMap !== 'object') return body;
+  let out = body;
+  for (const [relPath, imageId] of Object.entries(imageMap)) {
+    if (typeof relPath !== 'string' || typeof imageId !== 'string') continue;
+    if (!/^[0-9a-fA-F-]{36}$/.test(imageId)) continue; // imageId must be a uuid
+    const appUrl = `/api/docs/${docGuid}/images/${imageId}`;
+    // Replace only inside an image/link destination: `](relPath)`.
+    out = out.split(`](${relPath})`).join(`](${appUrl})`);
+  }
+  return out;
+}
+
 /** Parse a markdown fragment into detached Yjs nodes (import canonicalization). */
 function mdToNodes(md) {
   if (md.trim() === '') return [];
@@ -941,13 +961,17 @@ async function applySyncPush(persistence, docGuid, opts) {
     userId,
     agentName = SYNC_AGENT_NAME,
     onBehalfOf = null,
+    imageMap = null,
     getSharedDoc,
   } = opts;
 
   const baseline = await buildBaseline(persistence, docGuid, baselineClock, { flavor });
   const { fork, fragment, baselineSV, canonicalMd, sourceMap } = baseline;
   try {
-    const pushedMd = canonicalizePushed(body, { flavor });
+    // Resolve ./assets/ image refs back to app URLs (bundle round-trip) before
+    // diffing, so unchanged images don't register as edits.
+    const resolvedBody = resolveImageRefs(body, imageMap, docGuid);
+    const pushedMd = canonicalizePushed(resolvedBody, { flavor });
 
     // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
     if (pushedMd === canonicalMd) {
@@ -1029,6 +1053,7 @@ module.exports = {
   syntheticClientId,
   buildBaseline,
   canonicalizePushed,
+  resolveImageRefs,
   mdToNodes,
   // T007
   computeHunks,

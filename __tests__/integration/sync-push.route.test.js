@@ -389,4 +389,59 @@ describe('sync-push route (mode=sync)', () => {
     // the sync handler must not fall through to mode=replace on a rejection
     expect(/sync[\s\S]*mode\s*=\s*['"]replace['"]/i.test(route)).toBe(false);
   });
+
+  // ------------------------------------------------------------------------
+  // Hostile / edge input (T028, Constitution V, spec edge cases)
+  // ------------------------------------------------------------------------
+  test('hostile HTML in pushed content is inert (whitelist); push still succeeds', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nsafe paragraph');
+    const res = await put(docId, fileFor(docId, clock, body + '\n\nBefore <script>alert(1)</script> after'));
+    await drain();
+    expect(res.status).toBe(200);
+    const after = await currentBody(docId);
+    // never-lose-content: the words survive. The <script> is materialized as
+    // inert TEXT (001's whitelist admits no <script> node/mark), so it can never
+    // execute — verify no script ELEMENT entered the document structure.
+    expect(after).toContain('Before');
+    expect(after).toContain('after');
+    const doc = await persistence.getYDoc(docId);
+    const structured = JSON.stringify(require('../../server/mcp/yjs/serialization').toStructured(doc.get('default', Y.XmlFragment)));
+    doc.destroy();
+    expect(structured).not.toMatch(/"type":"script"/);
+  });
+
+  test('pushed file that empties the document deletes all blocks (recoverable)', async () => {
+    const { docId, clock } = await seedDoc('# Doc\n\none\n\ntwo\n\nthree');
+    const res = await put(docId, fileFor(docId, clock, ''));
+    await drain();
+    expect(res.status).toBe(200);
+    expect((await currentBody(docId)).trim()).toBe('');
+    // recoverable via history: the content still exists at the baseline clock
+    const hist = await persistence.getYDocAtClock(docId, clock);
+    expect(toMarkdown(hist.get('default', Y.XmlFragment))).toContain('three');
+    hist.destroy();
+  });
+
+  test('non-Squire frontmatter alongside squire causes no spurious edit', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nstable body');
+    // build a file whose frontmatter carries a foreign key beside squire:
+    const fm = buildFrontmatter(
+      { docGuid: docId, title: 'T', clock, exportedAt: '2026-01-01T00:00:00Z', lastModifiedBy: '', flavor: 'squire' },
+      'author: Someone\ntags: [a, b]');
+    const res = await put(docId, fm + '\n' + body); // body unchanged
+    await drain();
+    expect(res.status).toBe(200);
+    expect(res.body.noop).toBe(true); // foreign frontmatter is ignored, not a diff
+  });
+
+  test('unparseable markdown degrades (never-lose-content), push proceeds', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\ncontent');
+    // a pathological unclosed-everything payload — the tolerant parser must not
+    // throw; the push proceeds (words survive somewhere in the doc).
+    const nasty = body + '\n\n**unclosed [and](broken ` ``` <u><b>nested';
+    const res = await put(docId, fileFor(docId, clock, nasty));
+    await drain();
+    expect(res.status).toBe(200);
+    expect(await currentBody(docId)).toContain('unclosed');
+  });
 });

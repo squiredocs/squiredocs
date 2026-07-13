@@ -418,3 +418,39 @@ describe('performance guard (T027, SC-007, research R11)', () => {
     doc.destroy();
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('image-ref resolution (T028, spec Images edge case)', () => {
+  const { resolveImageRefs } = require('../markdown-sync');
+  const DOC = '11111111-2222-3333-4444-555555555555';
+  const IMG = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  test('rewrites ./assets/ refs to app URLs via the frontmatter map', () => {
+    const map = { './assets/doc/img.png': IMG };
+    const body = 'text\n\n![alt](./assets/doc/img.png)\n\nmore';
+    const out = resolveImageRefs(body, map, DOC);
+    expect(out).toBe(`text\n\n![alt](/api/docs/${DOC}/images/${IMG})\n\nmore`);
+  });
+
+  test('a resolved bundle push against an app-URL baseline is a no-op', () => {
+    // baseline doc has the app-URL image; bundle file has ./assets/ + map.
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const img = new Y.XmlElement('image');
+      img.setAttribute('src', `/api/docs/${DOC}/images/${IMG}`);
+      img.setAttribute('alt', 'chart');
+      doc.getXmlFragment('default').insert(0, [el('paragraph', 'intro'), img]);
+    });
+    const baselineMd = toMarkdownWithSourceMap(doc.getXmlFragment('default').toArray()).markdown;
+    const bundleBody = baselineMd.replace(`/api/docs/${DOC}/images/${IMG}`, './assets/doc/img.png');
+    const resolved = resolveImageRefs(bundleBody, { './assets/doc/img.png': IMG }, DOC);
+    expect(canonicalizePushed(resolved)).toBe(canonicalizePushed(baselineMd));
+    doc.destroy();
+  });
+
+  test('ignores refs not in the map and non-uuid image ids', () => {
+    const body = '![x](./assets/unknown.png)';
+    expect(resolveImageRefs(body, { './assets/other.png': IMG }, DOC)).toBe(body);
+    expect(resolveImageRefs(body, { './assets/unknown.png': 'not-a-uuid' }, DOC)).toBe(body);
+  });
+});
