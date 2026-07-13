@@ -56,7 +56,7 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
             </div>
             <h1 className="login-title">Squire Docs</h1>
           </a>
-          <p className="login-subtitle">Docs that work as hard as you do</p>
+          <p className="login-subtitle">Write with AI, right in your doc</p>
         </div>
 
         <h2 className="login-headline">{mode === 'login' ? 'Welcome Back' : 'Get Started'}</h2>

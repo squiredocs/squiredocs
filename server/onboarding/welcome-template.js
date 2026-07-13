@@ -35,12 +35,16 @@ const WELCOME_DOC_NODES = [
         type: 'listItem',
         content: 'Refine: Paste an existing draft here and ask for feedback, formatting help, or a structural review.',
       },
+      {
+        type: 'listItem',
+        content: 'Spec: Paste a rough idea and I will structure it into a design doc your team—and your coding agents—can execute.',
+      },
     ],
   },
   {
     type: 'mermaid',
     content:
-      'graph LR\n    A[Big Idea] --> B{Assistant}\n    B --> C[Research]\n    B --> D[Drafting]\n    B --> E[Refine]\n    C & D & E --> F[Finished Document]',
+      'graph LR\n    A[Big Idea] --> B{Assistant}\n    B --> C[Research]\n    B --> D[Drafting]\n    B --> E[Refine]\n    B --> G[Spec]\n    C & D & E & G --> F[Finished Document]',
   },
   { type: 'heading', level: 2, content: 'Meet your Squire Docs Assistant' },
   {
@@ -52,7 +56,7 @@ const WELCOME_DOC_NODES = [
     type: 'paragraph',
     content: [
       'Need help? ',
-      { text: 'Email support', marks: [{ type: 'link', href: 'mailto:sam@squiredocs.com' }] },
+      { text: 'Email support', marks: [{ type: 'link', href: 'mailto:contact@squiredocs.com' }] },
       ' or use the ',
       { text: 'Get Support', marks: [{ type: 'link', href: 'https://squiredocs.com/support' }] },
       ' link in the Account menu.',
