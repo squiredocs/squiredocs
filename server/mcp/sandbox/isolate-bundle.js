@@ -12552,10 +12552,11 @@ ${err.toString()}`);
         "codeBlock",
         "mermaid",
         "svg",
-        "listItem"
+        "listItem",
+        "taskItem"
       ];
       var CODE_LIKE_BLOCKS = ["codeBlock", "mermaid", "svg"];
-      var LIST_CONTAINERS = ["bulletList", "orderedList"];
+      var LIST_CONTAINERS = ["bulletList", "orderedList", "taskList"];
       var BLOCK_ELEMENTS = [
         ...INLINE_CONTENT_BLOCKS,
         ...LIST_CONTAINERS,
@@ -12785,14 +12786,18 @@ ${err.toString()}`);
             listItem.insert(0, [para]);
             if (itemDef.items && Array.isArray(itemDef.items) && itemDef.items.length > 0) {
               const nestedType = itemDef.type || parentListType || "bulletList";
-              const nestedList = nestedType === "orderedList" ? createOrderedList(itemDef.items) : createBulletList(itemDef.items);
-              listItem.insert(1, [nestedList]);
+              listItem.insert(1, [createListOfType(nestedType, itemDef.items)]);
             }
           } else {
             const para = createParagraph(itemDef);
             listItem.insert(0, [para]);
           }
           return listItem;
+        }
+        function createListOfType(type, items) {
+          if (type === "orderedList") return createOrderedList(items);
+          if (type === "taskList") return createTaskList(items);
+          return createBulletList(items);
         }
         function createBulletList(items) {
           if (!Array.isArray(items) || items.length === 0) {
@@ -12811,6 +12816,37 @@ ${err.toString()}`);
           const listItems = items.map((item) => createListItem(item, "orderedList"));
           list.insert(0, listItems);
           return list;
+        }
+        function createTaskList(items) {
+          if (!Array.isArray(items) || items.length === 0) {
+            throw new Error("appendBlocks: taskList items must be a non-empty array");
+          }
+          const list = new XmlElement("taskList");
+          const taskItems = items.map((item) => createTaskItem(item));
+          list.insert(0, taskItems);
+          return list;
+        }
+        function createTaskItem(itemDef) {
+          const taskItem = new XmlElement("taskItem");
+          let content = itemDef;
+          let checked = false;
+          let nestedItems = null;
+          let nestedType = "taskList";
+          if (itemDef && typeof itemDef === "object" && !Array.isArray(itemDef) && "content" in itemDef) {
+            content = itemDef.content;
+            checked = !!itemDef.checked;
+            if (itemDef.items && Array.isArray(itemDef.items) && itemDef.items.length > 0) {
+              nestedItems = itemDef.items;
+              nestedType = itemDef.type || "taskList";
+            }
+          }
+          taskItem.setAttribute("checked", checked ? "true" : "false");
+          const para = createParagraph(content);
+          taskItem.insert(0, [para]);
+          if (nestedItems) {
+            taskItem.insert(1, [createListOfType(nestedType, nestedItems)]);
+          }
+          return taskItem;
         }
         function createBlockquote(content) {
           const blockquote = new XmlElement("blockquote");
@@ -12901,6 +12937,11 @@ ${err.toString()}`);
                 throw new Error("appendBlocks: orderedList requires items");
               }
               return createOrderedList(blockDef.items);
+            case "taskList":
+              if (!blockDef.items) {
+                throw new Error("appendBlocks: taskList requires items");
+              }
+              return createTaskList(blockDef.items);
             case "blockquote":
               if (blockDef.content === void 0) {
                 throw new Error("appendBlocks: blockquote requires content");
@@ -12916,7 +12957,7 @@ ${err.toString()}`);
               }
               return createTable(blockDef.headers, blockDef.rows);
             default:
-              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
+              throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, taskList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
           }
         }
         const elements = blocks.map(createBlock);
