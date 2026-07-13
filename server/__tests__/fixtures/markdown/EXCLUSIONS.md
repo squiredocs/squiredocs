@@ -16,7 +16,7 @@ spec (Out of Scope) and are not enumerated here.
 |------|---------------------|--------|
 | Emphasis | multi-rule "rule of 3" / precedence corner cases (e.g. `*foo**bar**baz*` variants) | Delimiter-stack handles them, but exact HTML→PM translation of every precedence example adds no coverage over the nesting cases already asserted. |
 | Fenced code | tilde-fence examples (` ~~~ `) | Tilde fences are excluded from the grammar (research R9); they degrade to paragraph text. Backtick fences are covered via round-trip + tolerant suites. |
-| Fenced code | info-string with backtick / attributes | Only the first info word (language, mermaid/svg routing) is used; exotic info strings are not part of the dialect. |
+| Fenced code | info-string with backtick / attributes | The full trimmed info string is kept as the code block's `language` (with a lower-cased `mermaid`/`svg` routing to the diagram node); exotic multi-word info strings are preserved rather than parsed into a dialect. |
 | Indented code | indented code inside a list item's continuation | Interaction is context-dependent (de-indent relative to the item); covered structurally by the list suite rather than as isolated spec examples. |
 | Entities | the full ~2100 HTML5 named-entity table | CN-4: only numeric refs + a curated named set are supported; unlisted named entities are preserved as literal text (lossless). `&unknownentity;` asserts that path. |
 | Autolinks | bare email autolinks (`foo@bar.com` without angle brackets) | CN-5: bare-email detection is intentionally excluded from v1 to avoid `@handle` false positives; angle-bracket email autolinks are covered. |
