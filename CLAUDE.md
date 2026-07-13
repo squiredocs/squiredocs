@@ -8,3 +8,9 @@ to go.
 
 IMPORTANT: If you find that these docs are out of date based on your analysis
 of the codebase, update them so they are always accurate.
+
+Design ground truth lives in design/ — markdown exports of Squire-authored
+design docs (never hand-edit; amend the Squire doc, then `node design/sync.mjs`).
+The project constitution is .specify/memory/constitution.md. Design-driven or
+multi-feature work follows the /design-pipeline skill
+(.claude/skills/design-pipeline/SKILL.md).

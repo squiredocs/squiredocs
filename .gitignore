@@ -28,3 +28,4 @@ tmp/
 
 # API keys / secrets
 *.key
+design/.squire-token

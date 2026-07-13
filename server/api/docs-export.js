@@ -59,8 +59,15 @@ function createExportRouter(persistence) {
       const markdown = toMarkdown(xmlFragment);
 
       const filename = sanitizeFilename(title) + '.md';
+      // Header values must be Latin-1; setHeader throws on e.g. em dashes.
+      // For non-ASCII titles send an ASCII fallback plus the full Unicode
+      // name via RFC 5987 filename*.
+      const asciiFilename = filename.replace(/[^\x20-\x7e]/g, '_');
+      const disposition = asciiFilename === filename
+        ? `attachment; filename="${filename}"`
+        : `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
       res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', disposition);
       res.send(markdown);
     } catch (error) {
       console.error('Error exporting document:', error);

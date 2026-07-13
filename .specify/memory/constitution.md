@@ -1,16 +1,16 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (template) → 1.0.0
-Modified principles: n/a (initial adoption — all placeholders filled)
+Version change: 1.0.0 → 1.1.0
+Modified principles: none renamed; Development Workflow gained a design-pipeline reference
 Added sections:
-  - Core Principles (5): I. Documentation Reflects Reality; II. Test-Backed Changes;
-    III. Trunk-Based Solo Workflow; IV. Collaboration-Safe Document Operations;
-    V. Secure by Default for Agent & User Content
-  - Technology & Architecture Constraints
-  - Development Workflow & Quality Gates
-  - Governance
-Removed sections: none (template slots consumed)
+  - Principle VI: Design Docs Are Ground Truth (adopting the design-pipeline
+    operating model: design/ exports from Squire, sync via design/sync.mjs,
+    decisions ledger, converge-code-to-design)
+Prior adoption (1.0.0, 2026-07-13):
+  - Core Principles I-V; Technology & Architecture Constraints;
+    Development Workflow & Quality Gates; Governance
+Removed sections: none
 Templates requiring updates:
   ✅ .specify/templates/plan-template.md — Constitution Check gate is generic
      ("[Gates determined based on constitution file]"); derives from this file at plan time.
@@ -84,6 +84,23 @@ trust boundary and validation policy in the spec before implementation.
 Rationale: the product's pitch is "bring your own agent" — that only works if hostile or
 buggy agent output cannot execute, exfiltrate, or corrupt.
 
+### VI. Design Docs Are Ground Truth
+
+`design/` holds markdown exports of the Squire-authored design documents and is the
+authoritative statement of intent: when code, specs, or a model's priors disagree with a
+design doc, the doc wins. Material gaps or contradictions MUST be flagged (in the feature's
+`clarifications-needed.md` ledger), never resolved ad hoc. Design changes MUST be made in the
+source Squire document first (each export's `source:` header), re-exported via
+`node design/sync.mjs`, committed, and only then converged into code; exported files MUST NOT
+be hand-edited. When implementation falsifies a documented mechanism, the doc MUST be amended
+with the reason as part of the same effort. Unanswered product decisions get the best default,
+recorded as RATIFIED-BY-DEFAULT in the ledger — work never blocks on the maintainer, and
+nothing is decided silently.
+
+Rationale: the design docs are collaboratively authored in Squire (dogfooding the product);
+they only function as shared ground truth for humans and agents if divergence is impossible
+to do quietly.
+
 ## Technology & Architecture Constraints
 
 - Stack: Node.js 22+ / Express / y-websocket backend; React 18 + TipTap + Yjs frontend;
@@ -106,6 +123,10 @@ buggy agent output cannot execute, exfiltrate, or corrupt.
 - Feature work driven through spec-kit artifacts (`.specify/`) MUST pass the plan-phase
   Constitution Check against this document; violations require an entry in the plan's
   Complexity Tracking table with the simpler alternative and why it was rejected.
+- Multi-feature or design-driven efforts follow the `/design-pipeline` skill
+  (`.claude/skills/design-pipeline/SKILL.md`): parallel spec/plan/implement agents in
+  worktrees, a serial merge queue running the authoritative verification, post-merge
+  adversarial review, same-day fixes. Deploys stay with the maintainer.
 - Test output MUST stay LLM-friendly: keep the custom reporters wired in so passing suites
   summarize to one line and only failures expand.
 
@@ -120,4 +141,4 @@ gates or required sections change. Compliance is reviewed at spec-kit plan time 
 Check gate) and whenever an agent session begins work that touches a governed area. Runtime
 agent guidance lives in `CLAUDE.md`; where they conflict, this constitution wins.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-07-13
+**Version**: 1.1.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-07-13

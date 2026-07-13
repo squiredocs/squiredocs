@@ -181,6 +181,22 @@ describe('API: GET /api/docs/:docId/export', () => {
     expect(disposition).not.toMatch(/[\/\\:*?"<>|]\.md/);
   });
 
+  test('exports titles with non-Latin-1 characters (RFC 5987 filename*)', async () => {
+    await seedDoc(testUserId, 'Squire Design Docs — Index');
+    const res = await request(app)
+      .get(`/api/docs/${docId}/export`)
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(200);
+    const disposition = res.headers['content-disposition'];
+    // ASCII fallback in filename=, full title percent-encoded in filename*=
+    expect(disposition).toBe(
+      'attachment; filename="Squire Design Docs _ Index.md"; ' +
+      "filename*=UTF-8''Squire%20Design%20Docs%20%E2%80%94%20Index.md"
+    );
+    expect(res.text).toContain('# Hello');
+  });
+
   describe('sqd_ API tokens (personal access tokens)', () => {
     test('exports end to end with a default-scope token', async () => {
       await seedDoc(testUserId, 'PAT Doc');

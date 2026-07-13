@@ -106,6 +106,8 @@ Open `http://localhost:5173` in your browser to use the editor.
 
 This is a **single-developer personal project**, so it deliberately skips the ceremony of a team workflow. There is **no pull-request or code-review process** — ordinary changes are committed straight to `main` and deployed to prod from there (see [Deploy Scripts](#deploy-scripts)). Branches are used only when they earn it: exploratory spikes, larger multi-step efforts, or work risky enough to want isolated until it's ready. **Default path for a normal change: run the tests, commit to `main`, deploy.**
 
+Larger, design-driven efforts follow the **design pipeline** (`.claude/skills/design-pipeline/SKILL.md`): design docs are authored collaboratively in Squire itself (dogfooding), exported to `design/` via `node design/sync.mjs` as ground truth, then spec-kit agents spec/plan/implement in parallel worktrees with a serial merge queue and post-merge review. The project constitution lives at `.specify/memory/constitution.md`.
+
 ### Running Separately
 
 **Backend only:**

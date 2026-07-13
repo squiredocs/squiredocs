@@ -1,0 +1,61 @@
+---
+name: "design-pipeline"
+description: "Run the Squire design-to-merged pipeline: Squire docs as design ground truth, parallel spec/plan/implement agents in worktrees, a serial merge queue with full verification, adversarial review with same-day fixes, and a decisions ledger — for new features, design amendments, and feedback triage alike. Use when orchestrating any multi-feature Squire work, converging code to a design-doc change, or processing feedback from Sam or the in-app assistant."
+metadata:
+  author: "squire"
+  source: "adapted from Semalab/cto-tool zil branch liz-pipeline skill, 2026-07-13"
+---
+
+# The Squire design pipeline
+
+The operating model for design-driven feature work in this repo. You (the orchestrating session) stay in the loop between stages; agents do the work. Squire dogfoods itself: the design docs live in Squire Docs.
+
+## Ground rules (always)
+
+- `design/` is ground truth (constitution Principle VI). Code, specs, and priors lose to it; material silences become flagged gaps, never ad-hoc decisions.
+- Design changes are made IN SQUIRE first (each file's `source:` header URL; use the Squire Docs MCP, read `get_tool_documentation({tool:"modify"})` before your first script), then `node design/sync.mjs` re-exports, then commit, then converge code to match. Never hand-edit exports. New docs: create in Squire, add to the `DOCS` map in sync.mjs, add a row to the "Squire Design Docs - Index" doc.
+- Sync auth: mint a `documents:read` token via the MCP `create_access_token` tool (max 24 h) and write it to `design/.squire-token` (gitignored) or export `SQUIRE_API_TOKEN`.
+- When reality falsifies a documented mechanism, amend the doc with the why — don't silently diverge.
+- Decisions Sam hasn't answered get the best default, recorded as **RATIFIED-BY-DEFAULT (Sam pre-authorized, date)** in the feature's `clarifications-needed.md` with question/why/rationale; his later confirmations upgrade them in place. Never block on him; never decide silently.
+- Every feature accumulates `promotion-notes.md` (prototype relaxations owed at promotion) — review dispositions land there too.
+
+## The feature pipeline (new specs and converges)
+
+1. **Spec** (Fable agent): follows the speckit-specify skill with the parallel-safe overrides below. Returns a summary + its recorded decisions.
+2. **Plan → tasks → analyze** (Opus agent; Fable only for subsystem-replacement or CRDT/serialization-core features): one agent runs all three speckit skills. Analyze findings are reported, never auto-fixed beyond self-introduced drift. CRITICAL/HIGH findings stop the line; MEDIUMs get folded into the implement brief.
+3. **COMMIT THE SPEC ARTIFACTS BEFORE SPAWNING IMPLEMENTERS** (worktrees see only committed state).
+4. **Implement** (Opus agent, `isolation: "worktree"`): branches `NNN-slug` off `main`, follows speckit-implement, commits granularly with the `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` trailer, never pushes/merges. Collision-plan concurrency: docs-only stages fan out wide; implementation runs 2-3 max, never two features touching the same Express router, the shared prosemirror schema/format registry, migration ordering, or the same client surface. Migrations: at most ONE in-flight feature may add node-pg-migrate files at a time (they're globally ordered); others queue behind it.
+5. **Merge queue** (you, serially): `git merge --no-ff` into `main`, resolve spec-file add/add conflicts as theirs-for-tasks.md (checkmarks) / ours-for-clarifications.md (ratification headers), then the authoritative verification in the main tree: `npm run migrate`, `npm test` (backend is serial-only — never overlap another backend run on the same DB), `npm run build`. Worktree "environmental" failures are re-checked here before believing them.
+6. **Review** (Fable agent, read-only): per-feature post-merge review of the actual diff, lenses ordered by what would hurt most: document ACL/permission enforcement and agent-content trust invariants (sandbox, SVG sanitizer, image-src guardrail) first, then CRDT identity preservation (no delete-and-recreate, no positional targeting), then correctness. Findings must name file:line + a concrete failing scenario; speculative findings are dropped by instruction.
+7. **Fix** (you directly for small; an Opus fixer in the main tree for bundles): land findings same-day, record dispositions in promotion-notes, correct any falsified decision rationale in the ledger. HIGHs get fixed with a strict default and flagged for Sam to ratify; LOW/accepted items become promotion notes.
+
+Deploy is NOT part of the agent pipeline: after the queue is green, tell Sam what's ready and let him trigger the deploy scripts (or do it only on his explicit ask).
+
+## Parallel-agent overrides (paste into every spec/plan brief)
+
+- Stay on the current branch; never create/switch branches, never commit (docs agents) — implementers branch in their own worktree only.
+- Never run create-new-feature.sh, never write `.specify/feature.json` (shared, racy); mkdir the pre-assigned `specs/NNN-slug/` and copy the template. Pre-assign feature numbers up front so parallel runs never race.
+- Prefix any .specify script with `SPECIFY_FEATURE=<dir> SPECIFY_FEATURE_DIRECTORY=<abs-path>` per call.
+- Never edit `CLAUDE.md`, `README.md`, or `docs/dev.md` from a parallel agent — doc updates happen in the merge queue where they can be reconciled (constitution Principle I).
+- No user interaction: defaults + ledger, or stop-and-report when genuinely blocked.
+
+## Worktree environment (paste into every implementer brief)
+
+- `npm ci && (cd client && npm ci)` — worktrees don't inherit node_modules.
+- Copy `.env` from the main tree if present; Redis is shared and fine.
+- Backend tests: NEVER point at the shared test DB from a worktree. Create a per-agent database (`createdb collab_test_db_<nnn>`) and run every test command with `DATABASE_URL=postgres://...collab_test_db_<nnn>` — the test helpers respect it (`server/__tests__/helpers/db.js`). Within one DB, backend tests are serial-only (`--runInBand` is already wired in; don't defeat it).
+- Client tests (vitest) and `npm run build` are worktree-safe as-is.
+
+## Feedback triage (Sam or the in-app assistant)
+
+Validate against code before believing or dismissing — agent-reported issues tend to contain a real finding wrapped in a wrong conclusion. Then route: UI/behavior bug → fix directly in the main tree with tests; design-level ask → Squire amendment → `node design/sync.mjs` → converge (worktree agent for big, direct for small); agent-experience gap (MCP tool confusion, unhelpful errors) → fix the guidance where the mistake happens (tool descriptions, `get_tool_documentation` content, instructive errors) and prefer teaching errors over bare exceptions. Live diagnosis beats speculation: server logs, the dev DB (`psql`), and the `support_requests` table are queryable — look first, then dispatch a hunter with your evidence and explicit hypotheses to discriminate.
+
+## What not to delegate
+
+Long-running jobs (backfills, bulk migrations, seed-from-backup) are background shell jobs YOU own (`run_in_background: true`, verify against the DB after) — agents stall silently on babysitting work. Delegate investigation and code; keep execution-and-wait loops. And verify every agent's completion claims against ground truth (DB counts, git state, test output) before reporting them upward.
+
+## Conventions
+
+- Commits: this repo's style is a plain descriptive first line (no conventional-commit prefixes), the Fable trailer, merge commits describing the feature.
+- Model tiering: Fable for specs and reviews (judgment ends), Opus for plans/implement/fixes (workhorse), Haiku for lookups. Reviewer ≥ implementer; never same-tier-reviews-itself when avoidable.
+- Status to Sam: lead with what landed and what needs his eye; keep a per-feature ledger (tasks n/n, review verdict, fixes) so the closing report writes itself.
