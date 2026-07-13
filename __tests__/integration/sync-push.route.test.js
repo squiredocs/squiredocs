@@ -193,4 +193,49 @@ describe('sync-push route (mode=sync)', () => {
       { auth: `Bearer ${otherJwt}` });
     expect(res.status).toBe(403);
   });
+
+  // ------------------------------------------------------------------------
+  // US2 (T016): concurrent flow — pull, live edit, push, overlaps, both visible
+  // ------------------------------------------------------------------------
+  test('concurrent live edit before push: both streams visible; overlap flagged for same block', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nblock alpha here\n\nblock bravo here');
+    // a "second Yjs client" edits block alpha on the live doc
+    const shared = documentService.getSharedDoc(docId);
+    const para = shared.get('default', Y.XmlFragment).toArray()
+      .find((n) => n.nodeName === 'paragraph' && n.get(0).toString().includes('alpha'));
+    shared.transact(() => para.get(0).insert(para.get(0).length, ' LIVE'), { userId: ownerId });
+    await drain();
+
+    // push edits the SAME block alpha (disjoint span) from the file baseline
+    const edited = body.replace('block alpha here', 'block alpha CHANGED');
+    const res = await put(docId, fileFor(docId, clock, edited));
+    await drain();
+
+    expect(res.status).toBe(200);
+    // both edit streams present in a follow-up export
+    const after = await currentBody(docId);
+    expect(after).toContain('LIVE');
+    expect(after).toContain('CHANGED');
+    // overlap flagged for block alpha (edited both sides)
+    expect(res.body.overlaps.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.overlaps.some((o) => o.docSide === 'edited')).toBe(true);
+  });
+
+  test('disjoint concurrent edits: no overlap flagged', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\npara one text\n\npara two text');
+    const shared = documentService.getSharedDoc(docId);
+    const p1 = shared.get('default', Y.XmlFragment).toArray()
+      .find((n) => n.nodeName === 'paragraph' && n.get(0).toString().includes('one'));
+    shared.transact(() => p1.get(0).insert(p1.get(0).length, ' LIVE'), { userId: ownerId });
+    await drain();
+
+    const edited = body.replace('para two text', 'para two CHANGED'); // different block
+    const res = await put(docId, fileFor(docId, clock, edited));
+    await drain();
+    expect(res.status).toBe(200);
+    expect(res.body.overlaps).toEqual([]);
+    const after = await currentBody(docId);
+    expect(after).toContain('LIVE');
+    expect(after).toContain('CHANGED');
+  });
 });
