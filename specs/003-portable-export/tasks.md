@@ -133,8 +133,8 @@ priority but can be done any time after Phase 2.
 ## Phase 8: Polish & Cross-Cutting
 
 - [X] T027 [P] Docs (FR-024, Constitution I): update `README.md` export feature description (task lists; `flavor`/`frontmatter` options; `format=bundle`) and the MCP export API tool documentation (`get_tool_documentation({tool:"export_api"})` source — find it under `server/mcp/`) with the new query options and defaults. Update the `modify`/scripting docs listing appendBlocks types to include `taskList`.
-- [ ] T028 [P] Byte-compat sweep (SC-003/FR-022): run the FULL backend suite serially (`npx jest --runInBand`) + client suite (`npx vitest run`); confirm diff-service/read_document/chat-tools call sites still pass no options and their outputs are unchanged; grep for other `toMarkdown(` call sites to verify none accidentally opted in.
-- [ ] T029 Run quickstart.md end-to-end in the dev pod (all five US sections) and record outcomes; append any design-doc drift or 001-seam gaps discovered to `specs/003-portable-export/promotion-notes.md`.
+- [X] T028 [P] Byte-compat sweep (SC-003/FR-022): run the FULL backend suite serially (`npx jest --runInBand`) + client suite (`npx vitest run`); confirm diff-service/read_document/chat-tools call sites still pass no options and their outputs are unchanged; grep for other `toMarkdown(` call sites to verify none accidentally opted in.
+- [X] T029 Run quickstart.md end-to-end in the dev pod (all five US sections) and record outcomes; append any design-doc drift or 001-seam gaps discovered to `specs/003-portable-export/promotion-notes.md`.
 
 ---
 
