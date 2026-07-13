@@ -664,6 +664,34 @@ function yamlScalar(value) {
 }
 
 /**
+ * Strip any top-level `squire:` key (bare, "squire" or 'squire' quoted) and
+ * its indented/blank continuation lines from preserved foreign frontmatter.
+ *
+ * parseFrontmatter's conservative fallbacks (a quoted squire key, or an
+ * anchor crossing the squire block) return the WHOLE inner block — squire
+ * lines included — as foreignRaw so foreign keys are never corrupted. A
+ * consumer re-emitting buildFrontmatter(meta, foreignRaw) would then write a
+ * SECOND `squire:` key; js-yaml rejects duplicate keys, so the next parse
+ * throws and the entire block degrades to body content (F5). Excising the
+ * stale squire block here keeps re-emission to exactly one squire key.
+ */
+function stripForeignSquire(foreignRaw) {
+  const lines = foreignRaw.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^(?:squire|"squire"|'squire')\s*:(\s|$)/.test(lines[i])) {
+      // Drop the key line and every following indented or blank line.
+      let j = i + 1;
+      while (j < lines.length && (/^[ \t]/.test(lines[j]) || lines[j].trim() === '')) j++;
+      i = j - 1;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return out.join('\n');
+}
+
+/**
  * Build the single leading YAML frontmatter block for an export
  * (contracts/frontmatter-squire-block.md §1). Hand-rolled, deterministic:
  * fixed key order under `squire:`, foreign raw lines re-emitted verbatim
@@ -686,7 +714,12 @@ function yamlScalar(value) {
  */
 function buildFrontmatter(meta, foreignRaw = null) {
   const lines = ['---'];
-  if (foreignRaw != null && foreignRaw !== '') lines.push(foreignRaw);
+  if (foreignRaw != null && foreignRaw !== '') {
+    // Never let a stale squire block from a conservative-fallback foreignRaw
+    // collide with the squire key we emit below (F5).
+    const foreign = stripForeignSquire(foreignRaw);
+    if (foreign.trim() !== '') lines.push(foreign);
+  }
   lines.push('squire:');
   lines.push(`  docGuid: ${yamlScalar(meta.docGuid)}`);
   lines.push(`  title: ${yamlScalar(meta.title)}`);

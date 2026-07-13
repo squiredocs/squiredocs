@@ -117,6 +117,54 @@ describe('parseFrontmatter — preserve foreign keys (RD-4, SC-005)', () => {
   });
 });
 
+describe('buildFrontmatter — foreign squire guard (F5, contract)', () => {
+  // A conservative-fallback foreignRaw still carries the original squire key.
+  // buildFrontmatter must excise it so re-emission never writes two squire
+  // keys (js-yaml duplicate-key ⇒ next parse throws ⇒ block degrades to body).
+
+  test('quoted-squire fallback re-exports safely: one squire key, new meta + foreign recovered', () => {
+    const original = `---\n"squire":\n  docGuid: g1\nspeckit:\n  phase: plan\n---\nBody`;
+    const parsed = parseFrontmatter(original);
+    expect(parsed.foreignRaw).toContain('squire'); // the stale key is carried
+
+    const reExported = buildFrontmatter(SQUIRE_META, parsed.foreignRaw) + '\n' + parsed.body;
+    // Exactly one top-level squire key — no duplicate.
+    expect(reExported.match(/^squire:/gm)).toHaveLength(1);
+
+    const again = parseFrontmatter(reExported);
+    expect(again.squire.docGuid).toBe(SQUIRE_META.docGuid); // fresh squire recovered
+    expect(again.foreignRaw).toBe('speckit:\n  phase: plan'); // foreign key preserved
+    expect(again.body).toBe('Body');
+  });
+
+  test('anchor-crossing fallback degrades gracefully: no duplicate key, no throw, no content loss', () => {
+    const original = `---\nsquire:\n  docGuid: &g g1\nspeckit:\n  ref: *g\n---\nBody`;
+    const parsed = parseFrontmatter(original);
+
+    let reExported;
+    expect(() => {
+      reExported = buildFrontmatter(SQUIRE_META, parsed.foreignRaw) + '\n' + parsed.body;
+    }).not.toThrow();
+    // The stale squire block is gone; only our fresh key remains (no duplicate).
+    expect(reExported.match(/^squire:/gm)).toHaveLength(1);
+
+    // The cross-boundary anchor is inherently un-re-emittable, so the next
+    // parse degrades the block to content — but never throws and never loses
+    // the foreign content (it survives verbatim in the body).
+    let again;
+    expect(() => { again = parseFrontmatter(reExported); }).not.toThrow();
+    expect(again.body).toContain('speckit:');
+    expect(again.body).toContain('ref: *g');
+  });
+
+  test('a clean foreignRaw with no squire key is emitted verbatim (guard is a no-op)', () => {
+    const foreign = 'speckit:\n  phase: implement\nlayout: doc';
+    const out = buildFrontmatter(SQUIRE_META, foreign);
+    expect(out).toContain(foreign);
+    expect(out.match(/^squire:/gm)).toHaveLength(1);
+  });
+});
+
 describe('parseFrontmatter — not-frontmatter degrades to content (FR-016)', () => {
   test('lone --- (later horizontal rule) is content', () => {
     const input = '---\njust text with no closing fence';
