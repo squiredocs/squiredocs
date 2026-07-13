@@ -302,3 +302,59 @@ describe('US2 — degradation ladder', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Post-merge review regressions (F1–F6)
+// ---------------------------------------------------------------------------
+
+describe('post-merge review regressions', () => {
+  const hasNul = (doc) => JSON.stringify(doc).includes('\\u0000') || plainText(doc).includes(String.fromCharCode(0));
+  const firstHref = (doc) => {
+    const links = findAll(doc, (n) => (n.marks || []).some((m) => m.type === 'link'));
+    return links.length ? links[0].marks.find((m) => m.type === 'link').attrs.href : null;
+  };
+
+  // F1 — a stray unbalanced inline-HTML open tag must not swallow later blocks,
+  // and the continuation-line joiner's placeholder must never leak as a NUL.
+  test('F1: unbalanced inline open tag does not swallow following blocks', () => {
+    const doc = parse('Price a<u, b>c\n\n# Section\n- item');
+    expect(blockTypes(doc)).toEqual(['paragraph', 'heading', 'bulletList']);
+    expect(plainText(doc)).toContain('Section');
+    expect(plainText(doc)).toContain('item');
+    expect(hasNul(doc)).toBe(false);
+    expectValid(doc);
+  });
+
+  test('F1: open tag with no close ahead (no blank) still ends the paragraph', () => {
+    const doc = parse('Price a<u, b>c\n# Section');
+    expect(blockTypes(doc)).toEqual(['paragraph', 'heading']);
+    expect(hasNul(doc)).toBe(false);
+  });
+
+  test('F1: fenced code containing a lone inline open tag keeps literal text, no NUL', () => {
+    const doc = parse('```\na <u b\nmore code\n```');
+    expect(doc.content[0].type).toBe('codeBlock');
+    expect(plainText(doc)).toBe('a <u b\nmore code');
+    expect(hasNul(doc)).toBe(false);
+    expectValid(doc);
+  });
+
+  test('F1: fenced code with an open+close tag split across lines has no NUL', () => {
+    const doc = parse('```\n<u\nx</u>\n```');
+    expect(doc.content[0].type).toBe('codeBlock');
+    expect(hasNul(doc)).toBe(false);
+    expect(plainText(doc)).toContain('</u>');
+    expectValid(doc);
+  });
+
+  test('F1: a genuine soft-wrapped span still joins across the newline', () => {
+    // opener has a matching close on the next line → the placeholder join fires
+    // and the span content keeps its literal newline (restored to \n on output).
+    const doc = parse('<span style="color:#333">line one\nline two</span>');
+    const styled = findAll(doc, (n) => (n.marks || []).some((m) => m.type === 'textStyle'));
+    expect(styled.length).toBeGreaterThan(0);
+    expect(plainText(doc)).toContain('line one\nline two');
+    expect(hasNul(doc)).toBe(false);
+    expectValid(doc);
+  });
+});

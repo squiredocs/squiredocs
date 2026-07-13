@@ -21,20 +21,43 @@ const continuationOpenRe = new RegExp(`<(?:${INLINE_HTML_TAGS.join('|')})\\b`, '
 const continuationCloseRe = new RegExp(`<\\/(?:${INLINE_HTML_TAGS.join('|')})>`, 'g');
 
 /**
+ * True if a matching inline-HTML close token (`</span>`, `</u>`, …) appears in
+ * the lines at/after `from` before the current open span hits a block boundary.
+ * A span the serializer soft-wrapped always closes within the same block, so a
+ * lone unbalanced open (`Price a<u, b>c`) must NOT pull later blocks in — the
+ * scan stops at the first blank line or code fence (mirrors the inline parser's
+ * lastTagClose bail; never-lose-content, FR-013).
+ */
+function hasInlineCloseAhead(lines, from) {
+  for (let k = from; k < lines.length; k++) {
+    const l = lines[k];
+    if (l.trim() === '' || FENCE_RE.test(l)) return false;
+    if ((l.match(continuationCloseRe) || []).length > 0) return true;
+  }
+  return false;
+}
+
+/**
  * Join lines that continue the previous line because a newline fell inside an
  * inline HTML span (e.g. a `<span style>` split across lines by the serializer).
  * Real `\n` becomes the INLINE_NEWLINE placeholder, restored to `\n` in text
  * nodes by the inline parser — so the span's content keeps its literal newline
  * instead of being treated as a line break (canonical-equivalence, FR-012).
+ *
+ * The join is close-aware: a line only continues the previous one when the open
+ * span is actually closed further ahead (before any block boundary), and blank
+ * lines / fence lines are never absorbed. Without this, a stray unbalanced open
+ * tag swallowed the entire rest of the document into a single paragraph (F1).
  */
 function joinContinuationLines(lines) {
   const result = [];
-  for (const line of lines) {
-    if (result.length > 0) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (result.length > 0 && line.trim() !== '' && !FENCE_RE.test(line)) {
       const prev = result[result.length - 1];
       const opens = (prev.match(continuationOpenRe) || []).length;
       const closes = (prev.match(continuationCloseRe) || []).length;
-      if (opens > closes) {
+      if (opens > closes && hasInlineCloseAhead(lines, idx)) {
         result[result.length - 1] = prev + INLINE_NEWLINE + line;
         continue;
       }
@@ -314,6 +337,11 @@ function fencedCodeNode(info, code, diffMark) {
 function codeBlockNode(code, language, diffMark, type = 'codeBlock') {
   const node = { type };
   if (type === 'codeBlock' && language) node.attrs = { language };
+  // Restore any INLINE_NEWLINE placeholders the continuation-line joiner may have
+  // inserted (an inline-HTML open tag inside fenced/indented code). Text nodes
+  // do this in the inline parser, but code content bypasses inline parsing, so a
+  // raw placeholder would otherwise leak into output as a literal NUL (F1).
+  if (code) code = code.replaceAll(INLINE_NEWLINE, '\n');
   if (code) {
     const textNode = { type: 'text', text: code };
     if (diffMark) textNode.marks = [{ type: diffMark }];
