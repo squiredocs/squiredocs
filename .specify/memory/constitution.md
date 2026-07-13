@@ -1,10 +1,11 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
-Modified principles: none renamed; Development Workflow gained a design-pipeline reference
-Added sections:
-  - Principle VI: Design Docs Are Ground Truth (adopting the design-pipeline
+Version change: 1.1.0 → 1.1.1 (PATCH: skill renamed /design-pipeline → /the-pipeline;
+references updated, no semantic change)
+Modified principles: none renamed; Development Workflow gained a pipeline-skill reference
+Added sections (in 1.1.0):
+  - Principle VI: Design Docs Are Ground Truth (adopting the pipeline
     operating model: design/ exports from Squire, sync via design/sync.mjs,
     decisions ledger, converge-code-to-design)
 Prior adoption (1.0.0, 2026-07-13):
@@ -123,8 +124,8 @@ to do quietly.
 - Feature work driven through spec-kit artifacts (`.specify/`) MUST pass the plan-phase
   Constitution Check against this document; violations require an entry in the plan's
   Complexity Tracking table with the simpler alternative and why it was rejected.
-- Multi-feature or design-driven efforts follow the `/design-pipeline` skill
-  (`.claude/skills/design-pipeline/SKILL.md`): parallel spec/plan/implement agents in
+- Multi-feature or design-driven efforts follow the `/the-pipeline` skill
+  (`.claude/skills/the-pipeline/SKILL.md`): parallel spec/plan/implement agents in
   worktrees, a serial merge queue running the authoritative verification, post-merge
   adversarial review, same-day fixes. Deploys stay with the maintainer.
 - Test output MUST stay LLM-friendly: keep the custom reporters wired in so passing suites
@@ -141,4 +142,4 @@ gates or required sections change. Compliance is reviewed at spec-kit plan time 
 Check gate) and whenever an agent session begins work that touches a governed area. Runtime
 agent guidance lives in `CLAUDE.md`; where they conflict, this constitution wins.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-07-13
+**Version**: 1.1.1 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-07-13

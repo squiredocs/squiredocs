@@ -1,5 +1,5 @@
 ---
-name: "design-pipeline"
+name: "the-pipeline"
 description: "Run the Squire design-to-merged pipeline: Squire docs as design ground truth, parallel spec/plan/implement agents in worktrees, a serial merge queue with full verification, adversarial review with same-day fixes, and a decisions ledger — for new features, design amendments, and feedback triage alike. Use when orchestrating any multi-feature Squire work, converging code to a design-doc change, or processing feedback from Sam or the in-app assistant."
 metadata:
   author: "squire"

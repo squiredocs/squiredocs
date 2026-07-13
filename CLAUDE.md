@@ -12,5 +12,5 @@ of the codebase, update them so they are always accurate.
 Design ground truth lives in design/ — markdown exports of Squire-authored
 design docs (never hand-edit; amend the Squire doc, then `node design/sync.mjs`).
 The project constitution is .specify/memory/constitution.md. Design-driven or
-multi-feature work follows the /design-pipeline skill
-(.claude/skills/design-pipeline/SKILL.md).
+multi-feature work follows the /the-pipeline skill
+(.claude/skills/the-pipeline/SKILL.md).

@@ -3,7 +3,7 @@
 //
 // Design changes are made IN SQUIRE first, then re-exported here, then code
 // is converged to match. Never hand-edit the exported .md files — the next
-// sync overwrites them. See .claude/skills/design-pipeline/SKILL.md.
+// sync overwrites them. See .claude/skills/the-pipeline/SKILL.md.
 //
 // Usage:
 //   SQUIRE_API_TOKEN=sk_sqd_... node design/sync.mjs
