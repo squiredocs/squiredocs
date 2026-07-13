@@ -58,6 +58,42 @@ document serialized to Markdown (same serializer as read_document's markdown
 format), as a text/markdown attachment. View access is sufficient.
 
 ═══════════════════════════════════════════════════════════════════════════
+QUERY OPTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+format=markdown | md | bundle     (default markdown)
+flavor=squire | portable          (default squire; bundle defaults portable)
+frontmatter=true|1 | false|0      (default off; bundle defaults on)
+
+Unknown values are rejected with 400 naming the accepted values. A request
+with no options is byte-identical to previous releases (existing scripts
+are unaffected).
+
+flavor=portable degrades HTML-only inline marks so the file renders cleanly
+on GitHub: underline → _emphasis_, highlight → **bold**, styled spans
+(color/font/size) → plain text. Content is never lost, only styling; the
+set of marks actually degraded is reported in the frontmatter lossy list.
+Marks with native markdown forms, diagram fences, tables, task lists
+(- [ ] / - [x]) and hard breaks are identical in both flavors.
+
+frontmatter=true prepends a single YAML block whose squire: key carries
+docGuid, title, clock (version counter at export), exportedAt (UTC),
+lastModifiedBy, flavor, plus lossy (only when marks degraded) and images
+(bundle exports only). Sync tooling can identify the source document and
+version snapshot from the file alone.
+
+format=bundle streams a zip: the markdown file plus every resolvable
+document image under assets/<docSlug>/<imageId>.<ext>, with in-document
+image references rewritten to those relative paths — the file renders with
+images anywhere (GitHub, local editors). The frontmatter images map records
+relative path → image id for later re-import. Unresolvable images keep
+their app URL and are skipped (the export still succeeds). Defaults to
+flavor=portable and frontmatter=true; both overridable.
+
+curl -sf -H "Authorization: Bearer $SQUIRE_TOKEN" \\
+  "https://squiredocs.com/api/docs/<docId>/export?format=bundle" -o doc.zip
+
+═══════════════════════════════════════════════════════════════════════════
 EXPORT MANY DOCUMENTS
 ═══════════════════════════════════════════════════════════════════════════
 

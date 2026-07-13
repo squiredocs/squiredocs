@@ -191,6 +191,8 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
     { type: 'heading', level: 1-6, content: string | FormattedContent }
     { type: 'bulletList', items: ListItem[] }
     { type: 'orderedList', items: ListItem[] }
+    { type: 'taskList', items: ListItem[] }   - GFM checklist; items accept { content, checked?: boolean }
+      (checked defaults false; nested items under a task item default to taskList)
     { type: 'codeBlock', content: string }
     { type: 'mermaid', content: string }   - Mermaid diagram source, rendered live in the editor
     { type: 'svg', content: string }       - raw SVG markup, rendered live (sanitized) in the editor.
@@ -203,7 +205,7 @@ appendBlocks(container, blocks, position?)  ⭐ PREFERRED FOR ADDING CONTENT
       Note: For colspan/rowspan, use low-level API (see Example 7c below)
 
   ListItem = string | FormattedContent | NestedItem
-  NestedItem = { content: string | FormattedContent, items?: ListItem[], type?: 'bulletList' | 'orderedList' }
+  NestedItem = { content: string | FormattedContent, checked?: boolean, items?: ListItem[], type?: 'bulletList' | 'orderedList' | 'taskList' }
   FormattedContent = Array<string | { text: string, attrs: object }>
 
   Position options:
@@ -337,6 +339,7 @@ Y.XmlText (text content with formatting):
 TipTap Block Types:
   - 'paragraph', 'heading' (with level: 1-6)
   - 'bulletList', 'orderedList', 'listItem'
+  - 'taskList', 'taskItem' (GFM checklist; taskItem has checked: 'true'|'false' attribute)
   - 'codeBlock', 'blockquote', 'horizontalRule'
   - 'mermaid' (diagram block — child Y.XmlText holds the Mermaid source)
   - 'svg' (raw SVG block — child Y.XmlText holds the SVG markup, rendered sanitized:
