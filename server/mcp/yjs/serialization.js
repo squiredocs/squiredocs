@@ -6,7 +6,7 @@
  */
 const Y = require('yjs');
 const { getNodeTextLength } = require('./cursor-operations');
-const { INLINE_MARKS, attrsToCSS } = require('../../../shared/format-registry');
+const { INLINE_MARKS, TEXTSTYLE_PORTABLE, attrsToCSS } = require('../../../shared/format-registry');
 const {
   isInlineContentBlock,
   isCodeLikeBlock,
@@ -68,9 +68,20 @@ function toPlainText(xmlFragment) {
 /**
  * Serialize an array of Yjs nodes to Markdown
  * @param {Array<Y.XmlElement|Y.XmlText>} nodes - Yjs nodes (e.g. fragment blocks or xpath matches)
+ * @param {object} [options] - Serialization options (backward-compatible; all
+ *   existing call sites pass nothing and get today's exact output).
+ * @param {'squire'|'portable'} [options.flavor='squire'] - Export flavor.
+ *   'portable' degrades HTML-only marks per their registry `portable`
+ *   declarations (contracts/registry-degradation.md); 'squire' is
+ *   byte-identical to the pre-options output (FR-022).
+ * @param {Set<string>|null} [options.lossy=null] - When provided, populated
+ *   with the names of marks actually degraded during this serialization
+ *   (RD-6: actual degradations only).
  * @returns {string} Markdown content
  */
-function toMarkdownNodes(nodes) {
+function toMarkdownNodes(nodes, options = {}) {
+  const { flavor = 'squire', lossy = null } = options || {};
+  const portable = flavor === 'portable';
   const parts = [];
 
   function renderInline(textNode) {
@@ -80,9 +91,33 @@ function toMarkdownNodes(nodes) {
       if (typeof op.insert !== 'string') continue;
       let seg = op.insert;
       const a = op.attributes || {};
+      // Portable flavor: identical delimiter pairs collapse to one emission
+      // (FR-012). Pre-compute the pairs the segment's native marks will emit
+      // so a degraded mark whose target coincides never doubles delimiters.
+      let emittedPairs = null;
+      if (portable) {
+        emittedPairs = new Set();
+        for (const m of INLINE_MARKS) {
+          if (a[m.yjsAttr] && !m.portable && m.wrap) {
+            emittedPairs.add(m.wrap[0] + '\u0000' + m.wrap[1]);
+          }
+        }
+      }
       // Apply marks from registry (innermost first)
       for (const m of INLINE_MARKS) {
         if (!a[m.yjsAttr]) continue;
+        if (portable && m.portable) {
+          // Degradation declared in the registry (FR-011): substitute the
+          // declared markdown wrap for the HTML tag. Still counts as lossy
+          // even when the delimiters collapse with a native mark's.
+          if (lossy) lossy.add(m.name);
+          const key = m.portable.wrap[0] + '\u0000' + m.portable.wrap[1];
+          if (!emittedPairs.has(key)) {
+            emittedPairs.add(key);
+            seg = m.portable.wrap[0] + seg + m.portable.wrap[1];
+          }
+          continue;
+        }
         if (m.wrap) seg = m.wrap[0] + seg + m.wrap[1];
         else seg = `<${m.htmlTag}>${seg}</${m.htmlTag}>`;
       }
@@ -90,7 +125,14 @@ function toMarkdownNodes(nodes) {
       const ts = typeof a.textStyle === 'object' && a.textStyle;
       if (ts) {
         const css = attrsToCSS(ts);
-        if (css) seg = `<span style="${css}">${seg}</span>`;
+        if (css) {
+          if (portable && TEXTSTYLE_PORTABLE.drop) {
+            // Styling dropped, text preserved (FR-010).
+            if (lossy) lossy.add('textStyle');
+          } else {
+            seg = `<span style="${css}">${seg}</span>`;
+          }
+        }
       }
       // link (custom — not a simple wrap/tag)
       if (a.link) seg = `[${seg}](${typeof a.link === 'object' ? a.link.href : a.link})`;
@@ -105,7 +147,14 @@ function toMarkdownNodes(nodes) {
       if (child instanceof Y.XmlText) {
         text += renderInline(child);
       } else if (child instanceof Y.XmlElement) {
-        text += getChildText(child);
+        if (child.nodeName === 'hardBreak') {
+          // Hard breaks emit the trailing-backslash form, all flavors
+          // (FR-007, RD-7). Structurally constrained containers (table
+          // cells, headings) post-process this to <br> — see their renderers.
+          text += '\\\n';
+        } else {
+          text += getChildText(child);
+        }
       }
     }
     return text;
@@ -124,7 +173,10 @@ function toMarkdownNodes(nodes) {
       parts.push(getChildText(node) + '\n');
     } else if (tag === 'heading') {
       const level = parseInt(node.getAttribute('level') || '1', 10);
-      parts.push('#'.repeat(level) + ' ' + getChildText(node) + '\n');
+      // A backslash-newline break would split the ATX heading line; <br> is
+      // the only hard-break form that keeps the heading one block (FR-007).
+      const text = getChildText(node).replace(/\\\n/g, '<br>');
+      parts.push('#'.repeat(level) + ' ' + text + '\n');
     } else if (tag === 'codeBlock') {
       const lang = node.getAttribute('language') || '';
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
@@ -142,7 +194,9 @@ function toMarkdownNodes(nodes) {
       const innerLines = parts.splice(0); // capture child output
       parts.push(...saved);              // restore previous output
       for (const line of innerLines) {
-        parts.push('> ' + line);
+        // Hard-break continuation lines need their own '> ' prefix to stay
+        // inside the blockquote (FR-007).
+        parts.push('> ' + line.replace(/\\\n/g, '\\\n> '));
       }
     } else if (tag === 'bulletList') {
       for (const child of node.toArray()) {
@@ -156,6 +210,17 @@ function toMarkdownNodes(nodes) {
         if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
           renderListItem(child, indent, `${num}. `);
           num++;
+        }
+      }
+    } else if (tag === 'taskList') {
+      // GFM task list: identical in all flavors (FR-004); lowercase x (RD-8).
+      // `checked` arrives as boolean true from y-prosemirror (editor edits)
+      // or string 'true' from appendBlocks — accept both.
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlElement && child.nodeName === 'taskItem') {
+          const checked = child.getAttribute('checked');
+          const marker = (checked === true || checked === 'true') ? '- [x] ' : '- [ ] ';
+          renderListItem(child, indent, marker);
         }
       }
     } else if (tag === 'horizontalRule') {
@@ -177,20 +242,27 @@ function toMarkdownNodes(nodes) {
   function renderListItem(node, indent, marker) {
     const children = node.toArray();
     // CommonMark: child blocks must reach the parent's content column,
-    // i.e. be indented by the full marker width ("1. " = 3, "- " = 2).
+    // i.e. be indented by the full marker width ("1. " = 3, "- [ ] " = 6).
     const childIndent = indent + ' '.repeat(marker.length);
+    // Task items separate sibling blocks with a blank line so multi-paragraph
+    // items re-parse to the same structure (FR-006; CommonMark needs the
+    // blank line to keep the paragraphs distinct). listItem keeps its
+    // pre-feature form (FR-022 byte-compat).
+    const blockSep = node.nodeName === 'taskItem' ? '\n' : '';
     let first = true;
     for (const child of children) {
       if (child instanceof Y.XmlElement) {
-        if (['bulletList', 'orderedList'].includes(child.nodeName)) {
+        if (isListContainer(child.nodeName)) {
           processNode(child, childIndent);
         } else {
-          const text = getChildText(child);
+          // Hard-break continuation lines must reach the content column to
+          // stay inside this item (FR-007).
+          const text = getChildText(child).replace(/\\\n/g, '\\\n' + childIndent);
           if (first) {
             parts.push(indent + marker + text + '\n');
             first = false;
           } else {
-            parts.push(childIndent + text + '\n');
+            parts.push(blockSep + childIndent + text + '\n');
           }
         }
       }
@@ -204,7 +276,9 @@ function toMarkdownNodes(nodes) {
         const cells = [];
         for (const cell of child.toArray()) {
           if (cell instanceof Y.XmlElement) {
-            cells.push(getChildText(cell).replace(/\|/g, '\\|'));
+            // A literal newline would split the table row; <br> is the
+            // GFM-conventional hard-break form inside cells (FR-007).
+            cells.push(getChildText(cell).replace(/\|/g, '\\|').replace(/\\\n/g, '<br>'));
           }
         }
         rows.push(cells);
@@ -234,10 +308,11 @@ function toMarkdownNodes(nodes) {
 /**
  * Serialize a Yjs XmlFragment to Markdown
  * @param {Y.XmlFragment} xmlFragment - Yjs XmlFragment
+ * @param {object} [options] - See toMarkdownNodes ({ flavor, lossy }).
  * @returns {string} Markdown content
  */
-function toMarkdown(xmlFragment) {
-  return toMarkdownNodes(xmlFragment.toArray());
+function toMarkdown(xmlFragment, options) {
+  return toMarkdownNodes(xmlFragment.toArray(), options);
 }
 
 /**
@@ -408,6 +483,10 @@ function toStructuredNode(node) {
       // Parse numeric attributes
       if (['colspan', 'rowspan', 'level'].includes(key)) {
         result[key] = parseInt(value, 10);
+      } else if (key === 'checked') {
+        // taskItem checked state (FR-005): boolean from y-prosemirror,
+        // string from appendBlocks — structured output exposes the boolean.
+        result[key] = value === true || value === 'true';
       } else {
         result[key] = value;
       }
@@ -497,6 +576,82 @@ function toTextNode(node) {
 
 /**
  * ============================================================================
+ * FRONTMATTER EMISSION (feature 003, FR-014 / RD-4)
+ * ============================================================================
+ */
+
+/**
+ * Whether a string needs quoting to survive as a YAML scalar. Deliberately
+ * conservative; quoted strings are emitted as JSON strings (valid YAML
+ * double-quoted scalars) so control characters and quotes are always safe.
+ */
+function yamlNeedsQuoting(str) {
+  if (str === '') return true;
+  if (/^\s|\s$/.test(str)) return true;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u2028\u2029]/.test(str)) return true;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(str)) return true; // leading indicator chars
+  if (/: /.test(str) || /:$/.test(str)) return true;
+  if (/ #/.test(str)) return true;
+  if (/^(true|false|null|~|yes|no|on|off)$/i.test(str)) return true;
+  if (/^[+-]?(\.?\d[\d_]*(\.[\d_]*)?([eE][+-]?\d+)?|\.inf|\.nan)$/i.test(str)) return true;
+  return false;
+}
+
+/** Emit a value as a deterministic YAML scalar. */
+function yamlScalar(value) {
+  const str = String(value);
+  return yamlNeedsQuoting(str) ? JSON.stringify(str) : str;
+}
+
+/**
+ * Build the single leading YAML frontmatter block for an export
+ * (contracts/frontmatter-squire-block.md §1). Hand-rolled, deterministic:
+ * fixed key order under `squire:`, foreign raw lines re-emitted verbatim
+ * FIRST (RD-4), one fence pair, stable bytes for identical inputs.
+ *
+ * @param {object} meta
+ * @param {string} meta.docGuid
+ * @param {string} meta.title
+ * @param {number} meta.clock - Document version counter at export.
+ * @param {string} meta.exportedAt - ISO-8601 UTC timestamp.
+ * @param {string} meta.lastModifiedBy - Last modifier identity ('' if unknown).
+ * @param {'squire'|'portable'} meta.flavor - Effective flavor of this export.
+ * @param {Iterable<string>} [meta.lossy] - Marks actually degraded; the key
+ *   is omitted when empty (RD-6). Emitted as a sorted flow list.
+ * @param {Object<string,string>} [meta.images] - relativePath → imageId,
+ *   bundle exports only; emitted as a block map sorted by key.
+ * @param {string|null} [foreignRaw] - Preserved foreign frontmatter lines,
+ *   re-emitted byte-verbatim ahead of the squire key.
+ * @returns {string} The block, opening `---` through closing `---\n`.
+ */
+function buildFrontmatter(meta, foreignRaw = null) {
+  const lines = ['---'];
+  if (foreignRaw != null && foreignRaw !== '') lines.push(foreignRaw);
+  lines.push('squire:');
+  lines.push(`  docGuid: ${yamlScalar(meta.docGuid)}`);
+  lines.push(`  title: ${yamlScalar(meta.title)}`);
+  lines.push(`  clock: ${Number.isFinite(meta.clock) ? Math.trunc(meta.clock) : 0}`);
+  lines.push(`  exportedAt: ${yamlScalar(meta.exportedAt)}`);
+  lines.push(`  lastModifiedBy: ${yamlScalar(meta.lastModifiedBy == null ? '' : meta.lastModifiedBy)}`);
+  lines.push(`  flavor: ${yamlScalar(meta.flavor)}`);
+  const lossy = meta.lossy ? [...meta.lossy].sort() : [];
+  if (lossy.length > 0) {
+    lines.push(`  lossy: [${lossy.map(yamlScalar).join(', ')}]`);
+  }
+  const imageKeys = meta.images ? Object.keys(meta.images).sort() : [];
+  if (imageKeys.length > 0) {
+    lines.push('  images:');
+    for (const key of imageKeys) {
+      lines.push(`    ${yamlScalar(key)}: ${yamlScalar(meta.images[key])}`);
+    }
+  }
+  lines.push('---');
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * ============================================================================
  * HELPER FUNCTIONS
  * ============================================================================
  */
@@ -531,6 +686,8 @@ module.exports = {
   toStructuredNode,
   toTextNode,
   extractTextWithMarks,
+  // Frontmatter emission (feature 003)
+  buildFrontmatter,
   // Helper functions (new)
   countCharacters,
   countBlocks,

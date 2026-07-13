@@ -139,27 +139,23 @@ function literalParagraphs(lines, diffMark) {
 }
 
 /**
- * FEATURE 003 HANDOFF SEAM.
+ * FEATURE 003 SEAM (flipped from feature 001's degradation).
  *
- * The single place a recognized GFM task item becomes a node. M1 degrades to a
- * bulletList `listItem` whose first paragraph keeps the literal `[x] ` / `[ ] `
- * marker as leading text, so checked-state information survives (FR-004 / CN-3).
+ * The single place a recognized GFM task item becomes a node. Feature 001
+ * degraded to a bulletList `listItem` with the literal `[x] ` marker kept as
+ * leading text; feature 003 (FR-005) emits the real schema node: `taskItem`
+ * with a boolean `checked` attr and the marker stripped. No other grammar
+ * logic changed. Tolerant mode only — the strict parser is frozen (001 CN-2)
+ * and has no task-list recognition.
  *
- * Feature 003 flips THIS function to return `{ type: 'taskItem', attrs: { checked },
- * content: contentNodes }` (a schema addition) with the marker stripped — no
- * other grammar logic changes.
+ * diffMark is unused now that no marker text is synthesized (content text
+ * nodes carry it from inline parsing); the parameter is kept for the seam's
+ * documented signature.
  */
+// eslint-disable-next-line no-unused-vars
 function taskItemNode({ checked, contentNodes, diffMark }) {
-  const marker = checked ? '[x] ' : '[ ] ';
   const nodes = contentNodes.length > 0 ? contentNodes : [{ type: 'paragraph' }];
-  const markerText = makeText(marker, diffMark);
-  const first = nodes[0];
-  if (first && first.type === 'paragraph') {
-    first.content = [markerText, ...(first.content || [])];
-  } else {
-    nodes.unshift({ type: 'paragraph', content: [markerText] });
-  }
-  return { type: 'listItem', content: nodes };
+  return { type: 'taskItem', attrs: { checked }, content: ensureParagraphFirst(nodes) };
 }
 
 // --- Core block parsing -----------------------------------------------------
@@ -248,8 +244,8 @@ function parseBlocks(lines, diffMark, depth) {
     // Lists
     const li = tryListItem(line);
     if (li) {
-      const { node, next } = parseList(lines, i, diffMark, depth);
-      blocks.push(node);
+      const { nodes, next } = parseList(lines, i, diffMark, depth);
+      blocks.push(...nodes);
       i = next;
       continue;
     }
@@ -442,18 +438,40 @@ function parseList(lines, start, diffMark, depth) {
   }
 
   if (ordered) {
-    return { node: { type: 'orderedList', attrs: { start: first.start }, content: items }, next: i };
+    return { nodes: [{ type: 'orderedList', attrs: { start: first.start }, content: items }], next: i };
   }
-  return { node: { type: 'bulletList', content: items }, next: i };
+  // Unordered items are taskItem or listItem per line (FR-005). The schema
+  // requires homogeneous containers (taskList: taskItem+, bulletList:
+  // listItem+), so a mixed run splits into consecutive same-kind lists —
+  // checkbox syntax always yields a task item, never literal `[x]` text
+  // (spec Edge Cases).
+  const groups = [];
+  for (const item of items) {
+    const kind = item.type === 'taskItem' ? 'taskList' : 'bulletList';
+    const last = groups[groups.length - 1];
+    if (last && last.type === kind) {
+      last.content.push(item);
+    } else {
+      groups.push({ type: kind, content: [item] });
+    }
+  }
+  return { nodes: groups, next: i };
 }
 
 function buildListItem(contentLines, ordered, diffMark, depth) {
-  // GFM task item: only bullets degrade to task-marker items (CN-3);
+  // GFM task item: only bullet items become task items (CN-3);
   // ordered-list checkbox syntax stays literal item text.
-  const taskMatch = !ordered && contentLines.length > 0 ? /^\[([ xX])\][ \t]+(.*)$/.exec(contentLines[0]) : null;
+  // Marker must be followed by whitespace or end the line (empty task item —
+  // spec Edge Cases); `[x]text` with no space stays literal bullet text.
+  const taskMatch = !ordered && contentLines.length > 0 ? /^\[([ xX])\](?:[ \t]+(.*))?$/.exec(contentLines[0]) : null;
   if (taskMatch) {
     const checked = taskMatch[1].toLowerCase() === 'x';
-    const rest = [taskMatch[2], ...contentLines.slice(1)];
+    // The `[x] ` marker occupies 4 columns beyond the bullet's marker width,
+    // so the item's real content column sits 4 further right (the serializer
+    // indents continuation blocks to the full `- [ ] ` width of 6). Shift
+    // continuation lines back by up to those 4 columns so nested blocks
+    // classify correctly; unindented lazy continuations pass through as-is.
+    const rest = [taskMatch[2] || '', ...contentLines.slice(1).map((l) => l.replace(/^ {1,4}/, ''))];
     const contentNodes = parseBlocks(rest, diffMark, depth + 1);
     return taskItemNode({ checked, contentNodes, diffMark });
   }

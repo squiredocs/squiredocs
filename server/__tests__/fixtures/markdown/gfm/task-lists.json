@@ -1,24 +1,21 @@
 [
   {
     "id": "task-lists-01",
-    "section": "GFM §5.4 Task list items (degraded per CN-3)",
+    "section": "GFM §5.4 Task list items (real task items per feature 003)",
     "markdown": "- [ ] a\n- [x] b",
     "expected": {
       "type": "doc",
       "content": [
         {
-          "type": "bulletList",
+          "type": "taskList",
           "content": [
             {
-              "type": "listItem",
+              "type": "taskItem",
+              "attrs": { "checked": false },
               "content": [
                 {
                   "type": "paragraph",
                   "content": [
-                    {
-                      "type": "text",
-                      "text": "[ ] "
-                    },
                     {
                       "type": "text",
                       "text": "a"
@@ -28,15 +25,12 @@
               ]
             },
             {
-              "type": "listItem",
+              "type": "taskItem",
+              "attrs": { "checked": true },
               "content": [
                 {
                   "type": "paragraph",
                   "content": [
-                    {
-                      "type": "text",
-                      "text": "[x] "
-                    },
                     {
                       "type": "text",
                       "text": "b"
@@ -52,11 +46,61 @@
   },
   {
     "id": "task-lists-02",
-    "section": "GFM §5.4 Task list items (degraded per CN-3)",
+    "section": "GFM §5.4 Task list items (uppercase X parses checked; canonical re-emit lowercase per RD-8)",
     "markdown": "- [X] upper-case check",
     "expected": {
       "type": "doc",
       "content": [
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": { "checked": true },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "upper-case check"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "task-lists-03",
+    "section": "GFM §5.4 Task list items (mixed task/plain run splits into homogeneous lists)",
+    "markdown": "- [ ] task\n- plain",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "taskList",
+          "content": [
+            {
+              "type": "taskItem",
+              "attrs": { "checked": false },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "task"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
         {
           "type": "bulletList",
           "content": [
@@ -68,11 +112,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "[x] "
-                    },
-                    {
-                      "type": "text",
-                      "text": "upper-case check"
+                      "text": "plain"
                     }
                   ]
                 }

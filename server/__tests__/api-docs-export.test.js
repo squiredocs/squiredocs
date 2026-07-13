@@ -16,6 +16,38 @@ const apiTokens = require('../mcp/auth/api-tokens');
 const { createExportRouter } = require('../api/docs-export');
 const { createPool, createPersistence } = require('./helpers/db');
 
+// Build a Yjs update exercising every degradable mark plus a mermaid fence
+// (feature 003: flavor/frontmatter coverage).
+function buildRichDocUpdate(title) {
+  const ydoc = new Y.Doc();
+  const frag = ydoc.get('default', Y.XmlFragment);
+  ydoc.transact(() => {
+    const mkPara = (text, attrs) => {
+      const para = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, text, attrs);
+      para.insert(0, [t]);
+      return para;
+    };
+    const mermaid = new Y.XmlElement('mermaid');
+    const mt = new Y.XmlText();
+    mt.insert(0, 'graph TD\n  A --> B');
+    mermaid.insert(0, [mt]);
+
+    frag.insert(0, [
+      mkPara('underlined', { underline: true }),
+      mkPara('highlighted', { highlight: true }),
+      mkPara('colored', { textStyle: { color: '#ff0000' } }),
+      mkPara('under-italic', { underline: true, italic: true }),
+      mermaid,
+    ]);
+    if (title !== undefined) {
+      ydoc.getMap('meta').set('title', title);
+    }
+  });
+  return { update: Y.encodeStateAsUpdate(ydoc), frag };
+}
+
 // Build a Yjs update that populates the 'default' XmlFragment with a heading +
 // paragraph and sets the document title in the 'meta' map.
 function buildDocUpdate(title) {
@@ -195,6 +227,137 @@ describe('API: GET /api/docs/:docId/export', () => {
       "filename*=UTF-8''Squire%20Design%20Docs%20%E2%80%94%20Index.md"
     );
     expect(res.text).toContain('# Hello');
+  });
+
+  describe('flavor option (feature 003, T017 — FR-009/FR-022)', () => {
+    async function seedRichDoc() {
+      await documents.createDocument(docId, testUserId);
+      const { update } = buildRichDocUpdate('Rich Doc');
+      await persistence.storeUpdate(docId, update, testUserId);
+    }
+
+    test('flavor=portable degrades HTML-only marks with no raw tags', async () => {
+      await seedRichDoc();
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?flavor=portable`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('_underlined_');
+      expect(res.text).toContain('**highlighted**');
+      expect(res.text).toContain('colored'); // styling dropped, text kept
+      expect(res.text).toContain('_under-italic_'); // collapsed, not doubled
+      expect(res.text).not.toContain('__under-italic__');
+      expect(res.text).not.toContain('<u>');
+      expect(res.text).not.toContain('<mark>');
+      expect(res.text).not.toContain('<span');
+    });
+
+    test('flavor=squire and no flavor param are byte-identical (FR-022)', async () => {
+      await seedRichDoc();
+      const [plain, explicit] = await Promise.all([
+        request(app).get(`/api/docs/${docId}/export`).set('Authorization', `Bearer ${authToken}`),
+        request(app).get(`/api/docs/${docId}/export?flavor=squire`).set('Authorization', `Bearer ${authToken}`),
+      ]);
+      const { frag } = buildRichDocUpdate('Rich Doc');
+      expect(plain.text).toBe(toMarkdown(frag)); // pre-feature serializer output
+      expect(explicit.text).toBe(plain.text);
+      expect(plain.text).toContain('<u>underlined</u>');
+    });
+
+    test('unknown flavor is rejected with 400 naming accepted values', async () => {
+      await seedDoc(testUserId, 'My Doc');
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?flavor=github`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/flavor/i);
+      expect(res.body.error).toContain('squire');
+      expect(res.body.error).toContain('portable');
+    });
+
+    test('mermaid fences identical across flavors (US2-AS7)', async () => {
+      await seedRichDoc();
+      const [squire, portable] = await Promise.all([
+        request(app).get(`/api/docs/${docId}/export?flavor=squire`).set('Authorization', `Bearer ${authToken}`),
+        request(app).get(`/api/docs/${docId}/export?flavor=portable`).set('Authorization', `Bearer ${authToken}`),
+      ]);
+      const fence = '```mermaid\ngraph TD\n  A --> B\n```';
+      expect(squire.text).toContain(fence);
+      expect(portable.text).toContain(fence);
+    });
+  });
+
+  describe('frontmatter option (feature 003, T022 — FR-014)', () => {
+    const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
+
+    async function seedRichDoc(title = 'FM Doc') {
+      await documents.createDocument(docId, testUserId);
+      const { update } = buildRichDocUpdate(title);
+      await persistence.storeUpdate(docId, update, testUserId);
+    }
+
+    test('frontmatter=true emits the documented keys with correct values', async () => {
+      await seedRichDoc();
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      expect(res.text.startsWith('---\n')).toBe(true);
+
+      const { squire, body, foreignRaw } = parseFrontmatter(res.text);
+      expect(squire.docGuid).toBe(docId);
+      expect(squire.title).toBe('FM Doc');
+      expect(typeof squire.clock).toBe('number');
+      expect(squire.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(squire.lastModifiedBy).toBe('test-export-1@example.com');
+      expect(squire.flavor).toBe('squire');
+      expect(foreignRaw).toBeNull();
+      // body is exactly the no-frontmatter export
+      const { frag } = buildRichDocUpdate('FM Doc');
+      expect(body).toBe(toMarkdown(frag));
+    });
+
+    test('no lossy key at squire flavor even for a degradable-mark doc', async () => {
+      await seedRichDoc();
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
+        .set('Authorization', `Bearer ${authToken}`);
+      const { squire } = parseFrontmatter(res.text);
+      expect(squire.lossy).toBeUndefined();
+      expect(squire.images).toBeUndefined();
+    });
+
+    test('lossy lists actual degradations at portable flavor', async () => {
+      await seedRichDoc();
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=portable`)
+        .set('Authorization', `Bearer ${authToken}`);
+      const { squire } = parseFrontmatter(res.text);
+      expect(squire.flavor).toBe('portable');
+      expect(squire.lossy).toEqual(['highlight', 'textStyle', 'underline']); // sorted
+      expect(squire.images).toBeUndefined(); // markdown export, not a bundle
+    });
+
+    test('frontmatter off (absent, false, 0) is byte-identical output (US3-AS5)', async () => {
+      await seedRichDoc();
+      const [absent, offFalse, offZero] = await Promise.all([
+        request(app).get(`/api/docs/${docId}/export`).set('Authorization', `Bearer ${authToken}`),
+        request(app).get(`/api/docs/${docId}/export?frontmatter=false`).set('Authorization', `Bearer ${authToken}`),
+        request(app).get(`/api/docs/${docId}/export?frontmatter=0`).set('Authorization', `Bearer ${authToken}`),
+      ]);
+      expect(absent.text.startsWith('---')).toBe(false);
+      expect(offFalse.text).toBe(absent.text);
+      expect(offZero.text).toBe(absent.text);
+    });
+
+    test('invalid frontmatter value is rejected with 400', async () => {
+      await seedDoc(testUserId, 'My Doc');
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=yes`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/frontmatter/i);
+    });
   });
 
   describe('sqd_ API tokens (personal access tokens)', () => {

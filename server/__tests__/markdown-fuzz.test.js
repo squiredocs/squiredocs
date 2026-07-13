@@ -86,6 +86,10 @@ function checkOracle(input) {
   const normalized = s.replace(/\r\n?/g, '\n');
   const withoutSyntax = decodeEntitiesOutsideCode(normalized)
     .replace(/<[^>]*>/g, ' ') // consumed/echoed HTML tags
+    // GFM task checkbox after a bullet marker is consumed into the taskItem
+    // `checked` attribute (feature 003) — the `x` is metadata, not content.
+    // Stripping only shrinks `expected`, so the subsequence stays sound.
+    .replace(/^([ \t]*[-*+][ \t]+)\[[xX ]\](?:[ \t]+|$)/gm, '$1')
     // leading block markers (heading #, bullet -/*/+, ordered N./N), quote >)
     // are legitimately consumed into structure — e.g. an ordered marker's digit
     // is metadata, not content. Stripping only shrinks `expected`, so the

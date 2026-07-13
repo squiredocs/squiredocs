@@ -329,6 +329,7 @@ function validateTextStyleAttrs(attrs) {
  *   { type: 'heading', level: 1-5, content: Content }
  *   { type: 'bulletList', items: Item[] }
  *   { type: 'orderedList', items: Item[] }
+ *   { type: 'taskList', items: Item[] } - GFM checklist; items accept checked flags
  *   { type: 'codeBlock', content: string }
  *
  * Content format:
@@ -339,7 +340,9 @@ function validateTextStyleAttrs(attrs) {
  *   string - simple text item
  *   Content - formatted text item
  *   { content: Content, items: Item[] } - item with nested list (inherits parent type)
- *   { content: Content, items: Item[], type: 'bulletList'|'orderedList' } - explicit nested type
+ *   { content: Content, items: Item[], type: 'bulletList'|'orderedList'|'taskList' } - explicit nested type
+ *   { content: Content, checked: boolean } - task item checked state (taskList only;
+ *     defaults false; nested items under a task item default to taskList)
  *
  * @example
  *   // Create heading and paragraphs
@@ -373,6 +376,16 @@ function validateTextStyleAttrs(attrs) {
  *       ]},
  *       { content: 'Item B', items: ['B.1', 'B.2'] },
  *       'Item C'
+ *     ]}
+ *   ]);
+ *
+ * @example
+ *   // Create a checklist (GFM task list) with checked state and nesting
+ *   appendBlocks(doc, [
+ *     { type: 'taskList', items: [
+ *       'todo item',
+ *       { content: 'done item', checked: true },
+ *       { content: 'parent', items: ['child task'] }
  *     ]}
  *   ]);
  *
@@ -531,10 +544,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
       // Add nested list if items are specified
       if (itemDef.items && Array.isArray(itemDef.items) && itemDef.items.length > 0) {
         const nestedType = itemDef.type || parentListType || 'bulletList';
-        const nestedList = nestedType === 'orderedList'
-          ? createOrderedList(itemDef.items)
-          : createBulletList(itemDef.items);
-        listItem.insert(1, [nestedList]);
+        listItem.insert(1, [createListOfType(nestedType, itemDef.items)]);
       }
     } else {
       // Simple item: string or FormattedContent array
@@ -543,6 +553,16 @@ function appendBlocks(container, blocks, position = null, options = {}) {
     }
 
     return listItem;
+  }
+
+  /**
+   * Create a list element of the given container type. Used for nested
+   * `items` so any list kind can nest inside any other (taskList included).
+   */
+  function createListOfType(type, items) {
+    if (type === 'orderedList') return createOrderedList(items);
+    if (type === 'taskList') return createTaskList(items);
+    return createBulletList(items);
   }
 
   /**
@@ -569,6 +589,56 @@ function appendBlocks(container, blocks, position = null, options = {}) {
     const listItems = items.map(item => createListItem(item, 'orderedList'));
     list.insert(0, listItems);
     return list;
+  }
+
+  /**
+   * Create a task list element with items (GFM checklist).
+   * @param {Array} items - Task item definitions
+   *
+   * Item formats (same shapes as other lists, plus a `checked` flag):
+   *   "text"                                       - unchecked item
+   *   ["text", { text: "bold", attrs: {...} }]     - formatted, unchecked
+   *   { content: Content, checked: true }          - explicit checked state
+   *   { content: Content, checked?: boolean, items: [...], type?: '...' }
+   *     - nested list (nested items default to taskList; type overrides)
+   */
+  function createTaskList(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('appendBlocks: taskList items must be a non-empty array');
+    }
+    const list = new XmlElement('taskList');
+    const taskItems = items.map(item => createTaskItem(item));
+    list.insert(0, taskItems);
+    return list;
+  }
+
+  /**
+   * Create a task item element. `checked` is stored as the string
+   * 'true'/'false' (Yjs attribute), defaulting to unchecked.
+   */
+  function createTaskItem(itemDef) {
+    const taskItem = new XmlElement('taskItem');
+    let content = itemDef;
+    let checked = false;
+    let nestedItems = null;
+    let nestedType = 'taskList';
+
+    if (itemDef && typeof itemDef === 'object' && !Array.isArray(itemDef) && 'content' in itemDef) {
+      content = itemDef.content;
+      checked = !!itemDef.checked;
+      if (itemDef.items && Array.isArray(itemDef.items) && itemDef.items.length > 0) {
+        nestedItems = itemDef.items;
+        nestedType = itemDef.type || 'taskList';
+      }
+    }
+
+    taskItem.setAttribute('checked', checked ? 'true' : 'false');
+    const para = createParagraph(content);
+    taskItem.insert(0, [para]);
+    if (nestedItems) {
+      taskItem.insert(1, [createListOfType(nestedType, nestedItems)]);
+    }
+    return taskItem;
   }
 
   /**
@@ -697,6 +767,12 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         }
         return createOrderedList(blockDef.items);
 
+      case 'taskList':
+        if (!blockDef.items) {
+          throw new Error('appendBlocks: taskList requires items');
+        }
+        return createTaskList(blockDef.items);
+
       case 'blockquote':
         if (blockDef.content === undefined) {
           throw new Error('appendBlocks: blockquote requires content');
@@ -716,7 +792,7 @@ function appendBlocks(container, blocks, position = null, options = {}) {
         return createTable(blockDef.headers, blockDef.rows);
 
       default:
-        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
+        throw new Error(`appendBlocks: unknown block type "${blockDef.type}". Supported: paragraph, heading, bulletList, orderedList, taskList, codeBlock, mermaid, svg, blockquote, horizontalRule, image, table`);
     }
   }
 

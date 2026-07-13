@@ -35,7 +35,9 @@ describe('shared markdown loads under the client toolchain (US4 AS-2)', () => {
     expect(doc.type).toBe('doc');
     const types = doc.content.map((b) => b.type);
     expect(types).toContain('heading');
-    expect(types).toContain('bulletList');
+    // Feature 003 flipped 001's degradation seam: checkbox bullets are real
+    // task lists now.
+    expect(types).toContain('taskList');
 
     const marks = [];
     const walk = (n) => {

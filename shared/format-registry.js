@@ -61,17 +61,36 @@ const INLINE_NEWLINE = '\x00';
  * - htmlTag: HTML tag name derived from schema (for HTML-in-markdown marks)
  * - yjsAttr: YJS delta attribute key (may differ from ProseMirror mark name)
  * - contentPattern: custom regex for content capture (default: .+?)
+ * - portable: portable-flavor degradation declaration (feature 003, FR-011;
+ *     contracts/registry-degradation.md). `{ wrap: [open, close],
+ *     collapsesWith?: markName }` — in portable flavor the mark emits these
+ *     markdown delimiters instead of its HTML tag and is reported in the
+ *     export's lossy set. `collapsesWith` names the native mark with
+ *     identical delimiters: when both appear on one segment the serializer
+ *     emits a single delimiter pair (FR-012). Marks WITHOUT a `portable`
+ *     property serialize identically in both flavors (subscript/superscript
+ *     deliberately have none — GitHub renders <sub>/<sup>; RD-10).
  */
 const INLINE_MARKS = [
   { name: 'code',        yjsAttr: 'code',          wrap: ['`', '`'], contentPattern: '[^`]+' },
   { name: 'bold',        yjsAttr: 'bold',           wrap: ['**', '**'], altWrap: ['__'] },
   { name: 'italic',      yjsAttr: 'italic',         wrap: ['_', '_'],   altWrap: ['*'] },
   { name: 'strike',      yjsAttr: 'strike',         wrap: ['~~', '~~'] },
-  { name: 'underline',   yjsAttr: 'underline',      htmlTag: deriveTag('underline') },
-  { name: 'highlight',   yjsAttr: 'highlight',      htmlTag: deriveTag('highlight') },
+  { name: 'underline',   yjsAttr: 'underline',      htmlTag: deriveTag('underline'),
+    portable: { wrap: ['_', '_'], collapsesWith: 'italic' } },
+  { name: 'highlight',   yjsAttr: 'highlight',      htmlTag: deriveTag('highlight'),
+    portable: { wrap: ['**', '**'], collapsesWith: 'bold' } }, // RD-2: bold, not ==text==
   { name: 'subscript',   yjsAttr: 'subscript',      htmlTag: deriveTag('subscript') },
   { name: 'superscript', yjsAttr: 'superscript',    htmlTag: deriveTag('superscript') },
 ];
+
+/**
+ * Portable-flavor declaration for the textStyle mark (feature 003, FR-010).
+ * textStyle is not an INLINE_MARKS entry (it is attr-driven via STYLE_PROPS),
+ * so its degradation is declared registry-level: styling dropped entirely,
+ * text preserved, reported as 'textStyle' in the lossy set.
+ */
+const TEXTSTYLE_PORTABLE = { drop: true };
 
 /**
  * CommonMark/GFM emphasis delimiter characters that participate in the
@@ -255,6 +274,7 @@ function getHtmlWhitelist() {
 module.exports = {
   INLINE_MARKS,
   STYLE_PROPS,
+  TEXTSTYLE_PORTABLE,
   INLINE_NEWLINE,
   INLINE_HTML_TAGS,
   attrsToCSS,
