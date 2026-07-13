@@ -13,6 +13,7 @@
  */
 
 import StarterKit from '@tiptap/starter-kit';
+import { TaskList, TaskItem } from '@tiptap/extension-list';
 import Link from '@tiptap/extension-link';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
@@ -62,6 +63,10 @@ export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null
       link: false, // Disable built-in Link, we configure it separately below
       // underline is included in StarterKit by default in v3
     }),
+    // GFM task lists (feature 003): checked state is a normal Yjs attribute
+    // edit, so attribution/undo/version history work like any edit.
+    TaskList,
+    TaskItem.configure({ nested: true }),
     Subscript,
     Superscript,
     TextStyle,
