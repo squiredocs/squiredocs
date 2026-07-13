@@ -43,6 +43,20 @@ if (nodes.codeBlock && !(nodes.codeBlock.attrs && nodes.codeBlock.attrs.language
   };
 }
 
+// 1b. image gains the transient `data-import-origin` marker attr. fromMarkdown
+//    tags externally-srced image nodes with it (in PM JSON, pre-materialization
+//    — detached Yjs nodes can't be read back to tag them) so modify's
+//    post-script pass knows which externals to rehost vs strip (research R3,
+//    FR-021). Undeclared PM attrs are silently dropped by Node.fromJSON, so the
+//    marker must be declared here to survive materialization. The server import
+//    path never sets it, so this is inert there.
+if (nodes.image) {
+  nodes.image = {
+    ...nodes.image,
+    attrs: { ...(nodes.image.attrs || {}), 'data-import-origin': { default: null } },
+  };
+}
+
 // 2. subscript/superscript must exclude THEMSELVES as well as each other.
 //    Their shared-schema specs set `excludes` to only the opposing mark, and
 //    y-prosemirror treats any mark that doesn't exclude itself as an

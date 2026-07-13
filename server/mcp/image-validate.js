@@ -17,6 +17,8 @@ const { isAppImageUrl, parseAppImageUrl } = require('../image-url');
 const documents = require('../documents');
 const documentImages = require('../document-images');
 const s3Images = require('../s3-images');
+const { rehostImagesInFragment } = require('../image-rehost');
+const { IMPORT_ORIGIN_ATTR } = require('./sandbox/from-markdown');
 
 /** @returns {boolean} whether src is an allowed app image URL */
 function isAllowedImageSrc(src) {
@@ -126,4 +128,40 @@ async function reconcileCrossDocImages(xmlFragment, targetDocGuid, userId) {
   return { copied, removed };
 }
 
-module.exports = { sanitizeImageSrcs, isAllowedImageSrc, reconcileCrossDocImages };
+/**
+ * Rehost image nodes that entered a modify script via `fromMarkdown` (feature
+ * 002, FR-021). Those nodes carry the transient IMPORT_ORIGIN_ATTR marker on
+ * their external src; this fetch-and-rehosts them (or degrades to a plain
+ * link) exactly like the REST/create import path, instead of the default
+ * strip. Directly authored external srcs (no marker) are left for
+ * sanitizeImageSrcs to strip — the boundary CN-8/FR-021 draws.
+ *
+ * The marker is removed from every tagged node before rehosting (rehost keys
+ * off src, not the marker; degrade replaces the node entirely), so no marker
+ * survives into the stored document either way.
+ *
+ * @param {Y.XmlFragment} xmlFragment - live document fragment
+ * @param {string} docId - the document being edited (rehost target)
+ * @param {string} userId - acting user (storage attribution)
+ * @returns {Promise<{ rehosted: Array<{src,url}>, degraded: Array<{src,reason}> }>}
+ */
+async function rehostImportOriginImages(xmlFragment, docId, userId) {
+  const tagged = findByNodeName(xmlFragment, 'image').filter(
+    (node) => node.getAttribute(IMPORT_ORIGIN_ATTR) != null
+  );
+  if (tagged.length === 0) return { rehosted: [], degraded: [] };
+
+  // Consume the marker up front — it must never persist into the document.
+  for (const node of tagged) {
+    node.removeAttribute(IMPORT_ORIGIN_ATTR);
+  }
+
+  return rehostImagesInFragment(tagged, { docId, userId });
+}
+
+module.exports = {
+  sanitizeImageSrcs,
+  isAllowedImageSrc,
+  reconcileCrossDocImages,
+  rehostImportOriginImages,
+};
