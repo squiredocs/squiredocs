@@ -1,20 +1,25 @@
 /**
- * Markdown → ProseMirror JSON parser
+ * Markdown → ProseMirror JSON parser — STRICT (frozen) mode.
  *
  * Parses the markdown subset produced by toMarkdown() back into
  * ProseMirror-compatible JSON nodes. Supports an optional diff mark
  * that is applied to every text node (for version history diffs).
  *
  * Inline mark parsing is driven by the shared format registry
- * (server/format-registry.js), so adding a new mark requires zero
+ * (shared/format-registry.js), so adding a new mark requires zero
  * changes here.
+ *
+ * FROZEN (feature 001, CN-2): this is the byte-identical pre-feature parser,
+ * used by the diff engine via `{ strict: true }`. Do NOT "improve" it — any
+ * grammar work happens under shared/markdown/tolerant/. Byte-identity is pinned
+ * by server/__tests__/markdown-strict-characterization.test.js.
  */
 
 const {
   INLINE_NEWLINE,
   INLINE_HTML_TAGS,
   buildInlineRegex,
-} = require('./format-registry');
+} = require('../format-registry');
 
 // Build the inline regex once at module load from the registry
 const { regex: inlineRegex, entries: inlineEntries } = buildInlineRegex();

@@ -1,0 +1,18 @@
+{
+  "blocks": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 1
+      }
+    },
+    "bulletList",
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    "paragraph"
+  ]
+}

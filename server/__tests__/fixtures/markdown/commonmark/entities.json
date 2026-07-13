@@ -1,0 +1,97 @@
+[
+  {
+    "id": "entities-01",
+    "section": "CommonMark 0.31.2 §2.5 Entity and numeric character references",
+    "markdown": "&amp;",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "&"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "entities-02",
+    "section": "CommonMark 0.31.2 §2.5 Entity and numeric character references",
+    "markdown": "&#65;",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "entities-03",
+    "section": "CommonMark 0.31.2 §2.5 Entity and numeric character references",
+    "markdown": "&#x41;",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "A"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "entities-04",
+    "section": "CommonMark 0.31.2 §2.5 Entity and numeric character references",
+    "markdown": "&nbsp;",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": " "
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "entities-05",
+    "section": "CommonMark 0.31.2 §2.5 Entity and numeric character references",
+    "markdown": "&unknownentity;",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "&unknownentity;"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

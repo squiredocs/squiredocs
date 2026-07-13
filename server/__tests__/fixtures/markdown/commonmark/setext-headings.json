@@ -1,0 +1,68 @@
+[
+  {
+    "id": "setext-01",
+    "section": "CommonMark 0.31.2 §4.3 Setext headings",
+    "markdown": "Foo\n===",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 1
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Foo"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "setext-02",
+    "section": "CommonMark 0.31.2 §4.3 Setext headings",
+    "markdown": "Foo\n---",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 2
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Foo"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "setext-03",
+    "section": "CommonMark 0.31.2 §4.3 Setext headings",
+    "markdown": "Foo\nBar\n===",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 1
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Foo Bar"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

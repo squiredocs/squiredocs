@@ -1,0 +1,13 @@
+{
+  "blocks": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    "paragraph",
+    "table",
+    "blockquote"
+  ]
+}

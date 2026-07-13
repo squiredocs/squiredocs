@@ -1,0 +1,40 @@
+[
+  {
+    "id": "indented-code-01",
+    "section": "CommonMark 0.31.2 §4.4 Indented code blocks",
+    "markdown": "    code",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "content": [
+            {
+              "type": "text",
+              "text": "code"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "indented-code-02",
+    "section": "CommonMark 0.31.2 §4.4 Indented code blocks",
+    "markdown": "    a\n    b",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "codeBlock",
+          "content": [
+            {
+              "type": "text",
+              "text": "a\nb"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

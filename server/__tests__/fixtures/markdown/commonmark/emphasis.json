@@ -1,0 +1,281 @@
+[
+  {
+    "id": "emphasis-01",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "*foo bar*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo bar",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-02",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "a * foo bar*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "a * foo bar*"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-03",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "foo*bar*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo"
+            },
+            {
+              "type": "text",
+              "text": "bar",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-04",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "**foo bar**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo bar",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-05",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "_foo bar_",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo bar",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-06",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "foo_bar_",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo_bar_"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-07",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "**foo *bar* baz**",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo ",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "bar",
+              "marks": [
+                {
+                  "type": "bold"
+                },
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " baz",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-08",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "*foo **bar** baz*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo ",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "bar",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " baz",
+              "marks": [
+                {
+                  "type": "italic"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-09",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "***foo***",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo",
+              "marks": [
+                {
+                  "type": "italic"
+                },
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "emphasis-10",
+    "section": "CommonMark 0.31.2 §6.2 Emphasis and strong emphasis",
+    "markdown": "__foo__",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

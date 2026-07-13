@@ -270,7 +270,7 @@ describe('DiffService', () => {
     });
 
     test('handles newlines within styled text nodes', () => {
-      const { markdownToPm } = require('../markdown-to-pm');
+      const { markdownToPm } = require('../../shared/markdown');
       const { toMarkdown } = require('../mcp/yjs/serialization');
 
       // Create a doc with \n in a styled text node (occurs from MCP edits)
@@ -311,7 +311,7 @@ describe('DiffService', () => {
     });
 
     test('lineHeight survives markdown round-trip', () => {
-      const { markdownToPm } = require('../markdown-to-pm');
+      const { markdownToPm } = require('../../shared/markdown');
       const { toMarkdown } = require('../mcp/yjs/serialization');
 
       // Create a doc with lineHeight

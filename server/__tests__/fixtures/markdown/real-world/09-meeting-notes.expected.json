@@ -1,0 +1,36 @@
+{
+  "blocks": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 1
+      }
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    "bulletList",
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    {
+      "type": "orderedList",
+      "attrs": {
+        "start": 1
+      }
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    "bulletList"
+  ]
+}

@@ -16,7 +16,7 @@ const { diffLines } = require('diff');
 const { schema } = require('../shared/prosemirror-schema');
 const { getRedisClient, isRedisEnabled } = require('./redis');
 const { toMarkdown } = require('./mcp/yjs/serialization');
-const { markdownToPm } = require('./markdown-to-pm');
+const { markdownToPm } = require('../shared/markdown');
 const { extractXml, extractText } = require('./yjs-utils');
 
 const CACHE_VERSION = 'v7';
@@ -199,14 +199,14 @@ class DiffService {
     for (const part of parts) {
       const md = part.value;
       if (part.added) {
-        const parsed = markdownToPm(md, 'diffInsert');
+        const parsed = markdownToPm(md, 'diffInsert', { strict: true });
         allBlocks.push(...(parsed.content || []));
       } else if (part.removed) {
-        const parsed = markdownToPm(md, 'diffDelete');
+        const parsed = markdownToPm(md, 'diffDelete', { strict: true });
         allBlocks.push(...(parsed.content || []));
       } else {
         // Unchanged — parse without diff mark
-        const parsed = markdownToPm(md, null);
+        const parsed = markdownToPm(md, null, { strict: true });
         allBlocks.push(...(parsed.content || []));
       }
     }

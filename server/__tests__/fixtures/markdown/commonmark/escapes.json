@@ -1,0 +1,59 @@
+[
+  {
+    "id": "escapes-01",
+    "section": "CommonMark 0.31.2 §2.4 Backslash escapes",
+    "markdown": "\\*not emphasis\\*",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "*not emphasis*"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "escapes-02",
+    "section": "CommonMark 0.31.2 §2.4 Backslash escapes",
+    "markdown": "\\`not code\\`",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "`not code`"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "escapes-03",
+    "section": "CommonMark 0.31.2 §2.4 Backslash escapes",
+    "markdown": "a\\\\b",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "a\\b"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
