@@ -16,6 +16,7 @@ const INLINE_CONTENT_BLOCKS = [
   'mermaid',
   'svg',
   'listItem',
+  'taskItem',
 ];
 
 // Subset whose content is treated as a literal string with no inline
@@ -23,8 +24,8 @@ const INLINE_CONTENT_BLOCKS = [
 // rendering in toMarkdown.
 const CODE_LIKE_BLOCKS = ['codeBlock', 'mermaid', 'svg'];
 
-// List wrappers — children are listItem instances, themselves block-level.
-const LIST_CONTAINERS = ['bulletList', 'orderedList'];
+// List wrappers — children are listItem/taskItem instances, themselves block-level.
+const LIST_CONTAINERS = ['bulletList', 'orderedList', 'taskList'];
 
 // All block-level element names known to the editor schema. Used by the
 // sandbox helper to decide where to insert \n between sibling parts.

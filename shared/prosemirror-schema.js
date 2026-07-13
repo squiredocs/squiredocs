@@ -4,6 +4,8 @@
  * This schema matches the TipTap editor configuration used in the client:
  * - StarterKit (doc, paragraph, text, heading, bulletList, orderedList, listItem,
  *   blockquote, codeBlock, code, hardBreak, horizontalRule, bold, italic, strike)
+ * - TaskList / TaskItem extensions (GFM task lists; taskItem carries a boolean
+ *   `checked` attr, DOM contract data-type/data-checked matching TipTap)
  * - Underline extension
  * - Link extension
  *
@@ -80,6 +82,32 @@ const nodes = {
     parseDOM: [{ tag: 'li' }],
     toDOM() {
       return ['li', 0];
+    },
+  },
+
+  taskList: {
+    content: 'taskItem+',
+    group: 'block',
+    parseDOM: [{ tag: 'ul[data-type="taskList"]' }],
+    toDOM() {
+      return ['ul', { 'data-type': 'taskList' }, 0];
+    },
+  },
+
+  taskItem: {
+    attrs: { checked: { default: false } },
+    content: 'paragraph block*',
+    defining: true,
+    parseDOM: [
+      {
+        tag: 'li[data-type="taskItem"]',
+        getAttrs(dom) {
+          return { checked: dom.getAttribute('data-checked') === 'true' };
+        },
+      },
+    ],
+    toDOM(node) {
+      return ['li', { 'data-type': 'taskItem', 'data-checked': String(node.attrs.checked) }, 0];
     },
   },
 
