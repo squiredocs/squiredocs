@@ -18,6 +18,18 @@ const ORIGIN_DB_LOAD = 'db-load';
 const ORIGIN_REDIS = 'redis';
 
 /**
+ * Sentinel: a two-way-sync push (feature 004) broadcast onto the live shared
+ * doc AFTER applySyncPush has already stored the one attributed, on-behalf-of
+ * update row. Like the other sentinels, parseOrigin returns null for it, so the
+ * bindState persistence listener does NOT re-store an unattributed second row
+ * (FR-008 single stored update). UNLIKE ORIGIN_DB_LOAD — which sync used before
+ * F3 — it is NOT on the Redis publish skip-list, so other server instances that
+ * have the doc loaded receive the push through the normal cross-instance fan-out
+ * instead of silently missing it.
+ */
+const ORIGIN_SYNC_PUSH = 'sync-push';
+
+/**
  * Build a canonical origin object for a Yjs transaction.
  * Always returns { userId, agentName } — never a bare string.
  *
@@ -37,7 +49,7 @@ function createOrigin(userId, agentName = null) {
  * @returns {{ userId: string|null, agentName: string|null } | null}
  */
 function parseOrigin(origin) {
-  if (origin === ORIGIN_DB_LOAD || origin === ORIGIN_REDIS) {
+  if (origin === ORIGIN_DB_LOAD || origin === ORIGIN_REDIS || origin === ORIGIN_SYNC_PUSH) {
     return null;
   }
 
@@ -58,6 +70,7 @@ function parseOrigin(origin) {
 module.exports = {
   ORIGIN_DB_LOAD,
   ORIGIN_REDIS,
+  ORIGIN_SYNC_PUSH,
   createOrigin,
   parseOrigin,
 };

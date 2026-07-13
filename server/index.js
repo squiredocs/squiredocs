@@ -1764,7 +1764,12 @@ wss.on('connection', (ws, req) => {
 
         // Publish local document updates to Redis for other instances
         const redisUpdateHandler = (update, origin) => {
-          // Skip if update came from Redis or DB load (prevent feedback loops)
+          // Skip ONLY Redis (feedback loop) and DB-load (already everywhere)
+          // updates. A two-way-sync push arrives with ORIGIN_SYNC_PUSH, which is
+          // deliberately NOT on this skip-list (F3): it must fan out to other
+          // instances that have the doc loaded, or their live editors never see
+          // the push. Its persistence double-store is suppressed elsewhere
+          // (parseOrigin returns null), so publishing it here is safe.
           if (origin === ORIGIN_REDIS || origin === ORIGIN_DB_LOAD) return;
 
           try {

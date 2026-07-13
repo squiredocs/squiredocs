@@ -99,7 +99,7 @@ const {
   rejectDataImages,
   stageImagePass,
 } = require('./markdown-import');
-const { ORIGIN_DB_LOAD } = require('./origin');
+const { ORIGIN_SYNC_PUSH } = require('./origin');
 const searchIndexer = require('./search-indexer');
 
 // Fixed attribution identity for CI/repo-originated pushes (research R4). Version
@@ -1078,16 +1078,19 @@ async function applySyncPush(persistence, docGuid, opts) {
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE
     // durable row carrying attribution + on-behalf-of provenance (FR-008 single
-    // stored update). The broadcast to live editors uses the ORIGIN_DB_LOAD
+    // stored update). The broadcast to live editors uses the ORIGIN_SYNC_PUSH
     // sentinel so the shared doc's persistence listener SKIPS a second (unattri-
     // buted) re-store — unlike restoreVersion, which tolerates the double write
-    // because it carries no per-row metadata. Peers still receive the update
-    // (y-websocket broadcast is origin-independent). [ledger: sync single-row]
+    // because it carries no per-row metadata. Same-instance peers receive the
+    // update via the y-websocket broadcast; ORIGIN_SYNC_PUSH (unlike the
+    // ORIGIN_DB_LOAD sync used before F3) is NOT on the Redis publish skip-list,
+    // so OTHER instances holding the doc get the cross-instance fan-out too.
+    // [ledger: sync single-row]
     const clock = await persistence.storeUpdate(
       docGuid, pushUpdate, userId, agentName, sanitizeOnBehalfOf(onBehalfOf));
     try {
       const sharedDoc = getSharedDoc(docGuid);
-      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, ORIGIN_DB_LOAD);
+      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, ORIGIN_SYNC_PUSH);
     } catch (err) {
       // Broadcast failure is non-fatal — the update is already persisted.
       console.error(`[sync] broadcast to shared doc ${docGuid} failed:`, err.message);
