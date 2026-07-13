@@ -13,16 +13,18 @@
  * Allowed normalizations (documented per T015):
  *  - Title/heading rule: titles are metadata; the body keeps its heading
  *    (no body rewriting happens at the module level at all).
- *  - Task lists `- [ ]` degrade to bullet lists until feature 003's schema
- *    work (001 CN-3); the checkbox text is preserved.
+ *  - Task lists `- [ ]` / `- [x]` materialize as taskList/taskItem nodes with
+ *    a boolean `checked` attr and the marker stripped (003 FR-005); the
+ *    checkbox state round-trips.
  *  - Cells containing pipes split on every pipe (pre-existing dialect quirk,
  *    001 characterization).
  *  - External images degrade to plain links when rehosting is unavailable
  *    (the baseline pass in this branch until US4 wiring; then per policy).
  *  - Frontmatter is consumed: squire keys vanish, other keys become a
  *    leading yaml code block.
- *  - Hard breaks survive import structurally but the serializer emits
- *    nothing for them (pre-existing serializer behavior).
+ *  - Hard breaks survive import structurally and the serializer re-emits them
+ *    as the trailing-backslash form (`\`-newline); table cells and headings
+ *    post-process that to `<br>`.
  */
 const fs = require('fs');
 const path = require('path');
