@@ -2,16 +2,30 @@
  * Document export API
  *
  * GET /api/docs/:docId/export — serialize a document to Markdown as a
- * downloadable file. Loads the latest persisted state from Postgres (source
- * of truth), so export works even when no client is connected. View access
- * is sufficient. Works with browser sessions and sk_sqd_ API tokens alike
- * (requireAuth accepts both; scoped tokens need documents:read).
+ * downloadable file, optionally as a zip bundle with image assets. Loads the
+ * latest persisted state from Postgres (source of truth), so export works
+ * even when no client is connected. View access is sufficient. Works with
+ * browser sessions and sk_sqd_ API tokens alike (requireAuth accepts both;
+ * scoped tokens need documents:read).
+ *
+ * Query options (specs/003-portable-export/contracts/export-api.md):
+ *   format      markdown | md (default) | bundle
+ *   flavor      squire (default for markdown; RD-1) | portable
+ *               (bundle defaults to portable; RD-3)
+ *   frontmatter true/1 | false/0 (default off for markdown, on for bundle)
+ *
+ * A request with no new options is byte-identical to the pre-feature
+ * output (FR-022) — except documents containing task lists or hard breaks,
+ * which previously exported lossily (the spec's declared bug-fix exception).
  */
 const express = require('express');
 const Y = require('yjs');
+const archiver = require('archiver');
 const { requireAuth } = require('../auth');
 const documents = require('../documents');
-const { toMarkdown } = require('../mcp/yjs/serialization');
+const documentImages = require('../document-images');
+const s3Images = require('../s3-images');
+const { toMarkdown, buildFrontmatter } = require('../mcp/yjs/serialization');
 const { notifyException } = require('../exception-notifier');
 
 // Sanitize a document title into a safe download filename (without extension).
@@ -29,6 +43,115 @@ function sanitizeFilename(title) {
 }
 
 /**
+ * Derive the bundle asset-directory slug from the document title (FR-019,
+ * research R9): NFKD-normalize, strip diacritics, lowercase, collapse
+ * non-alphanumeric runs to '-', trim, cap at 60 chars, fallback 'doc'.
+ * Pure and total — never throws (spec Edge Cases).
+ */
+function slugifyDocTitle(title) {
+  let slug;
+  try {
+    slug = String(title == null ? '' : title)
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '') // combining diacritics
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60)
+      .replace(/-+$/g, '');
+  } catch {
+    slug = '';
+  }
+  return slug || 'doc';
+}
+
+// Asset file extension from the stored MIME type (ALLOWED_IMAGE_MIME_TYPES).
+const EXT_BY_MIME = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+
+// Header values must be Latin-1; setHeader throws on e.g. em dashes.
+// For non-ASCII names send an ASCII fallback plus the full Unicode name
+// via RFC 5987 filename*.
+function contentDisposition(filename) {
+  const asciiFilename = filename.replace(/[^\x20-\x7e]/g, '_');
+  return asciiFilename === filename
+    ? `attachment; filename="${filename}"`
+    : `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/**
+ * Latest clock + last-modifier identity from the yjs update log — the same
+ * sources the document listing exposes (research R12); no new tracking.
+ */
+async function getExportMeta(pool, docId) {
+  const result = await pool.query(
+    `SELECT yu.clock, yu.agent_name, usr.email
+     FROM yjs_updates yu
+     LEFT JOIN users usr ON yu.user_id = usr.id
+     WHERE yu.doc_guid = $1
+     ORDER BY yu.clock DESC
+     LIMIT 1`,
+    [docId]
+  );
+  const row = result.rows[0];
+  return {
+    clock: row ? Number(row.clock) : 0,
+    lastModifiedBy: row ? (row.email || row.agent_name || '') : '',
+  };
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Resolve this document's referenced images and rewrite their references to
+ * relative bundle paths (contracts/bundle-zip-layout.md, research R10).
+ * Doc-scoped: only `/api/docs/<docId>/images/<imageId>` URLs for THIS docId
+ * are considered; foreign-doc or non-app URLs are untouched. Per-image
+ * degradation (FR-021): missing row, disabled storage, or a failed fetch
+ * skips that image — the reference keeps its app URL, the export succeeds.
+ *
+ * @returns {Promise<{ markdown: string, images: Object<string,string>, assets: Array<{name: string, data: Buffer}> }>}
+ */
+async function collectBundleAssets(markdown, docId, docSlug) {
+  const images = {};
+  const assets = [];
+  const scanRe = new RegExp(
+    `!\\[[^\\]]*\\]\\(${escapeRegex(`/api/docs/${docId}/images/`)}([0-9a-fA-F-]{36})\\)`,
+    'g'
+  );
+  const ids = [...new Set([...markdown.matchAll(scanRe)].map((m) => m[1]))];
+
+  let rewritten = markdown;
+  for (const imageId of ids) {
+    if (!s3Images.isEnabled()) continue;
+    const row = await documentImages.getImage(imageId, docId);
+    if (!row) continue;
+    let data;
+    try {
+      data = await s3Images.getObject(row.s3_key);
+    } catch {
+      continue; // per-image skip; reference keeps its app URL
+    }
+    const ext = EXT_BY_MIME[row.mime_type] || 'bin';
+    const relPath = `./assets/${docSlug}/${imageId}.${ext}`;
+    const appUrl = `/api/docs/${docId}/images/${imageId}`;
+    // Rewrite image references only (not arbitrary link hrefs).
+    const refRe = new RegExp(`(!\\[[^\\]]*\\]\\()${escapeRegex(appUrl)}(\\))`, 'g');
+    rewritten = rewritten.replace(refRe, `$1${relPath}$2`);
+    images[relPath] = imageId;
+    assets.push({ name: `assets/${docSlug}/${imageId}.${ext}`, data });
+  }
+  assets.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { markdown: rewritten, images, assets };
+}
+
+/**
  * Build the export router.
  * @param {object} persistence - PostgresPersistence instance
  * @returns {express.Router}
@@ -39,7 +162,7 @@ function createExportRouter(persistence) {
   router.get('/api/docs/:docId/export', requireAuth, async (req, res) => {
     try {
       const { docId } = req.params;
-      const { format = 'markdown' } = req.query;
+      const { format = 'markdown', flavor: flavorParam, frontmatter: frontmatterParam } = req.query;
       const userId = req.user.userId;
 
       // View access is sufficient (same check as history/diff)
@@ -48,31 +171,101 @@ function createExportRouter(persistence) {
         return res.status(403).json({ error: 'You do not have access to this document' });
       }
 
-      if (format !== 'markdown' && format !== 'md') {
-        return res.status(400).json({ error: `Unsupported export format: ${format}` });
+      if (format !== 'markdown' && format !== 'md' && format !== 'bundle') {
+        return res.status(400).json({
+          error: `Unsupported export format: ${format}. Accepted values: markdown, md, bundle`,
+        });
+      }
+      const isBundle = format === 'bundle';
+
+      // flavor: squire default (RD-1); bundle defaults portable (RD-3)
+      let flavor = isBundle ? 'portable' : 'squire';
+      if (flavorParam !== undefined) {
+        if (flavorParam !== 'squire' && flavorParam !== 'portable') {
+          return res.status(400).json({
+            error: `Unsupported export flavor: ${flavorParam}. Accepted values: squire, portable`,
+          });
+        }
+        flavor = flavorParam;
+      }
+
+      // frontmatter: off by default for markdown; on for bundle (RD-3)
+      let withFrontmatter = isBundle;
+      if (frontmatterParam !== undefined) {
+        if (frontmatterParam === 'true' || frontmatterParam === '1') {
+          withFrontmatter = true;
+        } else if (frontmatterParam === 'false' || frontmatterParam === '0') {
+          withFrontmatter = false;
+        } else {
+          return res.status(400).json({
+            error: `Unsupported frontmatter value: ${frontmatterParam}. Accepted values: true, false, 1, 0`,
+          });
+        }
       }
 
       const ydoc = await persistence.getYDoc(docId);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
       const title = ydoc.getMap('meta').get('title') || 'Untitled';
 
-      const markdown = toMarkdown(xmlFragment);
+      const lossy = new Set();
+      let markdown = toMarkdown(xmlFragment, { flavor, lossy });
 
-      const filename = sanitizeFilename(title) + '.md';
-      // Header values must be Latin-1; setHeader throws on e.g. em dashes.
-      // For non-ASCII titles send an ASCII fallback plus the full Unicode
-      // name via RFC 5987 filename*.
-      const asciiFilename = filename.replace(/[^\x20-\x7e]/g, '_');
-      const disposition = asciiFilename === filename
-        ? `attachment; filename="${filename}"`
-        : `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-      res.setHeader('Content-Disposition', disposition);
-      res.send(markdown);
+      let images = null;
+      let assets = [];
+      if (isBundle) {
+        const bundle = await collectBundleAssets(markdown, docId, slugifyDocTitle(title));
+        markdown = bundle.markdown;
+        images = bundle.images;
+        assets = bundle.assets;
+      }
+
+      if (withFrontmatter) {
+        const meta = await getExportMeta(persistence.pool, docId);
+        const fm = buildFrontmatter({
+          docGuid: docId,
+          title,
+          clock: meta.clock,
+          exportedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+          lastModifiedBy: meta.lastModifiedBy,
+          flavor,
+          lossy,
+          images: images || undefined,
+        });
+        markdown = fm + '\n' + markdown;
+      }
+
+      const filenameBase = sanitizeFilename(title);
+      if (!isBundle) {
+        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        res.setHeader('Content-Disposition', contentDisposition(filenameBase + '.md'));
+        return res.send(markdown);
+      }
+
+      // Bundle: stream a zip — markdown first, then assets sorted by name
+      // (structural determinism per RD-5/SC-004; byte-identical zips are not
+      // promised — entry timestamps differ).
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', contentDisposition(filenameBase + '.zip'));
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (err) => {
+        console.error('Error streaming export bundle:', err);
+        notifyException(err, { req, source: 'api' });
+        res.destroy(err);
+      });
+      archive.pipe(res);
+      archive.append(markdown, { name: `${filenameBase}.md` });
+      for (const asset of assets) {
+        archive.append(asset.data, { name: asset.name });
+      }
+      await archive.finalize();
     } catch (error) {
       console.error('Error exporting document:', error);
       notifyException(error, { req, source: 'api' });
-      res.status(500).json({ error: 'Failed to export document' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to export document' });
+      } else {
+        res.destroy(error);
+      }
     }
   });
 
@@ -82,4 +275,5 @@ function createExportRouter(persistence) {
 module.exports = {
   createExportRouter,
   sanitizeFilename,
+  slugifyDocTitle,
 };

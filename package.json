@@ -41,7 +41,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1074.0",
     "@resvg/resvg-js": "^2.6.2",
     "ai": "^6.0.116",
-    "archiver": "^8.0.0",
+    "archiver": "^7.0.1",
     "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
     "diff": "^8.0.4",
