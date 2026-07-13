@@ -24,6 +24,7 @@ const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter } = require('../../server/api/docs-import');
+const { getVersionTimeline, createAuthor } = require('../../server/version-history');
 
 const pendingOperations = [];
 
@@ -246,6 +247,61 @@ describe('sync-push route (mode=sync)', () => {
     await drain();
     expect(res.body.noop).toBe(true);
     expect((await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(rowsBefore);
+  });
+
+  // ------------------------------------------------------------------------
+  // US4 (T024): attribution + on-behalf-of provenance (SC-005)
+  // ------------------------------------------------------------------------
+  test('content-changing push → version entry authored by token identity (agent-style)', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nattribute this');
+    await put(docId, fileFor(docId, clock, body.replace('this', 'that')));
+    await drain();
+    const row = (await pool.query(
+      "SELECT user_id, agent_name FROM yjs_updates WHERE doc_guid=$1 AND agent_name='Repo Sync' ORDER BY clock DESC LIMIT 1", [docId])).rows[0];
+    expect(row.user_id).toBe(ownerId);
+    // indistinguishable in mechanism from other agent edits: createAuthor yields
+    // "Repo Sync (<user>)" via the standard agent path.
+    const author = createAuthor({ userId: ownerId, userName: 'Sync One', agentName: row.agent_name });
+    expect(author.isAgent).toBe(true);
+    expect(author.name).toBe('Repo Sync (Sync One)');
+  });
+
+  test('on-behalf-of headers → stored + surfaced as plain text; hostile value inert, over-length capped', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nprovenance body');
+    const hostile = '<img src=x onerror=alert(1)>';
+    const longEmail = 'a'.repeat(300) + '@x.com';
+    const res = await put(docId, fileFor(docId, clock, body.replace('body', 'edit')), {
+      headers: {
+        'X-Squire-On-Behalf-Of-Name': hostile,
+        'X-Squire-On-Behalf-Of-Email': longEmail,
+        'X-Squire-On-Behalf-Of-Commit': 'a1b2c3d',
+      },
+    });
+    await drain();
+    expect(res.status).toBe(200);
+
+    // stored on the update row, whitelisted + capped, verbatim (inert) text
+    const stored = (await pool.query(
+      "SELECT on_behalf_of FROM yjs_updates WHERE doc_guid=$1 AND agent_name='Repo Sync' ORDER BY clock DESC LIMIT 1", [docId])).rows[0].on_behalf_of;
+    expect(stored.name).toBe(hostile); // stored as-is; rendering escapes it (no execution)
+    expect(stored.email.length).toBe(256); // over-length capped
+    expect(stored.commit).toBe('a1b2c3d');
+    expect(stored.url).toBeUndefined(); // not supplied → absent
+
+    // surfaced through the version timeline (visible in version history)
+    const timeline = await getVersionTimeline(persistence, docId);
+    const withProv = timeline.versions.find((v) => (v.onBehalfOf || []).length > 0);
+    expect(withProv).toBeTruthy();
+    expect(withProv.onBehalfOf[0].name).toBe(hostile);
+  });
+
+  test('push without on-behalf-of → token identity alone (no provenance row)', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nno provenance');
+    await put(docId, fileFor(docId, clock, body.replace('no', 'zero')));
+    await drain();
+    const stored = (await pool.query(
+      "SELECT on_behalf_of FROM yjs_updates WHERE doc_guid=$1 AND agent_name='Repo Sync' ORDER BY clock DESC LIMIT 1", [docId])).rows[0].on_behalf_of;
+    expect(stored).toBeNull();
   });
 
   test('disjoint concurrent edits: no overlap flagged', async () => {

@@ -94,11 +94,28 @@ const { markdownToPm } = require('../shared/markdown');
 const { INLINE_MARKS } = require('../shared/format-registry');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
 const { reconstructImages, sanitizeLinkMarks } = require('./markdown-import');
-const { createOrigin } = require('./origin');
+const { ORIGIN_DB_LOAD } = require('./origin');
+const searchIndexer = require('./search-indexer');
 
 // Fixed attribution identity for CI/repo-originated pushes (research R4). Version
 // history renders "Repo Sync (<token owner>)" via createAuthor's agent path.
 const SYNC_AGENT_NAME = 'Repo Sync';
+
+// On-behalf-of provenance (D6): whitelist of fields + per-field length cap. This
+// is the authoritative storage gate — untrusted metadata, stored as plain text.
+const ON_BEHALF_OF_FIELDS = ['name', 'email', 'commit', 'url'];
+const ON_BEHALF_OF_MAX = 256;
+
+/** Whitelist + length-cap on-behalf-of metadata before storage (D6). */
+function sanitizeOnBehalfOf(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const field of ON_BEHALF_OF_FIELDS) {
+    const v = raw[field];
+    if (typeof v === 'string' && v.length > 0) out[field] = v.slice(0, ON_BEHALF_OF_MAX);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 // ===========================================================================
 // T004 — Offset resolver (research R2): markdown offset ↔ Y.XmlText offset
@@ -908,16 +925,25 @@ async function applySyncPush(persistence, docGuid, opts) {
       baselineClock, baselineSV, canonicalMd, plan, sourceMap, getSharedDoc, flavor,
     });
 
-    // Store-then-apply (R8): storeUpdate yields the receipt clock; applying to
-    // the shared doc broadcasts + re-persists (ON CONFLICT DO NOTHING dedupes).
-    const clock = await persistence.storeUpdate(docGuid, pushUpdate, userId, agentName, onBehalfOf);
+    // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE
+    // durable row carrying attribution + on-behalf-of provenance (FR-008 single
+    // stored update). The broadcast to live editors uses the ORIGIN_DB_LOAD
+    // sentinel so the shared doc's persistence listener SKIPS a second (unattri-
+    // buted) re-store — unlike restoreVersion, which tolerates the double write
+    // because it carries no per-row metadata. Peers still receive the update
+    // (y-websocket broadcast is origin-independent). [ledger: sync single-row]
+    const clock = await persistence.storeUpdate(
+      docGuid, pushUpdate, userId, agentName, sanitizeOnBehalfOf(onBehalfOf));
     try {
       const sharedDoc = getSharedDoc(docGuid);
-      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, createOrigin(userId, agentName));
+      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, ORIGIN_DB_LOAD);
     } catch (err) {
       // Broadcast failure is non-fatal — the update is already persisted.
       console.error(`[sync] broadcast to shared doc ${docGuid} failed:`, err.message);
     }
+    // The push changed document content — mark the search index dirty (the
+    // listener would have, but we suppressed it via the sentinel origin).
+    try { searchIndexer.markDirty(docGuid); } catch { /* uninitialized in tests */ }
 
     // Receipt re-export: current state atomically (may exceed the receipt clock
     // under concurrent edits — contract Consistency rule).
@@ -932,6 +958,7 @@ async function applySyncPush(persistence, docGuid, opts) {
 
 module.exports = {
   SYNC_AGENT_NAME,
+  sanitizeOnBehalfOf,
   setOverlapDetector,
   applySyncPush,
   reExport,
