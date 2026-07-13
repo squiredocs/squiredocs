@@ -27,7 +27,12 @@ exempt — see RD-3.
 
 ## RD-2 — Highlight degradation in portable flavor
 
-**Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-13)
+**Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-13); scope narrowed by Sam, 2026-07-13 (walkthrough D-4)
+
+> **Sam (2026-07-13, walkthrough D-4):** highlight is deprecated from the editor UI entirely (affordance
+> removed, schema retained for legacy); the bold degradation now applies only to legacy content. Users can
+> no longer create new highlight marks; the degradation rule below is unchanged and continues to apply to
+> highlight marks in pre-existing documents.
 
 **Question** (design doc "Open questions" #3): In portable flavor, should highlight degrade to
 `==text==` (GFM-adjacent) or to bold (`**text**`)?

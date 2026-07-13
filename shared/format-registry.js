@@ -78,6 +78,7 @@ const INLINE_MARKS = [
   { name: 'strike',      yjsAttr: 'strike',         wrap: ['~~', '~~'] },
   { name: 'underline',   yjsAttr: 'underline',      htmlTag: deriveTag('underline'),
     portable: { wrap: ['_', '_'], collapsesWith: 'italic' } },
+  // legacy mark: editor affordance removed 2026-07-13 (Sam); kept for existing documents.
   { name: 'highlight',   yjsAttr: 'highlight',      htmlTag: deriveTag('highlight'),
     portable: { wrap: ['**', '**'], collapsesWith: 'bold' } }, // RD-2: bold, not ==text==
   { name: 'subscript',   yjsAttr: 'subscript',      htmlTag: deriveTag('subscript') },
