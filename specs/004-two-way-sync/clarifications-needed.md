@@ -117,6 +117,29 @@ amending the design doc (Constitution VI) and this spec together.
   from the receipt"), and treating no-ops as errors would make idempotent CI pipelines fail
   spuriously.
 
+## D8 — Storage vehicle for onBehalfOf metadata (plan-phase, 2026-07-13)
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-13)**
+
+- **Question**: FR-013/D6 require on-behalf-of provenance to be recorded with the push's version
+  entry and surfaced in version history. Version entries derive from `yjs_updates` rows, which
+  carry only `user_id` and `agent_name` — where does structured onBehalfOf live? (The planning
+  guidance said "onBehalfOf metadata should ride existing version-entry storage if possible — if
+  a migration proves necessary, flag prominently.")
+- **Default chosen**: **One additive migration**: `yjs_updates.on_behalf_of JSONB NULL`
+  (`{name?, email?, commit?, url?}`, each field length-capped at 256 chars at write time).
+  Written only by sync pushes via an optional extra argument to `storeUpdate`; read by the
+  existing version-history query (`_queryUpdatesWithUsers`) and rendered strictly as plain text.
+  No backfill, no index. **⚠ FLAGGED PROMINENTLY: this is the feature's only migration** (also in
+  plan.md Complexity Tracking and tasks.md).
+- **Rationale**: riding existing storage was evaluated and rejected honestly rather than forced:
+  (a) overloading `agent_name` with an encoded string corrupts `createAuthor`'s display/`isAgent`
+  logic and can't carry four structured fields; (b) a side table keyed by `(doc_guid, clock)` is
+  also a migration plus a join; (c) ephemeral (Redis) storage breaks durability parity with
+  version history. A nullable JSONB column is the minimum honest satisfaction of FR-013. Fallback
+  if zero-migration is later preferred: fold a compact text label into `agent_name`
+  (e.g. `Repo Sync · liz@example.com · a1b2c3d`), accepting loss of structured rendering.
+
 ## Flagged (not resolved here) — for the design doc / later features
 
 - **Design "Open questions" #2** (portable flavor as REST export default) and **#3**
