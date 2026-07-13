@@ -244,6 +244,44 @@ describe('pmJsonToNodes mini round-trip (toMarkdown equivalence)', () => {
     doc.destroy();
   });
 
+  test('hard break materializes as a real hardBreak element (not literal text)', () => {
+    // Fidelity guard for the seam the reviewer had to verify by hand (F5): the
+    // materialized child is a hardBreak XmlElement, and no `\` or `<br>` leaks
+    // into the surrounding text runs.
+    const { fragment, doc } = materialize('alpha\\\nbeta\n');
+    const para = fragment.get(0);
+    const children = para.toArray();
+    const br = children.find((n) => n instanceof Y.XmlElement && n.nodeName === 'hardBreak');
+    expect(br).toBeInstanceOf(Y.XmlElement);
+    const text = children.filter((n) => n instanceof Y.XmlText).map((n) => n.toString()).join('|');
+    expect(text).toBe('alpha|beta');
+    doc.destroy();
+  });
+
+  test('task list checkboxes materialize as taskItem with a BOOLEAN checked attr (F5)', () => {
+    // `- [ ]` / `- [x]` must reach the seam as taskList/taskItem nodes whose
+    // `checked` attribute is a real boolean (false / true), the marker stripped
+    // from the item text — the fidelity seam 003 added and the reviewer had to
+    // confirm by hand.
+    const { fragment, doc } = materialize('- [ ] a\n- [x] b\n');
+    expect(fragment.length).toBe(1);
+    const list = fragment.get(0);
+    expect(list.nodeName).toBe('taskList');
+    const items = list.toArray();
+    expect(items.map((n) => n.nodeName)).toEqual(['taskItem', 'taskItem']);
+
+    const checked = items.map((it) => it.getAttribute('checked'));
+    expect(checked).toEqual([false, true]);
+    for (const c of checked) expect(typeof c).toBe('boolean');
+
+    // Marker stripped: item text is just the content, no leading `[ ]`/`[x]`.
+    const itemText = items.map((it) => toMarkdown(it).replace(/\s+/g, ' ').trim());
+    expect(itemText[0]).toContain('a');
+    expect(itemText[1]).toContain('b');
+    expect(itemText.join(' ')).not.toMatch(/\[[ x]\]/);
+    doc.destroy();
+  });
+
   test('multiple marks stacked on one run survive materialization', () => {
     const { canonical, result } = miniRoundTrip(
       styledParagraphDoc('stacked', { bold: true, italic: true, link: { href: 'https://x.dev' } })
