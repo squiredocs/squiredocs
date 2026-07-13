@@ -13,7 +13,7 @@ The operating model for design-driven feature work in this repo. You (the orches
 ## Ground rules (always)
 
 - `design/` is ground truth (constitution Principle VI). Code, specs, and priors lose to it; material silences become flagged gaps, never ad-hoc decisions.
-- Design changes are made IN SQUIRE first (each file's `source:` header URL; use the Squire Docs MCP, read `get_tool_documentation({tool:"modify"})` before your first script), then `node design/sync.mjs` re-exports, then commit, then converge code to match. Never hand-edit exports. New docs: create in Squire, add to the `DOCS` map in sync.mjs, add a row to the "Squire Design Docs - Index" doc.
+- Design changes are made IN SQUIRE first (each file's `source:` header URL; use the Squire Docs MCP, read `get_tool_documentation({tool:"modify"})` before your first script), then `node design/sync.mjs` re-exports, then commit, then converge code to match. Never hand-edit exports. New docs: create in Squire, add to the `DOCS` map in sync.mjs, and add them to the "Squire Architecture Design Index" doc (both its area listing and its Repo Sync Manifest table).
 - Sync auth: mint a `documents:read` token via the MCP `create_access_token` tool (max 24 h) and write it to `design/.squire-token` (gitignored) or export `SQUIRE_API_TOKEN`.
 - When reality falsifies a documented mechanism, amend the doc with the why — don't silently diverge.
 - Decisions Sam hasn't answered get the best default, recorded as **RATIFIED-BY-DEFAULT (Sam pre-authorized, date)** in the feature's `clarifications-needed.md` with question/why/rationale; his later confirmations upgrade them in place. Never block on him; never decide silently.
