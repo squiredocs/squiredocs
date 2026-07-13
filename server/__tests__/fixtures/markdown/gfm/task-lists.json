@@ -1,0 +1,86 @@
+[
+  {
+    "id": "task-lists-01",
+    "section": "GFM §5.4 Task list items (degraded per CN-3)",
+    "markdown": "- [ ] a\n- [x] b",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "[ ] "
+                    },
+                    {
+                      "type": "text",
+                      "text": "a"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "[x] "
+                    },
+                    {
+                      "type": "text",
+                      "text": "b"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "task-lists-02",
+    "section": "GFM §5.4 Task list items (degraded per CN-3)",
+    "markdown": "- [X] upper-case check",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "[x] "
+                    },
+                    {
+                      "type": "text",
+                      "text": "upper-case check"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

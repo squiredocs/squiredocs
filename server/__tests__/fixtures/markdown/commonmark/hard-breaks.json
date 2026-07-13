@@ -1,0 +1,54 @@
+[
+  {
+    "id": "hard-breaks-01",
+    "section": "CommonMark 0.31.2 §6.7 Hard line breaks",
+    "markdown": "foo  \nbar",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo"
+            },
+            {
+              "type": "hardBreak"
+            },
+            {
+              "type": "text",
+              "text": "bar"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "hard-breaks-02",
+    "section": "CommonMark 0.31.2 §6.7 Hard line breaks",
+    "markdown": "foo\\\nbar",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo"
+            },
+            {
+              "type": "hardBreak"
+            },
+            {
+              "type": "text",
+              "text": "bar"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

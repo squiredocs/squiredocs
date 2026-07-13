@@ -1,0 +1,56 @@
+[
+  {
+    "id": "autolinks-01",
+    "section": "CommonMark 0.31.2 §6.5 Autolinks",
+    "markdown": "<http://foo.bar>",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "http://foo.bar",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "http://foo.bar"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "autolinks-02",
+    "section": "CommonMark 0.31.2 §6.5 Autolinks",
+    "markdown": "<foo@bar.example.com>",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "foo@bar.example.com",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "mailto:foo@bar.example.com"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

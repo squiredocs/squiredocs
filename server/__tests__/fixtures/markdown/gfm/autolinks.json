@@ -1,0 +1,91 @@
+[
+  {
+    "id": "gfm-autolinks-01",
+    "section": "GFM §6.9 Autolinks (extension)",
+    "markdown": "http://foo.com",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "http://foo.com",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "http://foo.com"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "gfm-autolinks-02",
+    "section": "GFM §6.9 Autolinks (extension)",
+    "markdown": "www.foo.com",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "www.foo.com",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "http://www.foo.com"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "gfm-autolinks-03",
+    "section": "GFM §6.9 Autolinks (extension)",
+    "markdown": "see https://example.com/path?q=1 now",
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "see "
+            },
+            {
+              "type": "text",
+              "text": "https://example.com/path?q=1",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://example.com/path?q=1"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " now"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
