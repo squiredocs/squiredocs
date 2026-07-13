@@ -439,6 +439,44 @@ describe('sync-push route (mode=sync)', () => {
   });
 
   // ------------------------------------------------------------------------
+  // F5: pushing the SAME file twice (same baseline) is idempotent — the second
+  // push short-circuits to a no-op receipt, storing no duplicate version row and
+  // duplicating no content (the pinned synthetic clientID dedupes the replay).
+  // ------------------------------------------------------------------------
+  test('double-push of the same file: no content duplication, no duplicate version row', async () => {
+    const { docId, clock, body } = await seedDoc('# Doc\n\nidempotent target line');
+    const file = fileFor(docId, clock, body.replace('target', 'CHANGED'));
+
+    // First push lands the edit.
+    const res1 = await put(docId, file);
+    await drain();
+    expect(res1.status).toBe(200);
+    expect(res1.body.noop).toBe(false);
+    expect(res1.body.clock).toBeGreaterThan(clock);
+    const rowsAfter1 = (await pool.query(
+      'SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+
+    // Second push of the byte-identical file (same baseline clock).
+    const res2 = await put(docId, file);
+    await drain();
+    expect(res2.status).toBe(200);
+    // Short-circuit: no-op receipt, clock unchanged from after the first push.
+    expect(res2.body.noop).toBe(true);
+    expect(res2.body.clock).toBe(res1.body.clock);
+    expect(res2.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+
+    // No duplicate update row stored by the second push.
+    const rowsAfter2 = (await pool.query(
+      'SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+    expect(rowsAfter2).toBe(rowsAfter1);
+
+    // No content duplication: the edit appears exactly once.
+    const after = await currentBody(docId);
+    expect(after.match(/CHANGED/g)).toHaveLength(1);
+    expect(after).not.toContain('target line');
+  });
+
+  // ------------------------------------------------------------------------
   // F4: overlap detection is strictly advisory — a failure must never gate the
   // push; the receipt reports overlaps=[] + overlapsUnavailable:true instead.
   // ------------------------------------------------------------------------

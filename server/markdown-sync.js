@@ -917,6 +917,35 @@ async function defaultDetectOverlaps(persistence, docGuid, ctx) {
 // T009 — applySyncPush orchestration (research R8, store-then-apply)
 // ===========================================================================
 
+/**
+ * Whether a fork update adds nothing the current document doesn't already have
+ * (F5 idempotency short-circuit). A byte-identical re-push replays under the
+ * same pinned synthetic clientID (FR-011), so both its inserted structs AND its
+ * deletions are already applied to the live doc; storing it again would only
+ * accrete a no-op version row (promotion-note #4). Compares a snapshot (state
+ * vector + delete set) of a gc-free probe before and after applying the update,
+ * so a re-inserted struct and a re-applied deletion BOTH read as no-change,
+ * while a first-time insert or delete reads as a real change. Never a false
+ * positive: a genuinely new push carries a different synthetic client's structs.
+ */
+async function pushIsAlreadyApplied(persistence, docGuid, pushUpdate, getSharedDoc) {
+  let currentDoc = null;
+  let ownsDoc = false;
+  try { currentDoc = getSharedDoc && getSharedDoc(docGuid); } catch { currentDoc = null; }
+  if (!currentDoc) { currentDoc = await persistence.getYDoc(docGuid); ownsDoc = true; }
+  const probe = new Y.Doc({ gc: false });
+  try {
+    Y.applyUpdate(probe, Y.encodeStateAsUpdate(currentDoc));
+    const before = Y.snapshot(probe);
+    Y.applyUpdate(probe, pushUpdate);
+    const after = Y.snapshot(probe);
+    return Y.equalSnapshots(before, after);
+  } finally {
+    probe.destroy();
+    if (ownsDoc) currentDoc.destroy();
+  }
+}
+
 /** Current max clock for a doc (−0 when empty), read from the update log. */
 async function readCurrentClock(persistence, docGuid) {
   const result = await persistence.pool.query(
@@ -1069,6 +1098,20 @@ async function applySyncPush(persistence, docGuid, opts) {
       operations = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor });
     });
     const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
+
+    // Idempotency short-circuit (F5): a byte-identical re-push (same baseline,
+    // same content → same pinned synthetic clientID → byte-identical update)
+    // adds nothing the live doc doesn't already carry. Rather than store a
+    // duplicate no-op version row, return the no-op receipt (re-export current).
+    if (await pushIsAlreadyApplied(persistence, docGuid, pushUpdate, getSharedDoc)) {
+      const currentClock = await readCurrentClock(persistence, docGuid);
+      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
+      return {
+        docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
+        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+        images,
+      };
+    }
 
     // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
     // "current" snapshot reflects only concurrent doc-side edits, not our own.
