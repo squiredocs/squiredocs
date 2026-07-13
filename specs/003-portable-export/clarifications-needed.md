@@ -148,6 +148,44 @@ One canonical output form keeps `import(export(doc))` byte-stable and matches th
 
 ---
 
+## RD-9 — Frontmatter size cap (plan phase)
+
+**Status**: RATIFIED-BY-DEFAULT (plan phase, 2026-07-13)
+
+**Question**: FR-016 requires a size cap on parsed frontmatter blocks; the value was deferred to
+plan phase (see "Flagged for awareness" below).
+
+**Why it matters**: Frontmatter is untrusted input; the cap bounds YAML-parse work on hostile input
+and defines when a `---`-fenced block stops being metadata and becomes content.
+
+**Default + rationale**: **64 KB**, measured from opening to closing fence inclusive; an oversized
+block is treated as ordinary document content (never an error, never truncated). Realistic
+frontmatter (squire block + foreign tooling keys + a large images map) stays well under 8 KB; 64 KB
+gives ample headroom (even a ~500-entry images map fits) while keeping hostile-input parse cost
+trivial and staying below request-body limits import surfaces will use. See research.md R8.
+
+---
+
+## RD-10 — Subscript/superscript are NOT degraded in portable flavor
+
+**Status**: RATIFIED-BY-DEFAULT (plan phase, 2026-07-13)
+
+**Question**: FR-010 names underline, highlight, and styled spans as portable-flavor degradations.
+`subscript`/`superscript` are also HTML-tag marks (`<sub>`/`<sup>`) — should they degrade too?
+
+**Why it matters**: Determines whether portable exports of scientific/footnote-style text show HTML
+tags on GitHub, and whether `sub`/`superscript` can ever appear in the `lossy` list.
+
+**Default + rationale**: **No degradation** — `<sub>`/`<sup>` are emitted unchanged in both flavors
+and never appear in `lossy`. GitHub's markdown sanitizer allowlists these tags and renders them
+correctly, so they are already portable; degrading them (to what — `~x~`/`^x^` are not GFM) would
+lose meaning for zero rendering benefit. This matches the design doc's degradation list (§2.2 names
+only underline, highlight, color/font spans) and SC-002's scope ("every degradable mark"). If GitHub
+ever changes its allowlist, a registry `portable` declaration can be added with automatic test
+coverage (SC-006).
+
+---
+
 ## Flagged for awareness (no decision required in M3)
 
 - **Design doc drift**: design §2.2 says portable is the "default for repo sync" while open question #2
