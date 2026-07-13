@@ -1963,5 +1963,83 @@
         }
       ]
     }
+  },
+  {
+    "name": "edge-image-block-with-caption",
+    "input": "![a chart](/img/app-abc)\n\ncaption",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "!"
+            },
+            {
+              "type": "text",
+              "text": "a chart",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "/img/app-abc"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "caption"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-image-plaintext-marker",
+    "input": "[image]",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "[image]"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "edge-image-plaintext-marker-alt",
+    "input": "[image: a photo]",
+    "diffMark": null,
+    "expected": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "[image: a photo]"
+            }
+          ]
+        }
+      ]
+    }
   }
 ]

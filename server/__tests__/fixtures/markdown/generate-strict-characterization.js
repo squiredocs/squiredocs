@@ -245,6 +245,13 @@ const edges = [
   { name: 'edge-crlf', input: 'line one\r\nline two\r\n' },
   { name: 'edge-image-markdown', input: '![alt text](https://example.com/x.png)' },
   { name: 'edge-plain-text', input: 'just some words' },
+  // Serializer-emitted image + caption (T019 diff-corpus audit): the diff engine
+  // parses toMarkdown() output, which renders image nodes as ![alt](src).
+  { name: 'edge-image-block-with-caption', input: '![a chart](/img/app-abc)\n\ncaption' },
+  // Plain-text image markers ([image] / [image: alt]) as they appear in
+  // fragment plain-text; harmless literal text to the parser.
+  { name: 'edge-image-plaintext-marker', input: '[image]' },
+  { name: 'edge-image-plaintext-marker-alt', input: '[image: a photo]' },
 ];
 
 // ---------------------------------------------------------------------------
