@@ -62,12 +62,12 @@ QUERY OPTIONS
 ═══════════════════════════════════════════════════════════════════════════
 
 format=markdown | md | bundle     (default markdown)
-flavor=squire | portable          (default squire; bundle defaults portable)
+flavor=portable | squire          (default portable on all formats; pass squire for full fidelity)
 frontmatter=true|1 | false|0      (default off; bundle defaults on)
 
-Unknown values are rejected with 400 naming the accepted values. A request
-with no options is byte-identical to previous releases (existing scripts
-are unaffected).
+Unknown values are rejected with 400 naming the accepted values. The route
+now defaults to flavor=portable (repo-friendly) on every format; pass
+flavor=squire for the full-fidelity dialect (the internal canonical form).
 
 flavor=portable degrades HTML-only inline marks so the file renders cleanly
 on GitHub: underline → _emphasis_, highlight → **bold**, styled spans

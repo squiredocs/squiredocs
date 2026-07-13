@@ -252,16 +252,23 @@ describe('API: GET /api/docs/:docId/export', () => {
       expect(res.text).not.toContain('<span');
     });
 
-    test('flavor=squire and no flavor param are byte-identical (FR-022)', async () => {
+    test('flavor=portable and no flavor param are byte-identical (portable default)', async () => {
       await seedRichDoc();
-      const [plain, explicit] = await Promise.all([
+      const [plain, explicit, squireExport] = await Promise.all([
         request(app).get(`/api/docs/${docId}/export`).set('Authorization', `Bearer ${authToken}`),
+        request(app).get(`/api/docs/${docId}/export?flavor=portable`).set('Authorization', `Bearer ${authToken}`),
         request(app).get(`/api/docs/${docId}/export?flavor=squire`).set('Authorization', `Bearer ${authToken}`),
       ]);
       const { frag } = buildRichDocUpdate('Rich Doc');
-      expect(plain.text).toBe(toMarkdown(frag)); // pre-feature serializer output
-      expect(explicit.text).toBe(plain.text);
-      expect(plain.text).toContain('<u>underlined</u>');
+      // Route default is now portable (Sam overruled RD-1): no-flavor === explicit portable,
+      // and HTML-only marks are degraded.
+      expect(plain.text).toBe(explicit.text);
+      expect(plain.text).not.toContain('<u>');
+      expect(plain.text).toContain('_underlined_');
+      // The serializer default (toMarkdown) is deliberately UNCHANGED — squire, the canonical
+      // internal form used for diffs and sync canonicalization; reachable via flavor=squire.
+      expect(squireExport.text).toBe(toMarkdown(frag));
+      expect(squireExport.text).toContain('<u>underlined</u>');
     });
 
     test('unknown flavor is rejected with 400 naming accepted values', async () => {
@@ -298,8 +305,10 @@ describe('API: GET /api/docs/:docId/export', () => {
 
     test('frontmatter=true emits the documented keys with correct values', async () => {
       await seedRichDoc();
+      // Pin flavor=squire so the body compares against the canonical serializer output;
+      // the route default is now portable (see the portable-default test above).
       const res = await request(app)
-        .get(`/api/docs/${docId}/export?frontmatter=true`)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.text.startsWith('---\n')).toBe(true);
@@ -312,7 +321,7 @@ describe('API: GET /api/docs/:docId/export', () => {
       expect(squire.lastModifiedBy).toBe('test-export-1@example.com');
       expect(squire.flavor).toBe('squire');
       expect(foreignRaw).toBeNull();
-      // body is exactly the no-frontmatter export
+      // body is exactly the no-frontmatter squire export
       const { frag } = buildRichDocUpdate('FM Doc');
       expect(body).toBe(toMarkdown(frag));
     });

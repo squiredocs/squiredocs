@@ -9,7 +9,9 @@ flow through the source Squire document + `design/sync.mjs`.
 
 ## RD-1 — Portable flavor default on the REST export route
 
-**Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-13)
+**Status**: OVERRULED by Sam, 2026-07-13 (decision walkthrough D-3) — was RATIFIED-BY-DEFAULT
+
+> **OVERRULED by Sam, 2026-07-13 (decision walkthrough D-3):** portable is now the DEFAULT flavor on the REST export route for every format; `flavor=squire` is the explicit opt-in. The serializer function default (`toMarkdown()` = squire) is unchanged — it remains the internal canonical form for diffs and sync canonicalization. Implemented same day in server/api/docs-export.js with route tests updated. The "Default + rationale" below records the original (now superseded) decision.
 
 **Question** (design doc "Open questions" #2): Should `flavor=portable` be the default for
 `GET /api/docs/:docId/export` (a breaking change for existing consumers) or opt-in?

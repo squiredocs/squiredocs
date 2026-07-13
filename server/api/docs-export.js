@@ -10,8 +10,7 @@
  *
  * Query options (specs/003-portable-export/contracts/export-api.md):
  *   format      markdown | md (default) | bundle
- *   flavor      squire (default for markdown; RD-1) | portable
- *               (bundle defaults to portable; RD-3)
+ *   flavor      portable (default on all formats; Sam overruled RD-1, 2026-07-13) | squire
  *   frontmatter true/1 | false/0 (default off for markdown, on for bundle)
  *
  * A request with no new options is byte-identical to the pre-feature
@@ -183,7 +182,7 @@ function createExportRouter(persistence) {
       const isBundle = format === 'bundle';
 
       // flavor: squire default (RD-1); bundle defaults portable (RD-3)
-      let flavor = isBundle ? 'portable' : 'squire';
+      let flavor = 'portable'; // portable default on every format (Sam overruled RD-1, 2026-07-13)
       if (flavorParam !== undefined) {
         if (flavorParam !== 'squire' && flavorParam !== 'portable') {
           return res.status(400).json({
