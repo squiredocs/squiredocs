@@ -638,8 +638,31 @@ for (const m of INLINE_MARKS) CLEAR_ATTRS[m.yjsAttr] = null;
 CLEAR_ATTRS.link = null;
 CLEAR_ATTRS.textStyle = null;
 
+// Marks the PORTABLE flavor cannot round-trip to themselves: textStyle is
+// dropped entirely on portable export, and every registry mark carrying a
+// `portable` degradation declaration (e.g. underline, highlight) serializes to
+// ANOTHER mark's delimiters — so a pushed portable file can never re-assert
+// them. In portable reconciliation these are EXCLUDED from the clear set, so a
+// live span the pushed file structurally couldn't carry (a color textStyle, an
+// underline) survives an in-place edit to the same block instead of being wiped
+// (F2, FR-010). Derived from the registry, never hardcoded. (Squire expresses
+// every mark, so it always clears the full set.)
+const PORTABLE_PRESERVED_ATTRS = new Set([
+  'textStyle',
+  ...INLINE_MARKS.filter((m) => m.portable).map((m) => m.yjsAttr),
+]);
+const CLEAR_ATTRS_PORTABLE = {};
+for (const [k, v] of Object.entries(CLEAR_ATTRS)) {
+  if (!PORTABLE_PRESERVED_ATTRS.has(k)) CLEAR_ATTRS_PORTABLE[k] = v;
+}
+
+/** The clear-before-reformat attribute set for a file's flavor. */
+function clearAttrsFor(flavor) {
+  return flavor === 'portable' ? CLEAR_ATTRS_PORTABLE : CLEAR_ATTRS;
+}
+
 /** Reconcile a Y.XmlText's content to `targetDelta` with minimal text ops + reformat. */
-function reconcileTextNode(textNode, targetDelta) {
+function reconcileTextNode(textNode, targetDelta, flavor = 'squire') {
   const oldPlain = textNode.toDelta().map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
   const newPlain = targetDelta.map((op) => op.insert).join('');
   const parts = diffChars(oldPlain, newPlain) || [
@@ -653,7 +676,7 @@ function reconcileTextNode(textNode, targetDelta) {
   }
   const len = newPlain.length;
   if (len > 0) {
-    textNode.format(0, len, CLEAR_ATTRS);
+    textNode.format(0, len, clearAttrsFor(flavor));
     let o = 0;
     for (const op of targetDelta) {
       const t = op.insert;
@@ -716,7 +739,7 @@ function structuralOps(structural, sourceMap, baselineMd) {
  * operation counts. Structural replacement uses block-node identity for live
  * indices (order-stable); plain text hunks track a per-node offset shift.
  */
-function applyHunks(fragment, plan, sourceMap, baselineMd) {
+function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' } = {}) {
   const { textBlocks, reconcileBlocks, structural } = plan;
   const { replacements, insertions } = structuralOps(structural, sourceMap, baselineMd);
 
@@ -726,10 +749,12 @@ function applyHunks(fragment, plan, sourceMap, baselineMd) {
     for (let i = g.first; i <= g.last; i++) replacedNodes.add(sourceMap.blocks[i].blockNode);
   }
 
-  // 1) Whole-block inline reconciliations (in place).
+  // 1) Whole-block inline reconciliations (in place). The file's flavor governs
+  //    which marks survive the clear-and-reformat (F2): portable pushes must not
+  //    wipe marks the flavor couldn't express.
   for (const rec of reconcileBlocks) {
     if (replacedNodes.has(rec.block.blockNode)) continue;
-    reconcileTextNode(rec.textNode, rec.targetDelta);
+    reconcileTextNode(rec.textNode, rec.targetDelta, flavor);
   }
 
   // 2) Plain text hunks — surgical char ops, per-node offset shift.
@@ -1041,7 +1066,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     const plan = planPush(hunks, sourceMap, canonicalMd);
     let operations;
     fork.transact(() => {
-      operations = applyHunks(fragment, plan, sourceMap, canonicalMd);
+      operations = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor });
     });
     const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
 

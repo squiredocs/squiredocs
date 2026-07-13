@@ -30,7 +30,7 @@ function replay(frag, pushedMd, opts = {}) {
   const hunks = computeHunks(baselineMd, pushedCanon);
   const plan = planPush(hunks, sourceMap, baselineMd);
   let ops;
-  frag.doc.transact(() => { ops = applyHunks(frag, plan, sourceMap, baselineMd); });
+  frag.doc.transact(() => { ops = applyHunks(frag, plan, sourceMap, baselineMd, { flavor }); });
   return { plan, allText: plan.structural.length === 0, ops, resultMd: toMarkdownNodes(frag.toArray()), pushedCanon };
 }
 
@@ -328,6 +328,45 @@ describe('hunk classification & replay (T006/T007/T008, US1)', () => {
       return u;
     }
     expect(once()).toBe(once());
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('flavor-aware reconciliation (F2, FR-010)', () => {
+  /** Paragraph "alpha beta gamma" with a color textStyle span on "beta". */
+  function coloredParagraph() {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    doc.transact(() => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'alpha beta gamma');
+      t.format(6, 4, { textStyle: { color: '#ff0000' } }); // "beta"
+      p.insert(0, [t]);
+      frag.insert(0, [p]);
+    });
+    return { doc, frag };
+  }
+
+  test('portable push bolding a word preserves the block color span it cannot express', () => {
+    const { doc, frag } = coloredParagraph();
+    // portable baseline drops the color → "alpha beta gamma"; push bolds "gamma".
+    const { resultMd } = replay(frag, 'alpha beta **gamma**', { flavor: 'portable' });
+    // exported in squire (default), the preserved color span is visible AND the
+    // pushed bold landed — an in-place reconcile, block not recreated.
+    expect(resultMd).toBe('alpha <span style="color:#ff0000">beta</span> **gamma**');
+    doc.destroy();
+  });
+
+  test('squire push in the same shape clears the color it omits — unchanged behavior', () => {
+    const { doc, frag } = coloredParagraph();
+    // squire expresses the color, so a squire push that omits it legitimately
+    // clears it (the full CLEAR_ATTRS path — the exclusion applies to portable
+    // only). This is the pre-F2 behavior, preserved for squire.
+    const { resultMd } = replay(frag, 'alpha beta **gamma**', { flavor: 'squire' });
+    expect(resultMd).not.toContain('color:#ff0000'); // color cleared
+    expect(resultMd).toContain('**gamma'); // pushed bold applied
+    doc.destroy();
   });
 });
 
