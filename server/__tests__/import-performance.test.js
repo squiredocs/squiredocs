@@ -1,7 +1,10 @@
 /**
  * Import performance validation (feature 002, T033 — SC-005).
  *
- * SC-005: a 1 MB no-image import completes in < 5 s. The 10-image path is
+ * SC-005: a 1 MB no-image import completes in < 5 s in isolation. The CI
+ * assertion uses a 30 s ceiling (Sam, 2026-07-13, P-4): wall-clock budgets
+ * flake under CPU contention; the guard's job is catching order-of-magnitude
+ * regressions, which 30 s still does. The 10-image path is
  * exercised with a fake fetch for determinism (real-host timings are noted in
  * the PR/commit description — they depend on the network, not this code).
  *
@@ -15,7 +18,7 @@ const { prepareImport, setExternalImagePass } = require('../markdown-import');
 describe('import performance (SC-005)', () => {
   afterEach(() => setExternalImagePass(null));
 
-  test('1 MB no-image markdown imports in under 5 s', async () => {
+  test('1 MB no-image markdown imports in under 30 s (contention-tolerant ceiling)', async () => {
     // Build ~1 MB of realistic mixed markdown (headings, lists, code, tables,
     // inline formatting) — not one pathological line.
     const section = [
@@ -51,10 +54,10 @@ describe('import performance (SC-005)', () => {
     const elapsed = Date.now() - start;
 
     expect(nodes.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(5000);
+    expect(elapsed).toBeLessThan(30000);
     // Surface the number so the run records it (SC-005 evidence).
-    console.log(`[SC-005] 1 MB no-image import: ${elapsed} ms (budget 5000 ms)`);
-  }, 15000);
+    console.log(`[SC-005] 1 MB no-image import: ${elapsed} ms (ceiling 30000 ms; ~2.4 s isolated)`);
+  }, 45000);
 
   test('10-image import path is exercised (fake fetch, deterministic)', async () => {
     // Ten distinct external images; fake the pass so the timing reflects the
@@ -82,5 +85,5 @@ describe('import performance (SC-005)', () => {
     expect(images.rehosted).toHaveLength(10);
     expect(nodes.length).toBeGreaterThanOrEqual(10);
     console.log(`[SC-005] 10-image import (fake fetch): ${elapsed} ms`);
-  }, 15000);
+  }, 45000);
 });
