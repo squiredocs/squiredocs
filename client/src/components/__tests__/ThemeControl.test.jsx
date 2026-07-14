@@ -72,4 +72,57 @@ describe('ThemeControl', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     expect(localStorage.getItem('squire-theme')).toBe('light');
   });
+
+  it('uses roving tabindex: only the selected option is a tab stop', () => {
+    renderControl(); // default System selected
+    expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Light' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('radio', { name: 'Dark' })).toHaveAttribute('tabindex', '-1');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+    expect(screen.getByRole('radio', { name: 'Dark' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'System' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('ArrowRight/ArrowDown move selection and focus to the next option', () => {
+    renderControl();
+    fireEvent.click(screen.getByRole('radio', { name: 'Light' }));
+
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Light' }), { key: 'ArrowRight' });
+    const dark = screen.getByRole('radio', { name: 'Dark' });
+    expect(dark).toHaveAttribute('aria-checked', 'true');
+    expect(dark).toHaveFocus();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    fireEvent.keyDown(dark, { key: 'ArrowDown' });
+    const system = screen.getByRole('radio', { name: 'System' });
+    expect(system).toHaveAttribute('aria-checked', 'true');
+    expect(system).toHaveFocus();
+  });
+
+  it('ArrowLeft/ArrowUp move selection and focus to the previous option', () => {
+    renderControl();
+    fireEvent.click(screen.getByRole('radio', { name: 'Dark' }));
+
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Dark' }), { key: 'ArrowLeft' });
+    const light = screen.getByRole('radio', { name: 'Light' });
+    expect(light).toHaveAttribute('aria-checked', 'true');
+    expect(light).toHaveFocus();
+  });
+
+  it('Arrow keys wrap around at both ends', () => {
+    renderControl();
+    // Wrap forward: System (last) -> Light (first)
+    fireEvent.click(screen.getByRole('radio', { name: 'System' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'System' }), { key: 'ArrowRight' });
+    const light = screen.getByRole('radio', { name: 'Light' });
+    expect(light).toHaveAttribute('aria-checked', 'true');
+    expect(light).toHaveFocus();
+
+    // Wrap backward: Light (first) -> System (last)
+    fireEvent.keyDown(light, { key: 'ArrowLeft' });
+    const system = screen.getByRole('radio', { name: 'System' });
+    expect(system).toHaveAttribute('aria-checked', 'true');
+    expect(system).toHaveFocus();
+  });
 });
