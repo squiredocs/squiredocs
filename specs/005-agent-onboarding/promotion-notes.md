@@ -63,14 +63,13 @@ should know. Nothing here blocks merge; all decisions have a documented default.
 
 ## Post-merge amendments (2026-07-14, onboarding feedback rounds)
 
-- **Amendment: in-session connect caveat + OAuth walkthrough guidance +
-  authorize-link shortener** (design: agent-surface-mcp, three bullets dated
-  2026-07-14). agents.md gained user-facing connect/restart steps and the
-  shorten-then-present auth flow; server gained `POST /mcp/auth/shorten` +
-  `GET /mcp/auth/a/:code` (`server/mcp/auth/short-links.js`).
-- **ACCEPTED, owed at promotion — no rate limit on `/mcp/auth/shorten`**:
-  unauthenticated endpoint writes ~600-byte TTL'd redis values. Abuse value
-  is low (same-origin-only redirects, 10-min expiry) but a flood could
-  churn redis; add the app's standard rate limiting if/when one exists, or
-  a per-IP cap. `oauth-shorten.test.js` mounts the handler wiring inline
-  (same LOW-3 root cause: `server/index.js` doesn't export `app`).
+- **Amendments live: in-session connect caveat + OAuth walkthrough guidance**
+  (design: agent-surface-mcp, bullets dated 2026-07-14). agents.md gained the
+  user-facing connect/restart steps and the auth-URL presentation rules
+  (bare line, callback-error pre-warning, paste-back instruction).
+- **Rolled back same-day: authorize-link shortener**
+  (`POST /mcp/auth/shorten` + `GET /mcp/auth/a/:code`). Built, deployed, and
+  removed 2026-07-14: the shorten step depended on agent compliance mid-flow
+  and never fired in live tests, while the long URL proved clickable in
+  practice. Decision recorded in the design doc; if remote-terminal friction
+  recurs, revisit device-flow-style pairing instead.
