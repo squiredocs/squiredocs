@@ -30,3 +30,6 @@ tmp/
 *.key
 design/.squire-token
 .claude/worktrees/
+
+# Speckit local state (current-feature pointer; machine-local, never track)
+.specify/feature.json
