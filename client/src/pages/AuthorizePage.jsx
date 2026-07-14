@@ -19,16 +19,49 @@ const SCOPE_DESCRIPTIONS = {
   },
 };
 
-export function AuthorizePreview() {
-  const preview = {
-    user: { email: 'user@example.com' },
-    agentInfo: { name: 'Claude Desktop', description: 'AI assistant for document editing' },
-    scopes: ['documents:read', 'documents:write'],
-    redirectUri: 'http://localhost:3000/callback',
-    existingDelegation: false,
-    isSubmitting: false,
-  };
+function AgentGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="26" height="26" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="14" rx="3" />
+      <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
+      <path d="M7 2v3M17 2v3" strokeLinecap="round" />
+    </svg>
+  );
+}
 
+function CheckGlyph({ size = 12 }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width={size} height={size} aria-hidden="true">
+      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+/**
+ * Agent-tile ⋯ ✓ ⋯ Squire-tile connection row — the identity header for
+ * every consent state, in place of the stacked login branding block.
+ */
+function IdentityRow({ iconUrl }) {
+  return (
+    <div className="authorize-identity">
+      <div className="authorize-identity-tile authorize-identity-agent">
+        {iconUrl ? <img src={iconUrl} alt="" /> : <AgentGlyph />}
+      </div>
+      <div className="authorize-connector" aria-hidden="true">
+        <span className="authorize-connector-line" />
+        <span className="authorize-connector-check"><CheckGlyph /></span>
+        <span className="authorize-connector-line" />
+      </div>
+      <div className="authorize-identity-tile" title="Squire Docs">
+        <Logo color="#7c3aed" size={30} />
+      </div>
+    </div>
+  );
+}
+
+/** Simple centered shell for loading / sign-in / terminal states. */
+function AuthorizeShell({ children }) {
   return (
     <div className="login-page">
       <div className="login-container authorize-container">
@@ -36,57 +69,118 @@ export function AuthorizePreview() {
           <div className="login-logo"><Logo color="currentColor" /></div>
           <h1 className="login-title">Squire Docs</h1>
         </div>
-
-        <div className="authorize-agent-header">
-          <div className="authorize-agent-icon authorize-agent-icon-default">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="28" height="28">
-              <rect x="3" y="4" width="18" height="14" rx="3" />
-              <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
-              <path d="M7 2v3M17 2v3" strokeLinecap="round" />
-            </svg>
-          </div>
-          <h3 className="authorize-agent-name">{preview.agentInfo.name}</h3>
-          <p className="authorize-agent-desc">{preview.agentInfo.description}</p>
-        </div>
-
-        <p className="authorize-prompt">
-          <strong>{preview.agentInfo.name}</strong> wants to access your account
-        </p>
-
-        <div className="authorize-permissions">
-          <h4 className="authorize-permissions-heading">This will allow the application to:</h4>
-          <ul className="authorize-permissions-list">
-            {preview.scopes.map(scope => {
-              const info = SCOPE_DESCRIPTIONS[scope] || { label: scope, description: '' };
-              return (
-                <li key={scope} className="authorize-permission-item">
-                  <svg className="authorize-permission-check" viewBox="0 0 20 20" fill="#7c3aed" width="18" height="18">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                  <div>
-                    <strong>{info.label}</strong>
-                    {info.description && <p>{info.description}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        <div className="authorize-redirect">
-          <code>{preview.redirectUri}</code>
-        </div>
-
-        <div className="login-footer" style={{ borderTop: 'none', paddingTop: 0 }}>
-          <p className="authorize-signed-in">Signed in as <strong>{preview.user.email}</strong></p>
-        </div>
-
-        <div className="authorize-buttons">
-          <button className="authorize-deny-btn" disabled={preview.isSubmitting}>Deny</button>
-          <button className="login-button authorize-approve-btn" disabled={preview.isSubmitting}>Authorize</button>
-        </div>
+        {children}
       </div>
+    </div>
+  );
+}
+
+function ConsentCard({
+  agentName,
+  agentDescription,
+  iconUrl,
+  scopes,
+  redirectUri,
+  userEmail,
+  existingDelegation,
+  isSubmitting,
+  onDecision,
+}) {
+  const isLocalRedirect = redirectUri &&
+    (redirectUri.startsWith('http://localhost') ||
+     redirectUri.startsWith('http://127.0.0.1') ||
+     redirectUri.startsWith('http://[::1]'));
+
+  return (
+    <div className="login-container authorize-container">
+      <IdentityRow iconUrl={iconUrl} />
+
+      <h1 className="authorize-headline">Authorize {agentName}</h1>
+      <p className="authorize-subtitle">
+        {agentDescription || 'This agent is requesting access to your Squire Docs account.'}
+      </p>
+
+      <div className="authorize-permissions">
+        <h2 className="authorize-permissions-heading">{agentName} will be able to</h2>
+        <ul className="authorize-permissions-list">
+          {scopes.map(scope => {
+            const info = SCOPE_DESCRIPTIONS[scope] || { label: scope, description: '' };
+            return (
+              <li key={scope} className="authorize-permission-item">
+                <span className="authorize-permission-check"><CheckGlyph size={13} /></span>
+                <div>
+                  <strong>{info.label}</strong>
+                  {info.description && <p>{info.description}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {existingDelegation && (
+        <p className="authorize-existing-note">
+          You've authorized {agentName} before — approving updates its permissions.
+        </p>
+      )}
+
+      <dl className="authorize-meta">
+        <div className="authorize-meta-row">
+          <dt>Signed in as</dt>
+          <dd>{userEmail}</dd>
+        </div>
+        {redirectUri && (
+          <div className="authorize-meta-row">
+            <dt>Redirects to</dt>
+            <dd><code>{redirectUri}</code></dd>
+          </div>
+        )}
+      </dl>
+
+      {redirectUri && !isLocalRedirect && (
+        <p className="authorize-redirect-warning">
+          This redirect goes to an external URL. Only approve if you trust this application.
+        </p>
+      )}
+
+      <div className="authorize-buttons">
+        <button
+          className="authorize-deny-btn"
+          onClick={() => onDecision(false)}
+          disabled={isSubmitting}
+        >
+          Deny
+        </button>
+        <button
+          className="login-button authorize-approve-btn"
+          onClick={() => onDecision(true)}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Authorizing...' : 'Authorize'}
+        </button>
+      </div>
+
+      <p className="authorize-revoke-note">
+        Revoke access anytime in Settings &rarr; AI Agent Access.
+      </p>
+    </div>
+  );
+}
+
+export function AuthorizePreview() {
+  return (
+    <div className="login-page">
+      <ConsentCard
+        agentName="Claude Desktop"
+        agentDescription="AI assistant for document editing"
+        iconUrl={null}
+        scopes={['documents:read', 'documents:write']}
+        redirectUri="http://localhost:3000/callback"
+        userEmail="user@example.com"
+        existingDelegation={false}
+        isSubmitting={false}
+        onDecision={() => {}}
+      />
     </div>
   );
 }
@@ -97,6 +191,7 @@ export default function AuthorizePage() {
   const [agentInfo, setAgentInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Parse query parameters
@@ -164,7 +259,7 @@ export default function AuthorizePage() {
               }, window.location.origin);
 
               // Show success message and close popup
-              setError('success');
+              setSuccess(true);
               setIsSubmitting(false);
 
               // Close popup after a short delay
@@ -198,160 +293,62 @@ export default function AuthorizePage() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="login-page">
-        <div className="login-container authorize-container">
-          <div className="login-branding">
-            <div className="login-logo"><Logo color="currentColor" /></div>
-            <h1 className="login-title">Squire Docs</h1>
-          </div>
-          <p className="authorize-loading-text">Loading...</p>
-        </div>
-      </div>
+      <AuthorizeShell>
+        <p className="authorize-loading-text">Loading...</p>
+      </AuthorizeShell>
     );
   }
 
   if (!isAuthenticated) {
     return (
+      <AuthorizeShell>
+        <h2 className="login-headline">Sign in required</h2>
+        <p className="authorize-subtitle">Please sign in to authorize this application.</p>
+        <a
+          href={`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+          className="login-button google-button authorize-signin-link"
+        >
+          Sign in with Google
+        </a>
+      </AuthorizeShell>
+    );
+  }
+
+  if (success) {
+    return (
       <div className="login-page">
         <div className="login-container authorize-container">
-          <div className="login-branding">
-            <div className="login-logo"><Logo color="currentColor" /></div>
-            <h1 className="login-title">Squire Docs</h1>
-          </div>
-          <h2 className="login-headline">Sign in required</h2>
-          <p className="authorize-subtitle">Please sign in to authorize this application.</p>
-          <a
-            href={`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-            className="login-button google-button"
-            style={{ textDecoration: 'none' }}
-          >
-            Sign in with Google
-          </a>
+          <div className="authorize-success-icon"><CheckGlyph size={22} /></div>
+          <h1 className="authorize-headline">Authorized</h1>
+          <p className="authorize-subtitle">This window will close automatically.</p>
         </div>
       </div>
     );
   }
 
   if (error) {
-    const isSuccess = error === 'success';
     return (
-      <div className="login-page">
-        <div className="login-container authorize-container">
-          <div className="login-branding">
-            <div className="login-logo"><Logo color="currentColor" /></div>
-            <h1 className="login-title">Squire Docs</h1>
-          </div>
-          {isSuccess ? (
-            <>
-              <h2 className="login-headline">Authorized</h2>
-              <p className="authorize-success-text">Authorization approved! This window will close automatically.</p>
-            </>
-          ) : (
-            <>
-              <h2 className="login-headline">Authorization Error</h2>
-              <div className="login-error">{error}</div>
-              <button className="authorize-close-btn" onClick={() => window.close()}>Close</button>
-            </>
-          )}
-        </div>
-      </div>
+      <AuthorizeShell>
+        <h2 className="login-headline">Authorization Error</h2>
+        <div className="login-error">{error}</div>
+        <button className="authorize-close-btn" onClick={() => window.close()}>Close</button>
+      </AuthorizeShell>
     );
   }
 
   return (
     <div className="login-page">
-      <div className="login-container authorize-container">
-        <div className="login-branding">
-          <div className="login-logo"><Logo color="currentColor" /></div>
-          <h1 className="login-title">Squire Docs</h1>
-        </div>
-
-        <div className="authorize-agent-header">
-          {agentInfo?.iconUrl ? (
-            <img src={agentInfo.iconUrl} alt="" className="authorize-agent-icon" />
-          ) : (
-            <div className="authorize-agent-icon authorize-agent-icon-default">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="28" height="28">
-                <rect x="3" y="4" width="18" height="14" rx="3" />
-                <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
-                <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
-                <path d="M7 2v3M17 2v3" strokeLinecap="round" />
-              </svg>
-            </div>
-          )}
-          <h3 className="authorize-agent-name">{agentInfo?.name || agentClientId}</h3>
-          {agentInfo?.description && (
-            <p className="authorize-agent-desc">{agentInfo.description}</p>
-          )}
-        </div>
-
-        <p className="authorize-prompt">
-          <strong>{agentInfo?.name}</strong> wants to access your account
-        </p>
-
-        <div className="authorize-permissions">
-          <h4 className="authorize-permissions-heading">This will allow the application to:</h4>
-          <ul className="authorize-permissions-list">
-            {scopes.map(scope => {
-              const info = SCOPE_DESCRIPTIONS[scope] || {
-                label: scope,
-                description: '',
-              };
-              return (
-                <li key={scope} className="authorize-permission-item">
-                  <svg className="authorize-permission-check" viewBox="0 0 20 20" fill="#7c3aed" width="18" height="18">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                  <div>
-                    <strong>{info.label}</strong>
-                    {info.description && <p>{info.description}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        {redirectUri && (
-          <div className="authorize-redirect">
-            <code>{redirectUri}</code>
-            {!redirectUri.startsWith('http://localhost') &&
-             !redirectUri.startsWith('http://127.0.0.1') &&
-             !redirectUri.startsWith('http://[::1]') && (
-              <p className="authorize-redirect-warning">
-                This is an external URL. Only approve if you trust this application.
-              </p>
-            )}
-          </div>
-        )}
-
-        {existingDelegation && (
-          <div className="authorize-existing-warning">
-            <p>You've previously authorized this application. Approving will update the permissions.</p>
-          </div>
-        )}
-
-        <div className="login-footer" style={{ borderTop: 'none', paddingTop: 0 }}>
-          <p className="authorize-signed-in">Signed in as <strong>{user.email}</strong></p>
-        </div>
-
-        <div className="authorize-buttons">
-          <button
-            className="authorize-deny-btn"
-            onClick={() => handleDecision(false)}
-            disabled={isSubmitting}
-          >
-            Deny
-          </button>
-          <button
-            className="login-button authorize-approve-btn"
-            onClick={() => handleDecision(true)}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Authorizing...' : 'Authorize'}
-          </button>
-        </div>
-      </div>
+      <ConsentCard
+        agentName={agentInfo?.name || agentClientId}
+        agentDescription={agentInfo?.description}
+        iconUrl={agentInfo?.iconUrl}
+        scopes={scopes}
+        redirectUri={redirectUri}
+        userEmail={user.email}
+        existingDelegation={existingDelegation}
+        isSubmitting={isSubmitting}
+        onDecision={handleDecision}
+      />
     </div>
   );
 }
