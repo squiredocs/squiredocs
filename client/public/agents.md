@@ -67,6 +67,22 @@ Two options:
   temporary one itself with `create_access_token` (scoped at or below its own
   grant, expiring within 24 hours, revoked with the minting credential).
 
+### Walking your user through browser OAuth
+
+When you hand your user an authorization link — whether your MCP client
+printed it or you are driving the flow yourself — present it like this:
+
+- Print the authorization URL **bare, on its own line** — never inside a
+  numbered list, quotes, or trailing punctuation. Long URLs wrap in
+  terminals, and list markup breaks one-click copying.
+- Before they open it, say what happens after they approve: the browser
+  lands on a `http://localhost:.../callback` page. If you are running on a
+  remote machine or in a container, that page will show a connection error —
+  tell them up front this is expected and the approval still succeeded.
+- Say exactly what to send back: copy the **full URL from the browser's
+  address bar** (`http://localhost:.../callback?code=...`) and paste it as
+  their next message. Nothing else is needed.
+
 ## Core tools
 
 - `read_document` — read a document (optionally filtered by XPath).

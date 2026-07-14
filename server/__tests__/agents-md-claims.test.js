@@ -78,4 +78,24 @@ describe('agents.md drift-guard', () => {
     expect(content).toContain('claude mcp list');
     expect(content).toMatch(/run `?\/mcp`?/i);
   });
+
+  // OAuth walkthrough guidance (design amendment, Sam 2026-07-14): agents
+  // walking a user through browser OAuth must print the auth URL bare on its
+  // own line, pre-warn about the localhost callback connection error on
+  // remote sessions, and say to paste the full address-bar URL back.
+  test('(j) tells agents to print the auth URL bare on its own line', () => {
+    expect(content).toMatch(/bare,? on its own line/i);
+    expect(content).toMatch(/numbered list/i);
+  });
+
+  test('(k) pre-warns that the localhost callback error is expected', () => {
+    expect(content).toMatch(/connection error/i);
+    expect(content).toMatch(/this is expected/i);
+  });
+
+  test('(l) says to paste the full address-bar callback URL back', () => {
+    expect(content).toMatch(/address bar/i);
+    expect(content).toMatch(/callback\?code=/);
+    expect(content).toMatch(/paste it as\s+their next message/i);
+  });
 });
