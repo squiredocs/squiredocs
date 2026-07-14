@@ -147,6 +147,17 @@
   user-select: none;
 }
 
+/* The rendered inline preview sits on the constant-light media plate (D16 /
+ * FR-009) so Mermaid (theme 'neutral', black strokes, transparent bg) and SVG
+ * blocks render faithfully and legibly in dark mode, matching the fullscreen
+ * canvas. Scoped to the rendered preview only: the loading placeholder shares
+ * this class but shows `--canvas-text-muted` status text that must stay on the
+ * dark canvas (a light plate under it would fail AA in dark mode). The node's
+ * overflow:hidden + border-radius clips the plate to the block's rounded top. */
+.diagram-preview:not(.diagram-loading) {
+  background-color: var(--canvas-media-plate);
+}
+
 .diagram-preview svg {
   max-width: 100%;
   height: auto;
