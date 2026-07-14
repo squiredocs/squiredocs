@@ -260,14 +260,14 @@ section shows a link to `/agents.md`. `curl -s http://localhost:5173/ | grep
 
 ### Implementation
 
-- [ ] T021 [P] [US4] In `/local-dev/client/src/pages/SettingsPage.jsx:291`,
+- [X] T021 [P] [US4] In `/local-dev/client/src/pages/SettingsPage.jsx:291`,
       inside the existing `<section>` with heading "AI Agent Access", add a
       one-line paragraph or link element referencing `/agents.md`
       (e.g. `<p className="settings-description">See <a
       href="/agents.md">agents.md</a> for the full connect guide.</p>`), while
       keeping the existing MCP URL row, `AgentDelegationList`, and
       `ApiTokenList` intact. Copy tone matches the existing description.
-- [ ] T022 [P] [US4] In `/local-dev/client/public/landing.html`, add exactly
+- [X] T022 [P] [US4] In `/local-dev/client/public/landing.html`, add exactly
       one `<li><a href="/agents.md">Agents</a></li>` to the `Product` footer
       column (~L318-326). No other copy changes.
 
