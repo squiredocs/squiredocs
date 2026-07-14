@@ -149,4 +149,28 @@ function parseFrontmatter(markdown) {
   };
 }
 
-module.exports = { parseFrontmatter, MAX_FRONTMATTER_BYTES };
+/**
+ * Read a display title from parsed `squire:` metadata (the import title
+ * precedence's frontmatter rung, FR-008). Additive accessor so import and any
+ * other consumer read `squire.title` through ONE definition rather than
+ * forking the "what counts as a title" rule.
+ *
+ * `squire` is untrusted plain data from parseFrontmatter (any YAML type). A
+ * non-empty string title is used verbatim; a numeric/boolean scalar is coerced
+ * to its string form (parity with the pre-convergence line parser, which read
+ * every scalar as text); anything else (missing key, empty string, list,
+ * mapping, null) yields null so the caller falls through to the next rung.
+ *
+ * @param {*} squire - parsed squire value (object | scalar | null)
+ * @returns {string|null}
+ */
+function scalarTitle(squire) {
+  if (squire == null || typeof squire !== 'object' || Array.isArray(squire)) return null;
+  const t = squire.title;
+  if (typeof t === 'string') return t.length > 0 ? t : null;
+  if (typeof t === 'number' && Number.isFinite(t)) return String(t);
+  if (typeof t === 'boolean') return String(t);
+  return null;
+}
+
+module.exports = { parseFrontmatter, scalarTitle, MAX_FRONTMATTER_BYTES };

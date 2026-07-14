@@ -3,7 +3,8 @@
  * surface wraps (FR-001). No surface parses or materializes on its own.
  *
  * Pipeline (contracts/import-module.md):
- *   normalize → frontmatter (markdown-import-frontmatter) → markdownToPm
+ *   frontmatter (shared/markdown/frontmatter — the canonical js-yaml parser,
+ *   shared with export/sync) → markdownToPm
  *   (feature 001, tolerant, exclusively — FR-003) → image reconstruction →
  *   link-href sanitation (FR-022) → `data:` image rejection (FR-019) →
  *   materialize (pm-json-to-nodes) → staged image pass (rehost/degrade,
@@ -35,7 +36,7 @@
 
 const Y = require('yjs');
 const documentService = require('./document-service');
-const { consumeFrontmatter } = require('./markdown-import-frontmatter');
+const { parseFrontmatter, scalarTitle } = require('../shared/markdown/frontmatter');
 const { markdownToPm } = require('../shared/markdown');
 const { pmJsonToNodes } = require('./mcp/yjs/pm-json-to-nodes');
 const { reconcileCrossDocImages } = require('./mcp/image-validate');
@@ -64,6 +65,47 @@ class ImportError extends Error {
 }
 
 const MODES = ['append', 'replace', 'insertAfterXPath'];
+
+// ---------------------------------------------------------------------------
+// Frontmatter consumption (converged onto shared/markdown/frontmatter.js)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap non-squire frontmatter residue in a fenced `yaml` code block whose fence
+ * is guaranteed longer than any backtick run inside the residue, so hostile
+ * frontmatter content can never break out of the block (CN-5). The canonical
+ * parser hands back the residue byte-verbatim (`foreignRaw`); this is the
+ * import surface's presentation of it — no content is lost.
+ */
+function fenceYaml(residue) {
+  let longest = 0;
+  for (const m of residue.matchAll(/`+/g)) {
+    if (m[0].length > longest) longest = m[0].length;
+  }
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}yaml\n${residue}\n${fence}`;
+}
+
+/**
+ * Consume a leading frontmatter block for import through the canonical parser
+ * (shared/markdown/frontmatter.js — the SAME js-yaml recognizer export and sync
+ * use, so all three surfaces agree on recognition, the 64 KB cap, malformed-
+ * as-content, and the foreign-key strip guard). Returns the body to parse with
+ * non-squire residue re-emitted as a leading yaml code block (FR-007), the
+ * frontmatter-stripped body on its own, and the recognized squire title
+ * (FR-006/FR-008). Never throws.
+ *
+ * @param {string} markdown - raw untrusted markdown
+ * @returns {{ content: string, body: string, title: string|null }}
+ */
+function importFrontmatter(markdown) {
+  const { body, squire, foreignRaw } = parseFrontmatter(markdown);
+  let content = body;
+  if (foreignRaw) {
+    content = body ? `${fenceYaml(foreignRaw)}\n\n${body}` : `${fenceYaml(foreignRaw)}\n`;
+  }
+  return { content, body, title: scalarTitle(squire) };
+}
 
 // ---------------------------------------------------------------------------
 // Staged image pass
@@ -148,7 +190,7 @@ async function stageImagePass(detachedNodes, imageContext, rejected = []) {
  * @throws {ImportError} EMPTY_IMPORT when nothing real would be imported.
  */
 async function prepareImport(markdown, imageContext) {
-  const fm = consumeFrontmatter(markdown);
+  const fm = importFrontmatter(markdown);
 
   let pmJson = markdownToPm(fm.content);
   pmJson = reconstructImages(pmJson);
@@ -180,7 +222,7 @@ async function prepareImport(markdown, imageContext) {
   }
 
   const frontmatter = {};
-  if (fm.squire && fm.squire.title) frontmatter.title = fm.squire.title;
+  if (fm.title) frontmatter.title = fm.title;
 
   return { nodes, images, frontmatter };
 }
@@ -200,7 +242,7 @@ async function prepareImport(markdown, imageContext) {
  * @returns {{ title: string|null, hasBody: boolean }}
  */
 function deriveImportTitle(markdown) {
-  const fm = consumeFrontmatter(markdown);
+  const fm = importFrontmatter(markdown);
   const pmJson = reconstructImages(markdownToPm(fm.content));
   let firstHeading = null;
   for (const block of pmJson.content || []) {
@@ -217,7 +259,7 @@ function deriveImportTitle(markdown) {
   const hasBody =
     hasRealContent(pmJson) || (pmJson.content || []).some((b) => b && b.type === 'image');
   return {
-    title: (fm.squire && fm.squire.title) || firstHeading || null,
+    title: fm.title || firstHeading || null,
     hasBody,
   };
 }
@@ -309,6 +351,7 @@ module.exports = {
   prepareImport,
   stageImagePass,
   deriveImportTitle,
+  importFrontmatter,
   sanitizeLinkMarks,
   reconstructImages,
   rejectDataImages,
