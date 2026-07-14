@@ -316,7 +316,9 @@ canvas-stays-light parts of D5/D7/D12. Recorded per the amended design doc
 
 ### D16 — Rendered media: light "media plate" for Mermaid + SVG; images unplated
 
-**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)** — **PARTIALLY
+SUPERSEDED by D19 (Sam directive, 2026-07-14)**: Mermaid previews now invert
+to dark in dark mode; the light plate remains for SVG blocks.
 
 - **Decision**: Mermaid diagrams and SVG blocks render on a **constant light
   media plate** in both themes (a token whose value is light in light and dark
@@ -326,6 +328,26 @@ canvas-stays-light parts of D5/D7/D12. Recorded per the amended design doc
 - **Rationale**: Diagram/SVG colors are authored against light; a plate keeps
   them faithful without a re-theming engine (out of scope). Images already
   carry their own background.
+
+### D19 — Mermaid previews invert to dark in dark mode (display-only)
+
+**DIRECTED BY SAM (2026-07-14)** — post-merge feedback: "can you invert the
+mermaid colors too in darkmode?"
+
+- **Decision**: In dark mode, rendered Mermaid previews (inline and
+  fullscreen) invert via a token-driven CSS filter
+  (`--canvas-mermaid-filter`: `none` light / `invert(0.92) hue-rotate(180deg)`
+  dark), flipping the light plate + diagram to dark while roughly preserving
+  hue. Display-only: stored source untouched (FR-014), print resolves the
+  token to `none` (D17 holds), and clipboard/download PNGs rasterize the SVG
+  markup directly so they stay light-rendered. SVG blocks keep the constant
+  light plate (D16's rationale still applies to arbitrary author markup).
+- **Rationale for the filter approach** (default, Sam may ratify or swap):
+  re-initializing Mermaid with its native `dark` theme would look more
+  designed but requires re-rendering on every theme switch and diverges
+  print/clipboard output; the filter is one CSS rule, print-safe by token
+  reset, and literally what was asked for. Native-dark-theme rendering is a
+  candidate future upgrade.
 
 ### D17 — Print is forced light regardless of theme
 

@@ -15,7 +15,7 @@ Originally this design kept the canvas light (the "paper model", decision D5). *
 
 - Stored content never changes: theming remains purely presentational — no document writes, no version entries, no collaboration-state changes.
 - Author-set colors (color picker, agent-authored) render exactly as authored in both themes — no remap, inversion, or adjustment in v1. Default (unset) text and the canvas background come from the semantic token layer, so unstyled documents read natively in both themes. A contrast-adaptive display remap for author colors is explicit future work.
-- Mermaid diagrams and SVG blocks render on a constant light "media plate" in dark mode — faithful rendering without re-theming rendered content. Images render unplated (raster content is self-contained). Code blocks are plain-styled text and tokenize with the canvas.
+- **Mermaid diagrams invert in dark mode (Sam directive, 2026-07-14): **a presentational CSS inversion filter (token-driven, `--canvas-mermaid-filter`: none in light, invert+hue-rotate in dark) flips the rendered diagram and its plate to dark while roughly preserving hue. The filter is display-only: stored diagram source, print output (filter forced off in the print token reset), clipboard PNG copies, and exports all remain light-rendered. SVG blocks keep the constant light media plate — arbitrary author markup cannot be safely re-themed. Images render unplated (raster content is self-contained). Code blocks are plain-styled text and tokenize with the canvas.
 - Print is always light: forced-light print styles make printed output identical from both themes.
 - Selection highlights, presence cursors, and attribution on the dark canvas meet the same AA-legibility bar as chrome; the user→color identity mapping never changes.
 
@@ -44,4 +44,4 @@ Known v1 caveat, accepted: author-chosen dark colors on the default background c
 
 ## Out of scope (v1)
 
-Contrast-adaptive display remap of author-set colors on the dark canvas; server-side preference persistence; custom or high-contrast themes; per-document appearance; re-theming exports, print, or rendered diagram/SVG content; live cross-tab propagation of theme changes (every tab honors the stored choice on load).
+Contrast-adaptive display remap of author-set colors on the dark canvas; server-side preference persistence; custom or high-contrast themes; per-document appearance; re-theming exports, print, or rendered SVG-block content (the display-only mermaid inversion above is the one sanctioned exception); live cross-tab propagation of theme changes (every tab honors the stored choice on load).

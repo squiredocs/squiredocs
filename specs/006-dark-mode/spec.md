@@ -205,10 +205,13 @@ theme; confirm the stored document was not modified by any theme switching.
   via the color picker, or by agents) MUST NEVER be remapped, inverted, or
   otherwise altered by the viewer's theme — they render exactly as authored in
   both modes, and the stored document is never changed.
-- **FR-009**: Rendered **Mermaid diagrams and SVG blocks** MUST render on a
-  constant **light "media plate"** in both modes (faithful rendering, no
-  re-theming of rendered content); **images** render unplated; **code blocks**
-  are plain-styled text and theme with the canvas via the token layer.
+- **FR-009**: Rendered **Mermaid diagrams** MUST invert to dark in dark mode
+  via a **display-only presentational filter** (D19, Sam directive 2026-07-14):
+  stored source, print output, clipboard PNG copies, and exports remain
+  light-rendered. **SVG blocks** MUST render on a constant **light "media
+  plate"** in both modes (arbitrary author markup is never re-themed);
+  **images** render unplated; **code blocks** are plain-styled text and theme
+  with the canvas via the token layer.
 - **FR-010**: Printing MUST be unaffected by the UI theme: printed output
   from dark mode MUST be identical to printed output from light mode.
 - **FR-011**: All themed chrome **and the canvas's token-driven default

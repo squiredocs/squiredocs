@@ -420,7 +420,7 @@ export default function DiagramNodeView({ editor, node, getPos, extension }) {
         svg &&
         createPortal(
           <div
-            className="diagram-fullscreen"
+            className={cx('diagram-fullscreen', config.name === 'mermaid' && 'is-mermaid')}
             role="dialog"
             aria-modal="true"
             aria-label="Expanded diagram"

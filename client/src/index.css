@@ -126,6 +126,7 @@
   --canvas-link: #2563eb;                          /* default document link */
   --canvas-selection-bg: rgba(74, 144, 226, 0.20); /* text/cell selection */
   --canvas-media-plate: var(--white);
+  --canvas-mermaid-filter: none;                   /* display-only mermaid inversion (D19) */
   --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);  /* version-diff insert mark */
   --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);  /* version-diff delete mark */
   /* Presence identity chips (avatar/cursor labels): text/backing render on the
@@ -192,7 +193,10 @@
   --backdrop: rgba(0, 0, 0, 0.6);
   /* Dark canvas — "paper" sits slightly above the chrome base so the document
      reads as a distinct surface. --canvas-media-plate is deliberately NOT
-     redefined: it stays light (D16). Author-set colors remain untouched (D15). */
+     redefined: it stays light for SVG blocks (D16). Mermaid previews instead
+     invert to dark via --canvas-mermaid-filter (D19, Sam directive) — a
+     display-only filter; source, print, clipboard PNGs, and exports stay
+     light-rendered. Author-set colors remain untouched (D15). */
   --canvas-bg: #17191d;
   --canvas-text: #e6e8eb;
   --canvas-text-muted: #aab1bb;
@@ -201,6 +205,7 @@
   --canvas-th-bg: #21252c;
   --canvas-link: #6ea8ff;
   --canvas-selection-bg: rgba(96, 165, 250, 0.28);
+  --canvas-mermaid-filter: invert(0.92) hue-rotate(180deg);
   --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
   --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
   --presence-ring: rgba(255, 255, 255, 0.55);
@@ -263,6 +268,7 @@
     --canvas-th-bg: #21252c;
     --canvas-link: #6ea8ff;
     --canvas-selection-bg: rgba(96, 165, 250, 0.28);
+    --canvas-mermaid-filter: invert(0.92) hue-rotate(180deg);
     --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
     --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
     --presence-ring: rgba(255, 255, 255, 0.55);
@@ -285,6 +291,7 @@
     --canvas-link: #2563eb;
     --canvas-selection-bg: rgba(74, 144, 226, 0.20);
     --canvas-media-plate: #ffffff;
+    --canvas-mermaid-filter: none;
     --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);
     --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);
   }

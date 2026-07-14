@@ -118,3 +118,20 @@ collaboration-state changes), and the lint-gate false-negative claims (a)/(b)/(c
 - **Design doc**: `design/ui-theming-dark-mode.md` came from `main` via merge (no
   edit here — it is ground truth).
 - **Zero server files changed** (client-only feature).
+
+## Feedback round: mermaid inversion in dark mode (2026-07-14)
+
+Sam directed (post-merge, during his visual review): invert mermaid colors in
+dark mode. Landed as D19 — a display-only `--canvas-mermaid-filter` token
+(`invert(0.92) hue-rotate(180deg)` in dark) on mermaid previews inline +
+fullscreen; SVG blocks keep the D16 light plate. Design doc amended first
+(Squire → sync), FR-009 updated. Print/clipboard/export stay light-rendered
+(token resets to `none` in print; rasterization serializes SVG markup, so the
+document-level filter never applies).
+
+- **Owed**: human eyeball of an inverted diagram (hue-rotate on saturated
+  authored colors is approximate, not designed); if it disappoints, the
+  upgrade path is Mermaid's native `dark` theme with re-render-on-switch
+  (recorded in D19's rationale).
+- **Owed (Sam ratify)**: the filter approach itself and the exact filter
+  values.

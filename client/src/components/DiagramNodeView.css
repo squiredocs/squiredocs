@@ -158,6 +158,19 @@
   background-color: var(--canvas-media-plate);
 }
 
+/* Mermaid previews invert to dark in dark mode (D19, Sam directive) — a
+ * display-only filter over the plate + rendered SVG that roughly preserves
+ * hue. Light mode and print resolve the token to `none`; clipboard PNGs and
+ * downloads rasterize the SVG markup directly, so they stay light-rendered.
+ * SVG blocks keep the constant light plate (D16): arbitrary author markup
+ * can't be safely re-themed. The fullscreen overlay is portaled to
+ * document.body, hence the `.is-mermaid` class instead of an ancestor
+ * [data-type] selector. */
+.diagram-node[data-type="mermaid"] .diagram-preview:not(.diagram-loading),
+.diagram-fullscreen.is-mermaid .diagram-fullscreen-canvas {
+  filter: var(--canvas-mermaid-filter, none);
+}
+
 .diagram-preview svg {
   max-width: 100%;
   height: auto;
