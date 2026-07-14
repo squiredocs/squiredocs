@@ -39,18 +39,38 @@ const TOKEN_DEF_FILE = 'index.css';
 // CSS named colors that count as color values. `transparent`, `currentColor`,
 // and CSS-wide keywords (inherit/initial/unset/none/auto) are deliberately
 // EXCLUDED — they are theme-agnostic and carry no palette information.
+// The complete CSS Color Module Level 4 named-color list (148 names, including
+// the `gray`/`grey` spelling variants and `rebeccapurple`). Matching is
+// case-insensitive and whole-value-token only (see literalsInValue), so a color
+// word embedded in a longer identifier (e.g. `sans-serif`) is never matched.
 const NAMED_COLORS = new Set([
-  'white', 'black', 'red', 'green', 'blue', 'gray', 'grey', 'silver', 'maroon',
-  'olive', 'lime', 'aqua', 'teal', 'navy', 'fuchsia', 'purple', 'yellow',
-  'orange', 'pink', 'brown', 'gold', 'cyan', 'magenta', 'violet', 'indigo',
-  'coral', 'salmon', 'crimson', 'khaki', 'beige', 'ivory', 'tan', 'plum',
-  'tomato', 'orchid', 'turquoise', 'lavender', 'gainsboro', 'whitesmoke',
-  'lightgray', 'lightgrey', 'darkgray', 'darkgrey', 'dimgray', 'dimgrey',
-  'slategray', 'slategrey', 'lightblue', 'darkblue', 'lightgreen', 'darkgreen',
-  'lightyellow', 'darkred', 'royalblue', 'steelblue', 'skyblue', 'dodgerblue',
-  'firebrick', 'goldenrod', 'chocolate', 'sienna', 'peru', 'wheat', 'linen',
-  'snow', 'azure', 'mintcream', 'seagreen', 'forestgreen', 'limegreen',
-  'hotpink', 'deeppink', 'tomato', 'darkorange',
+  'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige', 'bisque',
+  'black', 'blanchedalmond', 'blue', 'blueviolet', 'brown', 'burlywood',
+  'cadetblue', 'chartreuse', 'chocolate', 'coral', 'cornflowerblue', 'cornsilk',
+  'crimson', 'cyan', 'darkblue', 'darkcyan', 'darkgoldenrod', 'darkgray',
+  'darkgreen', 'darkgrey', 'darkkhaki', 'darkmagenta', 'darkolivegreen',
+  'darkorange', 'darkorchid', 'darkred', 'darksalmon', 'darkseagreen',
+  'darkslateblue', 'darkslategray', 'darkslategrey', 'darkturquoise',
+  'darkviolet', 'deeppink', 'deepskyblue', 'dimgray', 'dimgrey', 'dodgerblue',
+  'firebrick', 'floralwhite', 'forestgreen', 'fuchsia', 'gainsboro',
+  'ghostwhite', 'gold', 'goldenrod', 'gray', 'green', 'greenyellow', 'grey',
+  'honeydew', 'hotpink', 'indianred', 'indigo', 'ivory', 'khaki', 'lavender',
+  'lavenderblush', 'lawngreen', 'lemonchiffon', 'lightblue', 'lightcoral',
+  'lightcyan', 'lightgoldenrodyellow', 'lightgray', 'lightgreen', 'lightgrey',
+  'lightpink', 'lightsalmon', 'lightseagreen', 'lightskyblue', 'lightslategray',
+  'lightslategrey', 'lightsteelblue', 'lightyellow', 'lime', 'limegreen',
+  'linen', 'magenta', 'maroon', 'mediumaquamarine', 'mediumblue',
+  'mediumorchid', 'mediumpurple', 'mediumseagreen', 'mediumslateblue',
+  'mediumspringgreen', 'mediumturquoise', 'mediumvioletred', 'midnightblue',
+  'mintcream', 'mistyrose', 'moccasin', 'navajowhite', 'navy', 'oldlace',
+  'olive', 'olivedrab', 'orange', 'orangered', 'orchid', 'palegoldenrod',
+  'palegreen', 'paleturquoise', 'palevioletred', 'papayawhip', 'peachpuff',
+  'peru', 'pink', 'plum', 'powderblue', 'purple', 'rebeccapurple', 'red',
+  'rosybrown', 'royalblue', 'saddlebrown', 'salmon', 'sandybrown', 'seagreen',
+  'seashell', 'sienna', 'silver', 'skyblue', 'slateblue', 'slategray',
+  'slategrey', 'snow', 'springgreen', 'steelblue', 'tan', 'teal', 'thistle',
+  'tomato', 'turquoise', 'violet', 'wheat', 'white', 'whitesmoke', 'yellow',
+  'yellowgreen',
 ]);
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
@@ -61,10 +81,14 @@ const FUNC_RE = /\b(?:rgba?|hsla?)\s*\(/gi;
  * colon). Returns an array of matched literal strings.
  */
 function literalsInValue(rawValue) {
-  // Strip `var(--token)` references first — a token NAME may contain a
-  // color word (e.g. var(--gray-600), var(--white), var(--violet-600)) or look
-  // hex-ish; those are legal token references, not literals.
-  const value = rawValue.replace(/var\(\s*--[a-zA-Z0-9-]+\s*(?:,[^)]*)?\)/g, ' ');
+  // Strip only the `var(--token-name` head of every var() reference — a token
+  // NAME may contain a color word (e.g. var(--gray-600), var(--white)) or look
+  // hex-ish, and those are legal references, not literals. We deliberately KEEP
+  // the fallback body (the `, <fallback>)` tail) so a literal smuggled into a
+  // fallback — e.g. `var(--x, #fff)` or `var(--x, rgba(0,0,0,.5))` — is still
+  // scanned. A fallback that is itself a token (`var(--x, var(--gray-600))`)
+  // has both heads stripped, so its name is not misflagged.
+  const value = rawValue.replace(/var\(\s*--[a-zA-Z0-9-]+/g, ' ');
   const found = [];
   let m;
   HEX_RE.lastIndex = 0;
@@ -104,13 +128,42 @@ export function scanCss(css, relPath) {
 
   const inPrint = () => stack.some((h) => /@media[^{]*\bprint\b/i.test(h));
 
+  // Anchored allowlist: inside index.css, literals are legal ONLY within a
+  // genuine token-definition block — the light `:root`, the dark
+  // `:root[data-theme="dark"]`, or the prefers-fallback `:root:not([data-theme])`.
+  // Anchoring (^…$) prevents an incidental `:root`/`[data-theme]` substring in
+  // some other selector from opening a hole. (The `@media print` reset is
+  // covered separately by inPrint().)
+  const TOKEN_DEF_SELECTOR = /^:root(\[data-theme="dark"\]|:not\(\[data-theme\]\))?$/;
+
   const isAllowed = () => {
     if (inPrint()) return true; // forced-light print (D17), theme-independent
     if (base === TOKEN_DEF_FILE) {
-      // literals are legal inside the token-definition selectors
-      return stack.some((h) => /:root|\[data-theme|prefers-color-scheme/i.test(h));
+      return stack.some((h) => TOKEN_DEF_SELECTOR.test(h));
     }
     return false;
+  };
+
+  // Check the just-completed declaration (the text before a `;` or a closing
+  // `}`) for disallowed literals. Called at both terminators so a final
+  // declaration with no trailing semicolon is not skipped.
+  const flushDecl = () => {
+    const decl = buffer.trim();
+    const colon = decl.indexOf(':');
+    if (colon !== -1) {
+      const value = decl.slice(colon + 1);
+      const literals = literalsInValue(value);
+      if (literals.length && !isAllowed()) {
+        for (const literal of literals) {
+          violations.push({
+            file: relPath,
+            line: bufStartLine,
+            literal,
+            selector: stack[stack.length - 1] || '(top level)',
+          });
+        }
+      }
+    }
   };
 
   for (let i = 0; i < clean.length; i++) {
@@ -121,26 +174,14 @@ export function scanCss(css, relPath) {
       buffer = '';
       bufStartLine = line;
     } else if (ch === '}') {
+      // Process any dangling declaration (last one in the block, no trailing
+      // `;`) while its block header is still on the stack, then close the block.
+      flushDecl();
       stack.pop();
       buffer = '';
       bufStartLine = line;
     } else if (ch === ';') {
-      const decl = buffer.trim();
-      const colon = decl.indexOf(':');
-      if (colon !== -1) {
-        const value = decl.slice(colon + 1);
-        const literals = literalsInValue(value);
-        if (literals.length && !isAllowed()) {
-          for (const literal of literals) {
-            violations.push({
-              file: relPath,
-              line: bufStartLine,
-              literal,
-              selector: stack[stack.length - 1] || '(top level)',
-            });
-          }
-        }
-      }
+      flushDecl();
       buffer = '';
       bufStartLine = line;
     } else {
