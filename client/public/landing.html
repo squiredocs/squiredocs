@@ -76,7 +76,9 @@
       <div class="landing-hero-content">
         <h1 class="landing-headline">Collaborative Docs for<br>Spec-Driven Development</h1>
         <p class="landing-subheadline">
-          Docs your engineers, PMs, and coding agents all write together. Two-way markdown sync to your repos. Every edit is attributed.
+          Engineers, PMs, and coding agents all write together.<br>
+          Two-way markdown sync to your repos.<br>
+          Every edit is attributed.
         </p>
         <div class="landing-hero-screenshot">
           <img src="/hero-screenshot.png" alt="Squire Docs editor with the AI assistant panel open: inline diffs and suggestions, with a live collaborator editing the document" />
@@ -134,20 +136,36 @@
     <!-- Works with Your Favorite AI -->
     <section class="landing-section">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">Connects to your favorite AI</h2>
-        <p class="landing-section-text">Works with any AI agent or model. Use Claude, ChatGPT, Gemini, or any agent right inside your document.</p>
-        <div class="landing-connect-grid">
-          <div class="landing-connect-item">
-            <h3>Use any model</h3>
-            <p>Bring your own key from Anthropic, Google (Gemini), OpenAI, z.ai, or OpenRouter and use any model you choose.</p>
+        <div class="landing-intro-layout">
+          <div class="landing-intro-text">
+            <h2 class="landing-section-title">Connects to your favorite AI</h2>
+            <p class="landing-section-text">Works with any AI agent or model. Use Claude, ChatGPT, Gemini, GLM, or any agent right inside your document.</p>
+            <div class="landing-steps-grid">
+              <div class="landing-step">
+                <div class="landing-step-num">&#10003;</div>
+                <div class="landing-step-body">
+                  <h3>Use any model</h3>
+                  <p>Bring your own key from Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter and use any model you choose.</p>
+                </div>
+              </div>
+              <div class="landing-step">
+                <div class="landing-step-num">&#10003;</div>
+                <div class="landing-step-body">
+                  <h3>Connect any agent</h3>
+                  <p>Connect external agents like Claude Code, Codex, and Claude Desktop to your documents over MCP.</p>
+                </div>
+              </div>
+              <div class="landing-step">
+                <div class="landing-step-num">&#10003;</div>
+                <div class="landing-step-body">
+                  <h3>Batteries included</h3>
+                  <p>The built-in AI agent runs on Anthropic models and is ready the moment you open a doc.</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="landing-connect-item">
-            <h3>Connect any agent</h3>
-            <p>Connect external agents like Claude Code, Codex, and Claude Desktop to your documents over MCP.</p>
-          </div>
-          <div class="landing-connect-item">
-            <h3>Batteries included</h3>
-            <p>The built-in AI agent runs on Anthropic models and is ready the moment you open a doc.</p>
+          <div class="landing-showcase-phone">
+            <img src="/mobile-diagram.png" alt="Squire Docs on a phone showing a document with a rendered architecture diagram" />
           </div>
         </div>
       </div>
@@ -201,63 +219,27 @@
     <section class="landing-section" style="background: #f9fafb;">
       <div class="landing-section-content">
         <h2 class="landing-section-title">Every edit has an author, even the agent's</h2>
-        <p class="landing-section-text">Human or AI, every change is attributed to whoever made it and reversible through version history. Agent-written content gets reviewed like a collaborator's work, not pasted over anonymously.</p>
+        <p class="landing-section-text">Human or AI, every change is attributed to whoever made it and reversible through version history. Agent-written content is attributed like a collaborator's work, not pasted over anonymously.</p>
         <div class="landing-usecases-grid">
           <div class="landing-usecase-card">
             <h3>Live presence: humans and agents</h3>
             <p>Every collaborator shows up as a named, colored cursor, including your coding agents. Watch their edits land in real time.</p>
           </div>
           <div class="landing-usecase-card">
-            <h3>Review, don't rubber-stamp</h3>
-            <p>Compare any two versions side by side and restore an earlier state with one click. Agent output is reviewed like any other contributor's.</p>
+            <h3>Built for simultaneous edits</h3>
+            <p>Docs are conflict-free by design. Humans and agents edit concurrently and changes merge automatically — no locks, no conflict dialogs, no lost work.</p>
           </div>
           <div class="landing-usecase-card">
             <h3>A full, attributed history</h3>
-            <p>Every version is named, dated, and credited. The record of how a decision was reached lives with the document.</p>
+            <p>Every version is named, dated, and credited. The record of how the work took shape lives with the document.</p>
           </div>
         </div>
       </div>
     </section>
 
-
-    <!-- How it works -->
-    <section class="landing-section">
-      <div class="landing-intro-layout">
-        <div class="landing-intro-text">
-          <h2 class="landing-section-title">From blank page to finished draft</h2>
-          <p class="landing-section-text">No setup, no new habits. Open a document and your agent is ready to write with you.</p>
-          <div class="landing-steps-grid">
-            <div class="landing-step">
-              <div class="landing-step-num">1</div>
-              <div class="landing-step-body">
-                <h3>Open a doc</h3>
-                <p>Start in an editor that works exactly like the one you already use. There's nothing to learn.</p>
-              </div>
-            </div>
-            <div class="landing-step">
-              <div class="landing-step-num">2</div>
-              <div class="landing-step-body">
-                <h3>Write with AI inline</h3>
-                <p>Ask the assistant to draft, rewrite, or research. Edits land right in the page, with your formatting intact.</p>
-              </div>
-            </div>
-            <div class="landing-step">
-              <div class="landing-step-num">3</div>
-              <div class="landing-step-body">
-                <h3>Stay in control</h3>
-                <p>Every change is attributed and reversible. Compare versions and restore any state with one click.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="landing-showcase-phone">
-          <img src="/mobile-diagram.png" alt="Squire Docs on a phone showing a document with a rendered architecture diagram" />
-        </div>
-      </div>
-    </section>
 
     <!-- What you'll write -->
-    <section class="landing-section" style="background: #f9fafb;">
+    <section class="landing-section">
       <div class="landing-section-content">
         <h2 class="landing-section-title">From design docs to memos</h2>
         <p class="landing-section-text">Whatever leaves your desk as a document, Squire Docs helps you get it there faster.</p>
@@ -281,7 +263,7 @@
     <!-- Bottom CTA Section -->
     <section class="landing-section cta">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">Ready to start writing?</h2>
+        <h2 class="landing-section-title">Ready to write with your agents?</h2>
         <div class="landing-signup-card">
           <p class="landing-signup-subtext">Free. No Setup. Sign in with Google.</p>
           <a href="/signup" class="landing-btn google">
@@ -305,10 +287,11 @@
           <div class="landing-footer-brand">
             <a href="/" class="landing-footer-logo">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <path d="M12 18v-6" />
-                <path d="M9 15l3 3 3-3" />
+                <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                <path d="M7.5 7.5h8" stroke-width="1" />
+                <path d="M13.5 5.5l2.5 2-2.5 2" stroke-width="1" />
+                <path d="M7.5 12h8" stroke-width="1" />
+                <path d="M7.5 16.5h8" stroke-width="1" />
               </svg>
               <span>Squire Docs</span>
             </a>
