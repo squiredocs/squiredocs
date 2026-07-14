@@ -7,8 +7,10 @@ const express = require('express');
 const oauthFlow = require('./oauth-flow');
 const registeredAgents = require('./registered-agents');
 const apiTokens = require('./api-tokens');
+const shortLinks = require('./short-links');
 const { requireAuth } = require('../../auth/middleware');
 const { optionalAuth } = require('../../auth/middleware');
+const { buildBaseUrl } = require('../../url');
 
 const router = express.Router();
 
@@ -17,6 +19,45 @@ router.get('/authorize', optionalAuth, oauthFlow.handleAuthorize);
 router.post('/token', oauthFlow.handleToken);
 router.post('/revoke', oauthFlow.handleRevoke);
 router.post('/register', oauthFlow.handleRegister);
+
+// Authorize-link shortener (public: agents call this before they have any
+// credential — that's the point of the authorize URL). Only same-path
+// /mcp/auth/authorize URLs are accepted, and the redirect target is rebuilt
+// on this origin, so this cannot be used as an open redirector.
+router.post('/shorten', async (req, res) => {
+  try {
+    const result = await shortLinks.createShortLink(req.body?.url);
+    if (!result) {
+      return res.status(400).json({
+        error: 'invalid_url',
+        message: 'Only this origin\'s /mcp/auth/authorize URLs can be shortened. Pass the full authorization URL as JSON: { "url": "..." }.',
+      });
+    }
+    res.json({
+      shortUrl: `${buildBaseUrl(req)}/mcp/auth/a/${result.code}`,
+      expiresAt: result.expiresAt.toISOString(),
+      expiresInSeconds: shortLinks.TTL_SECONDS,
+    });
+  } catch (error) {
+    console.error('Error creating short link:', error);
+    res.status(500).json({ error: 'Failed to create short link' });
+  }
+});
+
+router.get('/a/:code', async (req, res) => {
+  try {
+    const target = await shortLinks.resolveShortLink(req.params.code);
+    if (!target) {
+      return res
+        .status(404)
+        .send('This authorization link has expired or does not exist. Ask your agent for a fresh one.');
+    }
+    res.redirect(302, target);
+  } catch (error) {
+    console.error('Error resolving short link:', error);
+    res.status(500).send('Failed to resolve authorization link');
+  }
+});
 
 // Protected endpoints (user-initiated, require session auth)
 router.post('/approve', requireAuth, oauthFlow.handleApprove);

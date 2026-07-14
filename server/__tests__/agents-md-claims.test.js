@@ -98,4 +98,14 @@ describe('agents.md drift-guard', () => {
     expect(content).toMatch(/callback\?code=/);
     expect(content).toMatch(/paste it as\s+their next message/i);
   });
+
+  // Authorize-link shortener (design amendment, Sam 2026-07-14): agents must
+  // shorten the authorize URL before presenting it, so it survives terminal
+  // line-wrapping in clients without OSC 8 support.
+  test('(m) tells agents to shorten the authorize URL first', () => {
+    expect(content).toContain('/mcp/auth/shorten');
+    expect(content).toMatch(/shorten it first/i);
+    expect(content).toContain('shortUrl');
+    expect(content).toContain('/mcp/auth/a/');
+  });
 });

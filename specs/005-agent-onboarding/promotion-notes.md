@@ -60,3 +60,17 @@ should know. Nothing here blocks merge; all decisions have a documented default.
   accepted-and-ignored is asserted in `oauth-discovery.test.js`.
 - Reviewer verified all agents.md claims against code (lens 4) — no drift at
   merge time.
+
+## Post-merge amendments (2026-07-14, onboarding feedback rounds)
+
+- **Amendment: in-session connect caveat + OAuth walkthrough guidance +
+  authorize-link shortener** (design: agent-surface-mcp, three bullets dated
+  2026-07-14). agents.md gained user-facing connect/restart steps and the
+  shorten-then-present auth flow; server gained `POST /mcp/auth/shorten` +
+  `GET /mcp/auth/a/:code` (`server/mcp/auth/short-links.js`).
+- **ACCEPTED, owed at promotion — no rate limit on `/mcp/auth/shorten`**:
+  unauthenticated endpoint writes ~600-byte TTL'd redis values. Abuse value
+  is low (same-origin-only redirects, 10-min expiry) but a flood could
+  churn redis; add the app's standard rate limiting if/when one exists, or
+  a per-IP cap. `oauth-shorten.test.js` mounts the handler wiring inline
+  (same LOW-3 root cause: `server/index.js` doesn't export `app`).

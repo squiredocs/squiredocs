@@ -72,9 +72,17 @@ Two options:
 When you hand your user an authorization link — whether your MCP client
 printed it or you are driving the flow yourself — present it like this:
 
-- Print the authorization URL **bare, on its own line** — never inside a
-  numbered list, quotes, or trailing punctuation. Long URLs wrap in
-  terminals, and list markup breaks one-click copying.
+- **Shorten it first.** Raw authorize URLs are ~500 characters and wrap
+  across terminal lines, where they can be neither clicked nor cleanly
+  selected. `POST /mcp/auth/shorten` with JSON `{"url": "<full authorize
+  URL>"}` (no auth required) returns a `shortUrl` like
+  `https://squiredocs.com/mcp/auth/a/x7Kp2mAb` that redirects to the full
+  URL for 10 minutes. Only same-origin `/mcp/auth/authorize` URLs are
+  accepted.
+- Present the short URL as a markdown link with a short label (e.g.
+  `[Authorize Squire Docs](...)` — clickable in most terminals), and also
+  bare on its own line — never inside a numbered list, quotes, or trailing
+  punctuation.
 - Before they open it, say what happens after they approve: the browser
   lands on a `http://localhost:.../callback` page. If you are running on a
   remote machine or in a container, that page will show a connection error —
