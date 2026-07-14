@@ -227,3 +227,78 @@ describe('markdown rendering (T031, FR-013/FR-028)', () => {
     }
   });
 });
+
+// --- T035: terminology sweep (FR-001, FR-031, SC-002) ------------------------
+
+describe('terminology: "docs" never means product documentation (T035)', () => {
+  const violationsIn = (label, text) =>
+    findTerminologyViolations(text).map((hit) => `${label}: "${hit}"`);
+
+  it('detects the violation phrasings it exists to catch', () => {
+    expect(findTerminologyViolations('Read the docs on our docs site.')).not.toHaveLength(0);
+    expect(findTerminologyViolations('See the product docs for details.')).not.toHaveLength(0);
+    // The product name and Squire-document meanings are not violations.
+    expect(findTerminologyViolations('Squire Docs is collaborative documents.')).toHaveLength(0);
+    expect(findTerminologyViolations('Share your docs with the team.')).toHaveLength(0);
+  });
+
+  it('documentation sources (bodies, titles, descriptions) are clean', () => {
+    const all = [];
+    for (const page of sourcePages) {
+      all.push(...violationsIn(`${page.file} body`, page.body));
+      all.push(...violationsIn(`${page.file} title`, page.frontmatter.title || ''));
+      all.push(...violationsIn(`${page.file} description`, page.frontmatter.description || ''));
+    }
+    expect(all, all.join('\n')).toHaveLength(0);
+  });
+
+  it('rendered pages (including sidebar and link labels) and the 404 are clean', () => {
+    const all = [];
+    for (const page of sourcePages) {
+      all.push(...violationsIn(page.file, renderedPageFor(page, allPages)));
+    }
+    all.push(...violationsIn('404.html', render404({ allPages })));
+    expect(all, all.join('\n')).toHaveLength(0);
+  });
+
+  it('the header and footer link label is "Documentation", never "Docs"', () => {
+    const rendered = renderedPageFor(sourcePages[0], allPages);
+    for (const html of [
+      rendered,
+      ...MARKETING_PAGES.map((f) => fs.readFileSync(path.join(PUBLIC_DIR, f), 'utf8')),
+    ]) {
+      expect(html).toContain('href="/documentation" class="landing-nav-link">Documentation<');
+      expect(html).not.toMatch(/href="\/documentation"[^>]*>\s*Docs\s*</);
+    }
+  });
+
+  it('audited app and marketing copy stays clean (T034 sweep gate)', () => {
+    // The T034 sweep found zero violations in client/src and client/public;
+    // this keeps the audited surfaces clean going forward. JSX/HTML string
+    // scanning at phrase level: the patterns in findTerminologyViolations only
+    // flag "docs" meaning product documentation, so the product name
+    // "Squire Docs", "Google Docs", and docs-as-Squire-documents all pass.
+    const surfaces = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        // Test files are not user-facing copy, and this file itself carries
+        // deliberate violation examples as fixtures.
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === '__tests__') continue;
+          walk(full);
+        } else if (/\.(jsx?|html|md)$/.test(entry.name) && !/\.test\.jsx?$/.test(entry.name)) {
+          surfaces.push(full);
+        }
+      }
+    };
+    walk(path.join(CLIENT_DIR, 'src'));
+    walk(PUBLIC_DIR);
+    const all = [];
+    for (const file of surfaces) {
+      const text = fs.readFileSync(file, 'utf8');
+      all.push(...violationsIn(path.relative(CLIENT_DIR, file), text));
+    }
+    expect(all, all.join('\n')).toHaveLength(0);
+  });
+});
