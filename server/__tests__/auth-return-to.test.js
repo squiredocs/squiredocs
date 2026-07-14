@@ -150,19 +150,12 @@ describe('Auth returnTo round-trip', () => {
   });
 
   describe('(b) GET /auth/google — hostile returnTo dropped silently', () => {
+    // Per contract (analyze C3), Express single-decodes the query parameter
+    // once — so a raw %2F%2Fevil.com in the URL arrives at the handler as the
+    // string //evil.com, which R2 rejects (starts with //). The cookie is not
+    // set and the request otherwise redirects to Google normally.
     test.each([
-      ['%2F%2Fevil.com%2F'],   // encoded //evil.com/ (still hostile decoded — but per contract accepted; keep the /%2F variant as ACCEPT)
-    ])('accepts contract-accepted encoded on-origin form: %s', async (encoded) => {
-      const res = await request(app).get(`/auth/google?returnTo=${encoded}`);
-      expect(res.status).toBe(302);
-      // Contract: /%2F%2Fevil.com single-decoded is treated as on-origin
-      // literal path (analyze finding C3). The single-decoded value is
-      // "//evil.com/" which STARTS WITH // — so R2 rejects it. Cookie NOT set.
-      const cookie = findCookie(res, 'oauth_return_to');
-      expect(cookie).toBeUndefined();
-    });
-
-    test.each([
+      ['%2F%2Fevil.com%2F'],   // decodes to //evil.com/
       ['http%3A%2F%2Fevil.com'],
       ['https%3A%2F%2Fevil.com%2Fx'],
       ['javascript%3Aalert(1)'],
