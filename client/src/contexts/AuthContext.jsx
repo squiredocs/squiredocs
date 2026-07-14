@@ -18,6 +18,29 @@ const api = axios.create({
 const AuthContext = createContext(null);
 
 /**
+ * Client-side mirror of the server's isValidReturnTo (server/auth/routes.js).
+ * Same six R2 predicates: string, 1-512 chars, starts with '/', not '//',
+ * no backslashes, URL-parseable with host='placeholder'.
+ *
+ * The server re-validates; this client check just avoids planting an invalid
+ * value into the outbound URL in the first place (feature 005-agent-onboarding).
+ */
+function isValidReturnToClient(value) {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > 512) return false;
+  if (!value.startsWith('/')) return false;
+  if (value.startsWith('//')) return false;
+  if (value.includes('\\')) return false;
+  try {
+    const parsed = new URL(value, 'http://placeholder');
+    if (parsed.host !== 'placeholder') return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Auth Provider component
  * Manages authentication state, token refresh, and axios interceptors
  */
@@ -103,13 +126,20 @@ export function AuthProvider({ children }) {
   /**
    * Dev login - bypass OAuth and login with test user
    * Only works when VITE_BYPASS_AUTH=true
+   *
+   * Accepts an optional same-origin returnTo path; if valid, redirects the
+   * browser there after the JSON response succeeds (mirrors the cookie
+   * behavior of the real OAuth callback for the dev bypass).
    */
-  const devLogin = useCallback(async () => {
+  const devLogin = useCallback(async (returnTo) => {
     try {
       const response = await api.post('/auth/dev-login');
       const { accessToken: newToken, user: userData } = response.data;
       setAccessToken(newToken);
       setUser(userData);
+      if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
+        window.location.href = returnTo;
+      }
       return true;
     } catch (error) {
       console.error('Dev login failed:', error);
@@ -132,10 +162,19 @@ export function AuthProvider({ children }) {
   /**
    * Login - redirect to Google OAuth or use dev login if bypass enabled
    * Uses relative URL so it stays on the same domain/port
+   *
+   * Feature 005-agent-onboarding: accepts an optional same-origin returnTo
+   * path. If valid, propagates it as ?returnTo=<encoded> so the server can
+   * carry it through the Google round-trip (via a short-lived httpOnly
+   * cookie). Invalid values silently fall through to the default flow.
    */
-  const login = useCallback(async () => {
+  const login = useCallback(async (returnTo) => {
     if (BYPASS_AUTH) {
-      return await devLogin();
+      return await devLogin(returnTo);
+    }
+    if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
+      window.location.href = `/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+      return;
     }
     window.location.href = '/auth/google';
   }, [devLogin]);

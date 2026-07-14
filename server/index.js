@@ -323,10 +323,7 @@ app.use('/api/support', express.json(), support.router);
 // Required for MCP client discovery of OAuth capabilities
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
   console.log('[OAuth Discovery] Metadata requested from:', req.get('origin') || req.get('referer') || 'unknown');
-  const host = req.get('host');
-  // Force HTTPS for production domains
-  const protocol = host.includes('squiredocs.com') ? 'https' : req.protocol;
-  const baseUrl = `${protocol}://${host}`;
+  const baseUrl = buildBaseUrl(req);
   res.json({
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/mcp/auth/authorize`,
@@ -339,6 +336,31 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     token_endpoint_auth_methods_supported: ['none'],
     scopes_supported: ['documents:read', 'documents:write'],
   });
+});
+
+// OAuth 2.0 Protected Resource Metadata (RFC 9728)
+// Both the path-suffix form (/mcp) and the root fallback return byte-identical
+// JSON describing the MCP endpoint as a protected resource, referencing this
+// origin as its authorization server. Feature 005-agent-onboarding.
+function buildProtectedResourceDoc(req) {
+  const baseUrl = buildBaseUrl(req);
+  return {
+    resource: `${baseUrl}/mcp`,
+    authorization_servers: [baseUrl],
+    scopes_supported: ['documents:read', 'documents:write'],
+    bearer_methods_supported: ['header'],
+    resource_name: 'Squire Docs MCP',
+  };
+}
+
+app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
+  console.log('[OAuth Discovery] Protected-resource metadata (mcp) requested from:', req.get('origin') || req.get('referer') || 'unknown');
+  res.json(buildProtectedResourceDoc(req));
+});
+
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  console.log('[OAuth Discovery] Protected-resource metadata (root) requested from:', req.get('origin') || req.get('referer') || 'unknown');
+  res.json(buildProtectedResourceDoc(req));
 });
 
 // Mount MCP OAuth routes first (more specific path takes precedence)

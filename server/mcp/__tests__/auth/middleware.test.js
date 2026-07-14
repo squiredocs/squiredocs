@@ -24,10 +24,18 @@ describe('MCP Auth Middleware', () => {
     const req = {
       headers: authHeader !== undefined ? { authorization: authHeader } : {},
       query: queryToken !== undefined ? { token: queryToken } : {},
+      // Feature 005-agent-onboarding: middleware calls buildBaseUrl(req) so it
+      // can emit the RFC 9728 resource_metadata pointer on the WWW-Authenticate
+      // header. Stub req.get('host') and req.protocol.
+      get: jest.fn((name) => (name && name.toLowerCase() === 'host' ? 'localhost:3001' : undefined)),
+      protocol: 'http',
     };
     const res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis(),
+      // Feature 005: middleware sets a WWW-Authenticate header on 401/403 —
+      // provide the setter so the mock doesn't blow up.
+      set: jest.fn().mockReturnThis(),
     };
     const next = jest.fn();
     return { req, res, next };

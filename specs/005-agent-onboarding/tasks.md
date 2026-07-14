@@ -33,11 +33,11 @@ work — annotated where relevant.
 **Purpose**: verify workspace and prerequisites; no new project scaffolding
 required for this feature.
 
-- [ ] T001 Verify Node/Express server tree and `client/public/` exist and
+- [X] T001 Verify Node/Express server tree and `client/public/` exist and
       that `express.static(clientBuildPath)` is mounted in
       `/local-dev/server/index.js` (~L1392) so `client/public/agents.md` will
       serve at `/agents.md` when the client is built. No file changes.
-- [ ] T002 Verify `buildBaseUrl` in `/local-dev/server/url.js` matches the
+- [X] T002 Verify `buildBaseUrl` in `/local-dev/server/url.js` matches the
       hardcoded logic at `/local-dev/server/index.js:328` (both force `https`
       for the `squiredocs.com` host). No file changes.
 
@@ -48,17 +48,17 @@ required for this feature.
 **Purpose**: shared code that later story tasks depend on. Complete before any
 US1/US2/US3/US4 task.
 
-- [ ] T003 Refactor the existing `GET /.well-known/oauth-authorization-server`
+- [X] T003 Refactor the existing `GET /.well-known/oauth-authorization-server`
       handler in `/local-dev/server/index.js` (~L324) to compute its `baseUrl`
       via `buildBaseUrl(req)` from `/local-dev/server/url.js` instead of the
       inline `host.includes('squiredocs.com') ? 'https' : req.protocol`
       logic. Response body must be byte-identical to today.
-- [ ] T004 Add a shared returnTo validator to `/local-dev/server/auth/routes.js`
+- [X] T004 Add a shared returnTo validator to `/local-dev/server/auth/routes.js`
       (private module-level helper `isValidReturnTo(value)`), implementing
       the six R2 checks from `research.md`. Export it from the module
       (`module.exports.isValidReturnTo`) so the tests in US2 can import it
       directly. No route changes yet.
-- [ ] T005 Add a WWW-Authenticate challenge builder to
+- [X] T005 Add a WWW-Authenticate challenge builder to
       `/local-dev/server/mcp/auth/middleware.js` (private module-level
       helper `buildChallenge(req, opts)` returning a header value string per
       `contracts/www-authenticate-challenge.md`). Not yet wired to any 401.
@@ -81,30 +81,30 @@ client pointed at the endpoint completes discovery with no manual input.
 
 ### Implementation
 
-- [ ] T006 [US1] Add `GET /.well-known/oauth-protected-resource/mcp` route to
+- [X] T006 [US1] Add `GET /.well-known/oauth-protected-resource/mcp` route to
       `/local-dev/server/index.js` next to the existing well-known handler
       (~L324), returning the R4 JSON body per
       `contracts/protected-resource-metadata.md`, using `buildBaseUrl(req)`.
-- [ ] T007 [US1] Add `GET /.well-known/oauth-protected-resource` (root fallback)
+- [X] T007 [US1] Add `GET /.well-known/oauth-protected-resource` (root fallback)
       route to `/local-dev/server/index.js` immediately after T006, returning
       the same body via the same helper. Extract the body-builder into a small
       local `buildProtectedResourceDoc(req)` closure so both routes share it.
-- [ ] T008 [US1] Wire `buildChallenge` from T005 into `requireAgentAuth` in
+- [X] T008 [US1] Wire `buildChallenge` from T005 into `requireAgentAuth` in
       `/local-dev/server/mcp/auth/middleware.js`. Before each of the three
       existing `res.status(401).json(...)` calls (missing / expired /
       invalid), set `res.set('WWW-Authenticate', buildChallenge(req, {
       branch }))` per `contracts/www-authenticate-challenge.md`. JSON body
       shape and error codes MUST stay identical.
-- [ ] T009 [US1] Wire `buildChallenge` into the `requireScope` 403 branch in
+- [X] T009 [US1] Wire `buildChallenge` into the `requireScope` 403 branch in
       the same file — set `WWW-Authenticate` with `error="insufficient_scope"`
       and `scope="<space-separated required scopes>"`. JSON body unchanged.
-- [ ] T010 [US1] Add `resource_metadata` field to the `authentication` object
+- [X] T010 [US1] Add `resource_metadata` field to the `authentication` object
       returned by `GET /mcp` in `/local-dev/server/mcp/index.js:101-106`
       (value: `` `${baseUrl}/.well-known/oauth-protected-resource/mcp` ``).
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Create
+- [X] T011 [P] [US1] Create
       `/local-dev/server/__tests__/oauth-discovery.test.js` (supertest, mirrors
       the pattern in `/local-dev/server/__tests__/api-docs-export.test.js`).
       Cases (all serial-only): (a) `GET /.well-known/oauth-protected-resource/mcp`
@@ -144,14 +144,14 @@ the browser lands on the default destination on-origin.
 
 ### Implementation — server
 
-- [ ] T012 [US2] In `/local-dev/server/auth/routes.js` `GET /auth/google`
+- [X] T012 [US2] In `/local-dev/server/auth/routes.js` `GET /auth/google`
       (~L70), read `req.query.returnTo`, run `isValidReturnTo` from T004, and
       on success set the httpOnly cookie:
       `res.cookie('oauth_return_to', returnTo, { httpOnly: true, maxAge: 10
       * 60 * 1000, sameSite: 'lax', secure: isProduction })`. Place alongside
       the existing `oauth_redirect` and `oauth_state` cookies. Invalid values
       are ignored silently (no cookie, no error).
-- [ ] T013 [US2] In `/local-dev/server/auth/routes.js` `GET
+- [X] T013 [US2] In `/local-dev/server/auth/routes.js` `GET
       /auth/google/callback` (~L106), after minting session cookies and
       before the current `onboarding.resolveOnboarding` branch: read
       `req.cookies.oauth_return_to`, always `res.clearCookie('oauth_return_to')`,
@@ -161,7 +161,7 @@ the browser lands on the default destination on-origin.
 
 ### Implementation — client
 
-- [ ] T014 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx:136`,
+- [X] T014 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx:136`,
       change `login` from `useCallback(async () => { ... })` to
       `useCallback(async (returnTo) => { ... })`. When `BYPASS_AUTH`,
       delegate to `devLogin(returnTo)`. Otherwise, if `returnTo` is a string
@@ -169,23 +169,23 @@ the browser lands on the default destination on-origin.
       predicates as the server), set `window.location.href =
       \`/auth/google?returnTo=${encodeURIComponent(returnTo)}\``; else fall
       through to `window.location.href = '/auth/google'`.
-- [ ] T015 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx`
+- [X] T015 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx`
       `devLogin` (~L107), accept an optional `returnTo` argument and, after
       the JSON response succeeds, if `returnTo` is a validated same-origin
       relative path do `window.location.href = returnTo` (mirroring the
       cookie behavior for the dev bypass); else leave the existing behavior.
-- [ ] T016 [P] [US2] In `/local-dev/client/src/components/LoginPage.jsx`,
+- [X] T016 [P] [US2] In `/local-dev/client/src/components/LoginPage.jsx`,
       read `returnTo` from `new URLSearchParams(window.location.search)`. In
       the Google button's `onClick`, call `login(returnTo)` instead of
       `login()`.
-- [ ] T017 [US2] In `/local-dev/client/src/pages/AuthorizePage.jsx:224`,
+- [X] T017 [US2] In `/local-dev/client/src/pages/AuthorizePage.jsx:224`,
       change the sign-in link's `href` from
       `` `/login?returnTo=${encodeURIComponent(window.location.href)}` ``
       to `` `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}` ``.
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Create `/local-dev/server/__tests__/auth-return-to.test.js`
+- [X] T018 [P] [US2] Create `/local-dev/server/__tests__/auth-return-to.test.js`
       (supertest; mock `../auth/google` so `exchangeCodeForTokens` and
       `verifyIdToken` return fixtures — no external network). Cases (serial):
       (a) `GET /auth/google?returnTo=/authorize?foo=bar` → 302 to Google;
@@ -216,7 +216,7 @@ claim, and the mandated tool names. The drift-guard test suite is green.
 
 ### Implementation
 
-- [ ] T019 [US3] Create `/local-dev/client/public/agents.md` by copying
+- [X] T019 [US3] Create `/local-dev/client/public/agents.md` by copying
       `.claude/worktrees/agent-afbf7ebe180bd7de3/client/public/agents.md`
       into place, then applying the corrections listed in
       `contracts/agents-md.md`:
@@ -233,7 +233,7 @@ claim, and the mandated tool names. The drift-guard test suite is green.
 
 ### Tests for User Story 3
 
-- [ ] T020 [P] [US3] Create `/local-dev/server/__tests__/agents-md-claims.test.js`
+- [X] T020 [P] [US3] Create `/local-dev/server/__tests__/agents-md-claims.test.js`
       (drift-guard, per FR-003 and research.md R6). Reads
       `/local-dev/client/public/agents.md` with `fs.readFileSync`. Cases (all
       grep-level string checks): (a) contains `flavor=squire|portable`;
@@ -260,14 +260,14 @@ section shows a link to `/agents.md`. `curl -s http://localhost:5173/ | grep
 
 ### Implementation
 
-- [ ] T021 [P] [US4] In `/local-dev/client/src/pages/SettingsPage.jsx:291`,
+- [X] T021 [P] [US4] In `/local-dev/client/src/pages/SettingsPage.jsx:291`,
       inside the existing `<section>` with heading "AI Agent Access", add a
       one-line paragraph or link element referencing `/agents.md`
       (e.g. `<p className="settings-description">See <a
       href="/agents.md">agents.md</a> for the full connect guide.</p>`), while
       keeping the existing MCP URL row, `AgentDelegationList`, and
       `ApiTokenList` intact. Copy tone matches the existing description.
-- [ ] T022 [P] [US4] In `/local-dev/client/public/landing.html`, add exactly
+- [X] T022 [P] [US4] In `/local-dev/client/public/landing.html`, add exactly
       one `<li><a href="/agents.md">Agents</a></li>` to the `Product` footer
       column (~L318-326). No other copy changes.
 
@@ -277,17 +277,17 @@ section shows a link to `/agents.md`. `curl -s http://localhost:5173/ | grep
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T023 [P] Run the three new suites serially:
+- [X] T023 [P] Run the three new suites serially:
       `npx jest server/__tests__/oauth-discovery.test.js
               server/__tests__/auth-return-to.test.js
               server/__tests__/agents-md-claims.test.js --runInBand`.
       All three must be green.
-- [ ] T024 [P] Manual walkthrough of `quickstart.md` sections §1-§9 against
+- [X] T024 [P] Manual walkthrough of `quickstart.md` sections §1-§9 against
       the dev server. Sections §5 and §6 require an incognito browser.
-- [ ] T025 Confirm no regression in the existing backend suite: run
+- [X] T025 Confirm no regression in the existing backend suite: run
       `npx jest --runInBand server/__tests__/` and verify all pre-existing
       suites remain green (Constitution II).
-- [ ] T026 Sanity re-check `README.md` and `docs/dev.md` for claims about
+- [X] T026 Sanity re-check `README.md` and `docs/dev.md` for claims about
       the agent surface. If any is falsified by this feature (specifically:
       a claim about the flavor default, or a claim that `/agents.md` is not
       served), correct it in the same commit (Constitution I). No changes

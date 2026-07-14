@@ -291,6 +291,7 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
             <h2>AI Agent Access</h2>
             <p className="settings-description">
               Connect AI agents to Squire Docs via MCP using OAuth or API tokens.
+              See <a href="/agents.md">agents.md</a> for the full connect guide.
             </p>
 
             <div className="mcp-url-row">

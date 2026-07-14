@@ -23,10 +23,16 @@ function createMocks(authHeader, queryToken) {
   const req = {
     headers: authHeader !== undefined ? { authorization: authHeader } : {},
     query: queryToken !== undefined ? { token: queryToken } : {},
+    // Feature 005-agent-onboarding: middleware calls buildBaseUrl(req) to emit
+    // the RFC 9728 resource_metadata pointer on the WWW-Authenticate header.
+    get: jest.fn((name) => (name && name.toLowerCase() === 'host' ? 'localhost:3001' : undefined)),
+    protocol: 'http',
   };
   const res = {
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
+    // Feature 005: middleware sets WWW-Authenticate on 401/403.
+    set: jest.fn().mockReturnThis(),
   };
   const next = jest.fn();
   return { req, res, next };

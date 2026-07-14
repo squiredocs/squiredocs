@@ -64,6 +64,36 @@ function validateClientUrl(clientUrl) {
 }
 
 /**
+ * Validate a returnTo value as a same-origin relative path (open-redirect
+ * defense). Implements the R2 predicate from feature 005-agent-onboarding.
+ *
+ * A value is accepted iff ALL of:
+ *   1. typeof value === 'string'
+ *   2. value.length > 0 && value.length <= 512
+ *   3. value.startsWith('/')
+ *   4. !value.startsWith('//') (protocol-relative)
+ *   5. !value.includes('\\') (backslash open-redirect variants)
+ *   6. new URL(value, 'http://placeholder').host === 'placeholder'
+ *
+ * @param {*} value - Candidate returnTo value
+ * @returns {boolean} True if the value is a same-origin relative path
+ */
+function isValidReturnTo(value) {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > 512) return false;
+  if (!value.startsWith('/')) return false;
+  if (value.startsWith('//')) return false;
+  if (value.includes('\\')) return false;
+  try {
+    const parsed = new URL(value, 'http://placeholder');
+    if (parsed.host !== 'placeholder') return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
  * GET /auth/google
  * Initiates Google OAuth flow by redirecting to Google's consent screen
  */
@@ -79,6 +109,19 @@ router.get('/google', (req, res) => {
       sameSite: 'lax',
       secure: isProduction,
     });
+
+    // Feature 005-agent-onboarding: honor a same-origin returnTo path through
+    // the Google round-trip via a short-lived httpOnly cookie. Invalid values
+    // are dropped silently (open-redirect defense, D4/R2 fail-closed).
+    const returnTo = req.query.returnTo;
+    if (isValidReturnTo(returnTo)) {
+      res.cookie('oauth_return_to', returnTo, {
+        httpOnly: true,
+        maxAge: 10 * 60 * 1000, // 10 minutes (R1)
+        sameSite: 'lax',
+        secure: isProduction,
+      });
+    }
 
     // Generate CSRF state parameter and store in httpOnly cookie
     const state = crypto.randomBytes(32).toString('hex');
@@ -165,6 +208,16 @@ router.get('/google/callback', async (req, res) => {
     // Set tokens as httpOnly cookies
     res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
     res.cookie('refreshToken', refreshToken, getCookieOptions());
+
+    // Feature 005-agent-onboarding: consent login round-trip. If the outbound
+    // /auth/google leg captured a same-origin returnTo, honor it here and take
+    // precedence over the onboarding destination (FR-011). Always clear the
+    // cookie (single-use, prevents replay) and re-validate before use.
+    const rawReturnTo = req.cookies?.oauth_return_to;
+    res.clearCookie('oauth_return_to');
+    if (isValidReturnTo(rawReturnTo)) {
+      return res.redirect(`${clientUrl}${rawReturnTo}`);
+    }
 
     // Onboarding: not-yet-engaged users land on their seeded welcome doc with
     // the assistant primed to greet them; everyone else goes to their doc list.
@@ -411,6 +464,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 module.exports = router;
+module.exports.isValidReturnTo = isValidReturnTo;
 
 
 
