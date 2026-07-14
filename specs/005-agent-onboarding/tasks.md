@@ -104,7 +104,7 @@ client pointed at the endpoint completes discovery with no manual input.
 
 ### Tests for User Story 1
 
-- [ ] T011 [P] [US1] Create
+- [X] T011 [P] [US1] Create
       `/local-dev/server/__tests__/oauth-discovery.test.js` (supertest, mirrors
       the pattern in `/local-dev/server/__tests__/api-docs-export.test.js`).
       Cases (all serial-only): (a) `GET /.well-known/oauth-protected-resource/mcp`
