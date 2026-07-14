@@ -20,6 +20,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Inline Diffs in Chat**: AI edits via the `modify` tool display color-coded inline diffs directly in chat messages
 - **Bring Your Own Key (BYOK)**: Users can supply their own Anthropic, Google, OpenAI, z.ai, or OpenRouter API keys from the Settings page to use premium models without consuming shared credits
 - **Settings Page**: Manage authorized AI agents, MCP API tokens, and BYOK API keys
+- **Appearance (Light / Dark / System)**: A theme control in the user profile menu offers **Light**, **Dark**, or **System** (the default, which follows the OS `prefers-color-scheme` live). The choice is saved per device (localStorage, key `squire-theme`) and applied before first paint, so there is no flash of the wrong theme on load — on every screen, signed in or out. Both the app chrome and the document canvas theme dark; author-set text/background colors render exactly as authored in both themes, Mermaid/SVG diagrams render on a light "media plate", and printing is always light. Color is centralized in a semantic token layer in `client/src/index.css` (light + dark realizations); a `lint:colors` gate (`cd client && npm run lint:colors`, also a Vitest test) keeps every themed surface literal-free
 - **Get Support**: A "Get Support" item in the user menu opens a dedicated page (`/support`) where users describe an issue and review their previous requests; submissions are saved to the `support_requests` table and emailed to the admin (reply-to set to the user)
 - **Onboarding / Welcome Flow**: On login, a not-yet-"engaged" user lands on their own seeded "Welcome to Squire Docs" document with the AI assistant panel open and the assistant proactively greeting them and offering to research a topic. See [Onboarding / Welcome Flow](#onboarding--welcome-flow).
 - **Offline Support**: Edit while disconnected, changes sync automatically when connection is restored
@@ -1216,6 +1217,7 @@ npm run test:all      # All tests
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage
 cd client && npm run test:coverage
+cd client && npm run lint:colors  # Dark-mode token gate: fails on hardcoded color literals in themed CSS
 ```
 
 **Test Structure:**
