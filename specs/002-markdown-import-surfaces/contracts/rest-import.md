@@ -86,3 +86,7 @@ Image failures are **never** an error status — they degrade and are reported i
 
 - `get_tool_documentation({ tool: "export_api" })` (`server/mcp/tools/tool-documentation/export-api.js`) gains an IMPORT section beside export: both routes, modes, content types, curl examples, scope note (`documents:write`), and the image-report semantics.
 - `README.md` REST API section updated in the same effort.
+
+## Amendment (2026-07-14, design proposal §1.2.1)
+
+The additive-extension hook above was exercised twice: feature 004 added `mode=sync` (its own contract), and the agent-feedback amendment added a **verification receipt** to both routes — the 200/201 bodies now also carry `markdown` (canonical re-export of the post-import state at the returned clock; `blocks` was also added to the 201). New query params on both routes: `flavor=portable|squire` (receipt dialect, default portable) and `frontmatter=true|1|false|0` (default off; stamps the receipt with the `squire:` block so it can be written back as a valid `mode=sync` baseline — "born syncable"). Unknown values → 400 naming accepted values, before any import work. Decision trail: clarifications-needed.md #13; ground truth: design/markdown-import-two-way-sync.md §1.2.1.

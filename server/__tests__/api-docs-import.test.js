@@ -20,6 +20,7 @@ const { generateAccessToken } = require('../auth/jwt');
 const { toMarkdown } = require('../mcp/yjs/serialization');
 const { createImportRouter } = require('../api/docs-import');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../origin');
+const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
 const { createPool, createPersistence } = require('./helpers/db');
 
 describe('API: POST /api/docs/import', () => {
@@ -143,5 +144,69 @@ describe('API: POST /api/docs/import', () => {
   test('empty body is rejected with 400 (before any doc is created)', async () => {
     const res = await post('   \n  \n');
     expect(res.status).toBe(400);
+  });
+
+  // Design §1.2.1 — verification receipt + born-syncable creation.
+  describe('import receipts (design §1.2.1)', () => {
+    function put(docId, markdown, query = '') {
+      return request(app)
+        .put(`/api/docs/${docId}/import${query}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .set('Content-Type', 'text/markdown')
+        .send(markdown);
+    }
+
+    test('POST returns the canonical markdown receipt (portable, no frontmatter by default)', async () => {
+      const res = await post('# Receipt Doc\n\nBody with **bold** text.');
+      expect(res.status).toBe(201);
+      createdDocIds.push(res.body.docId);
+
+      expect(res.body.markdown).toContain('# Receipt Doc');
+      expect(res.body.markdown).toContain('**bold**');
+      expect(res.body.markdown.startsWith('---')).toBe(false);
+      // Exact-comparison contract: the receipt IS the canonical re-export.
+      expect(res.body.markdown).toBe(
+        toMarkdown(fragmentOf(res.body.docId), { flavor: 'portable', lossy: new Set() })
+      );
+    });
+
+    test('POST ?frontmatter=true stamps the receipt as a sync baseline (born syncable)', async () => {
+      const res = await post('# Born Syncable\n\nHello.', '?frontmatter=true');
+      expect(res.status).toBe(201);
+      createdDocIds.push(res.body.docId);
+
+      expect(res.body.markdown.startsWith('---')).toBe(true);
+      const { squire, body } = parseFrontmatter(res.body.markdown);
+      expect(squire.docGuid).toBe(res.body.docId);
+      expect(squire.clock).toBe(res.body.clock);
+      expect(squire.flavor).toBe('portable');
+      expect(body).toContain('# Born Syncable');
+    });
+
+    test('PUT append returns a receipt reflecting the post-import state', async () => {
+      const created = await post('# Put Receipt\n\nOriginal.');
+      expect(created.status).toBe(201);
+      createdDocIds.push(created.body.docId);
+
+      const res = await put(created.body.docId, 'Appended paragraph.', '?mode=append&frontmatter=1');
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('append');
+
+      const { squire, body } = parseFrontmatter(res.body.markdown);
+      expect(squire.docGuid).toBe(created.body.docId);
+      expect(squire.clock).toBe(res.body.clock);
+      expect(body).toContain('Original.');
+      expect(body).toContain('Appended paragraph.');
+    });
+
+    test('unknown flavor / frontmatter values are rejected with 400 naming accepted values', async () => {
+      const badFlavor = await post('# X', '?flavor=fancy');
+      expect(badFlavor.status).toBe(400);
+      expect(badFlavor.body.error).toContain('Accepted values: squire, portable');
+
+      const badFm = await post('# X', '?frontmatter=yes');
+      expect(badFm.status).toBe(400);
+      expect(badFm.body.error).toContain('Accepted values: true, false, 1, 0');
+    });
   });
 });

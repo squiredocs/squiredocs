@@ -241,7 +241,7 @@ describe('REST import API', () => {
       expect(role).toBe('owner');
     });
 
-    test('response shape: docId, title, url, clock, blocks, images', async () => {
+    test('response shape: docId, title, url, clock, blocks, images, markdown', async () => {
       const res = await post('# Shape\n\nBody with a [link](https://example.com).');
       expect(res.status).toBe(201);
       createdDocIds.push(res.body.docId);
@@ -252,6 +252,8 @@ describe('REST import API', () => {
         clock: expect.any(Number),
         blocks: { imported: 2 },
         images: { rehosted: [], copied: [], degraded: [], rejected: [] },
+        // Canonical re-export receipt (design §1.2.1) — verification is exact.
+        markdown: expect.stringContaining('# Shape'),
       });
       expect(res.body.clock).toBeGreaterThanOrEqual(1);
     });

@@ -971,14 +971,17 @@ async function readLastModifiedBy(persistence, docGuid) {
  * Canonical re-export of the document's state at `clock` in the pushed flavor
  * with refreshed frontmatter — the next baseline (FR-014, contract Consistency
  * rule: the embedded frontmatter clock equals the clock of the exact serialized
- * state, read atomically as getYDocAtClock(clock)).
+ * state, read atomically as getYDocAtClock(clock)). The append/replace/create
+ * import receipts (design §1.2.1) reuse this with frontmatter: false, where
+ * the receipt is for verification only and no baseline stamp was requested.
  */
-async function reExport(persistence, docGuid, clock, flavor) {
+async function reExport(persistence, docGuid, clock, flavor, { frontmatter = true } = {}) {
   const stateDoc = await persistence.getYDocAtClock(docGuid, clock);
   try {
     const fragment = stateDoc.get('default', Y.XmlFragment);
     const lossy = new Set();
     const body = toMarkdown(fragment, { flavor, lossy });
+    if (!frontmatter) return body;
     const title = stateDoc.getMap('meta').get('title') || 'Untitled';
     const lastModifiedBy = await readLastModifiedBy(persistence, docGuid);
     const fm = buildFrontmatter({

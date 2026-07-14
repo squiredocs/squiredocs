@@ -102,7 +102,11 @@ scripting API that does not fit in their tool descriptions. **Always call
 
 ## REST endpoints
 
-With an `sk_sqd_` bearer token you can move markdown over plain HTTP:
+With an `sk_sqd_` bearer token you can move markdown over plain HTTP. **The
+channel rule:** markdown that already exists as bytes outside the model (a file
+on disk, another tool's output) should travel this byte channel — never retyped
+through MCP tool parameters; model context should only carry content you are
+creating or transforming.
 
 - `GET /api/docs/:docId/export?format=markdown` — export a document as markdown.
   Options: `flavor=squire|portable` (default `portable`), `frontmatter=true|false`
@@ -110,11 +114,18 @@ With an `sk_sqd_` bearer token you can move markdown over plain HTTP:
   relative references (bundle also defaults to `portable`, with frontmatter on).
 - `POST /api/docs/import` — create a new document from a `text/markdown` body
   (owner = the acting user).
-- `PUT /api/docs/:docId/import?mode=append|replace` — import markdown into an
-  existing document (default `append`; requires the editor role).
+- `PUT /api/docs/:docId/import?mode=append|replace|sync` — import markdown into
+  an existing document (default `append`; requires the editor role). `mode=sync`
+  replays a frontmattered repo file's edits as CRDT operations anchored at its
+  export-time baseline.
 
 Import routes require `documents:write`, accept `text/markdown` / `text/plain`
-bodies capped at 5 MB, and return an itemized image report. Example export:
+bodies capped at 5 MB, and return an itemized image report plus a `markdown`
+receipt — the canonical re-export of the resulting document, for exact
+verification. Pass `frontmatter=true` to get the receipt stamped with the
+document's `squire:` frontmatter (docGuid, clock): write it back over your
+source file and the file is immediately a valid `mode=sync` baseline. Example
+export:
 
 ```
 curl -H "Authorization: Bearer sk_sqd_..." \
@@ -125,5 +136,5 @@ curl -H "Authorization: Bearer sk_sqd_..." \
 
 Once connected, call `get_tool_documentation` for the full scripting API,
 built-in helpers, XPath targeting, examples, and common pitfalls before writing
-your first `modify` script. For the REST export/import recipe specifically, call
-`get_tool_documentation({ tool: "export_api" })`.
+your first `modify` script. For the REST recipe (export, import, and two-way
+sync) specifically, call `get_tool_documentation({ tool: "rest_api" })`.

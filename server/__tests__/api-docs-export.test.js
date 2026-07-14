@@ -397,12 +397,14 @@ describe('API: GET /api/docs/:docId/export', () => {
         .set('Authorization', `Bearer ${patReadOnly}`);
 
       expect(res.status).toBe(403);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         error: 'Insufficient scope',
         code: 'INSUFFICIENT_SCOPE',
         required: 'documents:write',
         granted: ['documents:read'],
       });
+      // Remedy hint (design §1.2.1): name the missing scope and re-mint path.
+      expect(res.body.hint).toContain('create_access_token');
     });
 
     test('write-only token gets 403 on export but 200 on a mutating route', async () => {

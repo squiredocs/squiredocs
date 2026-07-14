@@ -103,3 +103,11 @@ one is a spec amendment, not a code-level choice.
 - **Why it matters**: Over-building M2's response duplicates 004; under-building forces a breaking change later.
 - **Chosen default**: M2 returns document id, mode, new clock, block summary, and the itemized image report — no canonical re-export, no overlap flags. Response is a JSON object designed for additive extension.
 - **Rationale**: New clock is cheap and already the sync primitive `list_documents` exposes; the rest is 004's contract and depends on machinery (source maps, baselines) M2 doesn't have.
+
+## 13. Import receipts and born-syncable creation (2026-07-14 amendment)
+
+**RATIFIED (Sam, 2026-07-14)** — feedback triage of [Agent feedback: file sync vs live editing](https://squiredocs.com/d/2eb514cd-547c-42be-b38e-a4298e0be555); Sam accepted all six items.
+- **Question**: Decision #12 deliberately withheld the canonical re-export from the append/replace/create responses. Does that stand now that feature 004 shipped the machinery?
+- **Chosen outcome**: Reversed. POST /api/docs/import and PUT ?mode=append|replace return `markdown` — the canonical re-export at the receipt clock (reusing 004's `reExport`). The agent-feedback incident showed fidelity verification without a receipt requires a hand-normalized diff, which defeats the additive-extensible intent of #12.
+- **Sub-decisions, RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**: (a) full canonical markdown, not a content hash — a hash is not client-recomputable without replicating server canonicalization, and bodies are capped at 5 MB anyway; (b) receipt `flavor` param defaults to portable, mirroring the export route default; (c) `frontmatter=true` is supported on PUT as well as POST — a replace push wants a fresh sync baseline for the same reason a create does.
+- **Design ground truth**: proposal §1.2.1 (amended in Squire and re-synced 2026-07-14).

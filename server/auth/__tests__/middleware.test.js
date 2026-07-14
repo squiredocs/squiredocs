@@ -180,12 +180,17 @@ describe('Auth middleware', () => {
 
     test('rejects a read-only principal on a mutating method with the MCP error shape', () => {
       const readOnly = { userId: mockUser.id, scopes: ['documents:read'] };
-      expect(checkScopes(readOnly, 'POST')).toEqual({
+      const result = checkScopes(readOnly, 'POST');
+      expect(result).toMatchObject({
         error: 'Insufficient scope',
         code: 'INSUFFICIENT_SCOPE',
         required: 'documents:write',
         granted: ['documents:read'],
       });
+      // The remedy hint names the missing scope and the re-mint path (a
+      // read-only default mint hitting the import route is the likely case).
+      expect(result.hint).toContain('documents:write');
+      expect(result.hint).toContain('create_access_token');
       expect(checkScopes(readOnly, 'GET')).toBeNull();
     });
 

@@ -57,24 +57,27 @@ const name = 'modify';
 const description = `Modify the document using a TypeScript script.
 
 REQUIRED READING: This is a summary. The full scripting API reference
-(built-in helpers, XPath targeting, Yjs API, worked examples, common pitfalls)
-is too large for MCP tool descriptions — call
-get_tool_documentation({ tool: "modify" }) BEFORE writing your first script.
+(helpers, XPath targeting, Yjs API, examples, pitfalls) is too large for MCP
+tool descriptions — call get_tool_documentation({ tool: "modify" }) BEFORE
+writing your first script.
+
+Replacing content from an EXISTING markdown file? Don't retype it in a
+script — PUT /api/docs/:docId/import is byte-faithful; see
+get_tool_documentation({ tool: "rest_api" }).
 
 SCRIPT CONTRACT: the script must export a default function that receives the
 document root:
   export default function edit(doc: Y.XmlFragment) { ... }
 It runs sandboxed with the Yjs API plus built-in helpers (appendBlocks,
-createFormattedText, xpath, findByText, extractText, ...). All changes are
-atomic (entire script = one undo step) and sync to viewers in real time; on
-error everything rolls back.
+createFormattedText, xpath, findByText, ...). All changes are atomic (entire
+script = one undo step) and sync to viewers in real time; on error everything
+rolls back.
 
 NON-NEGOTIABLE RULES:
 - Target elements with XPath, e.g. xpath('//heading[@level=2]') — NEVER
   positional indexing (doc.get(n)); positions shift in collaborative docs.
 - Prefer helpers: appendBlocks() to add blocks, createFormattedText() for
-  mixed formatting, extractText() to read text (toString() returns XML markup
-  for formatted text).
+  mixed formatting, extractText() to read text (not toString()).
 - Build documents incrementally across MULTIPLE small modify calls (one
   section per call). Never delete everything and recreate — it breaks
   collaboration and undo history; transform existing blocks in place.
@@ -84,16 +87,15 @@ NON-NEGOTIABLE RULES:
 PARAMETERS:
 - docGuid: Document UUID (required)
 - script: TypeScript source code (required)
-- timeout: Execution timeout in ms (optional, default 5000, max 30000)
+- timeout: ms, default 5000, max 30000
 - sourceDocGuids: Up to 10 other doc UUIDs exposed read-only as \`sources\`;
-  copy across docs with cloneBlocks() (see "working-with-source-documents")
+  copy across docs with cloneBlocks()
 - echoContent: true to echo the full updated document (default false)
 
 RETURNS: changed, diff (verify your edit with it), clock, operationCount,
 summary; content only with echoContent: true. conflict + editedBy on
 concurrent edits (re-read the doc, merge, retry). Script errors include
-line numbers and hints — follow them (they may point to
-get_tool_documentation).`;
+line numbers and hints — follow them.`;
 
 const chatDescription = MODIFY_DOCUMENTATION;
 

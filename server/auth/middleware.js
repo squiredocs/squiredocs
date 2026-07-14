@@ -35,6 +35,10 @@ function checkScopes(user, method) {
     code: 'INSUFFICIENT_SCOPE',
     required,
     granted: user.scopes,
+    // Tokens minted via the MCP create_access_token tool default to
+    // documents:read, so a write-scoped 403 is a likely first failure for an
+    // agent following the import recipe — name the remedy, not just the gap.
+    hint: `This token lacks ${required}. Mint a new token with that scope — e.g. the MCP tool create_access_token({ scopes: ["documents:read", "documents:write"] }) — or use a personal token from Settings → API Tokens.`,
   };
 }
 

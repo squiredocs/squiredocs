@@ -67,6 +67,19 @@ describe('get_tool_documentation', () => {
       expect(result.documentation).toContain('documents:read');
       expect(result.sections).toContain('incremental-sync');
     });
+
+    test('rest_api is the canonical name for the same REST reference (export_api aliases it)', async () => {
+      const viaRest = await getToolDocumentation.handler({ tool: 'rest_api' }, {});
+      const viaExport = await getToolDocumentation.handler({ tool: 'export_api' }, {});
+
+      expect(viaRest.tool).toBe('rest_api');
+      expect(viaRest.documentation).toBe(viaExport.documentation);
+      // The reference covers the import half and the channel rule, so an agent
+      // holding a file finds the byte channel under either name.
+      expect(viaRest.documentation).toContain('POST /api/docs/import');
+      expect(viaRest.documentation).toContain('THE CHANNEL RULE');
+      expect(viaRest.sections).toContain('import-markdown');
+    });
   });
 
   describe('section fetch', () => {

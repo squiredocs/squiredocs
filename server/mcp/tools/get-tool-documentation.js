@@ -25,7 +25,9 @@ targeting, the Yjs API, worked examples, and common pitfalls) BEFORE writing
 your first script, or when a script error message directs you here.
 
 PARAMETERS
-- tool: Which tool to get documentation for: ${toolDocumentation.DOC_TOPICS.join(' | ')} (required)
+- tool: Which tool to get documentation for: ${toolDocumentation.DOC_TOPICS.join(' | ')} (required).
+  rest_api covers the REST byte channel in BOTH directions — markdown export,
+  import, and two-way repo sync (export_api is an alias of it).
 - section: Optional section id to fetch a single section instead of the full
   reference. Omit it on your first call; the full reference lists the
   available section ids.

@@ -58,10 +58,16 @@ function buildEntry(documentation) {
   };
 }
 
+// rest_api is the canonical topic name (the reference covers import and sync,
+// not just export); export_api remains an accepted alias because agents and
+// older docs still ask for it.
+const restApiEntry = buildEntry(EXPORT_API_DOCUMENTATION);
+
 const docs = {
   modify: buildEntry(MODIFY_DOCUMENTATION),
   compare_document_versions: buildEntry(COMPARE_DOCUMENTATION),
-  export_api: buildEntry(EXPORT_API_DOCUMENTATION),
+  rest_api: restApiEntry,
+  export_api: restApiEntry,
 };
 
 const DOC_TOPICS = Object.keys(docs);

@@ -24,12 +24,12 @@ const DEFAULT_SCOPES = ['documents:read'];
 
 const name = 'create_access_token';
 
-const description = `Mint a temporary API token (prefixed sk_sqd_) for REST access — e.g. exporting documents as markdown via curl without document content passing through model context.
+const description = `Mint a temporary API token (prefixed sk_sqd_) for REST access — exporting AND importing documents as markdown via curl without document content passing through model context.
 
-The token is scoped to AT MOST your own permissions (default: documents:read, which is all the export API needs), expires automatically (default 1 hour, max 24 hours), and is shown ONLY ONCE in this tool's result — store it immediately (e.g. in an environment variable). It appears under the user's Settings → API Tokens and is revoked automatically if your own credential is revoked. Tokens minted by this tool cannot mint further tokens.
+The token is scoped to AT MOST your own permissions. Default: documents:read, which covers export only — to IMPORT or sync-push markdown, mint with scopes: ["documents:read", "documents:write"]. It expires automatically (default 1 hour, max 24 hours) and is shown ONLY ONCE in this tool's result — store it immediately (e.g. in an environment variable). It appears under the user's Settings → API Tokens and is revoked automatically if your own credential is revoked. Tokens minted by this tool cannot mint further tokens.
 
-Usage: create_access_token() or create_access_token({ scopes: ["documents:read"], ttlSeconds: 600 })
-Then follow the returned curlExample. Full export recipe: get_tool_documentation({ tool: "export_api" }).`;
+Usage: create_access_token() or create_access_token({ scopes: ["documents:read", "documents:write"], ttlSeconds: 600 })
+Then follow the returned curlExample / importCurlExample. Full REST recipe (export, import, two-way sync): get_tool_documentation({ tool: "rest_api" }).`;
 
 const inputSchema = {
   type: 'object',
@@ -151,6 +151,15 @@ async function handler(args, agentToken) {
       `export SQUIRE_TOKEN='<token above>'\n` +
       `curl -sf -H "Authorization: Bearer $SQUIRE_TOKEN" \\\n` +
       `  "${baseUrl}/api/docs/<docId>/export?format=markdown" -o doc.md`,
+    // The import example only works with documents:write; shown regardless so
+    // the byte channel is discoverable in both directions from the mint.
+    importCurlExample:
+      `curl -sf -X POST -H "Authorization: Bearer $SQUIRE_TOKEN" \\\n` +
+      `  -H "Content-Type: text/markdown" --data-binary @doc.md \\\n` +
+      `  "${baseUrl}/api/docs/import?frontmatter=true"` +
+      (scopes.includes('documents:write')
+        ? ''
+        : `\n(importing requires documents:write — this token is read-only; re-mint with scopes: ["documents:read", "documents:write"])`),
     message:
       'Temporary API token created. It is shown only once — store it now (e.g. in an env var). ' +
       'It appears under Settings → API Tokens and expires automatically.' +

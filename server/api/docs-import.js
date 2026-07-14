@@ -23,7 +23,12 @@ const documentService = require('../document-service');
 const { notifyException } = require('../exception-notifier');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
 const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
-const { applySyncPush, validateSyncBaseline, SYNC_AGENT_NAME } = require('../markdown-sync');
+const {
+  applySyncPush,
+  validateSyncBaseline,
+  reExport,
+  SYNC_AGENT_NAME,
+} = require('../markdown-sync');
 const {
   importMarkdown,
   deriveImportTitle,
@@ -187,6 +192,35 @@ function actorFrom(user) {
 }
 
 /**
+ * Receipt options for the create/append/replace routes (design §1.2.1):
+ * every import response carries `markdown`, the canonical re-export of the
+ * post-import state, so fidelity checking is an exact comparison. ?flavor
+ * picks the receipt dialect (default portable, as on export); ?frontmatter
+ * stamps it with the squire block so the file written back from the receipt
+ * is a valid mode=sync baseline from birth. Validation mirrors docs-export.
+ * Returns { flavor, frontmatter } or { error } for a 400.
+ */
+function parseReceiptOptions(req) {
+  const { flavor: flavorParam, frontmatter: frontmatterParam } = req.query;
+  let flavor = 'portable';
+  if (flavorParam !== undefined) {
+    if (flavorParam !== 'squire' && flavorParam !== 'portable') {
+      return { error: `Unsupported import receipt flavor: ${flavorParam}. Accepted values: squire, portable` };
+    }
+    flavor = flavorParam;
+  }
+  let frontmatter = false;
+  if (frontmatterParam !== undefined) {
+    if (frontmatterParam === 'true' || frontmatterParam === '1') {
+      frontmatter = true;
+    } else if (frontmatterParam !== 'false' && frontmatterParam !== '0') {
+      return { error: `Unsupported frontmatter value: ${frontmatterParam}. Accepted values: true, false, 1, 0` };
+    }
+  }
+  return { flavor, frontmatter };
+}
+
+/**
  * Build the import router.
  * @param {object} persistence - PostgresPersistence instance
  * @returns {express.Router}
@@ -208,6 +242,10 @@ function createImportRouter(persistence) {
       const markdown = typeof req.body === 'string' ? req.body : '';
       if (!markdown.trim()) {
         return res.status(400).json({ error: 'Empty markdown body' });
+      }
+      const receiptOpts = parseReceiptOptions(req);
+      if (receiptOpts.error) {
+        return res.status(400).json({ error: receiptOpts.error });
       }
       const userId = req.user.userId;
 
@@ -275,7 +313,10 @@ function createImportRouter(persistence) {
       }
 
       const clock = await waitForClock(persistence, docId, minRows);
-      return res.status(201).json({ docId, title, url: `/d/${docId}`, clock, blocks, images });
+      const receipt = await reExport(persistence, docId, clock, receiptOpts.flavor, {
+        frontmatter: receiptOpts.frontmatter,
+      });
+      return res.status(201).json({ docId, title, url: `/d/${docId}`, clock, blocks, images, markdown: receipt });
     } catch (error) {
       console.error('Error importing document (create):', error);
       notifyException(error, { req, source: 'api' });
@@ -307,6 +348,10 @@ function createImportRouter(persistence) {
       if (mode !== 'append' && mode !== 'replace') {
         return res.status(400).json({ error: `Unknown import mode: ${mode} (use append or replace or sync)` });
       }
+      const receiptOpts = parseReceiptOptions(req);
+      if (receiptOpts.error) {
+        return res.status(400).json({ error: receiptOpts.error });
+      }
 
       const markdown = typeof req.body === 'string' ? req.body : '';
       if (!markdown.trim()) {
@@ -324,13 +369,18 @@ function createImportRouter(persistence) {
       });
 
       const clock = await waitForClock(persistence, docId, pre.rows + 1);
-      // Additive-extensible response (CN-12): feature 004 adds fields here.
+      // Additive-extensible response (CN-12): feature 004 added mode=sync;
+      // design §1.2.1 added the canonical-markdown receipt.
+      const receipt = await reExport(persistence, docId, clock, receiptOpts.flavor, {
+        frontmatter: receiptOpts.frontmatter,
+      });
       return res.status(200).json({
         docId,
         mode,
         clock,
         blocks: report.blocks,
         images: report.images,
+        markdown: receipt,
       });
     } catch (error) {
       if (error instanceof ImportError && error.code === 'EMPTY_IMPORT') {

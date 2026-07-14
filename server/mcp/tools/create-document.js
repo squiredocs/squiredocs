@@ -26,7 +26,18 @@ const name = 'create_document';
 
 const description = `Create a new document, optionally seeded from markdown.
 
-ONE-CALL CREATION FROM MARKDOWN (preferred when you already have content):
+IF THE MARKDOWN ALREADY EXISTS AS A FILE (or any bytes outside your context):
+do NOT retype it through this tool's markdown parameter — prefer the REST
+import route (POST /api/docs/import; PUT /api/docs/:docId/import for
+updates). It moves the bytes over HTTP without transiting model context,
+returns a canonical-markdown receipt for exact verification, and with
+frontmatter=true the receipt written back over your file makes the new doc
+sync-ready from birth. Mint a token with create_access_token({ scopes:
+["documents:read", "documents:write"] }), then see
+get_tool_documentation({ tool: "rest_api" }).
+
+ONE-CALL CREATION FROM MARKDOWN (preferred when you are authoring the
+content in-context):
   create_document({ markdown: "# Title\\n\\nBody..." })
 The markdown is imported as rich blocks (headings, lists, tables, code and
 mermaid fences, links, inline formatting). Title precedence: explicit title
