@@ -32,6 +32,7 @@ const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
+const { mountDocumentationRoutes } = require('./documentation-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -1421,6 +1422,12 @@ if (fs.existsSync(clientBuildPath)) {
       }
     },
   }));
+
+  // Serve the product documentation site (feature 007) before the app-shell
+  // catch-all, so an unknown /documentation slug returns a styled 404 instead
+  // of falling through to the app (FR-016). Reads the generated files once at
+  // mount time; a missing directory is handled without crashing (Edge Cases).
+  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
 
   // Serve React app for all other routes
   app.get('*', (req, res) => {
