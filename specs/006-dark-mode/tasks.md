@@ -35,12 +35,12 @@ need no migration and pass the lint trivially.
 
 **Purpose**: Establish the token registry and the verification gate.
 
-- [ ] T001 [P] Create `client/scripts/check-color-tokens.mjs` (scan `src/**/*.css`
+- [X] T001 [P] Create `client/scripts/check-color-tokens.mjs` (scan `src/**/*.css`
   for raw color literals: `#hex`, `rgb()/rgba()`, `hsl()/hsla()`, CSS named
   colors used as color values) and add an npm script `lint:colors` in
   `client/package.json`. Wire the same assertion into a Vitest test
   (`src/__tests__/color-tokens.lint.test.js`). Allowlist encoding is T005.
-- [ ] T002 Define Tier-1 primitives + Tier-2 semantic **light** tokens in
+- [X] T002 Define Tier-1 primitives + Tier-2 semantic **light** tokens in
   `client/src/index.css` `:root` per `contracts/color-tokens.md`
   (`--surface-*`, `--text-*`, `--border-*`, `--accent-*`, feedback, `--shadow-*`,
   `--backdrop`, `--focus-ring`), co-located with the existing typography tokens.
@@ -54,31 +54,31 @@ state — everything every user story depends on.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 **GATE — Constitution VI**: Verify the theming design doc has been
+- [X] T003 **GATE — Constitution VI**: Verify the theming design doc has been
   authored in Squire and synced into `design/` (via `node design/sync.mjs`) and
   ratifies/overrides D1–D14. **Blocks all implementation** — do not proceed if
   absent (flagged in spec + `clarifications-needed.md`).
-- [ ] T004 Define the **dark** realization in `client/src/index.css`:
+- [X] T004 Define the **dark** realization in `client/src/index.css`:
   redefine the Tier-2 semantic tokens under `:root[data-theme="dark"]`, plus a
   scoped `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { … } }`
   fallback for the System-before-hydration case (per `contracts/color-tokens.md`).
-- [ ] T005 Encode the **canvas allowlist** (see header + `contracts/color-tokens.md`)
+- [X] T005 Encode the **canvas allowlist** (see header + `contracts/color-tokens.md`)
   into `client/scripts/check-color-tokens.mjs` so literals inside canvas
   selectors, `@media print`, and the `index.css` token block are permitted.
-- [ ] T006 Add the inline **pre-paint theme bootstrap** to
+- [X] T006 Add the inline **pre-paint theme bootstrap** to
   `client/index.html` `<head>` (before `/src/main.jsx`): read
   `localStorage['squire-theme']`, resolve System via `matchMedia`, set
   `document.documentElement.dataset.theme` to `light`/`dark`; wrap in try/catch
   so it can never block render (FR-005, D11, `contracts/theme-control.md`).
-- [ ] T007 Create `client/src/contexts/ThemeContext.jsx`: tri-state `setting`
+- [X] T007 Create `client/src/contexts/ThemeContext.jsx`: tri-state `setting`
   state, `resolve(setting, osPrefersDark)`, `setSetting()` that persists to
   `localStorage['squire-theme']` and updates `data-theme`, defensive read
   (unknown → `system`), reconcile-on-mount without causing a flash. (Live
   OS-follow subscription is added in US2/T033.)
-- [ ] T008 Mount `<ThemeProvider>` in `client/src/App.jsx` (wrapping the provider
+- [X] T008 Mount `<ThemeProvider>` in `client/src/App.jsx` (wrapping the provider
   stack) so every screen has theme context; confirm `main.jsx` load order keeps
   the bootstrap authoritative for first paint.
-- [ ] T009 [P] Unit tests in `client/src/contexts/__tests__/ThemeContext.test.jsx`:
+- [X] T009 [P] Unit tests in `client/src/contexts/__tests__/ThemeContext.test.jsx`:
   `resolve()` truth table, persistence round-trip, defensive unknown→system read,
   attribute reconciliation (data-model transitions).
 
@@ -113,7 +113,7 @@ Light and confirm it reverts and persists.
 > `--focus-ring` for interactive states. Do NOT touch canvas allowlist selectors.
 
 - [ ] T012 [P] [US1] Migrate `client/src/App.css` (~190 literals) to tokens.
-- [ ] T013 [P] [US1] Migrate `client/src/index.css` body `background-color`
+- [X] T013 [P] [US1] Migrate `client/src/index.css` body `background-color`
   (`#f5f5f5` → `--surface-base`); leave the token-definition block literals.
 - [ ] T014 [P] [US1] Migrate `client/src/components/DocList.css`.
 - [ ] T015 [P] [US1] Migrate `client/src/components/DocSidePane.css`.

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
@@ -419,11 +420,13 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
  */
 function App() {
   return (
-    <AuthProvider>
-      <AiChatProvider>
-        <AppContent />
-      </AiChatProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AiChatProvider>
+          <AppContent />
+        </AiChatProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

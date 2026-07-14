@@ -14,6 +14,35 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>Squire Docs</title>
+    <!-- Pre-paint theme bootstrap (feature 006-dark-mode, FR-005/D11).
+         Resolves the appearance setting and stamps data-theme on <html> BEFORE
+         the module bundle loads, so there is zero flash of the wrong theme on
+         any route (authenticated or not). Wrapped so a storage/matchMedia
+         exception can never block render. Must stay in sync with
+         src/contexts/ThemeContext.jsx (same key, same resolution). -->
+    <script>
+      (function () {
+        try {
+          var setting = localStorage.getItem('squire-theme');
+          if (setting !== 'light' && setting !== 'dark' && setting !== 'system') {
+            setting = 'system';
+          }
+          var resolved = setting;
+          if (setting === 'system') {
+            resolved =
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', resolved);
+        } catch (e) {
+          /* Never block first paint: fall back to the light default (or, if the
+             OS prefers dark, the CSS prefers-color-scheme fallback handles it
+             since no data-theme attribute is set). */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

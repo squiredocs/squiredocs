@@ -38,6 +38,151 @@
 }
 
 /* =============================================================================
+   Color tokens (feature 006-dark-mode)
+   -----------------------------------------------------------------------------
+   The semantic color layer. ALL themed app chrome consumes the Tier-2 role
+   tokens below (never a primitive, never a literal). The dark realization
+   (further down) redefines the Tier-2 tokens wholesale. Canonical contract:
+   specs/006-dark-mode/contracts/color-tokens.md.
+
+   NOTE: this is the token-DEFINITION region — the one place raw color literals
+   are legal (the lint:colors gate allowlists `:root` / `[data-theme]` /
+   `prefers-color-scheme` blocks here). The document canvas is intentionally
+   NOT tokenized and stays light in both themes (D5/D12).
+   ============================================================================= */
+
+:root {
+  /* --- Tier 1: primitives (raw palette — not consumed directly by chrome) --- */
+  --violet-600: #7c3aed;  --violet-700: #6d28d9;  --violet-50: #f5f3ff;  --violet-100: #ede9fe;
+  --gray-50: #f9fafb;  --gray-100: #f3f4f6;  --gray-200: #e5e7eb;  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;  --gray-500: #6b7280;  --gray-700: #374151;  --gray-800: #1f2937;  --gray-900: #111827;
+  --red-600: #dc2626;  --amber-700: #92400e;  --green-600: #16a34a;  --blue-600: #2563eb;
+  --white: #ffffff;  --black: #000000;
+
+  /* --- Tier 2: semantic roles (the ONLY thing chrome CSS references) --- */
+  /* Surfaces */
+  --surface-base: var(--gray-100);      /* app background (was #f5f5f5) */
+  --surface-raised: var(--white);       /* panels, cards, menus */
+  --surface-overlay: var(--white);      /* dialogs, dropdowns, popovers */
+  --surface-sunken: var(--gray-50);     /* wells, insets, chat code bg */
+  --surface-hover: var(--gray-100);
+  --surface-active: var(--gray-200);
+  --surface-selected: var(--violet-50);
+  /* Text */
+  --text-primary: #333;
+  --text-secondary: var(--gray-500);
+  --text-tertiary: var(--gray-400);
+  --text-disabled: var(--gray-300);
+  --text-inverse: var(--white);
+  --text-link: var(--violet-600);
+  /* Borders / focus */
+  --border-subtle: var(--gray-200);
+  --border-default: var(--gray-300);
+  --border-strong: var(--gray-400);
+  --focus-ring: var(--violet-600);
+  /* Accent (brand violet) */
+  --accent: var(--violet-600);
+  --accent-hover: var(--violet-700);
+  --accent-active: var(--violet-700);
+  --accent-subtle: var(--violet-50);
+  --on-accent: var(--white);
+  /* Feedback */
+  --danger: var(--red-600);
+  --danger-subtle: #fef2f2;
+  --success: var(--green-600);
+  --warning: var(--amber-700);
+  --info: var(--blue-600);
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --backdrop: rgba(0, 0, 0, 0.40);
+}
+
+/* --- Dark realization: redefine the Tier-2 semantic layer wholesale --------- */
+/* Values tuned for WCAG 2.1 AA against their intended surfaces (T051 audit). */
+:root[data-theme="dark"] {
+  /* Surfaces */
+  --surface-base: #0f1115;
+  --surface-raised: #1a1d23;
+  --surface-overlay: #21252c;
+  --surface-sunken: #14171c;
+  --surface-hover: #262b33;
+  --surface-active: #2f353f;
+  --surface-selected: #2f2a45;
+  /* Text (on --surface-raised #1a1d23: primary 12.8:1, secondary 6.4:1) */
+  --text-primary: #e6e8eb;
+  --text-secondary: #aab1bb;
+  --text-tertiary: #838a94;
+  --text-disabled: #565c66;
+  --text-inverse: #14171c;
+  --text-link: #b79dff;
+  /* Borders / focus */
+  --border-subtle: #2a2f37;
+  --border-default: #3a414b;
+  --border-strong: #545c68;
+  --focus-ring: #b79dff;
+  /* Accent */
+  --accent: #8b5cf6;
+  --accent-hover: #a78bfa;
+  --accent-active: #a78bfa;
+  --accent-subtle: #2f2a45;
+  --on-accent: #14171c;
+  /* Feedback (lightened for AA on dark surfaces) */
+  --danger: #f87171;
+  --danger-subtle: #3a1d1d;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --info: #60a5fa;
+  /* Elevation (stronger shadows preserve separation on dark) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --backdrop: rgba(0, 0, 0, 0.6);
+}
+
+/* System-before-hydration fallback: apply the dark palette when the OS prefers
+   dark AND no explicit resolved attribute is present yet. Scoped to
+   `:root:not([data-theme])` so an explicit light/dark attribute always wins.
+   The inline bootstrap in index.html normally sets [data-theme] before first
+   paint; this covers the instant before that (and JS-disabled). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --surface-base: #0f1115;
+    --surface-raised: #1a1d23;
+    --surface-overlay: #21252c;
+    --surface-sunken: #14171c;
+    --surface-hover: #262b33;
+    --surface-active: #2f353f;
+    --surface-selected: #2f2a45;
+    --text-primary: #e6e8eb;
+    --text-secondary: #aab1bb;
+    --text-tertiary: #838a94;
+    --text-disabled: #565c66;
+    --text-inverse: #14171c;
+    --text-link: #b79dff;
+    --border-subtle: #2a2f37;
+    --border-default: #3a414b;
+    --border-strong: #545c68;
+    --focus-ring: #b79dff;
+    --accent: #8b5cf6;
+    --accent-hover: #a78bfa;
+    --accent-active: #a78bfa;
+    --accent-subtle: #2f2a45;
+    --on-accent: #14171c;
+    --danger: #f87171;
+    --danger-subtle: #3a1d1d;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --info: #60a5fa;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --backdrop: rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* =============================================================================
    Reset & base
    ============================================================================= */
 
@@ -56,7 +201,7 @@ body {
   font-kerning: normal;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background-color: var(--surface-base);
 }
 
 code {
