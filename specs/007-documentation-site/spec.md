@@ -19,7 +19,7 @@ The product name collides with a common word for product documentation. This fea
 - "docs" and "documents" mean Squire documents: the collaborative artifacts users create and edit in the product.
 - "documentation" and "product documentation" mean written material about the product, such as the pages this feature adds.
 
-"Docs" is never used to mean product documentation. The rule applies to all content this feature ships: documentation page content, page names and titles, sidebar labels, header and footer link labels, and any marketing page copy this feature touches. The rule also applies to product copy going forward; a retroactive audit of existing app UI copy is out of scope for this feature (ledger D8).
+"Docs" is never used to mean product documentation. The rule applies to all content this feature ships: documentation page content, page names and titles, sidebar labels, header and footer link labels, and any marketing page copy this feature touches. The rule also applies to product copy going forward. Existing app UI copy and marketing copy are audited for violations as part of this feature, and violations are fixed (Sam, 2026-07-14, superseding the earlier D8 default; the app's `/docs` route path names the document list and is not a violation).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -155,6 +155,8 @@ A maintainer (Sam or an agent) adds or changes documentation by editing a markdo
 - **FR-021**: The marketing footer's Product column MUST gain the same "Documentation" link, and documentation pages MUST reuse the marketing footer (ledger D3).
 - **FR-022**: The sidebar MUST list all twelve pages in `order` and highlight the current page.
 - **FR-023**: On narrow screens the sidebar MUST collapse behind a toggle; page content MUST remain readable without horizontal scrolling.
+- **FR-030**: The signed-in app's user profile menu MUST gain a "Documentation" item near "Get Support" that opens `/documentation` in a new tab (Sam, 2026-07-14). As in-app UI, it MUST follow the semantic color tokens (dark mode applies to the menu item itself, not to the documentation pages it opens).
+- **FR-031**: Existing app UI copy and the marketing pages MUST be swept for labels that use "docs" to mean product documentation; violations found MUST be corrected (Sam, 2026-07-14). Route paths (such as the document list at `/docs`) are not copy and are out of scope.
 
 **SEO and analytics**
 
