@@ -8,6 +8,9 @@
   pointer-events: none;
   position: relative;
   word-break: normal;
+  /* Halo so a dark identity caret stays visible on the dark canvas (D18/T042);
+     the caret border color is the user's identity color, set by the extension. */
+  box-shadow: 0 0 2px var(--presence-ring);
 }
 
 /* Collaboration selection highlight */
@@ -41,6 +44,8 @@
   transform: translateY(2px);
   transition: opacity 0.15s ease, transform 0.15s ease;
   pointer-events: none;
+  /* Ring so an identity-colored label separates from the dark canvas (D18/T042). */
+  box-shadow: 0 0 0 1px var(--presence-ring);
 }
 
 .editor-common-content .collaboration-cursor__label--visible {
