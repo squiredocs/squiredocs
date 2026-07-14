@@ -277,17 +277,17 @@ section shows a link to `/agents.md`. `curl -s http://localhost:5173/ | grep
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T023 [P] Run the three new suites serially:
+- [X] T023 [P] Run the three new suites serially:
       `npx jest server/__tests__/oauth-discovery.test.js
               server/__tests__/auth-return-to.test.js
               server/__tests__/agents-md-claims.test.js --runInBand`.
       All three must be green.
-- [ ] T024 [P] Manual walkthrough of `quickstart.md` sections §1-§9 against
+- [X] T024 [P] Manual walkthrough of `quickstart.md` sections §1-§9 against
       the dev server. Sections §5 and §6 require an incognito browser.
-- [ ] T025 Confirm no regression in the existing backend suite: run
+- [X] T025 Confirm no regression in the existing backend suite: run
       `npx jest --runInBand server/__tests__/` and verify all pre-existing
       suites remain green (Constitution II).
-- [ ] T026 Sanity re-check `README.md` and `docs/dev.md` for claims about
+- [X] T026 Sanity re-check `README.md` and `docs/dev.md` for claims about
       the agent surface. If any is falsified by this feature (specifically:
       a claim about the flavor default, or a claim that `/agents.md` is not
       served), correct it in the same commit (Constitution I). No changes
