@@ -107,13 +107,22 @@ reviewer asked to carry forward.
    stores nothing when the update is already applied — covering both re-inserted
    structs and re-applied deletions. No residual accretion remains.
 
-5. **Per-version `onBehalfOf` list is uncapped.** The version timeline
-   aggregates every push's on-behalf-of provenance into a per-version list with
-   no upper bound. Each entry is already field-whitelisted and length-capped
-   (D6, `sanitizeOnBehalfOf`), so no single entry is hostile, but a version that
-   absorbs a very large number of attributed pushes could grow an unbounded
-   array in the timeline payload. Consider a per-version cap (with a "+N more"
-   overflow) before a high-frequency CI pusher exercises it.
+5. **Per-version `onBehalfOf` list is uncapped — CLOSED (Sam P-2, 2026-07-13,
+   dedupe+cap implemented).** Previously: the version timeline aggregated every
+   push's on-behalf-of provenance into a per-version list with no upper bound.
+   Each entry was already field-whitelisted and length-capped (D6), so no single
+   entry is hostile, but a version absorbing many attributed pushes (a
+   high-frequency CI pusher) grew an unbounded array in the timeline payload.
+   Fix: the read path (`groupUpdatesIntoVersions` → `dedupeOnBehalfOf` in
+   `server/version-history.js`) now dedupes by identity (name+email), aggregating
+   per identity a push count and the most-recent commit/url — entries are
+   `{ name?, email?, commitCount, latestCommit?, latestUrl? }` — then caps at 10
+   distinct identities per version with an `onBehalfOfMore: K` overflow count.
+   `HierarchicalVersionList.jsx`'s `OnBehalfOfList` renders the deduped shape as
+   strictly-inert plain text ("on behalf of NAME · EMAIL (N pushes, latest
+   SHA)") plus a "+K more" line when capped (XSS posture unchanged). Covered by
+   server grouping tests (dedupe counts, >10 cap + overflow, hostile strings) and
+   a client render test.
 
 ## Follow-ups deferred to M5 (squire-sync CLI / GitHub Action)
 

@@ -67,27 +67,44 @@ function AuthorList({ authors, maxDisplay = null }) {
 
 /**
  * On-behalf-of provenance for sync (Repo Sync) pushes — feature 004, D8.
- * Rendered STRICTLY as plain text (never as markup or a live link): a value
- * from untrusted push metadata is displayed inertly. React escapes it by
- * default, so a hostile string renders as literal characters.
+ * The server dedupes pushes by identity (name+email) and caps the list at 10
+ * distinct identities with a `moreIdentities` overflow count (review note #5),
+ * so each entry is { name?, email?, commitCount, latestCommit?, latestUrl? }.
+ *
+ * Rendered STRICTLY as plain text (never as markup or a live link): every value
+ * comes from untrusted push metadata and is displayed inertly. React escapes it
+ * by default, so a hostile string renders as literal characters.
  */
-function OnBehalfOfList({ onBehalfOf }) {
-  if (!onBehalfOf || onBehalfOf.length === 0) return null;
+function OnBehalfOfList({ onBehalfOf, moreIdentities = 0 }) {
+  const identities = onBehalfOf || [];
+  if (identities.length === 0 && moreIdentities <= 0) return null;
   return (
     <div className="hierarchy-onbehalfof">
-      {onBehalfOf.map((p, i) => {
-        const parts = [];
-        if (p.name) parts.push(p.name);
-        if (p.email) parts.push(p.email);
-        if (p.commit) parts.push(p.commit);
-        if (p.url) parts.push(p.url); // shown as text, not a link (D6)
-        if (parts.length === 0) return null;
+      {identities.map((p, i) => {
+        const idParts = [];
+        if (p.name) idParts.push(p.name);
+        if (p.email) idParts.push(p.email);
+        const identity = idParts.join(' · ') || 'unknown';
+
+        const detailParts = [];
+        if (typeof p.commitCount === 'number' && p.commitCount > 0) {
+          detailParts.push(`${p.commitCount} ${p.commitCount === 1 ? 'push' : 'pushes'}`);
+        }
+        if (p.latestCommit) detailParts.push(`latest ${p.latestCommit}`);
+        if (p.latestUrl) detailParts.push(p.latestUrl); // shown as text, not a link (D6)
+        const detail = detailParts.length > 0 ? ` (${detailParts.join(', ')})` : '';
+
         return (
           <div key={i} className="hierarchy-onbehalfof-line" title="On behalf of">
-            on behalf of {parts.join(' · ')}
+            on behalf of {identity}{detail}
           </div>
         );
       })}
+      {moreIdentities > 0 && (
+        <div className="hierarchy-onbehalfof-line hierarchy-onbehalfof-more">
+          +{moreIdentities} more
+        </div>
+      )}
     </div>
   );
 }
@@ -95,7 +112,7 @@ function OnBehalfOfList({ onBehalfOf }) {
 /**
  * Shared content display for both versions and updates
  */
-function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, onBehalfOf }) {
+function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, onBehalfOf, onBehalfOfMore }) {
   return (
     <>
       {name && <div className="hierarchy-version-name">{name}</div>}
@@ -103,7 +120,7 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, on
       {subtitle && <div className="hierarchy-item-subtitle">{subtitle}</div>}
       {badge && <div className="hierarchy-version-badge">{badge}</div>}
       <AuthorList authors={authors} maxDisplay={maxAuthors} />
-      <OnBehalfOfList onBehalfOf={onBehalfOf} />
+      <OnBehalfOfList onBehalfOf={onBehalfOf} moreIdentities={onBehalfOfMore} />
     </>
   );
 }
@@ -265,6 +282,7 @@ function HistoryItem({
             authors={item.authors}
             maxAuthors={3}
             onBehalfOf={item.onBehalfOf}
+            onBehalfOfMore={item.onBehalfOfMore}
           />
         </div>
         <ItemMenu

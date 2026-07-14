@@ -13,6 +13,11 @@ const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 // Inactivity threshold for grouping individual updates within a version (10 seconds)
 const UPDATE_GROUPING_THRESHOLD = 10 * 1000;
 
+// Max distinct on-behalf-of identities surfaced per version before overflowing
+// into a "+N more" count (feature 004, D8; review note #5 — keeps a
+// high-frequency CI pusher from accreting an unbounded array in the timeline).
+const MAX_ONBEHALFOF_IDENTITIES = 10;
+
 /**
  * Generate a deterministic color from a user ID
  * @param {string} id - User ID
@@ -76,6 +81,56 @@ function createAuthor(data) {
 }
 
 /**
+ * Dedupe a version's raw on-behalf-of push provenance by identity (name+email),
+ * aggregating a push count and the most-recent commit/url per identity, then cap
+ * the number of distinct identities with an overflow count.
+ *
+ * Input entries are the field-whitelisted, length-capped push objects
+ * ({ name?, email?, commit?, url? }) collected in chronological
+ * (ascending-clock) order, so "latest" == last seen. Output entries are
+ * { name?, email?, commitCount, latestCommit?, latestUrl? } — still strictly
+ * plain-text, untrusted values that the client renders inertly (the XSS posture
+ * from the 004 review is load-bearing; nothing here makes them safe as markup).
+ *
+ * @param {Array} rawPushes - Per-version push provenance objects, chronological
+ * @returns {{ identities: Array, moreIdentities: number }}
+ */
+function dedupeOnBehalfOf(rawPushes) {
+  const byIdentity = new Map(); // identityKey -> aggregated entry (insertion order = first-seen)
+
+  for (const p of rawPushes) {
+    if (!p || typeof p !== 'object') continue;
+    const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : undefined;
+    const email = typeof p.email === 'string' && p.email.length > 0 ? p.email : undefined;
+
+    // Identity is the (name, email) pair; entries with neither collapse into a
+    // single anonymous identity (still bounded).
+    const key = `${name || ''}\u0000${email || ''}`;
+
+    let entry = byIdentity.get(key);
+    if (!entry) {
+      entry = { name, email, commitCount: 0 };
+      byIdentity.set(key, entry);
+    }
+
+    entry.commitCount += 1;
+    // Chronological order => last write wins == most recent.
+    if (typeof p.commit === 'string' && p.commit.length > 0) {
+      entry.latestCommit = p.commit;
+    }
+    if (typeof p.url === 'string' && p.url.length > 0) {
+      entry.latestUrl = p.url;
+    }
+  }
+
+  const all = Array.from(byIdentity.values());
+  return {
+    identities: all.slice(0, MAX_ONBEHALFOF_IDENTITIES),
+    moreIdentities: Math.max(0, all.length - MAX_ONBEHALFOF_IDENTITIES),
+  };
+}
+
+/**
  * Group updates into logical versions based on time gaps
  * @param {Array} updates - Array of updates with clock, createdAt, and user info
  * @param {number} inactivityThreshold - Time gap to create new version (ms)
@@ -124,11 +179,16 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
     }
   }
 
-  // Convert author maps to arrays
-  return versions.map(v => ({
-    ...v,
-    authors: Array.from(v.authors.values()),
-  }));
+  // Convert author maps to arrays and dedupe+cap on-behalf-of provenance.
+  return versions.map(v => {
+    const { identities, moreIdentities } = dedupeOnBehalfOf(v.onBehalfOf);
+    return {
+      ...v,
+      authors: Array.from(v.authors.values()),
+      onBehalfOf: identities,
+      onBehalfOfMore: moreIdentities,
+    };
+  });
 }
 
 /**
@@ -476,8 +536,10 @@ async function getVersionTimeline(persistence, docGuid) {
     authors: v.authors || [],
     isNamed: v.isNamed || false,
     isCurrent: v.isCurrent || false,
-    // Sync-push provenance (feature 004, D8), rendered strictly as plain text.
+    // Sync-push provenance (feature 004, D8), deduped by identity and capped
+    // (review note #5); rendered strictly as plain text by the client.
     onBehalfOf: v.onBehalfOf || [],
+    onBehalfOfMore: v.onBehalfOfMore || 0,
   }));
 
   // Client handles grouping by month for proper local timezone handling

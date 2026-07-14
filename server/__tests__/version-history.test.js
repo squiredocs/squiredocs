@@ -132,6 +132,97 @@ describe('version-history module', () => {
     });
   });
 
+  describe('onBehalfOf provenance dedupe and cap (feature 004, review note #5)', () => {
+    const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
+    // Updates within the same version window (1s apart), chronological order.
+    const mk = (clock, onBehalfOf) => ({
+      clock,
+      createdAt: new Date(baseTime + clock * 1000).toISOString(),
+      userId: 'user-1',
+      userName: 'Alice',
+      onBehalfOf,
+    });
+
+    test('dedupes pushes by identity, aggregating push count and latest commit/url', () => {
+      const updates = [
+        mk(1, { name: 'CI Bot', email: 'ci@x.com', commit: 'aaa111' }),
+        mk(2, { name: 'CI Bot', email: 'ci@x.com', commit: 'bbb222' }),
+        mk(3, { name: 'CI Bot', email: 'ci@x.com', commit: 'ccc333', url: 'https://x/c3' }),
+        mk(4, { name: 'Dev', email: 'dev@x.com', commit: 'ddd444' }),
+      ];
+
+      const versions = groupUpdatesIntoVersions(updates);
+
+      expect(versions).toHaveLength(1);
+      const obo = versions[0].onBehalfOf;
+      expect(obo).toHaveLength(2); // two distinct identities
+
+      const ci = obo.find(e => e.email === 'ci@x.com');
+      expect(ci).toMatchObject({
+        name: 'CI Bot',
+        email: 'ci@x.com',
+        commitCount: 3,
+        latestCommit: 'ccc333', // most recent (chronological last wins)
+        latestUrl: 'https://x/c3',
+      });
+
+      const dev = obo.find(e => e.email === 'dev@x.com');
+      expect(dev).toMatchObject({ name: 'Dev', commitCount: 1, latestCommit: 'ddd444' });
+      expect(dev.latestUrl).toBeUndefined();
+
+      expect(versions[0].onBehalfOfMore).toBe(0);
+    });
+
+    test('caps distinct identities at 10 with an overflow count', () => {
+      const updates = [];
+      for (let i = 0; i < 15; i++) {
+        updates.push(mk(i + 1, { name: `Pusher ${i}`, email: `p${i}@x.com`, commit: `c${i}` }));
+      }
+
+      const versions = groupUpdatesIntoVersions(updates);
+
+      expect(versions).toHaveLength(1);
+      expect(versions[0].onBehalfOf).toHaveLength(10);
+      expect(versions[0].onBehalfOfMore).toBe(5);
+      // First-seen identities are retained.
+      expect(versions[0].onBehalfOf[0]).toMatchObject({ name: 'Pusher 0' });
+      expect(versions[0].onBehalfOf[9]).toMatchObject({ name: 'Pusher 9' });
+    });
+
+    test('collapses entries with neither name nor email into one anonymous identity', () => {
+      const updates = [
+        mk(1, { commit: 'aaa' }),
+        mk(2, { commit: 'bbb' }),
+      ];
+
+      const versions = groupUpdatesIntoVersions(updates);
+
+      expect(versions[0].onBehalfOf).toHaveLength(1);
+      expect(versions[0].onBehalfOf[0]).toMatchObject({ commitCount: 2, latestCommit: 'bbb' });
+      expect(versions[0].onBehalfOfMore).toBe(0);
+    });
+
+    test('versions without push provenance have an empty list and zero overflow', () => {
+      const versions = groupUpdatesIntoVersions([mk(1, undefined)]);
+      expect(versions[0].onBehalfOf).toEqual([]);
+      expect(versions[0].onBehalfOfMore).toBe(0);
+    });
+
+    test('preserves hostile strings verbatim (client renders them inertly)', () => {
+      const hostile = '<img src=x onerror=alert(1)>';
+      const versions = groupUpdatesIntoVersions([
+        mk(1, { name: hostile, email: hostile, commit: hostile, url: hostile }),
+      ]);
+
+      const e = versions[0].onBehalfOf[0];
+      expect(e.name).toBe(hostile);
+      expect(e.email).toBe(hostile);
+      expect(e.latestCommit).toBe(hostile);
+      expect(e.latestUrl).toBe(hostile);
+      expect(e.commitCount).toBe(1);
+    });
+  });
+
   describe('mergeNamedVersions', () => {
     test('returns auto versions with ids when no named versions', () => {
       const autoVersions = [
