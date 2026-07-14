@@ -250,3 +250,47 @@
 .documentation-content h3[id] {
   scroll-margin-top: 6rem;
 }
+
+/* Responsive (T024, FR-023, SC-007) --------------------------------------- */
+
+/* Wide viewports: the sidebar is always open and the toggle is hidden, so it
+   reads as a plain two-column layout. `display: block !important` overrides the
+   native closed-<details> hiding for the disclosure content. */
+@media (min-width: 900px) {
+  .documentation-nav-toggle {
+    display: none;
+  }
+  .documentation-nav-list {
+    display: flex !important;
+    border-top: none;
+  }
+}
+
+/* Narrow viewports: one readable column with no horizontal scroll, and the
+   sidebar collapses behind its toggle (native <details>, closed by default). */
+@media (max-width: 899px) {
+  .documentation-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    padding: 5.5rem 1.25rem 3rem;
+  }
+  .documentation-sidebar {
+    position: static;
+    top: auto;
+  }
+  .documentation-content {
+    max-width: 100%;
+    font-size: 1rem;
+  }
+  .documentation-content pre,
+  .documentation-content table {
+    /* Wide code and tables scroll inside their own box, never the page. */
+    max-width: 100%;
+  }
+  .documentation-content h1 {
+    font-size: 1.85rem;
+  }
+  .documentation-content h2 {
+    font-size: 1.4rem;
+  }
+}
