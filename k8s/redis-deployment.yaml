@@ -28,16 +28,19 @@ spec:
                 - redis-cli
                 - ping
             initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-          livenessProbe:
-            exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Liveness uses a cheap non-forking TCP check and a generous
+          # failure budget so transient CPU starvation on the local VM
+          # can't kill a healthy redis (was a crash-loop source).
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           ports:
             - containerPort: 6379
               protocol: TCP

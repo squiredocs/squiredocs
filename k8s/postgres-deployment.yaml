@@ -52,17 +52,19 @@ spec:
                 - -c
                 - pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
             initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 5
-          livenessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
+            failureThreshold: 3
+          # Liveness uses a cheap non-forking TCP check and a generous
+          # failure budget so transient CPU starvation on the local VM
+          # can't kill a healthy postgres (was a crash-loop source).
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           ports:
             - containerPort: 5432
               protocol: TCP
