@@ -155,10 +155,10 @@
   /* Borders / focus */
   --border-subtle: #2a2f37;
   --border-default: #3a414b;
-  --border-strong: #545c68;
+  --border-strong: #626b7a;
   --focus-ring: #b79dff;
   /* Accent */
-  --accent: #8b5cf6;
+  --accent: #9a72f7;
   --accent-hover: #a78bfa;
   --accent-active: #a78bfa;
   --accent-subtle: #2f2a45;
@@ -222,9 +222,9 @@
     --text-link: #b79dff;
     --border-subtle: #2a2f37;
     --border-default: #3a414b;
-    --border-strong: #545c68;
+    --border-strong: #626b7a;
     --focus-ring: #b79dff;
-    --accent: #8b5cf6;
+    --accent: #9a72f7;
     --accent-hover: #a78bfa;
     --accent-active: #a78bfa;
     --accent-subtle: #2f2a45;
