@@ -54,29 +54,37 @@ literals).
 4. Choose **System** again.
    - Expect: resumes following the OS.
 
-## Story 3 — Documents stay faithful in dark (P3)
+## Story 3 — Documents stay faithful in dark (P3)  *(D5 OVERRIDDEN — dark canvas)*
 
 1. In dark mode, open a document with: author-set text/background colors (color
    picker), a Mermaid diagram, an SVG block, an image, and a code block.
-   - Expect: the canvas is light "paper"; every author color and embedded item
-     renders identically to light mode (FR-007–FR-009, SC-005). Compare
-     side-by-side with light mode.
-2. Print-preview the document from dark mode.
-   - Expect: output identical to printing from light mode (FR-010, D7).
+   - Expect: the **canvas is dark** and default (unset) text is light — an
+     unstyled doc reads natively. **Author-set colors render exactly as in light
+     mode** (unchanged), the Mermaid diagram and SVG sit on a **light media
+     plate**, the image is unplated, and the code block themes with the canvas
+     (FR-007–FR-009, SC-005). Compare author colors + rendered media
+     side-by-side with light mode — those must match.
+2. **Print-preview the document from dark mode** (T049/D17 — now explicit work).
+   - Expect: output is **light** and identical to printing from light mode — the
+     `@media print` token reset in `index.css` forces the canvas tokens back to
+     light regardless of the active theme (FR-010).
 3. Perform several theme switches during a collaborative edit session, then
    inspect version history.
-   - Expect: zero version entries attributable to theming (FR-014, SC-006).
-4. Confirm the light↔dark seam reads as an intentional page edge, not a bug
-   (edge case).
+   - Expect: zero version entries attributable to theming (FR-014, SC-006);
+     author-set inline colors in the stored content are byte-for-byte unchanged
+     (covered by `canvas-theme.test.jsx`).
+4. Confirm the media-plate edge reads as an intentional frame for rendered media,
+   not a rendering bug (edge case).
 
 ## Accessibility gate (SC-004 / FR-011)
 
 - Run a contrast audit (e.g. axe / Lighthouse / manual contrast checks) over
   dark chrome: text ≥ 4.5:1, large text & meaningful UI states (focus, hover,
   selection, disabled) ≥ 3:1. Expect zero AA failures.
-- Verify presence identity colors (avatar borders / labels) remain
-  distinguishable against dark chrome, including the darkest Kelly color
-  (Dark Olive Green `#2B3D26`), with mapping unchanged (D8/D14, FR-012).
+- Verify presence identity colors (avatar borders / labels / canvas cursors)
+  remain distinguishable against dark chrome AND the dark canvas, including the
+  darkest Kelly color (Dark Olive Green `#2B3D26`), with mapping unchanged
+  (D8/D14/D18, FR-012). Programmatic results in `aa-audit-notes.md`.
 - Confirm theme switching introduces no motion that violates the global
   reduced-motion behavior.
 
