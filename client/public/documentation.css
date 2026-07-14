@@ -1,0 +1,296 @@
+/* Product documentation site styles (feature 007).
+ *
+ * Light theme only (FR-029). These pages match the marketing pages: they load
+ * /marketing.css for the shared header and footer chrome, and this file adds the
+ * two-column documentation layout (sidebar + content), prose typography, and the
+ * current-page highlight. Responsive/mobile rules live at the bottom (T024).
+ *
+ * The app's Light/Dark/System theme setting does not affect these pages, so this
+ * file uses plain color literals rather than the app's semantic tokens. It lives
+ * in client/public (not client/src), so the color-token lint does not scan it.
+ */
+
+.documentation-page {
+  min-height: 100vh;
+  background: #ffffff;
+  color: #1f2937;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Two-column body: sidebar + content, below the fixed marketing header. */
+.documentation-layout {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 6rem 2rem 4rem;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+}
+
+/* Sidebar ------------------------------------------------------------------- */
+
+.documentation-sidebar {
+  position: sticky;
+  top: 6rem;
+  align-self: start;
+}
+
+/* The sidebar is a native <details> disclosure so the mobile toggle needs no
+   JavaScript. On wide viewports it is forced open (see responsive rules). */
+.documentation-nav {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+.documentation-nav-toggle {
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Hide the default disclosure triangle; the chevron below is the affordance. */
+.documentation-nav-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.documentation-nav-toggle::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #9ca3af;
+  border-bottom: 2px solid #9ca3af;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.documentation-nav[open] .documentation-nav-toggle::after {
+  transform: rotate(-135deg);
+}
+
+.documentation-nav-list {
+  list-style: none;
+  padding: 0.5rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.documentation-nav-list a {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  color: #4b5563;
+  text-decoration: none;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.documentation-nav-list a:hover {
+  background: #f3e8ff;
+  color: #1f2937;
+}
+
+.documentation-nav-list a[aria-current='page'] {
+  background: #7c3aed;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Content prose ------------------------------------------------------------- */
+
+.documentation-content {
+  max-width: 760px;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: #374151;
+}
+
+.documentation-content h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #1f2937;
+  margin: 0 0 1.5rem;
+}
+
+.documentation-content h2 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #1f2937;
+  margin: 2.5rem 0 1rem;
+  padding-top: 0.5rem;
+}
+
+.documentation-content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 2rem 0 0.75rem;
+}
+
+.documentation-content p {
+  margin: 0 0 1.25rem;
+}
+
+.documentation-content ul,
+.documentation-content ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.5rem;
+}
+
+.documentation-content li {
+  margin: 0 0 0.5rem;
+}
+
+.documentation-content a {
+  color: #7c3aed;
+  text-decoration: none;
+}
+
+.documentation-content a:hover {
+  text-decoration: underline;
+}
+
+.documentation-content strong {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.documentation-content code {
+  font-family: 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-size: 0.9em;
+  background: #f3f4f6;
+  color: #be185d;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+.documentation-content pre {
+  background: #1f2937;
+  color: #f9fafb;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.documentation-content pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+.documentation-content blockquote {
+  border-left: 3px solid #c4b5fd;
+  padding-left: 1rem;
+  margin: 0 0 1.25rem;
+  color: #6b7280;
+}
+
+.documentation-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.25rem;
+  font-size: 0.95rem;
+}
+
+.documentation-content th,
+.documentation-content td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.documentation-content th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.documentation-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.documentation-content hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 2.5rem 0;
+}
+
+/* Give anchored headings a little breathing room below the fixed header when a
+   deep link jumps to them. */
+.documentation-content h2[id],
+.documentation-content h3[id] {
+  scroll-margin-top: 6rem;
+}
+
+/* Responsive (T024, FR-023, SC-007) --------------------------------------- */
+
+/* Wide viewports: the sidebar is always open and the toggle is hidden, so it
+   reads as a plain two-column layout. `display: block !important` overrides the
+   native closed-<details> hiding for the disclosure content. */
+@media (min-width: 900px) {
+  .documentation-nav-toggle {
+    display: none;
+  }
+  .documentation-nav-list {
+    display: flex !important;
+    border-top: none;
+  }
+}
+
+/* Narrow viewports: one readable column with no horizontal scroll, and the
+   sidebar collapses behind its toggle (native <details>, closed by default). */
+@media (max-width: 899px) {
+  .documentation-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    padding: 5.5rem 1.25rem 3rem;
+  }
+  .documentation-sidebar {
+    position: static;
+    top: auto;
+  }
+  .documentation-content {
+    max-width: 100%;
+    font-size: 1rem;
+  }
+  .documentation-content pre,
+  .documentation-content table {
+    /* Wide code and tables scroll inside their own box, never the page. */
+    max-width: 100%;
+  }
+  .documentation-content h1 {
+    font-size: 1.85rem;
+  }
+  .documentation-content h2 {
+    font-size: 1.4rem;
+  }
+}

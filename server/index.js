@@ -32,6 +32,7 @@ const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
+const { mountDocumentationRoutes } = require('./documentation-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -1410,6 +1411,16 @@ if (fs.existsSync(clientBuildPath)) {
   app.get('/about', (req, res) => {
     res.sendFile(path.join(clientBuildPath, 'about.html'));
   });
+
+  // Serve the product documentation site (feature 007). Mounted BEFORE
+  // express.static: the static middleware treats dist/documentation as a
+  // directory and would 301 the canonical /documentation to /documentation/
+  // (and serve the trailing-slash form directly), inverting the D1/D2
+  // redirects. Mounted before the app-shell catch-all so an unknown slug
+  // returns a styled 404 instead of falling through to the app (FR-016).
+  // Reads the generated files once at mount time; a missing directory is
+  // handled without crashing (Edge Cases).
+  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
 
   app.use(express.static(clientBuildPath, {
     setHeaders: (res, filePath) => {
