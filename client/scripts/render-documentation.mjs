@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * render-documentation.mjs — the pure render library for the product
  * documentation site (feature 007).
