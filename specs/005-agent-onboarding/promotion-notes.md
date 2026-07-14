@@ -37,3 +37,26 @@ should know. Nothing here blocks merge; all decisions have a documented default.
     a two-line tweak at implement time.
 - **No DB migration required.** If implementation discovers one is needed,
   STOP and escalate.
+
+## Post-merge review dispositions (2026-07-14, verdict: ship, 0 CRIT/HIGH/MED)
+
+- **LOW-1 — FIXED same-day** (`server/auth/routes.js`): `oauth_return_to`
+  capture+clear hoisted above the state/error/no_code exits so an abandoned
+  OAuth attempt can't leave a stale continuation that hijacks the next
+  login's landing destination within the 10-min TTL. Same-origin only; was a
+  UX wart, not a redirect vector.
+- **LOW-2 — FIXED same-day** (contract doc): `www-authenticate-challenge.md`
+  said `realm="mcp"`; implementation and tests use `realm="Squire Docs MCP"`.
+  Contract aligned to implementation (realm is ignored by clients).
+- **LOW-3 — ACCEPTED, owed at promotion**: `oauth-discovery.test.js` (a)/(b)
+  re-declare the well-known handlers inline instead of exercising the real
+  routes, because `server/index.js` calls `app.listen` unconditionally on
+  require and does not export `app`. Owed: extract app creation from
+  `server/index.js` (or export `app` behind a listen guard) so metadata
+  routes can be supertest-mounted; then rewrite tests (a)/(b) against the
+  real handlers. Challenge-header tests (c)–(g) already exercise the real
+  middleware, so exposure is metadata-JSON drift only.
+- Analyze C1 (MEDIUM) closed by implementation: RFC 8707 `resource=`
+  accepted-and-ignored is asserted in `oauth-discovery.test.js`.
+- Reviewer verified all agents.md claims against code (lens 4) — no drift at
+  merge time.

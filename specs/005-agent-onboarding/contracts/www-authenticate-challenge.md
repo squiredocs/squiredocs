@@ -21,7 +21,7 @@ attributes per branch:
 ### Branch A — Missing credentials (no `Authorization` header, no `?token=`)
 
 ```
-WWW-Authenticate: Bearer realm="mcp", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
+WWW-Authenticate: Bearer realm="Squire Docs MCP", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
 ```
 
 - No `error=` attribute (RFC 6750 §3: SHOULD NOT include error info when
@@ -33,7 +33,7 @@ WWW-Authenticate: Bearer realm="mcp", resource_metadata="<base>/.well-known/oaut
 ### Branch B — Invalid credentials (malformed JWT, signature failure, API-token lookup miss)
 
 ```
-WWW-Authenticate: Bearer realm="mcp", error="invalid_token", error_description="Invalid agent token", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
+WWW-Authenticate: Bearer realm="Squire Docs MCP", error="invalid_token", error_description="Invalid agent token", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
 ```
 
 - HTTP status: `401`.
@@ -43,7 +43,7 @@ WWW-Authenticate: Bearer realm="mcp", error="invalid_token", error_description="
 ### Branch C — Expired token (`TokenExpiredError`)
 
 ```
-WWW-Authenticate: Bearer realm="mcp", error="invalid_token", error_description="The access token expired", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
+WWW-Authenticate: Bearer realm="Squire Docs MCP", error="invalid_token", error_description="The access token expired", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
 ```
 
 - HTTP status: `401`.
@@ -54,7 +54,7 @@ WWW-Authenticate: Bearer realm="mcp", error="invalid_token", error_description="
 ### Branch D — Insufficient scope (`requireScope` 403)
 
 ```
-WWW-Authenticate: Bearer realm="mcp", error="insufficient_scope", scope="<required scopes space-separated>", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
+WWW-Authenticate: Bearer realm="Squire Docs MCP", error="insufficient_scope", scope="<required scopes space-separated>", resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"
 ```
 
 - HTTP status: `403`.

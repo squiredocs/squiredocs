@@ -159,6 +159,13 @@ router.get('/google/callback', async (req, res) => {
   // Verify OAuth state parameter to prevent CSRF
   const storedState = req.cookies?.oauth_state;
   res.clearCookie('oauth_state');
+
+  // Feature 005-agent-onboarding: capture and clear the returnTo continuation
+  // on EVERY callback exit (success, error, denial) — a clear only on success
+  // leaves a stale cookie that hijacks the landing destination of the next
+  // login within its TTL (review LOW-1).
+  const rawReturnTo = req.cookies?.oauth_return_to;
+  res.clearCookie('oauth_return_to');
   if (!storedState || storedState !== state) {
     return res.redirect(`${clientUrl}/login?error=invalid_state`);
   }
@@ -211,10 +218,8 @@ router.get('/google/callback', async (req, res) => {
 
     // Feature 005-agent-onboarding: consent login round-trip. If the outbound
     // /auth/google leg captured a same-origin returnTo, honor it here and take
-    // precedence over the onboarding destination (FR-011). Always clear the
-    // cookie (single-use, prevents replay) and re-validate before use.
-    const rawReturnTo = req.cookies?.oauth_return_to;
-    res.clearCookie('oauth_return_to');
+    // precedence over the onboarding destination (FR-011). Captured and
+    // cleared above; re-validated before use.
     if (isValidReturnTo(rawReturnTo)) {
       return res.redirect(`${clientUrl}${rawReturnTo}`);
     }

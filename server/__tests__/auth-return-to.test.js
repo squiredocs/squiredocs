@@ -221,6 +221,39 @@ describe('Auth returnTo round-trip', () => {
     });
   });
 
+  describe('(f) abandoned attempt: error/denial callback exits clear the cookie (review LOW-1)', () => {
+    test('user-denied callback (error=access_denied) clears oauth_return_to', async () => {
+      const state = 'valid-state-f1';
+      const res = await request(app)
+        .get(`/auth/google/callback?error=access_denied&state=${state}`)
+        .set('Cookie', [
+          `oauth_state=${state}`,
+          `oauth_redirect=http://localhost:5173`,
+          `oauth_return_to=${encodeURIComponent('/authorize?client_id=abc')}`,
+        ]);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain('/login?error=access_denied');
+      const cleared = findCookie(res, 'oauth_return_to');
+      expect(cleared).toBeDefined();
+      expect(cleared).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+    });
+
+    test('invalid-state callback clears oauth_return_to', async () => {
+      const res = await request(app)
+        .get('/auth/google/callback?code=fake-code&state=mismatched')
+        .set('Cookie', [
+          'oauth_state=something-else',
+          `oauth_redirect=http://localhost:5173`,
+          `oauth_return_to=${encodeURIComponent('/authorize?client_id=abc')}`,
+        ]);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain('/login?error=invalid_state');
+      const cleared = findCookie(res, 'oauth_return_to');
+      expect(cleared).toBeDefined();
+      expect(cleared).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+    });
+  });
+
   describe('(e) callback with no cookie → onboarding default (SC-006 regression)', () => {
     test('lands on the onboarding default destination when no returnTo', async () => {
       const state = 'valid-state-e';
