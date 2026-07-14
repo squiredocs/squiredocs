@@ -221,7 +221,7 @@ export default function AuthorizePage() {
           <h2 className="login-headline">Sign in required</h2>
           <p className="authorize-subtitle">Please sign in to authorize this application.</p>
           <a
-            href={`/login?returnTo=${encodeURIComponent(window.location.href)}`}
+            href={`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
             className="login-button google-button"
             style={{ textDecoration: 'none' }}
           >

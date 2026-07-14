@@ -110,6 +110,19 @@ router.get('/google', (req, res) => {
       secure: isProduction,
     });
 
+    // Feature 005-agent-onboarding: honor a same-origin returnTo path through
+    // the Google round-trip via a short-lived httpOnly cookie. Invalid values
+    // are dropped silently (open-redirect defense, D4/R2 fail-closed).
+    const returnTo = req.query.returnTo;
+    if (isValidReturnTo(returnTo)) {
+      res.cookie('oauth_return_to', returnTo, {
+        httpOnly: true,
+        maxAge: 10 * 60 * 1000, // 10 minutes (R1)
+        sameSite: 'lax',
+        secure: isProduction,
+      });
+    }
+
     // Generate CSRF state parameter and store in httpOnly cookie
     const state = crypto.randomBytes(32).toString('hex');
     res.cookie('oauth_state', state, {
@@ -195,6 +208,16 @@ router.get('/google/callback', async (req, res) => {
     // Set tokens as httpOnly cookies
     res.cookie('accessToken', accessToken, getAccessTokenCookieOptions());
     res.cookie('refreshToken', refreshToken, getCookieOptions());
+
+    // Feature 005-agent-onboarding: consent login round-trip. If the outbound
+    // /auth/google leg captured a same-origin returnTo, honor it here and take
+    // precedence over the onboarding destination (FR-011). Always clear the
+    // cookie (single-use, prevents replay) and re-validate before use.
+    const rawReturnTo = req.cookies?.oauth_return_to;
+    res.clearCookie('oauth_return_to');
+    if (isValidReturnTo(rawReturnTo)) {
+      return res.redirect(`${clientUrl}${rawReturnTo}`);
+    }
 
     // Onboarding: not-yet-engaged users land on their seeded welcome doc with
     // the assistant primed to greet them; everyone else goes to their doc list.

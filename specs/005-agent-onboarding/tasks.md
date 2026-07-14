@@ -144,14 +144,14 @@ the browser lands on the default destination on-origin.
 
 ### Implementation — server
 
-- [ ] T012 [US2] In `/local-dev/server/auth/routes.js` `GET /auth/google`
+- [X] T012 [US2] In `/local-dev/server/auth/routes.js` `GET /auth/google`
       (~L70), read `req.query.returnTo`, run `isValidReturnTo` from T004, and
       on success set the httpOnly cookie:
       `res.cookie('oauth_return_to', returnTo, { httpOnly: true, maxAge: 10
       * 60 * 1000, sameSite: 'lax', secure: isProduction })`. Place alongside
       the existing `oauth_redirect` and `oauth_state` cookies. Invalid values
       are ignored silently (no cookie, no error).
-- [ ] T013 [US2] In `/local-dev/server/auth/routes.js` `GET
+- [X] T013 [US2] In `/local-dev/server/auth/routes.js` `GET
       /auth/google/callback` (~L106), after minting session cookies and
       before the current `onboarding.resolveOnboarding` branch: read
       `req.cookies.oauth_return_to`, always `res.clearCookie('oauth_return_to')`,
@@ -161,7 +161,7 @@ the browser lands on the default destination on-origin.
 
 ### Implementation — client
 
-- [ ] T014 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx:136`,
+- [X] T014 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx:136`,
       change `login` from `useCallback(async () => { ... })` to
       `useCallback(async (returnTo) => { ... })`. When `BYPASS_AUTH`,
       delegate to `devLogin(returnTo)`. Otherwise, if `returnTo` is a string
@@ -169,23 +169,23 @@ the browser lands on the default destination on-origin.
       predicates as the server), set `window.location.href =
       \`/auth/google?returnTo=${encodeURIComponent(returnTo)}\``; else fall
       through to `window.location.href = '/auth/google'`.
-- [ ] T015 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx`
+- [X] T015 [P] [US2] In `/local-dev/client/src/contexts/AuthContext.jsx`
       `devLogin` (~L107), accept an optional `returnTo` argument and, after
       the JSON response succeeds, if `returnTo` is a validated same-origin
       relative path do `window.location.href = returnTo` (mirroring the
       cookie behavior for the dev bypass); else leave the existing behavior.
-- [ ] T016 [P] [US2] In `/local-dev/client/src/components/LoginPage.jsx`,
+- [X] T016 [P] [US2] In `/local-dev/client/src/components/LoginPage.jsx`,
       read `returnTo` from `new URLSearchParams(window.location.search)`. In
       the Google button's `onClick`, call `login(returnTo)` instead of
       `login()`.
-- [ ] T017 [US2] In `/local-dev/client/src/pages/AuthorizePage.jsx:224`,
+- [X] T017 [US2] In `/local-dev/client/src/pages/AuthorizePage.jsx:224`,
       change the sign-in link's `href` from
       `` `/login?returnTo=${encodeURIComponent(window.location.href)}` ``
       to `` `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}` ``.
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Create `/local-dev/server/__tests__/auth-return-to.test.js`
+- [X] T018 [P] [US2] Create `/local-dev/server/__tests__/auth-return-to.test.js`
       (supertest; mock `../auth/google` so `exchangeCodeForTokens` and
       `verifyIdToken` return fixtures — no external network). Cases (serial):
       (a) `GET /auth/google?returnTo=/authorize?foo=bar` → 302 to Google;

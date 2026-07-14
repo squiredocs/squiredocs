@@ -11,6 +11,12 @@ import './LoginPage.css';
 export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode = 'signup' }) {
   const { login, error, loading } = useAuth();
 
+  // Feature 005-agent-onboarding: honor ?returnTo=<relative path> so the
+  // consent-page → login → Google → consent-page round-trip completes with
+  // the authorization parameters intact. The value is same-origin-only
+  // validated server-side; here we just propagate it.
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+
   // Map error codes to user-friendly messages
   const getErrorMessage = (error) => {
     const errorMessages = {
@@ -69,7 +75,7 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
 
         <button
           className="login-button google-button"
-          onClick={login}
+          onClick={() => login(returnTo)}
           disabled={loading}
         >
           <svg className="google-icon" viewBox="0 0 24 24">
