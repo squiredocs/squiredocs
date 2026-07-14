@@ -64,6 +64,15 @@ export default function UserProfileBadge({ user, onLogout, onNavigateToSettings,
                 💬 Get Support
               </button>
             )}
+            <a
+              className="user-menu-item"
+              href="/documentation"
+              target="_blank"
+              rel="noopener"
+              onClick={() => setShowMenu(false)}
+            >
+              📖 Documentation
+            </a>
             <button className="user-menu-item" onClick={onLogout}>
               Sign out
             </button>

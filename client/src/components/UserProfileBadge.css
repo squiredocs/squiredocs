@@ -84,6 +84,19 @@
   background: var(--surface-hover);
 }
 
+/* Link-flavored menu items (e.g. the Documentation item, which opens a new
+   tab) render identically to the button items. Tokens only — the menu themes
+   dark like the rest of the chrome. */
+a.user-menu-item {
+  display: block;
+  text-decoration: none;
+}
+
+.user-menu-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 /* Mobile responsive styles */
 @media (max-width: 768px) {
   .user-avatar-small {
