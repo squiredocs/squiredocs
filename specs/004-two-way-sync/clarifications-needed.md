@@ -149,3 +149,11 @@ amending the design doc (Constitution VI) and this spec together.
   (reject + re-pull), not the window. When a compaction feature is designed, its spec must
   define the sync retention window and update `design/markdown-import-two-way-sync.md`
   §2.4.1(d) accordingly.
+
+---
+
+## Decision walkthrough with Sam, 2026-07-13 (confirmed dispositions)
+
+- **D1 (baseline retention) — RATIFIED as-is.** Unlimited retention; unreconstructible baselines rejected with re-pull guidance, never degraded to whole-doc replace. Revisit trigger: update-log compaction. A non-contractual-longevity note is added to the export docs.
+- **D2 (onBehalfOf trust) — RATIFIED as-is.** Advisory display text; the token identity remains the authoritative author (git author-field model). Revisit if provenance ever feeds authorization/compliance.
+- **Token scoping (was ledger D2/"D-1" in the review doc) — RATIFIED as-is.** Account-level documents:write + per-doc ACL. Revisit BEFORE a GitHub Action puts long-lived tokens in repo secrets.

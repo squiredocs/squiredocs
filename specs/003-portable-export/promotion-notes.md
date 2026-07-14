@@ -136,3 +136,5 @@ half-sentence in design §2.2 if promoted.
 - **US5**: hard break exports as `line1\` + `line2`; both input forms parse to
   hardBreak; round-trip byte-stable.
 - No database migrations were needed (none created).
+
+- **P-7 (bundle export memory buffering) — ACCEPTED (Sam, 2026-07-13).** The bundle assembler buffers every image (<=15MB each) in memory sequentially before streaming the zip. Fine at current doc sizes; revisit with streaming archiver entries if docs become image-heavy. No action now.

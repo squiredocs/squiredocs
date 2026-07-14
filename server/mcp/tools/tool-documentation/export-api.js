@@ -178,7 +178,11 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
 
   Baseline: taken from 'squire: clock' (or the baselineClock param, which
   overrides). The frontmatter 'squire: docGuid', if present, must equal the
-  target. Provenance: the version entry is authored by the token identity
+  target. Baseline longevity is not contractual: a baseline is reconstructible
+  as long as the document's update log covers that clock (today: indefinitely,
+  since the log is never compacted). If a baseline can't be reconstructed the
+  push is rejected with re-pull guidance — never silently degraded to a
+  whole-doc replace. Provenance: the version entry is authored by the token identity
   ("Repo Sync (<user>)"); optional on-behalf-of metadata may be supplied via
   headers X-Squire-On-Behalf-Of-{Name,Email,Commit,Url} (each ≤256 chars,
   surfaced in version history strictly as plain text).

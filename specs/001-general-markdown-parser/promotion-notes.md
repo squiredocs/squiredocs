@@ -60,3 +60,5 @@ standing contract for downstream consumers:
   navigation or rendering surface that would honor the scheme.
 - Any future **HTML export / server-side render** path MUST sanitize/allowlist
   href schemes — the parser will not do it for them.
+
+- **P-5 (fuzz-oracle entity blind spot) — ACCEPTED (Sam, 2026-07-13).** The never-lose-content fuzz oracle decodes entities with the implementation's own decoder, so entity-decoding bugs are invisible to the fuzzer. Accepted as recorded awareness: the entity class is covered by exact-expectation fixtures (CN-4 table), not the fuzzer. No independent oracle built.
