@@ -12,7 +12,7 @@ The product name collides with a common word for product documentation, so usage
 - "docs" and "documents" mean Squire documents: the collaborative artifacts users create and edit in the product.
 - "documentation" and "product documentation" mean written material about the product, such as the pages on this site.
 
-"Docs" is never used to mean product documentation. This rule applies to the documentation site, UI copy, the marketing pages, and design docs going forward.
+"Docs" is never used to mean product documentation. This rule applies to the documentation site, UI copy, the marketing pages, and design docs going forward. Existing app UI copy and marketing copy are audited for violations as part of this feature, and violations are fixed (Sam, 2026-07-14).
 
 The documentation index page opens with a product description that settles the distinction for the reader, close to: "Squire Docs is collaborative documents for spec-driven development teams. This site is the documentation for using the product."
 
@@ -22,6 +22,7 @@ The documentation index page opens with a product description that settles the d
 - Each file carries YAML frontmatter with `slug`, `title`, `description` (used as the meta description), and `order` (sidebar position). The index page uses slug `index`.
 - Page content follows the [Writing Style Guide](https://squiredocs.com/d/887930a2-b5ed-4a64-9c36-5c4d0ae3c3fb).
 - Documentation describes current behavior. A feature that changes user-visible behavior updates the affected pages in the same change, the same rule README.md follows.
+- Division of labor with README.md: the documentation site owns user-facing feature descriptions; README.md narrows to developer and operator material over time. Both stay accurate when behavior changes (Sam, 2026-07-14).
 
 ## Build and serving
 
@@ -52,11 +53,13 @@ Twelve pages. Each documents user-visible behavior, with request examples (curl)
 
 - The marketing header on the landing, pricing, and about pages gains a "Documentation" link. Documentation pages use the same header.
 - The sidebar lists all pages in order and highlights the current page. On narrow screens the sidebar collapses behind a toggle.
+- The signed-in app links to the documentation: a "Documentation" item in the user profile menu, next to "Get Support", opens /documentation in a new tab (Sam, 2026-07-14).
 
 ## SEO and analytics
 
 - Each page sets its title and meta description from frontmatter, a canonical URL of the form `https://squiredocs.com/documentation/<slug>`, and Open Graph tags.
 - Each page includes the same Google tag snippet as the marketing pages.
+- The site ships without a sitemap.xml; pages are indexable and reachable through links (Sam, 2026-07-14).
 
 ## Appearance
 
