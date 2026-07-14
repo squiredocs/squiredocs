@@ -20,6 +20,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 - [Squire Authentication and Sharing](https://squiredocs.com/d/503fb6a8-d165-49c7-bc98-883a68b14540) — Google OAuth and JWTs, document roles and permission enforcement, sharing, the admin area
 - [Squire Content Search](https://squiredocs.com/d/187b0da3-1004-4273-82f8-062f6a903f14) — hybrid full-text + pgvector semantic search fused with Reciprocal Rank Fusion
 - [Squire Media and Diagram Blocks](https://squiredocs.com/d/9bb17cdc-0b56-4c87-8b4e-d3686029cb8a) — the S3 image pipeline and app-URL indirection, Mermaid/SVG blocks and the sanitization policy
+- [Squire UI Theming and Dark Mode](https://squiredocs.com/d/43a8653c-28f0-4598-9f92-9122ba686883) — the semantic color-token layer, Light/Dark/System appearance selection, the light "paper" document canvas, AA contrast
 
 ## Infrastructure
 
@@ -41,6 +42,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Squire Authentication and Sharing | `design/authentication-and-sharing.md` | Current implementation |
 | Squire Content Search | `design/content-search.md` | Current implementation |
 | Squire Media and Diagram Blocks | `design/media-and-diagram-blocks.md` | Current implementation |
+| Squire UI Theming and Dark Mode | `design/ui-theming-dark-mode.md` | Ratified design |
 | Squire Infrastructure and Environments | `design/infrastructure-and-environments.md` | Current implementation |
 | Proposal: Markdown Import & Two-Way Repo Sync | `design/markdown-import-two-way-sync.md` | Draft for review |
 

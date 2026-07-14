@@ -30,6 +30,7 @@ const DOCS = {
   '503fb6a8-d165-49c7-bc98-883a68b14540': 'authentication-and-sharing.md',
   '187b0da3-1004-4273-82f8-062f6a903f14': 'content-search.md',
   '9bb17cdc-0b56-4c87-8b4e-d3686029cb8a': 'media-and-diagram-blocks.md',
+  '43a8653c-28f0-4598-9f92-9122ba686883': 'ui-theming-dark-mode.md',
   'c97e58df-4104-4e5d-8ab6-711a7b115696': 'infrastructure-and-environments.md',
 };
 
