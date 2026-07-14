@@ -27,6 +27,17 @@ Tools that touch a document open a real y-websocket presence session on the user
 - **OAuth 2.0 for interactive agents: **authorization-code + PKCE with dynamic client registration; consent creates a delegation; access JWTs live 1 hour with 30-day rotating refresh tokens, signed by a dedicated MCP secret. Revoking a delegation cascades to everything it minted.
 - **sk_sqd_ API tokens for shell/REST: **SHA-256-hashed at rest, max 25 active per user, scoped, expiring. `create_access_token` lets an agent mint a short-lived token (≤24 h, scopes capped at its own, no chaining, 5-per-minter cap) so bulk export never passes content through model context.
 
+## Agent onboarding and discovery
+
+The onboarding story: a user with a Squire account tells their agentic tool to read `https://squiredocs.com/agents.md`. The agent connects to `/mcp` and the standard OAuth discovery chain takes over — browser consent from the user’s logged-in account, no manual token copying in the happy path.
+
+- **agents.md is the agent-facing front door: **served at `/agents.md` as a static asset. It must contain: the MCP endpoint, exact connect one-liners (e.g. `claude mcp add --transport http squire https://squiredocs.com/mcp`), both credential options, tool orientation (the `get_tool_documentation` imperative), and the REST export/import recipe. This doc owns agents.md’s contract — drift between agents.md and the implemented surface is a bug.
+- **Discovery chain (standards, in order): **unauthenticated `POST /mcp` → 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"` → RFC 9728 protected-resource metadata → RFC 8414 authorization-server metadata → RFC 7591 dynamic client registration → authorization-code + PKCE (S256 only) → consent page → token. MCP-native clients complete this with zero manual configuration.
+- **Consent login round-trip guarantee: **an unauthenticated user landing on the consent page completes Google login and returns to the consent page with all OAuth parameters intact. The `returnTo` path is constrained to same-origin relative paths (open-redirect defense), carried in a short-lived cookie through the Google redirect, and takes precedence over signup/onboarding redirects.
+- **Decision — PKCE only, no device flow (Sam, 2026-07-13): **every target client either drives a localhost-redirect PKCE flow natively or can use an API token; RFC 8628 device flow would add a second consent surface and a polling endpoint for no covered client. Revisit only if a covered client appears that can do neither.
+- **API-token fallback: **clients that can’t complete browser OAuth use an `sk_sqd_` token from Settings → AI Agent Access as a bearer header. Semantics unchanged from Credentials above.
+- **Accepted gap: **the token endpoint accepts and ignores the RFC 8707 `resource` parameter (spec-permitted); revisit if a client is found to require it echoed.
+
 ## REST export API
 
 `GET /api/docs/:docId/export?format=markdown` serializes the persisted doc (works with no client connected); view access suffices; browser sessions and API tokens both accepted. Incremental sync pairs it with list_documents’ `updatedSince` + per-doc `clock`. This is the surface design/sync.mjs rides on; the write half is designed in [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0).
