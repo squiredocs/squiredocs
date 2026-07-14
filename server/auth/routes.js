@@ -64,6 +64,36 @@ function validateClientUrl(clientUrl) {
 }
 
 /**
+ * Validate a returnTo value as a same-origin relative path (open-redirect
+ * defense). Implements the R2 predicate from feature 005-agent-onboarding.
+ *
+ * A value is accepted iff ALL of:
+ *   1. typeof value === 'string'
+ *   2. value.length > 0 && value.length <= 512
+ *   3. value.startsWith('/')
+ *   4. !value.startsWith('//') (protocol-relative)
+ *   5. !value.includes('\\') (backslash open-redirect variants)
+ *   6. new URL(value, 'http://placeholder').host === 'placeholder'
+ *
+ * @param {*} value - Candidate returnTo value
+ * @returns {boolean} True if the value is a same-origin relative path
+ */
+function isValidReturnTo(value) {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > 512) return false;
+  if (!value.startsWith('/')) return false;
+  if (value.startsWith('//')) return false;
+  if (value.includes('\\')) return false;
+  try {
+    const parsed = new URL(value, 'http://placeholder');
+    if (parsed.host !== 'placeholder') return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
  * GET /auth/google
  * Initiates Google OAuth flow by redirecting to Google's consent screen
  */
@@ -411,6 +441,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 module.exports = router;
+module.exports.isValidReturnTo = isValidReturnTo;
 
 
 

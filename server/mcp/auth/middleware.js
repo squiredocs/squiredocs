@@ -5,6 +5,55 @@
  */
 const { verifyAgentToken, extractAgentToken } = require('./jwt');
 const apiTokens = require('./api-tokens');
+const { buildBaseUrl } = require('../../url');
+
+/**
+ * Build the WWW-Authenticate challenge header value for an MCP 401/403.
+ *
+ * Feature 005-agent-onboarding, contract:
+ *   specs/005-agent-onboarding/contracts/www-authenticate-challenge.md
+ *
+ * The header always starts with the Bearer scheme, always names the realm
+ * "Squire Docs MCP", and always carries a resource_metadata pointer to the
+ * path-suffix protected-resource metadata document. Additional attributes
+ * depend on the branch:
+ *   - missing credentials: no error attribute (RFC 6750 §3)
+ *   - invalid_token: error="invalid_token", error_description
+ *   - insufficient_scope: error="insufficient_scope", scope="<required>"
+ *
+ * @param {import('express').Request} req - Express request (used for buildBaseUrl)
+ * @param {object} opts
+ * @param {'missing'|'invalid'|'expired'|'insufficient_scope'} opts.branch
+ * @param {string} [opts.errorDescription] - Override error_description text
+ * @param {string[]} [opts.scopes] - Required scopes (branch='insufficient_scope')
+ * @returns {string} WWW-Authenticate header value
+ */
+function buildChallenge(req, opts = {}) {
+  const baseUrl = buildBaseUrl(req);
+  const resourceMetadata = `${baseUrl}/.well-known/oauth-protected-resource/mcp`;
+  const parts = ['Bearer realm="Squire Docs MCP"'];
+
+  const branch = opts.branch || 'missing';
+  if (branch === 'invalid' || branch === 'expired') {
+    parts.push('error="invalid_token"');
+    const description = opts.errorDescription
+      || (branch === 'expired' ? 'The access token expired' : 'Invalid agent token');
+    parts.push(`error_description="${description}"`);
+  } else if (branch === 'insufficient_scope') {
+    parts.push('error="insufficient_scope"');
+    const scopes = Array.isArray(opts.scopes) ? opts.scopes.join(' ') : '';
+    if (scopes) {
+      parts.push(`scope="${scopes}"`);
+    }
+    if (opts.errorDescription) {
+      parts.push(`error_description="${opts.errorDescription}"`);
+    }
+  }
+  // Branch 'missing' intentionally omits error= per RFC 6750 §3.
+
+  parts.push(`resource_metadata="${resourceMetadata}"`);
+  return parts.join(', ');
+}
 
 /**
  * Try to authenticate via API token (sk_sqd_ prefix, or legacy sqd_)
@@ -39,6 +88,7 @@ async function requireAgentAuth(req, res, next) {
   });
 
   if (!token) {
+    res.set('WWW-Authenticate', buildChallenge(req, { branch: 'missing' }));
     return res.status(401).json({
       error: 'No agent token provided',
       code: 'MISSING_TOKEN',
@@ -53,6 +103,7 @@ async function requireAgentAuth(req, res, next) {
     return next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
+      res.set('WWW-Authenticate', buildChallenge(req, { branch: 'expired' }));
       return res.status(401).json({
         error: 'Agent token expired',
         code: 'TOKEN_EXPIRED',
@@ -70,6 +121,7 @@ async function requireAgentAuth(req, res, next) {
       // API token lookup failed, fall through to 401
     }
 
+    res.set('WWW-Authenticate', buildChallenge(req, { branch: 'invalid' }));
     return res.status(401).json({
       error: 'Invalid agent token',
       code: 'INVALID_TOKEN',
@@ -88,6 +140,7 @@ function requireScope(requiredScopes) {
   return (req, res, next) => {
     // Check if agent is authenticated
     if (!req.agentToken) {
+      res.set('WWW-Authenticate', buildChallenge(req, { branch: 'missing' }));
       return res.status(401).json({
         error: 'Agent authentication required',
         code: 'NOT_AUTHENTICATED',
@@ -100,6 +153,10 @@ function requireScope(requiredScopes) {
     const hasScope = scopes.some((scope) => agentScopes.includes(scope));
 
     if (!hasScope) {
+      res.set('WWW-Authenticate', buildChallenge(req, {
+        branch: 'insufficient_scope',
+        scopes,
+      }));
       return res.status(403).json({
         error: 'Insufficient scope',
         code: 'INSUFFICIENT_SCOPE',

@@ -33,11 +33,11 @@ work — annotated where relevant.
 **Purpose**: verify workspace and prerequisites; no new project scaffolding
 required for this feature.
 
-- [ ] T001 Verify Node/Express server tree and `client/public/` exist and
+- [X] T001 Verify Node/Express server tree and `client/public/` exist and
       that `express.static(clientBuildPath)` is mounted in
       `/local-dev/server/index.js` (~L1392) so `client/public/agents.md` will
       serve at `/agents.md` when the client is built. No file changes.
-- [ ] T002 Verify `buildBaseUrl` in `/local-dev/server/url.js` matches the
+- [X] T002 Verify `buildBaseUrl` in `/local-dev/server/url.js` matches the
       hardcoded logic at `/local-dev/server/index.js:328` (both force `https`
       for the `squiredocs.com` host). No file changes.
 
@@ -48,17 +48,17 @@ required for this feature.
 **Purpose**: shared code that later story tasks depend on. Complete before any
 US1/US2/US3/US4 task.
 
-- [ ] T003 Refactor the existing `GET /.well-known/oauth-authorization-server`
+- [X] T003 Refactor the existing `GET /.well-known/oauth-authorization-server`
       handler in `/local-dev/server/index.js` (~L324) to compute its `baseUrl`
       via `buildBaseUrl(req)` from `/local-dev/server/url.js` instead of the
       inline `host.includes('squiredocs.com') ? 'https' : req.protocol`
       logic. Response body must be byte-identical to today.
-- [ ] T004 Add a shared returnTo validator to `/local-dev/server/auth/routes.js`
+- [X] T004 Add a shared returnTo validator to `/local-dev/server/auth/routes.js`
       (private module-level helper `isValidReturnTo(value)`), implementing
       the six R2 checks from `research.md`. Export it from the module
       (`module.exports.isValidReturnTo`) so the tests in US2 can import it
       directly. No route changes yet.
-- [ ] T005 Add a WWW-Authenticate challenge builder to
+- [X] T005 Add a WWW-Authenticate challenge builder to
       `/local-dev/server/mcp/auth/middleware.js` (private module-level
       helper `buildChallenge(req, opts)` returning a header value string per
       `contracts/www-authenticate-challenge.md`). Not yet wired to any 401.
@@ -81,24 +81,24 @@ client pointed at the endpoint completes discovery with no manual input.
 
 ### Implementation
 
-- [ ] T006 [US1] Add `GET /.well-known/oauth-protected-resource/mcp` route to
+- [X] T006 [US1] Add `GET /.well-known/oauth-protected-resource/mcp` route to
       `/local-dev/server/index.js` next to the existing well-known handler
       (~L324), returning the R4 JSON body per
       `contracts/protected-resource-metadata.md`, using `buildBaseUrl(req)`.
-- [ ] T007 [US1] Add `GET /.well-known/oauth-protected-resource` (root fallback)
+- [X] T007 [US1] Add `GET /.well-known/oauth-protected-resource` (root fallback)
       route to `/local-dev/server/index.js` immediately after T006, returning
       the same body via the same helper. Extract the body-builder into a small
       local `buildProtectedResourceDoc(req)` closure so both routes share it.
-- [ ] T008 [US1] Wire `buildChallenge` from T005 into `requireAgentAuth` in
+- [X] T008 [US1] Wire `buildChallenge` from T005 into `requireAgentAuth` in
       `/local-dev/server/mcp/auth/middleware.js`. Before each of the three
       existing `res.status(401).json(...)` calls (missing / expired /
       invalid), set `res.set('WWW-Authenticate', buildChallenge(req, {
       branch }))` per `contracts/www-authenticate-challenge.md`. JSON body
       shape and error codes MUST stay identical.
-- [ ] T009 [US1] Wire `buildChallenge` into the `requireScope` 403 branch in
+- [X] T009 [US1] Wire `buildChallenge` into the `requireScope` 403 branch in
       the same file — set `WWW-Authenticate` with `error="insufficient_scope"`
       and `scope="<space-separated required scopes>"`. JSON body unchanged.
-- [ ] T010 [US1] Add `resource_metadata` field to the `authentication` object
+- [X] T010 [US1] Add `resource_metadata` field to the `authentication` object
       returned by `GET /mcp` in `/local-dev/server/mcp/index.js:101-106`
       (value: `` `${baseUrl}/.well-known/oauth-protected-resource/mcp` ``).
 

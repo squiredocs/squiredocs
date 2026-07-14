@@ -103,6 +103,7 @@ router.get('/', (req, res) => {
       authorizationUrl: `${baseUrl}/mcp/auth/authorize`,
       tokenUrl: `${baseUrl}/mcp/auth/token`,
       metadataUrl: `${baseUrl}/.well-known/oauth-authorization-server`,
+      resource_metadata: `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
     },
   });
 });
