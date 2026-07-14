@@ -1022,6 +1022,8 @@
 .ai-chat-textarea {
   flex: 1;
   resize: none;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 8px 12px;

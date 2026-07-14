@@ -152,6 +152,8 @@
 
 .user-name-input {
   padding: 6px 12px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: var(--text-lg);
@@ -700,6 +702,8 @@ body[data-mobile] .app-header {
 .api-token-create-form input {
   flex: 1;
   padding: 6px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 6px;
   font-size: var(--text-base);
@@ -1137,6 +1141,8 @@ body[data-mobile] .app-header {
 .byok-key-input {
   flex: 1;
   padding: 6px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 6px;
   font-size: var(--text-base);
@@ -1201,6 +1207,8 @@ body[data-mobile] .app-header {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 6px;
   font-family: inherit;
@@ -1337,6 +1345,8 @@ body[data-mobile] .app-header {
 
 .settings-name-input {
   padding: 6px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 6px;
   font-size: var(--text-md);

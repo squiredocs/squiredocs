@@ -41,6 +41,8 @@
 .ai-chat-history-search-input {
   width: 100%;
   padding: 6px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   font-size: var(--text-base);
@@ -211,6 +213,8 @@
 .ai-chat-history-rename-input {
   flex: 1;
   padding: 4px 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--accent);
   border-radius: 4px;
   font-size: var(--text-md);

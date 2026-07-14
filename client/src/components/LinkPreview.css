@@ -90,6 +90,8 @@
 
 .link-edit-input {
   padding: 8px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   font-size: var(--text-lg);

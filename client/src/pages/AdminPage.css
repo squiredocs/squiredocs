@@ -197,6 +197,8 @@
   width: 65px;
   font-size: var(--text-base);
   padding: 3px 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 4px;
 }
@@ -392,6 +394,8 @@
 .admin-grant-form input {
   font-size: var(--text-base);
   padding: 4px 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 4px;
 }

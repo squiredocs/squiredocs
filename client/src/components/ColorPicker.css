@@ -75,6 +75,8 @@
 .color-picker-hex input {
   flex: 1;
   padding: 6px 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: 4px;
   font-family: var(--font-mono);

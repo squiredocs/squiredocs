@@ -53,6 +53,10 @@
    ============================================================================= */
 
 :root {
+  /* Native UA controls (form fields, scrollbars, spinners) follow the theme so
+     they don't render light-on-dark in dark mode (FR-005). */
+  color-scheme: light;
+
   /* --- Tier 1: primitives (raw palette — not consumed directly by chrome) --- */
   --violet-600: #7c3aed;  --violet-700: #6d28d9;  --violet-50: #f5f3ff;  --violet-100: #ede9fe;
   --gray-50: #f9fafb;  --gray-100: #f3f4f6;  --gray-200: #e5e7eb;  --gray-300: #d1d5db;
@@ -137,6 +141,8 @@
 /* --- Dark realization: redefine the Tier-2 semantic layer wholesale --------- */
 /* Values tuned for WCAG 2.1 AA against their intended surfaces (T051 audit). */
 :root[data-theme="dark"] {
+  /* Native UA controls follow the dark theme (FR-005). */
+  color-scheme: dark;
   /* Surfaces */
   --surface-base: #0f1115;
   --surface-raised: #1a1d23;
@@ -207,6 +213,7 @@
    paint; this covers the instant before that (and JS-disabled). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    color-scheme: dark;
     --surface-base: #0f1115;
     --surface-raised: #1a1d23;
     --surface-overlay: #21252c;
