@@ -99,7 +99,15 @@ overturned by amending the (to-be-authored) Squire design doc
 
 ### D5 — Document canvas stays light in v1; dark mode is chrome-only
 
-**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+**OVERRIDDEN BY SAM (2026-07-14): the document canvas themes dark in dark
+mode.** The original default below (light "paper" in both modes) is superseded
+by Sam's explicit decision; the canvas background and default (unset) text are
+now token-driven and go dark under `data-theme="dark"`. The surviving
+invariants and the new decisions are recorded in D15–D18 and in
+`design/ui-theming-dark-mode.md` ("The dark canvas"). The original rationale is
+kept below for history.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14) — superseded**
 
 - **Question**: In dark mode, does the document canvas (editor surface,
   version previews) also go dark, or stay light "paper" inside dark chrome?
@@ -281,6 +289,71 @@ in the theming design doc alongside D1–D9.
   unaffected (canvas is light).
 - **Rationale**: Preserves the identity invariant (same hue for a user across
   viewers/themes) while solving legibility by presentation only.
+
+---
+
+## 4. Dark-canvas override decisions (Sam pre-authorized, 2026-07-14)
+
+Consequences of Sam's D5 override (canvas themes dark). These supersede the
+canvas-stays-light parts of D5/D7/D12. Recorded per the amended design doc
+`design/ui-theming-dark-mode.md` ("The dark canvas").
+
+### D15 — Author-set colors render as authored in both themes; no remap in v1
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+
+- **Decision**: On the now-dark canvas, only the **default (unset)** text color
+  and the canvas background are token-driven (theme with the app). Colors an
+  author explicitly set (color picker / agent `textStyle` marks) render exactly
+  as authored in both themes — no remap, inversion, or adjustment. Stored
+  content is never modified (FR-008/FR-014 stand).
+- **Accepted caveat**: author-chosen dark colors can read low-contrast on the
+  dark canvas; a contrast-adaptive display remap is explicit future work.
+- **Rationale**: Preserves WYSIWYG/collaboration fidelity and the hard
+  "author colors never remapped" constraint while letting unstyled docs read
+  natively in both themes. Author-set colors are inline content styles, not
+  chrome CSS, so the token migration does not touch them.
+
+### D16 — Rendered media: light "media plate" for Mermaid + SVG; images unplated
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+
+- **Decision**: Mermaid diagrams and SVG blocks render on a **constant light
+  media plate** in both themes (a token whose value is light in light and dark
+  realizations), so rendered content is faithful and never re-themed. Images
+  render **unplated** (raster content is self-contained). Code blocks are
+  plain-styled text and tokenize with the canvas.
+- **Rationale**: Diagram/SVG colors are authored against light; a plate keeps
+  them faithful without a re-theming engine (out of scope). Images already
+  carry their own background.
+
+### D17 — Print is forced light regardless of theme
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+
+- **Decision**: Because the canvas now themes dark, print must **explicitly
+  force light**: an `@media print` reset re-declares the canvas tokens to their
+  light values (defined once in `index.css`), so printed output is identical
+  from both themes. This upgrades D7 from "trivially true" to "explicit work".
+- **Rationale**: Dark print wastes toner and would make output depend on an
+  invisible viewer setting; forcing light keeps print deterministic.
+
+### D18 — Canvas presence/selection meets the same AA bar as chrome
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)**
+
+- **Decision**: Selection highlights, presence cursors, and attribution on the
+  dark canvas meet the same AA-legibility bar as chrome; the user→color
+  identity mapping is still never changed (D8/D14 mechanism extends to the
+  canvas). Canvas presence legibility is included in the T051 AA audit.
+- **Rationale**: The canvas is now a dark surface too, so the D8 legibility
+  guarantee that previously only applied to chrome now applies there as well.
+
+> **D12/D13 note**: the canvas is no longer on the lint allowlist. The only
+> sanctioned literal exceptions are now (a) the constant light **media plate**
+> and (b) **forced-light print** — both defined once as tokens in `index.css`
+> (the media-plate token and the `@media print` token reset), plus the
+> `index.css` token-definition region. The lint was updated accordingly.
 
 ---
 

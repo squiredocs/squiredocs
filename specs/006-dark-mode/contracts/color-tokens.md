@@ -112,19 +112,38 @@ Defined in `client/src/index.css` `:root`, in two tiers:
 - Shadows and the modal backdrop use the elevation tokens (shadows are stronger
   in dark to preserve separation on dark surfaces).
 
-## Canvas exclusion set (NOT tokenized — stays light; D12)
+## Canvas tokens (D5 OVERRIDDEN — canvas themes dark, amended 2026-07-14)
 
-The migration lint treats these as the **allowlist** where raw color literals
-remain legal:
+The canvas now consumes the token layer too. Additional roles (defined in
+`index.css`, light + dark realizations):
 
-| File / selector | Reason |
-|-----------------|--------|
-| `EditorCommon.css` — `.editor-common-content`, `.editor-common-content .ProseMirror` and content descendants | Shared document-content canvas (editor + previews); light paper |
-| `VersionPreview.css` — the document-content preview area only (surrounding chrome IS tokenized) | Renders document content on light canvas |
-| `DiagramNodeView.css` — rendered-diagram content styling | On-canvas embedded content |
-| `ImageNodeView.css` — image content styling | On-canvas embedded content |
-| Print styles (`@media print` blocks) | Print is theme-independent (D7/FR-010) |
-| `index.css` token-definition region (the `:root` / `[data-theme]` blocks) | This is where literals are legally defined |
+```css
+:root {
+  --canvas-bg: var(--white);          /* document "paper" background */
+  --canvas-text: #333;                /* DEFAULT (unset) document text only */
+  --canvas-media-plate: var(--white); /* constant light plate for Mermaid/SVG */
+}
+:root[data-theme="dark"] {
+  --canvas-bg: #17191d;               /* dark paper (slightly above chrome base) */
+  --canvas-text: #e6e8eb;
+  /* --canvas-media-plate stays light — NOT redefined here (D16) */
+}
+```
 
-Any literal outside this set is a lint failure. The allowlist is encoded in
-`client/scripts/check-color-tokens.mjs` and kept in sync with this table.
+- Author-**set** colors (color-picker / agent `textStyle` marks) are inline
+  content styles, never CSS — the migration never touches them (D15). Only the
+  canvas background and **default** text tokenize.
+- Mermaid/SVG containers use `--canvas-media-plate` (constant light, D16);
+  images render unplated; code blocks tokenize with `--canvas-*`.
+
+## Sanctioned literal exceptions (the only lint allowlist now)
+
+| Zone | Reason |
+|------|--------|
+| Print styles (`@media print` blocks) | Forced-light print (D17/FR-010) — an `@media print` reset re-declares `--canvas-*` to light |
+| `index.css` token-definition region (`:root` / `[data-theme]` / `prefers-color-scheme` blocks) | Where all literals — chrome AND canvas — are legally defined |
+
+The document canvas is **no longer** on the allowlist — it tokenizes. The media
+plate is a token *reference* (`var(--canvas-media-plate)`), not a literal, so it
+needs no allowlist entry. Any literal outside the two zones above is a lint
+failure. The allowlist is encoded in `client/scripts/check-color-tokens.mjs`.

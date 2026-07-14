@@ -19,15 +19,23 @@ carries the bulk of the work (the token migration). US2/US3 are additive.
 - **[Story]**: US1 / US2 / US3 (setup/foundational/polish carry no story label)
 - All paths are under `client/` unless noted.
 
-## Canvas allowlist (NOT migrated — stays light; D12)
+## Canvas tokenization + sanctioned exceptions (D5 OVERRIDDEN — canvas themes dark)
 
-These are intentionally excluded from the token migration and are the lint's
-allowlist: `src/components/EditorCommon.css`, the document-content preview area
-of `src/components/VersionPreview.css`, `src/components/DiagramNodeView.css`,
-`src/components/ImageNodeView.css`, all `@media print` blocks, and the
-token-definition region of `src/index.css`. Files with zero color literals
+Sam's 2026-07-14 override means the document canvas now **migrates to tokens**
+too: `src/components/EditorCommon.css`, `src/components/Editor.css`,
+`src/components/VersionPreview.css` (content area included),
+`src/components/DiagramNodeView.css`, and `src/components/ImageNodeView.css` are
+tokenized alongside chrome. The canvas background and **default (unset)** text
+come from the token layer (new `--canvas-*` roles).
+
+The **only** sanctioned literal exceptions the lint still allows are:
+(a) the constant light **media plate** for Mermaid/SVG (a token whose value is
+light in both realizations — D16), (b) **forced-light print** (an `@media print`
+token reset in `src/index.css` — D17), and (c) the token-definition region of
+`src/index.css`. Author-set colors are inline content styles, not CSS, so the
+migration never touches them (D15). Files with zero color literals
 (`LineHeightDropdown.css`, `DropdownWrapper.css`, `ChatFontSizeControl.css`)
-need no migration and pass the lint trivially.
+pass the lint trivially.
 
 ---
 
@@ -62,9 +70,11 @@ state — everything every user story depends on.
   redefine the Tier-2 semantic tokens under `:root[data-theme="dark"]`, plus a
   scoped `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { … } }`
   fallback for the System-before-hydration case (per `contracts/color-tokens.md`).
-- [X] T005 Encode the **canvas allowlist** (see header + `contracts/color-tokens.md`)
-  into `client/scripts/check-color-tokens.mjs` so literals inside canvas
-  selectors, `@media print`, and the `index.css` token block are permitted.
+- [X] T005 Encode the **sanctioned exceptions** (see header + `contracts/color-tokens.md`)
+  into `client/scripts/check-color-tokens.mjs`: literals are permitted ONLY in
+  `@media print` blocks (forced-light print) and the `index.css` token-definition
+  region. The canvas is NO LONGER allowlisted (D5 overridden — it tokenizes); the
+  media plate is a token reference, not a literal.
 - [X] T006 Add the inline **pre-paint theme bootstrap** to
   `client/index.html` `<head>` (before `/src/main.jsx`): read
   `localStorage['squire-theme']`, resolve System via `matchMedia`, set
@@ -141,8 +151,9 @@ Light and confirm it reverts and persists.
 - [ ] T034 [P] [US1] Migrate `client/src/pages/ChatPage.css`.
 - [ ] T035 [P] [US1] Migrate `client/src/components/VersionHistoryPanel.css`.
 - [ ] T036 [P] [US1] Migrate `client/src/components/HierarchicalVersionList.css`.
-- [ ] T037 [P] [US1] Migrate `client/src/components/VersionPreview.css` **chrome
-  only** — leave the document-content preview area literals (canvas allowlist).
+- [ ] T037 [P] [US1] Migrate `client/src/components/VersionPreview.css` **fully**
+  — chrome AND the document-content preview area (canvas now themes dark; use
+  `--canvas-*` tokens for the content surface, diff marks keep author intent).
 - [ ] T038 [P] [US1] Migrate `client/src/components/ShareDialog.css`.
 - [ ] T039 [P] [US1] Migrate `client/src/pages/AdminPage.css` (~63 literals).
 - [ ] T040 [P] [US1] Migrate `client/src/components/LoginPage.css`.
@@ -155,7 +166,9 @@ Light and confirm it reverts and persists.
   CSS so the darkest Kelly colors stay distinguishable on dark surfaces. **Do NOT
   modify `client/src/utils/colorUtils.js`** or the user→color mapping.
 - [ ] T043 [US1] Run `npm run lint:colors`; drive remaining literals to **0**
-  outside the allowlist (depends on all migration tasks T012–T041).
+  outside the allowlist (depends on all migration tasks T012–T041 **and the
+  canvas tokenization T048**). Then remove `.skip` from the Vitest completeness
+  assertion (`src/__tests__/color-tokens.lint.test.js`, O1 join gate).
 - [ ] T044 [US1] Unit test in `client/src/components/__tests__/ThemeControl.test.jsx`:
   selecting Dark/Light updates `data-theme` with no reload and persists; control
   reflects the active setting.
@@ -191,27 +204,38 @@ choose System and confirm it resumes.
 
 ## Phase 5: User Story 3 - Documents stay faithful in dark (Priority: P3)
 
-**Goal**: In dark mode the document canvas stays light "paper" with author colors
-and embedded content untouched; print is theme-independent; theming never writes
-to documents.
+**Goal**: In dark mode the document canvas **themes dark** (token-driven
+background + default text); author-set colors and rendered media (diagram/SVG on
+a light plate, images unplated) are untouched; print is forced light; theming
+never writes to documents.
 
 **Independent Test**: In dark mode open a doc with author colors, a diagram, an
-SVG, an image, and a code block; confirm canvas + content render identically to
-light; print-preview identical; version history shows no theming entries.
+SVG, an image, and a code block; confirm the canvas + default text are dark while
+author-set colors and rendered media render identically to light; print-preview
+is light; version history shows no theming entries.
 
-- [ ] T048 [US3] Confirm the canvas allowlist selectors are untouched by the
-  migration and add code comments marking the canvas boundary in
-  `client/src/components/EditorCommon.css` and the content area of
-  `client/src/components/VersionPreview.css` (also `DiagramNodeView.css`,
-  `ImageNodeView.css`). Assert via the lint that no `data-theme` override reaches
-  them.
-- [ ] T049 [US3] Verify print is theme-independent: ensure no `@media print`
-  block references theme tokens and printed output is identical from both themes
-  (FR-010/D7); document the print-preview check in quickstart.
+- [ ] T048 [US3] **Canvas tokenization** (D5 overridden): add `--canvas-bg`,
+  `--canvas-text` (default doc text), and a constant-light `--canvas-media-plate`
+  to the token registry in `client/src/index.css` (light + dark realizations;
+  plate light in both), then migrate `client/src/components/EditorCommon.css`,
+  `client/src/components/Editor.css` (canvas parts), the content area of
+  `client/src/components/VersionPreview.css`, `client/src/components/DiagramNodeView.css`
+  and `client/src/components/ImageNodeView.css` to those tokens. Diagram/SVG
+  containers use `--canvas-media-plate` (D16); images stay unplated; author-set
+  inline colors are never touched (D15).
+- [ ] T049 [US3] **Forced-light print** (D17): add an `@media print` reset in
+  `client/src/index.css` that re-declares the `--canvas-*` tokens to their light
+  values so printed output is identical from both themes (FR-010); document the
+  print-preview check in quickstart.
 - [ ] T050 [US3] Test (FR-014/SC-006): assert theme switching performs **no**
   document/version/collaboration write — e.g. a test that toggles the theme and
   verifies no Yjs mutation / no version entry is produced
   (`client/src/__tests__/theme-no-write.test.jsx`).
+- [ ] T055 [US3] Canvas-theme regression test (flipped U2 + D15): the canvas
+  root (`.editor-common-content`) computes a **dark** background under
+  `data-theme="dark"` (via the `--canvas-bg` token), AND an author-set inline
+  color (`<span style="color:#xxx">`) is left byte-for-byte untouched in the
+  rendered DOM under both themes (`client/src/__tests__/canvas-theme.test.jsx`).
 
 **Checkpoint**: All three stories independently functional.
 
@@ -219,15 +243,20 @@ light; print-preview identical; version history shows no theming entries.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] Accessibility contrast audit of dark chrome (axe/Lighthouse +
-  manual state checks); tune dark token values in `client/src/index.css` until
-  text ≥ 4.5:1 and large text/meaningful UI states (focus, hover, selection,
-  disabled, scrollbars) ≥ 3:1 (FR-011, SC-004).
-- [ ] T052 Full visual sweep of all 35+ styled surfaces in dark mode for
-  light-remnant chrome and boundary-seam correctness (SC-003, edge cases).
-- [ ] T053 Update `README.md` to document the appearance setting
-  (Light/Dark/System, device-local) in the implementing commit (Constitution
-  Principle I). *(Implementer edits README; not edited during planning.)*
+- [ ] T051 [P] Accessibility contrast audit of dark chrome **and the dark
+  canvas default styling** (text ≥ 4.5:1; large text/meaningful UI states —
+  focus, hover, selection, disabled, scrollbars — ≥ 3:1); tune dark token values
+  in `client/src/index.css` as needed (FR-011, SC-004). Per U3, include an
+  explicit **collaborator identity-color legibility check** against dark chrome
+  AND the dark canvas (Dark Olive Green `#2B3D26` is the known suspect); record
+  results in the audit notes.
+- [ ] T052 Full visual sweep of all 35+ styled surfaces + the dark canvas in
+  dark mode for light-remnant surfaces, media-plate seams, and boundary
+  correctness (SC-003, edge cases).
+- [ ] T053 README appearance-setting doc — **SKIP the README.md edit** (merge
+  queue reconciles docs). Write the intended README delta (now describing the
+  **dark canvas**, Light/Dark/System, device-local) into
+  `specs/006-dark-mode/promotion-notes.md` under "Merge-queue doc updates".
 - [ ] T054 Run `quickstart.md` end-to-end: `npm run build`, `npm test`,
   `npm run lint:colors` (0 disallowed), and all three story validations.
 
