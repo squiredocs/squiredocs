@@ -16,23 +16,23 @@
 
 /* Connected state - green */
 .connection-status.connected .connection-status-dot {
-  background-color: #4caf50;
-  box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+  background-color: var(--success);
+  box-shadow: 0 0 4px var(--success);
 }
 
 .connection-status.connected .connection-status-text {
-  color: #4caf50;
+  color: var(--success);
 }
 
 /* Connecting state - yellow with pulse animation */
 .connection-status.connecting .connection-status-dot {
-  background-color: #ffc107;
-  box-shadow: 0 0 4px rgba(255, 193, 7, 0.5);
+  background-color: var(--warning);
+  box-shadow: 0 0 4px var(--warning);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .connection-status.connecting .connection-status-text {
-  color: #ffc107;
+  color: var(--warning);
 }
 
 @keyframes pulse {
@@ -46,17 +46,17 @@
 
 /* Disconnected state - red */
 .connection-status.disconnected .connection-status-dot {
-  background-color: #dc2626;
-  box-shadow: 0 0 4px rgba(220, 38, 38, 0.5);
+  background-color: var(--danger);
+  box-shadow: 0 0 4px var(--danger);
 }
 
 .connection-status.disconnected .connection-status-text {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 /* Default text color */
 .connection-status-text {
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: var(--font-medium);
 }
 
@@ -65,8 +65,8 @@
   margin-left: 4px;
   padding: 2px 8px;
   font-size: var(--text-xs);
-  background-color: #dc2626;
-  color: white;
+  background-color: var(--danger);
+  color: var(--text-inverse);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -75,10 +75,10 @@
 }
 
 .connection-status-retry:hover {
-  background-color: #b91c1c;
+  background-color: var(--danger-hover);
 }
 
 .connection-status-retry:active {
-  background-color: #991b1b;
+  background-color: var(--danger-hover);
 }
 

@@ -4,12 +4,12 @@
   right: 0;
   bottom: 0;
   width: 320px;
-  background: #fff;
-  border-left: 1px solid #e5e7eb;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: -2px 0 8px var(--shadow-color);
 }
 
 .version-history-header {
@@ -17,14 +17,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .version-history-header h2 {
   margin: 0;
   font-size: var(--text-xl);
   font-weight: var(--font-medium);
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .version-history-close {
@@ -36,17 +36,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  color: var(--text-secondary);
   transition: background-color 0.2s;
   text-decoration: none;
 }
 
 .version-history-close:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 .version-history-close:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -60,7 +60,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px 20px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .version-history-filter {
@@ -70,16 +70,16 @@
 .version-history-filter select {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   font-size: var(--text-md);
-  color: #1f2937;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--surface-raised);
   cursor: pointer;
 }
 
 .version-history-filter select:hover {
-  border-color: #d1d5db;
+  border-color: var(--border-default);
 }
 
 /* Highlight changes toggle */
@@ -88,7 +88,7 @@
   align-items: center;
   gap: 6px;
   font-size: var(--text-base);
-  color: #6b7280;
+  color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -98,13 +98,13 @@
   width: 14px;
   height: 14px;
   cursor: pointer;
-  accent-color: #7c3aed;
+  accent-color: var(--accent);
 }
 
 /* View toggle buttons */
 .version-history-view-toggle {
   display: flex;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -114,24 +114,24 @@
   align-items: center;
   justify-content: center;
   padding: 6px 8px;
-  background: #fff;
+  background: var(--surface-raised);
   border: none;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-secondary);
   transition: background-color 0.15s, color 0.15s;
 }
 
 .view-toggle-btn:first-child {
-  border-right: 1px solid #e5e7eb;
+  border-right: 1px solid var(--border-subtle);
 }
 
 .view-toggle-btn:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 .view-toggle-btn.active {
-  background: #f5f3ff;
-  color: #7c3aed;
+  background: var(--surface-selected);
+  color: var(--accent);
 }
 
 .version-history-loading,
@@ -139,16 +139,16 @@
 .version-history-empty {
   padding: 40px 20px;
   text-align: center;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .version-history-error {
-  color: #d93025;
+  color: var(--danger);
 }
 
 .version-history-empty-hint {
   font-size: var(--text-base);
-  color: #9ca3af;
+  color: var(--text-tertiary);
   margin-top: 8px;
 }
 
@@ -170,7 +170,7 @@
   padding: 8px 20px;
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
-  color: #6b7280;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
   cursor: pointer;
@@ -178,7 +178,7 @@
 }
 
 .version-group-header:hover {
-  background: #f8f9fa;
+  background: var(--surface-sunken);
 }
 
 .version-group-expand {
@@ -205,20 +205,20 @@
 }
 
 .version-item:hover {
-  background: #f8f9fa;
+  background: var(--surface-sunken);
 }
 
 .version-item.selected {
-  background: #f5f3ff;
-  border-left-color: #7c3aed;
+  background: var(--surface-selected);
+  border-left-color: var(--accent);
 }
 
 .version-item.current {
-  background: #f0f9ff;
+  background: var(--info-subtle);
 }
 
 .version-item.selected.current {
-  background: #f5f3ff;
+  background: var(--surface-selected);
 }
 
 .version-item-content {
@@ -229,21 +229,21 @@
 .version-item-name {
   font-size: var(--text-md);
   font-weight: var(--font-semibold);
-  color: #7c3aed;
+  color: var(--text-link);
   margin-bottom: 2px;
 }
 
 .version-item-time {
   font-size: var(--text-base);
   font-weight: var(--font-normal);
-  color: #6b7280;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
 .version-item-badge {
   display: inline-block;
   font-size: var(--text-xs);
-  color: #6b7280;
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -268,12 +268,12 @@
 
 .version-author-name {
   font-size: var(--text-sm);
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .version-author-more {
   font-size: var(--text-sm);
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 /* Version Actions */
@@ -289,7 +289,7 @@
   cursor: pointer;
   padding: 4px;
   border-radius: 50%;
-  color: #6b7280;
+  color: var(--text-secondary);
   opacity: 0;
   transition: opacity 0.15s, background-color 0.15s;
   display: flex;
@@ -303,7 +303,7 @@
 }
 
 .version-menu-btn:hover {
-  background: #e5e7eb;
+  background: var(--surface-active);
 }
 
 .version-menu-dropdown {
@@ -311,9 +311,9 @@
   top: 100%;
   right: 0;
   min-width: 180px;
-  background: #fff;
+  background: var(--surface-overlay);
   border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 10px var(--shadow-color);
   z-index: 10;
   overflow: hidden;
   margin-top: 4px;
@@ -327,13 +327,13 @@
   background: none;
   border: none;
   font-size: var(--text-md);
-  color: #1f2937;
+  color: var(--text-primary);
   cursor: pointer;
   transition: background-color 0.15s;
 }
 
 .version-menu-dropdown button:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 /* Expand Button */
@@ -345,21 +345,21 @@
   background: none;
   border: none;
   font-size: var(--text-sm);
-  color: #7c3aed;
+  color: var(--text-link);
   cursor: pointer;
   transition: background-color 0.15s;
 }
 
 .version-expand-btn:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 /* Footer */
 .version-history-footer {
   padding: 12px 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-subtle);
   font-size: var(--text-base);
-  color: #6b7280;
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -370,7 +370,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -378,25 +378,25 @@
 }
 
 .version-dialog {
-  background: #fff;
+  background: var(--surface-overlay);
   border-radius: 8px;
   padding: 24px;
   width: 320px;
   max-width: 90vw;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 20px var(--shadow-color);
 }
 
 .version-dialog h3 {
   margin: 0 0 16px;
   font-size: var(--text-xl);
   font-weight: var(--font-medium);
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .version-dialog input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   font-size: var(--text-lg);
   margin-bottom: 16px;
@@ -405,7 +405,7 @@
 
 .version-dialog input:focus {
   outline: none;
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .version-dialog-actions {
@@ -424,22 +424,22 @@
 
 .version-dialog-actions button:first-child {
   background: none;
-  border: 1px solid #e5e7eb;
-  color: #6b7280;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
 }
 
 .version-dialog-actions button:first-child:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 .version-dialog-actions button:last-child {
-  background: #7c3aed;
+  background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .version-dialog-actions button:last-child:hover {
-  background: #6d28d9;
+  background: var(--accent-hover);
 }
 
 .version-dialog-actions button:disabled {

@@ -14,10 +14,10 @@
   position: absolute;
   top: 100%;
   left: 0;
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 10px var(--shadow-color);
   z-index: 10000;
   min-width: 180px;
   max-height: 300px;
@@ -32,11 +32,11 @@
 }
 
 .dropdown-item:hover {
-  background: #f5f5f5;
+  background: var(--surface-hover);
 }
 
 .dropdown-divider {
   height: 1px;
-  background: #ddd;
+  background: var(--border-default);
   margin: 4px 0;
 }

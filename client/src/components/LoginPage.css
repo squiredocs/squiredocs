@@ -4,20 +4,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+  background: linear-gradient(135deg, var(--surface-sunken) 0%, var(--surface-raised) 100%);
   padding: 1rem;
   font-family: var(--font-sans);
 }
 
 .login-container {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
   padding: 3rem;
   max-width: 400px;
   width: 100%;
   text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px var(--shadow-color);
 }
 
 .login-branding {
@@ -33,14 +33,14 @@
 }
 
 .login-logo-link:hover .login-logo {
-  color: #6d28d9;
+  color: var(--accent-hover);
 }
 
 .login-logo {
   width: 56px;
   height: 56px;
   margin: 0 auto 0.75rem;
-  color: #7c3aed;
+  color: var(--accent);
   transition: color 0.2s ease;
 }
 
@@ -52,32 +52,32 @@
 .login-title {
   font-size: 1.75rem;
   font-weight: var(--font-bold);
-  color: #1f2937;
+  color: var(--text-primary);
   margin: 0;
   letter-spacing: var(--tracking-tight);
 }
 
 .login-subtitle {
   font-size: var(--text-md);
-  color: #6b7280;
+  color: var(--text-secondary);
   margin: 0.5rem 0 0;
 }
 
 .login-headline {
   font-size: var(--text-3xl);
   font-weight: var(--font-semibold);
-  color: #1f2937;
+  color: var(--text-primary);
   margin: 0 0 1.5rem;
 }
 
 .login-error {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--danger-subtle);
+  color: var(--danger);
   padding: 0.75rem 1rem;
   border-radius: 8px;
   margin-bottom: 1.5rem;
   font-size: var(--text-md);
-  border: 1px solid #fecaca;
+  border: 1px solid var(--danger-border);
 }
 
 .login-button {
@@ -96,22 +96,22 @@
 }
 
 .google-button {
-  background: #ffffff;
-  color: #374151;
-  border: 2px solid #c4b5fd;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 2px solid var(--accent-hover);
+  box-shadow: 0 1px 3px var(--shadow-color);
 }
 
 .google-button:hover:not(:disabled) {
-  background: #f5f3ff;
-  border-color: #a78bfa;
+  background: var(--accent-subtle);
+  border-color: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 4px 12px var(--accent-glow);
 }
 
 .google-button:active:not(:disabled) {
-  background: #ede9fe;
-  border-color: #7c3aed;
+  background: var(--surface-selected);
+  border-color: var(--accent);
   transform: translateY(0);
 }
 
@@ -121,7 +121,7 @@
 }
 
 .google-button:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -134,13 +134,13 @@
 .login-footer {
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-subtle);
   font-size: var(--text-md);
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .login-signup-link {
-  color: #7c3aed;
+  color: var(--text-link);
   text-decoration: none;
   margin-left: 0.5rem;
   font-weight: var(--font-medium);
@@ -148,14 +148,14 @@
 }
 
 .login-signup-link:hover {
-  color: #6d28d9;
+  color: var(--text-link);
   text-decoration: underline;
 }
 
 .login-legal {
   margin-top: 1.25rem;
   font-size: var(--text-sm);
-  color: #9ca3af;
+  color: var(--text-tertiary);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -163,18 +163,18 @@
 }
 
 .login-legal-link {
-  color: #6b7280;
+  color: var(--text-secondary);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 .login-legal-link:hover {
-  color: #7c3aed;
+  color: var(--text-link);
   text-decoration: underline;
 }
 
 .login-legal-sep {
-  color: #d1d5db;
+  color: var(--text-disabled);
 }
 
 /* Loading state */
@@ -188,8 +188,8 @@
   position: absolute;
   width: 20px;
   height: 20px;
-  border: 2px solid #e5e7eb;
-  border-top-color: #7c3aed;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
