@@ -164,7 +164,10 @@ function markdownToPm(markdown, diffMark = null) {
       i++; // skip closing ```
       const codeText = codeLines.join('\n');
       // Mermaid fences route to the dedicated diagram block node; everything
-      // else is a generic codeBlock.
+      // else is a generic codeBlock. Source of truth is DIAGRAM_FENCE_LABELS in
+      // shared/format-registry.js; this literal copy is retained deliberately
+      // because this parser is characterization-frozen (CN-2) and must not
+      // import evolving registry state.
       const diagramType = {
         mermaid: 'mermaid',
         svg: 'svg',

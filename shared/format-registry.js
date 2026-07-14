@@ -103,6 +103,21 @@ const TEXTSTYLE_PORTABLE = { drop: true };
 const EMPHASIS_DELIMITER_CHARS = new Set(['*', '_', '~']);
 
 /**
+ * Fenced-code info-string label → diagram block node type. A fence whose info
+ * string (lowercased, trimmed) matches a key routes to that dedicated diagram
+ * node (`mermaid`, `svg`) instead of a generic `codeBlock`; the serializer
+ * emits the same label back when writing the fence. Format knowledge, so it
+ * lives in the registry (Constitution IV) as the single source of truth for the
+ * tolerant parser and the serializer.
+ *
+ * The FROZEN strict parser (shared/markdown/strict-parser.js) deliberately
+ * keeps its own literal copy of this map: it is pinned byte-for-byte by a
+ * characterization snapshot (server/__tests__/markdown-strict-characterization
+ * .test.js) and must not import evolving registry state (drift risk).
+ */
+const DIAGRAM_FENCE_LABELS = { mermaid: 'mermaid', svg: 'svg' };
+
+/**
  * HTML tags used for inline marks (for continuation-line detection).
  * Includes 'span' for textStyle.
  */
@@ -278,6 +293,7 @@ module.exports = {
   TEXTSTYLE_PORTABLE,
   INLINE_NEWLINE,
   INLINE_HTML_TAGS,
+  DIAGRAM_FENCE_LABELS,
   attrsToCSS,
   cssToAttrs,
   buildInlineRegex,

@@ -7,16 +7,16 @@ tolerant parser is promoted past the M1 PoC. The frozen strict parser
 (`shared/markdown/strict-parser.js`) and its byte-identity guarantee (CN-2) stay
 untouched.
 
-- **Registry duplication of the mermaid/svg fence map.** The fence-info →
-  diagram-type map `{ mermaid: 'mermaid', svg: 'svg' }` exists in three places:
-  the frozen strict parser (`strict-parser.js`, kept as-is), the tolerant
-  `block-parser.js` (`fencedCodeNode`), and implicitly in the schema's
-  `mermaid`/`svg` node definitions. The registry (`shared/format-registry.js`)
-  is the single-source-of-truth for inline format knowledge but does not yet own
-  this diagram-fence routing. At promotion, derive the routing from the registry
-  (or schema) so the tolerant copy is not a hand-maintained duplicate. The
-  frozen strict copy must remain a literal duplicate (it cannot import evolving
-  registry state without risking drift).
+- **Registry duplication of the mermaid/svg fence map. — CLOSED (Sam P-6,
+  2026-07-13; hoisted to registry).** The fence-info → diagram-type map
+  `{ mermaid: 'mermaid', svg: 'svg' }` is now owned by the registry as the
+  exported constant `DIAGRAM_FENCE_LABELS` (`shared/format-registry.js`). The
+  tolerant `block-parser.js` (`fencedCodeNode`) consumes it, and the serializer
+  (`server/mcp/yjs/serialization.js`) emits the same labels via the inverse
+  `FENCE_LABEL_BY_NODE` derived from it. The frozen strict copy in
+  `strict-parser.js` is retained by design — it is characterization-frozen (CN-2)
+  and cannot import evolving registry state — and now carries a comment pointing
+  at the registry constant as the source of truth.
 
 - **Dead whitelist fields (`.span` / `.br`).** `getHtmlWhitelist()` returns
   `{ tags, span: { styleProps }, br: true }`, but the tolerant inline parser

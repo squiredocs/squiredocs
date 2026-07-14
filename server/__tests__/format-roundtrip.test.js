@@ -207,6 +207,19 @@ describe.each([false, true])('Format round-trip (strict=%s)', (strict) => {
       expect(str).toContain('flowchart LR');
     });
 
+    test('tolerant fence routing is driven by the registry constant (P-6)', () => {
+      // Every DIAGRAM_FENCE_LABELS entry must route its fence to the mapped
+      // diagram node (not a generic codeBlock), proving the tolerant parser
+      // consumes the registry map rather than a private literal.
+      const { markdownToPm } = require('../../shared/markdown');
+      const { DIAGRAM_FENCE_LABELS } = require('../../shared/format-registry');
+      for (const [label, nodeType] of Object.entries(DIAGRAM_FENCE_LABELS)) {
+        const pm = markdownToPm('```' + label + '\nbody content\n```');
+        expect(pm.content[0].type).toBe(nodeType);
+        expect(pm.content[0].attrs).toBeUndefined(); // no { language } attr
+      }
+    });
+
     test('bulletList round-trips', () => {
       const doc = new Y.Doc();
       const fragment = doc.getXmlFragment('default');

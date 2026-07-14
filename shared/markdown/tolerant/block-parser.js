@@ -11,7 +11,7 @@
  * Pure module: no Node built-ins (client-safe, FR-014).
  */
 
-const { INLINE_HTML_TAGS, INLINE_NEWLINE } = require('../../format-registry');
+const { INLINE_HTML_TAGS, INLINE_NEWLINE, DIAGRAM_FENCE_LABELS } = require('../../format-registry');
 const { parseInlineTolerant } = require('./inline-parser');
 
 const MAX_CONTAINER_DEPTH = 64;
@@ -323,7 +323,8 @@ function fencedCodeNode(info, code, diffMark) {
   // multi-word info string is preserved in the language attr rather than
   // dropped (canonical equivalence + never-lose-content).
   const lang = info.trim();
-  const diagramType = { mermaid: 'mermaid', svg: 'svg' }[lang.toLowerCase()];
+  // Registry-owned fence-label → diagram-node routing (single source of truth).
+  const diagramType = DIAGRAM_FENCE_LABELS[lang.toLowerCase()];
   if (diagramType) {
     return codeBlockNode(code, null, diffMark, diagramType);
   }

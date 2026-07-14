@@ -6,12 +6,19 @@
  */
 const Y = require('yjs');
 const { getNodeTextLength } = require('./cursor-operations');
-const { INLINE_MARKS, TEXTSTYLE_PORTABLE, attrsToCSS } = require('../../../shared/format-registry');
+const { INLINE_MARKS, TEXTSTYLE_PORTABLE, attrsToCSS, DIAGRAM_FENCE_LABELS } = require('../../../shared/format-registry');
 const {
   isInlineContentBlock,
   isCodeLikeBlock,
   isListContainer,
 } = require('./block-types');
+
+// Diagram node type → fence info-string label, derived from the registry's
+// single-source-of-truth fence-label map (inverse of DIAGRAM_FENCE_LABELS) so
+// the emitted ```mermaid / ```svg labels are never hand-duplicated here.
+const FENCE_LABEL_BY_NODE = Object.fromEntries(
+  Object.entries(DIAGRAM_FENCE_LABELS).map(([label, nodeType]) => [nodeType, label])
+);
 
 /**
  * Serialize a Yjs XmlFragment to plain text
@@ -209,10 +216,9 @@ function toMarkdownNodes(nodes, options = {}) {
     } else if (tag === 'codeBlock') {
       const lang = node.getAttribute('language') || '';
       parts.push('```' + lang + '\n' + getChildText(node) + '\n```\n');
-    } else if (tag === 'mermaid') {
-      parts.push('```mermaid\n' + getChildText(node) + '\n```\n');
-    } else if (tag === 'svg') {
-      parts.push('```svg\n' + getChildText(node) + '\n```\n');
+    } else if (FENCE_LABEL_BY_NODE[tag]) {
+      // Diagram nodes (mermaid, svg) emit their registry fence label.
+      parts.push('```' + FENCE_LABEL_BY_NODE[tag] + '\n' + getChildText(node) + '\n```\n');
     } else if (tag === 'blockquote') {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.
@@ -578,10 +584,9 @@ function toMarkdownWithSourceMap(nodes, options = {}) {
     } else if (tag === 'codeBlock') {
       const lang = node.getAttribute('language') || '';
       parts.push(cConcat([cText('```' + lang + '\n'), getChildTextC(node), cText('\n```\n')]));
-    } else if (tag === 'mermaid') {
-      parts.push(cConcat([cText('```mermaid\n'), getChildTextC(node), cText('\n```\n')]));
-    } else if (tag === 'svg') {
-      parts.push(cConcat([cText('```svg\n'), getChildTextC(node), cText('\n```\n')]));
+    } else if (FENCE_LABEL_BY_NODE[tag]) {
+      // Diagram nodes (mermaid, svg) emit their registry fence label.
+      parts.push(cConcat([cText('```' + FENCE_LABEL_BY_NODE[tag] + '\n'), getChildTextC(node), cText('\n```\n')]));
     } else if (tag === 'blockquote') {
       const saved = parts.splice(0);
       for (const child of node.toArray()) processNodeC(child, indent);
