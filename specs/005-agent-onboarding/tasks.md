@@ -216,7 +216,7 @@ claim, and the mandated tool names. The drift-guard test suite is green.
 
 ### Implementation
 
-- [ ] T019 [US3] Create `/local-dev/client/public/agents.md` by copying
+- [X] T019 [US3] Create `/local-dev/client/public/agents.md` by copying
       `.claude/worktrees/agent-afbf7ebe180bd7de3/client/public/agents.md`
       into place, then applying the corrections listed in
       `contracts/agents-md.md`:
@@ -233,7 +233,7 @@ claim, and the mandated tool names. The drift-guard test suite is green.
 
 ### Tests for User Story 3
 
-- [ ] T020 [P] [US3] Create `/local-dev/server/__tests__/agents-md-claims.test.js`
+- [X] T020 [P] [US3] Create `/local-dev/server/__tests__/agents-md-claims.test.js`
       (drift-guard, per FR-003 and research.md R6). Reads
       `/local-dev/client/public/agents.md` with `fs.readFileSync`. Cases (all
       grep-level string checks): (a) contains `flavor=squire|portable`;
