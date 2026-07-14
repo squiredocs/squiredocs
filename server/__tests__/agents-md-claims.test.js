@@ -59,4 +59,23 @@ describe('agents.md drift-guard', () => {
     // or as part of `legacy sqd_`. A literal `sqd_` substring covers both.
     expect(content).toMatch(/legacy `?sqd_`?/i);
   });
+
+  // In-session connect caveat (design amendment, Sam 2026-07-14): an agent
+  // running inside a live session must NOT run the connect one-liner itself —
+  // MCP clients load config at startup, so the session never sees the server.
+  // agents.md must carry the user-facing terminal + restart + verify steps.
+  test('(g) tells in-session agents not to run the connect command themselves', () => {
+    expect(content).toMatch(/do not run\s+the command above yourself/i);
+    expect(content).toMatch(/load server config at startup/i);
+  });
+
+  test('(h) gives the restart-with-context steps (--continue / --resume)', () => {
+    expect(content).toContain('claude --continue');
+    expect(content).toContain('claude --resume');
+  });
+
+  test('(i) gives the verify steps (claude mcp list, /mcp)', () => {
+    expect(content).toContain('claude mcp list');
+    expect(content).toMatch(/run `?\/mcp`?/i);
+  });
 });
