@@ -59,6 +59,7 @@ Design ground truth is `design/product-documentation-site.md`. Each entry below 
 - **Chosen default**: This feature enforces the rule on everything it ships or touches: documentation content, page names, sidebar and link labels, and the marketing header and footer changes. It does not audit or rewrite existing app UI copy.
 - **Rationale**: "Going forward" reads as a standard for new and touched copy, not a retroactive sweep. An app-wide copy audit is a separately scoped effort (see Gap G1).
 - RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)
+- **SUPERSEDED (Sam, 2026-07-14)**: Gap G1 is now RESOLVED with the audit IN scope. The retroactive terminology sweep of existing app and marketing copy is part of this feature. This D8 default (audit out of scope) no longer holds; see G1.
 
 ### D9: Heading anchors, no in-page table of contents
 
@@ -74,20 +75,39 @@ Design ground truth is `design/product-documentation-site.md`. Each entry below 
 - **Rationale**: The SEO section (canonical URLs, meta descriptions, Open Graph) only makes sense for indexable pages. The site has no sitemap today; introducing one is a separate decision (see Gap G2).
 - RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-14)
 
-## Gaps (flagged, not decided)
+## Gaps (resolved by Sam, 2026-07-14)
 
-### G1: Retroactive terminology audit of existing app UI copy
+Sam ruled on all four gaps on 2026-07-14. These are Sam-ratified (an explicit
+call, not RATIFIED-BY-DEFAULT).
 
-The design document extends the docs/documentation rule to "UI copy" but does not say whether existing signed-in app copy should be audited and corrected now. D8 scopes this feature to the copy it ships or touches. Whether to run an app-wide audit (and marketing-page audit beyond the surfaces this feature touches) needs Sam's call or a design-doc amendment.
+### G1: Retroactive terminology audit of existing app UI copy — RESOLVED (audit IN scope)
 
-### G2: Sitemap for the public site
+The retroactive terminology sweep IS in scope for this feature. It sweeps
+existing app UI copy, the marketing pages (landing, pricing, about), and other
+user-facing strings for uses of "docs" meaning product documentation, and fixes
+the violations found. "Docs"/"documents" meaning Squire documents stay as they
+are, and the product name "Squire Docs" is not a violation. The `/docs`
+document-list route path is NOT renamed: it is the document list, and copy
+labels (not route paths) are the target. **This supersedes ledger D8** and the
+spec.md statement that the audit is out of scope (spec.md line 22 should be
+amended to match). RATIFIED (Sam, 2026-07-14).
 
-The public site (landing, pricing, about, and now thirteen documentation URLs counting the index) has no sitemap.xml. The design document is silent. Worth a decision once the documentation pages exist, since they are the pages a sitemap would help most.
+### G2: Sitemap for the public site — RESOLVED (out of scope)
 
-### G3: Entry point from the signed-in app
+No `sitemap.xml` in this feature. Explicitly out of scope. Confirms D10.
+RATIFIED (Sam, 2026-07-14).
 
-The design document adds a Documentation link only to the marketing header. It does not say whether signed-in users should be able to reach the documentation from inside the app (for example from the user menu, near "Get Support"). No in-app link is added in this feature; flagging because signed-in users are the most likely readers of pages like `agents-and-mcp` and `markdown`.
+### G3: Entry point from the signed-in app — RESOLVED (in-app link IN scope)
 
-### G4: Documentation versus README overlap policy
+The signed-in app links to the documentation. A "Documentation" item is added to
+the user profile menu (`client/src/components/UserProfileBadge.jsx`), near "Get
+Support", opening `/documentation` in a new tab. Because it is in-app UI it
+follows the existing user-menu patterns and uses the dark-mode color tokens per
+`design/ui-theming-dark-mode.md`. RATIFIED (Sam, 2026-07-14).
 
-The design document makes documentation pages follow the same keep-current rule as `README.md`, which means two prose descriptions of most features will now exist (README for developers, documentation for users). It does not say whether README should eventually slim down or point at the documentation. No change to README is made in this feature (and this agent is barred from editing it); the long-term relationship needs a call.
+### G4: Documentation versus README overlap policy — RESOLVED
+
+`README.md` narrows to developer and operator material over time; the
+documentation site owns user-facing feature descriptions. No README rewrite and
+no README tasks in this feature (README and docs edits are handled in the merge
+queue). RATIFIED (Sam, 2026-07-14).

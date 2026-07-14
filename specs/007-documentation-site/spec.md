@@ -80,6 +80,14 @@ A maintainer (Sam or an agent) adds or changes documentation by editing a markdo
 
 **Independent Test**: edit a markdown file in dev and confirm the change appears on refresh; run the client build and confirm a static HTML file per page exists under the build output; confirm the production server serves those files as-is.
 
+### User Story 5 - A signed-in user opens the documentation from the app (Priority: P2)
+
+A signed-in user wants help with a feature. They open the user profile menu, click "Documentation" next to "Get Support", and the documentation index opens in a new tab. The app stays where it was.
+
+**Why this priority**: signed-in users are the ones actively using features the documentation explains, but the site is fully reachable without this link (Sam ruling, 2026-07-14; FR-030).
+
+**Independent Test**: sign in, open the user profile menu, confirm a "Documentation" item appears near "Get Support" and opens `/documentation` in a new tab; confirm the menu item follows the app theme in light and dark mode.
+
 **Acceptance Scenarios**:
 
 1. **Given** a running dev server, **When** the maintainer edits a page's markdown file and refreshes the browser, **Then** the updated content renders without running a build.
