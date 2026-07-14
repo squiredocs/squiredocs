@@ -7,6 +7,9 @@ COPY client/ ./
 # Client source imports from ../shared (svg-sanitizer), so the shared dir must
 # exist in the builder stage too (it's also copied into the runtime stage below).
 COPY shared/ ../shared/
+# The client build's documentation step (scripts/build-documentation.mjs) reads
+# the markdown page sources from ../documentation at the repo root.
+COPY documentation/ ../documentation/
 RUN npm run build
 
 # Production stage

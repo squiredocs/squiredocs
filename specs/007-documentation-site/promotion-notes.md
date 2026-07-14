@@ -19,3 +19,4 @@ Review verdicts: trust/exposure CLEAN, app invariants CLEAN, correctness one HIG
 - Test-honesty gap (accepted): `build()`/`loadPages()`/`fail()` in `build-documentation.mjs` are exercised only by real builds, not CI unit tests. The merge queue runs a real build, so this is covered operationally.
 - README's older "light media plate" phrasing predates the D19 mermaid dark-inversion amendment; align next time README is touched (G4: README narrows toward developer material).
 - Sitemap.xml deliberately skipped (Sam, G2). Revisit if search traffic matters.
+- Deploy 2026-07-14 surfaced a gap: nothing local exercises the Dockerfile (CI runs tests only, the merge queue runs `npm run build` on the working tree), so a build step that needs a new directory in the image only fails at deploy time. The `documentation/` COPY is fixed; consider a Docker build smoke check if this recurs.
