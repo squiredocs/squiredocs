@@ -36,7 +36,7 @@ The documentation index page opens with a product description that settles the d
 
 Twelve pages. Each documents user-visible behavior, with request examples (curl) only where a user needs them, such as export and tokens.
 
-1. `index`, Overview: the product description, the terminology note, and a guide to the rest of the documentation.
+1. `index`, Overview: the product description and a guide to the rest of the documentation. The opening description settles the docs vs documentation distinction; the page carries no separate wording section (Sam, 2026-07-14).
 2. `getting-started`: signing in with Google, the welcome document, creating and finding documents.
 3. `editing`: rich-text formatting, headings, lists and task lists, code, links.
 4. `images-and-diagrams`: inserting images, Mermaid diagram blocks, SVG blocks, and copy and paste behavior.
