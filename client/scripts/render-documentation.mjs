@@ -126,6 +126,11 @@ export function validatePages(pages) {
     if (typeof fm.slug === 'string' && fm.slug !== '' && !SLUG_RE.test(fm.slug)) {
       errors.push(`${file}: invalid slug "${fm.slug}" (must match ${SLUG_RE})`);
     }
+    // Reserved output filenames: the build writes 404.html itself, so an
+    // authored page with that slug would be silently overwritten.
+    if (fm.slug === '404') {
+      errors.push(`${file}: slug "404" is reserved for the not-found page`);
+    }
     if (typeof fm.slug === 'string' && fm.slug !== '') {
       slugCounts.set(fm.slug, (slugCounts.get(fm.slug) || 0) + 1);
     }
@@ -206,8 +211,9 @@ const TERMINOLOGY_PATTERNS = [
   /\bapi\s+docs\b/gi,
   /\buser\s+docs\b/gi,
   /\bonline\s+docs\b/gi,
-  /\bview\s+(the\s+)?docs\b/gi,
-  /\bbrowse\s+(the\s+)?docs\b/gi,
+  /\b(?:view|browse|see|check|read|visit|consult|open)\s+(?:the\s+|our\s+)?docs\b/gi,
+  /\bdocs\s+(?:for|about|on)\s+(?:using|setup|getting)\b/gi,
+  /\bin\s+the\s+docs\b/gi,
 ];
 
 /**
@@ -345,13 +351,17 @@ function renderSidebar(allPages, currentSlug) {
       return `            <li><a href="${escapeAttr(href)}"${attrs}>${escapeHtml(p.title)}</a></li>`;
     })
     .join('\n');
+  // Rendered open: author CSS cannot reveal a closed <details> (browsers hide
+  // the content at the rendering layer, not via display), so desktop relies on
+  // the open attribute and the inline script collapses it on narrow viewports.
   return `      <aside class="documentation-sidebar">
-        <details class="documentation-nav">
+        <details class="documentation-nav" open>
           <summary class="documentation-nav-toggle">Documentation</summary>
           <ul class="documentation-nav-list">
 ${items}
           </ul>
         </details>
+        <script>(function () { var d = document.currentScript.previousElementSibling; if (window.matchMedia('(max-width: 899px)').matches) { d.removeAttribute('open'); } })();</script>
       </aside>`;
 }
 
@@ -366,6 +376,12 @@ export function renderPage({ page, allPages, canonicalOrigin = CANONICAL_ORIGIN 
   const title = page.title;
   const description = page.description;
   const sidebar = renderSidebar(allPages, page.slug);
+  // The 404 page (noindex) gets no canonical or og:url: a canonical pointing
+  // at a URL that itself 404s is wrong metadata on every unknown-slug response.
+  const seoTags = page.noindex
+    ? `  <meta name="robots" content="noindex" />`
+    : `  <link rel="canonical" href="${escapeAttr(canonical)}" />
+  <meta property="og:url" content="${escapeAttr(canonical)}" />`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -374,11 +390,10 @@ ${GOOGLE_TAG}
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeAttr(description)}" />
-  <link rel="canonical" href="${escapeAttr(canonical)}" />
+${seoTags}
   <meta property="og:title" content="${escapeAttr(title)}" />
   <meta property="og:description" content="${escapeAttr(description)}" />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="${escapeAttr(canonical)}" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/marketing.css" />
   <link rel="stylesheet" href="/documentation.css" />
@@ -413,6 +428,7 @@ export function render404({ allPages, canonicalOrigin = CANONICAL_ORIGIN }) {
       title: 'Page not found',
       description: 'The documentation page you asked for does not exist.',
       bodyHtml,
+      noindex: true,
     },
     allPages,
     canonicalOrigin,

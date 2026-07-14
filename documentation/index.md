@@ -7,7 +7,7 @@ order: 1
 
 Squire Docs is collaborative documents for spec-driven development teams. This site is the documentation for using the product.
 
-Squire Docs is a real-time collaborative rich-text editor. Several people can edit the same document at once, and every change, from a person or an AI agent, is attributed to its author and can be reversed through version history. Documents export to markdown and sync two ways with the files in your repository.
+Squire Docs is a real-time collaborative rich-text editor. Several people can edit the same document at once, and every change, from a person or an AI agent, is attributed to its author, and any previous version can be restored through version history. Documents export to markdown and sync two ways with the files in your repository.
 
 ## A note on wording
 

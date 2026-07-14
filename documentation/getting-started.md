@@ -9,7 +9,7 @@ This page covers signing in, the welcome document you land on the first time, an
 
 ## Signing in with Google
 
-Google is the only sign-in method. Click Sign In and authorize with your Google account. There is no password to set and no separate account to create. Your session is kept in secure cookies, so you stay signed in across visits until you sign out.
+Google is the only sign-in method. Click Sign In and authorize with your Google account. There is no password to set and no separate account to create. Your session is kept in secure cookies, so you stay signed in across visits.
 
 ## Your welcome document
 

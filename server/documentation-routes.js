@@ -62,8 +62,11 @@ function mountDocumentationRoutes(app, docsDistDir) {
 
   // A strict router so /documentation and /documentation/ are distinct and can
   // be handled differently (serve vs. permanent redirect), matching the route
-  // contract. The app's own routing settings are left untouched.
-  const router = express.Router({ strict: true });
+  // contract. Case-sensitive so /Documentation is not served here and falls
+  // through to the app shell, exactly as it does in dev (route contract: dev
+  // and prod must not diverge). The app's own routing settings are left
+  // untouched.
+  const router = express.Router({ strict: true, caseSensitive: true });
 
   // GET /documentation -> index.html
   router.get('/documentation', (req, res) => {

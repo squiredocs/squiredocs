@@ -29,7 +29,7 @@ Insert inline code for short snippets inside a line, or a code block for multi-l
 
 ## Links
 
-Add a link to selected text. When you export or import markdown, link targets are limited to safe protocols (`http`, `https`, `mailto`, and app-relative links); other targets keep their text but lose the link.
+Add a link to selected text. When markdown is imported, or an agent writes a link, link targets are limited to safe protocols (`http`, `https`, `mailto`, and app-relative links); other targets keep their text but lose the link.
 
 ## Other blocks
 

@@ -253,15 +253,16 @@
 
 /* Responsive (T024, FR-023, SC-007) --------------------------------------- */
 
-/* Wide viewports: the sidebar is always open and the toggle is hidden, so it
-   reads as a plain two-column layout. `display: block !important` overrides the
-   native closed-<details> hiding for the disclosure content. */
+/* Wide viewports: the toggle is hidden and the list shows, so it reads as a
+   plain two-column layout. The <details> is rendered with the `open` attribute
+   (author CSS cannot reveal a closed <details>); an inline script collapses it
+   on narrow viewports at load. */
 @media (min-width: 900px) {
   .documentation-nav-toggle {
     display: none;
   }
   .documentation-nav-list {
-    display: flex !important;
+    display: flex;
     border-top: none;
   }
 }
