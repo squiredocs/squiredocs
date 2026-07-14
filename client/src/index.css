@@ -86,17 +86,35 @@
   --accent-active: var(--violet-700);
   --accent-subtle: var(--violet-50);
   --on-accent: var(--white);
-  /* Feedback */
+  /* Feedback (subtle = tinted background for banners/pills) */
   --danger: var(--red-600);
+  --danger-hover: #b91c1c;
   --danger-subtle: #fef2f2;
+  --danger-border: #fecaca;
   --success: var(--green-600);
+  --success-subtle: #ecfdf5;
+  --success-border: #bbf7d0;
   --warning: var(--amber-700);
+  --warning-subtle: #fffbeb;
+  --warning-border: #fde68a;
   --info: var(--blue-600);
+  --info-subtle: #eff6ff;
+  --info-border: #bfdbfe;
   /* Elevation */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
   --backdrop: rgba(0, 0, 0, 0.40);
+  /* Canvas — the document "paper" surface (D5 overridden: canvas themes dark).
+     Only the background and DEFAULT (unset) text tokenize; author-set colors
+     are inline content styles and are never touched (D15). The media plate is
+     CONSTANT LIGHT in both themes for faithful Mermaid/SVG rendering (D16). */
+  --canvas-bg: var(--white);
+  --canvas-text: #333;
+  --canvas-text-muted: var(--gray-500);
+  --canvas-border: var(--gray-200);
+  --canvas-code-bg: var(--gray-50);
+  --canvas-media-plate: var(--white);
 }
 
 /* --- Dark realization: redefine the Tier-2 semantic layer wholesale --------- */
@@ -130,15 +148,31 @@
   --on-accent: #14171c;
   /* Feedback (lightened for AA on dark surfaces) */
   --danger: #f87171;
+  --danger-hover: #fca5a5;
   --danger-subtle: #3a1d1d;
+  --danger-border: #5b2a2a;
   --success: #4ade80;
+  --success-subtle: #16351f;
+  --success-border: #2a5a38;
   --warning: #fbbf24;
+  --warning-subtle: #3a2e12;
+  --warning-border: #5c4a1e;
   --info: #60a5fa;
+  --info-subtle: #16263a;
+  --info-border: #2a4463;
   /* Elevation (stronger shadows preserve separation on dark) */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
   --backdrop: rgba(0, 0, 0, 0.6);
+  /* Dark canvas — "paper" sits slightly above the chrome base so the document
+     reads as a distinct surface. --canvas-media-plate is deliberately NOT
+     redefined: it stays light (D16). Author-set colors remain untouched (D15). */
+  --canvas-bg: #17191d;
+  --canvas-text: #e6e8eb;
+  --canvas-text-muted: #aab1bb;
+  --canvas-border: #2f353f;
+  --canvas-code-bg: #0f1115;
 }
 
 /* System-before-hydration fallback: apply the dark palette when the OS prefers
@@ -171,14 +205,43 @@
     --accent-subtle: #2f2a45;
     --on-accent: #14171c;
     --danger: #f87171;
+    --danger-hover: #fca5a5;
     --danger-subtle: #3a1d1d;
+    --danger-border: #5b2a2a;
     --success: #4ade80;
+    --success-subtle: #16351f;
+    --success-border: #2a5a38;
     --warning: #fbbf24;
+    --warning-subtle: #3a2e12;
+    --warning-border: #5c4a1e;
     --info: #60a5fa;
+    --info-subtle: #16263a;
+    --info-border: #2a4463;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
     --backdrop: rgba(0, 0, 0, 0.6);
+    --canvas-bg: #17191d;
+    --canvas-text: #e6e8eb;
+    --canvas-text-muted: #aab1bb;
+    --canvas-border: #2f353f;
+    --canvas-code-bg: #0f1115;
+  }
+}
+
+/* Forced-light print (D17/FR-010): the canvas now themes dark, so print MUST
+   explicitly reset the canvas tokens to their light values — printed output is
+   then identical regardless of the active UI theme. Chrome is not printed. */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --canvas-bg: #ffffff;
+    --canvas-text: #333;
+    --canvas-text-muted: #6b7280;
+    --canvas-border: #e5e7eb;
+    --canvas-code-bg: #f9fafb;
+    --canvas-media-plate: #ffffff;
   }
 }
 

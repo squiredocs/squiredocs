@@ -4,17 +4,18 @@
  *
  * Scans every `src/**\/*.css` file for raw color literals (hex, rgb()/rgba(),
  * hsl()/hsla(), and CSS named colors used as color *values*) and fails if any
- * appear OUTSIDE the two legal zones:
+ * appear OUTSIDE the two legal zones (D5 OVERRIDDEN 2026-07-14 — the canvas now
+ * themes dark, so it is NO LONGER allowlisted):
  *
  *   1. The token-definition region of `src/index.css` (the `:root`,
  *      `:root[data-theme=...]`, and `@media (prefers-color-scheme: ...)` blocks
- *      where the semantic palette literals are *defined*).
- *   2. The canvas allowlist — document-content surfaces that intentionally stay
- *      light "paper" in both themes (D12): EditorCommon.css, the diagram/image
- *      node views, the document-content preview area of VersionPreview.css, and
- *      every `@media print` block (print is theme-independent, D7).
+ *      where the semantic palette literals — chrome AND canvas — are *defined*).
+ *   2. Every `@media print` block — forced-light print (D17), theme-independent.
  *
- * Contract: specs/006-dark-mode/contracts/color-tokens.md ("Canvas exclusion set").
+ * The constant-light media plate for Mermaid/SVG is a token *reference*
+ * (`var(--canvas-media-plate)`), not a literal, so it needs no allowlist entry.
+ *
+ * Contract: specs/006-dark-mode/contracts/color-tokens.md ("Sanctioned literal exceptions").
  *
  * Usage:
  *   node scripts/check-color-tokens.mjs      # CLI gate — exits 1 if violations
@@ -27,29 +28,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = path.resolve(__dirname, '../src');
 
-// --- Canvas allowlist (kept in sync with contracts/color-tokens.md) ----------
+// --- Sanctioned exceptions (kept in sync with contracts/color-tokens.md) ------
 
-// Files that are entirely canvas content and never tokenized (stay light).
-const CANVAS_FILES = new Set([
-  'EditorCommon.css',   // shared document-content canvas (.editor-common-content / .ProseMirror)
-  'DiagramNodeView.css', // rendered-diagram content on the light canvas
-  'ImageNodeView.css',   // image content on the light canvas
-]);
-
-// The single file where color literals are *legally defined* (the token registry).
+// The single file where color literals are *legally defined* (the token
+// registry — chrome AND canvas tokens, plus the forced-light print reset).
 const TOKEN_DEF_FILE = 'index.css';
-
-// VersionPreview.css: only the document-content preview area (the light "paper"
-// and its inline diff marks) is canvas; the surrounding chrome IS tokenized.
-// A block is canvas iff every comma-separated selector part targets the content
-// area: `.version-preview`, `.version-preview ins`, `.version-preview del`
-// (NOT the `.version-preview-*` chrome classes such as -loading/-authors/-notice).
-const VERSION_PREVIEW_FILE = 'VersionPreview.css';
-function isVersionPreviewCanvasSelector(header) {
-  const parts = header.split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length === 0) return false;
-  return parts.every((sel) => /^\.version-preview(\s|$|:|\[|>)/.test(sel));
-}
 
 // --- Color literal detection -------------------------------------------------
 
@@ -106,7 +89,6 @@ function stripComments(css) {
  */
 export function scanCss(css, relPath) {
   const base = path.basename(relPath);
-  if (CANVAS_FILES.has(base)) return []; // whole file is canvas
 
   const violations = [];
   const clean = stripComments(css);
@@ -119,14 +101,10 @@ export function scanCss(css, relPath) {
   const inPrint = () => stack.some((h) => /@media[^{]*\bprint\b/i.test(h));
 
   const isAllowed = () => {
-    if (inPrint()) return true; // print is theme-independent (D7)
+    if (inPrint()) return true; // forced-light print (D17), theme-independent
     if (base === TOKEN_DEF_FILE) {
       // literals are legal inside the token-definition selectors
       return stack.some((h) => /:root|\[data-theme|prefers-color-scheme/i.test(h));
-    }
-    if (base === VERSION_PREVIEW_FILE) {
-      const header = stack[stack.length - 1] || '';
-      return isVersionPreviewCanvasSelector(header);
     }
     return false;
   };
