@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #fff;
+  background: var(--canvas-bg);
 }
 
 /* Loading state */
@@ -13,7 +13,7 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-size: var(--text-md);
 }
 
@@ -22,16 +22,16 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-size: var(--text-md);
 }
 
 .version-preview-authors {
   padding: 12px 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-subtle);
   font-size: var(--text-base);
-  color: #6b7280;
-  background: #f8f9fa;
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
 }
 
 .version-preview-authors-label {
@@ -45,23 +45,23 @@
 /* Notice for when text is identical (sync-only updates) */
 .version-preview-notice {
   padding: 8px 16px;
-  background: #f0f4f8;
-  border-bottom: 1px solid #e5e7eb;
-  color: #6b7280;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   font-size: var(--text-base);
   text-align: center;
 }
 
 /* Diff marks (diffInsert / diffDelete) rendered as <ins> / <del> */
 .version-preview ins {
-  background-color: rgba(46, 160, 67, 0.3);
+  background-color: var(--canvas-diff-add-bg);
   border-radius: 2px;
   text-decoration: none;
 }
 
 .version-preview del {
   text-decoration: line-through;
-  background-color: rgba(215, 58, 73, 0.15);
+  background-color: var(--canvas-diff-del-bg);
   border-radius: 2px;
 }
 

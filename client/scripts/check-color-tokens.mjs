@@ -60,7 +60,11 @@ const FUNC_RE = /\b(?:rgba?|hsla?)\s*\(/gi;
  * Find every color literal in a declaration *value* (the text after the first
  * colon). Returns an array of matched literal strings.
  */
-function literalsInValue(value) {
+function literalsInValue(rawValue) {
+  // Strip `var(--token)` references first — a token NAME may contain a
+  // color word (e.g. var(--gray-600), var(--white), var(--violet-600)) or look
+  // hex-ish; those are legal token references, not literals.
+  const value = rawValue.replace(/var\(\s*--[a-zA-Z0-9-]+\s*(?:,[^)]*)?\)/g, ' ');
   const found = [];
   let m;
   HEX_RE.lastIndex = 0;

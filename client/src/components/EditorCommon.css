@@ -11,7 +11,7 @@
 
 /* Content wrapper with horizontal padding */
 .editor-common-content {
-  background-color: #ffffff;
+  background-color: var(--canvas-bg);
   padding: 0;
   flex: 1;
   display: flex;
@@ -25,10 +25,10 @@
   width: 100%;
   margin: 0 auto;
   padding: 32px 96px;
-  background-color: #ffffff;
+  background-color: var(--canvas-bg);
   font-size: var(--text-lg);
   line-height: var(--leading-tight);
-  color: #333;
+  color: var(--canvas-text);
   box-sizing: border-box;
   flex: 1;
 }
@@ -94,7 +94,7 @@
 
 /* Inline code */
 .editor-common-content .ProseMirror code {
-  background-color: #f4f4f4;
+  background-color: var(--canvas-code-bg);
   padding: 2px 6px;
   border-radius: 3px;
   font-family: var(--font-mono);
@@ -103,7 +103,7 @@
 
 /* Code blocks */
 .editor-common-content .ProseMirror pre {
-  background-color: #f4f4f4;
+  background-color: var(--canvas-code-bg);
   padding: 12px;
   border-radius: 4px;
   overflow-x: auto;
@@ -134,17 +134,17 @@
 
 /* Links */
 .editor-common-content .ProseMirror a {
-  color: #2563eb;
+  color: var(--canvas-link);
   text-decoration: underline;
   cursor: pointer;
 }
 
 /* Blockquote */
 .editor-common-content .ProseMirror blockquote {
-  border-left: 4px solid #ddd;
+  border-left: 4px solid var(--canvas-border);
   margin: 16px 0;
   padding-left: 16px;
-  color: #6b7280;
+  color: var(--canvas-text-muted);
   font-style: italic;
 }
 
@@ -171,7 +171,7 @@
 .editor-common-content .ProseMirror td,
 .editor-common-content .ProseMirror th {
   min-width: 1em;
-  border: 1px solid #ddd;
+  border: 1px solid var(--canvas-border);
   padding: 8px;
   vertical-align: top;
   box-sizing: border-box;
@@ -181,7 +181,7 @@
 .editor-common-content .ProseMirror th {
   font-weight: var(--font-bold);
   text-align: left;
-  background-color: #f5f5f5;
+  background-color: var(--canvas-th-bg);
 }
 
 .editor-common-content .ProseMirror .selectedCell:after {
@@ -192,7 +192,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  background: rgba(74, 144, 226, 0.2);
+  background: var(--canvas-selection-bg);
   pointer-events: none;
 }
 
