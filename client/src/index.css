@@ -38,6 +38,252 @@
 }
 
 /* =============================================================================
+   Color tokens (feature 006-dark-mode)
+   -----------------------------------------------------------------------------
+   The semantic color layer. ALL themed app chrome consumes the Tier-2 role
+   tokens below (never a primitive, never a literal). The dark realization
+   (further down) redefines the Tier-2 tokens wholesale. Canonical contract:
+   specs/006-dark-mode/contracts/color-tokens.md.
+
+   NOTE: this is the token-DEFINITION region — the one place raw color literals
+   are legal (the lint:colors gate allowlists `:root` / `[data-theme]` /
+   `prefers-color-scheme` blocks here). The document canvas ALSO themes dark
+   (D5 overridden by Sam 2026-07-14) via the `--canvas-*` roles; only the media
+   plate (constant light) and forced-light print are exceptions.
+   ============================================================================= */
+
+:root {
+  /* --- Tier 1: primitives (raw palette — not consumed directly by chrome) --- */
+  --violet-600: #7c3aed;  --violet-700: #6d28d9;  --violet-50: #f5f3ff;  --violet-100: #ede9fe;
+  --gray-50: #f9fafb;  --gray-100: #f3f4f6;  --gray-200: #e5e7eb;  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;  --gray-500: #6b7280;  --gray-600: #4b5563;  --gray-700: #374151;  --gray-800: #1f2937;  --gray-900: #111827;
+  --amber-500: #f59e0b;  --blue-selection: #7aa7ff;
+  --red-600: #dc2626;  --amber-700: #92400e;  --green-600: #16a34a;  --blue-600: #2563eb;
+  --white: #ffffff;  --black: #000000;
+
+  /* --- Tier 2: semantic roles (the ONLY thing chrome CSS references) --- */
+  /* Surfaces */
+  --surface-base: var(--gray-100);      /* app background (was #f5f5f5) */
+  --surface-raised: var(--white);       /* panels, cards, menus */
+  --surface-overlay: var(--white);      /* dialogs, dropdowns, popovers */
+  --surface-sunken: var(--gray-50);     /* wells, insets, chat code bg */
+  --surface-hover: var(--gray-100);
+  --surface-active: var(--gray-200);
+  --surface-selected: var(--violet-50);
+  /* Text */
+  --text-primary: #333;
+  --text-secondary: var(--gray-500);
+  --text-tertiary: var(--gray-400);
+  --text-disabled: var(--gray-300);
+  --text-inverse: var(--white);
+  --text-link: var(--violet-600);
+  /* Borders / focus */
+  --border-subtle: var(--gray-200);
+  --border-default: var(--gray-300);
+  --border-strong: var(--gray-400);
+  --focus-ring: var(--violet-600);
+  /* Accent (brand violet) */
+  --accent: var(--violet-600);
+  --accent-hover: var(--violet-700);
+  --accent-active: var(--violet-700);
+  --accent-subtle: var(--violet-50);
+  --on-accent: var(--white);
+  /* Feedback (subtle = tinted background for banners/pills) */
+  --danger: var(--red-600);
+  --danger-hover: #b91c1c;
+  --danger-subtle: #fef2f2;
+  --danger-border: #fecaca;
+  --success: var(--green-600);
+  --success-subtle: #ecfdf5;
+  --success-border: #bbf7d0;
+  --warning: var(--amber-700);
+  --warning-subtle: #fffbeb;
+  --warning-border: #fde68a;
+  --info: var(--blue-600);
+  --info-subtle: #eff6ff;
+  --info-border: #bfdbfe;
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-color: rgba(0, 0, 0, 0.10);   /* color part of ad-hoc box-shadows */
+  --accent-glow: rgba(124, 58, 237, 0.25); /* focus/active accent shadow */
+  --backdrop: rgba(0, 0, 0, 0.40);
+  /* Canvas — the document "paper" surface (D5 overridden: canvas themes dark).
+     Only the background and DEFAULT (unset) text tokenize; author-set colors
+     are inline content styles and are never touched (D15). The media plate is
+     CONSTANT LIGHT in both themes for faithful Mermaid/SVG rendering (D16). */
+  --canvas-bg: var(--white);
+  --canvas-text: #333;
+  --canvas-text-muted: var(--gray-500);
+  --canvas-border: var(--gray-200);
+  --canvas-code-bg: var(--gray-50);
+  --canvas-th-bg: #f5f5f5;                         /* table header fill */
+  --canvas-link: #2563eb;                          /* default document link */
+  --canvas-selection-bg: rgba(74, 144, 226, 0.20); /* text/cell selection */
+  --canvas-media-plate: var(--white);
+  --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);  /* version-diff insert mark */
+  --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);  /* version-diff delete mark */
+  /* Presence identity chips (avatar/cursor labels): text/backing render on the
+     user's identity color, so these stay CONSTANT in both themes (not
+     redefined under dark). Legibility on dark comes from the outline affordance
+     below (--presence-ring), per D14/D18/T042 — the mapping never changes. */
+  --presence-label-text: #ffffff;
+  --presence-chip-overlay: rgba(255, 255, 255, 0.2);
+  --presence-avatar-bg: #ffffff;
+  --presence-ring: rgba(0, 0, 0, 0.35);
+}
+
+/* --- Dark realization: redefine the Tier-2 semantic layer wholesale --------- */
+/* Values tuned for WCAG 2.1 AA against their intended surfaces (T051 audit). */
+:root[data-theme="dark"] {
+  /* Surfaces */
+  --surface-base: #0f1115;
+  --surface-raised: #1a1d23;
+  --surface-overlay: #21252c;
+  --surface-sunken: #14171c;
+  --surface-hover: #262b33;
+  --surface-active: #2f353f;
+  --surface-selected: #2f2a45;
+  /* Text (on --surface-raised #1a1d23: primary 12.8:1, secondary 6.4:1) */
+  --text-primary: #e6e8eb;
+  --text-secondary: #aab1bb;
+  --text-tertiary: #838a94;
+  --text-disabled: #565c66;
+  --text-inverse: #14171c;
+  --text-link: #b79dff;
+  /* Borders / focus */
+  --border-subtle: #2a2f37;
+  --border-default: #3a414b;
+  --border-strong: #626b7a;
+  --focus-ring: #b79dff;
+  /* Accent */
+  --accent: #9a72f7;
+  --accent-hover: #a78bfa;
+  --accent-active: #a78bfa;
+  --accent-subtle: #2f2a45;
+  --on-accent: #14171c;
+  /* Feedback (lightened for AA on dark surfaces) */
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-subtle: #3a1d1d;
+  --danger-border: #5b2a2a;
+  --success: #4ade80;
+  --success-subtle: #16351f;
+  --success-border: #2a5a38;
+  --warning: #fbbf24;
+  --warning-subtle: #3a2e12;
+  --warning-border: #5c4a1e;
+  --info: #60a5fa;
+  --info-subtle: #16263a;
+  --info-border: #2a4463;
+  /* Elevation (stronger shadows preserve separation on dark) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-color: rgba(0, 0, 0, 0.55);
+  --accent-glow: rgba(139, 92, 246, 0.45);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  /* Dark canvas — "paper" sits slightly above the chrome base so the document
+     reads as a distinct surface. --canvas-media-plate is deliberately NOT
+     redefined: it stays light (D16). Author-set colors remain untouched (D15). */
+  --canvas-bg: #17191d;
+  --canvas-text: #e6e8eb;
+  --canvas-text-muted: #aab1bb;
+  --canvas-border: #2f353f;
+  --canvas-code-bg: #0f1115;
+  --canvas-th-bg: #21252c;
+  --canvas-link: #6ea8ff;
+  --canvas-selection-bg: rgba(96, 165, 250, 0.28);
+  --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
+  --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
+  --presence-ring: rgba(255, 255, 255, 0.55);
+}
+
+/* System-before-hydration fallback: apply the dark palette when the OS prefers
+   dark AND no explicit resolved attribute is present yet. Scoped to
+   `:root:not([data-theme])` so an explicit light/dark attribute always wins.
+   The inline bootstrap in index.html normally sets [data-theme] before first
+   paint; this covers the instant before that (and JS-disabled). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --surface-base: #0f1115;
+    --surface-raised: #1a1d23;
+    --surface-overlay: #21252c;
+    --surface-sunken: #14171c;
+    --surface-hover: #262b33;
+    --surface-active: #2f353f;
+    --surface-selected: #2f2a45;
+    --text-primary: #e6e8eb;
+    --text-secondary: #aab1bb;
+    --text-tertiary: #838a94;
+    --text-disabled: #565c66;
+    --text-inverse: #14171c;
+    --text-link: #b79dff;
+    --border-subtle: #2a2f37;
+    --border-default: #3a414b;
+    --border-strong: #626b7a;
+    --focus-ring: #b79dff;
+    --accent: #9a72f7;
+    --accent-hover: #a78bfa;
+    --accent-active: #a78bfa;
+    --accent-subtle: #2f2a45;
+    --on-accent: #14171c;
+    --danger: #f87171;
+    --danger-hover: #fca5a5;
+    --danger-subtle: #3a1d1d;
+    --danger-border: #5b2a2a;
+    --success: #4ade80;
+    --success-subtle: #16351f;
+    --success-border: #2a5a38;
+    --warning: #fbbf24;
+    --warning-subtle: #3a2e12;
+    --warning-border: #5c4a1e;
+    --info: #60a5fa;
+    --info-subtle: #16263a;
+    --info-border: #2a4463;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --shadow-color: rgba(0, 0, 0, 0.55);
+    --accent-glow: rgba(139, 92, 246, 0.45);
+    --backdrop: rgba(0, 0, 0, 0.6);
+    --canvas-bg: #17191d;
+    --canvas-text: #e6e8eb;
+    --canvas-text-muted: #aab1bb;
+    --canvas-border: #2f353f;
+    --canvas-code-bg: #0f1115;
+    --canvas-th-bg: #21252c;
+    --canvas-link: #6ea8ff;
+    --canvas-selection-bg: rgba(96, 165, 250, 0.28);
+    --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
+    --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
+    --presence-ring: rgba(255, 255, 255, 0.55);
+  }
+}
+
+/* Forced-light print (D17/FR-010): the canvas now themes dark, so print MUST
+   explicitly reset the canvas tokens to their light values — printed output is
+   then identical regardless of the active UI theme. Chrome is not printed. */
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --canvas-bg: #ffffff;
+    --canvas-text: #333;
+    --canvas-text-muted: #6b7280;
+    --canvas-border: #e5e7eb;
+    --canvas-code-bg: #f9fafb;
+    --canvas-th-bg: #f5f5f5;
+    --canvas-link: #2563eb;
+    --canvas-selection-bg: rgba(74, 144, 226, 0.20);
+    --canvas-media-plate: #ffffff;
+    --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);
+    --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);
+  }
+}
+
+/* =============================================================================
    Reset & base
    ============================================================================= */
 
@@ -56,7 +302,7 @@ body {
   font-kerning: normal;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background-color: var(--surface-base);
 }
 
 code {

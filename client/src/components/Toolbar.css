@@ -2,8 +2,8 @@
   display: flex;
   gap: 8px;
   padding: 12px 24px;
-  background-color: #f9f9f9;
-  border-bottom: 1px solid #e5e7eb;
+  background-color: var(--surface-base);
+  border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
 }
 
@@ -11,7 +11,7 @@
   display: flex;
   gap: 4px;
   padding-right: 8px;
-  border-right: 1px solid #ddd;
+  border-right: 1px solid var(--border-default);
 }
 
 .toolbar-group:last-child {
@@ -19,13 +19,13 @@
 }
 
 .toolbar-button {
-  background-color: #ffffff;
-  border: 1px solid #ddd;
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   padding: 6px 12px;
   cursor: pointer;
   font-size: var(--text-md);
-  color: #333;
+  color: var(--text-primary);
   transition: all 0.2s;
   min-width: 36px;
   display: flex;
@@ -34,24 +34,24 @@
 }
 
 .toolbar-button:hover {
-  background-color: #f0f0f0;
-  border-color: #bbb;
+  background-color: var(--surface-base);
+  border-color: var(--border-default);
 }
 
 .toolbar-button:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
 .toolbar-button.is-active {
-  background-color: #7c3aed;
-  color: #ffffff;
-  border-color: #7c3aed;
+  background-color: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
 }
 
 .toolbar-button.is-active:hover {
-  background-color: #6d28d9;
-  border-color: #6d28d9;
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .toolbar-button strong {

@@ -13,11 +13,11 @@
 }
 
 .user-profile-trigger:hover {
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .user-profile-trigger:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -38,9 +38,9 @@
   top: 100%;
   right: 0;
   margin-top: 8px;
-  background: white;
+  background: var(--surface-overlay);
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 40px var(--shadow-color);
   min-width: 200px;
   z-index: 1001;
   overflow: hidden;
@@ -48,24 +48,24 @@
 
 .user-menu-header {
   padding: 16px;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .user-menu-name {
   font-weight: var(--font-semibold);
-  color: #1f2937;
+  color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .user-menu-email {
   font-size: var(--text-base);
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .user-menu-divider {
   height: 1px;
-  background: #e5e7eb;
+  background: var(--border-subtle);
 }
 
 .user-menu-item {
@@ -76,12 +76,12 @@
   text-align: left;
   font-size: var(--text-md);
   cursor: pointer;
-  color: #374151;
+  color: var(--text-secondary);
   transition: background 0.15s ease;
 }
 
 .user-menu-item:hover {
-  background: #f9fafb;
+  background: var(--surface-hover);
 }
 
 /* Mobile responsive styles */

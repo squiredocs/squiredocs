@@ -1,9 +1,9 @@
 .diagram-node {
   position: relative;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--canvas-border);
   border-radius: 6px;
   margin: 16px 0;
-  background-color: #fafafa;
+  background-color: var(--canvas-code-bg);
   overflow: hidden;
 }
 
@@ -31,9 +31,9 @@
   align-items: center;
   justify-content: center;
   padding: 5px;
-  color: #6b7280;
-  background-color: #ffffff;
-  border: 1px solid #e5e7eb;
+  color: var(--text-secondary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--canvas-border);
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
@@ -45,13 +45,13 @@
   display: block;
 }
 .diagram-control-btn:hover {
-  color: #1f2937;
-  border-color: #d1d5db;
+  color: var(--text-primary);
+  border-color: var(--border-default);
 }
 /* Edit toggle turns purple while editing, matching the active block border. */
 .diagram-node.is-editing .diagram-edit-toggle {
-  color: #7c3aed;
-  border-color: #c4b5fd;
+  color: var(--accent);
+  border-color: var(--accent-hover);
 }
 
 /* Download button + its SVG/PNG menu. */
@@ -66,32 +66,32 @@
   flex-direction: column;
   min-width: 88px;
   padding: 4px;
-  background-color: #ffffff;
-  border: 1px solid #e5e7eb;
+  background-color: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px var(--shadow-color);
 }
 .diagram-download-menu button {
   padding: 6px 10px;
   text-align: left;
   font-size: var(--text-sm);
-  color: #1f2937;
+  color: var(--text-primary);
   background: none;
   border: none;
   border-radius: 4px;
   cursor: pointer;
 }
 .diagram-download-menu button:hover {
-  background-color: #f3f4f6;
+  background-color: var(--surface-hover);
 }
 
 .diagram-node.is-editing {
-  border-color: #7c3aed;
-  background-color: #ffffff;
+  border-color: var(--accent);
+  background-color: var(--surface-raised);
 }
 
 .diagram-node.is-error {
-  border-color: #f59e0b;
+  border-color: var(--amber-500);
 }
 
 /* When a range/Select-All selection covers the block, overlay the same kind of
@@ -99,13 +99,13 @@
  * static preview/source but below the controls (z-index:1), and is clipped to
  * the rounded border by the wrapper's overflow:hidden. */
 .diagram-node.is-selected {
-  border-color: #7aa7ff;
+  border-color: var(--blue-selection);
 }
 .diagram-node.is-selected::after {
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(122, 167, 255, 0.3);
+  background-color: var(--canvas-selection-bg);
   pointer-events: none;
 }
 
@@ -153,7 +153,7 @@
 }
 
 .diagram-loading {
-  color: #6b7280;
+  color: var(--canvas-text-muted);
   font-size: var(--text-base);
   font-style: italic;
 }
@@ -161,13 +161,13 @@
 .diagram-source {
   margin: 0;
   padding: 12px 16px;
-  background-color: #f5f5f5;
+  background-color: var(--canvas-code-bg);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--text-sm);
   line-height: 1.5;
-  color: #1f2937;
+  color: var(--canvas-text);
   white-space: pre-wrap;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--canvas-border);
   outline: none;
 }
 
@@ -180,10 +180,10 @@
   flex-direction: column;
   gap: 4px;
   padding: 10px 16px;
-  background-color: #fef3c7;
-  color: #92400e;
+  background-color: var(--warning-subtle);
+  color: var(--warning);
   font-size: var(--text-sm);
-  border-top: 1px solid #fde68a;
+  border-top: 1px solid var(--warning-border);
   cursor: text;
   user-select: none;
 }
@@ -214,16 +214,16 @@
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background-color: rgba(17, 24, 39, 0.82);
+  background-color: var(--backdrop);
   cursor: zoom-out;
 }
 
 .diagram-fullscreen-canvas {
   cursor: default;
-  background-color: #ffffff;
+  background-color: var(--canvas-media-plate);
   border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 20px 60px var(--shadow-color);
 }
 
 .diagram-fullscreen-canvas svg {
@@ -250,17 +250,17 @@
   align-items: center;
   justify-content: center;
   font-size: var(--text-lg);
-  color: #ffffff;
+  color: var(--white);
   /* Opaque background so dimmed content behind the backdrop can't bleed through
      and make the button look hidden. */
-  background-color: #374151;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  background-color: var(--gray-700);
+  border: 1px solid var(--presence-chip-overlay);
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px var(--shadow-color);
   cursor: pointer;
 }
 .diagram-fullscreen-close:hover {
-  background-color: #4b5563;
+  background-color: var(--gray-600);
 }
 
 @media print {

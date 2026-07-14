@@ -13,8 +13,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #7c3aed;
-  color: white;
+  background: var(--accent);
+  color: var(--on-accent);
   font-weight: var(--font-semibold);
   line-height: 1;
   text-transform: uppercase;

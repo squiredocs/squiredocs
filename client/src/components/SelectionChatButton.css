@@ -8,11 +8,11 @@
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  color: #4b5563;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  color: var(--text-secondary);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-subtle);
   border-radius: 999px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px var(--shadow-color);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
@@ -21,9 +21,9 @@
 }
 
 .selection-chat-btn:hover {
-  background: #f5f3ff;
-  border-color: #ddd6fe;
-  color: #6d28d9;
+  background: var(--surface-selected);
+  border-color: var(--accent-hover);
+  color: var(--text-link);
 }
 
 .selection-chat-btn:active {
@@ -33,7 +33,7 @@
 /* Small purple accent on the icon so the brand reads without the button shouting. */
 .selection-chat-btn svg {
   flex: 0 0 auto;
-  color: #7c3aed;
+  color: var(--accent);
 }
 
 /* Comfortable touch target on mobile. */
@@ -60,23 +60,23 @@
   padding: 11px 20px;
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
-  background: #7c3aed;
-  border-color: #7c3aed;
-  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px var(--accent-glow);
   z-index: 2147483000; /* above the keyboard-accessory/callout layer */
   animation: selection-chat-btn-dock-in 130ms ease-out;
 }
 
 /* White icon on the filled pill so it reads against the purple. */
 .selection-chat-btn--docked svg {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .selection-chat-btn--docked:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
-  color: #fff;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--on-accent);
 }
 
 @keyframes selection-chat-btn-in {

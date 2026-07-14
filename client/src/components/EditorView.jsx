@@ -528,7 +528,10 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                         borderRadius: '50%',
                         marginLeft: i === 0 ? 0 : -8,
                         overflow: u.isAgent ? 'visible' : 'hidden',
-                        boxShadow: `0 0 0 2px ${u.color || '#7c3aed'}`,
+                        // Identity ring (u.color) plus an outer token ring so the
+                        // darkest Kelly colors stay distinguishable against dark
+                        // chrome without changing the identity mapping (D14/T042).
+                        boxShadow: `0 0 0 2px ${u.color || '#7c3aed'}, 0 0 0 3px var(--presence-ring)`,
                         zIndex: 5 - i,
                         position: 'relative',
                         flexShrink: 0,

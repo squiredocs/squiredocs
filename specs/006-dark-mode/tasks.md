@@ -19,15 +19,23 @@ carries the bulk of the work (the token migration). US2/US3 are additive.
 - **[Story]**: US1 / US2 / US3 (setup/foundational/polish carry no story label)
 - All paths are under `client/` unless noted.
 
-## Canvas allowlist (NOT migrated — stays light; D12)
+## Canvas tokenization + sanctioned exceptions (D5 OVERRIDDEN — canvas themes dark)
 
-These are intentionally excluded from the token migration and are the lint's
-allowlist: `src/components/EditorCommon.css`, the document-content preview area
-of `src/components/VersionPreview.css`, `src/components/DiagramNodeView.css`,
-`src/components/ImageNodeView.css`, all `@media print` blocks, and the
-token-definition region of `src/index.css`. Files with zero color literals
+Sam's 2026-07-14 override means the document canvas now **migrates to tokens**
+too: `src/components/EditorCommon.css`, `src/components/Editor.css`,
+`src/components/VersionPreview.css` (content area included),
+`src/components/DiagramNodeView.css`, and `src/components/ImageNodeView.css` are
+tokenized alongside chrome. The canvas background and **default (unset)** text
+come from the token layer (new `--canvas-*` roles).
+
+The **only** sanctioned literal exceptions the lint still allows are:
+(a) the constant light **media plate** for Mermaid/SVG (a token whose value is
+light in both realizations — D16), (b) **forced-light print** (an `@media print`
+token reset in `src/index.css` — D17), and (c) the token-definition region of
+`src/index.css`. Author-set colors are inline content styles, not CSS, so the
+migration never touches them (D15). Files with zero color literals
 (`LineHeightDropdown.css`, `DropdownWrapper.css`, `ChatFontSizeControl.css`)
-need no migration and pass the lint trivially.
+pass the lint trivially.
 
 ---
 
@@ -35,12 +43,12 @@ need no migration and pass the lint trivially.
 
 **Purpose**: Establish the token registry and the verification gate.
 
-- [ ] T001 [P] Create `client/scripts/check-color-tokens.mjs` (scan `src/**/*.css`
+- [X] T001 [P] Create `client/scripts/check-color-tokens.mjs` (scan `src/**/*.css`
   for raw color literals: `#hex`, `rgb()/rgba()`, `hsl()/hsla()`, CSS named
   colors used as color values) and add an npm script `lint:colors` in
   `client/package.json`. Wire the same assertion into a Vitest test
   (`src/__tests__/color-tokens.lint.test.js`). Allowlist encoding is T005.
-- [ ] T002 Define Tier-1 primitives + Tier-2 semantic **light** tokens in
+- [X] T002 Define Tier-1 primitives + Tier-2 semantic **light** tokens in
   `client/src/index.css` `:root` per `contracts/color-tokens.md`
   (`--surface-*`, `--text-*`, `--border-*`, `--accent-*`, feedback, `--shadow-*`,
   `--backdrop`, `--focus-ring`), co-located with the existing typography tokens.
@@ -54,31 +62,33 @@ state — everything every user story depends on.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 **GATE — Constitution VI**: Verify the theming design doc has been
+- [X] T003 **GATE — Constitution VI**: Verify the theming design doc has been
   authored in Squire and synced into `design/` (via `node design/sync.mjs`) and
   ratifies/overrides D1–D14. **Blocks all implementation** — do not proceed if
   absent (flagged in spec + `clarifications-needed.md`).
-- [ ] T004 Define the **dark** realization in `client/src/index.css`:
+- [X] T004 Define the **dark** realization in `client/src/index.css`:
   redefine the Tier-2 semantic tokens under `:root[data-theme="dark"]`, plus a
   scoped `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { … } }`
   fallback for the System-before-hydration case (per `contracts/color-tokens.md`).
-- [ ] T005 Encode the **canvas allowlist** (see header + `contracts/color-tokens.md`)
-  into `client/scripts/check-color-tokens.mjs` so literals inside canvas
-  selectors, `@media print`, and the `index.css` token block are permitted.
-- [ ] T006 Add the inline **pre-paint theme bootstrap** to
+- [X] T005 Encode the **sanctioned exceptions** (see header + `contracts/color-tokens.md`)
+  into `client/scripts/check-color-tokens.mjs`: literals are permitted ONLY in
+  `@media print` blocks (forced-light print) and the `index.css` token-definition
+  region. The canvas is NO LONGER allowlisted (D5 overridden — it tokenizes); the
+  media plate is a token reference, not a literal.
+- [X] T006 Add the inline **pre-paint theme bootstrap** to
   `client/index.html` `<head>` (before `/src/main.jsx`): read
   `localStorage['squire-theme']`, resolve System via `matchMedia`, set
   `document.documentElement.dataset.theme` to `light`/`dark`; wrap in try/catch
   so it can never block render (FR-005, D11, `contracts/theme-control.md`).
-- [ ] T007 Create `client/src/contexts/ThemeContext.jsx`: tri-state `setting`
+- [X] T007 Create `client/src/contexts/ThemeContext.jsx`: tri-state `setting`
   state, `resolve(setting, osPrefersDark)`, `setSetting()` that persists to
   `localStorage['squire-theme']` and updates `data-theme`, defensive read
   (unknown → `system`), reconcile-on-mount without causing a flash. (Live
   OS-follow subscription is added in US2/T033.)
-- [ ] T008 Mount `<ThemeProvider>` in `client/src/App.jsx` (wrapping the provider
+- [X] T008 Mount `<ThemeProvider>` in `client/src/App.jsx` (wrapping the provider
   stack) so every screen has theme context; confirm `main.jsx` load order keeps
   the bootstrap authoritative for first paint.
-- [ ] T009 [P] Unit tests in `client/src/contexts/__tests__/ThemeContext.test.jsx`:
+- [X] T009 [P] Unit tests in `client/src/contexts/__tests__/ThemeContext.test.jsx`:
   `resolve()` truth table, persistence round-trip, defensive unknown→system read,
   attribute reconciliation (data-model transitions).
 
@@ -99,11 +109,11 @@ Light and confirm it reverts and persists.
 
 ### Control
 
-- [ ] T010 [US1] Create `client/src/components/ThemeControl.jsx` (three options
+- [X] T010 [US1] Create `client/src/components/ThemeControl.jsx` (three options
   Light/Dark/System, indicates active setting, keyboard-accessible, focus-visible
   via `--focus-ring`) and `client/src/components/ThemeControl.css` (token-based),
   consuming `ThemeContext` (`contracts/theme-control.md`).
-- [ ] T011 [US1] Render `ThemeControl` inside the profile menu in
+- [X] T011 [US1] Render `ThemeControl` inside the profile menu in
   `client/src/components/UserProfileBadge.jsx` (authenticated screens only).
 
 ### Token migration (per-file checklist — all [P], different files)
@@ -112,51 +122,54 @@ Light and confirm it reverts and persists.
 > `contracts/color-tokens.md`. Use `*-hover`/`*-active`/`--surface-selected`/
 > `--focus-ring` for interactive states. Do NOT touch canvas allowlist selectors.
 
-- [ ] T012 [P] [US1] Migrate `client/src/App.css` (~190 literals) to tokens.
-- [ ] T013 [P] [US1] Migrate `client/src/index.css` body `background-color`
+- [X] T012 [P] [US1] Migrate `client/src/App.css` (~190 literals) to tokens.
+- [X] T013 [P] [US1] Migrate `client/src/index.css` body `background-color`
   (`#f5f5f5` → `--surface-base`); leave the token-definition block literals.
-- [ ] T014 [P] [US1] Migrate `client/src/components/DocList.css`.
-- [ ] T015 [P] [US1] Migrate `client/src/components/DocSidePane.css`.
-- [ ] T016 [P] [US1] Migrate `client/src/components/UserProfileBadge.css`.
-- [ ] T017 [P] [US1] Migrate `client/src/components/ConnectionStatus.css`.
-- [ ] T018 [P] [US1] Migrate `client/src/components/MobileActionBar.css`.
-- [ ] T019 [P] [US1] Migrate `client/src/components/Avatar.css`.
-- [ ] T020 [P] [US1] Migrate `client/src/components/EditorView.css` (editor
+- [X] T014 [P] [US1] Migrate `client/src/components/DocList.css`.
+- [X] T015 [P] [US1] Migrate `client/src/components/DocSidePane.css`.
+- [X] T016 [P] [US1] Migrate `client/src/components/UserProfileBadge.css`.
+- [X] T017 [P] [US1] Migrate `client/src/components/ConnectionStatus.css`.
+- [X] T018 [P] [US1] Migrate `client/src/components/MobileActionBar.css`.
+- [X] T019 [P] [US1] Migrate `client/src/components/Avatar.css`.
+- [X] T020 [P] [US1] Migrate `client/src/components/EditorView.css` (editor
   chrome; canvas content is EditorCommon.css, not here).
-- [ ] T021 [P] [US1] Migrate `client/src/components/Toolbar.css`.
-- [ ] T022 [P] [US1] Migrate `client/src/components/Editor.css`.
-- [ ] T023 [P] [US1] Migrate `client/src/components/MenuCommon.css`.
-- [ ] T024 [P] [US1] Migrate `client/src/components/FontSizeControl.css`.
-- [ ] T025 [P] [US1] Migrate `client/src/components/FontFamilyDropdown.css`.
-- [ ] T026 [P] [US1] Migrate `client/src/components/ColorPicker.css` fully to
+- [X] T021 [P] [US1] Migrate `client/src/components/Toolbar.css`.
+- [X] T022 [P] [US1] Migrate `client/src/components/Editor.css`.
+- [X] T023 [P] [US1] Migrate `client/src/components/MenuCommon.css`.
+- [X] T024 [P] [US1] Migrate `client/src/components/FontSizeControl.css`.
+- [X] T025 [P] [US1] Migrate `client/src/components/FontFamilyDropdown.css`.
+- [X] T026 [P] [US1] Migrate `client/src/components/ColorPicker.css` fully to
   tokens. (The selectable swatch palette is a JS array of inline styles in
   `ColorPicker.jsx`, not in this CSS, so every literal here is picker chrome.)
-- [ ] T027 [P] [US1] Migrate `client/src/components/TableMenu.css`.
-- [ ] T028 [P] [US1] Migrate `client/src/components/TableContextMenu.css`.
-- [ ] T029 [P] [US1] Migrate `client/src/components/SelectionChatButton.css`.
-- [ ] T030 [P] [US1] Migrate `client/src/components/LinkPreview.css`.
-- [ ] T031 [P] [US1] Migrate `client/src/components/AiPanel.css` (~111 literals).
-- [ ] T032 [P] [US1] Migrate `client/src/components/AiChatBody.css`.
-- [ ] T033 [P] [US1] Migrate `client/src/components/AiChatHistory.css`.
-- [ ] T034 [P] [US1] Migrate `client/src/pages/ChatPage.css`.
-- [ ] T035 [P] [US1] Migrate `client/src/components/VersionHistoryPanel.css`.
-- [ ] T036 [P] [US1] Migrate `client/src/components/HierarchicalVersionList.css`.
-- [ ] T037 [P] [US1] Migrate `client/src/components/VersionPreview.css` **chrome
-  only** — leave the document-content preview area literals (canvas allowlist).
-- [ ] T038 [P] [US1] Migrate `client/src/components/ShareDialog.css`.
-- [ ] T039 [P] [US1] Migrate `client/src/pages/AdminPage.css` (~63 literals).
-- [ ] T040 [P] [US1] Migrate `client/src/components/LoginPage.css`.
-- [ ] T041 [P] [US1] Migrate `client/src/pages/LegalPage.css`.
+- [X] T027 [P] [US1] Migrate `client/src/components/TableMenu.css`.
+- [X] T028 [P] [US1] Migrate `client/src/components/TableContextMenu.css`.
+- [X] T029 [P] [US1] Migrate `client/src/components/SelectionChatButton.css`.
+- [X] T030 [P] [US1] Migrate `client/src/components/LinkPreview.css`.
+- [X] T031 [P] [US1] Migrate `client/src/components/AiPanel.css` (~111 literals).
+- [X] T032 [P] [US1] Migrate `client/src/components/AiChatBody.css`.
+- [X] T033 [P] [US1] Migrate `client/src/components/AiChatHistory.css`.
+- [X] T034 [P] [US1] Migrate `client/src/pages/ChatPage.css`.
+- [X] T035 [P] [US1] Migrate `client/src/components/VersionHistoryPanel.css`.
+- [X] T036 [P] [US1] Migrate `client/src/components/HierarchicalVersionList.css`.
+- [X] T037 [P] [US1] Migrate `client/src/components/VersionPreview.css` **fully**
+  — chrome AND the document-content preview area (canvas now themes dark; use
+  `--canvas-*` tokens for the content surface, diff marks keep author intent).
+- [X] T038 [P] [US1] Migrate `client/src/components/ShareDialog.css`.
+- [X] T039 [P] [US1] Migrate `client/src/pages/AdminPage.css` (~63 literals).
+- [X] T040 [P] [US1] Migrate `client/src/components/LoginPage.css`.
+- [X] T041 [P] [US1] Migrate `client/src/pages/LegalPage.css`.
 
 ### Presence legibility & verification
 
-- [ ] T042 [US1] Presence identity legibility on dark (D14/FR-012): add
+- [X] T042 [US1] Presence identity legibility on dark (D14/FR-012): add
   token-based outline/backplate to avatar borders and presence labels in chrome
   CSS so the darkest Kelly colors stay distinguishable on dark surfaces. **Do NOT
   modify `client/src/utils/colorUtils.js`** or the user→color mapping.
-- [ ] T043 [US1] Run `npm run lint:colors`; drive remaining literals to **0**
-  outside the allowlist (depends on all migration tasks T012–T041).
-- [ ] T044 [US1] Unit test in `client/src/components/__tests__/ThemeControl.test.jsx`:
+- [X] T043 [US1] Run `npm run lint:colors`; drive remaining literals to **0**
+  outside the allowlist (depends on all migration tasks T012–T041 **and the
+  canvas tokenization T048**). Then remove `.skip` from the Vitest completeness
+  assertion (`src/__tests__/color-tokens.lint.test.js`, O1 join gate).
+- [X] T044 [US1] Unit test in `client/src/components/__tests__/ThemeControl.test.jsx`:
   selecting Dark/Light updates `data-theme` with no reload and persists; control
   reflects the active setting.
 
@@ -174,14 +187,14 @@ live; an explicit Light/Dark choice ignores the OS; choosing System resumes.
 the app follow live; make an explicit choice and confirm it stops following;
 choose System and confirm it resumes.
 
-- [ ] T045 [US2] In `client/src/contexts/ThemeContext.jsx`, subscribe to
+- [X] T045 [US2] In `client/src/contexts/ThemeContext.jsx`, subscribe to
   `matchMedia('(prefers-color-scheme: dark)')` `change` and re-resolve live
   **only while `setting === 'system'`**; detach on explicit choice/unmount
   (FR-003, Story 2, `contracts/theme-control.md`).
-- [ ] T046 [US2] Verify unauthenticated routes (login, legal) resolve System at
+- [X] T046 [US2] Verify unauthenticated routes (login, legal) resolve System at
   pre-paint via the bootstrap and render **no** control (D2); confirm no
   wrong-theme flash on those routes.
-- [ ] T047 [US2] Unit tests in `client/src/contexts/__tests__/ThemeContext.system.test.jsx`:
+- [X] T047 [US2] Unit tests in `client/src/contexts/__tests__/ThemeContext.system.test.jsx`:
   live OS change under System restyles; explicit Light ignores OS change;
   switching back to System resumes following.
 
@@ -191,27 +204,38 @@ choose System and confirm it resumes.
 
 ## Phase 5: User Story 3 - Documents stay faithful in dark (Priority: P3)
 
-**Goal**: In dark mode the document canvas stays light "paper" with author colors
-and embedded content untouched; print is theme-independent; theming never writes
-to documents.
+**Goal**: In dark mode the document canvas **themes dark** (token-driven
+background + default text); author-set colors and rendered media (diagram/SVG on
+a light plate, images unplated) are untouched; print is forced light; theming
+never writes to documents.
 
 **Independent Test**: In dark mode open a doc with author colors, a diagram, an
-SVG, an image, and a code block; confirm canvas + content render identically to
-light; print-preview identical; version history shows no theming entries.
+SVG, an image, and a code block; confirm the canvas + default text are dark while
+author-set colors and rendered media render identically to light; print-preview
+is light; version history shows no theming entries.
 
-- [ ] T048 [US3] Confirm the canvas allowlist selectors are untouched by the
-  migration and add code comments marking the canvas boundary in
-  `client/src/components/EditorCommon.css` and the content area of
-  `client/src/components/VersionPreview.css` (also `DiagramNodeView.css`,
-  `ImageNodeView.css`). Assert via the lint that no `data-theme` override reaches
-  them.
-- [ ] T049 [US3] Verify print is theme-independent: ensure no `@media print`
-  block references theme tokens and printed output is identical from both themes
-  (FR-010/D7); document the print-preview check in quickstart.
-- [ ] T050 [US3] Test (FR-014/SC-006): assert theme switching performs **no**
+- [X] T048 [US3] **Canvas tokenization** (D5 overridden): add `--canvas-bg`,
+  `--canvas-text` (default doc text), and a constant-light `--canvas-media-plate`
+  to the token registry in `client/src/index.css` (light + dark realizations;
+  plate light in both), then migrate `client/src/components/EditorCommon.css`,
+  `client/src/components/Editor.css` (canvas parts), the content area of
+  `client/src/components/VersionPreview.css`, `client/src/components/DiagramNodeView.css`
+  and `client/src/components/ImageNodeView.css` to those tokens. Diagram/SVG
+  containers use `--canvas-media-plate` (D16); images stay unplated; author-set
+  inline colors are never touched (D15).
+- [X] T049 [US3] **Forced-light print** (D17): add an `@media print` reset in
+  `client/src/index.css` that re-declares the `--canvas-*` tokens to their light
+  values so printed output is identical from both themes (FR-010); document the
+  print-preview check in quickstart.
+- [X] T050 [US3] Test (FR-014/SC-006): assert theme switching performs **no**
   document/version/collaboration write — e.g. a test that toggles the theme and
   verifies no Yjs mutation / no version entry is produced
   (`client/src/__tests__/theme-no-write.test.jsx`).
+- [X] T055 [US3] Canvas-theme regression test (flipped U2 + D15): the canvas
+  root (`.editor-common-content`) computes a **dark** background under
+  `data-theme="dark"` (via the `--canvas-bg` token), AND an author-set inline
+  color (`<span style="color:#xxx">`) is left byte-for-byte untouched in the
+  rendered DOM under both themes (`client/src/__tests__/canvas-theme.test.jsx`).
 
 **Checkpoint**: All three stories independently functional.
 
@@ -219,16 +243,21 @@ light; print-preview identical; version history shows no theming entries.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] Accessibility contrast audit of dark chrome (axe/Lighthouse +
-  manual state checks); tune dark token values in `client/src/index.css` until
-  text ≥ 4.5:1 and large text/meaningful UI states (focus, hover, selection,
-  disabled, scrollbars) ≥ 3:1 (FR-011, SC-004).
-- [ ] T052 Full visual sweep of all 35+ styled surfaces in dark mode for
-  light-remnant chrome and boundary-seam correctness (SC-003, edge cases).
-- [ ] T053 Update `README.md` to document the appearance setting
-  (Light/Dark/System, device-local) in the implementing commit (Constitution
-  Principle I). *(Implementer edits README; not edited during planning.)*
-- [ ] T054 Run `quickstart.md` end-to-end: `npm run build`, `npm test`,
+- [X] T051 [P] Accessibility contrast audit of dark chrome **and the dark
+  canvas default styling** (text ≥ 4.5:1; large text/meaningful UI states —
+  focus, hover, selection, disabled, scrollbars — ≥ 3:1); tune dark token values
+  in `client/src/index.css` as needed (FR-011, SC-004). Per U3, include an
+  explicit **collaborator identity-color legibility check** against dark chrome
+  AND the dark canvas (Dark Olive Green `#2B3D26` is the known suspect); record
+  results in the audit notes.
+- [~] T052 (MANUAL — owed to reviewer; see promotion-notes) Full visual sweep of all 35+ styled surfaces + the dark canvas in
+  dark mode for light-remnant surfaces, media-plate seams, and boundary
+  correctness (SC-003, edge cases).
+- [X] T053 README appearance-setting doc — **SKIP the README.md edit** (merge
+  queue reconciles docs). Write the intended README delta (now describing the
+  **dark canvas**, Light/Dark/System, device-local) into
+  `specs/006-dark-mode/promotion-notes.md` under "Merge-queue doc updates".
+- [X] T054 Run `quickstart.md` end-to-end: `npm run build`, `npm test`,
   `npm run lint:colors` (0 disallowed), and all three story validations.
 
 ---

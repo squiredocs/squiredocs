@@ -26,7 +26,7 @@
 .image-node.ProseMirror-selectednode img,
 .image-node.is-selected .image-node__placeholder,
 .image-node.ProseMirror-selectednode .image-node__placeholder {
-  outline: 2px solid #4a90e2;
+  outline: 2px solid var(--blue-selection);
   outline-offset: 2px;
 }
 
@@ -36,15 +36,15 @@
   justify-content: center;
   min-height: 80px;
   padding: 1rem;
-  color: #6b7280;
+  color: var(--canvas-text-muted);
   font-size: 0.875rem;
-  background: #f3f4f6;
-  border: 1px dashed #d1d5db;
+  background: var(--canvas-code-bg);
+  border: 1px dashed var(--canvas-border);
   border-radius: 4px;
 }
 
 .image-node__placeholder--error {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #b45309;
+  color: var(--warning);
+  background: var(--warning-subtle);
+  border-color: var(--warning-border);
 }

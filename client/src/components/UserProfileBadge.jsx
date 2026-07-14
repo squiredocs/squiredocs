@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Avatar from './Avatar';
+import ThemeControl from './ThemeControl';
 import './UserProfileBadge.css';
 
 /**
@@ -66,6 +67,8 @@ export default function UserProfileBadge({ user, onLogout, onNavigateToSettings,
             <button className="user-menu-item" onClick={onLogout}>
               Sign out
             </button>
+            <div className="user-menu-divider" />
+            <ThemeControl />
           </div>
         </>
       )}

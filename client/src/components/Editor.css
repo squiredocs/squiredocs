@@ -8,6 +8,9 @@
   pointer-events: none;
   position: relative;
   word-break: normal;
+  /* Halo so a dark identity caret stays visible on the dark canvas (D18/T042);
+     the caret border color is the user's identity color, set by the extension. */
+  box-shadow: 0 0 2px var(--presence-ring);
 }
 
 /* Collaboration selection highlight */
@@ -20,13 +23,13 @@
    selection appears to simply persist — no color shift when focus leaves.
    (Browsers grey out a blurred selection; this keeps it looking active.) */
 .editor-common-content .persisted-selection {
-  background-color: rgba(56, 132, 255, 0.3);
+  background-color: var(--canvas-selection-bg);
   pointer-events: none;
 }
 
 .editor-common-content .collaboration-cursor__label {
   border-radius: 3px 3px 3px 0;
-  color: #fff;
+  color: var(--presence-label-text);
   font-size: var(--text-sm);
   font-style: normal;
   font-weight: var(--font-semibold);
@@ -41,6 +44,8 @@
   transform: translateY(2px);
   transition: opacity 0.15s ease, transform 0.15s ease;
   pointer-events: none;
+  /* Ring so an identity-colored label separates from the dark canvas (D18/T042). */
+  box-shadow: 0 0 0 1px var(--presence-ring);
 }
 
 .editor-common-content .collaboration-cursor__label--visible {
@@ -71,7 +76,7 @@
   justify-content: center;
   font-size: var(--text-md);
   line-height: 1;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--presence-chip-overlay);
   border-radius: 50%;
 }
 
@@ -84,7 +89,7 @@
   border-radius: 50%;
   border: 1.5px solid currentColor;
   object-fit: cover;
-  background: white;
+  background: var(--presence-avatar-bg);
 }
 
 /* Loading state */
@@ -93,7 +98,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 /* Mobile-specific scroll padding (based on user agent, not screen size) */

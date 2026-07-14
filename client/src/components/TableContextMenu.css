@@ -1,8 +1,8 @@
 .table-context-menu {
   position: fixed;
-  background: white;
+  background: var(--surface-overlay);
   border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 12px var(--shadow-color), 0 0 1px var(--shadow-color);
   min-width: 200px;
   z-index: 1000;
   padding: 8px 0;
@@ -18,33 +18,33 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  color: #1f2937;
+  color: var(--text-primary);
   text-align: left;
   font-size: var(--text-md);
   transition: background-color 0.1s ease;
 }
 
 .table-context-menu-item:hover {
-  background-color: #f3f4f6;
+  background-color: var(--surface-hover);
 }
 
 .table-context-menu-item svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .table-context-menu-item.danger {
-  color: #d93025;
+  color: var(--danger);
 }
 
 .table-context-menu-item.danger svg {
-  color: #d93025;
+  color: var(--danger);
 }
 
 .table-context-menu-divider {
   height: 1px;
-  background: #e5e7eb;
+  background: var(--border-subtle);
   margin: 8px 0;
 }

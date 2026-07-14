@@ -7,7 +7,7 @@
 .font-size-input {
   width: 50px;
   padding: 4px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   text-align: center;
   font-size: var(--text-lg);
@@ -15,7 +15,7 @@
 
 .font-size-input:focus {
   outline: none;
-  border-color: #7c3aed;
+  border-color: var(--focus-ring);
 }
 
 /* Remove spinner arrows in Chrome, Safari, Edge, Opera */
@@ -34,8 +34,8 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  background: #f0f0f0;
-  border: 1px solid #ddd;
+  background: var(--surface-base);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   cursor: pointer;
   font-size: var(--text-lg);
@@ -46,9 +46,9 @@
 }
 
 .font-size-button:hover {
-  background: #e5e7eb;
+  background: var(--surface-active);
 }
 
 .font-size-button:active {
-  background: #d0d0d0;
+  background: var(--surface-active);
 }

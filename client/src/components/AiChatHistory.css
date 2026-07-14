@@ -17,10 +17,10 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #fff;
-  color: #7c3aed;
+  background: var(--surface-raised);
+  color: var(--accent);
   font-size: var(--text-md);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -29,8 +29,8 @@
 }
 
 .ai-chat-history-new:hover {
-  background: #f5f3ff;
-  border-color: #7c3aed;
+  background: var(--surface-selected);
+  border-color: var(--accent);
 }
 
 /* Search */
@@ -41,7 +41,7 @@
 .ai-chat-history-search-input {
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   font-size: var(--text-base);
   outline: none;
@@ -50,11 +50,11 @@
 }
 
 .ai-chat-history-search-input:focus {
-  border-color: #7c3aed;
+  border-color: var(--focus-ring);
 }
 
 .ai-chat-history-search-input::placeholder {
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 /* Chat list */
@@ -69,7 +69,7 @@
 
 .ai-chat-history-empty {
   text-align: center;
-  color: #9ca3af;
+  color: var(--text-tertiary);
   font-size: var(--text-base);
   padding: 24px 0;
   margin: 0;
@@ -87,12 +87,12 @@
 }
 
 .ai-chat-history-item:hover {
-  background: #f3f4f6;
+  background: var(--surface-hover);
 }
 
 .ai-chat-history-item--active {
-  background: #f5f3ff;
-  border-left: 2px solid #7c3aed;
+  background: var(--surface-selected);
+  border-left: 2px solid var(--accent);
   padding-left: 8px;
 }
 
@@ -106,7 +106,7 @@
 
 .ai-chat-history-item-title {
   font-size: var(--text-md);
-  color: #111827;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -114,7 +114,7 @@
 
 .ai-chat-history-item-time {
   font-size: var(--text-sm);
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 /* Action buttons (rename, delete) — hidden by default, shown on hover/focus/touch */
@@ -159,28 +159,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .ai-chat-history-action-btn:hover {
-  background: #e5e7eb;
-  color: #111827;
+  background: var(--surface-active);
+  color: var(--text-primary);
 }
 
 .ai-chat-history-action-btn:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
 .ai-chat-history-action-btn--danger {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .ai-chat-history-action-btn--danger:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--danger-subtle);
+  color: var(--danger);
 }
 
 /* Larger touch targets on touch devices */
@@ -196,7 +196,7 @@
   padding: 8px;
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-size: var(--text-base);
   cursor: pointer;
   text-align: center;
@@ -204,14 +204,14 @@
 }
 
 .ai-chat-history-load-more:hover {
-  color: #7c3aed;
+  color: var(--accent);
 }
 
 /* Inline rename input */
 .ai-chat-history-rename-input {
   flex: 1;
   padding: 4px 8px;
-  border: 1px solid #7c3aed;
+  border: 1px solid var(--accent);
   border-radius: 4px;
   font-size: var(--text-md);
   outline: none;

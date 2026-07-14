@@ -8,7 +8,7 @@
   grid-template-rows: auto 1fr;
   height: 100vh;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-raised);
 }
 
 .chat-page--with-doc {
@@ -33,7 +33,7 @@
   display: flex;
   gap: 4px;
   padding: 6px 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* ---------------------------------------------------------------------------
@@ -69,10 +69,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(124, 58, 237, 0.08);
-  border: 2px dashed #7c3aed;
+  background: var(--accent-subtle);
+  border: 2px dashed var(--accent);
   border-radius: 8px;
-  color: #7c3aed;
+  color: var(--accent);
   font-size: var(--text-lg);
   font-weight: var(--font-medium);
   pointer-events: none;
