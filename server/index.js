@@ -40,6 +40,7 @@ const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
+const { createTokenClaimRouter } = require('./api/token-claim');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
@@ -1124,6 +1125,11 @@ app.use(createExportRouter(persistenceProvider));
 // API: Import markdown — POST /api/docs/import (create) and
 // PUT /api/docs/:docId/import (append|replace) — see api/docs-import.js
 app.use(createImportRouter(persistenceProvider));
+
+// API: One-shot claim for create_access_token mints — GET /api/tokens/claim.
+// Authenticated by the claim secret (Bearer header), not requireAuth.
+// See api/token-claim.js
+app.use(createTokenClaimRouter());
 
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {

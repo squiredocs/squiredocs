@@ -112,7 +112,10 @@ describe('agents.md drift-guard', () => {
   test('(n) forbids re-emitting a token and covers minted tokens', () => {
     expect(content).toMatch(/never print,?\s+echo/i);
     expect(content).toMatch(/shell history/i);
-    expect(content).toMatch(/create_access_token[\s\S]{0,200}heredoc/i);
+    // Minted tokens are claim-delivered: the tool result carries a one-shot
+    // claimCommand, never the token itself.
+    expect(content).toMatch(/create_access_token[\s\S]{0,120}claimCommand/i);
+    expect(content).toMatch(/one-shot/i);
   });
 
   test('(o) no example passes a literal token in a header', () => {

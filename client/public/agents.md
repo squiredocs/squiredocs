@@ -90,10 +90,13 @@ output, or in your shell history.
   `export SQUIRE_TOKEN="$(cat ~/.squire/token)"` once per shell. Never print,
   echo, or log a token, and never retype one into a command line — argv is
   visible in shell history and process lists.
-- **Tokens you mint yourself:** `create_access_token` necessarily returns the
-  token in its result, once. Write it to the file immediately with a heredoc
-  (`cat > ~/.squire/token <<'EOF' ... EOF`), then use only `$(cat ...)` from
-  that point on. Do not repeat the token in any later output.
+- **Tokens you mint yourself:** `create_access_token` returns no token. It
+  returns a one-shot `claimCommand` — run it as-is; it fetches the token over
+  HTTPS and writes it straight to `~/.squire/token`, so the secret never
+  appears in the conversation at all. The claim dies after the first use or
+  5 minutes. Only if you cannot run shell commands, pass `inline: true` and
+  treat the in-band token by the rules above (write it out with a heredoc if
+  a shell ever becomes available; never echo it).
 - **If a token does land in the conversation**, save it to the file, stop
   repeating it, and remind your user they can revoke and re-issue it under
   **Settings → AI Agent Access** at any time.

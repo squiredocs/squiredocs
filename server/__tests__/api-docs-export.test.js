@@ -458,7 +458,9 @@ describe('API: GET /api/docs/:docId/export', () => {
       // Mint through the real tool handler as a PAT principal
       const parentRecord = await apiTokens.verifyToken(patDefault);
       const toolRegistry = require('../mcp/tools');
-      const result = await toolRegistry.executeTool('create_access_token', {}, {
+      // inline: the test needs the plaintext directly (claim delivery is
+      // covered in token-claim.test.js)
+      const result = await toolRegistry.executeTool('create_access_token', { inline: true }, {
         userId: testUserId,
         agentId: `api-token:${parentRecord.id}`,
         agentName: 'Export Test Agent',

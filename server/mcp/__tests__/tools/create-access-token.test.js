@@ -60,12 +60,37 @@ describe('create_access_token tool', () => {
     testDelegation = await delegation.createDelegation(testUserId, 'test-agent', 'Test Agent');
   });
 
-  describe('defaults', () => {
-    test('mints a read-only 1h token with sk_sqd_ prefix', async () => {
-      const before = Date.now();
+  describe('claim delivery (default)', () => {
+    test('result carries a claim recipe and NO token', async () => {
       const result = await mint({}, jwtPrincipal());
 
+      expect(result.token).toBeUndefined();
+      expect(result.scopes).toEqual(['documents:read']);
+      expect(result.ttlSeconds).toBe(3600);
+      expect(result.claimUrl).toBe('https://test.example.com/api/tokens/claim');
+      expect(result.claimExpiresInSeconds).toBe(300);
+      expect(result.claimCommand).toMatch(/Bearer sqc_[A-Za-z0-9_-]+/);
+      expect(result.claimCommand).toContain('-o ~/.squire/token');
+      expect(result.message).toContain('No token is included in this response');
+      expect(result.curlExample).toContain('/api/docs/<docId>/export?format=markdown');
+      expect(result.curlExample).toContain('https://test.example.com');
+      expect(result.curlExample).toContain('$(cat ~/.squire/token)');
+    });
+
+    test('no token row is created until the claim is redeemed', async () => {
+      await mint({}, jwtPrincipal());
+      const active = await apiTokens.listUserTokens(testUserId);
+      expect(active).toHaveLength(0);
+    });
+  });
+
+  describe('inline delivery (explicit opt-in)', () => {
+    test('mints a read-only 1h token with sk_sqd_ prefix and warning', async () => {
+      const before = Date.now();
+      const result = await mint({ inline: true }, jwtPrincipal());
+
       expect(result.token.startsWith('sk_sqd_')).toBe(true);
+      expect(result.warning).toMatch(/never print, echo/i);
       expect(result.scopes).toEqual(['documents:read']);
       expect(result.ttlSeconds).toBe(3600);
       const expiresAt = new Date(result.expiresAt).getTime();
@@ -76,7 +101,7 @@ describe('create_access_token tool', () => {
     });
 
     test('minted token verifies and carries delegation provenance', async () => {
-      const result = await mint({}, jwtPrincipal());
+      const result = await mint({ inline: true }, jwtPrincipal());
       const record = await apiTokens.verifyToken(result.token);
       expect(record).not.toBeNull();
       expect(record.user_id).toBe(testUserId);
@@ -88,7 +113,7 @@ describe('create_access_token tool', () => {
 
     test('PAT principal records parent token provenance', async () => {
       const { record: parent } = await apiTokens.createToken(testUserId, 'Parent PAT');
-      const result = await mint({}, patPrincipal(parent.id));
+      const result = await mint({ inline: true }, patPrincipal(parent.id));
 
       const record = await apiTokens.verifyToken(result.token);
       const row = await apiTokens.getTokenById(record.id);
@@ -97,7 +122,7 @@ describe('create_access_token tool', () => {
     });
 
     test('auto-generates a provenance name visible in Settings', async () => {
-      const result = await mint({}, jwtPrincipal());
+      const result = await mint({ inline: true }, jwtPrincipal());
       const record = await apiTokens.verifyToken(result.token);
       expect(record.name).toBe('Minted by Test Agent via MCP');
     });
@@ -149,7 +174,7 @@ describe('create_access_token tool', () => {
 
   describe('no chaining', () => {
     test('a minted token cannot mint further tokens', async () => {
-      const first = await mint({}, jwtPrincipal());
+      const first = await mint({ inline: true }, jwtPrincipal());
       const minted = await apiTokens.verifyToken(first.token);
 
       await expect(mint({}, patPrincipal(minted.id))).rejects.toThrow(
@@ -169,7 +194,7 @@ describe('create_access_token tool', () => {
     test('sixth mint from the same delegation revokes the oldest', async () => {
       const tokens = [];
       for (let i = 0; i < 6; i++) {
-        tokens.push(await mint({}, jwtPrincipal()));
+        tokens.push(await mint({ inline: true }, jwtPrincipal()));
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
 
@@ -187,7 +212,7 @@ describe('create_access_token tool', () => {
       for (let i = 0; i < 25; i++) {
         await apiTokens.createToken(testUserId, `Filler ${i}`);
       }
-      await expect(mint({}, jwtPrincipal())).rejects.toThrow(/Maximum of 25 active tokens/);
+      await expect(mint({ inline: true }, jwtPrincipal())).rejects.toThrow(/Maximum of 25 active tokens/);
     });
   });
 
@@ -196,7 +221,7 @@ describe('create_access_token tool', () => {
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       try {
-        const result = await mint({}, jwtPrincipal());
+        const result = await mint({ inline: true }, jwtPrincipal());
 
         const dbResult = await pool.query(
           'SELECT token_hash FROM mcp_api_tokens WHERE user_id = $1',

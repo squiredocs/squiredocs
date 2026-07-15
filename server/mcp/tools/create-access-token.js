@@ -10,9 +10,16 @@
  * tokens, provenance is recorded (minted_by_* columns) so revoking the
  * minting credential revokes its children, and the caller's raw credential
  * is never returned or logged.
+ *
+ * Delivery shape: by default the result contains NO token — it carries a
+ * one-shot claim recipe (GET /api/tokens/claim, see api/token-claim.js and
+ * auth/pending-mints.js) and the token is minted at claim time, landing on
+ * disk without transiting model context. inline: true is the explicit
+ * opt-in for shell-less agents.
  */
 const apiTokens = require('../auth/api-tokens');
 const delegation = require('../auth/delegation');
+const pendingMints = require('../auth/pending-mints');
 
 // apiTokens and delegation are boot-time singletons wired up in
 // server/mcp/index.js init(); the tool holds no persistence handle of its
@@ -26,10 +33,12 @@ const name = 'create_access_token';
 
 const description = `Mint a temporary API token (prefixed sk_sqd_) for REST access — exporting AND importing documents as markdown via curl without document content passing through model context.
 
-The token is scoped to AT MOST your own permissions. Default: documents:read, which covers export only — to IMPORT or sync-push markdown, mint with scopes: ["documents:read", "documents:write"]. It expires automatically (default 1 hour, max 24 hours) and is shown ONLY ONCE in this tool's result — store it immediately (e.g. in an environment variable). It appears under the user's Settings → API Tokens and is revoked automatically if your own credential is revoked. Tokens minted by this tool cannot mint further tokens.
+The result contains NO token. It returns a one-shot claimCommand: run it in your shell within 5 minutes and the token is written straight to ~/.squire/token (it never enters this conversation). Reference it as $(cat ~/.squire/token) afterward. Pass inline: true ONLY if you cannot run shell commands — the token then appears once, in-band.
+
+The token is scoped to AT MOST your own permissions. Default: documents:read, which covers export only — to IMPORT or sync-push markdown, mint with scopes: ["documents:read", "documents:write"]. It expires automatically (default 1 hour, max 24 hours), appears under the user's Settings → API Tokens, and is revoked automatically if your own credential is revoked. Tokens minted by this tool cannot mint further tokens.
 
 Usage: create_access_token() or create_access_token({ scopes: ["documents:read", "documents:write"], ttlSeconds: 600 })
-Then follow the returned curlExample / importCurlExample. Full REST recipe (export, import, two-way sync): get_tool_documentation({ tool: "rest_api" }).`;
+Then run claimCommand and follow curlExample / importCurlExample. Full REST recipe (export, import, two-way sync): get_tool_documentation({ tool: "rest_api" }).`;
 
 const inputSchema = {
   type: 'object',
@@ -42,7 +51,12 @@ const inputSchema = {
     },
     ttlSeconds: {
       type: 'number',
-      description: `Token lifetime in seconds. Default ${apiTokens.MINTED_TOKEN_DEFAULT_TTL_SECONDS} (1 hour); min ${apiTokens.MINTED_TOKEN_MIN_TTL_SECONDS}, max ${apiTokens.MINTED_TOKEN_MAX_TTL_SECONDS} (24 hours).`,
+      description: `Token lifetime in seconds (counted from the claim). Default ${apiTokens.MINTED_TOKEN_DEFAULT_TTL_SECONDS} (1 hour); min ${apiTokens.MINTED_TOKEN_MIN_TTL_SECONDS}, max ${apiTokens.MINTED_TOKEN_MAX_TTL_SECONDS} (24 hours).`,
+    },
+    inline: {
+      type: 'boolean',
+      description:
+        'Return the token in-band instead of via claimCommand. ONLY for agents with no shell — the token lands in the conversation, which the claim flow exists to avoid. Default false.',
     },
   },
   required: [],
@@ -128,48 +142,89 @@ async function handler(args, agentToken) {
     delegationId: agentToken.delegationId || null,
     apiTokenId: agentToken.apiTokenId || null,
   };
-  const displaced = await apiTokens.enforceMinterCap(minter);
-
   const tokenName = `Minted by ${agentToken.agentName || agentToken.agentId || 'agent'} via MCP`.slice(0, 255);
-  const { token, record } = await apiTokens.createToken(agentToken.userId, tokenName, {
+  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
+
+  // The usage examples never contain a secret in either delivery mode: the
+  // token lives at ~/.squire/token and is referenced via $(cat ...).
+  const curlExample =
+    `curl -sf -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
+    `  "${baseUrl}/api/docs/<docId>/export?format=markdown" -o doc.md`;
+  // The import example only works with documents:write; shown regardless so
+  // the byte channel is discoverable in both directions from the mint.
+  const importCurlExample =
+    `curl -sf -X POST -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
+    `  -H "Content-Type: text/markdown" --data-binary @doc.md \\\n` +
+    `  "${baseUrl}/api/docs/import?frontmatter=true"` +
+    (scopes.includes('documents:write')
+      ? ''
+      : `\n(importing requires documents:write — this token is read-only; re-mint with scopes: ["documents:read", "documents:write"])`);
+
+  if (args.inline === true) {
+    // Explicit opt-in for shell-less agents: the token is delivered in-band
+    // (there is no other channel available to such an agent) with a
+    // do-not-echo warning leading the result.
+    const displaced = await apiTokens.enforceMinterCap(minter);
+    const { token, record } = await apiTokens.createToken(agentToken.userId, tokenName, {
+      scopes,
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      mintedByDelegationId: minter.delegationId,
+      mintedByApiTokenId: minter.apiTokenId,
+    });
+    return {
+      warning:
+        'This token is a secret delivered in-band because you passed inline: true. ' +
+        'Never print, echo, paste, or repeat it in any output. If you can run shell ' +
+        'commands, store it via heredoc (not argv): ' +
+        "umask 077; mkdir -p ~/.squire; cat > ~/.squire/token <<'EOF' ... EOF",
+      token,
+      tokenPrefix: record.token_prefix,
+      scopes: record.scopes,
+      expiresAt: record.expires_at,
+      ttlSeconds,
+      curlExample,
+      importCurlExample,
+      message:
+        'Temporary API token created (inline delivery). It is shown only once. ' +
+        'It appears under Settings → API Tokens and expires automatically.' +
+        (displaced > 0 ? ` Note: ${displaced} older minted token(s) were revoked to stay under the per-minter cap.` : ''),
+    };
+  }
+
+  // Default: claim delivery. No token is minted yet and none appears in this
+  // result — the claim endpoint mints at redemption time and returns the raw
+  // bytes, so the credential goes server → disk without transiting model
+  // context. The claim secret below is acceptable transcript residue: it is
+  // one-shot, expires in minutes, and grants nothing but the claim.
+  const claimSecret = await pendingMints.createPendingMint({
+    userId: agentToken.userId,
+    name: tokenName,
     scopes,
-    expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+    ttlSeconds,
     mintedByDelegationId: minter.delegationId,
     mintedByApiTokenId: minter.apiTokenId,
   });
 
-  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
   return {
-    token,
-    tokenPrefix: record.token_prefix,
-    scopes: record.scopes,
-    expiresAt: record.expires_at,
+    scopes,
     ttlSeconds,
-    // Placeholder + heredoc rather than the raw token: the secret must be
-    // written to disk exactly once (heredoc bodies stay out of argv/shell
-    // history) and referenced via $(cat ...) from then on, never re-emitted.
-    curlExample:
+    claimUrl: `${baseUrl}/api/tokens/claim`,
+    claimExpiresInSeconds: pendingMints.CLAIM_TTL_SECONDS,
+    claimCommand:
       `umask 077; mkdir -p ~/.squire\n` +
-      `cat > ~/.squire/token <<'EOF'\n` +
-      `<token above>\n` +
-      `EOF\n` +
-      `curl -sf -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
-      `  "${baseUrl}/api/docs/<docId>/export?format=markdown" -o doc.md`,
-    // The import example only works with documents:write; shown regardless so
-    // the byte channel is discoverable in both directions from the mint.
-    importCurlExample:
-      `curl -sf -X POST -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
-      `  -H "Content-Type: text/markdown" --data-binary @doc.md \\\n` +
-      `  "${baseUrl}/api/docs/import?frontmatter=true"` +
-      (scopes.includes('documents:write')
-        ? ''
-        : `\n(importing requires documents:write — this token is read-only; re-mint with scopes: ["documents:read", "documents:write"])`),
+      `curl -sf -H "Authorization: Bearer ${claimSecret}" \\\n` +
+      `  "${baseUrl}/api/tokens/claim" -o ~/.squire/token \\\n` +
+      `  && echo "token written to ~/.squire/token" \\\n` +
+      `  || echo "claim failed: already claimed, expired (${Math.round(pendingMints.CLAIM_TTL_SECONDS / 60)} min), or refused"`,
+    curlExample,
+    importCurlExample,
     message:
-      'Temporary API token created. It is shown only once — write it to a 0600 file NOW using the ' +
-      'heredoc in curlExample (heredoc, not argv), then reference it only as $(cat ~/.squire/token). ' +
-      'Never print, echo, or repeat the token in any output. ' +
-      'It appears under Settings → API Tokens and expires automatically.' +
-      (displaced > 0 ? ` Note: ${displaced} older minted token(s) were revoked to stay under the per-minter cap.` : ''),
+      'No token is included in this response. Run claimCommand in your shell within ' +
+      `${Math.round(pendingMints.CLAIM_TTL_SECONDS / 60)} minutes — the first claim wins and the URL is dead afterward. ` +
+      `The token (expires ${ttlSeconds}s after the claim) is written straight to ~/.squire/token; ` +
+      'reference it as $(cat ~/.squire/token) and never print or echo it. ' +
+      'It appears under Settings → API Tokens once claimed. ' +
+      'No shell? Re-run with inline: true.',
   };
 }
 

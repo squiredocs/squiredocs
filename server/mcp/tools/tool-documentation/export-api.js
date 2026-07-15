@@ -41,9 +41,11 @@ Two ways:
 1. Mint one yourself (no user action needed): call the create_access_token
    MCP tool. It issues a temporary sk_sqd_ token capped at your own scopes
    (default documents:read — all the export API needs) that expires
-   automatically (default 1 hour, max 24). The token is returned once, with
-   a ready-to-use curl example; it is revoked automatically if your own
-   credential is revoked, and it cannot mint further tokens.
+   automatically (default 1 hour, max 24). The result contains NO token:
+   run the returned one-shot claimCommand and the token is written straight
+   to ~/.squire/token without ever entering your context (5-minute window,
+   first claim wins). It is revoked automatically if your own credential is
+   revoked, and it cannot mint further tokens.
 
 2. A user creates a personal access token under Settings → API Tokens and
    provides it to you. These tokens do not expire and are shown only once at
