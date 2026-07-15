@@ -7,16 +7,21 @@ const express = require('express');
 const oauthFlow = require('./oauth-flow');
 const registeredAgents = require('./registered-agents');
 const apiTokens = require('./api-tokens');
+const rateLimit = require('../../rate-limit');
 const { requireAuth } = require('../../auth/middleware');
 const { optionalAuth } = require('../../auth/middleware');
 
 const router = express.Router();
 
-// Public endpoints (agent-initiated)
+// Public endpoints (agent-initiated). Rate limits (feature 010, US2):
+//  - POST /token gets the per-IP `token` budget applied to THIS handler only,
+//    not the whole /mcp/auth/* mount — /authorize stays unlimited (FR-005, A1).
+//  - POST /register gets registration-admission (per-IP + global daily cap)
+//    so an over-budget request is rejected 429 with no row written (FR-011).
 router.get('/authorize', optionalAuth, oauthFlow.handleAuthorize);
-router.post('/token', oauthFlow.handleToken);
+router.post('/token', rateLimit.perIp('token'), oauthFlow.handleToken);
 router.post('/revoke', oauthFlow.handleRevoke);
-router.post('/register', oauthFlow.handleRegister);
+router.post('/register', rateLimit.registrationAdmissionMiddleware(), oauthFlow.handleRegister);
 
 // Protected endpoints (user-initiated, require session auth)
 router.post('/approve', requireAuth, oauthFlow.handleApprove);

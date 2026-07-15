@@ -21,6 +21,7 @@ const express = require('express');
 const Y = require('yjs');
 const archiver = require('archiver');
 const { requireAuth } = require('../auth');
+const rateLimit = require('../rate-limit');
 const documents = require('../documents');
 const documentImages = require('../document-images');
 const s3Images = require('../s3-images');
@@ -162,7 +163,7 @@ async function collectBundleAssets(markdown, docId, docSlug) {
 function createExportRouter(persistence) {
   const router = express.Router();
 
-  router.get('/api/docs/:docId/export', requireAuth, async (req, res) => {
+  router.get('/api/docs/:docId/export', requireAuth, rateLimit.perUser('export'), async (req, res) => {
     try {
       const { docId } = req.params;
       const { format = 'markdown', flavor: flavorParam, frontmatter: frontmatterParam } = req.query;

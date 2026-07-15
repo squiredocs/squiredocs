@@ -18,6 +18,7 @@
 const express = require('express');
 const Y = require('yjs');
 const { requireAuth } = require('../auth');
+const rateLimit = require('../rate-limit');
 const documents = require('../documents');
 const documentService = require('../document-service');
 const { notifyException } = require('../exception-notifier');
@@ -232,7 +233,9 @@ function createImportRouter(persistence) {
     limit: MAX_IMPORT_BYTES,
     defaultCharset: 'utf-8',
   });
-  const chain = [requireAuth, requireMarkdownContentType, parseBody, bodyErrorHandler];
+  // Per-user rate limit (feature 010, US2/FR-006) after auth, before the parse —
+  // an import flood trips the budget without buffering the body.
+  const chain = [requireAuth, rateLimit.perUser('import'), requireMarkdownContentType, parseBody, bodyErrorHandler];
 
   // -------------------------------------------------------------------------
   // POST /api/docs/import — create a new document from markdown (FR-012)

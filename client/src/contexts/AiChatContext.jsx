@@ -590,13 +590,42 @@ export function AiChatProvider({ children }) {
     }
   }, [api, refreshChatList]);
 
+  // Upload one chat attachment to S3 and swap its inline data: URL for the
+  // returned reference (feature 010, US3): attachment bytes travel the S3 path,
+  // so the chat body carries a short `attachment:<key>` reference instead of
+  // base64. A file that isn't a data: URL (e.g. an already-uploaded reference on
+  // a retry) is passed through untouched, keeping this idempotent.
+  const uploadChatAttachment = useCallback(
+    async (file) => {
+      const src = typeof file?.url === 'string'
+        ? file.url
+        : (typeof file?.data === 'string' ? file.data : null);
+      if (!src || !src.startsWith('data:')) return file;
+      const { data } = await api.post('/api/chat/attachments', {
+        data: src,
+        mediaType: file.mediaType,
+        filename: file.filename || file.name || null,
+      });
+      return { ...file, url: data.reference };
+    },
+    [api],
+  );
+
   // Stable wrapper so callers can pass a plain string instead of { text }
   // Auto-creates a chat if none is selected
   const sendMessage = useCallback(
     async (text, files) => {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
-      lastSentFilesRef.current = files || null;
+
+      // Upload attachments first, replacing inline data: URLs with references so
+      // the chat request body stays small (feature 010, US3). Store the uploaded
+      // form for retry so a resend doesn't re-upload.
+      let files_ = files || null;
+      if (files?.length) {
+        files_ = await Promise.all(files.map(uploadChatAttachment));
+      }
+      lastSentFilesRef.current = files_;
 
       // Fold any pending "Add to Chat" selection references into this turn: a
       // delimited quote block prepended to the text (so the model reads it) plus
@@ -607,7 +636,7 @@ export function AiChatProvider({ children }) {
         : text;
       const payload = {
         text: composedText || ' ',
-        files: files?.length ? files : undefined,
+        files: files_?.length ? files_ : undefined,
         ...(refs.length ? { metadata: { refs: refs.map((r) => ({ text: r.text, heading: r.heading, docTitle: r.docTitle, docId: r.docId })) } } : {}),
       };
       if (refs.length) setPendingRefs([]); // consumed by this send
@@ -650,7 +679,7 @@ export function AiChatProvider({ children }) {
 
       chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs, uploadChatAttachment],
   );
 
   // Start the onboarding greeting: always opens a fresh chat scoped to the

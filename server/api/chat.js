@@ -9,6 +9,8 @@
  */
 const express = require('express');
 const { requireAuth } = require('../auth');
+const rateLimit = require('../rate-limit');
+const s3Images = require('../s3-images');
 const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
@@ -374,16 +376,51 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
   }
 }
 
+// Chat attachments (feature 010, US3): bytes travel the S3 path, so a message
+// file part carries a reference `attachment:<s3-key>` instead of inline base64.
+// The key is `chat-attachments/<userId>/<uuid>` — ownership is encoded in it and
+// re-verified on resolve (no DB row, FR-016).
+const ATTACHMENT_SCHEME = 'attachment:';
+
 /**
- * Convert data-URL file parts to inline Buffers so the AI SDK doesn't
- * try to download them (validateDownloadUrl rejects data: scheme).
+ * Parse & user-scope an attachment reference. Fetches nothing; just validates
+ * ownership. Throws a 403-tagged error when the key belongs to another user
+ * (user-scope enforcement, FR-016) — a user can only resolve attachments they
+ * uploaded.
+ * @param {string} ref - the `attachment:<key>` reference
+ * @param {string} userId - the requesting user
+ * @returns {string} the S3 object key
  */
-function inlineDataUrls(modelMessages) {
+function attachmentKeyForUser(ref, userId) {
+  const key = ref.slice(ATTACHMENT_SCHEME.length);
+  const segs = key.split('/');
+  if (segs[0] !== 'chat-attachments' || segs[1] !== userId || !segs[2]) {
+    throw Object.assign(
+      new Error('Attachment reference is not accessible to this user'),
+      { status: 403 }
+    );
+  }
+  return key;
+}
+
+/**
+ * Resolve inline + reference file parts so the model receives raw bytes.
+ * - `data:` URLs → inline Buffer (the AI SDK's validateDownloadUrl rejects the
+ *   data: scheme, so we can't hand it a data URL).
+ * - `attachment:` references → fetched from S3 (user-scoped) as a Buffer.
+ * Async because reference resolution is an S3 fetch.
+ * @param {Array} modelMessages
+ * @param {string} userId
+ */
+async function inlineDataUrls(modelMessages, userId) {
   for (const msg of modelMessages) {
     if (!Array.isArray(msg.content)) continue;
     for (const part of msg.content) {
-      if ((part.type === 'file' || part.type === 'image') &&
-          typeof part.data === 'string' && part.data.startsWith('data:')) {
+      if ((part.type !== 'file' && part.type !== 'image') || typeof part.data !== 'string') continue;
+      if (part.data.startsWith(ATTACHMENT_SCHEME)) {
+        const key = attachmentKeyForUser(part.data, userId);
+        part.data = await s3Images.getObject(key);
+      } else if (part.data.startsWith('data:')) {
         const m = part.data.match(/^data:[^;]+;base64,(.+)$/s);
         if (m) part.data = Buffer.from(m[1], 'base64');
       }
@@ -395,9 +432,13 @@ function inlineDataUrls(modelMessages) {
  * Extract image attachments from the incoming user UIMessage as base64, so the
  * insert_image tool can place one into a document. The model can't carry image
  * bytes through a tool call, so the tool references these by index instead.
- * @returns {Array<{filename: string|null, mediaType: string, dataBase64: string}>}
+ * Handles both legacy inline `data:` URLs and the new `attachment:` references
+ * (fetched from S3, user-scoped). Async because reference resolution is a fetch.
+ * @param {object} message
+ * @param {string} userId
+ * @returns {Promise<Array<{filename: string|null, mediaType: string, dataBase64: string}>>}
  */
-function extractMessageImages(message) {
+async function extractMessageImages(message, userId) {
   const parts = Array.isArray(message?.parts) ? message.parts : [];
   const images = [];
   for (const part of parts) {
@@ -405,6 +446,12 @@ function extractMessageImages(message) {
     if (!part.mediaType.startsWith('image/')) continue;
     const src = typeof part.url === 'string' ? part.url : part.data;
     if (typeof src !== 'string') continue;
+    if (src.startsWith(ATTACHMENT_SCHEME)) {
+      const key = attachmentKeyForUser(src, userId); // throws 403 if not owner
+      const bytes = await s3Images.getObject(key);
+      images.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: bytes.toString('base64') });
+      continue;
+    }
     const m = src.match(/^data:[^;]+;base64,(.+)$/s);
     if (m) images.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: m[1] });
   }
@@ -413,7 +460,7 @@ function extractMessageImages(message) {
 
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
   const chatId = req.body?.id;
   let entry = null;
   const cleanupEntry = (ms = 5_000) => {
@@ -539,13 +586,19 @@ router.post('/', requireAuth, async (req, res) => {
     // Build tool set: MCP tools + provider-specific web search + universal webFetch
     // + image tools (insert_image references this message's attachments; view_image
     // lets the agent see images already in the doc).
+    // Resolve this message's image attachments (inline data URLs or S3
+    // references, user-scoped) once, up front — feeds both the insert_image tool
+    // (below) and the model file parts (via inlineDataUrls). A reference the user
+    // doesn't own throws a 403 here, before any streaming starts.
+    const messageImages = await extractMessageImages(message, req.user.userId);
+
     const tools = chatTools.buildTools(syntheticAgentToken, {
       providerName: def.provider,
       provider,
       pool,
       observedClockHolder,
       docGuid,
-      messageImages: extractMessageImages(message),
+      messageImages,
     });
 
     // Validate and convert UI messages for streamText.
@@ -569,7 +622,7 @@ router.post('/', requireAuth, async (req, res) => {
       modelInputMessages = chatModels.stripReasoningParts(modelInputMessages);
     }
     const modelMessages = await convertToModelMessages(modelInputMessages);
-    inlineDataUrls(modelMessages);
+    await inlineDataUrls(modelMessages, req.user.userId);
 
     // Deduplicate repeated document reads to save context window space
     const dedupedMessages = deduplicateReadResults(modelMessages);
@@ -754,8 +807,15 @@ router.post('/', requireAuth, async (req, res) => {
     res.end();
   } catch (error) {
     console.error('[Chat API] Error:', error);
-    notifyException(error, { req, source: 'chat-api' });
     cleanupEntry();
+    // A tagged client error (e.g. an attachment reference the user doesn't own,
+    // feature 010/FR-016) is a 4xx, not a server fault — surface it and don't page.
+    const status = error && Number.isInteger(error.status) ? error.status : 500;
+    if (status >= 400 && status < 500) {
+      if (!res.headersSent) res.status(status).json({ error: error.message || 'Request rejected' });
+      return;
+    }
+    notifyException(error, { req, source: 'chat-api' });
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -891,4 +951,9 @@ router.patch('/chats/:id', requireAuth, asyncRoute('update chat', async (req, re
   res.json({ ok: true });
 }));
 
-module.exports = { router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID };
+module.exports = {
+  router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID,
+  // Exposed for tests (feature 010): attachment reference resolution + the
+  // concurrent-stream cap / compaction seams (G1).
+  extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, MAX_STREAMS_PER_USER,
+};

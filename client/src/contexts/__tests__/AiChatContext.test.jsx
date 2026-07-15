@@ -295,19 +295,40 @@ describe('AiChatContext', () => {
     );
   });
 
-  // --------------- Image file forwarding ---------------
+  // --------------- Image file forwarding (feature 010: S3 references) ---------
 
-  it('forwards files to chat.sendMessage', async () => {
+  // Attachments upload to /api/chat/attachments first (feature 010, US3); the
+  // chat body then carries the returned `attachment:` reference instead of the
+  // inline base64 data URL. mockUploadThenNewChat queues the upload response
+  // ahead of the create-chat flow (upload runs before createChatOnServer).
+  function mockUploadThenNewChat(reference, chatId) {
+    mockApi.post.mockResolvedValueOnce({ data: { reference, mediaType: 'image/png', filename: null } });
+    mockNewChatFlow(chatId);
+  }
+
+  it('uploads files to /api/chat/attachments and forwards references, not base64', async () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
-
-    mockNewChatFlow('chat-img');
+    const reference = 'attachment:chat-attachments/user-1/uuid-1';
+    mockUploadThenNewChat(reference, 'chat-img');
 
     await act(async () => { await result.current.sendMessage('Look at this', files); });
 
-    expect(sendMessageSpy).toHaveBeenCalledWith({ text: 'Look at this', files });
+    // The upload happened with the data URL…
+    expect(mockApi.post).toHaveBeenCalledWith('/api/chat/attachments', {
+      data: 'data:image/png;base64,abc',
+      mediaType: 'image/png',
+      filename: null,
+    });
+    // …and the chat send carries the reference, never the inline base64.
+    expect(sendMessageSpy).toHaveBeenCalledWith({
+      text: 'Look at this',
+      files: [{ type: 'file', mediaType: 'image/png', url: reference }],
+    });
+    const sentFiles = sendMessageSpy.mock.calls[0][0].files;
+    expect(JSON.stringify(sentFiles)).not.toContain('data:image/png;base64');
   });
 
   it('uses fallback title for image-only messages', async () => {
@@ -315,8 +336,7 @@ describe('AiChatContext', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
-
-    mockNewChatFlow('chat-img2');
+    mockUploadThenNewChat('attachment:chat-attachments/user-1/uuid-2', 'chat-img2');
 
     await act(async () => { await result.current.sendMessage('', files); });
 
@@ -331,12 +351,15 @@ describe('AiChatContext', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     const files = [{ type: 'file', mediaType: 'image/png', url: 'data:image/png;base64,abc' }];
-
-    mockNewChatFlow('chat-img3');
+    const reference = 'attachment:chat-attachments/user-1/uuid-3';
+    mockUploadThenNewChat(reference, 'chat-img3');
 
     await act(async () => { await result.current.sendMessage('', files); });
 
-    expect(sendMessageSpy).toHaveBeenCalledWith({ text: ' ', files });
+    expect(sendMessageSpy).toHaveBeenCalledWith({
+      text: ' ',
+      files: [{ type: 'file', mediaType: 'image/png', url: reference }],
+    });
   });
 
   it('does not pass files when none provided', async () => {
