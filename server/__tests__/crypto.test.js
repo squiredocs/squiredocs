@@ -93,4 +93,74 @@ describe('crypto', () => {
       process.env.API_KEY_ENCRYPTION_KEY = original;
     });
   });
+
+  describe('keyring rotation', () => {
+    // A second key, id "2", distinct from the legacy 'a'*64 set in beforeAll.
+    const KEY2 = 'b'.repeat(64);
+
+    afterEach(() => {
+      delete process.env.API_KEY_ENCRYPTION_KEYS;
+      delete process.env.API_KEY_ENCRYPTION_PRIMARY;
+    });
+
+    test('default primary (legacy) still writes untagged, 3-part values', () => {
+      expect(crypto.encrypt('x').split(':').length).toBe(3);
+      expect(crypto.primaryKeyId()).toBe('legacy');
+      expect(crypto.keyIdOf(crypto.encrypt('x'))).toBe('legacy');
+    });
+
+    test('keyed primary writes tagged values and round-trips', () => {
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      const enc = crypto.encrypt('secret-key');
+      const parts = enc.split(':');
+      expect(parts.length).toBe(4);
+      expect(parts[0]).toBe('k2');
+      expect(crypto.keyIdOf(enc)).toBe('2');
+      expect(crypto.decrypt(enc)).toBe('secret-key');
+    });
+
+    test('legacy untagged values still decrypt after a keyed primary is added', () => {
+      // Written under the legacy key (default primary)...
+      const legacyVal = crypto.encrypt('old-secret');
+      expect(legacyVal.split(':').length).toBe(3);
+      // ...still readable once the primary moves to a keyed id (legacy stays in the ring).
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      expect(crypto.decrypt(legacyVal)).toBe('old-secret');
+    });
+
+    test('reencrypt migrates a legacy value onto the primary; no-op when already primary', () => {
+      const legacyVal = crypto.encrypt('rotate-me');
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      expect(crypto.isUnderPrimary(legacyVal)).toBe(false);
+      const migrated = crypto.reencrypt(legacyVal);
+      expect(crypto.keyIdOf(migrated)).toBe('2');
+      expect(crypto.isUnderPrimary(migrated)).toBe(true);
+      expect(crypto.decrypt(migrated)).toBe('rotate-me');
+      // Already on the primary → returned unchanged.
+      expect(crypto.reencrypt(migrated)).toBe(migrated);
+    });
+
+    test('decrypt throws a helpful error when the tagged key id is not in the ring', () => {
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      const enc = crypto.encrypt('x');
+      // Drop key 2 from the ring (as if retired too early).
+      delete process.env.API_KEY_ENCRYPTION_KEYS;
+      delete process.env.API_KEY_ENCRYPTION_PRIMARY;
+      expect(() => crypto.decrypt(enc)).toThrow(/No encryption key configured for id "2"/);
+    });
+
+    test('throws when the primary id is absent from the keyring', () => {
+      process.env.API_KEY_ENCRYPTION_PRIMARY = 'nope';
+      expect(() => crypto.encrypt('x')).toThrow(/API_KEY_ENCRYPTION_PRIMARY "nope" is not present/);
+    });
+
+    test('rejects a reserved or malformed keyring id', () => {
+      process.env.API_KEY_ENCRYPTION_KEYS = `legacy:${KEY2}`;
+      expect(() => crypto.encrypt('x')).toThrow(/invalid key id/);
+    });
+  });
 });
