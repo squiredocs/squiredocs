@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: collab
+  labels:
+    app: postgresbackup
+spec:
+  schedule: "38 9 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 4
+      template:
+        metadata:
+          labels:
+            app: postgresbackup
+        spec:
+          containers:
+            - name: postgresbackup
+              # Dedicated backup image (Dockerfile.backup): pg16-client + s3cmd
+              # baked in, non-root, no runtime `apk add`. Resolved by the
+              # Kustomize `images:` override (aws-prod pins by digest).
+              image: collab-backup
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh"]
+              args: ["/usr/local/bin/backup-postgres.sh"]
+              env:
+                - name: POSTGRES_DATABASE
+                  value: collab_db
+                - name: POSTGRES_HOST
+                  value: collab-postgres
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: username
+                # Password is delivered as a MOUNTED FILE (never an env var or
+                # argv). The script builds a PGPASSFILE from it (FR-023).
+                - name: POSTGRES_PASSWORD_FILE
+                  value: /secrets/pg/password
+                - name: BACKUP_BUCKET
+                  value: squiredocs-db-backups
+              volumeMounts:
+                - name: s3cmd-config-volume
+                  mountPath: /etc/s3cmd
+                  readOnly: true
+                - name: pg-password
+                  mountPath: /secrets/pg
+                  readOnly: true
+          volumes:
+            # s3cmd config now comes from the SOPS-encrypted backup-s3cmd Secret
+            # (FR-018) — replaces the gitignored plaintext s3cmd ConfigMap.
+            - name: s3cmd-config-volume
+              secret:
+                secretName: backup-s3cmd
+                items:
+                  - key: s3cfg
+                    path: s3cfg
+            - name: pg-password
+              secret:
+                secretName: postgres-secret
+                items:
+                  - key: password
+                    path: password
+                    mode: 0400
+          restartPolicy: OnFailure
