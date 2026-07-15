@@ -18,10 +18,10 @@ https://squiredocs.com/mcp
 For Claude Code and other Claude command-line clients, run this in a terminal, not from inside a running agent session:
 
 ```
-claude mcp add --transport http squire https://squiredocs.com/mcp
+claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire
 ```
 
-An MCP client loads its server configuration at startup. If you add the server from inside a running session, that session will not see it. Add it in a separate terminal, then start a new session.
+This registers the server and completes the sign-in right from the terminal. An MCP client loads its server configuration at startup, so if you add the server from inside a running session, that session will not see it. To pick an in-progress agent conversation back up afterward, exit it first and append `&& claude --continue` to the command above — it resumes the conversation with the server connected.
 
 For any MCP-native client, point it at the endpoint above. The client's built-in OAuth discovery handles the rest through the standard chain, so you do not need to configure client IDs, secrets, or extra URLs by hand.
 

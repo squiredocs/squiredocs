@@ -14,22 +14,24 @@ For Claude Code and other Claude CLI clients, run this **in a terminal, not
 from inside a running agent session**:
 
 ```
-claude mcp add --transport http squire https://squiredocs.com/mcp
+claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire
 ```
 
 **If you are an agent reading this from inside a running session:** do not run
 the command above yourself. MCP clients load server config at startup, so your
 session will not see the server — `/mcp` will still report nothing, and the
-write may even land in a config file the client never reads. Instead, give
-your user these exact steps:
+write may even land in a config file the client never reads. Instead, tell
+your user to exit this session and run this single command:
 
-1. In a separate terminal (outside this session), run:
-   `claude mcp add --transport http squire https://squiredocs.com/mcp`
-2. Verify it registered: `claude mcp list` should show `squire`.
-3. Restart the session without losing this conversation: exit, then run
-   `claude --continue` (or `claude --resume` to pick from past sessions).
-4. In the restarted session, run `/mcp` — confirm `squire` is listed and
-   complete the OAuth login it offers.
+```
+claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire && claude --continue
+```
+
+It registers the server, completes the browser OAuth login right from the
+terminal, and resumes this conversation (`claude --resume` picks from past
+sessions instead). If anything doesn't take, the steps also work one at a
+time: after the add, `claude mcp list` should show `squire`; if the login
+didn't complete, run `/mcp` inside the restarted session to finish it there.
 
 For any MCP-native client: point it at the endpoint URL below. The client's
 built-in OAuth discovery follows the standard chain (RFC 9728

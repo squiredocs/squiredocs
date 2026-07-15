@@ -39,6 +39,11 @@ describe('agents.md drift-guard', () => {
     expect(content).toContain(
       'claude mcp add --transport http squire https://squiredocs.com/mcp'
     );
+    // Default in-session suggestion (design amendment, Sam 2026-07-15,
+    // live-tested): one combined command — add, login, resume.
+    expect(content).toContain(
+      'claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire && claude --continue'
+    );
   });
 
   test('(e) names each of the core tools', () => {
