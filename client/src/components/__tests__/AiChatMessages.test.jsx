@@ -53,6 +53,40 @@ describe('AiChatMessages', () => {
     expect(bubble).toHaveTextContent('Bot reply');
   });
 
+  it('merges consecutive assistant text parts into one block (no spurious break)', () => {
+    // Anthropic can split one paragraph across content blocks (thinking/step
+    // boundaries) — the pieces must render as a single markdown block.
+    const messages = [makeMsg({
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'The quick brown fox ' },
+        { type: 'step-start' },
+        { type: 'text', text: 'jumps over the lazy dog.' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const blocks = container.querySelectorAll('.ai-chat-markdown');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].querySelectorAll('p')).toHaveLength(1);
+    expect(blocks[0]).toHaveTextContent('The quick brown fox jumps over the lazy dog.');
+  });
+
+  it('keeps text parts separated by a tool call as distinct blocks', () => {
+    const messages = [makeMsg({
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Let me check.' },
+        { type: 'tool-read_document', toolCallId: 't1', state: 'output-available', input: { docGuid: 'd1' }, output: {} },
+        { type: 'text', text: 'Done reading.' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    const blocks = container.querySelectorAll('.ai-chat-markdown');
+    expect(blocks).toHaveLength(2);
+  });
+
   it('hides the onboarding welcome-kickoff message from the transcript', () => {
     const messages = [
       makeMsg({ id: 'k', role: 'user', metadata: { kind: 'welcome-kickoff' }, parts: [{ type: 'text', text: 'SECRET KICKOFF PROMPT' }] }),

@@ -119,7 +119,17 @@ function groupParts(parts) {
         currentReasoningText = '';
       }
       currentToolGroup = null;
-      groups.push({ type: 'text', text: part.text });
+      // Merge consecutive text parts into one block: Anthropic streams can
+      // split a single paragraph across content blocks (thinking/step
+      // boundaries), and rendering each part separately inserts a visual
+      // line break mid-sentence. Only a visible group in between (tools,
+      // reasoning) ends a text block.
+      const last = groups[groups.length - 1];
+      if (last && last.type === 'text') {
+        last.text += part.text;
+      } else {
+        groups.push({ type: 'text', text: part.text });
+      }
     } else {
       currentToolGroup = null;
     }
