@@ -72,6 +72,8 @@ describe('GET /api/mcp/login/claim', () => {
 
   const claim = (handle) =>
     request(app).get('/api/mcp/login/claim').set('Authorization', `Bearer ${handle}`);
+  const claimCanonical = (handle) =>
+    request(app).get('/api/login/claim').set('Authorization', `Bearer ${handle}`);
 
   test('first claim: 200 text/plain, trailing newline, no-store, sk_sqd_ token', async () => {
     const { handle } = await approvedHandle();
@@ -172,5 +174,69 @@ describe('GET /api/mcp/login/claim', () => {
     const limited = await claim('sqlh_made-up');
     expect(limited.status).toBe(429);
     expect(limited.body.error).toBe('rate_limited');
+  });
+
+  // ── Feature 009: canonical /api/login/claim ≡ alias /api/mcp/login/claim ────
+  // Same handler mounted twice: byte-identical responses, one shared claim:ip
+  // budget, and a claim on one URL consumes the one-shot for the other (FR-007).
+
+  test('canonical claim: first-claim 200 bytes byte-identical shape to the alias', async () => {
+    const { handle } = await approvedHandle();
+    const res = await claimCanonical(handle);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/plain; charset=utf-8/);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.text.endsWith('\n')).toBe(true);
+    expect(res.text.trim()).toMatch(/^sk_sqd_/);
+  });
+
+  test('canonical and alias share the one-shot: a claim on one URL 404s the other', async () => {
+    const a = await approvedHandle();
+    const okAlias = await claim(a.handle);
+    expect(okAlias.status).toBe(200);
+    const thenCanonical = await claimCanonical(a.handle);
+    expect(thenCanonical.status).toBe(404);
+    expect(thenCanonical.body).toEqual(UNIFORM_404);
+
+    const b = await approvedHandle();
+    const okCanonical = await claimCanonical(b.handle);
+    expect(okCanonical.status).toBe(200);
+    const thenAlias = await claim(b.handle);
+    expect(thenAlias.status).toBe(404);
+    expect(thenAlias.body).toEqual(UNIFORM_404);
+  });
+
+  test('canonical claim: fabricated handle → the same uniform 404 body as the alias', async () => {
+    const viaCanonical = await claimCanonical('sqlh_made-up');
+    const viaAlias = await claim('sqlh_made-up');
+    expect(viaCanonical.status).toBe(404);
+    expect(viaCanonical.body).toEqual(UNIFORM_404);
+    expect(viaCanonical.body).toEqual(viaAlias.body);
+  });
+
+  test('canonical + alias draw the SAME claim:ip budget: 10 across both URLs, 11th → 429', async () => {
+    // Alternate the two URLs; the shared per-IP budget is 10, so the 11th (on
+    // either URL) is 429 — the alias does NOT grant a second fresh 10.
+    for (let i = 0; i < 10; i += 1) {
+      const r = i % 2 === 0 ? await claim('sqlh_made-up') : await claimCanonical('sqlh_made-up');
+      expect(r.status).toBe(404);
+    }
+    const limited = await claimCanonical('sqlh_made-up');
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('rate_limited');
+  });
+
+  test('canonical claim: mint-time token-cap → 409 token_limit (same carve-out as the alias)', async () => {
+    const { handle } = await approvedHandle();
+    const tokenIds = [];
+    for (let i = 0; i < apiTokens.MAX_TOKENS_PER_USER; i += 1) {
+      const { record } = await apiTokens.createToken(userId, `filler-canon-${i}`, {
+        expiresAt: new Date(Date.now() + 3600_000),
+      });
+      tokenIds.push(record.id);
+    }
+    const capped = await claimCanonical(handle);
+    expect(capped.status).toBe(409);
+    expect(capped.body.error).toBe('token_limit');
   });
 });
