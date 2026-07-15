@@ -33,3 +33,6 @@ design/.squire-token
 
 # Speckit local state (current-feature pointer; machine-local, never track)
 .specify/feature.json
+
+# transient deploy wrapper (script/deploy-aws.sh)
+k8s/overlays/.deploy-tmp-*/

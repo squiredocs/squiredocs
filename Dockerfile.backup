@@ -1,0 +1,21 @@
+# Dockerfile.backup — dedicated hardened image for the nightly Postgres backup
+# CronJob (RD-9). Everything the backup needs (postgresql16-client, s3cmd) is
+# installed AT BUILD TIME so the runtime container does NO `apk add` and runs
+# NON-ROOT. The backup script is baked in.
+#
+# Base pinned by digest (alpine:3.20 multi-arch index, resolved 2026-07-15).
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+
+# pg16-client matches the pgvector/pgvector:pg16 server; s3cmd uploads the dump.
+RUN apk add --no-cache postgresql16-client s3cmd
+
+# Non-root runtime user (uid/gid 65532 — matches the CronJob securityContext).
+RUN addgroup -g 65532 -S backup && adduser -u 65532 -S backup -G backup
+
+# Bake the backup script in (no runtime fetch). Owned readable by all; executed
+# via `/bin/sh /usr/local/bin/backup-postgres.sh`.
+COPY --chmod=0555 script/backup-postgres.sh /usr/local/bin/backup-postgres.sh
+
+USER backup
+
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/backup-postgres.sh"]
