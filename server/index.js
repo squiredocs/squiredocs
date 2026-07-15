@@ -1557,6 +1557,12 @@ app.use((err, req, res, next) => {
 });
 
 // Create HTTP server
+// Fail fast at boot if the BYOK encryption keyring is misconfigured (malformed
+// API_KEY_ENCRYPTION_KEYS, a dangling primary, or a missing key in production).
+// Otherwise a bad keyring surfaces only at first BYOK use; failing here crashes
+// the pod so a bad rollout halts (maxUnavailable:0) instead of serving 500s.
+require('./crypto').validateKeyring();
+
 const server = app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket server ready on ws://localhost:${PORT}/s`);

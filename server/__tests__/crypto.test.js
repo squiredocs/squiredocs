@@ -162,5 +162,58 @@ describe('crypto', () => {
       process.env.API_KEY_ENCRYPTION_KEYS = `legacy:${KEY2}`;
       expect(() => crypto.encrypt('x')).toThrow(/invalid key id/);
     });
+
+    test('rejects a 64-char non-hex key by name', () => {
+      const original = process.env.API_KEY_ENCRYPTION_KEY;
+      process.env.API_KEY_ENCRYPTION_KEY = 'z'.repeat(64);
+      expect(() => crypto.encrypt('x')).toThrow('64-character hex string');
+      process.env.API_KEY_ENCRYPTION_KEY = original;
+    });
+  });
+
+  describe('production keyring guard', () => {
+    const KEY2 = 'c'.repeat(64);
+    let origKey;
+    let origEnv;
+
+    beforeEach(() => {
+      origKey = process.env.API_KEY_ENCRYPTION_KEY;
+      origEnv = process.env.NODE_ENV;
+    });
+    afterEach(() => {
+      if (origKey === undefined) delete process.env.API_KEY_ENCRYPTION_KEY;
+      else process.env.API_KEY_ENCRYPTION_KEY = origKey;
+      if (origEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = origEnv;
+      delete process.env.API_KEY_ENCRYPTION_KEYS;
+      delete process.env.API_KEY_ENCRYPTION_PRIMARY;
+    });
+
+    test('production never silently installs the dev key as legacy under a keyed primary', () => {
+      delete process.env.API_KEY_ENCRYPTION_KEY;
+      process.env.NODE_ENV = 'production';
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      // Keyed encryption works...
+      expect(crypto.encrypt('x').startsWith('k2:')).toBe(true);
+      // ...but an untagged (legacy) value gets a CLEAR error, not a wrong-key GCM
+      // failure against the all-zeros dev key.
+      const untagged = ['AAAAAAAAAAAAAAAA', 'AAAAAAAAAAAAAAAAAAAAAAAA', 'AAAA'].join(':');
+      expect(() => crypto.decrypt(untagged)).toThrow(/No encryption key configured for id "legacy"/);
+    });
+
+    test('production with the default primary and no key throws the clear boot error', () => {
+      delete process.env.API_KEY_ENCRYPTION_KEY;
+      process.env.NODE_ENV = 'production';
+      expect(() => crypto.validateKeyring()).toThrow('must be set in production');
+    });
+
+    test('validateKeyring passes for a valid keyed config and rejects a dangling primary', () => {
+      process.env.API_KEY_ENCRYPTION_KEYS = `2:${KEY2}`;
+      process.env.API_KEY_ENCRYPTION_PRIMARY = '2';
+      expect(() => crypto.validateKeyring()).not.toThrow();
+      process.env.API_KEY_ENCRYPTION_PRIMARY = 'missing';
+      expect(() => crypto.validateKeyring()).toThrow(/is not present in the keyring/);
+    });
   });
 });

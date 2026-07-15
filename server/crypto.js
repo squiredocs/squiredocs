@@ -34,7 +34,7 @@ const DEV_KEY = '0'.repeat(64);
 const ID_RE = /^[A-Za-z0-9_-]+$/;
 
 function parseHexKey(hex, label) {
-  if (typeof hex !== 'string' || hex.length !== 64) {
+  if (typeof hex !== 'string' || !/^[0-9a-fA-F]{64}$/.test(hex)) {
     throw new Error(`${label} must be a 64-character hex string (32 bytes)`);
   }
   return Buffer.from(hex, 'hex');
@@ -47,11 +47,22 @@ function parseHexKey(hex, label) {
  */
 function buildKeyring() {
   const keys = new Map();
+  const inProd = process.env.NODE_ENV === 'production';
 
-  // The legacy key: API_KEY_ENCRYPTION_KEY, or the dev fallback.
-  const legacyHex = process.env.API_KEY_ENCRYPTION_KEY || DEV_KEY;
-  keys.set(LEGACY_ID, parseHexKey(legacyHex, 'API_KEY_ENCRYPTION_KEY'));
-  const usingDevLegacy = legacyHex === DEV_KEY;
+  // The legacy key decrypts every untagged value and is the default primary.
+  // In production it must be set explicitly — the all-zeros dev fallback is
+  // NEVER installed in production, so a dropped/missing legacy key surfaces as a
+  // clear error (at boot for the default primary; at decrypt-time for untagged
+  // values under a keyed primary) instead of silently "succeeding" against the
+  // wrong key.
+  const legacyHex = process.env.API_KEY_ENCRYPTION_KEY;
+  let usingDevLegacy = false;
+  if (legacyHex) {
+    keys.set(LEGACY_ID, parseHexKey(legacyHex, 'API_KEY_ENCRYPTION_KEY'));
+  } else if (!inProd) {
+    keys.set(LEGACY_ID, parseHexKey(DEV_KEY, 'API_KEY_ENCRYPTION_KEY'));
+    usingDevLegacy = true;
+  }
 
   // Additional keyed entries: "id:hex,id:hex".
   const extra = process.env.API_KEY_ENCRYPTION_KEYS;
@@ -73,20 +84,18 @@ function buildKeyring() {
   }
 
   const primaryId = process.env.API_KEY_ENCRYPTION_PRIMARY || LEGACY_ID;
+
+  // Preserve the historical production guarantee: with the default (legacy)
+  // primary and no real key configured, fail loudly rather than encrypt with the
+  // dev key. Reachable only in production, since dev/test install the fallback.
+  if (primaryId === LEGACY_ID && !keys.has(LEGACY_ID)) {
+    throw new Error('API_KEY_ENCRYPTION_KEY must be set in production');
+  }
   if (!keys.has(primaryId)) {
     throw new Error(`API_KEY_ENCRYPTION_PRIMARY "${primaryId}" is not present in the keyring`);
   }
-
-  // The primary key must be real in production (dev fallback is never allowed to
-  // encrypt live data). Only guard the primary — an old dev-value legacy key
-  // that is not the primary is harmless.
-  if (primaryId === LEGACY_ID && usingDevLegacy) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('API_KEY_ENCRYPTION_KEY must be set in production');
-    }
-    if (process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {
-      console.warn('WARNING: Using default encryption key in non-development environment. Set API_KEY_ENCRYPTION_KEY.');
-    }
+  if (usingDevLegacy && primaryId === LEGACY_ID && process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {
+    console.warn('WARNING: Using default encryption key in non-development environment. Set API_KEY_ENCRYPTION_KEY.');
   }
 
   return { keys, primaryId, usingDevLegacy };
@@ -103,6 +112,15 @@ function keyIdOf(stored) {
 /** The id used to encrypt new values right now. */
 function primaryKeyId() {
   return buildKeyring().primaryId;
+}
+
+/**
+ * Validate the keyring configuration eagerly (call at server boot so a malformed
+ * keyring or a missing/typo'd key fails the pod at startup — with
+ * maxUnavailable:0 this halts a bad rollout — instead of 500ing at first use).
+ */
+function validateKeyring() {
+  buildKeyring();
 }
 
 /**
@@ -166,4 +184,4 @@ function reencrypt(stored) {
   return encrypt(decrypt(stored));
 }
 
-module.exports = { encrypt, decrypt, reencrypt, isUnderPrimary, keyIdOf, primaryKeyId };
+module.exports = { encrypt, decrypt, reencrypt, isUnderPrimary, keyIdOf, primaryKeyId, validateKeyring };

@@ -118,6 +118,23 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: API_KEY_ENCRYPTION_KEY
+            # BYOK encryption-key rotation (optional keyring). Absent keys leave
+            # behavior byte-identical to a single API_KEY_ENCRYPTION_KEY. During a
+            # rotation, populate these in auth-secret in two phases (distribute
+            # the key, then promote the primary) — see the README and
+            # script/reencrypt-byok-keys.js.
+            - name: API_KEY_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: API_KEY_ENCRYPTION_KEYS
+                  optional: true
+            - name: API_KEY_ENCRYPTION_PRIMARY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: API_KEY_ENCRYPTION_PRIMARY
+                  optional: true
             # Email Notifications (AWS SES SMTP)
             - name: SES_SMTP_USER
               valueFrom:
