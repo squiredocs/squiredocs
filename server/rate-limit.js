@@ -49,6 +49,18 @@ function forceMemory() {
   return process.env.RL_FORCE_MEMORY === '1';
 }
 
+/**
+ * Whether limiting is active. Disabled by default under NODE_ENV=test so the
+ * shared (Redis) budgets don't accumulate across unrelated suites and throttle
+ * them — the rate-limit suites opt in with RL_TEST_ENABLE=1. Always active in
+ * development/production (a normal interactive user stays far under the generous
+ * default budgets — SC-009), so this changes no shipped behavior.
+ */
+function limitingActive() {
+  if (process.env.NODE_ENV === 'test' && process.env.RL_TEST_ENABLE !== '1') return false;
+  return true;
+}
+
 // Lazily-built limiter cache (rebuilt by _reset in tests).
 let limiters = null;
 
@@ -125,6 +137,7 @@ async function consume(className, key) {
  * @returns {Promise<boolean>} true ⇒ allowed (caller proceeds); false ⇒ 429 sent
  */
 async function enforce(kind, className, req, res) {
+  if (!limitingActive()) return true;
   const key = kind === 'ip' ? clientIp(req) : req.user?.userId;
   // A per-user limiter with no authenticated principal shouldn't key on null —
   // let it through (requireAuth runs before this and would have rejected).
@@ -177,6 +190,7 @@ function perUser(className) {
  * @returns {Promise<{allowed: boolean, retryAfterSec: number|null}>}
  */
 async function checkRegistrationAdmission(ip) {
+  if (!limitingActive()) return { allowed: true, retryAfterSec: null };
   const key = ip || 'unknown';
   try {
     await consume('register', key);
