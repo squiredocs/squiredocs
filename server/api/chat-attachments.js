@@ -17,6 +17,7 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { requireAuth } = require('../auth');
+const rateLimit = require('../rate-limit');
 const s3Images = require('../s3-images');
 const { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_BYTES } = require('../document-images');
 const { notifyException } = require('../exception-notifier');
@@ -28,7 +29,11 @@ function createChatAttachmentsRouter() {
   const router = express.Router();
   const parseBody = express.json({ limit: ATTACHMENT_BODY_LIMIT });
 
-  router.post('/api/chat/attachments', requireAuth, parseBody, async (req, res) => {
+  // Per-user upload budget (feature 010 review F5): the endpoint was previously
+  // unmetered, so a single authenticated user could hammer 25MB PUTs to S3. The
+  // limiter runs before parseBody so an over-budget request is rejected without
+  // parsing the large body.
+  router.post('/api/chat/attachments', requireAuth, rateLimit.perUser('upload'), parseBody, async (req, res) => {
     // S3 unconfigured → explicit, graceful 503 (FR-019).
     if (!s3Images.isEnabled()) {
       return res.status(503).json({ error: 'Image storage is not configured' });
