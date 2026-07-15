@@ -222,6 +222,9 @@ describe('REST login security parity (shared budgets, no oracle, one-shot)', () 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('expired');
     expect(res.body.credential).toBeUndefined();
-    expect(res.headers['cache-control']).toBeUndefined();
+    // 009 review: no-store is now stamped on EVERY /api/login response (start
+    // carries handle+code; non-inline approved embeds the handle in
+    // claimCommand), not just credential-bearing ones.
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 });

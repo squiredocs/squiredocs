@@ -48,6 +48,15 @@ function createLoginRouter(persistence) {
   //   1. agentName validation (400, no pending created),
   //   2. shared per-IP login rate limit (429 + Retry-After),
   //   3. per-IP + global pending caps inside createPendingAuthorization (429).
+  // Nothing on this surface is cacheable: start responses carry the handle and
+  // user code, and non-inline approved statuses embed the handle inside
+  // claimCommand — stamp no-store on every response, matching the claim
+  // route's posture (009 review, defense-in-depth).
+  router.use('/api/login', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+
   router.post('/api/login/start', express.json(), async (req, res) => {
     const baseUrl = buildBaseUrl(req);
 

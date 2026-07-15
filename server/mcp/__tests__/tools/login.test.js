@@ -51,7 +51,7 @@ describe('login tool handler', () => {
   test('a validation failure throws and creates no row', async () => {
     const before = await countRows();
     await expect(login.handler({ agentName: '   ' }, ctx)).rejects.toThrow(
-      /Invalid parameters for tool 'login'/
+      /Invalid agentName/
     );
     await expect(login.handler({ agentName: 'bad\x00name' }, ctx)).rejects.toThrow(/control characters/);
     await expect(login.handler({ agentName: 'a'.repeat(101) }, ctx)).rejects.toThrow(/100 characters/);

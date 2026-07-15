@@ -45,10 +45,15 @@ describe('agents.md drift-guard', () => {
     const bareStandalone = /claude mcp add --transport http squire https:\/\/squiredocs\.com\/mcp\n/;
     const oauthStart = content.indexOf('### 3. MCP-native OAuth discovery');
     expect(oauthStart).toBeGreaterThan(-1);
-    const beforeOauth = content.slice(0, oauthStart);
-    const oauthChannel = content.slice(oauthStart);
+    // Bound the channel at its closing heading — otherwise a bare one-liner
+    // added to any LATER section would still count as "inside the OAuth
+    // channel" and the RD-9 confinement pin would pass vacuously (009 review).
+    const nextHeading = content.indexOf('\n## ', oauthStart);
+    const oauthEnd = nextHeading === -1 ? content.length : nextHeading;
+    const oauthChannel = content.slice(oauthStart, oauthEnd);
+    const outsideOauth = content.slice(0, oauthStart) + content.slice(oauthEnd);
     expect(oauthChannel).toMatch(bareStandalone);
-    expect(beforeOauth).not.toMatch(bareStandalone);
+    expect(outsideOauth).not.toMatch(bareStandalone);
   });
 
   test('(e) names each of the core tools', () => {

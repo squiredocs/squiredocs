@@ -102,7 +102,7 @@ describe('login-service primitives', () => {
     });
 
     test('rejects empty / whitespace-only', () => {
-      expect(() => loginService.validateAgentName('')).toThrow(/Invalid parameters for tool 'login'/);
+      expect(() => loginService.validateAgentName('')).toThrow(/Invalid agentName/);
       expect(() => loginService.validateAgentName('   ')).toThrow(/must not be empty/);
     });
 

@@ -116,7 +116,10 @@ function timingSafeEqualHex(aHex, bHex) {
  * standard tool-parameter error shape (matches the registry's validation errors).
  */
 function validateAgentName(agentName) {
-  const label = "Invalid parameters for tool 'login':";
+  // Channel-neutral label: this validator serves both the login MCP tool and
+  // POST /api/login/start — "for tool" vocabulary confused the REST channel
+  // (009 review, LOW).
+  const label = 'Invalid agentName:';
   if (typeof agentName !== 'string') {
     throw new Error(`${label} 'agentName' must be a string.`);
   }

@@ -1479,6 +1479,19 @@ if (fs.existsSync(clientBuildPath)) {
 
 // Express error-handling middleware (safety net for unhandled errors)
 app.use((err, req, res, next) => {
+  // Body-parser failures are client errors, not server faults: malformed JSON
+  // (entity.parse.failed) → 400, oversized body → 413. Without this, a JSON
+  // typo in a curl call — routine on the anonymous /api/login front door —
+  // returned 500 and paged the exception notifier (009 review, LOW).
+  if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
+    if (!res.headersSent) {
+      const tooLarge = err.type === 'entity.too.large';
+      res.status(tooLarge ? 413 : 400).json({
+        error: tooLarge ? 'Request body too large' : 'Malformed request body',
+      });
+    }
+    return;
+  }
   console.error('Unhandled Express error:', err);
   notifyException(err, { req, source: 'express-middleware' });
   if (!res.headersSent) {
