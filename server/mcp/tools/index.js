@@ -32,6 +32,10 @@ const setDocumentVersionName = require('./set-document-version-name');
 const restoreDocumentVersion = require('./restore-document-version');
 const compareDocumentVersions = require('./compare-document-versions');
 
+// MCP-native onboarding: the two tools an anonymous session may call (feature 008)
+const login = require('./login');
+const loginStatus = require('./login-status');
+
 const agentPresence = require('../agent-presence'); // Still needed for init()
 
 // All available tools
@@ -63,7 +67,15 @@ const tools = {
   set_document_version_name: setDocumentVersionName,
   restore_document_version: restoreDocumentVersion,
   compare_document_versions: compareDocumentVersions,
+
+  // MCP-native onboarding (feature 008) — no scope; anonymous-callable
+  login: login,
+  login_status: loginStatus,
 };
+
+// The exact set of tools an anonymous (credential-less) MCP session may list and
+// call. Everything else keeps the byte-identical 401 challenge (FR-001/FR-002).
+const ANON_TOOL_NAMES = ['login', 'login_status'];
 
 /**
  * Initialize all tools with the persistence provider
@@ -204,4 +216,5 @@ module.exports = {
   getToolList,
   getTool,
   executeTool,
+  ANON_TOOL_NAMES,
 };

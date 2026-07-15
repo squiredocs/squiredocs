@@ -40,6 +40,8 @@ const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
+const { createLoginClaimRouter } = require('./api/mcp-login-claim');
+const mcpLoginRouter = require('./mcp/auth/login-router');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
@@ -369,6 +371,10 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
 
 // Mount MCP OAuth routes first (more specific path takes precedence)
 app.use('/mcp/auth', mcp.oauthRouter);
+
+// Mount MCP login-consent routes (feature 008) BEFORE the /mcp router — otherwise
+// /mcp/login/* would match the JSON-RPC endpoint, same reason /mcp/auth is first.
+app.use('/mcp/login', mcpLoginRouter);
 
 // Mount MCP routes
 app.use('/mcp', mcp.router);
@@ -1127,6 +1133,10 @@ app.use(createExportRouter(persistenceProvider));
 // API: Import markdown — POST /api/docs/import (create) and
 // PUT /api/docs/:docId/import (append|replace) — see api/docs-import.js
 app.use(createImportRouter(persistenceProvider));
+
+// API: One-shot MCP login credential claim — GET /api/mcp/login/claim
+// (feature 008). Handle-authenticated, not requireAuth. See api/mcp-login-claim.js
+app.use(createLoginClaimRouter(persistenceProvider));
 
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {

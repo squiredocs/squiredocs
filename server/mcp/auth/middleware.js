@@ -201,6 +201,7 @@ async function optionalAgentAuth(req, res, next) {
 }
 
 module.exports = {
+  buildChallenge,
   requireAgentAuth,
   requireScope,
   optionalAgentAuth,
