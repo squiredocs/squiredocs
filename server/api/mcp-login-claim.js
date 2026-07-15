@@ -1,7 +1,12 @@
 /**
- * One-shot credential claim endpoint (feature 008-mcp-login-bootstrap).
+ * One-shot credential claim endpoint (feature 008-mcp-login-bootstrap;
+ * canonical path added in feature 009-rest-login-api).
  *
- *   GET /api/mcp/login/claim
+ *   GET /api/login/claim       (canonical — feature 009)
+ *   GET /api/mcp/login/claim   (compatibility alias — feature 008)
+ *
+ * Both paths are the SAME handler, so they share one claim:ip:<ip> budget and
+ * return byte-identical responses; a claim on either consumes the one-shot.
  *
  * Authenticated solely by the login handle, Bearer header ONLY — the caller has
  * no user credential yet; the handle IS the credential (FR-020), and a
@@ -34,7 +39,13 @@ function extractHandle(req) {
 function createLoginClaimRouter(persistence) {
   const router = express.Router();
 
-  router.get('/api/mcp/login/claim', async (req, res) => {
+  // ONE handler, mounted at both the canonical path and the compatibility alias
+  // (feature 009, FR-007/RD-4): `/api/login/claim` is canonical; the historical
+  // `/api/mcp/login/claim` stays working indefinitely. Because it is the SAME
+  // function, both URLs draw from the single `claim:ip:<ip>` budget and return
+  // byte-identical responses — a claim on one consumes the one-shot for the
+  // other automatically (no second implementation, no doubled budget).
+  const claimHandler = async (req, res) => {
     // Rate limit is keyed on the IP and checked BEFORE any handle inspection, so
     // it leaks nothing per-handle (and can't be used to probe handles).
     const gate = await rateLimit.consume(`claim:ip:${req.ip}`, CLAIM_ATTEMPTS_PER_MINUTE_PER_IP, 60);
@@ -79,7 +90,10 @@ function createLoginClaimRouter(persistence) {
     }
 
     return res.status(404).json({ error: 'invalid_or_expired' });
-  });
+  };
+
+  router.get('/api/login/claim', claimHandler); // canonical (feature 009)
+  router.get('/api/mcp/login/claim', claimHandler); // compatibility alias (008)
 
   return router;
 }

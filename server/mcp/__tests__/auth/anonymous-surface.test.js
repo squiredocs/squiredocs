@@ -149,12 +149,41 @@ describe('anonymous MCP surface invariance', () => {
     expect(res.body).toEqual(BODY_MISSING);
   });
 
-  test('GET /mcp discovery response is unchanged', async () => {
+  // DELIBERATE amendment (feature 009, FR-014/FR-015): the discovery manifest
+  // gains an additive restApi block naming the plain-REST login door. This pin
+  // is intentionally rewritten (not tripped by a failing test): it now asserts
+  // restApi AND continues to pin every pre-existing field byte-identical.
+  test('GET /mcp discovery: pre-existing fields byte-identical + additive restApi block', async () => {
     const res = await request(app).get('/mcp').set('Host', HOST);
     expect(res.status).toBe(200);
+    // Pre-existing fields — byte-identical to before (008 contract preserved).
     expect(res.body.name).toBe('collab-editor-mcp');
+    expect(res.body.version).toBe('1.0.0');
     expect(res.body.protocolVersion).toBe('2024-11-05');
+    expect(res.body.capabilities).toEqual({ tools: {} });
     expect(res.body.authentication.type).toBe('oauth2');
     expect(res.body.authentication.authorizationUrl).toBe(`http://${HOST}/mcp/auth/authorize`);
+    expect(res.body.authentication.tokenUrl).toBe(`http://${HOST}/mcp/auth/token`);
+    expect(res.body.authentication.metadataUrl).toBe(
+      `http://${HOST}/.well-known/oauth-authorization-server`
+    );
+    expect(res.body.authentication.resource_metadata).toBe(
+      `http://${HOST}/.well-known/oauth-protected-resource/mcp`
+    );
+    // Additive restApi block: absolute, baseUrl-derived (FR-014/RD-7).
+    expect(res.body.restApi.loginStart).toBe(`http://${HOST}/api/login/start`);
+    expect(res.body.restApi.documentation).toBe(`http://${HOST}/agents.md#choose-your-channel`);
+  });
+
+  // The anonymous initialize instructions name the REST login path and stay well
+  // under the 2 KB client-truncation budget (feature 009, FR-016).
+  test('ANON_SERVER_INSTRUCTIONS names the REST login path and is < 2048 bytes', async () => {
+    expect(mcp.ANON_SERVER_INSTRUCTIONS).toMatch(/\/api\/login\/start/);
+    expect(Buffer.byteLength(mcp.ANON_SERVER_INSTRUCTIONS, 'utf8')).toBeLessThan(2048);
+    // The critical unauthenticated framing still leads.
+    expect(mcp.ANON_SERVER_INSTRUCTIONS.startsWith('This MCP session is UNAUTHENTICATED')).toBe(true);
+    // And the anonymous initialize still returns exactly this string.
+    const init = await rpc({ jsonrpc: '2.0', id: 20, method: 'initialize' });
+    expect(init.body.result.instructions).toBe(mcp.ANON_SERVER_INSTRUCTIONS);
   });
 });
