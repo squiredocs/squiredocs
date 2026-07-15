@@ -41,6 +41,7 @@ const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
 const { createLoginClaimRouter } = require('./api/mcp-login-claim');
+const { createLoginRouter } = require('./api/login');
 const mcpLoginRouter = require('./mcp/auth/login-router');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
@@ -1139,9 +1140,15 @@ app.use(createExportRouter(persistenceProvider));
 // PUT /api/docs/:docId/import (append|replace) — see api/docs-import.js
 app.use(createImportRouter(persistenceProvider));
 
-// API: One-shot MCP login credential claim — GET /api/mcp/login/claim
-// (feature 008). Handle-authenticated, not requireAuth. See api/mcp-login-claim.js
+// API: One-shot login credential claim — GET /api/login/claim (canonical) and
+// GET /api/mcp/login/claim (alias) (features 008/009). Handle-authenticated, not
+// requireAuth. See api/mcp-login-claim.js
 app.use(createLoginClaimRouter(persistenceProvider));
+
+// API: REST login pairing — POST /api/login/start, GET /api/login/status
+// (feature 009). Anonymous wrappers over the same login-service state machine as
+// the MCP login tools. See api/login.js
+app.use(createLoginRouter(persistenceProvider));
 
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
