@@ -35,10 +35,20 @@ describe('agents.md drift-guard', () => {
     expect(content).not.toContain('default `squire`');
   });
 
-  test('(d) contains exact claude mcp add one-liner', () => {
-    expect(content).toContain(
-      'claude mcp add --transport http squire https://squiredocs.com/mcp'
-    );
+  // (d) reworded for feature 009 / RD-9: the BARE (uncredentialed) one-liner
+  // survives ONLY in the MCP-native OAuth-discovery channel, where the client's
+  // OAuth supplies the credential. It must not appear in any shell-first or
+  // credential-holding path. The bare standalone form ends with `/mcp` on its
+  // own code line (newline right after), distinguishing it from the credentialed
+  // `/mcp \` --header continuation.
+  test('(d) the bare claude mcp add one-liner appears only in the OAuth-discovery channel', () => {
+    const bareStandalone = /claude mcp add --transport http squire https:\/\/squiredocs\.com\/mcp\n/;
+    const oauthStart = content.indexOf('### 3. MCP-native OAuth discovery');
+    expect(oauthStart).toBeGreaterThan(-1);
+    const beforeOauth = content.slice(0, oauthStart);
+    const oauthChannel = content.slice(oauthStart);
+    expect(oauthChannel).toMatch(bareStandalone);
+    expect(beforeOauth).not.toMatch(bareStandalone);
   });
 
   test('(e) names each of the core tools', () => {
@@ -116,8 +126,11 @@ describe('agents.md drift-guard', () => {
     expect(content).toMatch(/\/activate/);
   });
 
-  test('(p) documents the claim mechanics (endpoint, file, 0600)', () => {
-    expect(content).toContain('/api/mcp/login/claim');
+  // (p) updated for feature 009 / RD-4: the emitted claim recipe and docs name
+  // the canonical /api/login/claim path (the alias is a compatibility note only).
+  test('(p) documents the claim mechanics (canonical endpoint, file, 0600)', () => {
+    expect(content).toContain('/api/login/claim');
+    expect(content).not.toContain('/api/mcp/login/claim');
     expect(content).toMatch(/writes the credential to a file/i);
     expect(content).toMatch(/0600/);
   });
@@ -144,5 +157,45 @@ describe('agents.md drift-guard', () => {
   test('(t) shows credentialed registration (--header) and the REST-only alternative', () => {
     expect(content).toMatch(/claude mcp add --transport http squire https:\/\/squiredocs\.com\/mcp \\\n\s+--header "Authorization: Bearer/);
     expect(content).toMatch(/Work over REST immediately/);
+  });
+
+  // (u)-(y): feature 009 — the file is now a choose-your-channel guide. Shell-
+  // first REST login leads; the three /api/login/* endpoints are documented;
+  // registration is stated to be optional; credential-holders are steered to the
+  // --header form only; and the GET /api/docs list recipe is a documented surface.
+
+  test('(u) is structured as a choose-your-channel guide, shell-first leading', () => {
+    expect(content).toContain('## Choose your channel');
+    expect(content).toMatch(/a shell is all you need/i);
+    expect(content).toMatch(/nothing to install/i);
+    const restChannel = content.indexOf('### 1. Log in over REST');
+    const registerChannel = content.indexOf('### 2. Register the MCP server');
+    const oauthChannel = content.indexOf('### 3. MCP-native OAuth discovery');
+    expect(restChannel).toBeGreaterThan(-1);
+    // Shell-first REST comes before credentialed registration and OAuth discovery.
+    expect(restChannel).toBeLessThan(registerChannel);
+    expect(registerChannel).toBeLessThan(oauthChannel);
+  });
+
+  test('(v) documents the three REST login endpoints with runnable curl', () => {
+    expect(content).toContain('/api/login/start');
+    expect(content).toContain('/api/login/status');
+    expect(content).toContain('/api/login/claim');
+    expect(content).toMatch(/curl -fsS -X POST https:\/\/squiredocs\.com\/api\/login\/start/);
+  });
+
+  test('(w) states that registering an MCP server is NOT a prerequisite', () => {
+    expect(content).toMatch(/registering an MCP server is NOT a prerequisite/i);
+  });
+
+  test('(x) steers credential-holders to the --header form only (credentialed-only rule, RD-9)', () => {
+    expect(content).toMatch(/only recommended registration form/i);
+    expect(content).toMatch(/always pass the credential with\s+`?--header`?/i);
+  });
+
+  test('(y) documents the GET /api/docs list recipe (G1)', () => {
+    expect(content).toContain('`GET /api/docs`');
+    expect(content).toMatch(/list (the )?documents/i);
+    expect(content).toMatch(/curl -fsS -H "Authorization: Bearer sk_sqd_\.\.\." "https:\/\/squiredocs\.com\/api\/docs"/);
   });
 });
