@@ -30,5 +30,47 @@ Kustomize manifests (`valueFrom.secretKeyRef.name`, CronJob volume) and by the
 | `redis-auth` (NEW) | `redis-auth.enc.yaml` | redis (`--requirepass`), app (`REDIS_PASSWORD`, optional) | `REDIS_PASSWORD` |
 | `backup-s3cmd` (NEW) | `backup-s3cmd.enc.yaml` | backup CronJob (s3cmd config mount) | `s3cfg` |
 
+## Operator flows (FR-019)
+
+All commands run from the repo root so `.sops.yaml` (creation rule +
+`encrypted_regex`) is picked up automatically. The operator's age private key
+lives at the standard location (`$SOPS_AGE_KEY_FILE` or
+`~/.config/sops/age/keys.txt`).
+
+**(0) One-time key setup (runbook §0.2)** — the committed files ship encrypted to
+a THROWAWAY placeholder recipient (authoring), so the ops track must re-key first:
+
+```
+age-keygen -o ~/.config/sops/age/keys.txt         # generate the real operator key
+#   put its "# public key: age1..." into .sops.yaml (replace the placeholder)
+```
+
+**(a) Encrypt a new value / (re)create a secret from a gitignored source
+(runbook §0.4)**:
+
+```
+# author the plaintext Secret (real values) at k8s/secrets/<name>.enc.yaml, then:
+sops -e -i k8s/secrets/<name>.enc.yaml            # encrypts in place (values only)
+git add k8s/secrets/<name>.enc.yaml               # commit ciphertext
+```
+
+**(b) Decrypt-and-apply to a cluster (runbook §3.2)**:
+
+```
+sops -d k8s/secrets/<name>.enc.yaml | kubectl apply -n collab -f -
+```
+
+**(c) Encrypted-placeholder pattern** — for secrets whose live values only the
+ops track holds, commit a `.enc.yaml` with PLACEHOLDER values (still SOPS-
+encrypted, so it carries a `sops:` block and leaks nothing). The ops track
+replaces the values in §0.4. This is exactly how every file in `k8s/secrets/`
+ships from this feature.
+
+**Edit in place** (change one key): `sops k8s/secrets/<name>.enc.yaml` opens the
+decrypted buffer in `$EDITOR` and re-encrypts on save.
+
+**Re-key (break-glass, RD-13)**: add/rotate recipients in `.sops.yaml`, then
+`sops updatekeys k8s/secrets/*.enc.yaml`.
+
 ## Non-goals
 Generating real live secret values (ops track holds them); committing the age private key.
