@@ -91,9 +91,9 @@
 
 ## Phase 8: Polish & cross-cutting
 
-- [ ] T030 [P] Verify description/instructions budgets and error-shape consistency: both tool descriptions and both instruction strings under 2048 chars (T017 asserts); login-router and claim-router error payloads match the documented contracts exactly; no `console.log` of handles, codes, or tokens anywhere in the new modules (grep the diff).
-- [ ] T031 [P] Full serial backend gate + frontend suite: `npx jest --runInBand` green; `cd client && npx vitest run` green.
-- [ ] T032 Execute quickstart.md §2–§4 manually in the dev pod (real browser for /activate, including signed-out Google round-trip and lowercase-code entry) and record any deviations as fixes or spec follow-ups in `specs/008-mcp-login-bootstrap/checklists/`.
+- [X] T030 [P] Verify description/instructions budgets and error-shape consistency: both tool descriptions and both instruction strings under 2048 chars (T017 asserts); login-router and claim-router error payloads match the documented contracts exactly; no `console.log` of handles, codes, or tokens anywhere in the new modules (grep the diff).
+- [X] T031 [P] Full serial backend gate + frontend suite: `npx jest --runInBand` green; `cd client && npx vitest run` green.
+- [X] T032 Execute quickstart.md §2–§4 manually in the dev pod (real browser for /activate, including signed-out Google round-trip and lowercase-code entry) and record any deviations as fixes or spec follow-ups in `specs/008-mcp-login-bootstrap/checklists/`.
 
 ## Dependencies
 
