@@ -68,12 +68,16 @@ function hashToken(token) {
  * @param {Date|string} options.expiresAt - Expiry (must be in the future); omit for a non-expiring token
  * @param {string} options.mintedByDelegationId - Delegation that minted this token (create_access_token)
  * @param {string} options.mintedByApiTokenId - Parent API token that minted this token (create_access_token)
+ * @param {object} options.client - Optional pg client to run on (for a caller-managed
+ *   transaction — e.g. the MCP login claim, which mints the credential and marks the
+ *   authorization claimed atomically, rolling back the claim if the mint hits the cap).
+ *   Defaults to the module pool.
  * @returns {{ token: string, record: object }} Plaintext token (returned only once) and DB record
  */
 async function createToken(
   userId,
   name,
-  { scopes, expiresAt, mintedByDelegationId, mintedByApiTokenId } = {}
+  { scopes, expiresAt, mintedByDelegationId, mintedByApiTokenId, client } = {}
 ) {
   if (!name || !name.trim()) {
     throw new Error('Token name is required');
@@ -89,8 +93,10 @@ async function createToken(
     }
   }
 
+  const executor = client || pool;
+
   // Enforce max tokens per user
-  const countResult = await pool.query(
+  const countResult = await executor.query(
     'SELECT COUNT(*)::int AS count FROM mcp_api_tokens WHERE user_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())',
     [userId]
   );
@@ -103,7 +109,7 @@ async function createToken(
   const tokenPrefix = token.substring(0, TOKEN_PREFIX.length + 4); // sk_sqd_ + first 4 random chars
   const tokenScopes = scopes || DEFAULT_SCOPES;
 
-  const result = await pool.query(
+  const result = await executor.query(
     `INSERT INTO mcp_api_tokens
        (user_id, name, token_prefix, token_hash, scopes, expires_at,
         minted_by_delegation_id, minted_by_api_token_id)
@@ -159,6 +165,22 @@ async function verifyToken(plaintextToken) {
   ).catch(err => console.error('Failed to update last_used_at:', err));
 
   return record;
+}
+
+/**
+ * Count a user's active (unrevoked, unexpired) tokens. Mirrors the cap query in
+ * createToken. Used by the MCP login approval to pre-check the per-user token
+ * cap at the consent page (D7) so approval fails there with an actionable
+ * message instead of only failing later at mint time.
+ * @param {string} userId - User UUID
+ * @returns {Promise<number>}
+ */
+async function countActiveTokens(userId) {
+  const result = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM mcp_api_tokens WHERE user_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())',
+    [userId]
+  );
+  return result.rows[0].count;
 }
 
 /**
@@ -281,6 +303,7 @@ module.exports = {
   isApiToken,
   createToken,
   verifyToken,
+  countActiveTokens,
   listUserTokens,
   getTokenById,
   revokeToken,

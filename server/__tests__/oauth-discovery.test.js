@@ -117,9 +117,13 @@ describe('OAuth discovery + WWW-Authenticate challenge', () => {
   });
 
   test('(c) POST /mcp without Authorization → 401, WWW-Authenticate present, no error attr', async () => {
+    // Feature 008: the anonymous handshake methods (initialize/tools-list/ping)
+    // and the two login tools now succeed unauthenticated, so this challenge
+    // assertion uses a data-touching tools/call — every non-login anonymous
+    // request keeps the byte-identical missing-credential 401.
     const res = await request(app)
       .post('/mcp')
-      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+      .send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_documents', arguments: {} } });
     expect(res.status).toBe(401);
     const wwwAuth = res.headers['www-authenticate'];
     expect(wwwAuth).toBeDefined();

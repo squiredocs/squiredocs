@@ -98,4 +98,35 @@ describe('agents.md drift-guard', () => {
     expect(content).toMatch(/callback\?code=/);
     expect(content).toMatch(/paste it as\s+their next message/i);
   });
+
+  // Feature 008-mcp-login-bootstrap (research R12): the login bootstrap is the
+  // recommended in-session path; these pins keep agents.md truthful about the
+  // new surface. Tolerant regexes per the C8 precedent above.
+  test('(m) names both login and login_status', () => {
+    expect(content).toContain('`login`');
+    expect(content).toContain('`login_status`');
+  });
+
+  test('(n) frames login as the recommended path for in-session agents', () => {
+    // Tolerant of line wrapping between the two phrases.
+    expect(content).toMatch(/recommended path[\s\S]{0,60}inside a\s+session/i);
+  });
+
+  test('(o) mentions the /activate verification page', () => {
+    expect(content).toMatch(/\/activate/);
+  });
+
+  test('(p) documents the claim mechanics (endpoint, file, 0600)', () => {
+    expect(content).toContain('/api/mcp/login/claim');
+    expect(content).toMatch(/writes the credential to a file/i);
+    expect(content).toMatch(/0600/);
+  });
+
+  test('(q) carries the credential-handling rule (never print/echo/paste)', () => {
+    expect(content).toMatch(/never print, echo, or paste/i);
+  });
+
+  test('(r) states the tool count is eighteen', () => {
+    expect(content).toMatch(/eighteen/i);
+  });
 });

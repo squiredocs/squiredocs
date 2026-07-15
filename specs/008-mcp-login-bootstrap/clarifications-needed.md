@@ -111,3 +111,21 @@ See G3 above. Spec: FR-019, FR-021.
 ### D12 — One-shot approved payload / handle lifetime interpretation
 
 See G2 above. Spec: FR-010, FR-011.
+
+---
+
+## Implementation-time defaults (RATIFIED-BY-DEFAULT, Sam pre-authorized 2026-07-15)
+
+### D13 — Inline delivery when the user is at the API-token cap
+
+- **Question**: contracts/login-tools.md defines the inline payload and the REST
+  claim's 409 `token_limit` carve-out (FR-022), but not what `login_status({ handle,
+  inline: true })` returns when the mint hits the per-user token cap at delivery time.
+- **Chosen default**: inline delivery surfaces its own distinct result
+  `{ status: "token_limit", message: "…revoke a token in Settings → API Tokens, then
+  retry — the approval stays valid until its window expires." }`, and the claim rolls
+  back (the approval stays approved and claimable within the window), mirroring the REST
+  409. Every other inline failure collapses to the uniform `expired`.
+- **Rationale**: keeps inline symmetric with REST for the one actionable, spec-mandated
+  failure (FR-022) without inventing a new oracle; reachable only with a live approved
+  handle. The common case is already guarded by the D7 approval-time cap pre-check.

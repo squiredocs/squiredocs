@@ -43,6 +43,35 @@ If the client can't complete browser OAuth (headless scripts, CI jobs, older
 tools), use a personal access token from **Settings → AI Agent Access**
 (prefix `sk_sqd_`, or legacy `sqd_`) and pass it as a bearer credential.
 
+## Already inside a session? Log in with the `login` tool
+
+**This is the recommended path when you are an agent already running inside a
+session with no Squire credential yet.** Your MCP client already completed the
+protocol handshake, so even unauthenticated you can see and call exactly two
+tools — `login` and `login_status` — which bootstrap a real credential without
+you ever running the `claude mcp add` command yourself.
+
+1. Call `login({ agentName })` with a short display name for yourself. It
+   returns a one-time user code, a verification URL (`/activate`), and a
+   `handle`.
+2. Relay to your user: print the `/activate` URL **bare, on its own line**, and
+   tell them to open it, sign in, and enter the code. They approve a skeptical
+   consent page (your name is shown as self-declared and unverified).
+3. Poll `login_status({ handle })` politely — about every 5 seconds, and back
+   off whenever it returns `slow_down` — until it reports approved.
+4. On approval you receive a one-time claim recipe: a `curl` command against
+   `GET /api/mcp/login/claim` that writes the credential to a file with
+   owner-only (`0600`) permissions. Run it within the claim window. If you have
+   no shell, poll `login_status({ handle, inline: true })` once to receive the
+   credential in-band instead (opt-in, warned).
+5. **Never print, echo, or paste the credential** into the conversation. The
+   handle is safe transcript residue; the credential is not. Write the token
+   into your MCP client config or an env file, then have your user reconnect the
+   client (the restart-with-context steps above) so it loads the credential —
+   there is no mid-session toolset upgrade.
+
+Manage or revoke this access anytime in **Settings → AI Agent Access**.
+
 ## MCP endpoint
 
 ```
@@ -94,7 +123,11 @@ printed it or you are driving the flow yourself — present it like this:
 Additional tools include `list_document_versions`, `read_document_version`,
 `compare_document_versions`, `restore_document_version`,
 `set_document_version_name`, `set_document_title`, `share_document`,
-`get_collaborators`, `undo`, `redo`, and `create_access_token`.
+`get_collaborators`, `undo`, `redo`, and `create_access_token`. Two more —
+`login` and `login_status` — bootstrap a credential from inside a session (see
+"Already inside a session?" above) and are the only tools an unauthenticated
+session can call. Eighteen tools in all; an authenticated session sees them
+all, an anonymous one sees only the two login tools.
 
 `modify` and `compare_document_versions` take TypeScript scripts against a large
 scripting API that does not fit in their tool descriptions. **Always call
