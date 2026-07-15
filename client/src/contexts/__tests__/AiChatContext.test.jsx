@@ -295,6 +295,34 @@ describe('AiChatContext', () => {
     );
   });
 
+  // --------------- Markdown import interception (byte channel) ---------------
+
+  it('imports markdown files over REST and sends only a reference line, no attachment', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    // First post is the import; then the new-chat flow consumes its own mocks.
+    mockApi.post.mockResolvedValueOnce({ data: { docId: 'doc-1', title: 'My Spec', url: '/d/doc-1' } });
+    mockNewChatFlow('chat-md');
+
+    await act(async () => {
+      await result.current.sendMessage('here is my spec', [
+        { type: 'markdown-import', markdown: '# My Spec\n\nBody', filename: 'spec.md' },
+      ]);
+    });
+
+    // Raw bytes went to the importer, not to /api/chat/attachments
+    expect(mockApi.post).toHaveBeenCalledWith('/api/docs/import', '# My Spec\n\nBody', {
+      headers: { 'Content-Type': 'text/markdown' },
+    });
+    expect(mockApi.post).not.toHaveBeenCalledWith('/api/chat/attachments', expect.anything());
+    // The chat message carries only the reference line — no file parts
+    expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'here is my spec\n\nImported "spec.md" as a new document: [My Spec](/d/doc-1)',
+      files: undefined,
+    }));
+  });
+
   // --------------- Image file forwarding (feature 010: S3 references) ---------
 
   // Attachments upload to /api/chat/attachments first (feature 010, US3); the

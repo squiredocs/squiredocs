@@ -898,6 +898,18 @@
   text-align: center;
 }
 
+.ai-chat-preview-badge {
+  font-size: 7px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: var(--accent-subtle, var(--surface-sunken));
+  color: var(--accent, var(--text-secondary));
+  border: 1px solid var(--border-subtle);
+}
+
 /* ---------- File error ---------- */
 
 .ai-chat-file-error {

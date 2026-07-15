@@ -249,7 +249,7 @@ describe('AiChatInput', () => {
     ref.current.addFiles([file]);
 
     await waitFor(() => {
-      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Unsupported file type. Supported: images, PDF, TXT, CSV.');
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Unsupported file type. Supported: Markdown, images, PDF, TXT, CSV.');
     });
   });
 
@@ -340,6 +340,51 @@ describe('AiChatInput', () => {
     textarea.dispatchEvent(pasteEvent);
 
     expect(pasteEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
+  // --------------- Markdown import interception ---------------
+
+  it('accepts a .md file and stages it as a markdown-import entry with its text', async () => {
+    const ref = createRef();
+    const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    const file = new File(['# Spec\n\nBody'], 'spec.md', { type: 'text/markdown' });
+    ref.current.addFiles([file]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('spec.md');
+    });
+    expect(container.querySelector('.ai-chat-preview-badge')).toHaveTextContent('import');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('', [
+      expect.objectContaining({ type: 'markdown-import', filename: 'spec.md', markdown: '# Spec\n\nBody' }),
+    ]);
+  });
+
+  it('detects markdown by extension when the browser reports no MIME type', async () => {
+    const ref = createRef();
+    const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    const file = new File(['# Notes'], 'notes.markdown', { type: '' });
+    ref.current.addFiles([file]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('notes.markdown');
+    });
+    expect(container.querySelector('.ai-chat-file-error')).not.toBeInTheDocument();
+  });
+
+  it('rejects markdown files over 5MB with a specific error', async () => {
+    const ref = createRef();
+    const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    const file = createMockFile('big.md', 6 * 1024 * 1024, 'text/markdown');
+    ref.current.addFiles([file]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent('Markdown files must be under 5MB each.');
+    });
   });
 
   // --------------- "Add to Chat" selection references ---------------

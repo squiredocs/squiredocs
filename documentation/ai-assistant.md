@@ -23,6 +23,10 @@ Select text in a document and an "Add to Chat" tag appears. Click it to attach t
 
 You can attach up to five images to a chat message (PNG, JPEG, GIF, or WebP, up to 15 MB each) by dragging them in or using the file picker. Thumbnails preview before you send. The assistant can also place an image you attached into a document, and it can look at images and rendered SVG diagrams already in a document to answer questions about them.
 
+## Importing markdown files
+
+Drag a `.md` file into the chat (or attach it with the paperclip) and it is imported as a new document, up to 5 MB. The file's content goes directly to the markdown importer rather than into the conversation, so nothing is retyped or paraphrased on the way in — your message carries a link to the document that was created, and you can ask the assistant to work on it from there. See [Markdown export, import, and sync](/documentation/markdown) for the REST routes and two-way repository sync.
+
 ## Inline diffs and undo
 
 When the assistant edits a document, its change shows in the chat message as a color-coded diff: additions in green, deletions in red. Large changes have expandable sections.

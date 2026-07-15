@@ -115,8 +115,10 @@ const buildWelcomeKickoffPrompt = (firstName) => {
     + "Then make exactly one edit to the document: "
     + `if it does not already contain a "We're glad you're here" welcome line, insert "${welcomeSentence}" as a new paragraph immediately after the "Welcome to Squire Docs!" heading at the top (above the introductory paragraph); `
     + `if that welcome line is already present, do not add another — instead replace only the emoji at its end with a different one chosen from this list, picking one that differs from the emoji currently shown: ${WELCOME_EMOJIS.join(' ')}. `
-    + "Then focus on the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
-    + "document with a learning brief to get them started. Keep it warm, brief, and concrete."
+    + "Then focus on the main ask: Squire works best when they bring the markdown they already have. "
+    + "Invite them to drag a .md file into this chat (or paste markdown here) and it will be imported as a live, versioned document their whole team can edit. "
+    + "Also mention that coding agents like Claude Code can connect over MCP and sync documents to and from the markdown in their repo — the \"Connect your coding agents\" section in this document shows how. "
+    + "Keep it warm, brief, and concrete."
   );
 };
 
@@ -611,6 +613,19 @@ export function AiChatProvider({ children }) {
     [api],
   );
 
+  // Markdown interceptor (byte channel): a dropped/attached .md file never
+  // rides model context. The raw text goes to the REST importer, which creates
+  // a real document, and the chat message carries only the returned reference.
+  const importMarkdownFile = useCallback(
+    async (file) => {
+      const { data } = await api.post('/api/docs/import', file.markdown, {
+        headers: { 'Content-Type': 'text/markdown' },
+      });
+      return { filename: file.filename, title: data.title, url: data.url, docId: data.docId };
+    },
+    [api],
+  );
+
   // Stable wrapper so callers can pass a plain string instead of { text }
   // Auto-creates a chat if none is selected
   const sendMessage = useCallback(
@@ -618,12 +633,26 @@ export function AiChatProvider({ children }) {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
 
-      // Upload attachments first, replacing inline data: URLs with references so
-      // the chat request body stays small (feature 010, US3). Store the uploaded
-      // form for retry so a resend doesn't re-upload.
+      // Intercept markdown files: import each as a document over REST and fold
+      // a short reference line into the message text instead of attaching the
+      // content. Then upload the remaining attachments, replacing inline data:
+      // URLs with references so the chat request body stays small (feature 010,
+      // US3). Store the sent forms for retry so a resend neither re-imports nor
+      // re-uploads.
+      let text_ = text;
       let files_ = files || null;
       if (files?.length) {
-        files_ = await Promise.all(files.map(uploadChatAttachment));
+        const mdFiles = files.filter((f) => f?.type === 'markdown-import');
+        const rest = files.filter((f) => f?.type !== 'markdown-import');
+        if (mdFiles.length) {
+          const imported = await Promise.all(mdFiles.map(importMarkdownFile));
+          const lines = imported.map(
+            (r) => `Imported "${r.filename}" as a new document: [${r.title}](${r.url})`,
+          );
+          text_ = [text, ...lines].filter(Boolean).join('\n\n');
+          lastSentTextRef.current = text_;
+        }
+        files_ = rest.length ? await Promise.all(rest.map(uploadChatAttachment)) : null;
       }
       lastSentFilesRef.current = files_;
 
@@ -632,8 +661,8 @@ export function AiChatProvider({ children }) {
       // matching metadata (so the transcript renders chips, not raw delimiters).
       const refs = pendingRefs;
       const composedText = refs.length
-        ? `${serializeSelectionRefs(refs)}\n\n${text || ''}`.trimEnd()
-        : text;
+        ? `${serializeSelectionRefs(refs)}\n\n${text_ || ''}`.trimEnd()
+        : text_;
       const payload = {
         text: composedText || ' ',
         files: files_?.length ? files_ : undefined,
@@ -655,7 +684,7 @@ export function AiChatProvider({ children }) {
       // Auto-title the chat on the first message
       if (!titleSetRef.current.has(chatId)) {
         titleSetRef.current.add(chatId);
-        renameChat(chatId, generateTitle(text || (refs.length ? refs[0].text : 'Image')));
+        renameChat(chatId, generateTitle(text_ || (refs.length ? refs[0].text : 'Image')));
       }
 
       // Proactively refresh the token if it's expired or expiring soon so the
@@ -679,7 +708,7 @@ export function AiChatProvider({ children }) {
 
       chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs, uploadChatAttachment],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs, uploadChatAttachment, importMarkdownFile],
   );
 
   // Start the onboarding greeting: always opens a fresh chat scoped to the
