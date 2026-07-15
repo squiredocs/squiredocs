@@ -7,11 +7,12 @@
 
 // Mock S3 storage so no real bucket is touched. getObject echoes the key so we
 // can assert which object was fetched; isEnabled is toggleable for the 503 case.
-let s3Enabled = true;
-const putObjectMock = jest.fn(async () => {});
+// Vars are `mock`-prefixed so jest's factory-hoist allows referencing them.
+let mockS3Enabled = true;
+const mockPutObject = jest.fn(async () => {});
 jest.mock('../s3-images', () => ({
-  isEnabled: () => s3Enabled,
-  putObject: (...a) => putObjectMock(...a),
+  isEnabled: () => mockS3Enabled,
+  putObject: (...a) => mockPutObject(...a),
   getObject: jest.fn(async (key) => Buffer.from('BYTES::' + key)),
   cspImageSources: () => [],
 }));
@@ -36,7 +37,7 @@ function buildApp() {
 const PNG = 'data:image/png;base64,' + Buffer.from('hello-png').toString('base64');
 
 describe('chat attachments — upload endpoint (FR-016/019)', () => {
-  beforeEach(() => { s3Enabled = true; putObjectMock.mockClear(); });
+  beforeEach(() => { mockS3Enabled = true; mockPutObject.mockClear(); });
 
   it('stores bytes under chat-attachments/<userId>/… and returns a reference', async () => {
     const res = await request(buildApp())
@@ -48,9 +49,9 @@ describe('chat attachments — upload endpoint (FR-016/019)', () => {
     expect(res.body.reference).toMatch(/^attachment:chat-attachments\/user-42\/[0-9a-f-]{36}$/);
     expect(res.body.mediaType).toBe('image/png');
     // Bytes uploaded to the same key the reference encodes.
-    expect(putObjectMock).toHaveBeenCalledTimes(1);
+    expect(mockPutObject).toHaveBeenCalledTimes(1);
     const key = res.body.reference.slice('attachment:'.length);
-    expect(putObjectMock.mock.calls[0][0].key).toBe(key);
+    expect(mockPutObject.mock.calls[0][0].key).toBe(key);
   });
 
   it('rejects an unsupported image type with 400', async () => {
@@ -71,7 +72,7 @@ describe('chat attachments — upload endpoint (FR-016/019)', () => {
   });
 
   it('returns 503 with a clear message when S3 is unconfigured (FR-019)', async () => {
-    s3Enabled = false;
+    mockS3Enabled = false;
     const res = await request(buildApp())
       .post('/api/chat/attachments')
       .set('x-test-user', 'user-42')
