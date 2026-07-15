@@ -25,6 +25,9 @@ function init(dbPool) {
  * @param {string[]} options.scopes - Permission scopes (default: ['documents:read', 'documents:write'])
  * @param {Date} options.expiresAt - Expiration time (default: null, no expiration)
  * @param {object} options.metadata - Additional agent metadata
+ * @param {object} options.client - Optional pg client to run on (for a caller-managed
+ *   transaction — e.g. the MCP login approval, which must create the delegation and
+ *   flip the pending authorization to approved atomically). Defaults to the module pool.
  * @returns {Promise<object>} The created or updated delegation record
  */
 async function createDelegation(userId, agentId, agentName, options = {}) {
@@ -34,9 +37,11 @@ async function createDelegation(userId, agentId, agentName, options = {}) {
     scopes = ['documents:read', 'documents:write'],
     expiresAt = null,
     metadata = {},
+    client = null,
   } = options;
 
-  const result = await pool.query(
+  const executor = client || pool;
+  const result = await executor.query(
     `INSERT INTO agent_delegations (user_id, agent_id, agent_name, scopes, expires_at, agent_metadata)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (user_id, agent_id) DO UPDATE SET
