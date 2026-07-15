@@ -528,7 +528,6 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - **Sandboxed TypeScript execution** - Scripts run in an `isolated-vm` V8 isolate (128 MB memory limit) with zero Node.js API access, on a dedicated worker thread
 - **Type-safe editing** - Full TypeScript support with type definitions
 - **OAuth 2.0 authentication** with PKCE flow for secure agent access
-- **In-session login bootstrap** - An agent with no credential pairs via a device-style flow that is a first-class REST API (`POST /api/login/start` → `GET /api/login/status` → one-shot `GET /api/login/claim`; the anonymous MCP `login`/`login_status` tools are thin clients of the same state machine, and `/api/mcp/login/claim` remains an alias). The agent relays a short user code ("open /activate, enter XXXX-XXXX"), polls, and on approval claims a delegation-backed `sk_sqd_` token written straight to disk — the credential never transits model context or the transcript; the approved payload carries `nextSteps` (a credentialed `claude mcp add --header` one-liner plus the top REST recipes). Anonymous sessions see exactly the two login tools; every other unauthenticated request keeps the byte-identical 401 + OAuth discovery chain. Approvals create a standard delegation (revocable in Settings), the code/handle are one-shot short-TTL SHA-256-at-rest secrets, and the whole surface is rate-limited with no account-existence oracle
 - **API token authentication** - Personal access tokens (prefixed `sk_sqd_`; legacy `sqd_` tokens remain valid) as a simpler alternative to OAuth for programmatic access. Tokens work on the REST `/api` routes too, with scope enforcement: reads require `documents:read`, mutations require `documents:write`. MCP-connected agents can also self-mint temporary tokens (scoped at or below their own grant, auto-expiring, cascade-revoked with their minting credential) via the `create_access_token` tool
 - **Real-time collaboration** between humans and AI agents
 - **Permission enforcement** - agents respect document roles (Owner, Editor, Viewer)
@@ -537,10 +536,6 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 - **Automatic rollback** - Scripts fail safely without corrupting document
 
 ### Available Tools
-
-**Onboarding (the only tools an anonymous session can call):**
-- `login` - Start a device-style pairing: returns a one-time user code, the `/activate` verification URL, and a polling handle
-- `login_status` - Poll the pairing; on approval returns a one-shot curl claim recipe (or the credential in-band via explicit `inline: true` for shell-less agents, with a do-not-echo warning)
 
 **Document Management:**
 - `create_document` - Create new documents with a title (use `modify` to add content)
@@ -612,7 +607,7 @@ curl -H "Authorization: Bearer sk_sqd_..." \
   "https://squiredocs.com/api/docs/<docId>/export?format=markdown" -o doc.md
 ```
 
-Token scopes are enforced on REST routes: `GET` requests require `documents:read`, mutating requests require `documents:write` (personal tokens get both by default; agent-minted tokens default to read-only). A request with an insufficient scope fails with `403 {"code": "INSUFFICIENT_SCOPE"}` including a re-mint hint. Browser sessions and OAuth flows are unaffected. Agents connected over MCP can fetch this recipe with `get_tool_documentation({ tool: "rest_api" })` (`export_api` remains an alias).
+Token scopes are enforced on REST routes: `GET` requests require `documents:read`, mutating requests require `documents:write` (new tokens get both by default). A request with an insufficient scope fails with `403 {"code": "INSUFFICIENT_SCOPE"}`. Browser sessions and OAuth flows are unaffected. Agents connected over MCP can fetch this recipe with `get_tool_documentation({ tool: "export_api" })`.
 
 ### Documentation
 

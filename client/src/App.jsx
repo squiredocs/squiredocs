@@ -10,7 +10,6 @@ import EditorView from './components/EditorView';
 import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
 import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
-import ActivatePage from './pages/ActivatePage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import AdminPage from './pages/AdminPage';
@@ -32,12 +31,6 @@ function parseRoute() {
   }
   if (path === '/authorize') {
     return { view: 'authorize', docGuid: null };
-  }
-
-  // MCP login activation / consent page (feature 008), reachable signed-out
-  // like /authorize.
-  if (path === '/activate') {
-    return { view: 'activate', docGuid: null };
   }
 
   // Check for /login or /signup path
@@ -255,11 +248,6 @@ function AppContent() {
   // Authorization page - for OAuth agent authorization
   if (route.view === 'authorize') {
     return <AuthorizePage />;
-  }
-
-  // MCP login activation / consent page (feature 008), reachable signed-out
-  if (route.view === 'activate') {
-    return <ActivatePage />;
   }
 
   // Signup page - redirect to docs if already authenticated

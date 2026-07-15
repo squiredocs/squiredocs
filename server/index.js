@@ -40,9 +40,6 @@ const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
-const { createLoginClaimRouter } = require('./api/mcp-login-claim');
-const { createLoginRouter } = require('./api/login');
-const mcpLoginRouter = require('./mcp/auth/login-router');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
@@ -62,16 +59,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Trust proxy to get correct protocol (https) from X-Forwarded-Proto header
-// and the real client address from X-Forwarded-For. The MCP login flow's
-// per-IP rate limits and pending-auth caps (server/mcp/auth/rate-limit.js,
-// feature 008) key on req.ip, so this must NEVER be `true`: trusting the whole
-// chain lets an attacker mint a fresh req.ip per request with a forged
-// X-Forwarded-For and walk past every per-IP limit (008 review, MEDIUM).
-// Default 1 = exactly the Traefik ingress hop in front of squiredocs.com;
-// override with TRUST_PROXY (hop count, or an Express subnet/CIDR list) if
-// the topology gains hops.
-const trustProxy = process.env.TRUST_PROXY ?? '1';
-app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+// This is needed when behind a reverse proxy/load balancer that terminates SSL
+app.set('trust proxy', true);
 
 // Reject malformed URLs early (e.g. /%c0 — invalid UTF-8 from scanners)
 // Express's router calls decodeURIComponent on path params, which throws
@@ -377,10 +366,6 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
 
 // Mount MCP OAuth routes first (more specific path takes precedence)
 app.use('/mcp/auth', mcp.oauthRouter);
-
-// Mount MCP login-consent routes (feature 008) BEFORE the /mcp router — otherwise
-// /mcp/login/* would match the JSON-RPC endpoint, same reason /mcp/auth is first.
-app.use('/mcp/login', mcpLoginRouter);
 
 // Mount MCP routes
 app.use('/mcp', mcp.router);
@@ -1140,16 +1125,6 @@ app.use(createExportRouter(persistenceProvider));
 // PUT /api/docs/:docId/import (append|replace) — see api/docs-import.js
 app.use(createImportRouter(persistenceProvider));
 
-// API: One-shot login credential claim — GET /api/login/claim (canonical) and
-// GET /api/mcp/login/claim (alias) (features 008/009). Handle-authenticated, not
-// requireAuth. See api/mcp-login-claim.js
-app.use(createLoginClaimRouter(persistenceProvider));
-
-// API: REST login pairing — POST /api/login/start, GET /api/login/status
-// (feature 009). Anonymous wrappers over the same login-service state machine as
-// the MCP login tools. See api/login.js
-app.use(createLoginRouter(persistenceProvider));
-
 // API: Get document content at a specific version
 app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
   try {
@@ -1479,19 +1454,6 @@ if (fs.existsSync(clientBuildPath)) {
 
 // Express error-handling middleware (safety net for unhandled errors)
 app.use((err, req, res, next) => {
-  // Body-parser failures are client errors, not server faults: malformed JSON
-  // (entity.parse.failed) → 400, oversized body → 413. Without this, a JSON
-  // typo in a curl call — routine on the anonymous /api/login front door —
-  // returned 500 and paged the exception notifier (009 review, LOW).
-  if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
-    if (!res.headersSent) {
-      const tooLarge = err.type === 'entity.too.large';
-      res.status(tooLarge ? 413 : 400).json({
-        error: tooLarge ? 'Request body too large' : 'Malformed request body',
-      });
-    }
-    return;
-  }
   console.error('Unhandled Express error:', err);
   notifyException(err, { req, source: 'express-middleware' });
   if (!res.headersSent) {

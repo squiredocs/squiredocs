@@ -39,10 +39,6 @@ describe('Tool Module Smoke Tests', () => {
     'set-document-version-name',
     'restore-document-version',
     'compare-document-versions',
-
-    // MCP-native onboarding (feature 008)
-    'login',
-    'login-status',
   ];
 
   describe('Module Loading', () => {
@@ -218,9 +214,6 @@ describe('Tool Registry Integration', () => {
       'set_document_version_name',
       'restore_document_version',
       'compare_document_versions',
-      // MCP-native onboarding (feature 008)
-      'login',
-      'login_status',
     ];
 
     // Check each tool is registered
@@ -259,19 +252,5 @@ describe('Tool Registry Integration', () => {
     const toolRegistry = require('../../tools/index');
     const unknownTool = toolRegistry.getTool('unknown_tool_name');
     expect(unknownTool).toBeNull();
-  });
-});
-
-describe('Server instructions budget', () => {
-  // MCP clients (e.g. Claude Code) truncate server instructions at 2KB, so both
-  // the authenticated and the anonymous variants must fit (feature 008).
-  const MAX_INSTRUCTION_CHARS = 2048;
-
-  test('SERVER_INSTRUCTIONS and ANON_SERVER_INSTRUCTIONS both fit the 2KB budget', () => {
-    const mcp = require('../../index');
-    expect(typeof mcp.SERVER_INSTRUCTIONS).toBe('string');
-    expect(typeof mcp.ANON_SERVER_INSTRUCTIONS).toBe('string');
-    expect(mcp.SERVER_INSTRUCTIONS.length).toBeLessThanOrEqual(MAX_INSTRUCTION_CHARS);
-    expect(mcp.ANON_SERVER_INSTRUCTIONS.length).toBeLessThanOrEqual(MAX_INSTRUCTION_CHARS);
   });
 });

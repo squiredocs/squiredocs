@@ -5,15 +5,14 @@
  * Uses Streamable HTTP transport with JSON-RPC style messages.
  */
 const express = require('express');
-const { buildChallenge, requireAgentAuth, requireScope, optionalAgentAuth } = require('./auth/middleware');
+const { requireAgentAuth, requireScope, optionalAgentAuth } = require('./auth/middleware');
 const { requireAuth } = require('../auth/middleware');
-const { generateAgentToken, extractAgentToken } = require('./auth/jwt');
+const { generateAgentToken } = require('./auth/jwt');
 const delegation = require('./auth/delegation');
 const registeredAgents = require('./auth/registered-agents');
 const oauthFlow = require('./auth/oauth-flow');
 const oauthRouter = require('./auth/oauth-router');
 const apiTokens = require('./auth/api-tokens');
-const loginService = require('./auth/login-service');
 const toolRegistry = require('./tools');
 const { buildBaseUrl } = require('../url');
 const { notifyException } = require('../exception-notifier');
@@ -39,50 +38,7 @@ function init(persistence) {
   registeredAgents.init(pool);
   oauthFlow.init(pool);
   apiTokens.init(pool);
-  loginService.init(pool);
   toolRegistry.init(persistence);
-}
-
-/**
- * Send the byte-identical "missing credential" 401 challenge.
- *
- * Reuses buildChallenge and the exact JSON body that requireAgentAuth emits, so
- * every non-login anonymous request stays indistinguishable from pre-feature
- * behavior (anonymous-surface contract; SC-003).
- */
-function sendMissingChallenge(req, res) {
-  res.set('WWW-Authenticate', buildChallenge(req, { branch: 'missing' }));
-  return res.status(401).json({
-    error: 'No agent token provided',
-    code: 'MISSING_TOKEN',
-  });
-}
-
-/**
- * Auth wrapper for the anonymous surface (feature 008, contract
- * anonymous-surface.md). When a credential is PRESENT, defers entirely to
- * requireAgentAuth — so the authenticated path and the invalid/expired 401
- * branches are byte-identical. When ABSENT, lets the request proceed as
- * anonymous (req.agentToken stays unset); the JSON-RPC dispatch then allows only
- * initialize/tools-list/ping and tools/call for the two login tools, and issues
- * the byte-identical missing-credential 401 for everything else.
- */
-function anonymousAwareAuth(req, res, next) {
-  const token = extractAgentToken({
-    authHeader: req.headers.authorization,
-    queryToken: req.query?.token,
-  });
-  if (token) {
-    return requireAgentAuth(req, res, next);
-  }
-  return next();
-}
-
-/** Tool list filtered for the caller: anonymous sees only the two login tools. */
-function toolListFor(isAnonymous) {
-  const all = toolRegistry.getToolList();
-  if (!isAnonymous) return all;
-  return all.filter((t) => toolRegistry.ANON_TOOL_NAMES.includes(t.name));
 }
 
 /**
@@ -149,13 +105,6 @@ router.get('/', (req, res) => {
       metadataUrl: `${baseUrl}/.well-known/oauth-authorization-server`,
       resource_metadata: `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
     },
-    // Additive (feature 009, FR-014/RD-7): the manifest now names the plain-REST
-    // login door. Every pre-existing field above is byte-identical; strict
-    // consumers rejecting unknown fields is an accepted, deliberate amendment.
-    restApi: {
-      loginStart: `${baseUrl}/api/login/start`,
-      documentation: `${baseUrl}/agents.md#choose-your-channel`,
-    },
   });
 });
 
@@ -164,23 +113,14 @@ router.get('/', (req, res) => {
  * Handles JSON-RPC style messages
  * Requires authentication for all operations
  */
-router.post('/', anonymousAwareAuth, async (req, res) => {
+router.post('/', requireAgentAuth, async (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
-
-  // A request with no credential proceeds anonymously (req.agentToken unset).
-  const isAnonymous = !req.agentToken;
 
   // Log all MCP requests for debugging
   console.log(`[MCP] ${method} - authenticated: ${!!req.agentToken}`);
 
-  // Validate JSON-RPC format. Anonymous callers get the byte-identical
-  // missing-credential 401 here too: pre-feature-008, EVERY unauthenticated
-  // request 401'd regardless of body shape, and the anonymous-surface contract
-  // (SC-003) promises non-login clients observe no difference (008 review, LOW).
+  // Validate JSON-RPC format
   if (jsonrpc !== '2.0') {
-    if (isAnonymous) {
-      return sendMissingChallenge(req, res);
-    }
     return res.json(jsonRpcError(id, INVALID_REQUEST, 'Invalid JSON-RPC version'));
   }
 
@@ -189,39 +129,24 @@ router.post('/', anonymousAwareAuth, async (req, res) => {
 
     switch (method) {
       case 'initialize':
-        result = handleInitialize(params, isAnonymous);
+        result = handleInitialize(params);
         break;
 
       case 'tools/list':
-        result = handleToolsList(isAnonymous);
+        result = handleToolsList();
         break;
 
-      case 'tools/call': {
-        const toolName = params && params.name;
-        // Anonymous callers may only invoke the two login tools; everything else
-        // gets the byte-identical missing-credential 401 (FR-001/FR-002).
-        if (isAnonymous && !toolRegistry.ANON_TOOL_NAMES.includes(toolName)) {
-          return sendMissingChallenge(req, res);
-        }
-        // Add baseUrl + clientIp to the tool context (authenticated login calls
-        // need clientIp too, D2). Anonymous calls get a synthetic context.
-        const context = isAnonymous
-          ? { isAnonymous: true, baseUrl: buildBaseUrl(req), clientIp: req.ip }
-          : Object.assign(req.agentToken, { baseUrl: buildBaseUrl(req), clientIp: req.ip });
-        result = await handleToolCall(params, context);
+      case 'tools/call':
+        // Add baseUrl to agentToken for tools that need to construct URLs
+        req.agentToken.baseUrl = buildBaseUrl(req);
+        result = await handleToolCall(params, req.agentToken);
         break;
-      }
 
       case 'ping':
         result = {};
         break;
 
       default:
-        // Anonymous unknown method → byte-identical missing 401 (contract);
-        // authenticated unknown method keeps the JSON-RPC method-not-found error.
-        if (isAnonymous) {
-          return sendMissingChallenge(req, res);
-        }
         return res.json(jsonRpcError(id, METHOD_NOT_FOUND, `Unknown method: ${method}`));
     }
 
@@ -259,27 +184,10 @@ const SERVER_INSTRUCTIONS =
   + 'yourself with create_access_token, then see '
   + 'get_tool_documentation({ tool: "rest_api" }).';
 
-// Sent to anonymous (credential-less) MCP clients at initialize. Kept well under
-// the 2KB budget. States that the session is unauthenticated, names the two
-// available tools and both escape hatches, and pins the credential-handling rule.
-const ANON_SERVER_INSTRUCTIONS =
-  'This MCP session is UNAUTHENTICATED — connected but with no credential, so '
-  + 'only two tools are available: login and login_status. To gain the full '
-  + 'document toolset, either (a) call login({ agentName }) to onboard: relay '
-  + 'the returned code and the /activate URL to your user (print the URL bare on '
-  + 'its own line), then poll login_status({ handle }) every 5 seconds — respect '
-  + 'any slow_down — until approved, and follow the one-time claim recipe to '
-  + 'write the credential to a file; then reconnect. Or (b) use your MCP client\'s '
-  + 'native OAuth / authenticate action. NEVER move the credential through this '
-  + 'conversation: do not print, echo, or paste it. The handle is safe, '
-  + 'short-lived transcript residue. The same login flow is also a plain-REST '
-  + 'API (POST /api/login/start, GET /api/login/status, GET /api/login/claim) '
-  + 'for shell agents that prefer curl over MCP tool calls.';
-
 /**
  * Handle initialize method
  */
-function handleInitialize(params, isAnonymous = false) {
+function handleInitialize(params) {
   return {
     protocolVersion: PROTOCOL_VERSION,
     serverInfo: {
@@ -289,16 +197,16 @@ function handleInitialize(params, isAnonymous = false) {
     capabilities: {
       tools: {},
     },
-    instructions: isAnonymous ? ANON_SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS,
+    instructions: SERVER_INSTRUCTIONS,
   };
 }
 
 /**
  * Handle tools/list method
  */
-function handleToolsList(isAnonymous = false) {
+function handleToolsList() {
   return {
-    tools: toolListFor(isAnonymous),
+    tools: toolRegistry.getToolList(),
   };
 }
 
@@ -347,21 +255,13 @@ async function handleToolCall(params, agentToken) {
     console.error(`Tool "${name}" execution error:`, error);
     notifyException(error, { source: 'mcp-tool', extra: { tool: name } });
 
-    // Anonymous callers never get internal error detail: the login tools
-    // return their contract outcomes (rate_limited, expired, ...) as normal
-    // results, so an exception here is unexpected — and raw messages can name
-    // schema/infrastructure internals (observed in prod: a missing-migration
-    // relation error surfaced verbatim to an unauthenticated caller).
-    const text = agentToken.isAnonymous
-      ? 'The login service is temporarily unavailable. Try again shortly.'
-      : error.message; // executor.js messages carry stack traces and hints
-
     return {
       is_error: true,
       content: [
         {
           type: 'text',
-          text,
+          // error.message from executor.js already includes stack trace and hints
+          text: error.message,
         },
       ],
     };
@@ -374,14 +274,10 @@ async function handleToolCall(params, agentToken) {
 
 /**
  * POST /mcp/tools/list - List available tools (convenience endpoint)
- *
- * Anonymous callers see only the two login tools (same filter as JSON-RPC
- * tools/list) — this convenience endpoint previously enumerated the full toolset
- * to anyone; the anonymous surface must not leak the full tool inventory.
  */
-router.post('/tools/list', optionalAgentAuth, (req, res) => {
+router.post('/tools/list', (req, res) => {
   res.json({
-    tools: toolListFor(!req.agentToken),
+    tools: toolRegistry.getToolList(),
   });
 });
 
@@ -390,7 +286,7 @@ router.post('/tools/list', optionalAgentAuth, (req, res) => {
  *
  * Returns MCP tool result format for consistency with the main endpoint.
  */
-router.post('/tools/call', anonymousAwareAuth, async (req, res) => {
+router.post('/tools/call', requireAgentAuth, async (req, res) => {
   try {
     const { name, arguments: args } = req.body;
 
@@ -401,15 +297,8 @@ router.post('/tools/call', anonymousAwareAuth, async (req, res) => {
       });
     }
 
-    const isAnonymous = !req.agentToken;
-    // Anonymous callers may only invoke the two login tools; everything else
-    // gets the byte-identical missing-credential 401 (same as JSON-RPC).
-    if (isAnonymous && !toolRegistry.ANON_TOOL_NAMES.includes(name)) {
-      return sendMissingChallenge(req, res);
-    }
-
-    // Log the action (only when a delegation is present — anonymous calls skip it)
-    if (!isAnonymous && req.agentToken.delegationId) {
+    // Log the action
+    if (req.agentToken.delegationId) {
       try {
         await delegation.logAgentAction(req.agentToken.delegationId, `tool:${name}`, {
           metadata: { args },
@@ -419,12 +308,10 @@ router.post('/tools/call', anonymousAwareAuth, async (req, res) => {
       }
     }
 
-    // Build the tool context: baseUrl + clientIp for both, synthetic for anonymous.
-    const context = isAnonymous
-      ? { isAnonymous: true, baseUrl: buildBaseUrl(req), clientIp: req.ip }
-      : Object.assign(req.agentToken, { baseUrl: buildBaseUrl(req), clientIp: req.ip });
+    // Add baseUrl to agentToken for tools that need to construct URLs
+    req.agentToken.baseUrl = buildBaseUrl(req);
 
-    const result = await toolRegistry.executeTool(name, args || {}, context);
+    const result = await toolRegistry.executeTool(name, args || {}, req.agentToken);
     res.json({
       content: toToolResultContent(result),
     });
@@ -554,7 +441,4 @@ module.exports = {
   router,
   oauthRouter,
   init,
-  // Exported for the tool-inventory / instruction-budget guard (T017).
-  SERVER_INSTRUCTIONS,
-  ANON_SERVER_INSTRUCTIONS,
 };
