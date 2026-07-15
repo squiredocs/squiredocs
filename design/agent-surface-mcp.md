@@ -9,7 +9,7 @@ How external AI agents read, edit, and manage documents: the MCP server and its 
 
 ## Transport and tools
 
-An Express router at `/mcp` speaks JSON-RPC (streamable HTTP); `mcp-stdio-bridge.js` is a thin stdio proxy for CLI clients. Sixteen tools (`server/mcp/tools/`): document CRUD and sharing (list/create/share/set_title), reading (read_document, get_collaborators, get_tool_documentation), editing (modify, undo, redo), version history (list/read/name/restore/compare versions), and create_access_token. Each declares a required scope — `documents:read` or `documents:write` — enforced by the registry, with per-document access re-checked inside every tool. Long tool documentation is served via `get_tool_documentation` because MCP clients truncate descriptions around 2 KB.
+An Express router at `/mcp` speaks JSON-RPC (streamable HTTP); `mcp-stdio-bridge.js` is a thin stdio proxy for CLI clients. Eighteen tools (converged 2026-07-15, feature 008) (`server/mcp/tools/`): document CRUD and sharing (list/create/share/set_title), reading (read_document, get_collaborators, get_tool_documentation), editing (modify, undo, redo), version history (list/read/name/restore/compare versions), create_access_token, and the anonymous-callable onboarding pair (login, login_status — the only tools an unauthenticated session sees; see "MCP-native onboarding" below). Each declares a required scope — `documents:read` or `documents:write` — enforced by the registry, with per-document access re-checked inside every tool. Long tool documentation is served via `get_tool_documentation` because MCP clients truncate descriptions around 2 KB.
 
 ## Agents are collaborators, not a backdoor
 
