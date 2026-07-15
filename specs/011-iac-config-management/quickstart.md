@@ -43,6 +43,44 @@ Expected: an `import` binding for distribution `<cloudfront-distribution-id>` is
 1. `terraform fmt -check` / `terraform validate` if a Terraform binary exists; `kubectl kustomize` if kubectl exists but kustomize does not.
 2. Else **structured manual review**: HCL syntax/reference review against the FRs (every resource/variable/data source referenced exists and resolves); YAML/kustomization cross-reference (every `resources:` entry exists, every patch `target` resolves, zero `${...}` in the conceptual render). Record "validators unavailable — deferred to ops track" in the implementation notes.
 
+## Implementation notes — verification record (2026-07-15, IMPLEMENT agent)
+
+**Which rung actually ran.** The dev pod ships without `tofu`/`kustomize`/`sops`/
+`age` (T002 confirmed them absent), but the pod HAS outbound network, so the
+implement agent installed pinned binaries and ran the **PREFERRED** gate — not a
+fallback — for the whole feature:
+
+| Validator | Version | Result |
+|-----------|---------|--------|
+| `tofu fmt -check -recursive` | OpenTofu 1.10.0 (arm64) | **CLEAN** (0 files) |
+| `tofu validate` (after `tofu init -backend=false`, providers fetched) | OpenTofu 1.10.0 + hashicorp/aws ~>5.60 | **Success! The configuration is valid.** |
+| `kustomize build k8s/overlays/minikube` | kustomize 5.4.3 (arm64) | OK — 15 objects, **0** `${...}` |
+| `kustomize build k8s/overlays/aws-prod` | kustomize 5.4.3 (arm64) | OK — 19 objects, **0** `${...}` |
+| `sops -e`/`-d` round-trip | sops 3.9.0 + age 1.2.0 (arm64) | 7/7 files encrypted; decrypt round-trips; **0** plaintext values |
+
+**Verified assertions on the real renders**: aws-prod carries the restricted
+securityContext quadruple on all 5 workloads (app/postgres/redis/migrate/backup),
+PSS `enforce=restricted`, a `default-deny-all` NetworkPolicy + 5 scoped allows,
+3/3 non-app images `@sha256:`-pinned, redis `--requirepass`/maxmemory, postgres
+`-c` tuning (no-op env removed), app readiness `/ready` + liveness `/health`,
+backup CronJob `concurrencyPolicy: Forbid`. minikube renders behaviorally
+identical (collab:latest, `/health` both probes, premium-rwo SCs, PVC 20Gi/1Gi,
+passwordless redis, PSS warn=baseline, no backup CronJob). OpenTofu tree: import
+binding for `<cloudfront-distribution-id>` present, **0** managed `aws_route53_zone`, single
+managed `app.squiredocs.com` A record, `operator_cidr` rejects `0.0.0.0/0`.
+
+**What the ops track MUST still re-run before any apply** (authoring could not
+resolve these):
+1. Replace the **placeholder third-party image digests** (`sha256:0000…` for
+   `pgvector/pgvector`, `redis`, `collab-backup`) with real resolved arm64
+   digests (runbook §3.2). The pins are structurally correct; only the SHAs are
+   placeholders.
+2. Replace the **placeholder `.sops.yaml` age recipient** with the real operator
+   public key and re-encrypt every `k8s/secrets/*.enc.yaml` with real values
+   (runbook §0.2/§0.4). The committed ciphertext holds placeholder values only.
+3. `tofu init` (real S3 backend) → `tofu import` the CloudFront distribution →
+   `tofu plan` reconciliation (runbook §2.1–2.3) before `tofu apply`.
+
 ## What this quickstart does NOT do
 
 No `tofu apply`, no `kubectl apply` to a real cluster, no image push, no cutover. The end-to-end migration is the runbook (`runbook.md`), executed by the ops track — gated on an ECR image containing feature 010.
