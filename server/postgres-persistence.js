@@ -11,9 +11,22 @@ class PostgresPersistence {
    * @param {object} opts - Additional options
    */
   constructor(connectionStringOrConfig, opts = {}) {
-    const poolConfig = typeof connectionStringOrConfig === 'string'
+    const baseConfig = typeof connectionStringOrConfig === 'string'
       ? { connectionString: connectionStringOrConfig }
-      : connectionStringOrConfig;
+      : { ...connectionStringOrConfig };
+
+    // Bound the app pool (feature 010, US5/FR-023, RD-7). App-pool sessions only —
+    // migrations (script/migrate.js) and backup processes open their own
+    // connections and are untouched.
+    //   max                     — cap concurrent connections
+    //   connectionTimeoutMillis — fail fast when the pool is saturated
+    //   statement_timeout       — server-side kill for runaway queries (per session)
+    const poolConfig = {
+      ...baseConfig,
+      max: Number(process.env.DB_POOL_MAX ?? 20),
+      connectionTimeoutMillis: Number(process.env.DB_POOL_ACQUIRE_TIMEOUT_MS ?? 5000),
+      statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30000),
+    };
     this.pool = new Pool(poolConfig);
 
     // Extract database name for safety checks on destructive operations
@@ -668,6 +681,35 @@ class PostgresPersistence {
       return result.rows[0] || null;
     } finally {
       client.release();
+    }
+  }
+
+  /**
+   * Trivial reachability probe for GET /ready (feature 010, US4). Acquires a
+   * connection, runs `SELECT 1` under a short timeout, and releases the
+   * connection immediately — it must never hold a pool connection past the
+   * check (Edge Cases). Rejects (or resolves false) if Postgres is unreachable
+   * or slow.
+   * @param {number} [timeoutMs=2000] - overall deadline for the probe
+   * @returns {Promise<boolean>} true when Postgres answered within the deadline
+   */
+  async ping(timeoutMs = 2000) {
+    let client;
+    let timer;
+    try {
+      // Race connection-acquire + query against a hard deadline so a wedged
+      // pool/datastore can't stall readiness (datastore-down ⇒ 503 within ~2s).
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('ping timeout')), timeoutMs);
+      });
+      client = await Promise.race([this.pool.connect(), timeout]);
+      await Promise.race([client.query('SELECT 1'), timeout]);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+      if (client) client.release();
     }
   }
 

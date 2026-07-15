@@ -1,6 +1,11 @@
 const Redis = require('ioredis');
 
-// Redis connection configuration
+// Redis connection configuration.
+// REDIS_PASSWORD (feature 010, US5/FR-024): honor it when set so both the shared
+// client and every pub/sub client authenticate against a `--requirepass` Redis.
+// When unset the config is byte-identical to the pre-feature behavior — the
+// `password` key is not present at all. (Provisioning the password + running
+// Redis with --requirepass is feature 011's job; the app is only made capable.)
 const REDIS_CONFIG = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT, 10) || 6379,
@@ -10,6 +15,7 @@ const REDIS_CONFIG = {
     const delay = Math.min(times * 50, 2000);
     return delay;
   },
+  ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
 };
 
 // Singleton Redis client

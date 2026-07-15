@@ -44,6 +44,7 @@ function checkRedirectUri(agent, redirectUri) {
     error: 'redirect_uri is not allowed for this agent',
   };
 }
+const rateLimit = require('../../rate-limit');
 const { validateCodeChallenge, generateAuthCode, hashAuthCode, validateCodeVerifier } = require('./pkce');
 const { generateAgentToken } = require('./jwt');
 const { createDelegation, getActiveDelegation } = require('./delegation');
@@ -110,6 +111,14 @@ async function handleAuthorize(req, res) {
   // 3. Get or create registered agent (allow dynamic registration)
   let agent = await getRegisteredAgent(clientId);
   if (!agent) {
+    // Registration admission (feature 010, US2/FR-011): this auto-register path
+    // creates a new row, so it consumes the same per-IP `register` budget + the
+    // global daily cap as POST /register. Over budget ⇒ 429, no row written.
+    const admission = await rateLimit.checkRegistrationAdmission(rateLimit.clientIp(req));
+    if (!admission.allowed) {
+      if (admission.retryAfterSec) res.set('Retry-After', String(admission.retryAfterSec));
+      return res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
+    }
     // Auto-register new agents on first authorization request
     const result = await registerAgent({
       id: clientId,
@@ -211,6 +220,13 @@ async function handleApprove(req, res) {
   // 3. Get or create registered agent (allow dynamic registration)
   let agent = await getRegisteredAgent(agent_client_id);
   if (!agent) {
+    // Registration admission (feature 010, US2/FR-011): shares the per-IP
+    // `register` budget + global daily cap with /register and /authorize.
+    const admission = await rateLimit.checkRegistrationAdmission(rateLimit.clientIp(req));
+    if (!admission.allowed) {
+      if (admission.retryAfterSec) res.set('Retry-After', String(admission.retryAfterSec));
+      return res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
+    }
     // Auto-register new agents if they don't exist
     const result = await registerAgent({
       id: agent_client_id,

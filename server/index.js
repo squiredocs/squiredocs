@@ -10,6 +10,10 @@ const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { PostgresPersistence } = require('./postgres-persistence');
 const redisPubSub = require('./redis-pubsub');
+const { closeRedis, isRedisReady } = require('./redis');
+const lifecycle = require('./lifecycle');
+const rateLimit = require('./rate-limit');
+const { createShutdown } = require('./shutdown');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
@@ -40,6 +44,7 @@ const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
+const { createChatAttachmentsRouter } = require('./api/chat-attachments');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
@@ -59,9 +64,34 @@ const logPerf = (label, data = {}) => {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ─── Production-hardening env-var catalog (feature 010) ──────────────────────
+// Recorded here for the converge step to fold into README.md + docs/dev.md
+// (doc edits are out of this agent's scope — pipeline override). Every value is
+// overridable; the defaults below are the shipped behavior.
+//   TRUST_PROXY_HOPS=1              numeric trusted-proxy hop count (prod: 2)
+//   SHUTDOWN_DEADLINE_MS=20000      graceful-drain force-exit backstop (< 30s grace)
+//   CHAT_BODY_LIMIT=10mb            /api/chat inline JSON body cap
+//   DB_POOL_MAX=20                  pg app-pool max connections
+//   DB_POOL_ACQUIRE_TIMEOUT_MS=5000 pg connection acquisition timeout
+//   DB_STATEMENT_TIMEOUT_MS=30000   pg per-session server-side statement timeout
+//   REDIS_PASSWORD=(unset)          Redis AUTH; unset ⇒ byte-identical behavior
+//   RL_AUTH_PER_MIN=30              per-IP /auth budget
+//   RL_TOKEN_PER_MIN=30            per-IP POST /mcp/auth/token budget
+//   RL_REGISTER_PER_HOUR=5          per-IP registration budget (shared w/ auto-register)
+//   RL_REGISTER_GLOBAL_PER_DAY=200  global daily anonymous-registration cap
+//   RL_SEARCH_PER_MIN=30            per-user content-search budget
+//   RL_IMPORT_PER_MIN=10            per-user markdown-import budget
+//   RL_EXPORT_PER_MIN=20            per-user document-export budget
+//   RL_CHAT_PER_MIN=30              per-user chat budget
+//   RL_FORCE_MEMORY=(unset)         set to 1 to force per-process limiter (tests/dev)
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Trust proxy to get correct protocol (https) from X-Forwarded-Proto header
-// This is needed when behind a reverse proxy/load balancer that terminates SSL
-app.set('trust proxy', true);
+// when behind a reverse proxy/load balancer that terminates SSL. Numeric hop
+// count (not blanket `true`) so req.ip / the rate-limiter key can't be spoofed
+// via a forged X-Forwarded-For chain (feature 010, FR-014/RD-5). Default 1
+// (immediate ingress / dev); prod sets TRUST_PROXY_HOPS=2 (CloudFront+Traefik).
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
 // Reject malformed URLs early (e.g. /%c0 — invalid UTF-8 from scanners)
 // Express's router calls decodeURIComponent on path params, which throws
@@ -159,6 +189,18 @@ const POSTGRES_CONFIG = process.env.DATABASE_URL || {
 // Initialize PostgreSQL persistence
 const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
 
+// Pending-persistence tracker (feature 010, US1/FR-004). Every in-flight Yjs
+// persistence promise registered by the bindState update listener lives here so
+// the graceful-shutdown routine can await them before exit — no acknowledged
+// edit is lost on a rolling deploy. Promises add themselves on start and remove
+// themselves on settle (see the update listener below).
+const pendingWrites = new Set();
+
+/** Await all in-flight persistence writes (never rejects) — used by shutdown + tests. */
+async function flushPendingWrites() {
+  await Promise.allSettled([...pendingWrites]);
+}
+
 // Helper to extract clean UUID from y-websocket doc name
 // y-websocket extracts doc name from URL path like /s/uuid, giving us "s/uuid"
 // We need to strip the "s/" prefix to get the clean UUID
@@ -206,8 +248,14 @@ setPersistence({
         }
       };
 
-      // Persist to PostgreSQL (source of truth) with retry for transient failures
-      retryWithBackoff(() => persistenceProvider.storeUpdate(docGuid, update, userId, agentName))
+      // Persist to PostgreSQL (source of truth) with retry for transient failures.
+      // Register the promise in the pending-persistence tracker so the graceful
+      // shutdown routine can flush in-flight writes before exit (FR-004). The
+      // entry is removed on settle regardless of outcome.
+      const writePromise = retryWithBackoff(() => persistenceProvider.storeUpdate(docGuid, update, userId, agentName));
+      pendingWrites.add(writePromise);
+      writePromise.finally(() => pendingWrites.delete(writePromise));
+      writePromise
         .then(async () => {
           logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
 
@@ -310,13 +358,22 @@ setTimeout(() => searchIndexer.reindexStale(), 10_000);
 // Initialize diff service for version history
 const diffService = new DiffService(persistenceProvider.getPool());
 
-// Mount auth routes
-app.use('/auth', authRouter);
+// Mount auth routes — per-IP rate limit on the whole /auth surface (feature 010,
+// US2/FR-005). Keyed on the true client IP (numeric trust proxy above).
+app.use('/auth', rateLimit.perIp('auth'), authRouter);
 
-// 150mb: per-file limit is 15MB (enforced client-side), but the JSON body
-// carries base64-encoded images (~33% overhead) across up to 5 files, plus
-// full conversation history, so the body parser limit must be well above 75MB.
-app.use('/api/chat', express.json({ limit: '150mb' }), chat.router);
+// Chat attachment upload (feature 010, US3). Mounted BEFORE the /api/chat body
+// parser so a legitimately large image (up to 15MB → ~20MB base64) isn't
+// rejected by the chat route's tighter CHAT_BODY_LIMIT. Its own router carries
+// the larger parser scoped to this one route.
+app.use(createChatAttachmentsRouter());
+
+// Chat inline JSON body limit (feature 010, US3/FR-017, RD-6): shrunk 150MB →
+// CHAT_BODY_LIMIT (default 10mb). Attachment bytes now travel the S3 path
+// (POST /api/chat/attachments) as references, not inline base64, so a realistic
+// text-only conversation stays well under the limit. An over-limit body is
+// rejected 413 with an actionable message by the error handler below.
+app.use('/api/chat', express.json({ limit: process.env.CHAT_BODY_LIMIT || '10mb' }), chat.router);
 app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin', requireAdmin, admin.router);
 app.use('/api/support', express.json(), support.router);
@@ -468,9 +525,33 @@ app.get('/oauth-callback', (req, res) => {
 // Serve static files from client build directory
 const clientBuildPath = path.join(__dirname, '../client/dist');
 
-// Health check endpoint
+// Health check endpoint — pure liveness (feature 010, US4/FR-022). Stays 200 as
+// long as the process is up, even when the datastore is unreachable. No
+// dependency checks, no secrets, rate-limit-exempt.
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// Readiness endpoint (feature 010, US4). Reports whether THIS replica should
+// receive traffic. Unauthenticated and rate-limit-exempt (FR-012); mounted
+// before any limiter middleware so it is never throttled. 200 iff the process
+// finished startup, is not draining, and Postgres answers a trivial query
+// within a short timeout. Redis/cache state is reported but never gates the
+// decision (RD-4/FR-021). Body carries no secrets/versions/hostnames (FR-022).
+// Feature 011 later repoints the k8s readinessProbe here.
+app.get('/ready', async (req, res) => {
+  const cache = (redisPubSub.isEnabled() && isRedisReady()) ? 'up' : 'degraded';
+
+  if (!lifecycle.isInitialized() || lifecycle.isDraining()) {
+    return res.status(503).json({ status: 'not_ready', datastore: 'unknown', cache });
+  }
+
+  const datastoreUp = await persistenceProvider.ping();
+  if (!datastoreUp) {
+    return res.status(503).json({ status: 'not_ready', datastore: 'down', cache });
+  }
+
+  res.status(200).json({ status: 'ready', datastore: 'up', cache });
 });
 
 // API: Get AI usage quota for the current user
@@ -492,8 +573,12 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     const userId = req.user.userId;
     const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode, distanceThreshold } = req.query;
 
-    // Content search: delegate to the search module for hybrid FTS + vector search
+    // Content search: delegate to the search module for hybrid FTS + vector search.
+    // Per-user rate limit (feature 010, US2/FR-006) applies only to the expensive
+    // content-search branch — plain title search is unmetered.
     if (searchQuery && searchMode === 'content') {
+      if (!(await rateLimit.enforceUser('search', req, res))) return; // 429 sent
+
       const results = await search.searchDocuments(userId, searchQuery, {
         mode: mode || 'hybrid',
         filter: filter || 'all',
@@ -1466,8 +1551,14 @@ app.use((err, req, res, next) => {
   if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
     if (!res.headersSent) {
       const tooLarge = err.type === 'entity.too.large';
+      // For an oversized chat body, point the caller at the attachment path
+      // (feature 010, US3/FR-017) instead of a generic message.
+      const isChat = typeof req.originalUrl === 'string' && req.originalUrl.startsWith('/api/chat');
+      const tooLargeMessage = isChat
+        ? 'Request body too large. Upload attachments via POST /api/chat/attachments and send references instead of inline image data.'
+        : 'Request body too large';
       res.status(tooLarge ? 413 : 400).json({
-        error: tooLarge ? 'Request body too large' : 'Malformed request body',
+        error: tooLarge ? tooLargeMessage : 'Malformed request body',
       });
     }
     return;
@@ -1498,6 +1589,11 @@ const server = app.listen(PORT, async () => {
     console.error('[RedisPubSub] Failed to initialize:', err.message);
     notifyException(err, { source: 'redis-init' });
   }
+
+  // Startup finished — mark the process ready so GET /ready flips 503 → 200
+  // (feature 010, US4/scenario 4). Redis pub/sub init failure does not block
+  // readiness (RD-4: Postgres gates, cache is reported-not-gating).
+  lifecycle.markInitialized();
 });
 
 // Create WebSocket server attached to HTTP server
@@ -1509,9 +1605,18 @@ const wss = new WebSocket.Server({
 // Handle upgrade requests - mount WebSocket at /s/* to support document-specific paths
 // y-websocket clients append document names: /s/default-doc, /s/my-doc, etc.
 server.on('upgrade', async (request, socket, head) => {
+  // Refuse new upgrades while draining (feature 010, US1/FR-001): the pod is
+  // shutting down, so clients should fail over to a healthy replica rather than
+  // attach to a session that's about to close.
+  if (lifecycle.isDraining()) {
+    socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname;
-  
+
   // Only accept WebSocket connections that start with /s/
   if (!pathname.startsWith('/s/')) {
     socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -1891,30 +1996,22 @@ wss.on('error', (error) => {
   notifyException(error, { source: 'websocket-server' });
 });
 
-// Graceful shutdown
-let shuttingDown = false;
-process.on('SIGINT', async () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log('Shutting down...');
-  try {
-    await redisPubSub.cleanup();
-    // Close all WebSocket connections so server.close() can complete
-    for (const client of wss.clients) {
-      client.close();
-    }
-    await persistenceProvider.destroy();
-    server.close(() => {
-      console.log('Server closed');
-      process.exit(0);
-    });
-    // Force exit if server.close() hasn't resolved after 5 seconds
-    setTimeout(() => process.exit(0), 5000).unref();
-  } catch (err) {
-    console.error('Shutdown error:', err.message);
-    process.exit(1);
-  }
+// Graceful shutdown (feature 010, US1). One ordered drain bound to both SIGTERM
+// and SIGINT: flip the draining flag (readiness → 503, WS upgrades refused),
+// close live sessions, await in-flight persistence, then tear down cleanly under
+// a SHUTDOWN_DEADLINE_MS backstop below the orchestrator's 30s grace period.
+const runShutdown = createShutdown({
+  lifecycle,
+  wss,
+  flushPendingWrites,
+  redisPubSub,
+  persistenceProvider,
+  closeRedis,
+  server,
+  deadlineMs: Number(process.env.SHUTDOWN_DEADLINE_MS ?? 20000),
 });
+process.on('SIGTERM', () => runShutdown('SIGTERM'));
+process.on('SIGINT', () => runShutdown('SIGINT'));
 
 // Export for internal use (MCP tools, tests)
 module.exports = {
