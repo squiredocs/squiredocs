@@ -92,6 +92,35 @@
   margin: 0;
 }
 
+/* Task lists: suppress the bullet and lay the checkbox inline with its text */
+.editor-common-content .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.editor-common-content .ProseMirror li[data-type="taskItem"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.editor-common-content .ProseMirror li[data-type="taskItem"] > label {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.editor-common-content .ProseMirror li[data-type="taskItem"] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Nested task lists keep the standard list indent (the flat taskList rule
+   above would otherwise win on specificity and collapse it to 4px) */
+.editor-common-content .ProseMirror li[data-type="taskItem"] ul[data-type="taskList"] {
+  padding-left: 24px;
+}
+
 /* Inline code */
 .editor-common-content .ProseMirror code {
   background-color: var(--canvas-code-bg);
