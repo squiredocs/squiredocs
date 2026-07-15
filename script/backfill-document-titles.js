@@ -32,7 +32,7 @@ async function backfillTitles() {
       : POSTGRES_CONFIG
   );
 
-  const persistence = new PostgresPersistence(POSTGRES_CONFIG);
+  const persistence = new PostgresPersistence(POSTGRES_CONFIG, { statementTimeout: false });
 
   try {
     // Get all documents that need titles backfilled
