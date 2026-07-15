@@ -15,61 +15,51 @@
  *
  * Coupling: the assistant's welcome kickoff (client AiChatContext.jsx,
  * buildWelcomeKickoffPrompt) inserts the personalized greeting immediately
- * after the "Write with AI, right in your doc" heading, above "What's Next?".
- * Renaming either heading requires updating that prompt in lockstep.
+ * after the "Welcome to Squire Docs!" H1. Renaming that heading requires
+ * updating that prompt in lockstep.
  */
 const WELCOME_DOC_TITLE = 'Welcome to Squire Docs';
 
 const WELCOME_DOC_NODES = [
   { type: 'heading', level: 1, content: 'Welcome to Squire Docs!' },
-  {
-    type: 'paragraph',
-    content:
-      'Squire Docs is a collaborative editor for spec-driven development: design docs, ADRs, and specs that engineers, PMs, and coding agents write together — with every edit attributed.',
-  },
-  { type: 'heading', level: 2, content: 'Write with AI, right in your doc' },
   // The assistant injects a personalized "Welcome <First>! …" paragraph here on
   // first open (see the welcome kickoff in client AiChatContext.jsx), so the
   // template intentionally leaves this slot empty.
-  { type: 'heading', level: 2, content: "What's Next?" },
-  { type: 'paragraph', content: 'Choose a path to begin:' },
-  {
-    type: 'bulletList',
-    children: [
-      {
-        type: 'listItem',
-        content:
-          'Spec: Paste a rough idea and I will structure it into a design doc or ADR your team—and your coding agents—can execute.',
-      },
-      {
-        type: 'listItem',
-        content: 'Research: Ask me to look up a topic and I will draft a document based on what I find.',
-      },
-      {
-        type: 'listItem',
-        content: 'Draft: Tell me what you need to write—a proposal, a plan, or a memo—and we will build it together.',
-      },
-      {
-        type: 'listItem',
-        content: 'Refine: Paste an existing draft here and ask for feedback, formatting help, or a structural review.',
-      },
-    ],
-  },
-  {
-    type: 'mermaid',
-    content:
-      'graph LR\n    A[Big Idea] --> B{Assistant}\n    B --> G[Spec]\n    B --> C[Research]\n    B --> D[Draft]\n    B --> E[Refine]\n    G & C & D & E --> F[Finished Document]',
-  },
-  { type: 'heading', level: 2, content: 'How it all fits together' },
   {
     type: 'paragraph',
     content:
-      'Everyone — and every agent — works in the same living document. Every edit is attributed, versioned, and reversible, and the whole thing syncs to your repo as markdown.',
+      'Squire Docs is a collaborative editor for spec-driven development: design docs, ADRs, and specs that engineers, PMs, and coding agents write together, with every edit attributed.',
+  },
+  { type: 'heading', level: 2, content: 'How it works' },
+  {
+    type: 'paragraph',
+    content:
+      'Everyone — and every agent — works in the same living document. Every edit is attributed, versioned, and reversible, and the whole thing can sync to your repos as markdown.',
   },
   {
     type: 'mermaid',
-    content:
-      'graph TB\n    T["You & your team<br/>(live cursors)"] --> D\n    A["Squire Assistant<br/>(in-app AI)"] --> D\n    C["Your coding agents<br/>(Claude Code via MCP)"] --> D\n    D["One living document<br/>every edit attributed, versioned, reversible"]\n    D <-->|"markdown two-way sync"| R["Your git repo"]',
+    content: [
+      'graph TB',
+      '    subgraph Clients["Contributors"]',
+      '        T["You & your team<br/>(live cursors)"]',
+      '        A["Squire Assistant<br/>(in-app AI)"]',
+      '        C["Your coding agents<br/>(Claude Code via MCP)"]',
+      '    end',
+      '',
+      '    D[("Living document<br>Yjs CRDT<br>attributed · versioned · reversible")]',
+      '',
+      '    T -->|"edits"| D',
+      '    A -->|"edits"| D',
+      '    C -->|"reads / writes"| D',
+      '    C -->|"reads / writes"| R',
+      '    D <-->|"markdown two-way sync"| R[("Your git repo<br>.md files")]',
+      '',
+      '    style D fill:#e1f5fe,stroke:#0288d1,stroke-width:2px',
+      '    style R fill:#e8f5e9,stroke:#388e3c,stroke-width:2px',
+      '    style T fill:#e3f2fd,stroke:#1976d2',
+      '    style A fill:#fce4ec,stroke:#c62828',
+      '    style C fill:#f3e5f5,stroke:#6a1b9a',
+    ].join('\n'),
   },
   { type: 'heading', level: 2, content: 'Connect your coding agents' },
   {
@@ -95,11 +85,11 @@ const WELCOME_DOC_NODES = [
       ' for the full picture.',
     ],
   },
-  { type: 'heading', level: 2, content: 'Meet your Squire Docs Assistant' },
+  { type: 'heading', level: 2, content: 'About Squire Docs' },
   {
     type: 'paragraph',
     content:
-      'I am here to keep your work organized and moving forward. I handle the meticulously operational work—formatting, restructuring, and filling in boilerplate—so you can focus on the big picture. If you ever feel lost or need a second pair of eyes, just ask.',
+      'Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to specs a team—human or agent—can execute. It is currently in free public beta, including a $10 AI credit allotment for new users.',
   },
   {
     type: 'paragraph',
@@ -110,12 +100,6 @@ const WELCOME_DOC_NODES = [
       { text: 'Get Support', marks: [{ type: 'link', href: 'https://squiredocs.com/support' }] },
       ' link in the Account menu.',
     ],
-  },
-  { type: 'heading', level: 2, content: 'About Squire Docs' },
-  {
-    type: 'paragraph',
-    content:
-      'Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to specs a team—human or agent—can execute. It is currently in free public beta, including a $10 AI credit allotment for new users.',
   },
 ];
 

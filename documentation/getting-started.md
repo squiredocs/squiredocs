@@ -13,7 +13,7 @@ Google is the only sign-in method. Click Sign In and authorize with your Google 
 
 ## Your welcome document
 
-On your first sign-in, Squire Docs creates a personal "Welcome to Squire Docs" document that you own. You land on it with the AI assistant panel open, and the assistant greets you and offers to research a topic. The document itself shows the paths you can take, how the pieces of Squire Docs fit together, and how to connect coding agents over MCP. Each user gets their own copy of this document. Nothing about it is shared.
+On your first sign-in, Squire Docs creates a personal "Welcome to Squire Docs" document that you own. You land on it with the AI assistant panel open, and the assistant greets you and offers to research a topic. The document itself shows how the pieces of Squire Docs fit together and how to connect coding agents over MCP. Each user gets their own copy of this document. Nothing about it is shared.
 
 You keep landing on the welcome document each time you sign in until you are "engaged", which means you own another document that has content in it. Once you are engaged, later sign-ins take you to your document list instead.
 

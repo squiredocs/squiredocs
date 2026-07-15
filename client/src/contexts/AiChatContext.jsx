@@ -113,7 +113,7 @@ const buildWelcomeKickoffPrompt = (firstName) => {
     "The user just opened their welcome document. Greet them warmly as the Squire Docs assistant. "
     + "Silently read this document for context first — do not mention or narrate that you're reading it. "
     + "Then make exactly one edit to the document: "
-    + `if it does not already contain a "We're glad you're here" welcome line, insert "${welcomeSentence}" as a new paragraph immediately after the "Write with AI, right in your doc" heading (above the "What's Next?" section); `
+    + `if it does not already contain a "We're glad you're here" welcome line, insert "${welcomeSentence}" as a new paragraph immediately after the "Welcome to Squire Docs!" heading at the top (above the introductory paragraph); `
     + `if that welcome line is already present, do not add another — instead replace only the emoji at its end with a different one chosen from this list, picking one that differs from the emoji currently shown: ${WELCOME_EMOJIS.join(' ')}. `
     + "Then focus on the main ask: invite them to tell you a topic they're interested in, and offer to research it and create a new "
     + "document with a learning brief to get them started. Keep it warm, brief, and concrete."
