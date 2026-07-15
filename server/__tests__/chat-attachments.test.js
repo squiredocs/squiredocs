@@ -118,3 +118,42 @@ describe('chat attachments — reference resolution & user-scope (FR-016/018)', 
     await expect(chat.inlineDataUrls(foreign, otherId)).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe('attachmentKeyForUser — key hardening (review F7)', () => {
+  const self = 'user-self';
+  const uuid = '11111111-1111-1111-1111-111111111111';
+  const ok = `chat-attachments/${self}/${uuid}`;
+
+  it('accepts a well-formed owned key', () => {
+    expect(chat.attachmentKeyForUser(`attachment:${ok}`, self)).toBe(ok);
+  });
+
+  it('rejects a traversal key with extra segments (403)', () => {
+    // `chat-attachments/<self>/../<victim>/<uuid>` used to pass the prefix-only
+    // check (segs[1] === self, segs[2] === '..' is truthy).
+    const evil = `attachment:chat-attachments/${self}/../user-victim/${uuid}`;
+    expect(() => chat.attachmentKeyForUser(evil, self)).toThrow(/not accessible/);
+    try { chat.attachmentKeyForUser(evil, self); } catch (e) { expect(e.status).toBe(403); }
+  });
+
+  it('rejects an extra trailing segment (403)', () => {
+    const evil = `attachment:${ok}/extra`;
+    expect(() => chat.attachmentKeyForUser(evil, self)).toThrow(/not accessible/);
+  });
+
+  it('rejects a non-UUID final segment (403)', () => {
+    const evil = `attachment:chat-attachments/${self}/not-a-uuid`;
+    expect(() => chat.attachmentKeyForUser(evil, self)).toThrow(/not accessible/);
+  });
+
+  it('rejects a cross-user key (403)', () => {
+    const evil = `attachment:chat-attachments/user-other/${uuid}`;
+    expect(() => chat.attachmentKeyForUser(evil, self)).toThrow(/not accessible/);
+  });
+
+  it('inlineDataUrls rejects a traversal reference end-to-end (403)', async () => {
+    const parts = [{ role: 'user', content: [{ type: 'file', mediaType: 'image/png',
+      data: `attachment:chat-attachments/${self}/../user-victim/${uuid}` }] }];
+    await expect(chat.inlineDataUrls(parts, self)).rejects.toMatchObject({ status: 403 });
+  });
+});
