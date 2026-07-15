@@ -24,8 +24,13 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
     ✅ `tofu version && sops --version && age --version`.
 
 0.2 **age keypair** (RD-13): generate once, store the private key in the standard
-    sops-age location; confirm its public recipient matches `.sops.yaml`.
-    ✅ `sops -d k8s/secrets/<any>.enc.yaml` round-trips.
+    sops-age location. The committed `.sops.yaml` ships with a **throwaway
+    placeholder recipient** (authoring key; its private key was never committed),
+    so **replace that recipient with your real public key** in `.sops.yaml`
+    before doing anything else. The committed `k8s/secrets/*.enc.yaml` hold
+    placeholder values encrypted to the throwaway key — you re-create them with
+    real values (and your key) in 0.4, so do not expect to decrypt them yet.
+    ✅ After 0.4, `sops -d k8s/secrets/<any>.enc.yaml` round-trips with your key.
 
 0.3 **State backend bootstrap** (RD-7): create `squiredocs-tofu-state` once —
     versioned, SSE, all public access blocked (mirror the hardening pattern of
@@ -95,11 +100,25 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
     image.
     ✅ `git log` of the image's SHA includes 010; local smoke of `/ready`.
 
-3.2 Build/push the app image and the backup image (`Dockerfile.backup`, RD-9) via
-    `script/build-and-deploy-aws.sh` pointed at the new context, or manually;
-    apply secrets (`sops -d ... | kubectl apply -f -` per the documented flow),
-    then `kubectl apply -k k8s/overlays/aws-prod`.
-    ✅ Rollout gate passes; migrate Job completes; all pods Ready via `/ready`.
+3.2 Build/push the app image and the backup image (`Dockerfile.backup`, RD-9).
+    NOTE: `script/build-and-deploy-aws.sh` still hardcodes the **legacy**
+    `k3s-wft-aws` context and forwards its args to `deploy-aws.sh`, whose guard
+    now expects the new cluster (`DEPLOY_CONTEXT`, default `k3s-squiredocs`) — so
+    either set `DEPLOY_CONTEXT`/point the wrapper at the new context, or build,
+    push, and run `deploy-aws.sh` manually. The guard fails closed on a context
+    mismatch (no wrong-cluster deploy).
+    **Resolve the placeholder third-party image digests**: the aws-prod overlay
+    (`k8s/overlays/aws-prod/kustomization.yaml`) pins `pgvector/pgvector`,
+    `redis`, and `collab-backup` to **placeholder** `sha256:0000…` digests (the
+    authoring pod had no registry access). Replace each with the real resolved
+    arm64 digest before applying —
+    `docker buildx imagetools inspect pgvector/pgvector:pg16` (and `redis:7-alpine`),
+    and the pushed `collab-backup` digest from ECR. Then apply secrets
+    (`for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done`)
+    and run `script/deploy-aws.sh` (it resolves the app digest from ECR and does
+    `kubectl apply -k`).
+    ✅ No `sha256:0000…` placeholder remains in the overlay; rollout gate passes;
+    migrate Job completes; all pods Ready via `/ready`.
 
 3.3 **Hardening validation on the live cluster**: PSS `restricted` labels active;
     NetworkPolicies enforced (an ad-hoc pod cannot reach postgres; app can);
