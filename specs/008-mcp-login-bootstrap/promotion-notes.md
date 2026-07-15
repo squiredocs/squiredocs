@@ -17,3 +17,9 @@ Review also explicitly verified: frozen OAuth conformance suites untouched; no h
 - **D11 veto hook**: `login_status({ inline: true })` in-band credential delivery for shell-less agents ships enabled; strike it if the do-not-echo warning is judged insufficient.
 - **TRUST_PROXY ratification** (see table above).
 - Deploy: not deployed; lands with the next prod deploy (Sam triggers).
+
+## Live-test findings (2026-07-15, Sam's onboarding attempt)
+
+- **Prod is running 008 code WITHOUT the migration**: anonymous `login` on squiredocs.com errors with `relation "mcp_pending_authorizations" does not exist`. The dev-cluster migration ran in the merge queue; prod's did not. **Action (Sam): run the prod deploy script (it waits for migrations) or apply migrations in prod, then redeploy to pick up commits a6cbb8f + 7850781.**
+- **Anonymous error leak** (found via the same probe): unexpected tool exceptions returned raw internal messages (the DB relation error) to unauthenticated callers. FIXED in 7850781 — anonymous tool exceptions collapse to a generic message; pinned in tests.
+- **Docs gap that actually caused the failed test**: the tester's agent had a shell but no attached MCP server, and agents.md's login section presumed an attached client — so the agent concluded `claude mcp add` was a hard prerequisite and stopped. FIXED in 7850781: new "No MCP connection? Bootstrap with curl" section (JSON-RPC via curl → claim to disk → credentialed `claude mcp add --header` or REST-only collaboration), drift-guard pins (s)/(t).
