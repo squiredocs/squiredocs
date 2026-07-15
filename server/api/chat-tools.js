@@ -23,6 +23,7 @@ const { buildYjsNode } = require('../mcp/yjs/node-builder');
 const { parseAppImageUrl } = require('../image-url');
 const svgRender = require('../mcp/svg-render');
 const agentPresence = require('../mcp/agent-presence');
+const { importMarkdown, deriveImportTitle, ImportError } = require('../markdown-import');
 
 /**
  * Upload a chat-attached image into a document and insert the image node.
@@ -61,6 +62,56 @@ async function insertChatImage({ args = {}, messageImages, chatDocGuid, userId, 
   }, { userId, agentName });
 
   return { inserted: true, id: stored.id, url: stored.url, alt };
+}
+
+/**
+ * Import a markdown file the user attached to this chat message as a new
+ * document. The byte channel in tool form: the file content moves from the
+ * attachment store into the importer without ever entering model context —
+ * the model only sees this tool's small result. Mirrors POST /api/docs/import
+ * (create path), with the file name as the default title.
+ */
+async function importChatMarkdown({ args = {}, messageMarkdown, userId, agentName }) {
+  if (!messageMarkdown.length) {
+    return { error: 'No markdown file is attached to the current message. Ask the user to attach the file they want imported.' };
+  }
+  const index = Number.isInteger(args.attachmentIndex) ? args.attachmentIndex : 0;
+  const att = messageMarkdown[index];
+  if (!att) return { error: `No markdown attachment at index ${index}; this message has ${messageMarkdown.length} markdown file(s).` };
+
+  const markdown = Buffer.from(att.dataBase64, 'base64').toString('utf-8');
+  if (!markdown.trim()) return { error: 'The attached markdown file is empty.' };
+
+  // Title precedence: explicit arg → file name (minus extension) → frontmatter/
+  // first heading → Untitled.
+  const fromFilename = (att.filename || '').replace(/\.(md|markdown)$/i, '').trim();
+  const title = (typeof args.title === 'string' && args.title.trim())
+    || fromFilename
+    || deriveImportTitle(markdown).title
+    || 'Untitled';
+
+  const docGuid = await documentService.createSeededDocument({ userId, title, nodes: [], agentName });
+  const ydoc = documentService.getSharedDoc(docGuid);
+  try {
+    const report = await importMarkdown(ydoc, markdown, {
+      mode: 'append',
+      actor: { userId, agentName },
+      imageContext: { docId: docGuid },
+    });
+    return { imported: true, docGuid, title, url: `/d/${docGuid}`, blocks: report.blocks, images: report.images };
+  } catch (error) {
+    if (error instanceof ImportError && error.code === 'EMPTY_IMPORT') {
+      // Nothing importable remained (e.g. image-only file, all dropped by the
+      // image policy). The doc row already exists — seed the anchor paragraph
+      // rather than leave an orphaned empty doc (docs-import F1 parity).
+      await documentService.updateDocument(docGuid, (liveDoc) => {
+        const frag = liveDoc.get('default', Y.XmlFragment);
+        if (frag.length === 0) frag.insert(0, [buildYjsNode({ type: 'paragraph' })]);
+      }, { userId, agentName });
+      return { imported: true, docGuid, title, url: `/d/${docGuid}`, blocks: { imported: 0 }, images: error.images || undefined };
+    }
+    throw error;
+  }
 }
 
 // Static cap for any single tool result. Documents larger than this should
@@ -162,13 +213,39 @@ function buildWebTools(providerName, provider) {
  * All run in-process against s3Images / documentImages / agentPresence.
  *
  * @param {object} agentToken - { userId, agentName }
- * @param {object} ctx - { messageImages, docGuid }
+ * @param {object} ctx - { messageImages, messageMarkdown, docGuid }
  */
-function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid } = {}) {
+function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [], docGuid: chatDocGuid } = {}) {
   const { tool, jsonSchema } = require('ai');
   const tools = {};
   const userId = agentToken.userId;
   const agentName = agentToken.agentName;
+
+  tools.import_markdown = tool({
+    description:
+      'Import a markdown file the user attached to the CURRENT chat message as a new document. '
+      + 'The file content is piped directly into the importer — it is not part of this conversation. '
+      + 'Reference the file by its 0-based index among the markdown attachments in this message '
+      + '(attachmentIndex, default 0). The title defaults to the file name; pass title only to override. '
+      + 'Returns the created document\'s docGuid, title, and url. Use read_document afterwards if you '
+      + 'need the imported content.',
+    inputSchema: jsonSchema({
+      type: 'object',
+      properties: {
+        attachmentIndex: { type: 'integer', minimum: 0, description: '0-based index of the markdown attachment in this message (default 0).' },
+        title: { type: 'string', description: 'Optional title override; defaults to the attached file name.' },
+      },
+      required: [],
+    }),
+    execute: async (args = {}) => {
+      try {
+        return await importChatMarkdown({ args, messageMarkdown, userId, agentName });
+      } catch (error) {
+        console.error('[chat-tools] import_markdown error:', error.message);
+        return { error: error.message };
+      }
+    },
+  });
 
   tools.insert_image = tool({
     description:
@@ -359,7 +436,7 @@ function buildImageTools(agentToken, { messageImages = [], docGuid: chatDocGuid 
  * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder, docGuid, messageImages } = {}) {
+function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder, docGuid, messageImages, messageMarkdown } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -431,7 +508,7 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
 
   // Chat-only image tools (insert from chat attachment, view doc images,
   // render SVG blocks for vision).
-  Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, docGuid }));
+  Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, messageMarkdown, docGuid }));
 
   return aiTools;
 }

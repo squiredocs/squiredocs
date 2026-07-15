@@ -344,7 +344,7 @@ describe('AiChatInput', () => {
 
   // --------------- Markdown import interception ---------------
 
-  it('accepts a .md file and stages it as a markdown-import entry with its text', async () => {
+  it('accepts a .md file as a regular file attachment with normalized mediaType', async () => {
     const ref = createRef();
     const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
 
@@ -354,15 +354,19 @@ describe('AiChatInput', () => {
     await waitFor(() => {
       expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('spec.md');
     });
-    expect(container.querySelector('.ai-chat-preview-badge')).toHaveTextContent('import');
 
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     expect(onSend).toHaveBeenCalledWith('', [
-      expect.objectContaining({ type: 'markdown-import', filename: 'spec.md', markdown: '# Spec\n\nBody' }),
+      expect.objectContaining({
+        type: 'file',
+        mediaType: 'text/markdown',
+        filename: 'spec.md',
+        url: expect.stringMatching(/^data:/),
+      }),
     ]);
   });
 
-  it('detects markdown by extension when the browser reports no MIME type', async () => {
+  it('detects markdown by extension and normalizes the mediaType when the browser reports none', async () => {
     const ref = createRef();
     const { container } = render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
 
@@ -373,6 +377,11 @@ describe('AiChatInput', () => {
       expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('notes.markdown');
     });
     expect(container.querySelector('.ai-chat-file-error')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('', [
+      expect.objectContaining({ type: 'file', mediaType: 'text/markdown', filename: 'notes.markdown' }),
+    ]);
   });
 
   it('rejects markdown files over 5MB with a specific error', async () => {

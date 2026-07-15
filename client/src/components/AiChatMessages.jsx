@@ -21,6 +21,7 @@ const TOOL_LABELS = {
   modify: 'Editing',
   list_documents: 'Listing documents',
   create_document: 'Creating',
+  import_markdown: 'Importing',
   share_document: 'Sharing',
   set_document_title: 'Setting title of',
   get_collaborators: 'Getting collaborators for',
@@ -427,7 +428,9 @@ function ToolCard({ part, citations }) {
   const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
   const isDocTool = DOC_TOOLS.has(toolName);
   const isModify = toolName === 'modify';
-  const isCreate = toolName === 'create_document';
+  // import_markdown behaves like create_document for the card: the document
+  // (guid + title) exists only in the tool's output.
+  const isCreate = toolName === 'create_document' || toolName === 'import_markdown';
   const isListDocs = toolName === 'list_documents';
   const isWebSearch = toolName === 'webSearch';
 

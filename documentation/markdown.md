@@ -31,7 +31,7 @@ curl -H "Authorization: Bearer sk_sqd_..." \
 
 ## Importing
 
-Import turns markdown into a document. The quickest way in needs no terminal at all: drag a `.md` file into the assistant chat (or attach it with the paperclip) and it is imported as a new document you own — the file's bytes go straight to the importer, and the chat message carries a link to the created document. See [AI assistant](/documentation/ai-assistant).
+Import turns markdown into a document. The quickest way in needs no terminal at all: drag a `.md` file into the assistant chat (or attach it with the paperclip) and the assistant imports it as a new document you own — the file's bytes go straight to the importer, never through the model, and the assistant replies with a link to the created document. See [AI assistant](/documentation/ai-assistant).
 
 Over REST there are three ways in, all requiring the `documents:write` scope and accepting a `text/markdown` or `text/plain` body up to 5 MB.
 

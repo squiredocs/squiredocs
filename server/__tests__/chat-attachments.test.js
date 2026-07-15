@@ -71,6 +71,34 @@ describe('chat attachments — upload endpoint (FR-016/019)', () => {
     expect(res.status).toBe(413);
   });
 
+  it('accepts a text/markdown attachment and returns a reference', async () => {
+    const md = 'data:text/markdown;base64,' + Buffer.from('# Spec\n\nBody').toString('base64');
+    const res = await request(buildApp())
+      .post('/api/chat/attachments')
+      .set('x-test-user', 'user-42')
+      .send({ data: md, mediaType: 'text/markdown', filename: 'spec.md' });
+    expect(res.status).toBe(201);
+    expect(res.body.reference).toMatch(/^attachment:chat-attachments\/user-42\/[0-9a-f-]{36}$/);
+    expect(res.body.mediaType).toBe('text/markdown');
+  });
+
+  it('rejects markdown over the 5MB import limit with 413', async () => {
+    const bytes = Buffer.alloc(6 * 1024 * 1024, 97).toString('base64'); // > 5MB
+    const res = await request(buildApp())
+      .post('/api/chat/attachments')
+      .set('x-test-user', 'user-42')
+      .send({ data: bytes, mediaType: 'text/markdown' });
+    expect(res.status).toBe(413);
+  });
+
+  it('still rejects non-image, non-markdown text types with 400', async () => {
+    const res = await request(buildApp())
+      .post('/api/chat/attachments')
+      .set('x-test-user', 'user-42')
+      .send({ data: Buffer.from('a,b').toString('base64'), mediaType: 'text/csv' });
+    expect(res.status).toBe(400);
+  });
+
   it('returns 503 with a clear message when S3 is unconfigured (FR-019)', async () => {
     mockS3Enabled = false;
     const res = await request(buildApp())
@@ -116,6 +144,50 @@ describe('chat attachments — reference resolution & user-scope (FR-016/018)', 
 
     const foreign = [{ role: 'user', content: [{ type: 'file', mediaType: 'image/png', data: ownedRef }] }];
     await expect(chat.inlineDataUrls(foreign, otherId)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('markdown attachments — byte channel (import_markdown)', () => {
+  const ownerId = 'user-owner';
+  const mdKey = `chat-attachments/${ownerId}/22222222-2222-2222-2222-222222222222`;
+  const mdRef = `attachment:${mdKey}`;
+
+  it('extractMessageMarkdown resolves an owned markdown reference, skips images', async () => {
+    const message = { parts: [
+      { type: 'file', mediaType: 'image/png', url: PNG, filename: 'a.png' },
+      { type: 'file', mediaType: 'text/markdown', url: mdRef, filename: 'spec.md' },
+    ] };
+    const files = await chat.extractMessageMarkdown(message, ownerId);
+    expect(files).toHaveLength(1);
+    expect(files[0].filename).toBe('spec.md');
+    expect(Buffer.from(files[0].dataBase64, 'base64').toString()).toBe('BYTES::' + mdKey);
+  });
+
+  it('extractMessageMarkdown enforces user scope (403 on a foreign reference)', async () => {
+    const message = { parts: [{ type: 'file', mediaType: 'text/markdown', url: mdRef }] };
+    await expect(chat.extractMessageMarkdown(message, 'user-other')).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('replaceMarkdownFileParts swaps markdown file parts for a text note, non-mutating', () => {
+    const original = [
+      { role: 'user', parts: [
+        { type: 'text', text: 'import this please' },
+        { type: 'file', mediaType: 'text/markdown', url: mdRef, filename: 'spec.md' },
+        { type: 'file', mediaType: 'image/png', url: PNG, filename: 'a.png' },
+      ] },
+      { role: 'assistant', parts: [{ type: 'text', text: 'ok' }] },
+    ];
+    const out = chat.replaceMarkdownFileParts(original);
+
+    // The markdown file part became a text note naming the file and the tool
+    const swapped = out[0].parts[1];
+    expect(swapped.type).toBe('text');
+    expect(swapped.text).toContain('spec.md');
+    expect(swapped.text).toContain('import_markdown');
+    // Image part and other messages untouched; original objects not mutated
+    expect(out[0].parts[2]).toBe(original[0].parts[2]);
+    expect(out[1]).toBe(original[1]);
+    expect(original[0].parts[1].type).toBe('file');
   });
 });
 

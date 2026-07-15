@@ -8,11 +8,11 @@ const ACCEPTED_TYPES = [
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_FILES = 5;
 
-// Markdown files are intercepted, not attached: on send the raw text goes to
-// the REST importer (POST /api/docs/import) and the message carries only the
-// returned document reference — the file content never rides model context.
-// Browsers report .md as text/markdown, text/plain, or an empty string, so
-// detection goes by extension first.
+// Markdown files attach like any other file (the transcript shows a file card
+// in the user's message), but server-side the assistant imports them into a
+// document with the import_markdown tool — the content never rides model
+// context. Browsers report .md as text/markdown, text/plain, or an empty
+// string, so detection goes by extension first and the mediaType is normalized.
 const MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i;
 const isMarkdownFile = (f) => MARKDOWN_EXTENSIONS.test(f.name || '') || f.type === 'text/markdown';
 const MAX_MARKDOWN_SIZE = 5 * 1024 * 1024; // server-side import cap (MAX_IMPORT_BYTES)
@@ -86,26 +86,18 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
       setFileError(`Maximum ${MAX_FILES} files per message.`);
     }
 
-    // Markdown is read as text for the importer; everything else as a data URL
+    // Read each file as data URL, then add to state. Markdown gets its
+    // mediaType normalized (browsers are inconsistent for .md).
     toAdd.forEach(file => {
+      const mediaType = isMarkdownFile(file) ? 'text/markdown' : file.type;
       const reader = new FileReader();
-      if (isMarkdownFile(file)) {
-        reader.onload = () => {
-          setPendingFiles(current => [
-            ...current,
-            { type: 'markdown-import', markdown: reader.result, filename: file.name },
-          ]);
-        };
-        reader.readAsText(file);
-      } else {
-        reader.onload = () => {
-          setPendingFiles(current => [
-            ...current,
-            { type: 'file', mediaType: file.type, url: reader.result, filename: file.name },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      }
+      reader.onload = () => {
+        setPendingFiles(current => [
+          ...current,
+          { type: 'file', mediaType, url: reader.result, filename: file.name },
+        ]);
+      };
+      reader.readAsDataURL(file);
     });
   }, [pendingFiles.length]);
 
@@ -198,13 +190,12 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
                 {isImageType(file.mediaType) ? (
                   <img src={file.url} alt={file.filename || 'preview'} className="ai-chat-preview-thumb" />
                 ) : (
-                  <div className="ai-chat-preview-file" title={file.type === 'markdown-import' ? 'Will be imported as a new document' : undefined}>
+                  <div className="ai-chat-preview-file">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                       <polyline points="14 2 14 8 20 8" />
                     </svg>
                     <span className="ai-chat-preview-filename">{file.filename || 'file'}</span>
-                    {file.type === 'markdown-import' && <span className="ai-chat-preview-badge">import</span>}
                   </div>
                 )}
                 <button className="ai-chat-preview-remove" onClick={() => removeFile(i)} aria-label="Remove file">&times;</button>

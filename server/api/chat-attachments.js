@@ -1,9 +1,11 @@
 /**
  * Chat attachment upload API (feature 010, US3).
  *
- * POST /api/chat/attachments — store one image's bytes in S3 so the chat body
- * carries a short reference (`attachment:<key>`) instead of inline base64,
- * closing the large-body OOM window on /api/chat (FR-016/017).
+ * POST /api/chat/attachments — store one attachment's bytes in S3 so the chat
+ * body carries a short reference (`attachment:<key>`) instead of inline base64,
+ * closing the large-body OOM window on /api/chat (FR-016/017). Accepts the
+ * image types plus text/markdown (a dropped .md file — imported into a document
+ * by the assistant's import_markdown tool, never fed to the model).
  *
  * Bytes live at `chat-attachments/<userId>/<uuid>` — ownership is encoded in the
  * key and re-verified when chat.js resolves the reference (user-scope, FR-016).
@@ -24,6 +26,10 @@ const { notifyException } = require('../exception-notifier');
 
 // Generous body cap for a single 15MB image carried as base64 (~33% overhead).
 const ATTACHMENT_BODY_LIMIT = process.env.CHAT_ATTACHMENT_LIMIT || '25mb';
+
+// Markdown attachments cap at the importer's limit (docs-import MAX_IMPORT_BYTES).
+const MARKDOWN_MIME = 'text/markdown';
+const MAX_MARKDOWN_BYTES = 5 * 1024 * 1024;
 
 function createChatAttachmentsRouter() {
   const router = express.Router();
@@ -58,15 +64,19 @@ function createChatAttachmentsRouter() {
       if (!mime) {
         return res.status(400).json({ error: 'Missing media type' });
       }
-      if (!ALLOWED_IMAGE_MIME_TYPES.includes(mime)) {
-        return res.status(400).json({ error: 'Unsupported image type' });
+      const isMarkdown = mime === MARKDOWN_MIME;
+      if (!isMarkdown && !ALLOWED_IMAGE_MIME_TYPES.includes(mime)) {
+        return res.status(400).json({ error: 'Unsupported attachment type' });
       }
 
       const bytes = Buffer.from(base64, 'base64');
       if (bytes.length === 0) {
-        return res.status(400).json({ error: 'Empty image data' });
+        return res.status(400).json({ error: 'Empty attachment data' });
       }
-      if (bytes.length > MAX_IMAGE_BYTES) {
+      if (isMarkdown && bytes.length > MAX_MARKDOWN_BYTES) {
+        return res.status(413).json({ error: 'Markdown exceeds the 5MB import limit' });
+      }
+      if (!isMarkdown && bytes.length > MAX_IMAGE_BYTES) {
         return res.status(413).json({ error: 'Image exceeds the 15MB limit' });
       }
 

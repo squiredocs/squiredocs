@@ -155,6 +155,11 @@ VERSION HISTORY:
 2. read_document_version or compare_document_versions for details
 3. restore_document_version to roll back (this is non-destructive)
 
+USER ATTACHED A MARKDOWN FILE (the message notes an attached .md file whose content is not in the conversation):
+1. import_markdown to import it as a new document — don't ask first; the attachment is the intent. The title defaults to the file name.
+2. read_document if the user's request requires knowing its content
+3. Briefly confirm, linking the created document
+
 RESEARCH + WRITING:
 1. webSearch or webFetch to gather information
 2. Then create or edit the document with what you found
@@ -470,6 +475,62 @@ async function extractMessageImages(message, userId) {
   return images;
 }
 
+/**
+ * Extract markdown attachments from the incoming user UIMessage, for the
+ * import_markdown tool. Same resolution rules as extractMessageImages
+ * (attachment: references user-scoped from S3, legacy data: URLs inline), but
+ * the bytes are ONLY handed to the tool — markdown file parts never reach the
+ * model (see replaceMarkdownFileParts).
+ * @param {object} message
+ * @param {string} userId
+ * @returns {Promise<Array<{filename: string|null, mediaType: string, dataBase64: string}>>}
+ */
+async function extractMessageMarkdown(message, userId) {
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  const files = [];
+  for (const part of parts) {
+    if (part?.type !== 'file' || part.mediaType !== 'text/markdown') continue;
+    const src = typeof part.url === 'string' ? part.url : part.data;
+    if (typeof src !== 'string') continue;
+    if (src.startsWith(ATTACHMENT_SCHEME)) {
+      const key = attachmentKeyForUser(src, userId); // throws 403 if not owner
+      const bytes = await s3Images.getObject(key);
+      files.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: bytes.toString('base64') });
+      continue;
+    }
+    const m = src.match(/^data:[^;]+;base64,(.+)$/s);
+    if (m) files.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: m[1] });
+  }
+  return files;
+}
+
+/**
+ * Replace markdown file parts with a short text note in what is SENT to the
+ * model. The persisted UIMessages keep the file part (the transcript renders a
+ * file card), but the content itself moves over the byte channel: the
+ * import_markdown tool pipes it from the attachment store into the importer.
+ * Non-mutating — returns new message/part objects where changes apply.
+ * @param {Array} messages - UIMessages (validated)
+ */
+function replaceMarkdownFileParts(messages) {
+  return messages.map((msg) => {
+    if (msg.role !== 'user' || !Array.isArray(msg.parts)) return msg;
+    let mdIndex = 0;
+    let changed = false;
+    const parts = msg.parts.map((part) => {
+      if (part?.type !== 'file' || part.mediaType !== 'text/markdown') return part;
+      changed = true;
+      const i = mdIndex++;
+      return {
+        type: 'text',
+        text: `[The user attached a markdown file: "${part.filename || 'untitled.md'}" (markdown attachment index ${i}). `
+          + 'Its content is not in this conversation — use the import_markdown tool to import it as a new document.]',
+      };
+    });
+    return changed ? { ...msg, parts } : msg;
+  });
+}
+
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
 router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
@@ -603,6 +664,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // (below) and the model file parts (via inlineDataUrls). A reference the user
     // doesn't own throws a 403 here, before any streaming starts.
     const messageImages = await extractMessageImages(message, req.user.userId);
+    // Markdown attachments feed ONLY the import_markdown tool — their file
+    // parts are swapped for a text note before the model sees the messages.
+    const messageMarkdown = await extractMessageMarkdown(message, req.user.userId);
 
     const tools = chatTools.buildTools(syntheticAgentToken, {
       providerName: def.provider,
@@ -611,6 +675,7 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       observedClockHolder,
       docGuid,
       messageImages,
+      messageMarkdown,
     });
 
     // Validate and convert UI messages for streamText.
@@ -633,6 +698,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (caps.stripReasoningFromHistory) {
       modelInputMessages = chatModels.stripReasoningParts(modelInputMessages);
     }
+    // Markdown attachments stay out of model context (byte channel): swap their
+    // file parts for a short note pointing at the import_markdown tool.
+    modelInputMessages = replaceMarkdownFileParts(modelInputMessages);
     const modelMessages = await convertToModelMessages(modelInputMessages);
     await inlineDataUrls(modelMessages, req.user.userId);
 
@@ -968,6 +1036,8 @@ module.exports = {
   // Exposed for tests (feature 010): attachment reference resolution + the
   // concurrent-stream cap / compaction seams (G1).
   extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, MAX_STREAMS_PER_USER,
+  // Markdown attachment byte channel (import_markdown tool).
+  extractMessageMarkdown, replaceMarkdownFileParts,
   // Exposed for the F7 key-hardening test.
   attachmentKeyForUser,
 };

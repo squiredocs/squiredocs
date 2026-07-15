@@ -51,12 +51,13 @@ describe('chat-tools', () => {
       expect(tools).toHaveProperty('read_document');
       expect(tools).toHaveProperty('list_documents');
       expect(tools).toHaveProperty('read_document_version');
-      // Chat-only image tools are always added (insert_image, view_image,
-      // view_svg_blocks).
+      // Chat-only tools are always added (import_markdown, insert_image,
+      // view_image, view_svg_blocks).
+      expect(tools).toHaveProperty('import_markdown');
       expect(tools).toHaveProperty('insert_image');
       expect(tools).toHaveProperty('view_image');
       expect(tools).toHaveProperty('view_svg_blocks');
-      expect(mockTool).toHaveBeenCalledTimes(6); // 3 MCP tools + 3 image tools
+      expect(mockTool).toHaveBeenCalledTimes(7); // 3 MCP tools + 4 chat-only tools
     });
 
     it('passes results through when under the size limit', async () => {

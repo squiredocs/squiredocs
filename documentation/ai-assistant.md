@@ -25,7 +25,7 @@ You can attach up to five images to a chat message (PNG, JPEG, GIF, or WebP, up 
 
 ## Importing markdown files
 
-Drag a `.md` file into the chat (or attach it with the paperclip) and it is imported as a new document titled after the file name, up to 5 MB. The file's content goes directly to the markdown importer rather than into the conversation, so nothing is retyped or paraphrased on the way in — your message carries a link to the document that was created, and you can ask the assistant to work on it from there. See [Markdown export, import, and sync](/documentation/markdown) for the REST routes and two-way repository sync.
+Drag a `.md` file into the chat (or attach it with the paperclip, up to 5 MB) and send it like any attachment. The assistant imports it as a new document titled after the file name and replies with a link. The file's content moves directly from the attachment into the markdown importer rather than through the conversation, so nothing is retyped or paraphrased on the way in — the import appears in the chat as a tool call, attributed like any assistant edit. See [Markdown export, import, and sync](/documentation/markdown) for the REST routes and two-way repository sync.
 
 ## Inline diffs and undo
 

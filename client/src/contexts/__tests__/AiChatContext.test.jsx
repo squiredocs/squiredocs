@@ -295,34 +295,39 @@ describe('AiChatContext', () => {
     );
   });
 
-  // --------------- Markdown import interception (byte channel) ---------------
+  // --------------- Markdown attachment forwarding (byte channel) --------------
 
-  it('imports markdown files over REST and sends only a reference line, no attachment', async () => {
+  it('uploads a markdown file as an attachment reference and keeps it as a file part', async () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
-    // First post is the import; then the new-chat flow consumes its own mocks.
-    mockApi.post.mockResolvedValueOnce({ data: { docId: 'doc-1', title: 'payment spec', url: '/d/doc-1' } });
+    // First post is the attachment upload; then the new-chat flow.
+    mockApi.post.mockResolvedValueOnce({
+      data: { reference: 'attachment:chat-attachments/u1/md-key', mediaType: 'text/markdown', filename: 'spec.md' },
+    });
     mockNewChatFlow('chat-md');
 
     await act(async () => {
-      await result.current.sendMessage('here is my spec', [
-        { type: 'markdown-import', markdown: '# My Spec\n\nBody', filename: 'payment spec.md' },
+      await result.current.sendMessage('please import this', [
+        { type: 'file', mediaType: 'text/markdown', url: 'data:text/markdown;base64,IyBTcGVj', filename: 'spec.md' },
       ]);
     });
 
-    // Raw bytes went to the importer with the filename as the title,
-    // not to /api/chat/attachments
-    expect(mockApi.post).toHaveBeenCalledWith(
-      '/api/docs/import?title=payment%20spec',
-      '# My Spec\n\nBody',
-      { headers: { 'Content-Type': 'text/markdown' } },
-    );
-    expect(mockApi.post).not.toHaveBeenCalledWith('/api/chat/attachments', expect.anything());
-    // The chat message carries only the reference line — no file parts
+    // The bytes went to the attachment store, not into the message body —
+    // server-side the assistant imports the reference via import_markdown.
+    expect(mockApi.post).toHaveBeenCalledWith('/api/chat/attachments', {
+      data: 'data:text/markdown;base64,IyBTcGVj',
+      mediaType: 'text/markdown',
+      filename: 'spec.md',
+    });
     expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
-      text: 'here is my spec\n\nImported "payment spec.md" as a new document: [payment spec](/d/doc-1)',
-      files: undefined,
+      text: 'please import this',
+      files: [expect.objectContaining({
+        type: 'file',
+        mediaType: 'text/markdown',
+        url: 'attachment:chat-attachments/u1/md-key',
+        filename: 'spec.md',
+      })],
     }));
   });
 
