@@ -17,6 +17,12 @@
 # s3cmd config is mounted at /etc/s3cmd/s3cfg (from the backup-s3cmd SOPS Secret).
 
 set -eu
+# pipefail: in `pg_dump | gzip`, a pg_dump failure (down DB, auth error, OOM kill
+# mid-stream) makes the WHOLE pipeline non-zero so `set -e` aborts BEFORE the
+# s3cmd upload — a truncated/partial dump can never reach the bucket and leave the
+# freshness alarm falsely green. Busybox ash (alpine, Dockerfile.backup) supports
+# `set -o pipefail`.
+set -o pipefail
 
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 BACKUP_BUCKET="${BACKUP_BUCKET:-squiredocs-db-backups}"

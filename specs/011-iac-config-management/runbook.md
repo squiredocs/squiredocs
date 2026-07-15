@@ -50,7 +50,14 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
     EBS default encryption → CMK (RD-3), CloudTrail (multi-region → S3),
     GuardDuty, AWS Config + IAM Access Analyzer, IAM password policy, ECR
     lifecycle policy. Confirm MFA on every human principal.
-    ✅ CloudTrail delivering; GuardDuty enabled; `aws ec2 get-ebs-encryption-by-default` → true.
+    Review-fix deltas landed here (see `promotion-notes.md`): the CMK now carries
+    a key policy that lets CloudTrail encrypt its logs (M2); the CloudTrail-logs
+    bucket now has ACLs enabled (BucketOwnerPreferred) for CloudFront standard
+    logging (M1); **AWS Config is now actually STARTED and delivering** — a
+    recorder-status + config-bucket policy + role S3 perms were added (M3), so
+    Config incurs its normal ongoing cost from this apply onward.
+    ✅ CloudTrail delivering; GuardDuty enabled; `aws ec2 get-ebs-encryption-by-default` → true;
+    `aws configservice describe-configuration-recorder-status` → `recording: true`.
     ↩ Each toggle is independently disableable; none affect the serving workload.
 
 ## Phase 2 — Provision the new cluster (old node keeps serving)
@@ -60,8 +67,14 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
 
 2.2 **Import the existing edge**: bring CloudFront distribution `<cloudfront-distribution-id>`
     under management (import block / `tofu import`); confirm the `squiredocs.com`
-    zone appears only as a data source.
-    ✅ `tofu plan` after import shows **no replace/destroy** on the distribution.
+    zone appears only as a data source. The `app.squiredocs.com` origin A record
+    is ALSO imported (an `import` block in `edge.tf`, H1) and its value is
+    `var.origin_target_ip`, which **defaults to the current live node IP
+    `<old-node-ip>`** — so this record plans as a **no-op** pre-cutover (it is
+    never created-and-collided-with, nor repointed to the unvalidated node).
+    First confirm the default matches reality: `dig +short app.squiredocs.com`.
+    ✅ `tofu plan` after import shows **no replace/destroy** on the distribution
+    **and no change to `aws_route53_record.origin`**.
     **Reconciliation rule (G3)**: if the plan shows destructive diffs, amend the
     declaration to match imported reality — never apply a replace. If the real
     origin/alias topology differs from the RD default (viewer→CloudFront alias,
@@ -82,8 +95,12 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
 2.4 **Node validation**: fetch the k3s kubeconfig (new context, e.g.
     `k3s-squiredocs`); confirm 22/6443 reachable **only** from the operator CIDR;
     IMDSv2 required; volumes encrypted with the CMK; secrets encryption active
-    (`k3s secrets-encrypt status`).
-    ✅ All checks pass; a probe from a non-operator IP times out on 22/6443.
+    (`k3s secrets-encrypt status`). **Confirm the data volume is mounted (M4):**
+    `lsblk -f` shows the `k3s-data` (ext4) volume mounted at
+    `/var/lib/rancher/k3s/storage`, so local-path PVCs land on the 30 GiB
+    encrypted volume, not the 20 GiB root (`df -h /var/lib/rancher/k3s/storage`).
+    ✅ All checks pass; a probe from a non-operator IP times out on 22/6443; the
+    data volume is mounted at the local-path dir.
 
 2.5 **Backup credentials rotation** (G-adjacent, FR-018): create the access key
     for the new scoped backup writer; encrypt it into the backup SOPS secret;
@@ -158,10 +175,15 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
     (e.g., a chat-model key check succeeds for a BYOK user). **If this fails,
     stop — do not repoint DNS.**
 4.6 **Repoint DNS** to the new node's Elastic IP — per G3's topology this is the
-    origin A record (or whichever record Phase 2.2 reconciliation identified);
-    apply via Tofu (record value change), not the console.
+    origin A record (or whichever record Phase 2.2 reconciliation identified).
+    **Flip the variable, not the console** (H1): set `origin_target_ip` in the
+    tfvars file to the new EIP (`tofu output` → `aws_eip.node.public_ip`) and
+    `tofu apply`. A `plan` immediately before MUST show a change to ONLY
+    `aws_route53_record.origin`.
     ✅ Within ~60s, requests through `app.squiredocs.com` serve from the new
     node; login, doc open, collab edit, import/export, MCP login flow all pass.
+    ↩ Rollback = set `origin_target_ip` back to the old IP (`<old-node-ip>`) and
+    apply — sub-minute at TTL 60 (this is the DNS revert referenced in 4.7).
 4.7 **Smoke & soak**: watch logs, `/ready`, WAF metrics, and error rates for the
     remainder of the window. Redis warms cold — expect a brief cache-miss bump;
     images serve unchanged from the shared `squiredocs-images` bucket (no
