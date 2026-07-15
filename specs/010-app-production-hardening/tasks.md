@@ -29,8 +29,8 @@ under `server/__tests__/` and `__tests__/integration/`, client tests colocated i
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Add `rate-limiter-flexible` to `package.json` dependencies and run `npm install` inside the `app-dev` pod; confirm it resolves and `npm run build` still succeeds.
-- [ ] T002 [P] Establish the env-var default catalog referenced across modules (in each module's config read, no central file required): `TRUST_PROXY_HOPS`=1, `SHUTDOWN_DEADLINE_MS`=20000, `CHAT_BODY_LIMIT`=10mb, `DB_POOL_MAX`=20, `DB_POOL_ACQUIRE_TIMEOUT_MS`=5000, `DB_STATEMENT_TIMEOUT_MS`=30000, `REDIS_PASSWORD`=(unset), and the `RL_*` budgets per `contracts/rate-limiting.md`. Record the list in a code comment block so the converge step can fold it into README/docs (out of this agent's edit scope).
+- [X] T001 Add `rate-limiter-flexible` to `package.json` dependencies and run `npm install` inside the `app-dev` pod; confirm it resolves and `npm run build` still succeeds.
+- [X] T002 [P] Establish the env-var default catalog referenced across modules (in each module's config read, no central file required): `TRUST_PROXY_HOPS`=1, `SHUTDOWN_DEADLINE_MS`=20000, `CHAT_BODY_LIMIT`=10mb, `DB_POOL_MAX`=20, `DB_POOL_ACQUIRE_TIMEOUT_MS`=5000, `DB_STATEMENT_TIMEOUT_MS`=30000, `REDIS_PASSWORD`=(unset), and the `RL_*` budgets per `contracts/rate-limiting.md`. Record the list in a code comment block so the converge step can fold it into README/docs (out of this agent's edit scope).
 
 ---
 
@@ -38,7 +38,7 @@ under `server/__tests__/` and `__tests__/integration/`, client tests colocated i
 
 **Purpose**: shared process-lifecycle state consulted by both US1 (shutdown/WS) and US4 (/ready).
 
-- [ ] T003 Create `server/lifecycle.js` (shared process-state module) exporting `draining` and `initialized` flags with getters/setters (e.g. `isDraining()`, `beginDraining()`, `isInitialized()`, `markInitialized()`). This is the single source both the shutdown path (US1) and `/ready` + the WS upgrade guard read. No behavior yet beyond the flags.
+- [X] T003 Create `server/lifecycle.js` (shared process-state module) exporting `draining` and `initialized` flags with getters/setters (e.g. `isDraining()`, `beginDraining()`, `isInitialized()`, `markInitialized()`). This is the single source both the shutdown path (US1) and `/ready` + the WS upgrade guard read. No behavior yet beyond the flags.
 
 **Checkpoint**: lifecycle flags importable; nothing else depends on incomplete work.
 
@@ -54,14 +54,14 @@ deadline; last pre-signal edits are persisted after restart; clients reconnect a
 
 ### Implementation
 
-- [ ] T004 [US1] Add a pending-persistence tracker (`Set<Promise>`, e.g. `pendingWrites`) to the persistence wiring: in `server/index.js` `setPersistence.bindState` update listener (~L196-234), register each `retryWithBackoff(() => storeUpdate(...))` promise on start and remove on settle. Export the tracker (or a `flushPendingWrites()` helper) for the shutdown path and tests.
-- [ ] T005 [US1] Create the shared shutdown routine (`server/shutdown.js` or an inline `runShutdown({ deadlineMs })` in `server/index.js`) bound to **both** `SIGTERM` and `SIGINT`, replacing the current SIGINT-only handler (`server/index.js` ~L1895-1917). Ordered steps: ignore-if-draining (FR-002) → `lifecycle.beginDraining()` → close live WS sessions (`for (const c of wss.clients) c.close(1001)`) → `await` the pending-persistence tracker (`Promise.allSettled`) → `redisPubSub.cleanup()` → `persistenceProvider.destroy()` → `closeRedis()` → `server.close()` → `process.exit(0)`. Add a `setTimeout(()=>process.exit(0), SHUTDOWN_DEADLINE_MS).unref()` force-exit backstop (default 20000, RD-8).
-- [ ] T006 [US1] Refuse new WebSocket upgrades while draining: in the `server.on('upgrade')` handler (`server/index.js` ~L1511) return early with a `503`/socket-destroy when `lifecycle.isDraining()`, so clients fail over to a healthy replica (FR-001, US1 scenario 2).
+- [X] T004 [US1] Add a pending-persistence tracker (`Set<Promise>`, e.g. `pendingWrites`) to the persistence wiring: in `server/index.js` `setPersistence.bindState` update listener (~L196-234), register each `retryWithBackoff(() => storeUpdate(...))` promise on start and remove on settle. Export the tracker (or a `flushPendingWrites()` helper) for the shutdown path and tests.
+- [X] T005 [US1] Create the shared shutdown routine (`server/shutdown.js` or an inline `runShutdown({ deadlineMs })` in `server/index.js`) bound to **both** `SIGTERM` and `SIGINT`, replacing the current SIGINT-only handler (`server/index.js` ~L1895-1917). Ordered steps: ignore-if-draining (FR-002) → `lifecycle.beginDraining()` → close live WS sessions (`for (const c of wss.clients) c.close(1001)`) → `await` the pending-persistence tracker (`Promise.allSettled`) → `redisPubSub.cleanup()` → `persistenceProvider.destroy()` → `closeRedis()` → `server.close()` → `process.exit(0)`. Add a `setTimeout(()=>process.exit(0), SHUTDOWN_DEADLINE_MS).unref()` force-exit backstop (default 20000, RD-8).
+- [X] T006 [US1] Refuse new WebSocket upgrades while draining: in the `server.on('upgrade')` handler (`server/index.js` ~L1511) return early with a `503`/socket-destroy when `lifecycle.isDraining()`, so clients fail over to a healthy replica (FR-001, US1 scenario 2).
 
 ### Tests
 
-- [ ] T007 [P] [US1] `server/__tests__/shutdown-flush.test.js`: with a still-pending write in the tracker, assert `runShutdown` awaits `pendingWrites` (mock `process.exit`) before exit, and that an update accepted just before drain is present in persisted state afterward (FR-004, SC-001).
-- [ ] T008 [P] [US1] `server/__tests__/shutdown-deadline.test.js`: wedge the flush (never-resolving) and assert force-exit fires at `SHUTDOWN_DEADLINE_MS`; assert SIGINT runs the same path and a second signal mid-drain is ignored (FR-002/003, SC-002).
+- [X] T007 [P] [US1] `server/__tests__/shutdown-flush.test.js`: with a still-pending write in the tracker, assert `runShutdown` awaits `pendingWrites` (mock `process.exit`) before exit, and that an update accepted just before drain is present in persisted state afterward (FR-004, SC-001).
+- [X] T008 [P] [US1] `server/__tests__/shutdown-deadline.test.js`: wedge the flush (never-resolving) and assert force-exit fires at `SHUTDOWN_DEADLINE_MS`; assert SIGINT runs the same path and a second signal mid-drain is ignored (FR-002/003, SC-002).
 
 **Checkpoint**: US1 independently shippable — graceful shutdown works end to end.
 
@@ -79,18 +79,18 @@ user; registration flood capped with no rows written.
 
 ### Implementation
 
-- [ ] T009 [US2] Create `server/rate-limit.js`: build `RateLimiterRedis` over `getRedisClient()` with a `RateLimiterMemory` `insuranceLimiter` per route class (RD-3/FR-008); memory-only path when `!isRedisEnabled()` or `RL_FORCE_MEMORY=1`. Export namespaced key builders (`rl:auth:ip:`, `rl:token:ip:`, `rl:register:ip:`, `rl:register:global`, `rl:search:user:`, `rl:import:user:`, `rl:export:user:`, `rl:chat:user:`), a `perIp(class)` and `perUser(class)` middleware factory, a `checkRegistrationAdmission(ip)` helper, the 429 responder (`Retry-After` from `msBeforeNext` + neutral body, FR-009), and `_reset()` test seam. Budgets from env per `contracts/rate-limiting.md` (RD-1).
-- [ ] T010 [US2] Change trust proxy from blanket `true` to numeric in `server/index.js` L64: `app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1))` (FR-014, RD-5).
-- [ ] T011 [US2] Mount `perIp` middleware: `perIp('auth')` on `/auth` (`server/index.js` L314) and `perIp('token')` narrowly on `POST /mcp/auth/token` (guard the token path only, not all of `/mcp/auth/*`) (FR-005).
-- [ ] T012 [US2] Mount `perUser` middleware (after `requireAuth`) on chat (`POST /api/chat`, `server/index.js` L319 / `server/api/chat.js` router), markdown import + document export routers (L1123/L1127), and content search — limit the search branch only when `searchMode === 'content'` (`server/index.js` ~L496) (FR-006).
-- [ ] T013 [US2] Apply registration admission caps in `server/mcp/auth/oauth-flow.js`: gate `handleRegister` (L602) with `perIp('register')` + global daily counter, and add an inline `checkRegistrationAdmission` guard on the auto-register branches in `handleAuthorize` (L114) and `handleApprove` (L215), sharing the same per-IP `register` budget; over budget → uniform 429, **no row written** (FR-011, RD-2).
+- [X] T009 [US2] Create `server/rate-limit.js`: build `RateLimiterRedis` over `getRedisClient()` with a `RateLimiterMemory` `insuranceLimiter` per route class (RD-3/FR-008); memory-only path when `!isRedisEnabled()` or `RL_FORCE_MEMORY=1`. Export namespaced key builders (`rl:auth:ip:`, `rl:token:ip:`, `rl:register:ip:`, `rl:register:global`, `rl:search:user:`, `rl:import:user:`, `rl:export:user:`, `rl:chat:user:`), a `perIp(class)` and `perUser(class)` middleware factory, a `checkRegistrationAdmission(ip)` helper, the 429 responder (`Retry-After` from `msBeforeNext` + neutral body, FR-009), and `_reset()` test seam. Budgets from env per `contracts/rate-limiting.md` (RD-1).
+- [X] T010 [US2] Change trust proxy from blanket `true` to numeric in `server/index.js` L64: `app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1))` (FR-014, RD-5).
+- [X] T011 [US2] Mount `perIp` middleware: `perIp('auth')` on `/auth` (`server/index.js` L314) and `perIp('token')` narrowly on `POST /mcp/auth/token` (guard the token path only, not all of `/mcp/auth/*`) (FR-005).
+- [X] T012 [US2] Mount `perUser` middleware (after `requireAuth`) on chat (`POST /api/chat`, `server/index.js` L319 / `server/api/chat.js` router), markdown import + document export routers (L1123/L1127), and content search — limit the search branch only when `searchMode === 'content'` (`server/index.js` ~L496) (FR-006).
+- [X] T013 [US2] Apply registration admission caps in `server/mcp/auth/oauth-flow.js`: gate `handleRegister` (L602) with `perIp('register')` + global daily counter, and add an inline `checkRegistrationAdmission` guard on the auto-register branches in `handleAuthorize` (L114) and `handleApprove` (L215), sharing the same per-IP `register` budget; over budget → uniform 429, **no row written** (FR-011, RD-2).
 
 ### Tests
 
-- [ ] T014 [P] [US2] `server/__tests__/rate-limit-perip.test.js`: exceed `RL_AUTH_PER_MIN` from one IP → 429 + `Retry-After`, other IP unaffected; per-user chat budget keyed on user; `/health` + `/ready` exempt (FR-005/006/009/012, SC-003).
-- [ ] T015 [P] [US2] `server/__tests__/rate-limit-degrade.test.js`: budget persists across a simulated restart / other replica (shared Redis), and with Redis unavailable limiting degrades to per-process memory — no crash, no reject-all (FR-007/008, SC-003).
-- [ ] T016 [P] [US2] `server/__tests__/trust-proxy-spoof.test.js`: forged `X-Forwarded-For: 1.2.3.4, 5.6.7.8` and no-header cases both key on the true trusted-hop IP; 0 successful spoof-keyed requests over budget; `buildBaseUrl`/protocol still resolve (FR-015, SC-003).
-- [ ] T017 [P] [US2] `server/__tests__/registration-caps.test.js`: register flood from one IP capped at the per-IP budget with no new `registered_agents` rows over budget; aggregate never exceeds the global daily cap; the authorize auto-register path shares the same budget (FR-011, SC-004).
+- [X] T014 [P] [US2] `server/__tests__/rate-limit-perip.test.js`: exceed `RL_AUTH_PER_MIN` from one IP → 429 + `Retry-After`, other IP unaffected; per-user chat budget keyed on user; `/health` + `/ready` exempt (FR-005/006/009/012, SC-003).
+- [X] T015 [P] [US2] `server/__tests__/rate-limit-degrade.test.js`: budget persists across a simulated restart / other replica (shared Redis), and with Redis unavailable limiting degrades to per-process memory — no crash, no reject-all (FR-007/008, SC-003).
+- [X] T016 [P] [US2] `server/__tests__/trust-proxy-spoof.test.js`: forged `X-Forwarded-For: 1.2.3.4, 5.6.7.8` and no-header cases both key on the true trusted-hop IP; 0 successful spoof-keyed requests over budget; `buildBaseUrl`/protocol still resolve (FR-015, SC-003).
+- [X] T017 [P] [US2] `server/__tests__/registration-caps.test.js`: register flood from one IP capped at the per-IP budget with no new `registered_agents` rows over budget; aggregate never exceeds the global daily cap; the authorize auto-register path shares the same budget (FR-011, SC-004).
 
 **Checkpoint**: US2 independently shippable — abuse surface bounded and spoof-proof.
 
@@ -107,16 +107,16 @@ attachment; unconfigured S3 → clear 503.
 
 ### Implementation
 
-- [ ] T018 [US3] Shrink the `/api/chat` body limit: `express.json({ limit: process.env.CHAT_BODY_LIMIT || '10mb' })` (`server/index.js` L319) and make the `entity.too.large` → 413 branch (`server/index.js` ~L1466) emit the actionable message pointing at `POST /api/chat/attachments` (FR-017, RD-6).
-- [ ] T019 [US3] Create `server/api/chat-attachments.js`: `POST /api/chat/attachments` (`requireAuth`) storing bytes via `s3-images.putObject` under `chat-attachments/<userId>/<uuid>`, returning a reference; mime allow-list + per-file size mirror `document-images.storeImage`; 503 clear message when `!s3Images.isEnabled()` (FR-016/019). Mount it in `server/index.js` beside the chat router.
-- [ ] T020 [US3] Resolve attachment references in `server/api/chat.js`: extend `extractMessageImages` (L400) and `inlineDataUrls` (L381) so a message file part carrying a reference is resolved via `s3-images.getObject(key)` **only if** the key's `<userId>` equals `req.user.userId` (user-scope, FR-016); feed resolved bytes into both the model file parts and the `messageImages` array so `insert_image` and the model behave as before (FR-018).
-- [ ] T021 [US3] Client: in `client/src/contexts/AiChatContext.jsx` send path (`sendMessage`, ~L595), upload each file to `/api/chat/attachments` first and send references instead of inline `data:` URLs; keep draft persistence and last-message retry working.
+- [X] T018 [US3] Shrink the `/api/chat` body limit: `express.json({ limit: process.env.CHAT_BODY_LIMIT || '10mb' })` (`server/index.js` L319) and make the `entity.too.large` → 413 branch (`server/index.js` ~L1466) emit the actionable message pointing at `POST /api/chat/attachments` (FR-017, RD-6).
+- [X] T019 [US3] Create `server/api/chat-attachments.js`: `POST /api/chat/attachments` (`requireAuth`) storing bytes via `s3-images.putObject` under `chat-attachments/<userId>/<uuid>`, returning a reference; mime allow-list + per-file size mirror `document-images.storeImage`; 503 clear message when `!s3Images.isEnabled()` (FR-016/019). Mount it in `server/index.js` beside the chat router.
+- [X] T020 [US3] Resolve attachment references in `server/api/chat.js`: extend `extractMessageImages` (L400) and `inlineDataUrls` (L381) so a message file part carrying a reference is resolved via `s3-images.getObject(key)` **only if** the key's `<userId>` equals `req.user.userId` (user-scope, FR-016); feed resolved bytes into both the model file parts and the `messageImages` array so `insert_image` and the model behave as before (FR-018).
+- [X] T021 [US3] Client: in `client/src/contexts/AiChatContext.jsx` send path (`sendMessage`, ~L595), upload each file to `/api/chat/attachments` first and send references instead of inline `data:` URLs; keep draft persistence and last-message retry working.
 
 ### Tests
 
-- [ ] T022 [P] [US3] `server/__tests__/chat-body-limit.test.js`: body just over `CHAT_BODY_LIMIT` (incl. legacy inline-base64) → 413 with attachment-path guidance; long text-only conversation under the limit accepted (FR-017, SC-005/009).
-- [ ] T023 [P] [US3] `server/__tests__/chat-attachments.test.js`: upload → reference → resolution feeds the model; user A cannot resolve user B's key (403/refusal); unconfigured S3 → 503 clear message (FR-016/019).
-- [ ] T024 [P] [US3] Client Vitest (colocated under `client/src/contexts/__tests__/`): send with files uploads to `/api/chat/attachments` and sends references, not base64 (FR-016).
+- [X] T022 [P] [US3] `server/__tests__/chat-body-limit.test.js`: body just over `CHAT_BODY_LIMIT` (incl. legacy inline-base64) → 413 with attachment-path guidance; long text-only conversation under the limit accepted (FR-017, SC-005/009).
+- [X] T023 [P] [US3] `server/__tests__/chat-attachments.test.js`: upload → reference → resolution feeds the model; user A cannot resolve user B's key (403/refusal); unconfigured S3 → 503 clear message (FR-016/019).
+- [X] T024 [P] [US3] Client Vitest (colocated under `client/src/contexts/__tests__/`): send with files uploads to `/api/chat/attachments` and sends references, not base64 (FR-016).
 
 **Checkpoint**: US3 independently shippable — chat OOM vector closed, attachments preserved.
 
@@ -132,13 +132,13 @@ attachment; unconfigured S3 → clear 503.
 
 ### Implementation
 
-- [ ] T025 [US4] Add `persistenceProvider.ping()` in `server/postgres-persistence.js`: `SELECT 1` with a short timeout (`Promise.race`/`statement_timeout`), acquiring and releasing a connection immediately (must not hold a pool connection past the check — Edge Cases).
-- [ ] T026 [US4] Add `GET /ready` in `server/index.js` (unauthenticated, not wrapped by the limiter): 200 iff `lifecycle.isInitialized()` && `!lifecycle.isDraining()` && `ping()` succeeds; else 503. Body `{status, datastore, cache}` where `cache` reflects `isRedisReady()`/pubsub but **never gates** (RD-4, FR-020/021); no secrets/versions/hostnames (FR-022).
-- [ ] T027 [US4] Set `lifecycle.markInitialized()` at the end of the `server.listen` callback after `redisPubSub.init()` resolves (`server/index.js` ~L1483-1501), so `/ready` returns 503 during startup (US4 scenario 4). Confirm `/health` (L472) is unchanged and both endpoints are limiter-exempt (FR-012/022).
+- [X] T025 [US4] Add `persistenceProvider.ping()` in `server/postgres-persistence.js`: `SELECT 1` with a short timeout (`Promise.race`/`statement_timeout`), acquiring and releasing a connection immediately (must not hold a pool connection past the check — Edge Cases).
+- [X] T026 [US4] Add `GET /ready` in `server/index.js` (unauthenticated, not wrapped by the limiter): 200 iff `lifecycle.isInitialized()` && `!lifecycle.isDraining()` && `ping()` succeeds; else 503. Body `{status, datastore, cache}` where `cache` reflects `isRedisReady()`/pubsub but **never gates** (RD-4, FR-020/021); no secrets/versions/hostnames (FR-022).
+- [X] T027 [US4] Set `lifecycle.markInitialized()` at the end of the `server.listen` callback after `redisPubSub.init()` resolves (`server/index.js` ~L1483-1501), so `/ready` returns 503 during startup (US4 scenario 4). Confirm `/health` (L472) is unchanged and both endpoints are limiter-exempt (FR-012/022).
 
 ### Tests
 
-- [ ] T028 [P] [US4] `server/__tests__/ready-endpoint.test.js`: healthy → 200 `{datastore:'up',cache:'up'}`; Postgres unreachable → 503 within ~2s while `/health` stays 200; cache down + datastore up → 200 `cache:'degraded'`; pre-init and draining → 503; body exposes no secrets/versions/hostnames (FR-020/021/022, SC-006).
+- [X] T028 [P] [US4] `server/__tests__/ready-endpoint.test.js`: healthy → 200 `{datastore:'up',cache:'up'}`; Postgres unreachable → 503 within ~2s while `/health` stays 200; cache down + datastore up → 200 `cache:'degraded'`; pre-init and draining → 503; body exposes no secrets/versions/hostnames (FR-020/021/022, SC-006).
 
 **Checkpoint**: US4 independently shippable — `/ready` live (unused by orchestrator until 011).
 
@@ -155,13 +155,13 @@ is unchanged when unset.
 
 ### Implementation
 
-- [ ] T029 [US5] In `server/postgres-persistence.js` constructor (L13-17), merge into the `Pool` config: `max` (`DB_POOL_MAX`||20), `connectionTimeoutMillis` (`DB_POOL_ACQUIRE_TIMEOUT_MS`||5000), `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`||30000) — app pool sessions only; migration (`script/migrate.js`) and backup processes use their own connections and are untouched (FR-023, RD-7).
-- [ ] T030 [P] [US5] In `server/redis.js` `REDIS_CONFIG` (L4), conditionally spread `...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {})` so both `getRedisClient()` and `createPubSubClient()` authenticate when set and the config is **byte-identical** when unset (FR-024).
+- [X] T029 [US5] In `server/postgres-persistence.js` constructor (L13-17), merge into the `Pool` config: `max` (`DB_POOL_MAX`||20), `connectionTimeoutMillis` (`DB_POOL_ACQUIRE_TIMEOUT_MS`||5000), `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`||30000) — app pool sessions only; migration (`script/migrate.js`) and backup processes use their own connections and are untouched (FR-023, RD-7).
+- [X] T030 [P] [US5] In `server/redis.js` `REDIS_CONFIG` (L4), conditionally spread `...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {})` so both `getRedisClient()` and `createPubSubClient()` authenticate when set and the config is **byte-identical** when unset (FR-024).
 
 ### Tests
 
-- [ ] T031 [P] [US5] `server/__tests__/pg-pool-limits.test.js`: saturate the pool with slow statements → an unrelated request fails fast at the acquisition timeout; slow statements killed at `statement_timeout` and the pool self-recovers without a restart (FR-023, SC-007).
-- [ ] T032 [P] [US5] `server/__tests__/redis-auth.test.js`: with a password-protected Redis + `REDIS_PASSWORD` set, the shared client and a pub/sub client authenticate and function; unset against an unauthenticated Redis, behavior/config unchanged (FR-024, SC-008).
+- [X] T031 [P] [US5] `server/__tests__/pg-pool-limits.test.js`: saturate the pool with slow statements → an unrelated request fails fast at the acquisition timeout; slow statements killed at `statement_timeout` and the pool self-recovers without a restart (FR-023, SC-007).
+- [X] T032 [P] [US5] `server/__tests__/redis-auth.test.js`: with a password-protected Redis + `REDIS_PASSWORD` set, the shared client and a pub/sub client authenticate and function; unset against an unauthenticated Redis, behavior/config unchanged (FR-024, SC-008).
 
 **Checkpoint**: US5 independently shippable — pool bounded, Redis AUTH-capable.
 
@@ -169,8 +169,8 @@ is unchanged when unset.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T033 Run the authoritative gate: `npm test` (backend serial + client) and `npm run build` both green; confirm normal interactive use (login, search, import/export, chat with attachments, collaborative editing) hits no 429/413 at default limits (SC-009).
-- [ ] T034 [P] Compile the converge hand-off note: new endpoints (`GET /ready`, `POST /api/chat/attachments`) and the full env-var catalog need to reach `README.md` + `docs/dev.md` (out of this agent's edit scope — pipeline override). Also restate the two feature-011 handoffs (readinessProbe repoint; `REDIS_PASSWORD`/`--requirepass` provisioning) and the two secondary alignments (`TRUST_PROXY_HOPS`=2 prod; `terminationGracePeriodSeconds` > shutdown deadline) so the merge/deploy owner picks them up.
+- [X] T033 Run the authoritative gate: `npm test` (backend serial + client) and `npm run build` both green; confirm normal interactive use (login, search, import/export, chat with attachments, collaborative editing) hits no 429/413 at default limits (SC-009).
+- [X] T034 [P] Compile the converge hand-off note: new endpoints (`GET /ready`, `POST /api/chat/attachments`) and the full env-var catalog need to reach `README.md` + `docs/dev.md` (out of this agent's edit scope — pipeline override). Also restate the two feature-011 handoffs (readinessProbe repoint; `REDIS_PASSWORD`/`--requirepass` provisioning) and the two secondary alignments (`TRUST_PROXY_HOPS`=2 prod; `terminationGracePeriodSeconds` > shutdown deadline) so the merge/deploy owner picks them up.
 
 ---
 
