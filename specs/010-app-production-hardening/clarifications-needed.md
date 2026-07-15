@@ -68,3 +68,9 @@ Decisions the design document (`design/infrastructure-and-environments.md`, "App
 - **Why it needs an answer**: Double-limiting the same requests from two systems produces confusing, order-dependent 429s and breaks 009's "same budgets, not fresh per-route budgets" contract.
 - **Default chosen**: No overlap. The flow-specific budgets from 008/009 remain authoritative for the login pairing surface wherever that code exists at merge time. Feature 010 limits exactly the routes named in FR-005/FR-006 (`/auth/*`, `/mcp/auth/token`, dynamic registration, and the expensive authenticated routes). If the merge queue surfaces a route claimed by both, the flow-specific budget wins and 010's middleware skips it.
 - **Rationale**: 009's design contract ("identical limits drawn from the same budgets") is more specific ground truth for that surface; 010 is the general backstop for everything that had nothing.
+
+## I1 — Chat-attachment identity: reference-based S3 key, NO DB row (implementation-confirmed, 2026-07-15)
+
+- **Decision point (from analyze)**: The plan reuses the raw S3 put with ownership encoded in the S3 key and **no** DB metadata row. If implementation revealed that a metadata row / schema change was actually required, that would be a migration = **out of scope**; it was to be ledgered here (not added), keeping the reference-based approach.
+- **Outcome**: The reference-based approach held. `POST /api/chat/attachments` stores bytes at `chat-attachments/<userId>/<uuid>`; the chat body carries an opaque `attachment:<key>` reference; `chat.js` resolves it only when the key's `<userId>` segment equals `req.user.userId` (user-scope enforcement). Identity is the S3 object; the resolve-time key check is the ownership guard. **No `document_images`-style metadata table, no schema change, and no node-pg-migrate migration were introduced.**
+- **Consequence**: No action for the migration owner. I1 is closed as designed.
