@@ -149,6 +149,13 @@ router.get('/', (req, res) => {
       metadataUrl: `${baseUrl}/.well-known/oauth-authorization-server`,
       resource_metadata: `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
     },
+    // Additive (feature 009, FR-014/RD-7): the manifest now names the plain-REST
+    // login door. Every pre-existing field above is byte-identical; strict
+    // consumers rejecting unknown fields is an accepted, deliberate amendment.
+    restApi: {
+      loginStart: `${baseUrl}/api/login/start`,
+      documentation: `${baseUrl}/agents.md#choose-your-channel`,
+    },
   });
 });
 
@@ -265,7 +272,9 @@ const ANON_SERVER_INSTRUCTIONS =
   + 'write the credential to a file; then reconnect. Or (b) use your MCP client\'s '
   + 'native OAuth / authenticate action. NEVER move the credential through this '
   + 'conversation: do not print, echo, or paste it. The handle is safe, '
-  + 'short-lived transcript residue.';
+  + 'short-lived transcript residue. The same login flow is also a plain-REST '
+  + 'API (POST /api/login/start, GET /api/login/status, GET /api/login/claim) '
+  + 'for shell agents that prefer curl over MCP tool calls.';
 
 /**
  * Handle initialize method
