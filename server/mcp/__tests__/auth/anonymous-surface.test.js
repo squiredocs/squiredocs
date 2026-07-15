@@ -82,6 +82,15 @@ describe('anonymous MCP surface invariance', () => {
     expect(res.body).toEqual(BODY_MISSING);
   });
 
+  test('anonymous malformed JSON-RPC (bad version) → the same missing-credential 401 (008 review)', async () => {
+    // Pre-008, EVERY unauthenticated request 401'd before body validation; the
+    // version check must not create an anonymous 200 that differs from that.
+    const res = await rpc({ jsonrpc: '1.0', id: 5, method: 'tools/call', params: { name: 'list_documents' } });
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toBe(CHALLENGE_MISSING);
+    expect(res.body).toEqual(BODY_MISSING);
+  });
+
   test('the two login tools ARE anonymously callable (not 401)', async () => {
     const res = await rpc({
       jsonrpc: '2.0', id: 6, method: 'tools/call',

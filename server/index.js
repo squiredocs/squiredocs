@@ -61,11 +61,16 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Trust proxy to get correct protocol (https) from X-Forwarded-Proto header
-// This is needed when behind a reverse proxy/load balancer that terminates SSL.
-// It also makes req.ip reflect the real client (X-Forwarded-For) rather than the
-// ingress address — the MCP login flow's per-IP rate limits and pending-auth caps
-// (server/mcp/auth/rate-limit.js, feature 008) depend on this being set.
-app.set('trust proxy', true);
+// and the real client address from X-Forwarded-For. The MCP login flow's
+// per-IP rate limits and pending-auth caps (server/mcp/auth/rate-limit.js,
+// feature 008) key on req.ip, so this must NEVER be `true`: trusting the whole
+// chain lets an attacker mint a fresh req.ip per request with a forged
+// X-Forwarded-For and walk past every per-IP limit (008 review, MEDIUM).
+// Default 1 = exactly the Traefik ingress hop in front of squiredocs.com;
+// override with TRUST_PROXY (hop count, or an Express subnet/CIDR list) if
+// the topology gains hops.
+const trustProxy = process.env.TRUST_PROXY ?? '1';
+app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 // Reject malformed URLs early (e.g. /%c0 — invalid UTF-8 from scanners)
 // Express's router calls decodeURIComponent on path params, which throws

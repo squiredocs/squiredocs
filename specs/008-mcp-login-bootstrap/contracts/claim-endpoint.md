@@ -8,11 +8,13 @@ mounted in `server/index.js` beside the export/import routers. NOT behind
 
 ```
 GET /api/mcp/login/claim
-Authorization: Bearer sqlh_<handle>          (preferred)
+Authorization: Bearer sqlh_<handle>          (the only accepted carrier)
 ```
-Fallback accepted: `GET /api/mcp/login/claim?handle=sqlh_…` (for environments where
-setting headers is awkward). The recipe emitted by `login_status` always uses the
-header form (keeps the handle out of URL-logging paths).
+Amendment (008 review, 2026-07-15): the `?handle=` query fallback was removed —
+the handle is a bearer credential, and a credential must never ride a URL where
+upstream proxy/ingress access logs (outside this repo's control) would record
+it. The recipe emitted by `login_status` always used the header form; a missing
+Bearer header is indistinguishable from an unknown handle (uniform 404).
 
 ## Responses
 

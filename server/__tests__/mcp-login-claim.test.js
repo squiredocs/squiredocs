@@ -119,11 +119,18 @@ describe('GET /api/mcp/login/claim', () => {
     }
   });
 
-  test('query-param handle fallback works', async () => {
+  test('query-param handle is REJECTED with the uniform 404 and does not consume the approval (008 review)', async () => {
+    // The handle is a bearer credential; a credential in a URL lands in
+    // upstream proxy/ingress access logs. Header-only since the 008 review.
     const { handle } = await approvedHandle();
-    const res = await request(app).get('/api/mcp/login/claim').query({ handle });
-    expect(res.status).toBe(200);
-    expect(res.text.trim()).toMatch(/^sk_sqd_/);
+    const viaQuery = await request(app).get('/api/mcp/login/claim').query({ handle });
+    expect(viaQuery.status).toBe(404);
+    expect(viaQuery.body).toEqual(UNIFORM_404);
+
+    // The approval is untouched — the proper header claim still succeeds.
+    const viaHeader = await claim(handle);
+    expect(viaHeader.status).toBe(200);
+    expect(viaHeader.text.trim()).toMatch(/^sk_sqd_/);
   });
 
   test('mint-time token-cap: 409 token_limit, row stays approved, retriable after freeing a token', async () => {

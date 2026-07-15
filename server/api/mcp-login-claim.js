@@ -3,9 +3,11 @@
  *
  *   GET /api/mcp/login/claim
  *
- * Authenticated solely by the login handle (Bearer, or ?handle= fallback) — the
- * caller has no user credential yet; the handle IS the credential (FR-020). NOT
- * behind requireAuth. The claim atomically flips the approved authorization to
+ * Authenticated solely by the login handle, Bearer header ONLY — the caller has
+ * no user credential yet; the handle IS the credential (FR-020), and a
+ * credential must never ride a URL where upstream proxy/ingress access logs
+ * would record it (008 review, LOW: the ?handle= query fallback was removed).
+ * NOT behind requireAuth. The claim atomically flips the approved authorization to
  * claimed and mints the sk_sqd_ token in the same transaction (loginService),
  * streaming the token bytes to the response so it writes straight to disk.
  *
@@ -19,14 +21,11 @@ const loginService = require('../mcp/auth/login-service');
 const rateLimit = require('../mcp/auth/rate-limit');
 const { CLAIM_ATTEMPTS_PER_MINUTE_PER_IP } = require('../mcp/auth/login-constants');
 
-/** Extract the handle from the Authorization: Bearer header, or the ?handle= query. */
+/** Extract the handle from the Authorization: Bearer header (the only accepted carrier). */
 function extractHandle(req) {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) {
     return auth.slice('Bearer '.length).trim();
-  }
-  if (req.query && typeof req.query.handle === 'string') {
-    return req.query.handle.trim();
   }
   return null;
 }

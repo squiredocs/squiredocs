@@ -166,8 +166,14 @@ router.post('/', anonymousAwareAuth, async (req, res) => {
   // Log all MCP requests for debugging
   console.log(`[MCP] ${method} - authenticated: ${!!req.agentToken}`);
 
-  // Validate JSON-RPC format
+  // Validate JSON-RPC format. Anonymous callers get the byte-identical
+  // missing-credential 401 here too: pre-feature-008, EVERY unauthenticated
+  // request 401'd regardless of body shape, and the anonymous-surface contract
+  // (SC-003) promises non-login clients observe no difference (008 review, LOW).
   if (jsonrpc !== '2.0') {
+    if (isAnonymous) {
+      return sendMissingChallenge(req, res);
+    }
     return res.json(jsonRpcError(id, INVALID_REQUEST, 'Invalid JSON-RPC version'));
   }
 
