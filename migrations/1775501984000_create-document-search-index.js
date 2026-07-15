@@ -59,7 +59,10 @@ exports.up = async (pgm) => {
       password: process.env.DB_PASSWORD || ''
     };
 
-    const persistence = new PostgresPersistence(dbConfig);
+    // Opt out of the per-session statement_timeout: this backfill walks the full
+    // update log and can legitimately exceed the 30s runtime cap on a large
+    // restore (feature 010 review F6). Runtime app sessions keep the timeout.
+    const persistence = new PostgresPersistence(dbConfig, { statementTimeout: false });
 
     const result = await pgm.db.query(
       'SELECT id, title FROM documents ORDER BY created_at ASC'
