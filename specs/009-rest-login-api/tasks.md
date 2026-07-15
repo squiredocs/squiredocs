@@ -120,8 +120,8 @@ to bare registration; drift-guard passes in full.
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T017 [P] Run the FULL backend suite serially in the `app-dev` pod; confirm green including the 008 login-tools, claim, anonymous-surface, and agents-md suites. Confirm no login state-machine / `/activate` / delegation / mint / OAuth-PKCE file was touched (FR-010) and no migration was added.
-- [ ] T018 Walk quickstart.md Scenarios 1–6 as an end-to-end smoke (curl against a running dev server): full REST pairing, cross-channel, shared budget, nextSteps, discovery, agents.md ordering. Note: README.md / docs/dev.md edits are OUT of this agent's scope (pipeline override) — if the surface list there drifts, flag it to the maintainer for the merge/converge step rather than editing here.
+- [X] T017 [P] Run the FULL backend suite serially in the `app-dev` pod; confirm green including the 008 login-tools, claim, anonymous-surface, and agents-md suites. Confirm no login state-machine / `/activate` / delegation / mint / OAuth-PKCE file was touched (FR-010) and no migration was added.
+- [X] T018 Walk quickstart.md Scenarios 1–6 as an end-to-end smoke (curl against a running dev server): full REST pairing, cross-channel, shared budget, nextSteps, discovery, agents.md ordering. Note: README.md / docs/dev.md edits are OUT of this agent's scope (pipeline override) — if the surface list there drifts, flag it to the maintainer for the merge/converge step rather than editing here.
 
 ---
 
