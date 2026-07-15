@@ -951,4 +951,9 @@ router.patch('/chats/:id', requireAuth, asyncRoute('update chat', async (req, re
   res.json({ ok: true });
 }));
 
-module.exports = { router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID };
+module.exports = {
+  router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID,
+  // Exposed for tests (feature 010): attachment reference resolution + the
+  // concurrent-stream cap / compaction seams (G1).
+  extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, MAX_STREAMS_PER_USER,
+};

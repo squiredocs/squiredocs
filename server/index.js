@@ -14,6 +14,7 @@ const { closeRedis, isRedisReady } = require('./redis');
 const lifecycle = require('./lifecycle');
 const rateLimit = require('./rate-limit');
 const { createShutdown } = require('./shutdown');
+const { createReadyHandler } = require('./ready');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
@@ -539,20 +540,7 @@ app.get('/health', (req, res) => {
 // within a short timeout. Redis/cache state is reported but never gates the
 // decision (RD-4/FR-021). Body carries no secrets/versions/hostnames (FR-022).
 // Feature 011 later repoints the k8s readinessProbe here.
-app.get('/ready', async (req, res) => {
-  const cache = (redisPubSub.isEnabled() && isRedisReady()) ? 'up' : 'degraded';
-
-  if (!lifecycle.isInitialized() || lifecycle.isDraining()) {
-    return res.status(503).json({ status: 'not_ready', datastore: 'unknown', cache });
-  }
-
-  const datastoreUp = await persistenceProvider.ping();
-  if (!datastoreUp) {
-    return res.status(503).json({ status: 'not_ready', datastore: 'down', cache });
-  }
-
-  res.status(200).json({ status: 'ready', datastore: 'up', cache });
-});
+app.get('/ready', createReadyHandler({ lifecycle, persistenceProvider, redisPubSub, isRedisReady }));
 
 // API: Get AI usage quota for the current user
 app.get('/api/usage', requireAuth, async (req, res) => {
