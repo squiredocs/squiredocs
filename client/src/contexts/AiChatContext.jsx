@@ -618,9 +618,14 @@ export function AiChatProvider({ children }) {
   // a real document, and the chat message carries only the returned reference.
   const importMarkdownFile = useCallback(
     async (file) => {
-      const { data } = await api.post('/api/docs/import', file.markdown, {
-        headers: { 'Content-Type': 'text/markdown' },
-      });
+      // The file name (minus extension) is the title — explicit ?title= wins
+      // over the importer's frontmatter/first-heading derivation.
+      const title = (file.filename || '').replace(/\.(md|markdown)$/i, '') || file.filename || '';
+      const { data } = await api.post(
+        `/api/docs/import${title ? `?title=${encodeURIComponent(title)}` : ''}`,
+        file.markdown,
+        { headers: { 'Content-Type': 'text/markdown' } },
+      );
       return { filename: file.filename, title: data.title, url: data.url, docId: data.docId };
     },
     [api],

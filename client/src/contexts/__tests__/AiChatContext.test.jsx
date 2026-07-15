@@ -302,23 +302,26 @@ describe('AiChatContext', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     // First post is the import; then the new-chat flow consumes its own mocks.
-    mockApi.post.mockResolvedValueOnce({ data: { docId: 'doc-1', title: 'My Spec', url: '/d/doc-1' } });
+    mockApi.post.mockResolvedValueOnce({ data: { docId: 'doc-1', title: 'payment spec', url: '/d/doc-1' } });
     mockNewChatFlow('chat-md');
 
     await act(async () => {
       await result.current.sendMessage('here is my spec', [
-        { type: 'markdown-import', markdown: '# My Spec\n\nBody', filename: 'spec.md' },
+        { type: 'markdown-import', markdown: '# My Spec\n\nBody', filename: 'payment spec.md' },
       ]);
     });
 
-    // Raw bytes went to the importer, not to /api/chat/attachments
-    expect(mockApi.post).toHaveBeenCalledWith('/api/docs/import', '# My Spec\n\nBody', {
-      headers: { 'Content-Type': 'text/markdown' },
-    });
+    // Raw bytes went to the importer with the filename as the title,
+    // not to /api/chat/attachments
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/docs/import?title=payment%20spec',
+      '# My Spec\n\nBody',
+      { headers: { 'Content-Type': 'text/markdown' } },
+    );
     expect(mockApi.post).not.toHaveBeenCalledWith('/api/chat/attachments', expect.anything());
     // The chat message carries only the reference line — no file parts
     expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
-      text: 'here is my spec\n\nImported "spec.md" as a new document: [My Spec](/d/doc-1)',
+      text: 'here is my spec\n\nImported "payment spec.md" as a new document: [payment spec](/d/doc-1)',
       files: undefined,
     }));
   });
