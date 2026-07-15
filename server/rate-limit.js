@@ -33,6 +33,7 @@ const CLASSES = {
   import:            { keyPrefix: 'rl:import:user',     points: num('RL_IMPORT_PER_MIN', 10),          duration: MIN },
   export:            { keyPrefix: 'rl:export:user',     points: num('RL_EXPORT_PER_MIN', 20),          duration: MIN },
   chat:              { keyPrefix: 'rl:chat:user',       points: num('RL_CHAT_PER_MIN', 30),            duration: MIN },
+  upload:            { keyPrefix: 'rl:upload:user',     points: num('RL_UPLOAD_PER_MIN', 20),          duration: MIN },
 };
 
 // Constant sub-key for the single global registration counter.

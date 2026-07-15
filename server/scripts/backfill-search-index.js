@@ -39,7 +39,10 @@ async function main() {
   };
 
   const pool = new Pool(typeof dbConfig === 'string' ? { connectionString: dbConfig } : dbConfig);
-  const persistence = new PostgresPersistence(dbConfig);
+  // Opt out of the per-session statement_timeout: this backfill walks the full
+  // update log and can legitimately exceed the 30s runtime cap (feature 010
+  // review F6). Runtime app sessions keep the timeout.
+  const persistence = new PostgresPersistence(dbConfig, { statementTimeout: false });
   searchIndexer.init(persistence);
 
   try {

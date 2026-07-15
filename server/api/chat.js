@@ -391,10 +391,22 @@ const ATTACHMENT_SCHEME = 'attachment:';
  * @param {string} userId - the requesting user
  * @returns {string} the S3 object key
  */
+// A chat-attachment key is exactly `chat-attachments/<userId>/<uuid>` — three
+// segments, the last a v4-shaped UUID (the upload endpoint mints it with
+// crypto.randomUUID). Requiring an exact shape rejects traversal (`..`) and any
+// extra trailing segments, e.g. `chat-attachments/<self>/../<victim>/<uuid>`,
+// which the old prefix-only check accepted (feature 010 review F7).
+const ATTACHMENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function attachmentKeyForUser(ref, userId) {
   const key = ref.slice(ATTACHMENT_SCHEME.length);
   const segs = key.split('/');
-  if (segs[0] !== 'chat-attachments' || segs[1] !== userId || !segs[2]) {
+  if (
+    segs.length !== 3 ||
+    segs[0] !== 'chat-attachments' ||
+    segs[1] !== userId ||
+    !ATTACHMENT_UUID_RE.test(segs[2])
+  ) {
     throw Object.assign(
       new Error('Attachment reference is not accessible to this user'),
       { status: 403 }
@@ -956,4 +968,6 @@ module.exports = {
   // Exposed for tests (feature 010): attachment reference resolution + the
   // concurrent-stream cap / compaction seams (G1).
   extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, MAX_STREAMS_PER_USER,
+  // Exposed for the F7 key-hardening test.
+  attachmentKeyForUser,
 };

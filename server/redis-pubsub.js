@@ -36,6 +36,23 @@ let disabledWarningLogged = false;
 let disabledWarningInterval = null;
 
 /**
+ * Resolve once an ioredis client reaches 'ready' (or immediately if it already
+ * has). Never rejects — a client that never connects simply never resolves, so
+ * callers MUST bound this with a timeout (see init()).
+ * @param {object} client - ioredis client
+ * @returns {Promise<void>}
+ */
+function whenReady(client) {
+  return new Promise((resolve) => {
+    if (client.status === 'ready') {
+      resolve();
+    } else {
+      client.once('ready', resolve);
+    }
+  });
+}
+
+/**
  * Encode a message with instance ID prefix
  * Format: [36-byte UUID]:[data]
  * @param {Buffer|Uint8Array} data - The message data
@@ -151,23 +168,27 @@ async function init() {
     }
   });
 
-  // Wait for both clients to be ready
-  await Promise.all([
-    new Promise((resolve) => {
-      if (subscriberClient.status === 'ready') {
-        resolve();
-      } else {
-        subscriberClient.once('ready', resolve);
-      }
-    }),
-    new Promise((resolve) => {
-      if (publisherClient.status === 'ready') {
-        resolve();
-      } else {
-        publisherClient.once('ready', resolve);
-      }
-    }),
-  ]);
+  // Wait for both clients to be ready — but NEVER hang. If Redis is unreachable
+  // or REDIS_PASSWORD mismatches, ioredis never emits 'ready', so a bare
+  // once('ready') would block init() forever: lifecycle.markInitialized() would
+  // never fire and GET /ready would return 503 forever, stalling the deploy.
+  // Race the ready-wait against REDIS_INIT_TIMEOUT_MS and RESOLVE (not reject)
+  // on timeout so init() completes and the app becomes ready. Readiness gates on
+  // Postgres, not cache (RD-4); ioredis keeps retrying in the background and
+  // pub/sub degrades gracefully until the clients connect (RD-3/RD-4).
+  const initTimeoutMs = Number(process.env.REDIS_INIT_TIMEOUT_MS ?? 10000);
+  const readyWait = Promise.all([whenReady(subscriberClient), whenReady(publisherClient)]);
+  let initTimer;
+  const timedOut = Symbol('redis-init-timeout');
+  const timeout = new Promise((resolve) => {
+    initTimer = setTimeout(() => resolve(timedOut), initTimeoutMs);
+    if (typeof initTimer.unref === 'function') initTimer.unref();
+  });
+  const outcome = await Promise.race([readyWait.then(() => 'ready'), timeout]);
+  clearTimeout(initTimer);
+  if (outcome === timedOut) {
+    console.warn(`[RedisPubSub] ⚠️  Redis clients not ready within ${initTimeoutMs}ms — continuing so the app can become ready. Cross-instance pub/sub is degraded and will connect in the background (RD-3/RD-4).`);
+  }
 
   initialized = true;
 

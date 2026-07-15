@@ -38,6 +38,8 @@ Doc convergence is deliberately **not** done in this worktree (finding C1 / pipe
 | `RL_IMPORT_PER_MIN` | `10` | per-user markdown-import budget |
 | `RL_EXPORT_PER_MIN` | `20` | per-user document-export budget |
 | `RL_CHAT_PER_MIN` | `30` | per-user chat budget |
+| `RL_UPLOAD_PER_MIN` | `20` | per-user `POST /api/chat/attachments` budget (review F5) |
+| `REDIS_INIT_TIMEOUT_MS` | `10000` | hang-safe cap on the pub/sub ready-wait at startup (review F1) |
 | `RL_FORCE_MEMORY` | (unset) | set `1` to force the per-process limiter (dev/tests) |
 | `RL_TEST_ENABLE` | (unset) | test-only: set `1` to activate limiting under `NODE_ENV=test` |
 
@@ -66,6 +68,22 @@ the S3 object at `chat-attachments/<userId>/<uuid>`, ownership is encoded in the
 re-verified at resolve time (user-scope check in `chat.js`). **No DB row, no schema change, no
 migration was added.** I1 is honored as-designed; nothing further is required of the migration
 owner for this feature. (Recorded in `clarifications-needed.md` as well.)
+
+## 7. Ops-track owed: S3 lifecycle/GC for orphaned `chat-attachments/*` (review F5)
+
+`POST /api/chat/attachments` writes bytes to S3 under `chat-attachments/<userId>/<uuid>` with
+**no DB metadata row** (reference-based approach, §5). An upload whose reference never lands in a
+persisted chat body — client abandons the message, an error before send, the per-user upload
+budget now rejecting a retry mid-flow — leaves an orphaned S3 object that nothing points to and
+**nothing can GC against** (there is no DB row to reconcile against). This is not fixable in app
+code: an object-store lifecycle policy is owed to the **ops/infra track**.
+
+- **Recommended:** an S3 lifecycle rule (or CronJob GC) that expires `chat-attachments/*` objects
+  older than N days. Reference-based attachments are re-inlined into the model request at chat
+  time, so long-lived retention of the raw object is not required by any product flow — a short
+  TTL (e.g. 7–30 days) is safe. If a future feature needs durable attachments, revisit alongside
+  the I1 "add a DB metadata row" decision (§5), which would also make precise GC possible.
+- **Owner:** infra/ops track (parallel to app code); no server change is expected.
 
 ## 6. Verification note for the merge tree (environmental)
 

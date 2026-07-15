@@ -21,12 +21,22 @@ class PostgresPersistence {
     //   max                     — cap concurrent connections
     //   connectionTimeoutMillis — fail fast when the pool is saturated
     //   statement_timeout       — server-side kill for runaway queries (per session)
+    //
+    // The per-session statement_timeout protects the RUNTIME app, but the same
+    // constructor is reused by data-migration/backfill scripts that construct a
+    // PostgresPersistence to walk the whole update log (create-document-search-
+    // index / add-title-to-documents migrations, backfill-document-titles). A
+    // legitimate >30s backfill over a large log would abort mid-statement and
+    // fail the migrate Job on a fresh restore. Such call sites pass
+    // `{ statementTimeout: false }` to opt out; runtime keeps full protection.
     const poolConfig = {
       ...baseConfig,
       max: Number(process.env.DB_POOL_MAX ?? 20),
       connectionTimeoutMillis: Number(process.env.DB_POOL_ACQUIRE_TIMEOUT_MS ?? 5000),
-      statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30000),
     };
+    if (opts.statementTimeout !== false) {
+      poolConfig.statement_timeout = Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30000);
+    }
     this.pool = new Pool(poolConfig);
 
     // Extract database name for safety checks on destructive operations
@@ -694,22 +704,27 @@ class PostgresPersistence {
    * @returns {Promise<boolean>} true when Postgres answered within the deadline
    */
   async ping(timeoutMs = 2000) {
-    let client;
     let timer;
     try {
-      // Race connection-acquire + query against a hard deadline so a wedged
-      // pool/datastore can't stall readiness (datastore-down ⇒ 503 within ~2s).
+      // Use pool.query (not pool.connect + manual release): it acquires a client,
+      // runs the query, and ALWAYS releases the client back to the pool when the
+      // query settles — even if our timeout below has already fired and we've
+      // returned false. The previous connect()+race leaked a client whenever
+      // connect() resolved AFTER the timeout rejected (a 2s–5s window), and it
+      // released while SELECT 1 was still in flight on the slow path; under an
+      // unauthenticated, probe-hammered /ready that exhausted DB_POOL_MAX in
+      // minutes. Racing the query promise (not the client) against the deadline
+      // keeps readiness fast (datastore-down ⇒ 503 within ~timeoutMs) with no
+      // client held past the check on any path.
       const timeout = new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('ping timeout')), timeoutMs);
       });
-      client = await Promise.race([this.pool.connect(), timeout]);
-      await Promise.race([client.query('SELECT 1'), timeout]);
+      await Promise.race([this.pool.query('SELECT 1'), timeout]);
       return true;
     } catch {
       return false;
     } finally {
       clearTimeout(timer);
-      if (client) client.release();
     }
   }
 
