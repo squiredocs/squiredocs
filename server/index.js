@@ -15,6 +15,7 @@ const lifecycle = require('./lifecycle');
 const rateLimit = require('./rate-limit');
 const { createShutdown } = require('./shutdown');
 const { createReadyHandler } = require('./ready');
+const { createPendingWrites } = require('./pending-writes');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
@@ -194,13 +195,10 @@ const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
 // persistence promise registered by the bindState update listener lives here so
 // the graceful-shutdown routine can await them before exit — no acknowledged
 // edit is lost on a rolling deploy. Promises add themselves on start and remove
-// themselves on settle (see the update listener below).
-const pendingWrites = new Set();
-
-/** Await all in-flight persistence writes (never rejects) — used by shutdown + tests. */
-async function flushPendingWrites() {
-  await Promise.allSettled([...pendingWrites]);
-}
+// themselves on settle (see the update listener below). flushPendingWrites LOOPS
+// until the set drains so an edit queued mid-flush (the user's last keystrokes
+// at SIGTERM) is also awaited, not lost (feature 010 review F4).
+const { pendingWrites, flushPendingWrites } = createPendingWrites();
 
 // Helper to extract clean UUID from y-websocket doc name
 // y-websocket extracts doc name from URL path like /s/uuid, giving us "s/uuid"
