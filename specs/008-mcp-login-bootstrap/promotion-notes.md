@@ -23,3 +23,30 @@ Review also explicitly verified: frozen OAuth conformance suites untouched; no h
 - **Prod is running 008 code WITHOUT the migration**: anonymous `login` on squiredocs.com errors with `relation "mcp_pending_authorizations" does not exist`. The dev-cluster migration ran in the merge queue; prod's did not. **Action (Sam): run the prod deploy script (it waits for migrations) or apply migrations in prod, then redeploy to pick up commits a6cbb8f + 7850781.**
 - **Anonymous error leak** (found via the same probe): unexpected tool exceptions returned raw internal messages (the DB relation error) to unauthenticated callers. FIXED in 7850781 — anonymous tool exceptions collapse to a generic message; pinned in tests.
 - **Docs gap that actually caused the failed test**: the tester's agent had a shell but no attached MCP server, and agents.md's login section presumed an attached client — so the agent concluded `claude mcp add` was a hard prerequisite and stopped. FIXED in 7850781: new "No MCP connection? Bootstrap with curl" section (JSON-RPC via curl → claim to disk → credentialed `claude mcp add --header` or REST-only collaboration), drift-guard pins (s)/(t).
+
+## ROLLED BACK (Sam, 2026-07-15)
+
+Rolled back the same day it merged, together with feature 009. Sam's live use
+found the device-style login bootstrap didn't work well for agents in practice
+even when they followed the instructions correctly; decision: agent auth
+returns to standard best practice only — the spec-compliant OAuth discovery
+chain (PKCE) plus existing `sk_sqd_` API tokens.
+
+- Code reverted to the pre-008 state (rollback commit on main removes the
+  login/login_status tools, `/mcp/login/*` consent routes, `/api/login/*` +
+  `/api/mcp/login/claim` endpoints, `/activate` page, login-service state
+  machine, rate limiter, and pending-authorizations store).
+- The `mcp_pending_authorizations` migration was reverted on the dev and test
+  DBs and deleted; it never ran in prod (see live-test findings above), so no
+  prod schema change is needed.
+- Prod still runs the broken 008 image (anonymous login tools that error on
+  the missing table). **The rollback deploy removes that surface and restores
+  the byte-identical pre-008 401 + OAuth discovery chain.**
+- Kept: the body-parser 400/413 error mapping (found in the 009 review,
+  independent of login) and the `trust proxy` lesson — the revert restores
+  `trust proxy: true`, which is again safe because no per-IP limits key on
+  req.ip; if per-IP limits ever return, so must the bounded TRUST_PROXY config.
+- The owed items above (G1/D11/TRUST_PROXY ratifications, /activate browser
+  pass) are moot.
+- Design ground truth amended in Squire (agent-surface doc: rollback record,
+  tool count sixteen, PKCE-only decision re-affirmed) and synced.

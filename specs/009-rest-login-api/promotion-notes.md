@@ -19,3 +19,14 @@ Review independently re-ran 9 suites (302 tests) and verified: state machine byt
 - **G1 ratification**: the "list docs" nextSteps recipe promotes `GET /api/docs` to a documented, drift-guarded public surface (it already accepted sk_sqd_ tokens; now it's advertised).
 - **G2 ratification**: `GET /api/login/status` deliberately has no per-IP transport limit (parity with the tool, which only has per-handle slow_down); impose a ceiling on both channels together if wanted.
 - **Deferred**: the downloadable `squire` CLI wrapper (squire-sync M5) layers on these endpoints later.
+
+## ROLLED BACK (Sam, 2026-07-15)
+
+Rolled back the same day it merged, together with feature 008 — see
+`specs/008-mcp-login-bootstrap/promotion-notes.md` for the full rollback
+record. The REST login endpoints, nextSteps block, discovery restApi block,
+and the choose-your-channel agents.md restructure are all removed; agents.md
+reverts to its pre-008 contract. Kept: the body-parser 400/413 error mapping
+(independent of login). The owed G1/G2 ratifications are moot; the deferred
+`squire` CLI wrapper (squire-sync M5) no longer has these endpoints to layer
+on and needs a fresh design if revived.
