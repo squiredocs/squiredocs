@@ -41,7 +41,9 @@ beyond the address above.
 
 If the client can't complete browser OAuth (headless scripts, CI jobs, older
 tools), use a personal access token from **Settings → AI Agent Access**
-(prefix `sk_sqd_`, or legacy `sqd_`) and pass it as a bearer credential.
+(prefix `sk_sqd_`, or legacy `sqd_`) and pass it as a bearer credential —
+saved to a file, never pasted into the conversation (see
+[Handling API tokens](#handling-api-tokens-never-through-the-conversation)).
 
 ## MCP endpoint
 
@@ -61,11 +63,40 @@ Two options:
   `https://squiredocs.com/mcp/auth/` (authorize, token, revoke, register).
 - **API tokens** — personal access tokens prefixed `sk_sqd_` (legacy `sqd_`
   tokens remain valid), created from the Settings page. Pass as a bearer token:
-  `Authorization: Bearer sk_sqd_...`. Tokens authenticate both MCP and the REST
+  `Authorization: Bearer $(cat ~/.squire/token)` (see
+  [Handling API tokens](#handling-api-tokens-never-through-the-conversation)
+  below). Tokens authenticate both MCP and the REST
   `/api` routes. Scopes are enforced: reads require `documents:read`, mutations
   require `documents:write`. An MCP-connected agent with no token can mint a
   temporary one itself with `create_access_token` (scoped at or below its own
   grant, expiring within 24 hours, revoked with the minting credential).
+
+### Handling API tokens (never through the conversation)
+
+A token is a secret. It should move from Settings to disk to the
+`Authorization` header without ever appearing in the chat transcript, in your
+output, or in your shell history.
+
+- **Ask your user not to paste the token into the conversation.** Have them
+  save it to a file themselves and just tell you when it's in place:
+
+  ```
+  mkdir -p ~/.squire && umask 077 && cat > ~/.squire/token
+  # paste the token, press Enter, then Ctrl-D
+  ```
+
+- **Reference the file, never the raw value.** Use
+  `-H "Authorization: Bearer $(cat ~/.squire/token)"` in HTTP calls, or set
+  `export SQUIRE_TOKEN="$(cat ~/.squire/token)"` once per shell. Never print,
+  echo, or log a token, and never retype one into a command line — argv is
+  visible in shell history and process lists.
+- **Tokens you mint yourself:** `create_access_token` necessarily returns the
+  token in its result, once. Write it to the file immediately with a heredoc
+  (`cat > ~/.squire/token <<'EOF' ... EOF`), then use only `$(cat ...)` from
+  that point on. Do not repeat the token in any later output.
+- **If a token does land in the conversation**, save it to the file, stop
+  repeating it, and remind your user they can revoke and re-issue it under
+  **Settings → AI Agent Access** at any time.
 
 ### Walking your user through browser OAuth
 
@@ -128,7 +159,7 @@ source file and the file is immediately a valid `mode=sync` baseline. Example
 export:
 
 ```
-curl -H "Authorization: Bearer sk_sqd_..." \
+curl -H "Authorization: Bearer $(cat ~/.squire/token)" \
   "https://squiredocs.com/api/docs/<docId>/export?format=markdown" -o doc.md
 ```
 

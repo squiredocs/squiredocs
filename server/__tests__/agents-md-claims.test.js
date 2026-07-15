@@ -98,4 +98,24 @@ describe('agents.md drift-guard', () => {
     expect(content).toMatch(/callback\?code=/);
     expect(content).toMatch(/paste it as\s+their next message/i);
   });
+
+  // Token handling (design amendment, Sam 2026-07-15): tokens move
+  // Settings → disk → Authorization header, never through the conversation.
+  // agents.md must tell agents to keep tokens in a file and reference them
+  // with $(cat ...), never printing/echoing/retyping the raw value.
+  test('(m) tells agents tokens go to a file, not the conversation', () => {
+    expect(content).toMatch(/not to paste the token into the conversation/i);
+    expect(content).toContain('~/.squire/token');
+    expect(content).toContain('$(cat ~/.squire/token)');
+  });
+
+  test('(n) forbids re-emitting a token and covers minted tokens', () => {
+    expect(content).toMatch(/never print,?\s+echo/i);
+    expect(content).toMatch(/shell history/i);
+    expect(content).toMatch(/create_access_token[\s\S]{0,200}heredoc/i);
+  });
+
+  test('(o) no example passes a literal token in a header', () => {
+    expect(content).not.toMatch(/Bearer sk_sqd_\.\.\./);
+  });
 });

@@ -46,8 +46,19 @@ Two ways:
    credential is revoked, and it cannot mint further tokens.
 
 2. A user creates a personal access token under Settings → API Tokens and
-   provides it to you (typically via an environment variable). These tokens
-   do not expire and are shown only once at creation.
+   provides it to you. These tokens do not expire and are shown only once at
+   creation. Ask them to save it to a file themselves (e.g.
+   \`mkdir -p ~/.squire && umask 077 && cat > ~/.squire/token\`) — NOT to
+   paste it into the conversation, where it would land in the transcript and
+   model context permanently.
+
+Either way, the token belongs on disk, referenced indirectly. Every example
+below assumes:
+
+  export SQUIRE_TOKEN="$(cat ~/.squire/token)"
+
+Never print, echo, or retype the raw token (argv is visible in shell history
+and process lists).
 
 Scopes: exporting needs documents:read. GET requests require documents:read;
 mutating requests (POST/PUT/PATCH/DELETE — including all imports) require

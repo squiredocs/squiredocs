@@ -145,23 +145,29 @@ async function handler(args, agentToken) {
     scopes: record.scopes,
     expiresAt: record.expires_at,
     ttlSeconds,
-    // Placeholder env var rather than the raw token, so agents don't paste
-    // the secret into argv/shell history when copying the example.
+    // Placeholder + heredoc rather than the raw token: the secret must be
+    // written to disk exactly once (heredoc bodies stay out of argv/shell
+    // history) and referenced via $(cat ...) from then on, never re-emitted.
     curlExample:
-      `export SQUIRE_TOKEN='<token above>'\n` +
-      `curl -sf -H "Authorization: Bearer $SQUIRE_TOKEN" \\\n` +
+      `umask 077; mkdir -p ~/.squire\n` +
+      `cat > ~/.squire/token <<'EOF'\n` +
+      `<token above>\n` +
+      `EOF\n` +
+      `curl -sf -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
       `  "${baseUrl}/api/docs/<docId>/export?format=markdown" -o doc.md`,
     // The import example only works with documents:write; shown regardless so
     // the byte channel is discoverable in both directions from the mint.
     importCurlExample:
-      `curl -sf -X POST -H "Authorization: Bearer $SQUIRE_TOKEN" \\\n` +
+      `curl -sf -X POST -H "Authorization: Bearer $(cat ~/.squire/token)" \\\n` +
       `  -H "Content-Type: text/markdown" --data-binary @doc.md \\\n` +
       `  "${baseUrl}/api/docs/import?frontmatter=true"` +
       (scopes.includes('documents:write')
         ? ''
         : `\n(importing requires documents:write — this token is read-only; re-mint with scopes: ["documents:read", "documents:write"])`),
     message:
-      'Temporary API token created. It is shown only once — store it now (e.g. in an env var). ' +
+      'Temporary API token created. It is shown only once — write it to a 0600 file NOW using the ' +
+      'heredoc in curlExample (heredoc, not argv), then reference it only as $(cat ~/.squire/token). ' +
+      'Never print, echo, or repeat the token in any output. ' +
       'It appears under Settings → API Tokens and expires automatically.' +
       (displaced > 0 ? ` Note: ${displaced} older minted token(s) were revoked to stay under the per-minter cap.` : ''),
   };
