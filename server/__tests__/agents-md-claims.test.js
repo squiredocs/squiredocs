@@ -129,4 +129,20 @@ describe('agents.md drift-guard', () => {
   test('(r) states the tool count is eighteen', () => {
     expect(content).toMatch(/eighteen/i);
   });
+
+  // (s)/(t): the curl bootstrap section. Added after a live onboarding failure
+  // (2026-07-15): an agent with a shell but no attached MCP server read
+  // agents.md and concluded `claude mcp add` was a hard prerequisite for the
+  // login flow — it never tried the anonymous JSON-RPC endpoint with curl.
+  test('(s) documents the no-MCP-client curl bootstrap with a JSON-RPC login call', () => {
+    expect(content).toContain('No MCP connection? Bootstrap with curl');
+    expect(content).toMatch(/curl -s -X POST https:\/\/squiredocs\.com\/mcp[\s\S]*"name":"login"/);
+    expect(content).toMatch(/needs no MCP client\s+attachment/i);
+    expect(content).toContain("registering the server is a prerequisite; it isn't");
+  });
+
+  test('(t) shows credentialed registration (--header) and the REST-only alternative', () => {
+    expect(content).toMatch(/claude mcp add --transport http squire https:\/\/squiredocs\.com\/mcp \\\n\s+--header "Authorization: Bearer/);
+    expect(content).toMatch(/Work over REST immediately/);
+  });
 });

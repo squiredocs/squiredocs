@@ -82,6 +82,28 @@ describe('anonymous MCP surface invariance', () => {
     expect(res.body).toEqual(BODY_MISSING);
   });
 
+  test('anonymous unexpected tool error → generic message, no internals (008 prod incident)', async () => {
+    // Observed in prod: a missing-migration relation error surfaced verbatim to
+    // an unauthenticated caller. Unexpected exceptions on the anonymous surface
+    // must collapse to a generic message (contract outcomes are normal results).
+    const spy = jest
+      .spyOn(toolRegistry, 'executeTool')
+      .mockRejectedValue(new Error('relation "mcp_pending_authorizations" does not exist'));
+    try {
+      const res = await rpc({
+        jsonrpc: '2.0', id: 9, method: 'tools/call',
+        params: { name: 'login', arguments: { agentName: 'x' } },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.result.is_error).toBe(true);
+      const text = res.body.result.content[0].text;
+      expect(text).toBe('The login service is temporarily unavailable. Try again shortly.');
+      expect(text).not.toContain('relation');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test('anonymous malformed JSON-RPC (bad version) → the same missing-credential 401 (008 review)', async () => {
     // Pre-008, EVERY unauthenticated request 401'd before body validation; the
     // version check must not create an anonymous 200 that differs from that.

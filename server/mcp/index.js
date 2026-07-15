@@ -338,13 +338,21 @@ async function handleToolCall(params, agentToken) {
     console.error(`Tool "${name}" execution error:`, error);
     notifyException(error, { source: 'mcp-tool', extra: { tool: name } });
 
+    // Anonymous callers never get internal error detail: the login tools
+    // return their contract outcomes (rate_limited, expired, ...) as normal
+    // results, so an exception here is unexpected — and raw messages can name
+    // schema/infrastructure internals (observed in prod: a missing-migration
+    // relation error surfaced verbatim to an unauthenticated caller).
+    const text = agentToken.isAnonymous
+      ? 'The login service is temporarily unavailable. Try again shortly.'
+      : error.message; // executor.js messages carry stack traces and hints
+
     return {
       is_error: true,
       content: [
         {
           type: 'text',
-          // error.message from executor.js already includes stack trace and hints
-          text: error.message,
+          text,
         },
       ],
     };

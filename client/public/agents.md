@@ -46,10 +46,13 @@ tools), use a personal access token from **Settings → AI Agent Access**
 ## Already inside a session? Log in with the `login` tool
 
 **This is the recommended path when you are an agent already running inside a
-session with no Squire credential yet.** Your MCP client already completed the
-protocol handshake, so even unauthenticated you can see and call exactly two
-tools — `login` and `login_status` — which bootstrap a real credential without
-you ever running the `claude mcp add` command yourself.
+session with no Squire credential yet.** If your MCP client has the Squire
+server attached, it already completed the protocol handshake, so even
+unauthenticated you can see and call exactly two tools — `login` and
+`login_status` — which bootstrap a real credential without you ever running
+the `claude mcp add` command yourself. **No Squire server attached to your
+session at all? You can still do this** — the same two tools are callable
+with plain curl; see "No MCP connection? Bootstrap with curl" right below.
 
 1. Call `login({ agentName })` with a short display name for yourself. It
    returns a one-time user code, a verification URL (`/activate`), and a
@@ -71,6 +74,50 @@ you ever running the `claude mcp add` command yourself.
    there is no mid-session toolset upgrade.
 
 Manage or revoke this access anytime in **Settings → AI Agent Access**.
+
+## No MCP connection? Bootstrap with curl
+
+The MCP endpoint is plain JSON-RPC over HTTP, and the two login tools are
+anonymous-callable — so **an agent with a shell needs no MCP client
+attachment, no CLI install, and no OAuth to get a credential**. Do not
+conclude that registering the server is a prerequisite; it isn't.
+
+1. Start the pairing (no credential required):
+
+```
+curl -s -X POST https://squiredocs.com/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"login","arguments":{"agentName":"<short display name>"}}}'
+```
+
+2. The result carries a one-time user code, the `/activate` URL, and a
+   `handle`. Relay the URL (bare, on its own line) and code to your user
+   exactly as described in the section above.
+
+3. Poll with the same shape (about every 5 seconds; back off on `slow_down`):
+
+```
+curl -s -X POST https://squiredocs.com/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"login_status","arguments":{"handle":"sqlh_..."}}}'
+```
+
+4. On approval, run the returned claim command — it writes the credential to
+   a `0600` file without the token ever entering your context or the
+   conversation. All the credential-handling rules above apply.
+
+5. Use the credential either way:
+   - **Work over REST immediately** — the token authenticates the REST
+     endpoints below (export, import, two-way sync); document collaboration
+     needs no MCP client at all.
+   - **Or register the MCP server with the credential**, so the restarted
+     session loads fully authenticated with no OAuth step. Have your user run
+     (adjusting the file path):
+
+```
+claude mcp add --transport http squire https://squiredocs.com/mcp \
+  --header "Authorization: Bearer $(cat ~/.squire-credential)"
+```
+
+   then restart with the conversation preserved (`claude --continue`).
 
 ## MCP endpoint
 
