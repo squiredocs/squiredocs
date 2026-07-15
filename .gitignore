@@ -37,9 +37,10 @@ design/.squire-token
 # transient deploy wrapper (script/deploy-aws.sh)
 k8s/overlays/.deploy-tmp-*/
 
-# OpenTofu working files (module authored only; ops track runs init/plan/apply)
+# OpenTofu working files (module authored only; ops track runs init/plan/apply).
+# .terraform.lock.hcl IS committed (L3): it pins provider hashes so `tofu init`
+# verifies them across the operator's platforms (linux/darwin, amd64/arm64).
 infra/terraform/.terraform/
-infra/terraform/.terraform.lock.hcl
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
 infra/terraform/*.tfvars
