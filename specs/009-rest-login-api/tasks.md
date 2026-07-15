@@ -84,7 +84,7 @@ sites and carries no secrets.
 
 **Independent test**: quickstart Scenario 4.
 
-- [ ] T013 [P] [US3] New suite `server/__tests__/login-next-steps.test.js`: complete a pairing and inspect the tool approved payload, the REST approved payload, and BOTH inline deliveries — each has `nextSteps` with the credentialed `--header "Authorization: Bearer $(cat <file>)"` one-liner (pre-filled path) and the three runnable REST recipes (list `GET /api/docs`, create-from-markdown `POST /api/docs/import`, export `GET /api/docs/:docId/export?format=markdown`); the bare `claude mcp add … /mcp` form (no `--header`) appears in NO payload; no `sk_sqd_`/credential material in any `nextSteps`; the raw claim response body is exactly the credential bytes + `\n` (no `nextSteps`). Contracts: contracts/next-steps-block.md.
+- [X] T013 [P] [US3] New suite `server/__tests__/login-next-steps.test.js`: complete a pairing and inspect the tool approved payload, the REST approved payload, and BOTH inline deliveries — each has `nextSteps` with the credentialed `--header "Authorization: Bearer $(cat <file>)"` one-liner (pre-filled path) and the three runnable REST recipes (list `GET /api/docs`, create-from-markdown `POST /api/docs/import`, export `GET /api/docs/:docId/export?format=markdown`); the bare `claude mcp add … /mcp` form (no `--header`) appears in NO payload; no `sk_sqd_`/credential material in any `nextSteps`; the raw claim response body is exactly the credential bytes + `\n` (no `nextSteps`). Contracts: contracts/next-steps-block.md.
 
 **Checkpoint**: SC-003 — an agent can register or run a first doc op from the payload alone.
 
