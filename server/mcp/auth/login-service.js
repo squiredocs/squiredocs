@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const store = require('./pending-authorizations');
 const delegation = require('./delegation');
 const apiTokens = require('./api-tokens');
+const rateLimit = require('./rate-limit');
 const {
   AUTHORIZATION_TTL_SECONDS,
   CLAIM_WINDOW_SECONDS,
@@ -28,8 +29,15 @@ const {
   AGENT_NAME_MAX_LENGTH,
   MAX_PENDING_PER_IP,
   MAX_PENDING_GLOBAL,
+  LOGIN_CALLS_PER_MINUTE_PER_IP,
   HANDLE_PREFIX,
 } = require('./login-constants');
+
+// Canonical file the shipped claim recipe writes the credential to. Every
+// emitted recipe (claim command + nextSteps registration one-liner) pre-fills
+// this ONE path so the tool, the REST wrappers, and agents.md never disagree
+// (feature 009, FR-011/FR-021; the path the successful live test used).
+const CREDENTIAL_FILE_PATH = '~/.squire/credential';
 
 // The two scopes a login-born delegation always carries (never any admin
 // capability — Constitution Principle V).
@@ -147,8 +155,58 @@ function secondsUntil(ts) {
 function buildClaimCommand(baseUrl, handle) {
   return (
     `umask 077 && curl -fsS -H "Authorization: Bearer ${handle}" `
-    + `"${baseUrl}/api/mcp/login/claim" -o ~/.squire/credential && chmod 600 ~/.squire/credential`
+    + `"${baseUrl}/api/login/claim" -o ${CREDENTIAL_FILE_PATH} && chmod 600 ${CREDENTIAL_FILE_PATH}`
   );
+}
+
+/**
+ * The ONLY place the per-IP login rate-limit key string + budget constant live
+ * (feature 009, RD-8). Both the `login` MCP tool and `POST /api/login/start`
+ * call this, so the two doors share one budget — a login start over REST spends
+ * the same `login:ip:<ip>` bucket as one over MCP, never a fresh 10. Returns the
+ * rate-limiter's discriminated result unchanged: { allowed, retryAfterSeconds }.
+ */
+async function checkLoginRateLimit(ip) {
+  return rateLimit.consume(`login:ip:${ip}`, LOGIN_CALLS_PER_MINUTE_PER_IP, 60);
+}
+
+/**
+ * Pure builder for the `nextSteps` block attached to every approved/inline
+ * delivery (feature 009, FR-011/FR-013). Carries NO credential material — it
+ * references the claimed token only through `$(cat <file>)`, with the canonical
+ * credential file path pre-filled. Teaches the credentialed MCP registration
+ * one-liner (the `--header` form ONLY — the bare form never appears) plus the
+ * top three runnable REST recipes. Kept to three recipes so the approved payload
+ * still renders in MCP clients (~2 KB rule of thumb), not a full reference.
+ */
+function buildNextSteps(baseUrl, credentialFilePath = CREDENTIAL_FILE_PATH) {
+  const cred = `$(cat ${credentialFilePath})`;
+  return {
+    registerMcp:
+      `claude mcp add --transport http squire ${baseUrl}/mcp `
+      + `--header "Authorization: Bearer ${cred}"`,
+    restRecipes: [
+      {
+        what: 'List your documents',
+        command: `curl -fsS -H "Authorization: Bearer ${cred}" "${baseUrl}/api/docs"`,
+      },
+      {
+        what: 'Create a document from a markdown file',
+        command:
+          `curl -fsS -X POST -H "Authorization: Bearer ${cred}" `
+          + `-H "Content-Type: text/markdown" --data-binary @doc.md "${baseUrl}/api/docs/import"`,
+      },
+      {
+        what: 'Export a document as markdown',
+        command:
+          `curl -fsS -H "Authorization: Bearer ${cred}" `
+          + `"${baseUrl}/api/docs/<docId>/export?format=markdown" -o doc.md`,
+      },
+    ],
+    note:
+      'Credential file path follows wherever you wrote it in the claim step '
+      + `(default ${credentialFilePath}).`,
+  };
 }
 
 // ── GC / auto-revoke ────────────────────────────────────────────────────────
@@ -295,6 +353,7 @@ async function getStatus(handle, { inline = false, baseUrl = '' } = {}) {
             + 'Write it directly into your MCP client configuration, then reconnect.',
           credential: claimed.token,
           expiresInDays: CREDENTIAL_TTL_DAYS,
+          nextSteps: buildNextSteps(baseUrl),
         };
       }
 
@@ -305,6 +364,7 @@ async function getStatus(handle, { inline = false, baseUrl = '' } = {}) {
         status: 'approved',
         claimCommand: buildClaimCommand(baseUrl, handle),
         claimExpiresInSeconds: secondsUntil(delivered.claim_expires_at),
+        nextSteps: buildNextSteps(baseUrl),
         instructions: [
           'Run the claim command within 5 minutes; it writes the credential to a file with '
             + 'owner-only (0600) permissions.',
@@ -479,6 +539,11 @@ module.exports = {
   hashCode,
   timingSafeEqualHex,
   validateAgentName,
+  // shared gates & recipe builders (feature 009 — one key, one payload family)
+  checkLoginRateLimit,
+  buildNextSteps,
+  buildClaimCommand,
+  CREDENTIAL_FILE_PATH,
   // flow
   createPendingAuthorization,
   getStatus,

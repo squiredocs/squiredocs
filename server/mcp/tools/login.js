@@ -11,8 +11,6 @@
  * whom it mints a fresh pairing (re-pairing / rotation) — D2.
  */
 const loginService = require('../auth/login-service');
-const rateLimit = require('../auth/rate-limit');
-const { LOGIN_CALLS_PER_MINUTE_PER_IP } = require('../auth/login-constants');
 
 // Wired as a boot-time singleton in server/mcp/index.js init(); the tool holds
 // no persistence handle of its own.
@@ -54,10 +52,12 @@ async function handler(args, agentToken) {
   const ip = (agentToken && agentToken.clientIp) || 'unknown';
   const baseUrl = (agentToken && agentToken.baseUrl) || '';
 
-  // Abuse gate 1: per-IP login rate (10/min). Gates 2 (per-IP cap) and 3
-  // (global cap) live in createPendingAuthorization, after its GC sweep so the
-  // counts are fresh. Every gate returns the same uniform retriable result.
-  const gate = await rateLimit.consume(`login:ip:${ip}`, LOGIN_CALLS_PER_MINUTE_PER_IP, 60);
+  // Abuse gate 1: per-IP login rate (10/min) via the SHARED helper — the tool
+  // and POST /api/login/start spend one budget, never two (feature 009, RD-8).
+  // Gates 2 (per-IP cap) and 3 (global cap) live in createPendingAuthorization,
+  // after its GC sweep so the counts are fresh. Every gate returns the same
+  // uniform retriable result.
+  const gate = await loginService.checkLoginRateLimit(ip);
   if (!gate.allowed) {
     return {
       status: 'rate_limited',

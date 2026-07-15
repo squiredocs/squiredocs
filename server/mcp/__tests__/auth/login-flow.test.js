@@ -151,10 +151,12 @@ describe('login flow (end-to-end)', () => {
     expect(decideRes.status).toBe(200);
     expect(decideRes.body.status).toBe('approved');
 
-    // Poll: approved payload exactly once — has claimCommand, NO credential
+    // Poll: approved payload exactly once — has claimCommand, NO credential.
+    // Emitted recipes now name the canonical /api/login/claim path (009, RD-4).
     const approved = await pollStatus(handle);
     expect(approved.status).toBe('approved');
-    expect(approved.claimCommand).toContain('/api/mcp/login/claim');
+    expect(approved.claimCommand).toContain('/api/login/claim');
+    expect(approved.claimCommand).not.toContain('/api/mcp/login/claim');
     expect(approved.claimCommand).toContain(handle);
     expect(JSON.stringify(approved)).not.toContain('sk_sqd_');
 
