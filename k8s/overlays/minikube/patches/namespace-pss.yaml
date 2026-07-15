@@ -1,0 +1,10 @@
+# Minikube PSS: WARN at baseline only — never enforce (RD-8). Enforcing
+# restricted here would evict the privileged dev tooling pod (app-dev runs as
+# root for mutagen sync). Warn-only keeps dev behavior identical to today.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: collab
+  labels:
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn-version: latest

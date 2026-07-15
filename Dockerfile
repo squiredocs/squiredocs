@@ -1,5 +1,8 @@
 # Build stage for client
-FROM node:22-alpine AS client-builder
+# Base pinned by digest (FR-020) — immutable reference. Digest is the multi-arch
+# index for node:22-alpine (resolved 2026-07-15); the tag is kept as a human
+# label. Bump both together when updating Node.
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS client-builder
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm ci
@@ -13,7 +16,8 @@ COPY documentation/ ../documentation/
 RUN npm run build
 
 # Production stage
-FROM node:22-alpine
+# Same digest-pinned base as the builder (FR-020).
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
 WORKDIR /app
 
 # Create non-root user

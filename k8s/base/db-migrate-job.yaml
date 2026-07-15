@@ -14,7 +14,9 @@ spec:
     spec:
       containers:
         - name: db-migrate
-          image: ${IMG}
+          # Same app image as collab-app; resolved by the Kustomize `images:`
+          # override per overlay. No `$IMG` templating.
+          image: collab-app
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST

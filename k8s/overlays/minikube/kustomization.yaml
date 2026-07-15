@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Minikube dev overlay — behaviorally identical to today's effective manifests
+# (FR-009, SC-003): premium-rwo/standard-rwo storage classes, app-dev tooling
+# pod, /health for both probes, passwordless Redis, image collab:latest, PSS
+# warn=baseline only. No hardening patches (those live in aws-prod).
+
+namespace: collab
+
+resources:
+  - ../../base
+  - storageclasses/premium-rwo.yaml
+  - storageclasses/standard-rwo.yaml
+  - app-dev.yaml
+
+# App + migrate image → collab:latest (matches legacy deploy.sh minikube path).
+images:
+  - name: collab-app
+    newName: collab
+    newTag: latest
+
+patches:
+  # PSS warn=baseline only (no enforce, RD-8).
+  - path: patches/namespace-pss.yaml
+    target:
+      kind: Namespace
+      name: collab
+  # Dev never ran the nightly backup CronJob (it needs the backup image +
+  # backup-s3cmd secret, absent in dev). Drop it so the minikube render stays
+  # behaviorally identical to today.
+  - patch: |
+      $patch: delete
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: postgres-backup
+        namespace: collab
+    target:
+      kind: CronJob
+      name: postgres-backup

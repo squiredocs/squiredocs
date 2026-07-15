@@ -1,45 +1,63 @@
 #!/bin/sh
-# This script performs the PostgreSQL backup and uploads it to S3.
+# Nightly Postgres backup → squiredocs-db-backups (FR-023, SC-006).
+#
+# Hardening vs. the old script:
+#   * NO `set -x` — the DB password never appears in traced output.
+#   * NO runtime `apk add` — pg_dump/s3cmd are baked into Dockerfile.backup.
+#   * Password read from a MOUNTED FILE via PGPASSFILE — never on a command line
+#     or in argv; pg_dump/s3cmd pick it up from libpq's ~/.pgpass mechanism.
+#   * Timestamped filenames (full date+time) — a corrupt dump can never overwrite
+#     a good one (the old `%j` day-of-year collided within a year).
+#   * Uploads to squiredocs-db-backups (not the legacy shared earthquaketracksql).
+#
+# Runs NON-ROOT. Required env (set by the CronJob):
+#   POSTGRES_HOST, POSTGRES_USER, POSTGRES_DATABASE
+#   POSTGRES_PASSWORD_FILE  — path to a file containing ONLY the password
+#   BACKUP_BUCKET           — target bucket (default squiredocs-db-backups)
+# s3cmd config is mounted at /etc/s3cmd/s3cfg (from the backup-s3cmd SOPS Secret).
 
-set -x # Print commands and their arguments as they are executed
-set -e # Exit immediately if a command exits with a non-zero status
+set -eu
 
-# Install PostgreSQL client tools if not already installed
-if ! command -v pg_dump > /dev/null 2>&1; then
-    echo "Installing PostgreSQL client tools..."
-    apk add --no-cache postgresql16-client s3cmd
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+BACKUP_BUCKET="${BACKUP_BUCKET:-squiredocs-db-backups}"
+
+if [ ! -r "${POSTGRES_PASSWORD_FILE:-}" ]; then
+  echo "ERROR: POSTGRES_PASSWORD_FILE is unset or not readable." >&2
+  exit 1
 fi
 
-# Ensure the s3cmd configuration is linked
-# This is necessary for s3cmd to find its configuration file.
-# The s3cfg file is mounted from a ConfigMap to /etc/s3cmd/s3cfg
-# Remove existing symlink if it exists to handle container restarts
-rm -f /root/.s3cfg
-ln -s /etc/s3cmd/s3cfg /root/.s3cfg
+# Build a libpq PGPASSFILE (.pgpass format) in a private temp file, mode 0600.
+# The password comes from the mounted file and is written only to this 0600 file
+# — never to argv, an env var visible in `ps`, or traced output.
+PGPASSFILE="$(mktemp)"
+export PGPASSFILE
+chmod 600 "$PGPASSFILE"
+cleanup() { rm -f "$PGPASSFILE"; }
+trap cleanup EXIT INT TERM
+printf '%s:%s:%s:%s:%s\n' \
+  "$POSTGRES_HOST" "$POSTGRES_PORT" "$POSTGRES_DATABASE" "$POSTGRES_USER" \
+  "$(cat "$POSTGRES_PASSWORD_FILE")" > "$PGPASSFILE"
 
-# Define the filename with hostname, architecture, and day of year.
-# Using command substitution to get dynamic parts of the filename.
-fn="collab-postgres-$(hostname)-$(uname -m)-$(date '+%j').sql.gz"
+# s3cmd config from the mounted Secret (writable HOME may not exist for the
+# non-root user, so point s3cmd at the mount explicitly).
+S3CFG="/etc/s3cmd/s3cfg"
+if [ ! -r "$S3CFG" ]; then
+  echo "ERROR: s3cmd config not found at $S3CFG (mount the backup-s3cmd Secret)." >&2
+  exit 1
+fi
 
-# Echo the filename immediately after assignment to verify
-echo "Generated filename (after assignment): \"$fn\""
+# Full date+time + host + arch → unique, sortable, non-colliding filename.
+fn="collab-postgres-$(hostname)-$(uname -m)-$(date -u '+%Y%m%dT%H%M%SZ').sql.gz"
+echo "Backup filename: $fn"
 
-# Create the backup directory if it doesn't exist and change into it.
-# Chain commands using && for sequential execution.
-mkdir -p /var/sql_backups && cd /var/sql_backups
+workdir="$(mktemp -d)"
+trap 'rm -f "$PGPASSFILE"; rm -rf "$workdir"' EXIT INT TERM
+cd "$workdir"
 
-# Echo the filename again just before it's used in the pipe
-echo "Generated filename (before use in pipe): \"$fn\""
+# pg_dump reads the password from PGPASSFILE only (never a prompt flag, never
+# PGPASSWORD, never argv).
+pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" \
+  | gzip > "$fn"
 
-# Perform the pg_dump, gzip it, and save to the file.
-# Using environment variables for database connection
-# Pipe the output of pg_dump to gzip, and redirect the output to the file named by $fn.
-# Using double quotes around $fn to handle potential spaces or special characters in the filename.
-PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DATABASE | gzip > "$fn"
-
-# Upload the gzipped file to the S3 bucket.
-# Using double quotes around $fn for consistency and safety.
-s3cmd put "$fn" s3://earthquaketracksql/
-
-# Optional: Add a cleanup step if you want to remove the local backup file after upload
-# rm "$fn"
+s3cmd --config "$S3CFG" put "$fn" "s3://${BACKUP_BUCKET}/"
+echo "Uploaded s3://${BACKUP_BUCKET}/${fn}"

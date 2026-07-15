@@ -20,7 +20,10 @@ spec:
     spec:
       containers:
         - name: collab-app
-          image: ${IMG}
+          # Image name resolved by the Kustomize `images:` override per overlay
+          # (minikube → collab:latest; aws-prod → ECR repo@digest set at deploy
+          # time). No `$IMG` templating.
+          image: collab-app
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001

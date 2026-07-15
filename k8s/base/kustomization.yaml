@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Environment-neutral shared manifests for the `collab` app. Overlays
+# (overlays/minikube, overlays/aws-prod) reference this base and patch the
+# per-environment deltas. Image names carry no `$…` templating — they are
+# resolved by the `images:` override in each overlay (and, for the app image in
+# aws-prod, by deploy-aws.sh at deploy time).
+
+namespace: collab
+
+resources:
+  - namespace.yaml
+  - app-deployment.yaml
+  - app-service.yaml
+  - app-hpa.yaml
+  - postgres-deployment.yaml
+  - postgres-service.yaml
+  - postgres-data-persistentvolumeclaim.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+  - redis-data-persistentvolumeclaim.yaml
+  - db-migrate-job.yaml
+  - postgres-backup-cronjob.yaml
