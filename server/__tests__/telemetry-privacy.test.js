@@ -79,7 +79,9 @@ describe('redaction backstop on emitted spans', () => {
     );
     const span = capture.getSpans().find((s) => s.name === 'collab.operation');
     expect(span.attributes['document.guid']).toBe('doc-guid-abc'); // permitted present
-    expect(containsSentinel(JSON.stringify(span.attributes))).toBe(false);
+    // Sweep the FULL span record (attributes + status + events), not just
+    // attributes — content can hide in status.message / exception events too.
+    expect(containsSentinel(capture.serializeSpan(span))).toBe(false);
     expect(span.attributes['document.text']).toBeUndefined();
     expect(span.attributes['document.title']).toBeUndefined();
   });
@@ -100,7 +102,62 @@ describe('redaction backstop on emitted spans', () => {
     expect(captured.attributes['http.target']).toBeUndefined();
     expect(captured.attributes['url.full']).toBeUndefined();
     expect(captured.attributes['db.statement']).toBeUndefined();
-    expect(containsSentinel(JSON.stringify(captured.attributes))).toBe(false);
+    expect(containsSentinel(capture.serializeSpan(captured))).toBe(false);
+  });
+
+  test('error-path span: sentinel in Error message/stack + status appears NOWHERE, exception.type + ERROR code survive', () => {
+    // withSpan wraps a fn that throws an Error whose message quotes document-text-
+    // like content (the MCP-modify-error / raw-PG-error smuggling channel). The
+    // sentinel must not survive in ANY channel — attributes, status.message, or
+    // exception-event attributes — while status.code stays ERROR and the
+    // content-free exception.type survives for triage.
+    const boom = `content=${SENTINEL_TEXT} title=${SENTINEL_TITLE}`;
+    expect(() =>
+      withSpan('collab.operation', { 'document.guid': 'doc-err-1' }, () => {
+        throw new TypeError(boom);
+      })
+    ).toThrow();
+
+    const span = capture.getSpans().find((s) => s.name === 'collab.operation');
+    expect(span).toBeDefined();
+
+    // Sentinel present NOWHERE in the full span record.
+    expect(containsSentinel(capture.serializeSpan(span))).toBe(false);
+    expect(containsSentinel(span.status.message || '')).toBe(false);
+
+    // status.code preserved as ERROR (2) so error-rate dashboards still fire.
+    expect(span.status.code).toBe(api.SpanStatusCode.ERROR);
+    expect(span.attributes.outcome).toBe('error');
+
+    // exception.type survives (content-free), message/stacktrace are gone.
+    const exEvent = (span.events || []).find((e) => e.name === 'exception');
+    expect(exEvent).toBeDefined();
+    expect(exEvent.attributes['exception.type']).toBe('TypeError');
+    expect(exEvent.attributes['exception.message']).toBeUndefined();
+    expect(exEvent.attributes['exception.stacktrace']).toBeUndefined();
+  });
+
+  test('redaction backstop scrubs a RAW auto-instrumentation-style error span (pg status.message + recordException)', () => {
+    // Simulates what instrumentation-pg / ioredis produce directly on a tracer
+    // span (bypassing withSpan): a raw status.message embedding user values and a
+    // recordException carrying the full error. The processor must scrub both.
+    const tracer = telemetry.getTracer();
+    const span = tracer.startSpan('pg.query', { attributes: { 'db.system': 'postgresql' } });
+    span.recordException(new Error(`duplicate key value violates ... Detail: Key=(${SENTINEL_TEXT})`));
+    span.setStatus({
+      code: api.SpanStatusCode.ERROR,
+      message: `error: invalid input value "${SENTINEL_QUERY}"`,
+    });
+    span.end();
+
+    const captured = capture.getSpans().find((s) => s.name === 'pg.query');
+    expect(captured).toBeDefined();
+    expect(containsSentinel(capture.serializeSpan(captured))).toBe(false);
+    expect(captured.status.code).toBe(api.SpanStatusCode.ERROR); // outcome preserved
+    const exEvent = (captured.events || []).find((e) => e.name === 'exception');
+    expect(exEvent.attributes['exception.type']).toBe('Error'); // triage id kept
+    expect(exEvent.attributes['exception.message']).toBeUndefined();
+    expect(exEvent.attributes['exception.stacktrace']).toBeUndefined();
   });
 });
 

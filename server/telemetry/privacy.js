@@ -13,7 +13,15 @@
  *      attribute key not on the allowlist (so an accidental content attribute,
  *      or a content-bearing key from auto-instrumentation — `db.statement`, the
  *      concrete `url.full`/`http.target`, a Redis publish payload — can never be
- *      exported) and truncates over-long string values.
+ *      exported) and truncates over-long string values. It ALSO scrubs the two
+ *      other channels an error can smuggle content through: `span.status.message`
+ *      (instrumentation-pg sets it to the raw PG error, which embeds user values)
+ *      is cleared while `status.code` is preserved so error-rate dashboards keep
+ *      working; and `exception` span events (recordException from ioredis /
+ *      express / MCP — MCP modify errors quote document text by design) are
+ *      reduced to `exception.type` alone, dropping `exception.message` and
+ *      `exception.stacktrace`. Non-exception event attributes are allowlist-
+ *      filtered too.
  *
  * The allowlist is deliberately strict: unrecognized keys are dropped by default,
  * so a future instrumentation that adds a new content-bearing attribute is
@@ -97,6 +105,13 @@ const FORBIDDEN_ATTRIBUTE_KEYS = new Set([
 // value slipping through on an allowlisted key).
 const MAX_ATTRIBUTE_VALUE_LEN = 256;
 
+// OTel exception span-event name and its semconv attribute keys. `exception.type`
+// (the error class/name) is content-free and survives redaction for triage;
+// `exception.message` and `exception.stacktrace` can quote user content (MCP
+// modify errors quote document text by design) and are always dropped.
+const EXCEPTION_EVENT_NAME = 'exception';
+const EXCEPTION_TYPE_KEY = 'exception.type';
+
 /** True iff `key` may appear as an attribute/label in an exported signal. */
 function isPermittedKey(key) {
   return PERMITTED_ATTRIBUTE_KEYS.has(key) && !FORBIDDEN_ATTRIBUTE_KEYS.has(key);
@@ -130,12 +145,14 @@ function safeAttributes(attributes) {
 
 /**
  * Span processor backstop: on span end, strip every non-allowlisted attribute
- * key (in place, before the exporter serializes the span) and truncate over-long
- * string values. Never throws — a logging/telemetry fault must never propagate.
+ * key (in place, before the exporter serializes the span), truncate over-long
+ * string values, clear `status.message`, and reduce exception events to
+ * `exception.type`. Never throws — a logging/telemetry fault must never propagate.
  *
- * Mutating `span.attributes` in `onEnd` is safe because the exporter reads the
- * same object reference (batch export serializes it after all processors' onEnd),
- * so redaction is applied regardless of processor registration order.
+ * Mutating `span.attributes` / `span.status` / `span.events` in `onEnd` is safe
+ * because the exporter reads the same object references (batch export serializes
+ * them after all processors' onEnd), so redaction is applied regardless of
+ * processor registration order.
  */
 class RedactionSpanProcessor {
   constructor({ maxLen = MAX_ATTRIBUTE_VALUE_LEN } = {}) {
@@ -146,16 +163,50 @@ class RedactionSpanProcessor {
 
   onEnd(span) {
     try {
-      const attrs = span && span.attributes;
-      if (!attrs || typeof attrs !== 'object') return;
-      for (const key of Object.keys(attrs)) {
-        if (!isPermittedKey(key)) {
-          delete attrs[key];
-          continue;
+      if (!span || typeof span !== 'object') return;
+
+      // 1. Attributes: keep only allowlisted keys, truncate long values.
+      const attrs = span.attributes;
+      if (attrs && typeof attrs === 'object') {
+        for (const key of Object.keys(attrs)) {
+          if (!isPermittedKey(key)) {
+            delete attrs[key];
+            continue;
+          }
+          const value = attrs[key];
+          if (typeof value === 'string' && value.length > this._maxLen) {
+            attrs[key] = value.slice(0, this._maxLen);
+          }
         }
-        const value = attrs[key];
-        if (typeof value === 'string' && value.length > this._maxLen) {
-          attrs[key] = value.slice(0, this._maxLen);
+      }
+
+      // 2. status.message can carry raw upstream error text (e.g. a PG error
+      //    embedding user-supplied values). Drop it; keep status.code so
+      //    error-rate dashboards still see the ERROR outcome.
+      if (span.status && typeof span.status === 'object' && span.status.message != null) {
+        span.status.message = '';
+      }
+
+      // 3. Exception events: keep only the content-free exception.type. Drop
+      //    exception.message / exception.stacktrace and any other event
+      //    attribute. Non-exception event attributes are allowlist-filtered.
+      const events = span.events;
+      if (Array.isArray(events)) {
+        for (const event of events) {
+          const evAttrs = event && event.attributes;
+          if (!evAttrs || typeof evAttrs !== 'object') continue;
+          const isException = event.name === EXCEPTION_EVENT_NAME;
+          for (const key of Object.keys(evAttrs)) {
+            const keep = isException ? key === EXCEPTION_TYPE_KEY : isPermittedKey(key);
+            if (!keep) {
+              delete evAttrs[key];
+              continue;
+            }
+            const value = evAttrs[key];
+            if (typeof value === 'string' && value.length > this._maxLen) {
+              evAttrs[key] = value.slice(0, this._maxLen);
+            }
+          }
         }
       }
     } catch {

@@ -160,6 +160,36 @@ Implementation-level defaults taken during planning where the design doc/plan we
 
 ---
 
+## POST-MERGE REVIEW decisions (2026-07-16)
+
+## RBD-14: Error-path scrub = DROP message/stack entirely (not truncate)
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-16) — flagged for
+  Sam's explicit ratification (this hardens the privacy invariant's default; see
+  promotion-notes HIGH-1).
+- **Question**: Post-merge review (HIGH-1) proved the privacy backstop swept only
+  `span.attributes`, so error text could still escape through two channels the
+  design doc's invariant covers: `span.status.message` (instrumentation-pg sets it
+  to the raw PG error, which embeds user-supplied values) and `exception` span
+  events (`recordException` from ioredis/express/MCP — MCP modify errors quote
+  document text by design). Should the backstop TRUNCATE these to a bounded length,
+  or DROP them entirely?
+- **Decision**: DROP entirely — strict default. `RedactionSpanProcessor.onEnd` now
+  clears `span.status.message` (keeping `status.code=ERROR`), and reduces every
+  `exception` event to `exception.type` alone, dropping `exception.message` and
+  `exception.stacktrace`. `withSpan`'s own error path likewise records only the
+  error CLASS (`exception.type`) — never message or stack. Non-exception event
+  attributes are allowlist-filtered.
+- **Why this default**: Truncation still exports a prefix of user content — for a
+  PG error like `duplicate key ... Detail: Key=(<user value>)` the leaked bytes sit
+  right where truncation keeps them. There is no reliable way to extract "just the
+  error class" from a free-form upstream message string, so the only invariant-safe
+  choice is to drop the message and preserve the content-free `exception.type` /
+  `status.code` for triage and error-rate dashboards. Consistent with RBD-9 (never
+  export tool args/results) and the design doc's trust-level invariant.
+
+---
+
 ## Notes / observations for downstream phases
 
 - **OBS-1**: At spec time (2026-07-16), `specs/013-o11y-platform/` existed but was empty —

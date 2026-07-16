@@ -84,6 +84,24 @@ function findMetric(metrics, name) {
   return metrics.find((m) => m.name === name);
 }
 
+/**
+ * Serialize the FULL exported span record — name, attributes, status (code +
+ * message), AND every event with all its attributes — to a JSON string. Sentinel
+ * sweeps must use this (not just `span.attributes`): content can escape through
+ * `span.status.message` (raw PG errors) or exception-event attributes
+ * (`exception.message` / `exception.stacktrace`), which an attributes-only sweep
+ * never sees. This is the shape the RedactionSpanProcessor backstop must scrub.
+ */
+function serializeSpan(span) {
+  if (!span) return '';
+  return JSON.stringify({
+    name: span.name,
+    attributes: span.attributes || {},
+    status: span.status || {},
+    events: (span.events || []).map((e) => ({ name: e.name, attributes: e.attributes || {} })),
+  });
+}
+
 /** Captured log lines (parsed JSON objects) since the last reset(). */
 function getLogLines() {
   return logLines.slice();
@@ -105,6 +123,7 @@ async function shutdown() {
 module.exports = {
   installCapture,
   getSpans,
+  serializeSpan,
   getMetrics,
   findMetric,
   getLogLines,

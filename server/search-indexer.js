@@ -105,7 +105,9 @@ async function indexDocument(docGuid) {
       console.warn(`[SearchIndexer] Embedding generation failed for ${docGuid}, FTS still indexed:`, err.message);
     });
 
-    console.log(`[SearchIndexer] Indexed ${docGuid}: "${title}" (${contentText.length} chars)`);
+    // Log identifiers + sizes only — never the title text (feeds the telemetry
+    // pipeline; the design doc forbids titles/search queries in logs).
+    console.log(`[SearchIndexer] Indexed ${docGuid} (title ${(title || '').length} chars, ${contentText.length} content chars)`);
   } finally {
     indexingInProgress.delete(docGuid);
   }

@@ -157,7 +157,9 @@ function buildGoogleWebSearch(provider) {
     }),
     execute: async (args) => {
       const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
-      console.log('[Chat API] webSearch query:', query);
+      // Log the query LENGTH only — never the query text (design doc forbids
+      // search queries in logs; logs feed the telemetry pipeline).
+      console.log('[Chat API] webSearch query received (%d chars)', String(query).length);
       const searchResult = await generateText({
         model: searchModel,
         // AI SDK v6 renamed maxTokens → maxOutputTokens; the old name was silently
@@ -245,7 +247,9 @@ function buildOpenRouterWebSearch(provider) {
     }),
     execute: async (args) => {
       const query = args.query || (typeof args === 'string' ? args : JSON.stringify(args));
-      console.log('[Chat API] webSearch (openrouter) query:', query);
+      // Log the query LENGTH only — never the query text (design doc forbids
+      // search queries in logs; logs feed the telemetry pipeline).
+      console.log('[Chat API] webSearch (openrouter) query received (%d chars)', String(query).length);
       const searchResult = await generateText({
         model: searchModel,
         // NOTE: AI SDK v6 renamed maxTokens → maxOutputTokens; the old name is

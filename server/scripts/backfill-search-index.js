@@ -80,20 +80,20 @@ async function main() {
         const contentText = toPlainText(xmlFragment);
 
         if (!contentText || contentText.trim().length === 0) {
-          console.log(`${progress} ⊘ ${doc.doc_id}: "${doc.title || '(no title)'}" — empty content, skipping`);
+          console.log(`${progress} ⊘ ${doc.doc_id} (title ${(doc.title || '').length} chars) — empty content, skipping`);
           continue;
         }
 
         const chunks = chunkText(contentText);
         await searchIndexer.generateAndStoreEmbeddings(doc.doc_id, contentText);
         successCount++;
-        console.log(`${progress} ✓ ${doc.doc_id}: "${doc.title || '(no title)'}" — ${chunks.length} chunk(s), ${contentText.length} chars`);
+        console.log(`${progress} ✓ ${doc.doc_id} (title ${(doc.title || '').length} chars) — ${chunks.length} chunk(s), ${contentText.length} chars`);
 
         // Rate limit between documents
         await sleep(DELAY_MS);
       } catch (err) {
         errorCount++;
-        console.error(`${progress} ✗ ${doc.doc_id}: "${doc.title || '(no title)'}" — ${err.message}`);
+        console.error(`${progress} ✗ ${doc.doc_id} (title ${(doc.title || '').length} chars) — ${err.message}`);
       }
     }
 

@@ -60,6 +60,11 @@ process.on('uncaughtException', fail);
             kind: s.kind,
             traceId: s.spanContext().traceId,
             attributes: s.attributes,
+            // Emit status + events too so the parent sweep covers the channels
+            // content can escape through beyond attributes (status.message, and
+            // exception-event attributes) — post RedactionSpanProcessor.
+            status: s.status,
+            events: (s.events || []).map((e) => ({ name: e.name, attributes: e.attributes })),
           }));
           fs.writeFileSync(outPath, JSON.stringify({ spans }));
           try {

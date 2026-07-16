@@ -62,3 +62,70 @@ needs to know. SPEC phase entries below; later phases append.
   - Fold `docs-draft.md` into README.md + docs/dev.md (Principle I doc obligation, deferred by override).
   - `git diff` touches only `server/`, `server/__tests__/`, `package.json`/lockfile, and this feature's `specs/014-*` artifacts. No `specs/013-*`, no `infra/`, no CLAUDE.md/README.md/docs/dev.md edits.
 - **Degradation test (F1)**: shipped as a real test (`telemetry-degradation.test.js`) — points the exporter at `127.0.0.1:1` (connection REFUSED = deterministic/fast, not a timeout), asserts no throw, no unhandled rejection, bounded shutdown. Not flaky.
+
+## Post-merge review dispositions (2026-07-16)
+
+Four findings from adversarial post-merge review, all fixed same-day in the main tree.
+
+- **HIGH-1 — privacy invariant bypass (FIXED; flagged for Sam's ratification).** The
+  `RedactionSpanProcessor` backstop swept only `span.attributes`, so error text could still
+  reach the exporter through `span.status.message` (instrumentation-pg sets it to the raw PG
+  error, which embeds user-supplied values) and `exception` span events (`recordException`
+  from ioredis/express/MCP; MCP modify errors quote document text by design). Reviewer proved
+  the gap. Fix (strict default, **RBD-14** in clarifications-needed.md — flagged for Sam to
+  ratify because it hardens the invariant's default behavior): `onEnd` now also clears
+  `span.status.message` (keeps `status.code=ERROR` so error-rate dashboards fire) and reduces
+  every `exception` event to `exception.type` alone (drops `exception.message` /
+  `exception.stacktrace`); non-exception event attributes are allowlist-filtered.
+  `withSpan`'s error path (`spans.js`) now records only the error CLASS (`exception.type`),
+  never message/stack, so 014's own spans are clean before the backstop even runs.
+  `server/telemetry/privacy.js` (onEnd + doc/constants), `server/telemetry/spans.js` (onError).
+- **MEDIUM-2 — sentinel tests vacuous vs finding 1 (FIXED).** Added `capture.serializeSpan()`
+  (full span record: name + attributes + status + every event's attributes) to the capture
+  helper and switched the privacy/traces sentinel sweeps to it (they previously serialized
+  only `span.attributes`, which a status/event leak sails past). Added a regression test:
+  `withSpan` wrapping a fn that throws an `Error` whose message quotes document-text-like
+  content — asserts the sentinel appears NOWHERE (attributes, status, events) while
+  `status.code===ERROR`, `outcome===error`, and `exception.type` survive. Added a second
+  processor-level test simulating a raw auto-instrumentation error span (a raw
+  `status.message` + `recordException`) to cover the pg-style path directly.
+  - **Auto-instrumentation live-error test SKIPPED (noted per instruction).** A genuine
+    pg-error-path test (sentinel-bearing invalid value through real pg auto-instrumentation)
+    needs the child-process boot fixture (`otel-e2e-child.js`) — jest pre-loads `pg`, which
+    defeats the require-hook in-process (same reason the happy-path e2e runs in a child). Not
+    cheap to trigger a deterministic pg error there; the risk it targets (pg writing raw
+    `status.message`) is covered instead by the processor-level raw-span test above, which is
+    hermetic and infra-free. The child fixture WAS extended to emit `status`+`events` so the
+    existing happy-path e2e sweep is no longer attributes-only.
+- **MEDIUM-3 — content-bearing log call sites (FIXED).** `server/search-indexer.js:108` logged
+  the document title verbatim → now logs docGuid + title length + content length.
+  `server/api/ai-providers.js:160,248` logged webSearch query strings → now log query length
+  only. Added `server/__tests__/search-indexer-privacy.test.js`: indexes a doc whose title is
+  a sentinel through the real `indexDocument` path (fake pool/persistence) and asserts no
+  shim-captured log line contains it, while the docGuid + length label are present.
+  - **Additional content-bearing site found & FIXED**: `server/scripts/backfill-search-index.js`
+    lines 83/90/96 logged `doc.title` verbatim (same pattern) → now log title length only.
+  - **Borderline sites NOTED, not churned** (grep of `console.*` in `server/` interpolating
+    title/query/content/text/body/message): (1) `server/mcp/sandbox/executor.js:99,280`
+    (`[Sandbox]`/`[ComparisonSandbox]` forward the sandboxed script's own stdout — a
+    deliberate debug channel; content there is agent-script output, not doc-store content, and
+    scrubbing would break sandbox debugging); (2) `server/mcp/sandbox/isolate-bundle.js:6262`
+    (`Children content: ...`) is inside a generated/vendored isolate bundle that runs INSIDE
+    the sandbox — a build artifact, not hand-edited; (3) `server/mcp/auth/oauth-flow.js`
+    request-body logs already route through a `redactBody()` helper; (4) `server/email.js:50`
+    logs the email subject (exception-notifier subjects are fixed strings, not doc content);
+    (5) various `console.error(..., err.message)` sites log operational error messages, a
+    different category from titles/queries — left as-is (and now backstopped for spans by
+    HIGH-1). None are doc-title/search-query leaks.
+- **LOW-4 — pubsub spans always report success (FIXED).** `server/redis-pubsub.js`
+  `publishAwareness`/`publishUpdate` wrapped the ioredis `publish()` in an inner try/catch and
+  did not return its promise, so `withSpan` never saw a rejection → `outcome` was always
+  `success`. Fix: the wrapped fn now RETURNS `publisherClient.publish(...)` so `withSpan`'s
+  promise branch classifies failures (`outcome=error`); a `.catch` on the `withSpan` result
+  preserves the existing log-and-swallow behavior (no crash, no unhandled rejection).
+  `isEnabled()` guarantees `publisherClient` is non-null on these paths, so the fn can't throw
+  synchronously.
+
+- **Gate (main tree, shared `collab_test_db`, serial — sole backend runner)**: see the
+  commit's verification. All affected suites green; full `test:server` + `test:client` +
+  `build` run before commit.

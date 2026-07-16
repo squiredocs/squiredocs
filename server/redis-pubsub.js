@@ -278,12 +278,14 @@ function publishAwareness(docId, update) {
 
   // Operation-level manual span (feature 014, FR-004/RBD-1): one span per pub/sub
   // propagation op — NOT per CRDT message. Attributes are identifiers only.
-  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.awareness' }, () => {
-    try {
-      publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update));
-    } catch (err) {
-      console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
-    }
+  // Return the ioredis publish promise from the wrapped fn so withSpan's promise
+  // branch classifies a publish failure as outcome=error (rather than always
+  // seeing success). The .catch keeps the existing log-and-swallow behavior so a
+  // publish failure never crashes the app and never becomes an unhandled rejection.
+  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.awareness' }, () =>
+    publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update))
+  ).catch((err) => {
+    console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
   });
 }
 
@@ -300,12 +302,13 @@ function publishUpdate(docId, update) {
   // Operation-level manual span (feature 014, FR-004/RBD-1): one span per pub/sub
   // propagation op — NOT per CRDT message. Attributes are identifiers only; the
   // update bytes NEVER become an attribute.
-  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.update' }, () => {
-    try {
-      publisherClient.publish(UPDATES_PREFIX + docId, encodeMessage(update));
-    } catch (err) {
-      console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
-    }
+  // Return the ioredis publish promise from the wrapped fn so withSpan's promise
+  // branch classifies a publish failure as outcome=error. The .catch keeps the
+  // existing log-and-swallow behavior (no crash, no unhandled rejection).
+  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.update' }, () =>
+    publisherClient.publish(UPDATES_PREFIX + docId, encodeMessage(update))
+  ).catch((err) => {
+    console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
   });
 }
 

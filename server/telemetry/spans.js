@@ -51,8 +51,16 @@ function withSpan(name, attributes, fn) {
 
     const onError = (err) => {
       try {
-        span.recordException(err);
-        span.setStatus({ code: SpanStatusCode.ERROR, message: err && err.message });
+        // Record the error CLASS only — never the message or stack, which can
+        // quote user content (e.g. MCP modify errors quote document text). We
+        // synthesize an exception event carrying just `exception.type` so 014's
+        // own spans are clean before the RedactionSpanProcessor backstop even
+        // runs. status.code stays ERROR (no message) so error-rate dashboards
+        // see the failure; the backstop also clears any status.message.
+        const type =
+          (err && err.constructor && err.constructor.name) || (err && err.name) || 'Error';
+        span.recordException({ name: type });
+        span.setStatus({ code: SpanStatusCode.ERROR });
       } catch {
         /* ignore */
       }

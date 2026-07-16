@@ -64,8 +64,12 @@ describe('HTTP → PG → Redis single trace (real boot order, child process)', 
     expect(sameTrace.find((s) => s.attributes['db.system'] === 'postgresql')).toBeDefined();
     expect(sameTrace.find((s) => s.attributes['db.system'] === 'redis')).toBeDefined();
 
-    // FR-003: the concrete path/query never appears in any span attribute.
-    const serialized = JSON.stringify(spans.map((s) => s.attributes));
+    // FR-003: the concrete path/query never appears in the FULL span record —
+    // attributes, status.message, or exception-event attributes (not just
+    // attributes, which would be a vacuous sweep vs the status/event channels).
+    const serialized = JSON.stringify(
+      spans.map((s) => ({ name: s.name, attributes: s.attributes, status: s.status, events: s.events }))
+    );
     expect(serialized).not.toContain('SENTINEL_QUERY');
     expect(serialized).not.toContain('doc-abc-123');
   });
