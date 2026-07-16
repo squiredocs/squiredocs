@@ -97,16 +97,35 @@ describe('chat-models BYOK', () => {
       expect(result.def.provider).toBe('anthropic');
     });
 
-    test('falls back to the server default when the BYOK model key is unknown (no throw)', () => {
-      // Regression: the old inline resolver dereferenced an undefined def for an
-      // unknown BYOK key and threw. It must fall through to the default instead.
+    // Feature 012 (FR-019): BYOK enabled but unresolvable must NOT silently fall
+    // back to the shared server key (which would bill the operator, unmetered).
+    // It returns a discriminated misconfig signal instead.
+    test('BYOK enabled with an unknown model key → byok_misconfigured (no shared fallback)', () => {
       const result = resolveChatModel({
         isByok: true,
         byokSettings: { byok_model_key: 'bogus-model', byok_anthropic_key: 'enc-key' },
         decryptKey,
       });
-      expect(result).not.toBeNull();
-      expect(result.def.key).toBe(DEFAULT_MODEL_KEY);
+      expect(result).toEqual({ error: 'byok_misconfigured', provider: null });
+    });
+
+    test('BYOK enabled with a known model but no stored key → byok_misconfigured, provider carried', () => {
+      const result = resolveChatModel({
+        isByok: true,
+        byokSettings: { byok_model_key: 'gpt-5.5', byok_openai_key: null },
+        decryptKey,
+      });
+      expect(result).toEqual({ error: 'byok_misconfigured', provider: 'openai' });
+    });
+
+    test('BYOK enabled but the key fails to decrypt → byok_misconfigured (no shared fallback)', () => {
+      const throwingDecrypt = () => { throw new Error('bad ciphertext'); };
+      const result = resolveChatModel({
+        isByok: true,
+        byokSettings: { byok_model_key: 'claude-opus', byok_anthropic_key: 'corrupt' },
+        decryptKey: throwingDecrypt,
+      });
+      expect(result).toEqual({ error: 'byok_misconfigured', provider: 'anthropic' });
     });
 
     test('uses the server default when BYOK is inactive', () => {

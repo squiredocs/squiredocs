@@ -74,15 +74,15 @@ no raw provider text.
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T014 [P] [US1] Backend integration test `server/api/__tests__/chat.error-surfacing.test.js`: pre-stream failures return JSON `{error, code, provider?}` with the honest status for each class (quota→402 `app_usage_limit`; overloaded→429; invalid-key→400; etc.); classified non-internal never 500.
-- [ ] T015 [P] [US1] Backend test in the same file: mid-stream failure emits the SSE `error` event carrying `{type:'error', errorText, code, provider?}` and is NOT written to the reconnection replay buffer (FR-010); token-limit chunk still triggers compaction (unchanged, FR-004).
+- [X] T014 [P] [US1] Backend integration test `server/api/__tests__/chat.error-surfacing.test.js`: pre-stream failures return JSON `{error, code, provider?}` with the honest status for each class (quota→402 `app_usage_limit`; overloaded→429; invalid-key→400; etc.); classified non-internal never 500.
+- [X] T015 [P] [US1] Backend test in the same file: mid-stream failure emits the SSE `error` event carrying `{type:'error', errorText, code, provider?}` and is NOT written to the reconnection replay buffer (FR-010); token-limit chunk still triggers compaction (unchanged, FR-004).
 - [ ] T016 [P] [US1] Frontend test `client/src/contexts/__tests__/AiChatContext.errors.test.js`: `handleChatError` selects behavior from the parsed `code` (no `.includes()` on body text); unknown code → internal render.
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] In `server/api/chat.js` outer `catch` (~888–902) and the early returns (quota ~597–607, model-resolve ~643–646, concurrency ~560), replace ad-hoc statuses/bodies with `chat-errors.classify(...)` + `buildErrorPayload` → `res.status(status).json(payload)`; set `Retry-After` for `rate_limited`/`provider_overloaded` when known. Remove the generic `'Internal server error'` body for classified non-internal cases.
-- [ ] T018 [US1] In `server/api/chat.js` mid-stream path: capture the real error at the `streamText` `onError` seam (~760) / the `toUIMessageStream` error formatter, classify it, and emit the SSE `error` event with `{errorText, code, provider}` in `pipeAsSSE` (~356–366) — keeping the no-buffer rule and the token-limit interception (~338) intact (research R2).
-- [ ] T019 [US1] In `server/rate-limit.js`, make the chat per-user 429 carry the structured `rate_limited` payload (via chat-errors) while leaving `reject429`/the uniform body for non-chat routes unchanged (spec: non-chat 429 out of scope).
+- [X] T017 [US1] In `server/api/chat.js` outer `catch` (~888–902) and the early returns (quota ~597–607, model-resolve ~643–646, concurrency ~560), replace ad-hoc statuses/bodies with `chat-errors.classify(...)` + `buildErrorPayload` → `res.status(status).json(payload)`; set `Retry-After` for `rate_limited`/`provider_overloaded` when known. Remove the generic `'Internal server error'` body for classified non-internal cases.
+- [X] T018 [US1] In `server/api/chat.js` mid-stream path: capture the real error at the `streamText` `onError` seam (~760) / the `toUIMessageStream` error formatter, classify it, and emit the SSE `error` event with `{errorText, code, provider}` in `pipeAsSSE` (~356–366) — keeping the no-buffer rule and the token-limit interception (~338) intact (research R2).
+- [X] T019 [US1] In `server/rate-limit.js`, make the chat per-user 429 carry the structured `rate_limited` payload (via chat-errors) while leaving `reject429`/the uniform body for non-chat routes unchanged (spec: non-chat 429 out of scope).
 - [ ] T020 [US1] In `client/src/contexts/AiChatContext.jsx` `handleChatError` (~320): replace body-sniffing (`msg.includes('usage limit')`, etc.) with `parseChatError` → `code`; store the parsed `{code, provider, text}` as the instance's error state for rendering. **Also** convert the app-auth retry trigger (~332–345, currently `msg.includes('401')||'expired token'||'unauthorized'`) to be keyed on the response **status 401**, not body text — the silent refresh-and-retry behavior is preserved and app-auth stays outside the taxonomy (FR-005/FR-013/D7). No `.includes()` on error text remains in this function.
   **Mechanism (H1 resolution, D8)**: pass a custom `fetch` to the `DefaultChatTransport` constructor (~192) that wraps global fetch and, when `!response.ok`, reads the body text and throws `Object.assign(new Error(bodyText), { status: response.status })` — so `handleChatError` receives a status-bearing error before the transport's own body-only throw. `parseChatError` accepts this error (JSON body → code) and the 401 branch keys on `error.status === 401`. SSE mid-stream errors have no status; `parseChatError` handles both shapes.
 - [ ] T021 [US1] In `client/src/components/AiChatBody.jsx` (~47–58) render the banner text/action from the shared `MESSAGES` map using the parsed `code`+`provider`; keep the usage-limit banner path but source its copy from the map; Retry button only when `code ∈ RETRYABLE_CODES`.
@@ -148,13 +148,13 @@ no shared-key request and no operator-billed usage.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T032 [P] [US4] Backend test `server/api/__tests__/chat-models.byok.test.js`: `resolveChatModel` with `isByok` true and an unknown model key / unresolvable key signals `byok_misconfigured` distinctly and does NOT fall back to the shared default; non-BYOK env→default fallback unchanged.
-- [ ] T033 [P] [US4] Backend test in `server/api/__tests__/chat.error-surfacing.test.js`: a misconfigured-BYOK send returns 400 `byok_misconfigured` pre-stream and records zero usage on the shared key (SC-006).
+- [X] T032 [P] [US4] Backend test `server/api/__tests__/chat-models.byok.test.js`: `resolveChatModel` with `isByok` true and an unknown model key / unresolvable key signals `byok_misconfigured` distinctly and does NOT fall back to the shared default; non-BYOK env→default fallback unchanged.
+- [X] T033 [P] [US4] Backend test in `server/api/__tests__/chat.error-surfacing.test.js`: a misconfigured-BYOK send returns 400 `byok_misconfigured` pre-stream and records zero usage on the shared key (SC-006).
 
 ### Implementation for User Story 4
 
-- [ ] T034 [US4] In `server/api/chat-models.js` `resolveChatModel` (~283–298): when `isByok` and the BYOK model/key cannot resolve, return a discriminated misconfig signal (e.g. `{ error: 'byok_misconfigured' }`) instead of falling through to the shared default; leave the non-BYOK shared-default chain (env→DEFAULT_MODEL_KEY) intact. Update the JSDoc that currently documents the silent fallthrough.
-- [ ] T035 [US4] In `server/api/chat.js` model-resolution site (~637–646): map the misconfig signal to a pre-stream `byok_misconfigured` 400 via chat-errors (before reserving credits / any provider call); keep the genuine "no model configured at all" case as `internal` 500.
+- [X] T034 [US4] In `server/api/chat-models.js` `resolveChatModel` (~283–298): when `isByok` and the BYOK model/key cannot resolve, return a discriminated misconfig signal (e.g. `{ error: 'byok_misconfigured' }`) instead of falling through to the shared default; leave the non-BYOK shared-default chain (env→DEFAULT_MODEL_KEY) intact. Update the JSDoc that currently documents the silent fallthrough.
+- [X] T035 [US4] In `server/api/chat.js` model-resolution site (~637–646): map the misconfig signal to a pre-stream `byok_misconfigured` 400 via chat-errors (before reserving credits / any provider call); keep the genuine "no model configured at all" case as `internal` 500.
 
 **Checkpoint**: Misconfigured BYOK is rejected loudly; the shared key is never silently billed.
 
@@ -175,8 +175,8 @@ email (once per user/month); shared-key exhaustion → operator notified, user s
 
 ### Implementation for User Story 5
 
-- [ ] T037 [US5] In `server/api/chat.js`, drive operator/admin notifications from the `classify()` result's `notifyOperator`/`notifyAdminCredit` flags: call `notifyException` only for `internal` and shared-key exhaustion; never for `byok_*`; preserve the existing `notifyCreditLimitReached` on `app_usage_limit` (already at ~599–604) without double-sending.
-- [ ] T038 [US5] Ensure the shared-key-exhaustion notification carries the true cause (billing exhaustion, not "overload") while the user payload stays `provider_overloaded` (D3) — thread the true-cause detail through the notifier call, not the user payload.
+- [X] T037 [US5] In `server/api/chat.js`, drive operator/admin notifications from the `classify()` result's `notifyOperator`/`notifyAdminCredit` flags: call `notifyException` only for `internal` and shared-key exhaustion; never for `byok_*`; preserve the existing `notifyCreditLimitReached` on `app_usage_limit` (already at ~599–604) without double-sending.
+- [X] T038 [US5] Ensure the shared-key-exhaustion notification carries the true cause (billing exhaustion, not "overload") while the user payload stays `provider_overloaded` (D3) — thread the true-cause detail through the notifier call, not the user payload.
 
 **Checkpoint**: Paging matches fault ownership across all classes.
 

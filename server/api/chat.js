@@ -26,6 +26,7 @@ const aiUsage = require('../ai-usage');
 const { decrypt } = require('../crypto');
 const { notifyException } = require('../exception-notifier');
 const { notifyCreditLimitReached } = require('../email');
+const { classify, buildErrorPayload } = require('./chat-errors');
 
 const router = express.Router();
 
@@ -309,7 +310,7 @@ async function compactMessages(messages) {
  * what it missed and tail the rest. Generation completion (not client
  * disconnect) is what ends the stream; see cleanupEntry.
  */
-async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
+async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true, onStreamError = null } = {}) {
   const [httpStream, saveStream] = uiStream.tee();
   saveStream.pipeTo(new WritableStream()).catch(() => {});
 
@@ -359,9 +360,28 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true } = {}) {
       // it and re-trigger the client's onError. Generation keeps running via the
       // tee and onFinish still persists the (possibly partial) message, so the
       // client can recover by replaying a clean buffer or re-fetching from the DB.
+      //
+      // Feature 012: carry the classified taxonomy code/provider alongside the
+      // error. The AI SDK's error part schema is strict ({ type, errorText }), so
+      // the structured fields ride an adjacent TRANSIENT data part (data-chat-error,
+      // delivered to the client's onData before onError) rather than as siblings on
+      // the error event. Both are written directly (never buffered — FR-010).
       if (value?.type === 'error') {
-        console.error('[Chat API] Provider error in stream:', value.errorText || JSON.stringify(value));
-        if (isWritable(res)) res.write(sseEvent(value));
+        const structured = onStreamError ? onStreamError(value.errorText) : null;
+        console.error('[Chat API] Provider error in stream:',
+          structured?.code || 'unclassified', value.errorText || JSON.stringify(value));
+        if (isWritable(res)) {
+          if (structured) {
+            res.write(sseEvent({
+              type: 'data-chat-error',
+              data: { code: structured.code, ...(structured.provider ? { provider: structured.provider } : {}) },
+              transient: true,
+            }));
+            res.write(sseEvent({ type: 'error', errorText: structured.errorText }));
+          } else {
+            res.write(sseEvent(value));
+          }
+        }
         continue;
       }
 
@@ -544,6 +564,29 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     }, ms);
   };
 
+  // Classification context, hoisted so the outer catch can classify a failure
+  // (feature 012). isByok drives BYOK-vs-shared code selection; providerId sources
+  // the payload's `provider`; capturedStreamSignal holds a classified provider
+  // error captured at the streamText/toUIMessageStream error seam.
+  let isByok = false;
+  let providerId = null;
+  let capturedStreamSignal = null;
+
+  // Send a classified pre-stream error (HTTP JSON, honest status per D2) and fire
+  // the operator notification when the code owns one (US5). Used by the early
+  // returns and the outer catch's internal path.
+  const sendClassifiedError = (signal, causeErr) => {
+    if (signal.notifyOperator) {
+      notifyException(causeErr || new Error(signal.trueCause || signal.error), {
+        req, source: 'chat-api', extra: { code: signal.code, ...(signal.trueCause ? { trueCause: signal.trueCause } : {}) },
+      });
+    }
+    if (!res.headersSent) {
+      if (signal.retryAfterSec) res.set('Retry-After', String(signal.retryAfterSec));
+      res.status(signal.status).json(buildErrorPayload(signal));
+    }
+  };
+
   try {
     const { message, docGuid } = req.body;
 
@@ -557,7 +600,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       if (s.userId === req.user.userId && !s.done) userStreamCount++;
     }
     if (userStreamCount >= MAX_STREAMS_PER_USER) {
-      return res.status(429).json({ error: 'Too many concurrent chat streams' });
+      // Too many concurrent streams is a per-user throttle → surface it as the
+      // structured rate_limited payload (429), distinct from the usage limit.
+      return sendClassifiedError(classify(null, { isRateLimited: true }));
     }
 
     // Register a stream entry immediately so a reconnecting client (page
@@ -587,15 +632,23 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // Persist user message immediately so it survives interrupted streams
     await chatStore.saveChat(chatId, userId, allMessages);
 
-    // Load BYOK settings for the user
+    // Load BYOK settings for the user. `byokEnabled` is the user's INTENT (BYOK
+    // toggled on); `isByok` is fully-resolvable BYOK (the metering flag). They
+    // differ only when BYOK is misconfigured — which is rejected below before any
+    // provider call, so metering never sees the difference (feature 012).
     const byokSettings = pool ? await loadByokSettings(req.user.userId) : null;
-    const isByok = isByokActive(byokSettings);
+    const byokEnabled = !!byokSettings?.byok_enabled;
+    isByok = isByokActive(byokSettings);
 
-    // Check AI usage quota before proceeding (skip for BYOK users)
+    // Check AI usage quota before proceeding. A BYOK user (even one currently
+    // misconfigured) is never charged in-app credits — skip on byokEnabled so a
+    // misconfigured BYOK request is rejected as byok_misconfigured, not quota.
     let reservationId = null;
-    if (!isByok) {
+    if (!byokEnabled) {
       const quota = await aiUsage.checkQuota(req.user.userId);
       if (!quota.allowed) {
+        // Preserve the per-user/per-month admin credit email (FR-021); the
+        // classified user response is app_usage_limit → 402 (FR-006/D2).
         notifyCreditLimitReached({
           email: req.user.email,
           name: req.user.name,
@@ -603,7 +656,7 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
           usedCents: quota.usedCents,
         });
         cleanupEntry();
-        return res.status(429).json({ error: 'AI usage limit reached' });
+        return sendClassifiedError(classify(null, { isUsageLimit: true }));
       }
       // Reserve estimated credits upfront to prevent TOCTOU race
       try {
@@ -635,16 +688,28 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // Resolve model — BYOK uses user's key + selected model, otherwise the
     // server default (with fallback). See chatModels.resolveChatModel.
     const resolved = chatModels.resolveChatModel({
-      isByok,
+      isByok: byokEnabled,
       byokSettings,
       decryptKey: decrypt,
       sharedDefaultKey: appSettings.getSharedDefaultModel(),
     });
-    if (!resolved) {
+    if (resolved && resolved.error === 'byok_misconfigured') {
+      // BYOK on but the key/model can't be resolved: reject loudly BEFORE any
+      // provider call — never fall back to (and bill) the shared server key
+      // (FR-019). Not an operator fault, so no exception notification.
       cleanupEntry();
-      return res.status(500).json({ error: 'No valid chat model configured' });
+      return sendClassifiedError(classify(null, { isByokMisconfigured: true, providerId: resolved.provider }));
+    }
+    if (!resolved) {
+      // No shared model configured at all — a genuine server misconfiguration.
+      cleanupEntry();
+      return sendClassifiedError(
+        classify(new Error('No valid chat model configured'), {}),
+        new Error('No valid chat model configured'),
+      );
     }
     const { model, def, provider } = resolved;
+    providerId = def.provider; // source of the payload's `provider` for later failures
     // Provider capability flags drive the per-provider streaming gates below
     // (prompt caching, thinking, provider-executed web-search message stripping).
     const caps = getProviderConfig(def.provider).capabilities;
@@ -743,6 +808,27 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
 
     // Build streamText options (reusable for compaction/retry)
     const retryWithoutReasoning = caps.retryWithoutReasoningOnInvalidArgument;
+
+    // Best-effort raw provider message (used only to keep token-limit /
+    // INVALID_ARGUMENT detection working — those errors stay out of the taxonomy).
+    const rawErrorMessage = (error) => (typeof error === 'string'
+      ? error
+      : (error?.message || error?.data?.error?.message || error?.responseBody || 'Stream error'));
+
+    // Classify a stream error at the toUIMessageStream error seam (feature 012).
+    // Returns the honest, sanitized error string (never raw provider internals —
+    // FR-009) and stashes the full classified signal for pipeAsSSE (mid-stream) or
+    // the outer catch (before content). Token-limit and Gemini INVALID_ARGUMENT
+    // errors are deliberately left UNCLASSIFIED (FR-004): the existing compaction /
+    // reasoning-retry interceptions detect them by the returned raw message and
+    // handle them invisibly — they must never become a taxonomy payload or page.
+    const classifyStreamError = (error) => {
+      if (isTokenLimitError(error) || (retryWithoutReasoning && isInvalidArgumentError(error))) {
+        return rawErrorMessage(error);
+      }
+      capturedStreamSignal = classify(error, { isByok, providerId });
+      return capturedStreamSignal.error;
+    };
     // Anthropic prompt caching: top-level cacheControl caches the large, static
     // tools+system prefix (re-sent on every agentic step). runStream additionally
     // tags the last message to extend the cache over the conversation history.
@@ -829,13 +915,34 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
         originalMessages: validatedMessages,
         generateMessageId: createIdGenerator({ prefix: 'msg', size: 16 }),
         sendSources: true,
+        // Sanitize + classify the error text the client sees (feature 012). Keeps
+        // the honest string for degraded clients (D6) and stashes the taxonomy
+        // signal for the transport paths below.
+        onError: classifyStreamError,
         onFinish: ({ messages: saved }) => {
           chatStore.saveChat(chatId, userId, saved).catch((err) => {
             console.error('[Chat API] Failed to save chat:', err);
           });
         },
       });
-      await pipeAsSSE(uiStream, res, entry, { writeHeaders: opts.writeHeaders ?? true });
+      await pipeAsSSE(uiStream, res, entry, {
+        writeHeaders: opts.writeHeaders ?? true,
+        // Mid-stream (after content) errors: attach the classified code/provider
+        // and fire the operator notification here — the outer catch is not reached
+        // for after-headers errors. Consume the signal so it can't double-fire.
+        onStreamError: (errorText) => {
+          const signal = capturedStreamSignal;
+          if (!signal) return null; // token-limit / unclassified — forward as-is
+          capturedStreamSignal = null;
+          if (signal.notifyOperator) {
+            notifyException(new Error(signal.trueCause || errorText || signal.error), {
+              req, source: 'chat-api',
+              extra: { code: signal.code, midStream: true, ...(signal.trueCause ? { trueCause: signal.trueCause } : {}) },
+            });
+          }
+          return { errorText: signal.error, code: signal.code, provider: signal.provider };
+        },
+      });
     }
 
     try {
@@ -889,16 +996,19 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     console.error('[Chat API] Error:', error);
     cleanupEntry();
     // A tagged client error (e.g. an attachment reference the user doesn't own,
-    // feature 010/FR-016) is a 4xx, not a server fault — surface it and don't page.
-    const status = error && Number.isInteger(error.status) ? error.status : 500;
-    if (status >= 400 && status < 500) {
-      if (!res.headersSent) res.status(status).json({ error: error.message || 'Request rejected' });
+    // feature 010/FR-016) is a request-validation 4xx outside the taxonomy —
+    // surface its status + message and don't page.
+    const taggedStatus = error && Number.isInteger(error.status) ? error.status : null;
+    if (taggedStatus && taggedStatus >= 400 && taggedStatus < 500) {
+      if (!res.headersSent) res.status(taggedStatus).json({ error: error.message || 'Request rejected' });
       return;
     }
-    notifyException(error, { req, source: 'chat-api' });
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error' });
-    }
+    // Classify the turn failure once (feature 012). Prefer the rich provider error
+    // captured at the stream error seam over the generic re-thrown Error; honest
+    // status per D2, structured payload, operator paged only when the code owns it.
+    const signal = capturedStreamSignal || classify(error, { isByok, providerId });
+    capturedStreamSignal = null;
+    sendClassifiedError(signal, error);
   }
 });
 
