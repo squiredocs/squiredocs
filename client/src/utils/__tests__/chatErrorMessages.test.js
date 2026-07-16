@@ -86,10 +86,27 @@ describe('parseChatError', () => {
     expect(parsed.text).toBe(MESSAGES.internal.text);
   });
 
-  it('a non-JSON transport message ⇒ internal fallback showing the raw text', () => {
+  it('a non-JSON transport message ⇒ internal fallback with the generic copy, NOT the raw body (L6)', () => {
+    // A bare non-JSON body (e.g. a proxy "Bad Gateway") is not display text —
+    // showing it leaks infrastructure noise into the chat banner.
     const parsed = parseChatError(new Error('Bad Gateway'));
     expect(parsed.code).toBe('internal');
-    expect(parsed.text).toBe('Bad Gateway');
+    expect(parsed.text).toBe(MESSAGES.internal.text);
+  });
+
+  it('a raw HTML proxy error body ⇒ internal fallback with the generic copy, never the HTML (L6)', () => {
+    const html = '<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>';
+    // Both as a transport Error and as a bare string body.
+    expect(parseChatError(new Error(html)).text).toBe(MESSAGES.internal.text);
+    expect(parseChatError(html).text).toBe(MESSAGES.internal.text);
+    expect(parseChatError(html).code).toBe('internal');
+  });
+
+  it('a genuinely structured JSON transport body still shows its server error text (L6)', () => {
+    // The complement to the HTML case: a real JSON body with an unknown code still
+    // surfaces the honest server string on the internal fallback (FR-013).
+    const err = new Error(JSON.stringify({ code: 'brand_new_code', error: 'honest server text' }));
+    expect(parseChatError(err).text).toBe('honest server text');
   });
 
   it('never derives a code from free text (no substring matching)', () => {

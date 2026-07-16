@@ -704,6 +704,10 @@ describe('AiChatContext', () => {
       expect(result.current.interruptionReason).toBeTruthy();
       expect(result.current.interruptionReason).toContain('busy');
       expect(resumeStreamSpy).not.toHaveBeenCalled();
+      // L5: the user turn is already persisted, so the composer draft must NOT be
+      // restored — restoring it would duplicate the turn on resend. (Contrast the
+      // pre-stream fatal case above, which does restore.)
+      expect(result.current.draftText).toBe('');
     });
 
     it('usage-limit is derived: cleared on the next send, re-set only by a fresh rejection (T029)', async () => {

@@ -73,6 +73,21 @@ describe('G1 — conversation compaction still triggers', () => {
     expect(chat.isTokenLimitError('some unrelated 500 error')).toBe(false);
   });
 
+  it('isInvalidArgumentError matches the message string, not just structured fields (L3)', () => {
+    // At the pipeAsSSE stream seam the error is a bare Error(errorText) with no
+    // statusCode/data — the Gemini no-reasoning retry must still recognize it from
+    // the raw message string (mirroring isTokenLimitError), or it stays dead
+    // pre-content.
+    expect(chat.isInvalidArgumentError('INVALID_ARGUMENT: thought_signature mismatch')).toBe(true);
+    expect(chat.isInvalidArgumentError(new Error('provider rejected: invalid argument in request'))).toBe(true);
+    // The structured shapes still match.
+    expect(chat.isInvalidArgumentError({ data: { error: { status: 'INVALID_ARGUMENT' } } })).toBe(true);
+    expect(chat.isInvalidArgumentError({ statusCode: 400, message: 'Invalid argument' })).toBe(true);
+    // Unrelated errors do not.
+    expect(chat.isInvalidArgumentError('some unrelated 500 error')).toBe(false);
+    expect(chat.isInvalidArgumentError(new Error('socket hang up'))).toBe(false);
+  });
+
   it('compactMessages summarizes the older turns and keeps the recent ones', async () => {
     // 15 messages → older 5 compacted into 1 summary, recent 10 kept verbatim.
     const messages = Array.from({ length: 15 }, (_, i) => ({

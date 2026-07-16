@@ -13,6 +13,7 @@
  *   - token-limit error chunks are still intercepted before classification (FR-004).
  */
 const { pipeAsSSE } = require('../chat');
+const { DEFAULT_MESSAGES } = require('../chat-errors');
 
 // A minimal ReadableStream of UI-message-stream chunks (objects), matching what
 // toUIMessageStream yields. tee() is used by pipeAsSSE.
@@ -100,6 +101,32 @@ describe('pipeAsSSE error transport (feature 012)', () => {
     ).rejects.toThrow();
     // Nothing was committed to the client (headers not sent) — the caller replies JSON.
     expect(res.headersSent).toBe(false);
+  });
+
+  test('mid-stream unclassified error (structured === null) is sanitized to the generic internal message (M2/FR-009)', async () => {
+    const res = fakeRes();
+    const entry = { chunks: [], done: false, userId: 'u' };
+    // onStreamError returns null for token-limit / unclassified mid-stream errors —
+    // in practice a Gemini INVALID_ARGUMENT after content, which is left
+    // deliberately unclassified. The raw provider text must never reach the client.
+    const onStreamError = () => null;
+
+    await pipeAsSSE(streamOf([
+      { type: 'start' },
+      { type: 'text-start', id: 't' },
+      { type: 'text-delta', id: 't', delta: 'partial answer' },
+      { type: 'error', errorText: 'INVALID_ARGUMENT: thought_signature mismatch — raw provider internals' },
+    ]), res, entry, { onStreamError });
+
+    const body = res.body();
+    expect(body).toContain('"type":"error"');
+    // No provider internals leak to the client (FR-009)…
+    expect(body).not.toContain('INVALID_ARGUMENT');
+    expect(body).not.toContain('thought_signature');
+    // …the generic internal message is forwarded instead.
+    expect(body).toContain(DEFAULT_MESSAGES.internal);
+    // And the error part is still never buffered for reconnection replay.
+    expect(entry.chunks.join('')).not.toContain('"type":"error"');
   });
 
   test('token-limit error chunk is intercepted before classification (FR-004)', async () => {

@@ -67,10 +67,32 @@ describe('classifyProviderError', () => {
   });
 
   describe('google', () => {
-    test('RESOURCE_EXHAUSTED → insufficient_credits', () => {
+    // M1: the stock per-minute rate limit — a bare RESOURCE_EXHAUSTED whose body
+    // says only "check quota" — is a routine throttle, NOT out-of-funds. It must
+    // classify as overloaded so the shared-key path never false-pages the operator
+    // with an "account out of funds" cause on every per-minute rate limit.
+    test('bare RESOURCE_EXHAUSTED (per-minute rate limit) → overloaded', () => {
       expect(classifyProviderError('google', sdkError({
         statusCode: 429, message: 'Resource has been exhausted (e.g. check quota).', code: 'RESOURCE_EXHAUSTED',
-      }))).toBe('insufficient_credits');
+      }))).toBe('overloaded');
+    });
+    // Genuine quota/billing exhaustion carries a QuotaFailure detail + free-tier /
+    // billing wording in the response body → insufficient_credits.
+    test('RESOURCE_EXHAUSTED with QuotaFailure / free-tier billing body → insufficient_credits', () => {
+      const err = sdkError({
+        statusCode: 429,
+        message: 'You exceeded your current quota, please check your plan and billing details.',
+        code: 'RESOURCE_EXHAUSTED',
+      });
+      err.responseBody = JSON.stringify({
+        error: {
+          code: 429,
+          status: 'RESOURCE_EXHAUSTED',
+          message: 'You exceeded your current quota',
+          details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests' }] }],
+        },
+      });
+      expect(classifyProviderError('google', err)).toBe('insufficient_credits');
     });
     test('API_KEY_INVALID (400) → invalid_key', () => {
       expect(classifyProviderError('google', sdkError({ statusCode: 400, message: 'API key not valid', code: 'API_KEY_INVALID' }))).toBe('invalid_key');

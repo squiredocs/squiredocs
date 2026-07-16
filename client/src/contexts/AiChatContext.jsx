@@ -365,13 +365,20 @@ export function AiChatProvider({ children }) {
       ? parseChatError({ code: midStream.code, provider: midStream.provider, error: error?.message })
       : parseChatError(error);
 
-    // Restore the composed message so nothing typed is lost, and surface the
-    // classified banner. The single place that gives up.
+    // Surface the classified banner (+ usage latch) without touching the composer.
+    const surfaceError = () => {
+      if (parsed.code === 'app_usage_limit') setUsageLimitReached(true);
+      setErrorInfoByChat((m) => ({ ...m, [chatKey]: parsed }));
+    };
+
+    // Restore the composed message so nothing typed is lost, then surface the
+    // banner. The single place that gives up. Only safe when the turn was rejected
+    // BEFORE the user message was persisted — otherwise restoring duplicates it on
+    // resend (see the mid-stream branch below).
     const fallback = () => {
       if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
       if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
-      if (parsed.code === 'app_usage_limit') setUsageLimitReached(true);
-      setErrorInfoByChat((m) => ({ ...m, [chatKey]: parsed }));
+      surfaceError();
     };
 
     // App-auth failure (expired app session) stays OUTSIDE the taxonomy (FR-005/D7):
@@ -398,9 +405,18 @@ export function AiChatProvider({ children }) {
       const msgs = instance?.messages;
       const hasPartialReply = msgs?.[msgs.length - 1]?.role === 'assistant';
       if (hasPartialReply) {
+        // Mid-stream fatal error: the user turn (and this partial reply) is already
+        // persisted server-side. Restoring the composer draft would duplicate the
+        // turn when the user resends (L5) — instead leave the composer as-is and
+        // show the interruption notice beside the partial reply. Still surface the
+        // banner + usage latch.
         setInterruptedByChat((m) => ({ ...m, [chatKey]: parsed.text }));
+        surfaceError();
+      } else {
+        // Pre-stream rejection (empty wallet, bad key, rate limit before any
+        // content): nothing was persisted, so restore the draft (FR-018).
+        fallback();
       }
-      fallback();
       return;
     }
 

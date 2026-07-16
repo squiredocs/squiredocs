@@ -96,10 +96,14 @@ function tryParseJson(text) {
 // Resolve the user-facing text for a parsed code. Interpolates the provider
 // label; for the `internal` fallback (unknown/absent code), prefers the payload's
 // honest server string when present (FR-013/D6).
-function resolveText(code, provider, payload, fellBack) {
+function resolveText(code, provider, payload, fellBack, structured) {
   if (code === 'internal') {
     const serverText = payload.error || payload.errorText;
-    if (fellBack && serverText) return serverText;
+    // Only surface the server's own string when it came from a genuine structured
+    // body — a JSON payload (or transport body) carrying error/errorText. A raw
+    // non-JSON body (e.g. a proxy's HTML error page or a bare "Bad Gateway") is
+    // NOT display text; fall back to the generic internal copy (L6).
+    if (fellBack && structured && serverText) return serverText;
     return MESSAGES.internal.text;
   }
   const label = PROVIDER_LABELS[provider] || 'your provider';
@@ -122,18 +126,27 @@ function resolveText(code, provider, payload, fellBack) {
 export function parseChatError(errorOrPayload) {
   let payload = null;
   let status;
+  // Whether `payload` is genuine structured data (an object with code/error/
+  // errorText, or a successfully JSON-parsed body) vs. a raw-text wrapper we
+  // synthesized from a non-JSON body. Only the former may be shown as display
+  // text on the internal fallback (L6).
+  let structured = false;
 
   if (errorOrPayload && typeof errorOrPayload === 'object') {
     if (typeof errorOrPayload.status === 'number') status = errorOrPayload.status;
     if ('code' in errorOrPayload || 'errorText' in errorOrPayload || 'error' in errorOrPayload) {
       // Already-structured payload or SSE error/data part.
       payload = errorOrPayload;
+      structured = true;
     } else if (typeof errorOrPayload.message === 'string') {
-      // Transport Error: the message is the response body text.
-      payload = tryParseJson(errorOrPayload.message) || { error: errorOrPayload.message };
+      // Transport Error: the message is the response body text. Structured only
+      // when it actually parses as JSON — a raw HTML/plain-text proxy body does not.
+      const parsed = tryParseJson(errorOrPayload.message);
+      if (parsed) { payload = parsed; structured = true; } else payload = { error: errorOrPayload.message };
     }
   } else if (typeof errorOrPayload === 'string') {
-    payload = tryParseJson(errorOrPayload) || { error: errorOrPayload };
+    const parsed = tryParseJson(errorOrPayload);
+    if (parsed) { payload = parsed; structured = true; } else payload = { error: errorOrPayload };
   }
   payload = payload || {};
 
@@ -141,7 +154,7 @@ export function parseChatError(errorOrPayload) {
   const fellBack = !KNOWN_CODES.has(rawCode);
   const code = fellBack ? 'internal' : rawCode;
   const provider = payload.provider || null;
-  const text = resolveText(code, provider, payload, fellBack);
+  const text = resolveText(code, provider, payload, fellBack, structured);
 
   return { code, provider, text, status };
 }

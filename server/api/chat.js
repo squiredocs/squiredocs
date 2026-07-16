@@ -26,7 +26,7 @@ const aiUsage = require('../ai-usage');
 const { decrypt } = require('../crypto');
 const { notifyException } = require('../exception-notifier');
 const { notifyCreditLimitReached } = require('../email');
-const { classify, buildErrorPayload } = require('./chat-errors');
+const { classify, buildErrorPayload, DEFAULT_MESSAGES } = require('./chat-errors');
 
 const router = express.Router();
 
@@ -236,9 +236,19 @@ function isTokenLimitError(errorOrMessage) {
  * with Gemini 3 models when thinking is enabled with multi-turn tool calls).
  */
 function isInvalidArgumentError(errorOrMessage) {
-  const status = errorOrMessage?.data?.error?.status || errorOrMessage?.statusCode;
-  const msg = errorOrMessage?.data?.error?.message || errorOrMessage?.message || '';
-  return status === 'INVALID_ARGUMENT' || (status === 400 && /invalid argument/i.test(msg));
+  const msg = typeof errorOrMessage === 'string'
+    ? errorOrMessage
+    : errorOrMessage?.data?.error?.message || errorOrMessage?.message || '';
+  const status = typeof errorOrMessage === 'string'
+    ? null
+    : errorOrMessage?.data?.error?.status ?? errorOrMessage?.statusCode;
+  // Also match the message string (mirroring isTokenLimitError): at the pipeAsSSE
+  // stream seam the thrown Error(errorText) carries no statusCode/data, so the
+  // structured checks alone never matched and the Gemini no-reasoning retry was
+  // dead pre-content (L3). The raw errorText still contains "INVALID_ARGUMENT".
+  return status === 'INVALID_ARGUMENT'
+    || (status === 400 && /invalid argument/i.test(msg))
+    || /INVALID_ARGUMENT|invalid argument/i.test(msg);
 }
 
 /**
@@ -379,7 +389,13 @@ async function pipeAsSSE(uiStream, res, entry, { writeHeaders = true, onStreamEr
             }));
             res.write(sseEvent({ type: 'error', errorText: structured.errorText }));
           } else {
-            res.write(sseEvent(value));
+            // structured === null → an unclassified mid-stream error (in practice
+            // Gemini INVALID_ARGUMENT after content; token-limit errors throw
+            // earlier and never reach here, so compaction detection is unaffected).
+            // The raw provider text must never reach the client (FR-009) — forward
+            // the generic internal message. The raw text is preserved in the
+            // console.error above for server-side debugging.
+            res.write(sseEvent({ type: 'error', errorText: DEFAULT_MESSAGES.internal }));
           }
         }
         continue;
@@ -666,6 +682,19 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       }
     }
 
+    // Release an outstanding reservation on a classified early return that happens
+    // AFTER reserveCredits but BEFORE the stream starts. On those paths onFinish
+    // (which normally reconciles the reservation) never fires, so without this the
+    // 'reserved' row lingers forever, permanently debiting the user's monthly quota
+    // (L4). Idempotent: nulls the id so it can't double-release.
+    const releaseReservation = () => {
+      if (!reservationId) return;
+      const id = reservationId;
+      reservationId = null;
+      aiUsage.reconcileReservation(id, { failed: true })
+        .catch(err => console.error('[Chat API] Failed to release reservation:', err));
+    };
+
     // Look up document title if docGuid provided and user has access
     let docTitle = null;
     if (docGuid) {
@@ -696,12 +725,17 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (resolved && resolved.error === 'byok_misconfigured') {
       // BYOK on but the key/model can't be resolved: reject loudly BEFORE any
       // provider call — never fall back to (and bill) the shared server key
-      // (FR-019). Not an operator fault, so no exception notification.
+      // (FR-019). Not an operator fault, so no exception notification. (BYOK is on
+      // here, so no reservation was taken; release is a defensive no-op.)
+      releaseReservation();
       cleanupEntry();
       return sendClassifiedError(classify(null, { isByokMisconfigured: true, providerId: resolved.provider }));
     }
     if (!resolved) {
       // No shared model configured at all — a genuine server misconfiguration.
+      // This is the shared-key path, so a reservation IS outstanding — release it
+      // before returning or it leaks (L4).
+      releaseReservation();
       cleanupEntry();
       return sendClassifiedError(
         classify(new Error('No valid chat model configured'), {}),
@@ -1145,7 +1179,7 @@ module.exports = {
   router, activeStreams, init, pipeAsSSE, buildChatAgentToken, CHAT_AGENT_ID,
   // Exposed for tests (feature 010): attachment reference resolution + the
   // concurrent-stream cap / compaction seams (G1).
-  extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, MAX_STREAMS_PER_USER,
+  extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, isInvalidArgumentError, MAX_STREAMS_PER_USER,
   // Markdown attachment byte channel (import_markdown tool).
   extractMessageMarkdown, replaceMarkdownFileParts,
   // Exposed for the F7 key-hardening test.

@@ -322,14 +322,23 @@ function classifyAnthropicError(err) {
   return null;
 }
 
-// Google: out-of-funds/quota is 429 RESOURCE_EXHAUSTED (per the design taxonomy);
-// auth is 401/403 / API_KEY_INVALID; overload is 503 UNAVAILABLE / generic 429.
+// Google: RESOURCE_EXHAUSTED (429) is Google's status for BOTH routine per-minute
+// rate limits AND genuine quota/billing exhaustion — the message/details are what
+// distinguish them. Only treat it as out-of-funds when the body actually indicates
+// a billing / quota-exhaustion cause (a QuotaFailure detail, free-tier, billing, or
+// "exceeded your current quota"); a bare RESOURCE_EXHAUSTED / 429 (e.g. the stock
+// "Resource has been exhausted (e.g. check quota).") is a routine rate limit →
+// overloaded, so the shared-key path never false-pages the operator as out-of-funds
+// on every per-minute throttle (M1). Auth is 401/403 / API_KEY_INVALID; overload is
+// 503 UNAVAILABLE / bare 429.
 function classifyGoogleError(err) {
   const text = errorText(err);
   const status = httpStatus(err);
-  if (/resource_exhausted/.test(text)) return 'insufficient_credits';
+  if (/quota_?failure|free.?tier|billing|exceeded your current quota|out of .*quota|quota exceeded/.test(text)) {
+    return 'insufficient_credits';
+  }
   if (status === 401 || status === 403 || /api_key_invalid|permission_denied|unauthenticated/.test(text)) return 'invalid_key';
-  if (status === 429 || status === 503 || status === 529 || /unavailable|overloaded/.test(text)) return 'overloaded';
+  if (status === 429 || status === 503 || status === 529 || /resource_exhausted|unavailable|overloaded/.test(text)) return 'overloaded';
   return null;
 }
 
