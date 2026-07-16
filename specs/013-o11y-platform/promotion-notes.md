@@ -152,3 +152,21 @@ the main tree (server/ and 014 untouched). Verified with `tofu fmt/validate` +
 
 Two HIGHs (1 and 2) apply chosen fixes RATIFIED by Sam 2026-07-16: the
 `squiredocs.com` probe target, and the node-IP egress placeholder for kubelet/API.
+
+## Rollout deviations & follow-ups (2026-07-16, executed by orchestrator w/ Sam's elevated access)
+
+Applied live and back-ported to the repo (each its own commit):
+1. **podman → docker** (AL2023 repos carry no podman); RD-10 memory cap moved onto `docker run --memory`.
+2. **`ZO_COMPACT_DATA_RETENTION_DAYS`** (committed name `ZO_DATA_RETENTION_DAYS` would have silently disabled retention).
+3. **`ZO_GRPC_TLS_CERT_DOMAIN`** required when gRPC TLS enabled (v0.14 panics without it) — then superseded by:
+4. **RD-4 amended**: exporter is OTLP/HTTP over TLS on **5080** at path `/api/default` (OpenObserve's flight-search rejects a private-CA cert on its own gRPC port, breaking all search); gRPC TLS off; egress NetworkPolicy moved 5081→5080.
+5. **SMTP wired** from the existing SES secret (ZO_SMTP_*) so the `ops-email` destination delivers; recipient had to be created as an org user first.
+6. **hostmetrics utilization metrics enabled** (cpu/memory/filesystem) — dashboards key on them; off by default upstream.
+7. **Dashboards/alerts rewritten to the per-metric-stream model** (no unified metrics table in OpenObserve) and imported; routes confirmed and recorded in the dashboards README.
+
+Pending / follow-ups:
+- **App deploy owed (needs docker)**: ships 014 instrumentation + the Deployment OTel env patch. After it, create the two app alerts (`app-error-rate`, `ready-failure`) once the `http_server_request_count` stream exists: `POST /api/default/http_server_request_count/alerts?type=metrics`. The golden-signals dashboard populates then too.
+- **node-saturation alert is CPU-only** (single-stream limit); memory/filesystem alerts are a follow-up.
+- **S3 Parquet flush** not yet observed at rollout end (data in node WAL, no S3 errors) — confirm `squiredocs-openobserve` receives objects within a day.
+- **Requests-anomaly alarm** in ALARM until its training window passes (expected; fires one SNS email).
+- CA/server-cert expiries: CA 2036-07, server 2029-01 — calendar reminder owed (no cert-manager coverage for this CA).
