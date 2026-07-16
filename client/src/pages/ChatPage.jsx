@@ -27,7 +27,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
   const dragCounterRef = useRef(0);
 
   const {
-    messages, sendMessage, status, stop, error,
+    messages, sendMessage, status, stop, error, errorInfo, interruptionReason,
     usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles,
     getChatDraft, saveChatDraft, currentChatId,
     messagesLoading, messagesError, retryLoadMessages, retryLastMessage,
@@ -145,6 +145,7 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
               messagesLoading={messagesLoading} messagesError={messagesError}
               retryLoadMessages={retryLoadMessages}
               usageLimitReached={usageLimitReached} error={error}
+              errorInfo={errorInfo} interruptionReason={interruptionReason}
               onRetry={retryLastMessage} reconnecting={reconnecting}
               greeting={getGreeting(user?.name)} accentColor={accentColor}
               iconSize={48} onDocLinkClick={handleDocLinkClick}

@@ -107,11 +107,20 @@ function clientIp(req) {
 }
 
 /**
- * Send the uniform 429 (FR-009). `Retry-After` in seconds from msBeforeNext when known.
+ * Send the 429 over-budget response. `Retry-After` in seconds from msBeforeNext
+ * when known. For the chat route class the body carries the structured
+ * `rate_limited` taxonomy payload (feature 012, FR-006) so the chat client
+ * renders the specific rate-limit banner; every other route keeps the uniform
+ * body (FR-009, non-chat 429 out of scope).
  */
-function reject429(res, rejRes) {
+function reject429(res, rejRes, className) {
   if (rejRes && typeof rejRes.msBeforeNext === 'number') {
     res.set('Retry-After', String(Math.max(1, Math.ceil(rejRes.msBeforeNext / 1000))));
+  }
+  if (className === 'chat') {
+    // Lazy require avoids a load-order cycle at server startup.
+    const { buildErrorPayload, CODES } = require('./api/chat-errors');
+    return res.status(429).json(buildErrorPayload({ code: CODES.RATE_LIMITED }));
   }
   res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
 }
@@ -148,7 +157,7 @@ async function enforce(kind, className, req, res) {
     return true;
   } catch (rejRes) {
     if (isBudgetRejection(rejRes)) {
-      reject429(res, rejRes);
+      reject429(res, rejRes, className);
       return false;
     }
     console.error(`[RateLimit] ${className} ${kind} limiter error (failing open):`, rejRes?.message || rejRes);

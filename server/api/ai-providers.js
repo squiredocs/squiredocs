@@ -277,6 +277,95 @@ function buildOpenRouterWebSearch(provider) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Per-provider error detection (feature 012, FR-003). Each provider maps its own
+// upstream failure shapes to a taxonomy-relevant SIGNAL — one of
+// 'insufficient_credits' | 'invalid_key' | 'overloaded' | null. The BYOK-vs-shared
+// distinction and the final code live in the chat-errors orchestrator; provider
+// knowledge (which HTTP status / body means what) stays here, the single place.
+//
+// The same HTTP 429 means different things across providers (rate-limit vs. an
+// out-of-funds account), which is exactly why detection must be per-provider and
+// not a generic switch in the chat endpoint.
+// ---------------------------------------------------------------------------
+
+/** Numeric HTTP status from an AI SDK / fetch-style error, or null. */
+function httpStatus(err) {
+  const raw = err?.statusCode ?? err?.status ?? err?.response?.status ?? err?.data?.error?.code;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Lower-cased haystack of the error's message + provider body fields. */
+function errorText(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err.toLowerCase();
+  return [
+    err.message,
+    err.responseBody,
+    err.data?.error?.message,
+    err.data?.error?.type,
+    err.data?.error?.code,
+    err.data?.error?.status,
+    err.error?.message,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+// Anthropic: out-of-funds is a 400 "credit balance is too low"; auth is 401/403;
+// overload is 429 (rate_limit) / 529 (overloaded_error) / 503.
+function classifyAnthropicError(err) {
+  const text = errorText(err);
+  const status = httpStatus(err);
+  if (/credit balance is too low|billing|insufficient/.test(text)) return 'insufficient_credits';
+  if (status === 401 || status === 403 || /authentication_error|permission_error|invalid x-api-key/.test(text)) return 'invalid_key';
+  if (status === 429 || status === 529 || status === 503 || /overloaded|rate_limit/.test(text)) return 'overloaded';
+  return null;
+}
+
+// Google: out-of-funds/quota is 429 RESOURCE_EXHAUSTED (per the design taxonomy);
+// auth is 401/403 / API_KEY_INVALID; overload is 503 UNAVAILABLE / generic 429.
+function classifyGoogleError(err) {
+  const text = errorText(err);
+  const status = httpStatus(err);
+  if (/resource_exhausted/.test(text)) return 'insufficient_credits';
+  if (status === 401 || status === 403 || /api_key_invalid|permission_denied|unauthenticated/.test(text)) return 'invalid_key';
+  if (status === 429 || status === 503 || status === 529 || /unavailable|overloaded/.test(text)) return 'overloaded';
+  return null;
+}
+
+// OpenAI: out-of-funds is 429 with code insufficient_quota; auth is 401/403
+// (invalid_api_key); overload is a non-quota 429 (rate_limit_exceeded) / 503.
+function classifyOpenAIError(err) {
+  const text = errorText(err);
+  const status = httpStatus(err);
+  if (/insufficient_quota|billing_hard_limit|exceeded your current quota/.test(text)) return 'insufficient_credits';
+  if (status === 401 || status === 403 || /invalid_api_key|incorrect api key/.test(text)) return 'invalid_key';
+  if (status === 429 || status === 503 || /rate_limit|overloaded/.test(text)) return 'overloaded';
+  return null;
+}
+
+// z.ai (OpenAI-compatible): out-of-funds surfaces as an insufficient-balance
+// message (z.ai code 1113); auth is 401/403; overload is 429/503/529.
+function classifyZaiError(err) {
+  const text = errorText(err);
+  const status = httpStatus(err);
+  if (/insufficient|balance|1113|arrears|quota/.test(text)) return 'insufficient_credits';
+  if (status === 401 || status === 403 || /invalid.*key|unauthorized|authentication/.test(text)) return 'invalid_key';
+  if (status === 429 || status === 503 || status === 529 || /overloaded|rate limit|too many requests/.test(text)) return 'overloaded';
+  return null;
+}
+
+// OpenRouter (OpenAI-compatible gateway): out-of-funds is a 402 (negative
+// credits); auth is 401/403; overload is 429/502/503.
+function classifyOpenRouterError(err) {
+  const text = errorText(err);
+  const status = httpStatus(err);
+  if (status === 402 || /insufficient_quota|insufficient credit|negative credit|not enough credit/.test(text)) return 'insufficient_credits';
+  if (status === 401 || status === 403 || /no auth credentials|invalid api key|user not found/.test(text)) return 'invalid_key';
+  if (status === 429 || status === 502 || status === 503 || /overloaded|rate limit|no instances/.test(text)) return 'overloaded';
+  return null;
+}
+
 /**
  * Per-model Anthropic extended-thinking options. The thinking form is
  * model-specific (verified live against @ai-sdk/anthropic@3.0.64):
@@ -326,6 +415,7 @@ const PROVIDERS = {
       },
     }),
     buildWebSearch: buildAnthropicWebSearch,
+    classifyError: classifyAnthropicError,
     capabilities: { promptCache: true, providerExecutedWebSearch: true },
   },
   google: {
@@ -340,6 +430,7 @@ const PROVIDERS = {
     validateKey: validateGoogleKey,
     buildProviderOptions: () => ({ google: { thinkingConfig: { includeThoughts: true } } }),
     buildWebSearch: buildGoogleWebSearch,
+    classifyError: classifyGoogleError,
     // Gemini can hit INVALID_ARGUMENT when thought signatures from earlier turns are
     // lost in persistence; chat.js retries once without reasoning options when this is set.
     capabilities: { promptCache: false, providerExecutedWebSearch: false, retryWithoutReasoningOnInvalidArgument: true },
@@ -362,6 +453,7 @@ const PROVIDERS = {
     // user's key. Bump to 'medium'/'high' per model here later if desired.
     buildProviderOptions: () => ({ openai: { reasoningEffort: 'low', reasoningSummary: 'auto' } }),
     buildWebSearch: buildOpenAIWebSearch,
+    classifyError: classifyOpenAIError,
     // OpenAI's web search runs server-side (provider-executed), so the same
     // history-stripping the Anthropic path uses applies here too.
     capabilities: { promptCache: false, providerExecutedWebSearch: true },
@@ -385,6 +477,7 @@ const PROVIDERS = {
     // provider-specific options (OpenAI reasoning options don't map to z.ai).
     buildProviderOptions: () => undefined,
     buildWebSearch: buildZaiWebSearch,
+    classifyError: classifyZaiError,
     // GLM reasoning is streamed to the UI, but openai-compatible echoes it back as
     // `reasoning_content` in assistant history — strip it from outgoing requests so
     // z.ai isn't fed its own prior chain-of-thought (see stripReasoningFromHistory
@@ -411,6 +504,7 @@ const PROVIDERS = {
     // (a separate generateText sub-call) — same shape as the Gemini path, so it's a
     // normal client tool and needs no provider-executed history stripping.
     buildWebSearch: buildOpenRouterWebSearch,
+    classifyError: classifyOpenRouterError,
     // GLM reasoning streams to the UI but is echoed back as `reasoning_content` in
     // assistant history by openai-compatible — strip it from outgoing requests.
     capabilities: { promptCache: false, providerExecutedWebSearch: false, stripReasoningFromHistory: true },
@@ -439,4 +533,16 @@ function hasServerKey(id) {
   return !!(cfg && cfg.serverKeyEnv && process.env[cfg.serverKeyEnv]);
 }
 
-module.exports = { PROVIDERS, getProviderConfig, listProviders, hasServerKey, ANTHROPIC_CACHE_CONTROL };
+/**
+ * Registry-level error classifier (feature 012). Delegates to the given
+ * provider's `classifyError`, returning the taxonomy signal
+ * ('insufficient_credits' | 'invalid_key' | 'overloaded') or null. Unknown
+ * provider (or one without a classifier) → null (→ `internal` upstream).
+ */
+function classifyProviderError(providerId, err) {
+  const cfg = PROVIDERS[providerId];
+  if (!cfg || typeof cfg.classifyError !== 'function') return null;
+  return cfg.classifyError(err);
+}
+
+module.exports = { PROVIDERS, getProviderConfig, listProviders, hasServerKey, classifyProviderError, ANTHROPIC_CACHE_CONTROL };

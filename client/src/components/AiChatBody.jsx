@@ -1,19 +1,27 @@
 import React from 'react';
 import AiChatMessages from './AiChatMessages';
+import { MESSAGES, RETRYABLE_CODES } from '../utils/chatErrorMessages';
 import './AiChatBody.css';
 
 /**
- * Shared chat body: loading → error → empty welcome → messages,
- * plus usage-limit and error banners beneath.
+ * Shared chat body: loading → error → empty welcome → messages, plus the
+ * usage-limit / interruption / error banners beneath. Both surfaces (side panel +
+ * full page) render error copy from the same code→message map (feature 012), so
+ * they're identical by construction (SC-002).
  *
- * Used by both AiPanel (side panel) and ChatPage (full-page chat).
+ * `errorInfo` is the classified { code, provider, text } from the context;
+ * `interruptionReason` is a session-scoped notice for a mid-stream fatal error
+ * that left a partial reply (D5).
  */
 function AiChatBody({
   messages, status, messagesLoading, messagesError, retryLoadMessages,
-  usageLimitReached, error, errorMessage, onRetry, reconnecting,
+  usageLimitReached, error, errorInfo, interruptionReason, onRetry, reconnecting,
   greeting, accentColor, iconSize = 40, onDocLinkClick,
 }) {
   const isEmpty = messages.length === 0;
+  // Retry only where retrying can plausibly help (D4); other codes point at the
+  // fixing action instead. Unknown/absent code falls back to the generic message.
+  const canRetry = !!(onRetry && errorInfo && RETRYABLE_CODES.has(errorInfo.code));
 
   return (
     <>
@@ -46,14 +54,19 @@ function AiChatBody({
       )}
       {usageLimitReached ? (
         <div className="ai-chat-body-usage-limit">
-          You've reached your AI usage limit for this month. <a href="/settings">View Usage</a>
+          {MESSAGES.app_usage_limit.text} <a href="/settings">View Usage</a>
         </div>
+      ) : interruptionReason ? (
+        <div className="ai-chat-body-interrupted">Response interrupted: {interruptionReason}</div>
       ) : reconnecting ? (
         <div className="ai-chat-body-reconnecting">Reconnecting…</div>
       ) : status === 'error' && error && (
         <div className="ai-chat-body-error">
-          {errorMessage || 'Something went wrong. Please try again.'}
-          {onRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}
+          {errorInfo?.text || 'Something went wrong. Please try again.'}
+          {errorInfo?.code === 'byok_invalid_key' || errorInfo?.code === 'byok_misconfigured' ? (
+            <a className="ai-chat-body-error-link" href="/settings">Open Settings</a>
+          ) : null}
+          {canRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}
         </div>
       )}
     </>

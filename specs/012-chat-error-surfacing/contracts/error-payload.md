@@ -34,20 +34,37 @@ Rules:
 - `byok_invalid_key` MUST NOT be 401/403 (reserves those for the app's own session-refresh path).
 - The existing early returns become classified responses: quota-exhausted (today `429 {"error":"AI usage limit reached"}`) → **402 `app_usage_limit`**; model-unresolvable-because-BYOK → **400 `byok_misconfigured`**; genuine "no model configured at all" → **500 `internal`**.
 
-## Channel B — Mid-stream (SSE error event)
+## Channel B — Mid-stream (SSE stream)
 
-Failure after content started → the SSE `error` event carries the structured fields:
+Failure after content started → the structured payload rides the SSE stream **adjacent to**
+the AI SDK `error` event, as a transient data part immediately preceding it:
 
 ```
-data: { "type": "error", "errorText": "<honest string>", "code": "<taxonomy>", "provider": "<id>?" }
+data: { "type": "data-chat-error", "data": { "code": "<taxonomy>", "provider": "<id>?" }, "transient": true }
+
+data: { "type": "error", "errorText": "<honest string>" }
 ```
+
+**Why a separate data part (D9, implementation-discovered).** AI SDK v6's UI-message-stream
+error part is a `z.strictObject({ type, errorText })`, and `DefaultChatTransport` **throws** on
+any chunk that fails schema validation. Emitting `code`/`provider` as *siblings* on the `error`
+event (the literal shape first drafted here) would fail validation and break the whole stream.
+The SDK's own extension point for structured side-band data is a `data-*` part (`data: unknown`),
+delivered to the client `Chat`'s `onData` callback **before** `onError` fires, and — when
+`transient: true` — never persisted into the message. So the client reads `{ code, provider }`
+from the `data-chat-error` part and the honest `errorText` from the `error` event. This is a
+wire-encoding refinement only; the design-doc intent ("mid-stream failures ride the SSE error
+event with the same structured payload", client renders from the code, `errorText` stays honest)
+is fully met. Recorded RATIFIED-BY-DEFAULT as D9 in the clarifications ledger.
 
 Rules:
-- `errorText` == the payload's `error` string (degraded clients still show honest text — D6).
-- The error event MUST NOT be appended to the reconnection replay buffer (`entry.chunks`) —
-  preserved from today's `pipeAsSSE` behavior (FR-010).
+- `errorText` == the payload's `error` string (degraded clients that ignore the data part still
+  show honest text — D6).
+- **Neither** the `data-chat-error` part **nor** the `error` event is appended to the
+  reconnection replay buffer (`entry.chunks`) — a resumeStream() replay must not re-trigger the
+  client's onError (FR-010). Both are written directly to the live response.
 - Token-limit error chunks are intercepted *before* classification (compaction/retry, FR-004)
-  and never become a taxonomy payload.
+  and never become a taxonomy payload or a `data-chat-error` part.
 
 ## Notification ownership (server-side, per US5)
 

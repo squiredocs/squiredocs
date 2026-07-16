@@ -266,28 +266,44 @@ function resolveSharedDefaultKey(storedKey) {
 
 /**
  * Resolve the model to use for a chat request, in order of preference:
- *  1. BYOK — when active, the user's selected model + decrypted key. An unknown
- *     or invalid BYOK model key falls through to the server default rather than
- *     throwing (the old inline version dereferenced an undefined def).
- *  2. Shared default — the admin-selected model (sharedDefaultKey), else
- *     AI_CHAT_MODEL, else DEFAULT_MODEL_KEY (see resolveSharedDefaultKey).
- *  3. DEFAULT_MODEL_KEY as a final fallback if the resolved key is unknown.
+ *  1. BYOK — when enabled, the user's selected model + decrypted key. If BYOK is
+ *     enabled but the model/key cannot be resolved, this returns a discriminated
+ *     `{ error: 'byok_misconfigured', provider? }` signal — it does NOT silently
+ *     fall back to the shared server key (feature 012, FR-019). A silent fallback
+ *     would bill the operator's key while the request is still flagged BYOK,
+ *     bypassing credit metering.
+ *  2. Shared default (non-BYOK only) — the admin-selected model (sharedDefaultKey),
+ *     else AI_CHAT_MODEL, else DEFAULT_MODEL_KEY (see resolveSharedDefaultKey).
+ *  3. DEFAULT_MODEL_KEY as a final fallback if the resolved shared key is unknown.
  *
  * @param {object}   opts
- * @param {boolean}  opts.isByok       Whether BYOK is active for this user.
+ * @param {boolean}  opts.isByok       Whether BYOK is enabled/intended for this user.
  * @param {object}   [opts.byokSettings] Raw BYOK settings row (may be null).
  * @param {function} opts.decryptKey   Decrypts a stored BYOK key ciphertext.
  * @param {string}   [opts.sharedDefaultKey] Admin-selected shared default model key.
- * @returns {{ model, def, provider } | null} Resolved model, or null if nothing resolves.
+ * @returns {{ model, def, provider } | { error: 'byok_misconfigured', provider: string|null } | null}
+ *   Resolved model; the misconfig signal when BYOK is on but unresolvable; or null
+ *   if no shared model is configured at all (genuine server misconfiguration).
  */
 function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }) {
   if (isByok && byokSettings) {
     const def = MODEL_DEFS.find((d) => d.key === byokSettings.byok_model_key);
     if (def) {
       const encryptedKey = byokSettings[getProviderConfig(def.provider).keyColumn];
-      const resolved = resolveModelWithKey(byokSettings.byok_model_key, decryptKey(encryptedKey));
-      if (resolved) return resolved;
+      if (encryptedKey) {
+        try {
+          const resolved = resolveModelWithKey(byokSettings.byok_model_key, decryptKey(encryptedKey));
+          if (resolved) return resolved;
+        } catch (e) {
+          // decryption or model instantiation failed → misconfigured (below).
+          console.error('[Chat API] BYOK key/model failed to resolve:', e.message);
+        }
+      }
     }
+    // BYOK is on but unresolvable (unknown model, missing/undecryptable key):
+    // reject loudly, never fall back to the shared key. Carry the provider when
+    // we know it so the client can name it.
+    return { error: 'byok_misconfigured', provider: def ? def.provider : null };
   }
 
   const modelKey = resolveSharedDefaultKey(sharedDefaultKey);

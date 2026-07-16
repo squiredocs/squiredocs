@@ -41,9 +41,10 @@ vi.mock('@ai-sdk/react', () => {
   // only on the useChat() return value. Keeping the mock faithful means calling
   // setMessages() on a raw instance throws here exactly as it does in prod.
   class MockChat {
-    // Capture onError so tests can simulate a stream error by invoking the
-    // bound handler (instance.onError(err)), exactly as the real SDK does.
-    constructor({ id, onError } = {}) { this.id = id; this.onError = onError; }
+    // Capture onError + onData so tests can simulate a stream error (and a
+    // mid-stream data-chat-error part) by invoking the bound handlers, exactly as
+    // the real SDK does.
+    constructor({ id, onError, onData } = {}) { this.id = id; this.onError = onError; this.onData = onData; }
     get messages() { return mockMessages; }
     set messages(next) { messagesSetterSpy(next); mockMessages = next; }
     get status() { return mockStatus; }
@@ -597,7 +598,8 @@ describe('AiChatContext', () => {
       const inst = await sendAndGetInstance(result, 'chat-auth');
 
       await act(async () => {
-        inst.onError(new Error('401 Unauthorized'));
+        // App-auth is keyed on HTTP status 401, NOT body text (feature 012, D7).
+        inst.onError(Object.assign(new Error('unauthorized'), { status: 401 }));
         await new Promise((r) => setTimeout(r, 20));
       });
 
@@ -605,18 +607,120 @@ describe('AiChatContext', () => {
       expect(resumeStreamSpy).not.toHaveBeenCalled();
     });
 
-    it('usage-limit errors surface immediately without recovery', async () => {
+    it('usage-limit errors surface immediately without recovery (structured code)', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
       const inst = await sendAndGetInstance(result, 'chat-usage');
 
       await act(async () => {
-        inst.onError(new Error('AI usage limit reached'));
+        // The structured app_usage_limit payload (402) — no body-sniffing.
+        inst.onError(Object.assign(new Error(JSON.stringify({ error: 'AI usage limit reached', code: 'app_usage_limit' })), { status: 402 }));
         await new Promise((r) => setTimeout(r, 20));
       });
 
       expect(result.current.usageLimitReached).toBe(true);
       expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Feature 012: classified error surfacing, fatality gating, derived limit ──
+
+  describe('classified error surfacing (feature 012)', () => {
+    async function sendOn(result, id, text = 'please reply') {
+      mockNewChatFlow(id);
+      await act(async () => { await result.current.sendMessage(text); });
+      await waitFor(() => expect(capturedUseChatOptions.chat.id).toBe(id));
+      sendMessageSpy.mockClear();
+      resumeStreamSpy.mockClear();
+      return capturedUseChatOptions.chat;
+    }
+
+    it('handleChatError selects behavior from the parsed code, not body text (T016)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendOn(result, 'chat-code');
+
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ error: 'x', code: 'byok_invalid_key', provider: 'anthropic' })), { status: 400 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(result.current.errorInfo).toMatchObject({ code: 'byok_invalid_key', provider: 'anthropic' });
+      expect(result.current.errorInfo.text).toContain('Anthropic');
+      expect(resumeStreamSpy).not.toHaveBeenCalled(); // fatal → no recovery
+    });
+
+    it('an unknown/absent code falls back to internal and enters recovery (T016/T024)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendOn(result, 'chat-unknown');
+
+      mockApi.get.mockResolvedValueOnce({ data: { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }] } });
+      mockStatus = 'streaming';
+
+      await act(async () => {
+        inst.onError(new Error('Bad Gateway')); // no structured code, no status
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // internal is NOT fatal → the existing reconnect-recovery path runs.
+      expect(resumeStreamSpy).toHaveBeenCalled();
+    });
+
+    it('a fatal code bypasses reconnect-recovery entirely (T024)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendOn(result, 'chat-fatal');
+      mockApi.get.mockClear();
+
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ error: 'busy', code: 'provider_overloaded', provider: 'anthropic' })), { status: 429 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+      expect(mockApi.get).not.toHaveBeenCalled(); // no DB re-fetch (recoverChat skipped)
+      expect(result.current.errorInfo.code).toBe('provider_overloaded');
+      expect(result.current.draftText).toBe('please reply'); // draft restored (FR-018)
+    });
+
+    it('mid-stream fatal error leaving a partial reply shows a session interruption notice (T025)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendOn(result, 'chat-interrupt');
+      // A partial assistant reply already streamed into the transcript.
+      mockMessages = [
+        { role: 'user', parts: [{ type: 'text', text: 'hi' }] },
+        { role: 'assistant', parts: [{ type: 'text', text: 'partial…' }] },
+      ];
+
+      await act(async () => {
+        // The transient data-chat-error part lands (onData) before the error event.
+        inst.onData({ type: 'data-chat-error', data: { code: 'provider_overloaded', provider: 'anthropic' } });
+        inst.onError(new Error('honest stream error'));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(result.current.interruptionReason).toBeTruthy();
+      expect(result.current.interruptionReason).toContain('busy');
+      expect(resumeStreamSpy).not.toHaveBeenCalled();
+    });
+
+    it('usage-limit is derived: cleared on the next send, re-set only by a fresh rejection (T029)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await sendOn(result, 'chat-derived');
+
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ code: 'app_usage_limit' })), { status: 402 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(result.current.usageLimitReached).toBe(true);
+
+      // The next send attempt clears the latch (no reload needed).
+      mockApi.get.mockResolvedValue({ data: [] });
+      await act(async () => { await result.current.sendMessage('try again'); });
+      expect(result.current.usageLimitReached).toBe(false);
     });
   });
 

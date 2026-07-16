@@ -5,6 +5,7 @@ import { useAuth } from './AuthContext';
 import { isTokenExpiringSoon } from '../utils/jwt';
 import { parseDocGuid } from '../utils/navigation';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
+import { parseChatError, FATAL_CODES } from '../utils/chatErrorMessages';
 
 const AiChatContext = createContext(null);
 
@@ -191,6 +192,19 @@ export function AiChatProvider({ children }) {
 
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/chat',
+    // Surface the HTTP status to the error handler (feature 012, D8). The SDK's
+    // transport otherwise throws only the response BODY, so handleChatError could
+    // not key the app-auth path on status 401 (FR-005) without body-sniffing. On a
+    // non-2xx response we read the body and throw an Error carrying both the body
+    // text (which parseChatError reads for the taxonomy code) and the status.
+    fetch: async (input, init) => {
+      const response = await fetch(input, init);
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => '');
+        throw Object.assign(new Error(bodyText), { status: response.status });
+      }
+      return response;
+    },
     headers: () => {
       const token = tokenRef.current;
       return token ? { Authorization: `Bearer ${token}` } : {};
@@ -225,8 +239,30 @@ export function AiChatProvider({ children }) {
     setLoadMessagesTick((t) => t + 1);
   }, []);
 
-  // Usage limit error state
+  // Usage limit error state (derived, not latched — cleared on each send attempt).
   const [usageLimitReached, setUsageLimitReached] = useState(false);
+
+  // Classified error info per chat instance (feature 012), keyed by chat id
+  // (DRAFT_KEY for the not-yet-created chat). { code, provider, text } drives the
+  // banner in both surfaces from the shared map; an error on one chat never bleeds
+  // into another. Session-scoped interruption notices (D5) are keyed the same way.
+  const [errorInfoByChat, setErrorInfoByChat] = useState({});
+  const [interruptedByChat, setInterruptedByChat] = useState({});
+  // Structured code/provider captured from a mid-stream data-chat-error part
+  // (delivered via onData before onError). Keyed by instance so handleChatError
+  // can read the taxonomy code the bare error event can't carry.
+  const midStreamErrorRef = useRef(new Map());
+
+  const clearChatError = useCallback((chatKey) => {
+    setErrorInfoByChat((m) => {
+      if (!(chatKey in m)) return m;
+      const next = { ...m }; delete next[chatKey]; return next;
+    });
+    setInterruptedByChat((m) => {
+      if (!(chatKey in m)) return m;
+      const next = { ...m }; delete next[chatKey]; return next;
+    });
+  }, []);
 
   // Track last sent text/files so we can restore them on error
   const lastSentTextRef = useRef('');
@@ -318,20 +354,29 @@ export function AiChatProvider({ children }) {
   // and recoverChat are stable useCallbacks, so the per-instance onError closures
   // never go stale.)
   const handleChatError = useCallback((error, instance) => {
-    // DefaultChatTransport throws Error(responseBody) on non-200.
-    const msg = (error?.message || '').toLowerCase();
+    const chatKey = instance?.id || DRAFT_KEY;
 
-    // Restore the draft + surface usage limits. The single place that gives up.
+    // Prefer a mid-stream structured signal (data-chat-error, delivered via onData
+    // before onError) — the bare SSE error event can't carry the taxonomy code.
+    // Otherwise parse the transport error (JSON body → code; status → 401 branch).
+    const midStream = midStreamErrorRef.current.get(instance);
+    midStreamErrorRef.current.delete(instance);
+    const parsed = midStream
+      ? parseChatError({ code: midStream.code, provider: midStream.provider, error: error?.message })
+      : parseChatError(error);
+
+    // Restore the composed message so nothing typed is lost, and surface the
+    // classified banner. The single place that gives up.
     const fallback = () => {
       if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
       if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
-      // Our 429 returns JSON: {"error":"AI usage limit reached"}
-      if (msg.includes('usage limit')) setUsageLimitReached(true);
+      if (parsed.code === 'app_usage_limit') setUsageLimitReached(true);
+      setErrorInfoByChat((m) => ({ ...m, [chatKey]: parsed }));
     };
 
-    // Auto-retry once on auth errors: refresh the token and resend
-    const isAuth = msg.includes('401') || msg.includes('expired token') || msg.includes('unauthorized');
-    if (isAuth && !authRetryRef.current) {
+    // App-auth failure (expired app session) stays OUTSIDE the taxonomy (FR-005/D7):
+    // keyed on HTTP status 401, not body text. Silent refresh + resend, unchanged.
+    if (error?.status === 401 && !authRetryRef.current) {
       authRetryRef.current = true;
       refreshAccessToken()
         .then(() => {
@@ -344,15 +389,24 @@ export function AiChatProvider({ children }) {
       return;
     }
 
-    // Never auto-recover a usage-limit (429) — surface it immediately.
-    if (msg.includes('usage limit')) {
+    // Fatal codes end the turn honestly (FR-015): render the banner immediately and
+    // restore the draft; never enter reconnect-recovery ("Reconnecting…" for an
+    // empty wallet is the dishonesty this feature removes). A mid-stream fatal error
+    // that left a partial reply keeps a session-scoped "response interrupted" notice
+    // beside it instead of silently swallowing the truncation (FR-016/D5).
+    if (FATAL_CODES.has(parsed.code)) {
+      const msgs = instance?.messages;
+      const hasPartialReply = msgs?.[msgs.length - 1]?.role === 'assistant';
+      if (hasPartialReply) {
+        setInterruptedByChat((m) => ({ ...m, [chatKey]: parsed.text }));
+      }
       fallback();
       return;
     }
 
-    // Transient streaming error: the server often keeps streaming and persists the
-    // response. Try to reconnect/recover instead of dumping the draft + showing the
-    // error; only fall back if recovery genuinely fails.
+    // Only `internal` / client-network failures reach reconnect-recovery: the
+    // server often keeps streaming and persists the response, so try to
+    // reconnect/recover before dumping the draft; fall back only if it fails.
     const id = instance?.id;
     if (recoveringRef.current.has(instance)) {
       fallback(); // already recovering (e.g. a re-fired error) — don't loop
@@ -390,6 +444,15 @@ export function AiChatProvider({ children }) {
       inst = new Chat({
         id: id || undefined,
         transport,
+        // Capture the mid-stream structured error (feature 012): the server emits a
+        // transient data-chat-error part carrying the taxonomy code/provider just
+        // before the SSE error event, so onData lands before onError. Stash it so
+        // handleChatError renders from the code, not the bare error text.
+        onData: (part) => {
+          if (part?.type === 'data-chat-error' && part.data) {
+            midStreamErrorRef.current.set(inst, part.data);
+          }
+        },
         onError: (error) => handleChatError(error, inst),
       });
       instancesRef.current.set(key, inst);
@@ -620,6 +683,14 @@ export function AiChatProvider({ children }) {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
 
+      // Usage-limit state is DERIVED, not latched (FR-017): clear it for every send
+      // attempt — a top-up / BYOK-enable / month rollover resumes chat with no
+      // reload, and it re-trips immediately if the limit is still in force. Also
+      // clear any prior classified error / interruption notice for this chat so a
+      // resend starts from a clean transcript.
+      setUsageLimitReached(false);
+      clearChatError(currentChatId || DRAFT_KEY);
+
       // Upload attachments first, replacing inline data: URLs with references so
       // the chat request body stays small (feature 010, US3). Store the uploaded
       // form for retry so a resend doesn't re-upload. Markdown files ride this
@@ -683,7 +754,7 @@ export function AiChatProvider({ children }) {
 
       chat.sendMessage(payload);
     },
-    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs, uploadChatAttachment],
+    [chat.sendMessage, currentChatId, createChatOnServer, renameChat, getChatInstance, refreshAccessToken, pendingRefs, uploadChatAttachment, clearChatError],
   );
 
   // Start the onboarding greeting: always opens a fresh chat scoped to the
@@ -741,6 +812,11 @@ export function AiChatProvider({ children }) {
       retryLoadMessages,
       retryLastMessage,
       usageLimitReached,
+      // Classified error banner + session-scoped interruption notice for the
+      // active chat (feature 012). Both surfaces render from the same errorInfo,
+      // so they're identical by construction (SC-002).
+      errorInfo: errorInfoByChat[currentChatId || DRAFT_KEY] || null,
+      interruptionReason: interruptedByChat[currentChatId || DRAFT_KEY] || null,
       // Guard against null === null: a brand-new chat has currentChatId === null,
       // and the idle reconnecting state is also null — without this check every
       // new chat would falsely show the "Reconnecting…" banner.
@@ -757,7 +833,7 @@ export function AiChatProvider({ children }) {
       removeSelectionRef,
       clearSelectionRefs,
     }),
-    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride, pendingRefs, addSelectionRef, removeSelectionRef, clearSelectionRefs],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, errorInfoByChat, interruptedByChat, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride, pendingRefs, addSelectionRef, removeSelectionRef, clearSelectionRefs],
   );
 
   return (

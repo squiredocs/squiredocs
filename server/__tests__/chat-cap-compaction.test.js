@@ -44,8 +44,11 @@ describe('G1 — concurrent-stream cap still triggers (MAX_STREAMS_PER_USER)', (
       .set('x-test-user', 'u1')
       .send({ id: 'brand-new-chat', message: { role: 'user', parts: [{ type: 'text', text: 'hi' }] } });
 
+    // Feature 012: the per-user concurrency cap now surfaces the structured
+    // rate_limited taxonomy payload (429), distinct from the usage limit.
     expect(res.status).toBe(429);
-    expect(res.body).toEqual({ error: 'Too many concurrent chat streams' });
+    expect(res.body.code).toBe('rate_limited');
+    expect(typeof res.body.error).toBe('string');
   });
 
   it('a different user with no active streams is not capped', async () => {

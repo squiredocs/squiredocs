@@ -17,13 +17,10 @@ const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
 
-const PROVIDER_LABELS = { anthropic: 'Anthropic', google: 'Gemini', openai: 'OpenAI' };
-
 function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }) {
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
   const { accentColor } = byok;
-  const byokProvider = byok.settings?.models?.find(m => m.key === byok.settings?.modelKey)?.provider;
   const {
     isOpen, close,
     position, setPosition,
@@ -31,19 +28,9 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
     heightPx, updateHeight,
   } = aiPanel;
 
-  const { messages, sendMessage, status, stop, error, usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, pendingRefs, removeSelectionRef } = aiChat || {};
+  const { messages, sendMessage, status, stop, error, errorInfo, interruptionReason, usageLimitReached, reconnecting, draftText, clearDraft, draftFiles, clearDraftFiles, getChatDraft, saveChatDraft, currentChatId, chatList, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, pendingRefs, removeSelectionRef } = aiChat || {};
 
   const currentChatTitle = chatList?.find((c) => c.id === currentChatId)?.title;
-
-  // Snapshot BYOK state when an error occurs so toggling modes
-  // doesn't retroactively change how the error is displayed
-  const errorByokRef = useRef(null);
-  const prevErrorRef = useRef(null);
-  if (error !== prevErrorRef.current) {
-    prevErrorRef.current = error;
-    errorByokRef.current = error ? isByok : null;
-  }
-  const errorWasByok = errorByokRef.current ?? false;
 
   const { user } = useAuth();
   const chatFont = useChatFontScale();
@@ -228,7 +215,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
             messagesLoading={messagesLoading} messagesError={messagesError}
             retryLoadMessages={retryLoadMessages}
             usageLimitReached={usageLimitReached} error={error}
-            errorMessage={errorWasByok && error?.message ? `${PROVIDER_LABELS[byokProvider] || 'API'} API error: ${error.message}` : undefined}
+            errorInfo={errorInfo} interruptionReason={interruptionReason}
             onRetry={retryLastMessage} reconnecting={reconnecting}
             greeting={getGreeting(user?.name)} accentColor={accentColor}
             onDocLinkClick={handleDocLinkClick}
