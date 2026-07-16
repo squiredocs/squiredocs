@@ -8,6 +8,15 @@ merge-queue task (T041 / FR-030); this runbook is the in-feature source it links
 Order: **secrets → tofu apply → node cert/cred placement → cluster apply →
 dashboards → verification**.
 
+> **Status 2026-07-16 (orchestrator prep):** §1 is DONE except the server cert —
+> the private CA, server key, and OpenObserve root creds are generated and live
+> SOPS-encrypted in the two `k8s/secrets/*.enc.yaml` files, and the public CA cert
+> is in `ca-trust-configmap.yaml`. After `tofu apply` (§2), run
+> `script/finalize-o11y-cert.sh <monitoring_private_ip> <prod_node_private_ip>` —
+> it issues the server cert into the SOPS secret AND fills all three RD-13 IP
+> placeholders (§3's substitutions). Remaining manual §3 work: laying the material
+> onto the node via SSM.
+
 ---
 
 ## 1. Generate secrets (CA, server cert, OpenObserve root creds)
