@@ -1489,6 +1489,10 @@ if (fs.existsSync(clientBuildPath)) {
     res.sendFile(path.join(clientBuildPath, 'about.html'));
   });
 
+  app.get('/security', (req, res) => {
+    res.sendFile(path.join(clientBuildPath, 'security.html'));
+  });
+
   // Serve the product documentation site (feature 007). Mounted BEFORE
   // express.static: the static middleware treats dist/documentation as a
   // directory and would 301 the canonical /documentation to /documentation/

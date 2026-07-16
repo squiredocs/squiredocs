@@ -15,6 +15,7 @@ const STATIC_PAGES = {
   '/index.html': 'landing.html',
   '/pricing': 'pricing.html',
   '/about': 'about.html',
+  '/security': 'security.html',
 };
 
 function staticPagesPlugin() {

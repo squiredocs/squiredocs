@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9HGTDJRJWH"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9HGTDJRJWH');
+    gtag('config', 'AW-18023084061');
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security | Squire Docs</title>
+  <meta name="description" content="How Squire Docs protects your documents and accounts: Google sign-in, per-document access control, encrypted storage of your keys, sandboxed agents, and a responsible-disclosure contact." />
+  <meta property="og:title" content="Security | Squire Docs" />
+  <meta property="og:description" content="Our security practices — authentication, access control, encryption, sandboxed agents, and how to report a vulnerability." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://squiredocs.com/security" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <style>
+    /* Critical above-the-fold CSS, inlined so the first paint is styled even
+       before /marketing.css arrives (Firefox paints before slow stylesheets;
+       a failed load would otherwise render bare markup). Keep in sync with
+       marketing.css. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    .landing-page { min-height: 100vh; background: #ffffff; color: #1f2937; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif; }
+    .landing-header { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-bottom: 1px solid #e5e7eb; }
+    .landing-header-content { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+    .landing-logo { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; color: #1f2937; }
+    .landing-logo-icon { width: 32px; height: 32px; color: #7c3aed; }
+    .landing-logo-text { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .landing-nav { display: flex; align-items: center; gap: 0.75rem; }
+    .landing-nav-link { color: #6b7280; text-decoration: none; font-size: 0.95rem; font-weight: 500; padding: 0.5rem 0.5rem; }
+    .landing-nav-btn { padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; font-weight: 500; cursor: pointer; background: transparent; color: #6b7280; border: 1px solid #d1d5db; text-decoration: none; display: inline-block; }
+    .landing-nav-btn.primary { background: #7c3aed; color: #ffffff; border-color: #7c3aed; }
+  </style>
+  <link rel="stylesheet" href="/marketing.css" />
+  <style>
+    .landing-nav-link.active { color: #1f2937; font-weight: 600; }
+
+    .about-hero {
+      padding: 9rem 2rem 3rem;
+      text-align: center;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+    }
+
+    .about-hero h1 {
+      font-size: 2.75rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #1f2937;
+      margin: 0 0 1rem;
+      line-height: 1.15;
+    }
+
+    .about-hero p {
+      font-size: 1.2rem;
+      color: #6b7280;
+      line-height: 1.6;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .about-prose {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .about-prose p {
+      font-size: 1.1rem;
+      color: #374151;
+      line-height: 1.75;
+      margin: 0 0 1.25rem;
+      text-align: left;
+    }
+
+    .security-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+      margin-top: 3rem;
+      text-align: left;
+    }
+
+    .security-card h3 {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .security-card h3 svg {
+      width: 20px;
+      height: 20px;
+      color: #7c3aed;
+      flex-shrink: 0;
+    }
+
+    .security-card ul {
+      margin: 0.75rem 0 0;
+      padding-left: 1.1rem;
+      color: #4b5563;
+      line-height: 1.7;
+    }
+
+    .security-card ul li {
+      margin-bottom: 0.4rem;
+    }
+
+    .security-note {
+      max-width: 680px;
+      margin: 2.5rem auto 0;
+      font-size: 0.95rem;
+      color: #6b7280;
+      line-height: 1.7;
+      text-align: left;
+    }
+
+    .about-contact-card {
+      max-width: 640px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }
+
+    .about-contact-card p {
+      font-size: 1.05rem;
+      color: #6b7280;
+      line-height: 1.7;
+      margin: 0 0 1.5rem;
+      text-align: left;
+    }
+
+    .disclosure-list {
+      max-width: 640px;
+      margin: 1.5rem auto 0;
+      text-align: left;
+      color: #4b5563;
+      line-height: 1.7;
+      padding-left: 1.1rem;
+    }
+
+    .disclosure-list li {
+      margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .about-hero {
+        padding: 7rem 1.5rem 2.5rem;
+      }
+
+      .about-hero h1 {
+        font-size: 2rem;
+      }
+
+      .security-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="landing-page">
+    <!-- Header -->
+    <header class="landing-header">
+      <div class="landing-header-content">
+        <a href="/" class="landing-logo">
+          <svg class="landing-logo-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+            <path d="M7.5 7.5h8" stroke-width="1" />
+            <path d="M13.5 5.5l2.5 2-2.5 2" stroke-width="1" />
+            <path d="M7.5 12h8" stroke-width="1" />
+            <path d="M7.5 16.5h8" stroke-width="1" />
+          </svg>
+          <span class="landing-logo-text">Squire Docs</span>
+        </a>
+        <nav class="landing-nav">
+          <a href="/pricing" class="landing-nav-link">Pricing</a>
+          <a href="/about" class="landing-nav-link">About</a>
+          <a href="/documentation" class="landing-nav-link">Documentation</a>
+          <a href="/login" class="landing-nav-btn">Sign In</a>
+          <a href="/signup" class="landing-nav-btn primary">Sign Up</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="about-hero">
+      <h1>Security at Squire Docs</h1>
+      <p>Your documents and the agents that edit them share one workspace. Keeping that workspace trustworthy is the core of the product, not a checkbox on the side.</p>
+    </section>
+
+    <!-- Approach -->
+    <section class="landing-section">
+      <div class="about-prose">
+        <p>Squire Docs lets your team and your coding agents write in the same live document. That only works if access is enforced everywhere, every edit is attributed and reversible, and the untrusted content an agent produces can never escape the boundaries we set for it.</p>
+        <p>Below is a plain-language summary of how we protect accounts, documents, and the keys you trust us with. It reflects how the product actually works today, not aspirations. If you find a gap, we want to hear about it, and there's a contact for exactly that at the bottom of this page.</p>
+      </div>
+    </section>
+
+    <!-- Practices -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">How we protect your work</h2>
+        <div class="security-grid">
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Sign-in and accounts
+            </h3>
+            <ul>
+              <li>You sign in with Google. We never create, store, or handle a password for you.</li>
+              <li>Sessions use signed tokens in httpOnly cookies, marked Secure and SameSite in production, with short-lived access tokens.</li>
+              <li>Signing out invalidates your existing sessions server-side.</li>
+            </ul>
+          </div>
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Access control
+            </h3>
+            <ul>
+              <li>Every document has owner, editor, and viewer roles, and access is checked on every API request, live editing connection, and agent action.</li>
+              <li>Viewers can't write. Search only ever returns documents already shared with you.</li>
+              <li>Access is re-checked continuously during a live session, so revoking someone takes effect immediately.</li>
+            </ul>
+          </div>
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+              Agents on a leash
+            </h3>
+            <ul>
+              <li>An agent only ever acts with your permissions, on documents you can already reach, never more.</li>
+              <li>Every agent edit is attributed by name in version history and is fully reversible.</li>
+              <li>Agent access tokens are scoped, expiring, revocable at any time, and stored only as hashes, never in plaintext.</li>
+              <li>The scripts agents run to edit a document execute in an isolated sandbox with no access to the filesystem, network, or server processes.</li>
+            </ul>
+          </div>
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V8a5 5 0 0 1 9.9-1"/></svg>
+              Encryption
+            </h3>
+            <ul>
+              <li>All traffic is served over HTTPS with modern TLS (1.2+) and HSTS.</li>
+              <li>Data at rest lives on encrypted disk volumes, and database backups are encrypted too.</li>
+              <li>If you bring your own AI provider key, it's encrypted with AES-256-GCM before storage and never shown back to you or sent to your browser.</li>
+            </ul>
+          </div>
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+              Untrusted content
+            </h3>
+            <ul>
+              <li>AI and agent output is sanitized before it's rendered. Diagrams and images an agent produces are stripped of scripts and external references.</li>
+              <li>Links are restricted to safe protocols, and images must point at our own storage.</li>
+              <li>When an agent fetches a web page, we block requests to internal and cloud-metadata addresses to prevent server-side request forgery.</li>
+            </ul>
+          </div>
+
+          <div class="landing-usecase-card security-card">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>
+              Infrastructure
+            </h3>
+            <ul>
+              <li>The application runs behind a CDN and a web application firewall; the origin servers are reachable only from the CDN's network ranges, and administrative ports are locked to us.</li>
+              <li>Cloud credentials are hardened against theft, and every internal component is granted only the access it needs.</li>
+              <li>Encrypted backups run nightly with versioning and retention locking, and we run graceful shutdowns so your in-flight edits are saved on every deploy.</li>
+            </ul>
+          </div>
+
+        </div>
+
+        <p class="security-note"><strong>Straight talk on what we don't claim.</strong> Squire Docs is not end-to-end or zero-knowledge encrypted: because agents and collaborators edit your documents on the server, our systems can process document content. We protect it with the access controls, encrypted storage, and infrastructure hardening described above rather than with client-side encryption. We also hold no formal compliance certifications (such as SOC 2) today. We'd rather tell you exactly what we do than imply more than is true.</p>
+      </div>
+    </section>
+
+    <!-- Responsible disclosure -->
+    <section class="landing-section">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Reporting a vulnerability</h2>
+        <div class="about-contact-card">
+          <p>If you believe you've found a security vulnerability in Squire Docs, please report it to us privately so we can fix it before it's disclosed. We welcome good-faith research and will not pursue legal action against researchers who follow responsible disclosure and avoid privacy violations, data destruction, or service disruption.</p>
+          <a href="mailto:security@squiredocs.com" class="landing-btn primary">security@squiredocs.com</a>
+          <ul class="disclosure-list">
+            <li>Include steps to reproduce, the impact, and any proof-of-concept. Encrypted or plain email is fine.</li>
+            <li>Please give us a reasonable window to investigate and remediate before any public disclosure.</li>
+            <li>Don't access, modify, or delete data that isn't yours, and use only test accounts you control.</li>
+            <li>We aim to acknowledge reports within a few business days and will keep you updated as we work through a fix.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+      <div class="landing-footer-content">
+        <div class="landing-footer-top">
+          <div class="landing-footer-brand">
+            <a href="/" class="landing-footer-logo">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                <path d="M7.5 7.5h8" stroke-width="1" />
+                <path d="M13.5 5.5l2.5 2-2.5 2" stroke-width="1" />
+                <path d="M7.5 12h8" stroke-width="1" />
+                <path d="M7.5 16.5h8" stroke-width="1" />
+              </svg>
+              <span>Squire Docs</span>
+            </a>
+            <p class="landing-footer-tagline">Write with AI, right in your doc</p>
+          </div>
+          <div class="landing-footer-links">
+            <div class="landing-footer-column">
+              <h4>Product</h4>
+              <ul>
+                <li><a href="/pricing">Pricing</a></li>
+                <li><a href="/about">About</a></li>
+                <li><a href="/documentation">Documentation</a></li>
+                <li><a href="/signup">Sign Up</a></li>
+                <li><a href="/login">Sign In</a></li>
+              </ul>
+            </div>
+            <div class="landing-footer-column">
+              <h4>Legal</h4>
+              <ul>
+                <li><a href="/privacy">Privacy Policy</a></li>
+                <li><a href="/terms">Terms of Service</a></li>
+                <li><a href="/security">Security</a></li>
+              </ul>
+            </div>
+            <div class="landing-footer-column">
+              <h4>Contact</h4>
+              <ul>
+                <li><a href="mailto:contact@squiredocs.com">contact@squiredocs.com</a></li>
+                <li><a href="mailto:security@squiredocs.com">security@squiredocs.com</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="landing-footer-bottom">
+          <p class="landing-copyright">&copy; 2026 21st Harmonic LLC</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
