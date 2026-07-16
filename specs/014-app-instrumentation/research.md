@@ -32,6 +32,30 @@ Repo convention is caret ranges. New dependencies (caret, target lines current a
 - **Version caveat (carry to implement)**: the `0.x` experimental packages must be installed as a **mutually compatible set** — pin whatever compatible minors `npm install` resolves at implement time and record the resolved lockfile; the ranges above are the target lines, not a guarantee across independent bumps.
 - **Alternatives**: OTLP/gRPC (native `@grpc/grpc-js`, heavier, marginal gain); `auto-instrumentations-node` (drags in ~40 instrumentations, most disabled — larger attack/audit surface).
 
+### D2 resolved version set (IMPLEMENT closure, 2026-07-16)
+
+Installed as a mutually-compatible set; `npm ls` clean (no invalid/unmet peers). Recorded here per the D2 carry-to-implement caveat:
+
+| Package | Installed |
+|---|---|
+| `@opentelemetry/api` | `1.9.1` |
+| `@opentelemetry/sdk-node` | `0.57.2` (kept in the set; not required directly — see RBD-13) |
+| `@opentelemetry/sdk-trace-base` | `1.30.1` |
+| `@opentelemetry/sdk-metrics` | `1.30.1` |
+| `@opentelemetry/resources` | `1.30.1` |
+| `@opentelemetry/semantic-conventions` | `1.43.0` |
+| `@opentelemetry/context-async-hooks` | `1.30.1` (added — now a direct require, RBD-13) |
+| `@opentelemetry/instrumentation` | `0.57.2` (added — now a direct require, RBD-13) |
+| `@opentelemetry/instrumentation-http` | `0.57.2` |
+| `@opentelemetry/instrumentation-express` | `0.45.0` |
+| `@opentelemetry/instrumentation-pg` | `0.50.0` |
+| `@opentelemetry/instrumentation-ioredis` | `0.46.0` |
+| `@opentelemetry/exporter-trace-otlp-proto` | `0.57.2` |
+| `@opentelemetry/exporter-metrics-otlp-proto` | `0.57.2` |
+| `pino` | `9.14.0` |
+
+Lockfile snapshot committed with the dependency change. `semantic-conventions` resolved to `1.43.0` (a newer, compatible minor than the `1.30` target line — `ATTR_SERVICE_NAME` used).
+
 ## D3 — Inert / capture / export trimodal
 
 - **Decision**: `telemetry.start()` selects processors: OTLP exporters when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; injected in-memory exporter/reader in tests (via the capture harness); **no processor at all** when neither. In the no-processor case, spans/metrics are still created (cheap) but never exported — zero network attempts, zero error noise (FR-015).

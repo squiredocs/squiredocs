@@ -101,6 +101,7 @@ const {
 } = require('./markdown-import');
 const { ORIGIN_SYNC_PUSH } = require('./origin');
 const searchIndexer = require('./search-indexer');
+const { withSpan } = require('./telemetry/spans');
 
 // Fixed attribution identity for CI/repo-originated pushes (research R4). Version
 // history renders "Repo Sync (<token owner>)" via createAuthor's agent path.
@@ -1069,6 +1070,9 @@ async function applySyncPush(persistence, docGuid, opts) {
     getSharedDoc,
   } = opts;
 
+  // Operation-level manual span for the collaboration sync path (feature 014,
+  // FR-004): one span per markdown-sync run, attributed with identifiers only.
+  return withSpan('collab.operation', { 'document.guid': docGuid, 'collab.operation': 'markdown.sync' }, async () => {
   const baseline = await buildBaseline(persistence, docGuid, baselineClock, { flavor });
   const { fork, fragment, baselineSV, canonicalMd, sourceMap } = baseline;
   try {
@@ -1165,6 +1169,7 @@ async function applySyncPush(persistence, docGuid, opts) {
   } finally {
     fork.destroy();
   }
+  });
 }
 
 module.exports = {

@@ -27,6 +27,7 @@
  * @param {object} [deps.redisPubSub] - redis pub/sub module (cleanup)
  * @param {object} [deps.persistenceProvider] - pg persistence (destroy)
  * @param {() => Promise<void>} [deps.closeRedis] - shared redis client closer
+ * @param {object} [deps.telemetry] - OTel bootstrap (shutdown = bounded flush)
  * @param {object} [deps.server] - http server (close)
  * @param {number} deps.deadlineMs - force-exit backstop
  * @param {(code: number) => void} [deps.exit] - process.exit seam (tests)
@@ -41,6 +42,7 @@ function createShutdown(deps) {
     redisPubSub,
     persistenceProvider,
     closeRedis,
+    telemetry,
     server,
     deadlineMs,
     exit = (code) => process.exit(code),
@@ -86,6 +88,11 @@ function createShutdown(deps) {
       await safe('redis pub/sub cleanup', redisPubSub && redisPubSub.cleanup ? () => redisPubSub.cleanup() : null);
       await safe('persistence destroy', persistenceProvider && persistenceProvider.destroy ? () => persistenceProvider.destroy() : null);
       await safe('redis client close', closeRedis);
+
+      // Flush pending telemetry within a bounded time (FR-017). Resolves even if
+      // the Collector is unreachable, so shutdown never hangs on it. The overall
+      // force-exit backstop above still guarantees exit regardless.
+      await safe('telemetry flush', telemetry && telemetry.shutdown ? () => telemetry.shutdown() : null);
 
       await new Promise((resolve) => {
         if (server && server.listening) {

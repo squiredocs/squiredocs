@@ -1,0 +1,48 @@
+# Feature 014 — app Deployment OTel env block (FR-018 / RBD-12)
+#
+# This is the ONLY deployment change 014 implies, and it is DECLARED here for the
+# merge queue / feature-013 / ops to apply — feature 014 does NOT edit any k8s
+# YAML (pipeline override: nothing outside server/ + tests + package.json).
+#
+# 014 consumes standard OTel environment variables only. Absence ⇒ fully inert
+# (no exporter, no crash, no export-error noise). Merge order is free: 014 is
+# inert until these vars exist, so 013 can land first, second, or concurrently.
+#
+# Apply to the app Deployment's container `env:` (values supplied by feature 013 —
+# point at the cluster-local OTel Collector's OTLP http/protobuf receiver, 4318):
+#
+#   env:
+#     - name: OTEL_EXPORTER_OTLP_ENDPOINT
+#       value: "http://<collector-service>:4318"
+#     - name: OTEL_EXPORTER_OTLP_PROTOCOL
+#       value: "http/protobuf"
+#     - name: OTEL_SERVICE_NAME
+#       value: "squire-server"
+#     # Optional:
+#     # - name: OTEL_EXPORTER_OTLP_HEADERS
+#     #   value: "<auth/tenant headers if the collector requires them>"
+#     # - name: OTEL_RESOURCE_ATTRIBUTES
+#     #   value: "deployment.environment=prod"
+#
+# SEAM NOTE (OBS-1/RBD-12): if feature 013's spec names the app-Deployment patch as
+# 013's file, defer to 013 for WHO applies the YAML. 014 only reads process.env.
+# If 013 does NOT own an app-deployment patch file, the merge queue should place
+# this block on the app Deployment. Do not create a file that collides with any
+# file 013 owns (013 owns overlays/aws-prod/kustomization.yaml + networkpolicies.yaml).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squire-app            # adjust to the real app Deployment name at apply time
+spec:
+  template:
+    spec:
+      containers:
+        - name: app           # adjust to the real container name at apply time
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_SERVICE_NAME
+              value: "squire-server"

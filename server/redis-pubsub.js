@@ -13,6 +13,7 @@
 
 const crypto = require('crypto');
 const { createPubSubClient, isRedisEnabled } = require('./redis');
+const { withSpan } = require('./telemetry/spans');
 
 // Unique identifier for this server instance (prevents processing own messages)
 const INSTANCE_ID = crypto.randomUUID();
@@ -275,11 +276,15 @@ function publishAwareness(docId, update) {
     return;
   }
 
-  try {
-    publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update));
-  } catch (err) {
-    console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
-  }
+  // Operation-level manual span (feature 014, FR-004/RBD-1): one span per pub/sub
+  // propagation op — NOT per CRDT message. Attributes are identifiers only.
+  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.awareness' }, () => {
+    try {
+      publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update));
+    } catch (err) {
+      console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
+    }
+  });
 }
 
 /**
@@ -292,11 +297,16 @@ function publishUpdate(docId, update) {
     return;
   }
 
-  try {
-    publisherClient.publish(UPDATES_PREFIX + docId, encodeMessage(update));
-  } catch (err) {
-    console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
-  }
+  // Operation-level manual span (feature 014, FR-004/RBD-1): one span per pub/sub
+  // propagation op — NOT per CRDT message. Attributes are identifiers only; the
+  // update bytes NEVER become an attribute.
+  withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.update' }, () => {
+    try {
+      publisherClient.publish(UPDATES_PREFIX + docId, encodeMessage(update));
+    } catch (err) {
+      console.error(`[RedisPubSub] Error publishing update for ${docId}:`, err.message);
+    }
+  });
 }
 
 /**

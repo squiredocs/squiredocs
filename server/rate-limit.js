@@ -17,6 +17,7 @@
  */
 const { RateLimiterRedis, RateLimiterMemory } = require('rate-limiter-flexible');
 const { getRedisClient, isRedisEnabled } = require('./redis');
+const { recordRateLimitRejection } = require('./telemetry/metrics');
 
 const MIN = 60;
 const HOUR = 60 * 60;
@@ -157,6 +158,9 @@ async function enforce(kind, className, req, res) {
     return true;
   } catch (rejRes) {
     if (isBudgetRejection(rejRes)) {
+      // Count the 429 by limiter category (feature 014, FR-012) — the previously
+      // silent rejection is now visible. Never throws into the 429 path.
+      recordRateLimitRejection(className);
       reject429(res, rejRes, className);
       return false;
     }
@@ -230,6 +234,8 @@ function registrationAdmissionMiddleware() {
   return async function registrationAdmission(req, res, next) {
     const { allowed, retryAfterSec } = await checkRegistrationAdmission(clientIp(req));
     if (allowed) return next();
+    // Count the registration-admission 429 by category (feature 014, FR-012).
+    recordRateLimitRejection('register');
     if (retryAfterSec) res.set('Retry-After', String(retryAfterSec));
     res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
   };

@@ -33,6 +33,7 @@ const restoreDocumentVersion = require('./restore-document-version');
 const compareDocumentVersions = require('./compare-document-versions');
 
 const agentPresence = require('../agent-presence'); // Still needed for init()
+const { withSpan } = require('../../telemetry/spans');
 
 // All available tools
 const tools = {
@@ -196,7 +197,19 @@ async function executeTool(name, args, agentToken) {
   // Each tool that needs presence calls agentPresence.getOrCreateSession() which handles
   // WebSocket connection and awareness state. No need to set presence here.
 
-  return tool.handler(args, agentToken);
+  // Operation-level manual span for MCP tool activity (feature 014, FR-005/RBD-9):
+  // tool name + agent/user identifiers only. Tool ARGUMENTS and RESULTS are never
+  // attached — they can carry document content. `outcome` + `duration_ms` are
+  // recorded by withSpan.
+  return withSpan(
+    'mcp.tool.execute',
+    {
+      'mcp.tool.name': name,
+      'agent.id': agentToken && agentToken.agentId,
+      'user.id': agentToken && agentToken.userId,
+    },
+    () => tool.handler(args, agentToken)
+  );
 }
 
 module.exports = {
