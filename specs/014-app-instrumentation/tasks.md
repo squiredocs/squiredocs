@@ -45,9 +45,9 @@ description: "Task list for 014-app-instrumentation"
 
 **Independent Test**: Start server, hit an endpoint, stdout lines are JSON with `trace_id`/`span_id` inside requests; hostile inputs never throw; the ~382 sites are unchanged.
 
-- [ ] T007 [P] [US1] Write `server/__tests__/telemetry-console-shim.test.js` FIRST (must fail): JSON shape, severity mapping, correlation present in-span / absent out-of-span (RBD-5), non-throwing serialization of circular/oversized/multi-arg/format-string/Error inputs, Error-stack preservation (FR-022).
+- [X] T007 [P] [US1] Write `server/__tests__/telemetry-console-shim.test.js` FIRST (must fail): JSON shape, severity mapping, correlation present in-span / absent out-of-span (RBD-5), non-throwing serialization of circular/oversized/multi-arg/format-string/Error inputs, Error-stack preservation (FR-022).
 - [X] T008 [US1] Create `server/logger.js`: single pino JSON logger to stdout + non-throwing `console.log/info/warn/error/debug` shim (variadic/`util.format` semantics, bounded depth/size, `trace_id`/`span_id` from active OTel context when recording, fallback to raw stdout write on any failure) (FR-006/007/008/009).
-- [ ] T009 [US1] Install the shim from `telemetry.start()` (before app modules log); verify the exception notifier's email path is untouched — the shim only serializes its `console.*` lines, never intercepts `notifyException` (FR-010, edge case). Confirm T007 passes.
+- [X] T009 [US1] Install the shim from `telemetry.start()` (before app modules log); verify the exception notifier's email path is untouched — the shim only serializes its `console.*` lines, never intercepts `notifyException` (FR-010, edge case). Confirm T007 passes.
 
 **Checkpoint**: US1 independently functional — MVP.
 
@@ -59,7 +59,7 @@ description: "Task list for 014-app-instrumentation"
 
 **Independent Test**: In-memory capture shows a server span with child pg/ioredis spans (route-template identity), a collab sync span, and an MCP tool span.
 
-- [ ] T010 [P] [US2] Write `server/__tests__/telemetry-traces.test.js` FIRST (must fail): HTTP→PG→Redis single-trace assertion, collab span with `document.guid`, MCP span with `mcp.tool.name`/`outcome`/duration (FR-023).
+- [X] T010 [P] [US2] Write `server/__tests__/telemetry-traces.test.js` FIRST (must fail): HTTP→PG→Redis single-trace assertion, collab span with `document.guid`, MCP span with `mcp.tool.name`/`outcome`/duration (FR-023).
 - [X] T011 [US2] Create `server/telemetry/spans.js` `withSpan(name, attributes, fn)` helper (allowlist-filtered attrs, records `outcome`+duration, ends span, non-throwing wrapper) (contract 3).
 - [X] T012 [US2] Configure http instrumentation for route-template span identity in `server/telemetry.js`; ensure redaction strips concrete URL/query (FR-003).
 - [X] T013 [P] [US2] Add op-level manual spans in `server/redis-pubsub.js` around publish/propagate (`collab.operation`, `document.guid`) — never per CRDT message (RBD-1, FR-004).
@@ -76,7 +76,7 @@ description: "Task list for 014-app-instrumentation"
 
 **Independent Test**: Capture shows request count/duration by `(http.route, http.status_class)`; a rate-limit burst increments `ratelimit.rejections{category}`; pool gauges report plausible total/idle/waiting.
 
-- [ ] T016 [P] [US3] Write `server/__tests__/telemetry-metrics.test.js` FIRST (must fail): request metrics, 429 counter increment with correct category label, pool gauge values (FR-023).
+- [X] T016 [P] [US3] Write `server/__tests__/telemetry-metrics.test.js` FIRST (must fail): request metrics, 429 counter increment with correct category label, pool gauge values (FR-023).
 - [X] T017 [US3] Create `server/telemetry/metrics.js`: `httpMetricsMiddleware()` (count+duration histogram by route template + status class), `recordRateLimitRejection(category)` (never throws into the 429 path), `init({getPool})` (register observable pool gauges) (contract 4, FR-011/012/013).
 - [X] T018 [US3] Edit `server/index.js`: mount `httpMetricsMiddleware()` early in the middleware chain and call `metrics.init({ getPool: () => persistenceProvider.getPool() })`.
 - [X] T019 [US3] Edit `server/rate-limit.js`: call `recordRateLimitRejection(className)` at both 429 emit points (`reject429` path and `registrationAdmissionMiddleware`) (FR-012).
@@ -92,9 +92,9 @@ description: "Task list for 014-app-instrumentation"
 
 **Independent Test**: Full suite green with no Collector; sentinel content never appears in any captured log/span/metric.
 
-- [ ] T021 [P] [US4] Write `server/__tests__/telemetry-inert.test.js`: with no endpoint configured, `start()`/emit/`shutdown()` never crash, no export attempts, no repeated error noise; startup path unblocked (FR-015/021).
-- [ ] T022 [P] [US4] Write `server/__tests__/telemetry-privacy.test.js`: flow sentinel document text, title, search query, and chat content through the instrumented paths; assert zero sentinel occurrences in captured logs/spans/metrics; assert permitted identifiers (doc GUID, user id, route template) ARE present (FR-024/SC-005).
-- [ ] T023 [US4] If T022 exposes any leak path, harden `server/telemetry/privacy.js` (allowlist/redaction) and/or the offending attribute construction until sentinels are clean. Confirm T021+T022 pass.
+- [X] T021 [P] [US4] Write `server/__tests__/telemetry-inert.test.js`: with no endpoint configured, `start()`/emit/`shutdown()` never crash, no export attempts, no repeated error noise; startup path unblocked (FR-015/021).
+- [X] T022 [P] [US4] Write `server/__tests__/telemetry-privacy.test.js`: flow sentinel document text, title, search query, and chat content through the instrumented paths; assert zero sentinel occurrences in captured logs/spans/metrics; assert permitted identifiers (doc GUID, user id, route template) ARE present (FR-024/SC-005).
+- [X] T023 [US4] If T022 exposes any leak path, harden `server/telemetry/privacy.js` (allowlist/redaction) and/or the offending attribute construction until sentinels are clean. Confirm T021+T022 pass.
 
 **Checkpoint**: All four stories independently functional; invariants proven.
 
@@ -102,9 +102,9 @@ description: "Task list for 014-app-instrumentation"
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T024 Record the resolved OTel experimental version set + lockfile snapshot in `research.md`/`promotion-notes.md` (D2 caveat closure).
-- [ ] T025 [P] Record the owed README.md + docs/dev.md update (new observability behavior + `OTEL_*` env catalog) for the implement/converge phase — this PLAN/implement track must not silently skip Principle I; the edit itself is deferred by pipeline override.
-- [ ] T026 Run quickstart validation: `npm test` (serial, no Collector) + `npm run build` green; confirm `git diff` touches only `server/`, `server/__tests__/`, and `package.json`/lockfile.
+- [X] T024 Record the resolved OTel experimental version set + lockfile snapshot in `research.md`/`promotion-notes.md` (D2 caveat closure).
+- [X] T025 [P] Record the owed README.md + docs/dev.md update (new observability behavior + `OTEL_*` env catalog) for the implement/converge phase — this PLAN/implement track must not silently skip Principle I; the edit itself is deferred by pipeline override.
+- [X] T026 Run quickstart validation: `npm test` (serial, no Collector) + `npm run build` green; confirm `git diff` touches only `server/`, `server/__tests__/`, and `package.json`/lockfile.
 
 ---
 

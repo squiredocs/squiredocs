@@ -18,18 +18,26 @@
  *               (FR-015). The app starts and the full serial test suite passes
  *               with no Collector.
  *
- * IMPORTANT (inertness landmine): NodeSDK, given no span processors, falls back
- * to `getSpanProcessorsFromEnv()` which DEFAULTS to an OTLP exporter at
- * localhost:4318 — i.e. NOT inert. So we ALWAYS pass an explicit `spanProcessors`
- * array (redaction-only in inert mode) to keep full control of export behavior.
- *
- * The server is and stays CommonJS.
+ * Providers are built DIRECTLY (BasicTracerProvider + MeterProvider +
+ * registerInstrumentations) rather than through `@opentelemetry/sdk-node`'s
+ * `NodeSDK` (ledger RBD-13): NodeSDK's span export does not function under
+ * jest's runtime, whereas a directly-constructed provider exports reliably in
+ * both jest and a standalone process. Behavior is otherwise identical — same
+ * building blocks from the same packages, same require-hook auto-instrumentation.
+ * We ALWAYS pass an explicit span-processor set (redaction-only in inert mode)
+ * so there is never a fallback to an env-default OTLP exporter (the inertness
+ * landmine). The server is and stays CommonJS.
  */
-const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { Resource } = require('@opentelemetry/resources');
 const { ATTR_SERVICE_NAME } = require('@opentelemetry/semantic-conventions');
-const { BatchSpanProcessor, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
-const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+  SimpleSpanProcessor,
+} = require('@opentelemetry/sdk-trace-base');
+const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { AsyncLocalStorageContextManager } = require('@opentelemetry/context-async-hooks');
+const { registerInstrumentations } = require('@opentelemetry/instrumentation');
 const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
 const { ExpressInstrumentation } = require('@opentelemetry/instrumentation-express');
 const { PgInstrumentation } = require('@opentelemetry/instrumentation-pg');
@@ -42,7 +50,10 @@ const logger = require('./logger');
 const TRACER_NAME = 'squire-server';
 const METER_NAME = 'squire-server';
 
-let sdk = null;
+let tracerProvider = null;
+let meterProvider = null;
+let contextManager = null;
+let disableInstrumentations = null;
 let started = false;
 let mode = 'uninitialized';
 
@@ -69,7 +80,7 @@ function buildInstrumentations() {
 }
 
 /**
- * Initialize the SDK. Idempotent — the first call wins; later calls (e.g.
+ * Initialize telemetry. Idempotent — the first call wins; later calls (e.g.
  * index.js after the test harness already started it) are no-ops.
  *
  * @param {object} [opts]
@@ -81,57 +92,71 @@ function start(opts = {}) {
   if (started) return { mode };
 
   // Install the non-throwing console shim FIRST so every subsequent app-module
-  // log line is structured JSON correlated to its trace (FR-006/007). This is
-  // independent of export mode — logging always works, Collector or not.
+  // log line is structured JSON correlated to its trace (FR-006/007). Independent
+  // of export mode — logging always works, Collector or not.
   try {
     logger.installConsoleShim();
   } catch {
     /* logging must never take the process down */
   }
 
-  const resource = buildResource();
-  const instrumentations = buildInstrumentations();
-  const redaction = new RedactionSpanProcessor();
-
-  let spanProcessors;
-  let metricReader;
-
-  if (opts.spanExporter || opts.metricReader) {
-    // ── test mode: in-memory capture, no network ──────────────────────────
-    mode = 'test';
-    spanProcessors = [redaction];
-    if (opts.spanExporter) spanProcessors.push(new SimpleSpanProcessor(opts.spanExporter));
-    metricReader = opts.metricReader;
-  } else if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-    // ── OTLP mode: export over http/protobuf (RBD-10) ─────────────────────
-    mode = 'otlp';
-    // Required lazily so a missing/omitted exporter dep never breaks inert/test.
-    const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-proto');
-    const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-proto');
-    spanProcessors = [redaction, new BatchSpanProcessor(new OTLPTraceExporter())];
-    metricReader = new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() });
-  } else {
-    // ── inert mode: redaction-only pipeline, no exporter, no reader ────────
-    mode = 'inert';
-    spanProcessors = [redaction];
-    metricReader = undefined;
-  }
-
-  const config = { resource, instrumentations, spanProcessors };
-  if (metricReader) config.metricReader = metricReader;
-
-  sdk = new NodeSDK(config);
   try {
-    sdk.start();
+    const resource = buildResource();
+    const instrumentations = buildInstrumentations();
+    const redaction = new RedactionSpanProcessor();
+
+    let spanProcessors;
+    let metricReader;
+
+    if (opts.spanExporter || opts.metricReader) {
+      // ── test mode: in-memory capture, no network ────────────────────────
+      mode = 'test';
+      spanProcessors = [redaction];
+      if (opts.spanExporter) spanProcessors.push(new SimpleSpanProcessor(opts.spanExporter));
+      metricReader = opts.metricReader;
+    } else if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+      // ── OTLP mode: export over http/protobuf (RBD-10) ───────────────────
+      mode = 'otlp';
+      const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-proto');
+      const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-proto');
+      spanProcessors = [redaction, new BatchSpanProcessor(new OTLPTraceExporter())];
+      metricReader = new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() });
+    } else {
+      // ── inert mode: redaction-only pipeline, no exporter, no reader ──────
+      mode = 'inert';
+      spanProcessors = [redaction];
+      metricReader = undefined;
+    }
+
+    // Trace provider + async-context propagation (so a request's trace_id flows
+    // to log lines and child spans across async boundaries).
+    tracerProvider = new BasicTracerProvider({ resource, spanProcessors });
+    contextManager = new AsyncLocalStorageContextManager();
+    contextManager.enable();
+    tracerProvider.register({ contextManager });
+
+    // Meter provider only when there is a reader (test/OTLP). In inert mode the
+    // global meter stays a no-op — metrics record nowhere, zero overhead.
+    if (metricReader) {
+      meterProvider = new MeterProvider({ resource, readers: [metricReader] });
+      api.metrics.setGlobalMeterProvider(meterProvider);
+    }
+
+    disableInstrumentations = registerInstrumentations({
+      instrumentations,
+      tracerProvider,
+      meterProvider: meterProvider || undefined,
+    });
   } catch (err) {
-    // A telemetry init failure must never block app startup (FR-015). Fall back
-    // to a fully inert process: instrumentation may be partially registered, but
-    // nothing exports and nothing throws.
+    // A telemetry init failure must never block app startup (FR-015). Continue
+    // fully inert; nothing exports and nothing throws.
     mode = 'inert-failed';
     try {
       // eslint-disable-next-line no-console
-      console.warn('[telemetry] SDK start failed — continuing without telemetry:', err && err.message);
-    } catch { /* ignore */ }
+      console.warn('[telemetry] init failed — continuing without telemetry:', err && err.message);
+    } catch {
+      /* ignore */
+    }
   }
 
   started = true;
@@ -145,15 +170,41 @@ function start(opts = {}) {
  * @returns {Promise<void>}
  */
 async function shutdown(timeoutMs = 4000) {
-  if (!sdk || !started) return;
+  if (!started) return;
   const bounded = new Promise((resolve) => {
     const t = setTimeout(resolve, timeoutMs);
     if (typeof t.unref === 'function') t.unref();
   });
+  const work = (async () => {
+    try {
+      if (typeof disableInstrumentations === 'function') disableInstrumentations();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (tracerProvider) {
+        await tracerProvider.forceFlush().catch(() => {});
+        await tracerProvider.shutdown().catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (meterProvider) {
+        await meterProvider.forceFlush().catch(() => {});
+        await meterProvider.shutdown().catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (contextManager) contextManager.disable();
+    } catch {
+      /* ignore */
+    }
+  })();
   try {
-    await Promise.race([sdk.shutdown().catch(() => {}), bounded]);
-  } catch {
-    /* resolve regardless — shutdown must never hang on an unreachable Collector */
+    await Promise.race([work, bounded]);
   } finally {
     started = false;
   }
@@ -180,10 +231,11 @@ module.exports = {
   getTracer,
   getMeter,
   getMode,
-  // Test seam: allow the capture harness / inert tests to reset module state
-  // between test files (jest sandboxes files, but be explicit).
   _resetForTest: () => {
-    sdk = null;
+    tracerProvider = null;
+    meterProvider = null;
+    contextManager = null;
+    disableInstrumentations = null;
     started = false;
     mode = 'uninitialized';
   },

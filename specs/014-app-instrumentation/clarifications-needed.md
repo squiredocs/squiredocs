@@ -131,6 +131,35 @@ Implementation-level defaults taken during planning where the design doc/plan we
 
 ---
 
+## IMPLEMENT-phase decisions (2026-07-16)
+
+## RBD-13: Providers built directly, not via NodeSDK
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-16)
+- **Question**: The plan/research (D3) named `@opentelemetry/sdk-node`'s `NodeSDK`
+  as the bootstrap orchestrator. During implementation, NodeSDK's span export was
+  found NOT to function under jest's runtime (a directly-constructed provider
+  exports reliably; the NodeSDK-wrapped `NodeTracerProvider` drops spans in-process
+  under jest), which would have made the in-process capture tests (FR-023/024)
+  impossible.
+- **Decision**: `server/telemetry.js` builds the providers DIRECTLY from the same
+  packages — `BasicTracerProvider` + explicit span processors,
+  `MeterProvider` + reader, `AsyncLocalStorageContextManager`, and
+  `registerInstrumentations({...})` for the four require-hook instrumentations —
+  instead of `new NodeSDK({...})`. Behavior is otherwise identical: same building
+  blocks, same trimodal export, same auto-instrumentation, same require-ordering
+  guarantee (start() before app modules). Proven both in a standalone process
+  (real HTTP→PG→Redis single trace) and under jest (in-process capture).
+- **Why this default**: It is the only way to satisfy the mandated in-process
+  capture tests while keeping full trimodal control and preserving the exact
+  prod behavior; it also removes a layer (NodeSDK's env auto-config) that was the
+  source of the inertness landmine. `@opentelemetry/context-async-hooks` and
+  `@opentelemetry/instrumentation` were added as explicit direct deps (they were
+  already transitive). `sdk-node` is retained in `package.json` (harmless; keeps
+  the version-aligned set) but no longer required by app code.
+
+---
+
 ## Notes / observations for downstream phases
 
 - **OBS-1**: At spec time (2026-07-16), `specs/013-o11y-platform/` existed but was empty —
