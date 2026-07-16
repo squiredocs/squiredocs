@@ -16,6 +16,62 @@ Stop on any failed verification. Decisions referenced as RD-n / G-n live in
 
 ---
 
+## Status (as of 2026-07-16)
+
+This runbook was authored before anything was applied. Much of it has since been
+**executed** while the old shared node keeps serving production. Snapshot:
+
+- **Phase 2 (provision) — DONE.** The dedicated cluster is up: node
+  `<prod-instance-id>`, EIP `<prod-eip>`, k3s (arm64) in the wft-public VPC
+  (`<vpc-id>` / `<subnet-id>`; **no default VPC**, so
+  VPC/subnet are explicit vars). State in `s3://squiredocs-tofu-state`; gitignored
+  `terraform.tfvars` (`operator_cidr <operator-ip>/32`, `alarm_email admin@example.com`).
+  Applied with the edge (`aws_cloudfront_distribution.app`, `aws_route53_record.origin`)
+  excluded — edge stays deferred until cutover so the live origin is untouched.
+  The node is managed via **SSM only** (`AmazonSSMManagedInstanceCore` on the role,
+  no SSH key). Fixes made live + in IaC during apply: no-default-VPC, non-ASCII SG
+  description, WAF parens, pre-existing images IAM user left unmanaged, data-volume
+  mount via `runcmd` (Nitro `fs_setup` race), app `runAsUser: 100`.
+- **Phase 3 (deploy & validate) — DONE.** App stack deployed via SSM (manifests +
+  secrets relayed through presigned S3, deleted after): all pods Running,
+  migrations complete, `/ready` → `{datastore: up, cache: up}`, Redis
+  password-auth + pub/sub working, serving through Traefik. The `collab-backup`
+  overlay digest was resolved and the backup image built/pushed to ECR.
+- **Backup pipeline — DONE + validated.** Reworked from s3cmd to **AWS CLI v2**
+  (`postgres:16-bookworm`) because s3cmd can't satisfy Object Lock's required
+  `PutObject` checksum; secret renamed `backup-s3cmd` → `backup-writer-creds`
+  (env creds, not an s3cfg mount); CronJob runs the script under `/bin/bash`
+  (Debian `/bin/sh` = dash, no `pipefail`). A test dump landed in the SSE-KMS +
+  Object-Lock `squiredocs-db-backups` via the scoped writer; nightly CronJob live.
+- **ECR pull-secret refresh — DONE.** A host `systemd` timer mints the `ecr-creds`
+  secret from the instance role every 6h (pods can't reach IMDS at hop limit 1);
+  ECR workloads carry `imagePullSecrets`. Back-ported to cloud-init.
+- **Edge reconciliation — DONE (authoring), apply deferred.** `edge.tf` aligned to
+  the live CloudFront config (so a cutover apply is a clean in-place change — only
+  intended deltas: WAF, access logging, https-only origin, `/assets/*` caching);
+  still `-exclude`d from apply until cutover.
+- **Data restore — REHEARSED, success.** A real prod dump was restored into the new
+  cluster (scale app 0 → drop/recreate `collab_db` → `gunzip -c | k3s kubectl exec
+  -i deploy/collab-postgres -- psql` → migrate delta was a no-op → scale up). The
+  new cluster currently holds a **throwaway** copy of real data, to be replaced by
+  the final dump at the actual cutover.
+
+- **STILL OWED**: the **maintenance-window cutover itself (Phase 4)** and
+  **Phase 5 post-cutover**; **SNS subscription email confirmation** for the backup
+  alarm; the **010 browser smoke** (SC-009); ratification of **G1** (443-scope vs
+  ACME) and **G2** (feature-010 image). Sam drives the cutover — it needs his
+  go-ahead and a window.
+
+> **Repo-branch note**: several of the DONE items above (AWS-CLI backup rework, ECR
+> timer in cloud-init, edge caching + deploy-time CloudFront invalidation) landed on
+> a **concurrent infra branch not yet merged to `main`**. On `main`, the
+> corresponding code (`Dockerfile.backup`, `script/backup-postgres.sh`,
+> `cloud-init.yaml.tftpl`, `edge.tf`, `deploy-aws.sh`) still shows the earlier
+> approach. `docs/operations.md` documents the operational reality; when the infra
+> branch merges, this note can be dropped.
+
+---
+
 ## Phase 0 — Prerequisites & bootstrap (any time)
 
 0.1 **Tooling** on the operator workstation: `tofu` (OpenTofu ≥ 1.10 for native S3
