@@ -4,6 +4,49 @@ Started at spec time (2026-07-16). Items here are accepted limitations, ops-trac
 actions, and follow-ups that outlive the authoring work. Extend during plan /
 implement / review.
 
+## Verification-gate results (authoring, 2026-07-16)
+
+Ran in the authoring pod (`tofu` + `kustomize` present; `terraform`/`kubectl`/
+`yamllint` absent — inherited 011 fallback ladder):
+
+- **Gate 1 (Terraform)** — `tofu fmt -check`: 0 diffs. `tofu validate`: Success
+  (providers reused from the main tree's `.terraform`). All monitoring/alarm
+  resources declared. **PASSED.**
+- **Gate 2 (Kustomize)** — `kustomize build` on both overlays succeeds. aws-prod
+  renders the Collector with all 7 receiver classes + the OTLP/TLS exporter to the
+  node + the `otel-collector` 4317/4318 Service + `o11y` at `enforce=privileged` +
+  the 5 NetworkPolicy paths. **minikube is byte-identical** to the pre-013 baseline
+  (`git stash -u` diff) with **0** collector/openobserve/o11y/monitoring references.
+  **PASSED.**
+- **Gate 3/4 (privacy + secrets grep)** — 0 content-bearing telemetry fields in the
+  authored config. The `"title"` grep hits are all **dashboard/panel display names**
+  ("Postgres — Health", "Deadlocks", …) — infra identifiers, not document content.
+  Both new `k8s/secrets/*.enc.yaml` are clearly-marked PLACEHOLDER scaffolds with 0
+  real values (SC-004). **PASSED.**
+
+**One intended aws-prod render delta (functionally inert):** removing the redundant
+overlay-level `namespace: collab` (so it stops clobbering the o11y group) means the
+cert-manager **ClusterIssuer** `letsencrypt-prod` no longer renders a `namespace:
+collab` line. A ClusterIssuer is CLUSTER-SCOPED — that namespace field is meaningless
+metadata the API server ignores, so `kubectl apply -k` produces the identical
+cluster object with or without it (a re-apply shows no server-side diff). This is the
+ONLY collab-side render change (the collab app Deployment/Service/PVC/NetworkPolicy/
+Certificate/etc. are byte-identical); the o11y resources and the US4/US6 collab
+NetworkPolicy allowances are the intended additions. Flagged for review; no action
+needed.
+
+**Could NOT be verified in authoring (ops re-runs before apply):**
+- `tofu plan`/`apply` against real AWS (by design — ops track holds creds).
+- The embedded Collector `collector.yaml` was YAML-parsed (valid) but **not**
+  validated by the actual `otelcol validate` binary (not installed) — a semantic
+  Collector-config check the ops track should run (`otelcol-contrib validate
+  --config`) before apply.
+- No `kubectl`/server-side/dry-run validation and no `yamllint` — only client-side
+  `kustomize build`.
+- Image **digests are placeholders** (dev pod has no registry access) — resolve
+  before apply (see below).
+- OpenObserve `ZO_*` env-var names unverified against a running OpenObserve (below).
+
 ## Accepted limitations (ratified in the design doc / chosen path, 2026-07-16)
 
 - **No SSO/RBAC on OpenObserve** — enterprise-gated in OSS. Acceptable for a single
@@ -47,8 +90,27 @@ implement / review.
   attachment to the monitoring node role (mirroring the prod node); the plan assumes a
   public registry and omits it (plan §research-4).
 - **Fill the monitoring node's private IP** into the server-cert SANs and the
-  Collector exporter's `hostAliases` at cert-generation time (RD-13) — the IP is
-  stable once the instance exists but is unknown at authoring time.
+  Collector exporter's `hostAliases` (collector-daemonset.yaml) AND the
+  `allow-collector-to-monitoring-node` egress ipBlock (`k8s/o11y/networkpolicies.yaml`)
+  at cert-generation time (RD-13) — the IP is stable once the instance exists
+  (`tofu output monitoring_private_ip`) but is unknown at authoring time. Placeholders
+  (`10.0.0.2`) are used in both places.
+- **Materialize the datastore secrets into the `o11y` namespace** (FR-017, G3): the
+  Collector's Postgres/Redis receivers read `postgres-secret`/`redis-auth` via
+  `secretKeyRef`, which requires those secrets to exist IN `o11y`. They currently
+  live only in `collab`. The ops track must `sops -d` the existing
+  `k8s/secrets/{postgres-secret,redis-auth}.enc.yaml` and apply a copy with
+  `namespace: o11y` (documented in ops-runbook.md). No new secret VALUES — the same
+  credentials, a second namespace.
+- **Fill the CA cert + server cert/key + OO root creds** into the scaffolds: paste the
+  real PEM/creds into `k8s/o11y/ca-trust-configmap.yaml` (public CA cert),
+  `k8s/secrets/o11y-tls.enc.yaml` + `k8s/secrets/openobserve-root.enc.yaml` (then
+  `sops -e -i`), and SSM-place `server.crt`/`server.key`/`openobserve-root.env` on the
+  node (ops-runbook.md). Authoring committed structure-only placeholders (SC-004).
+- **Digest-pin the Collector + OpenObserve images**: resolve the real arm64 digests
+  and replace the placeholder digest in `k8s/o11y/kustomization.yaml` (`images:`) and
+  the tag in `var.otel_collector_image` / `var.openobserve_image` before first apply
+  (runbook §3.2) — the dev pod has no registry access.
 
 ## Follow-ups (not blockers)
 
