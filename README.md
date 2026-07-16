@@ -320,6 +320,34 @@ The frontend connects to the WebSocket server at the `/s` path. By default, it c
 VITE_WS_URL=ws://your-server.com/s npm run build
 ```
 
+### Observability & Telemetry
+
+The server is instrumented with vendor-neutral **OpenTelemetry** (feature 014):
+
+- **Structured logs**: every `console.*` call emits one line of JSON to stdout
+  (`{ level, time, msg, ... }`). Lines emitted inside an HTTP request also carry
+  `trace_id` / `span_id` for correlation. No existing log call site was rewritten
+  — a non-throwing `console` shim (pino) does this globally.
+- **Traces**: HTTP → Express → PostgreSQL → Redis are auto-instrumented into one
+  correlated trace per request (route templates as the low-cardinality identity,
+  never concrete URLs). Manual operation-level spans cover the Yjs collaboration
+  path (Redis pub/sub, markdown sync) and MCP tool execution.
+- **Metrics**: HTTP request rate / latency / 5xx (by route template + status
+  class), a rate-limit rejection (429) counter (by limiter category), and
+  PostgreSQL pool gauges (total / idle / waiting).
+- **Export**: all telemetry ships via **OTLP http/protobuf** to the endpoint in
+  `OTEL_EXPORTER_OTLP_ENDPOINT` when set. With no endpoint configured the whole
+  stack is **inert** — no exporter, no crash, no startup delay, no log noise —
+  so dev, CI, and the test suite run unchanged with no Collector.
+- **Privacy invariant**: document content (text, titles, search queries, chat
+  content) never enters any log field the instrumentation adds, span attribute,
+  or metric label. Enforced by an allowlist plus a redaction span processor and
+  proven by sentinel-content tests.
+
+The Collector, monitoring node (OpenObserve), dashboards, and alarms are the
+observability platform (feature 013) — see `design/observability-and-telemetry.md`
+and `docs/operations.md`.
+
 ## Usage
 
 1. **Sign in**: Authenticate with Google OAuth

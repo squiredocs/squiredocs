@@ -439,6 +439,27 @@ VITE_BYPASS_AUTH=false
 
 Or simply remove the environment variable.
 
+## Telemetry (OpenTelemetry)
+
+All telemetry is off by default; the app is fully inert with none of these set.
+
+| Var | Default | Effect |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset) | Collector OTLP base URL. **Unset = inert** (no export, no noise). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP transport (http/protobuf only; no gRPC dep). |
+| `OTEL_EXPORTER_OTLP_HEADERS` | (none) | Optional auth/tenant headers for the Collector. |
+| `OTEL_SERVICE_NAME` | `squire-server` | `service.name` resource attribute. |
+| `OTEL_RESOURCE_ATTRIBUTES` | (none) | Extra resource attributes (e.g. `deployment.environment=prod`). |
+
+Local dev needs no Collector: leave `OTEL_EXPORTER_OTLP_ENDPOINT` unset and the
+server logs structured JSON to stdout while everything else is inert. Backend
+tests run Collector-less by design.
+
+**Note on the console shim**: `console.log/info/warn/error/debug` are replaced
+process-wide by a non-throwing JSON logger. Local terminal output is now JSON
+lines rather than plain text; pipe through `pino-pretty` if you want a
+human-readable dev view (not a dependency — install ad hoc).
+
 ## MCP API Testing
 
 The MCP (Model Context Protocol) API allows AI agents to interact with documents. For testing the MCP endpoint locally, you need to generate a valid agent token.
