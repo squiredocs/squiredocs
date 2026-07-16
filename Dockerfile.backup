@@ -33,4 +33,4 @@ COPY --chmod=0555 script/backup-postgres.sh /usr/local/bin/backup-postgres.sh
 
 USER 65532:65532
 
-ENTRYPOINT ["/bin/sh", "/usr/local/bin/backup-postgres.sh"]
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/backup-postgres.sh"]

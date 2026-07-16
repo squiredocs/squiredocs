@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Nightly Postgres backup → squiredocs-db-backups (FR-023, SC-006).
 #
 # Hardening vs. the old script:
@@ -22,8 +22,8 @@ set -eu
 # pipefail: in `pg_dump | gzip`, a pg_dump failure (down DB, auth error, OOM kill
 # mid-stream) makes the WHOLE pipeline non-zero so `set -e` aborts BEFORE the
 # s3cmd upload — a truncated/partial dump can never reach the bucket and leave the
-# freshness alarm falsely green. Busybox ash (alpine, Dockerfile.backup) supports
-# `set -o pipefail`.
+# freshness alarm falsely green. Runs under bash (Debian base has no ash; dash
+# lacks pipefail) — the CronJob command and Dockerfile ENTRYPOINT both use bash.
 set -o pipefail
 
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
