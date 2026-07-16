@@ -171,7 +171,7 @@ email (once per user/month); shared-key exhaustion → operator notified, user s
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T036 [P] [US5] Backend test in `server/api/__tests__/chat.error-surfacing.test.js` (or a dedicated notifications test): `byok_insufficient_credits`/`byok_invalid_key` → `notifyException` NOT called (FR-020); `internal` → called (FR-023); shared-key exhaustion → called with the true cause (FR-022); `app_usage_limit` → `notifyCreditLimitReached` preserved, per user/month (FR-021).
+- [X] T036 [P] [US5] Backend test in `server/api/__tests__/chat.error-surfacing.test.js` (or a dedicated notifications test): `byok_insufficient_credits`/`byok_invalid_key` → `notifyException` NOT called (FR-020); `internal` → called (FR-023); shared-key exhaustion → called with the true cause (FR-022); `app_usage_limit` → `notifyCreditLimitReached` preserved, per user/month (FR-021).
 
 ### Implementation for User Story 5
 
@@ -184,10 +184,10 @@ email (once per user/month); shared-key exhaustion → operator notified, user s
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] Run the full backend chat/error suites serially and the frontend chat suites; fix any regressions (serial DB per constitution II).
-- [ ] T040 [P] Grep the client chat error path to confirm zero body-text→behavior matching remains (SC-007); confirm the app-401 refresh-retry is keyed on response status, not body text (FR-005/D7).
-- [ ] T041 Run `specs/012-chat-error-surfacing/quickstart.md` per-class + behavior validations end-to-end (both surfaces).
-- [ ] T042 [P] Confirm design/spec alignment: no design-doc amendment needed (converge-to-design); if implementation falsified any documented mechanism, amend the Squire source + `node design/sync.mjs` (NOT a hand-edit) — otherwise note "no drift".
+- [X] T039 [P] Run the full backend chat/error suites serially and the frontend chat suites; fix any regressions (serial DB per constitution II).
+- [X] T040 [P] Grep the client chat error path to confirm zero body-text→behavior matching remains (SC-007); confirm the app-401 refresh-retry is keyed on response status, not body text (FR-005/D7).
+- [X] T041 Run `specs/012-chat-error-surfacing/quickstart.md` per-class + behavior validations end-to-end (both surfaces).
+- [X] T042 [P] Confirm design/spec alignment: no design-doc amendment needed (converge-to-design); if implementation falsified any documented mechanism, amend the Squire source + `node design/sync.mjs` (NOT a hand-edit) — otherwise note "no drift".
 
 ---
 
@@ -262,3 +262,30 @@ US5 (notification hygiene). Each is independently testable and additive.
 - Design doc wins on any conflict (Principle VI); D1–D7 are ratified-by-default.
 - Commit to `main` after logical groups (solo trunk workflow) — but this feature's brief
   defers commits/deploy to the maintainer.
+
+## Implementation notes (deviations & test-seam choices)
+
+- **D9 (mid-stream mechanism)**: The AI SDK v6 error part is a `strictObject` and the transport
+  throws on any chunk that fails validation, so `code`/`provider` can't be siblings on the error
+  event. They ride an adjacent **transient `data-chat-error` part** (`onData` fires before
+  `onError`); `errorText` stays the honest string. Behavior matches the design intent; recorded
+  RATIFIED-BY-DEFAULT (D9) and `contracts/error-payload.md` Channel B updated. No design-doc drift
+  (the doc's prose still holds).
+- **T027 reconciliation**: the interruption notice is set in `handleChatError`'s fatal branch
+  (fatal codes bypass `recoverChat` per T026, so the notice can't live inside `recoverChat`). It
+  fires when a mid-stream fatal error leaves a partial assistant reply in the live transcript
+  (FR-016/D5).
+- **T032 path**: the `resolveChatModel` misconfig cases were added to the existing
+  `server/__tests__/chat-models-byok.test.js` (where `resolveChatModel` is already tested) rather
+  than a new `chat-models.byok.test.js`, to avoid a near-duplicate suite.
+- **T014/T033/T036 seam**: endpoint classification/status/notification decisions are pinned as
+  unit tests at the single `classify()` seam (`chat-errors.test.js`) plus per-provider detection
+  (`ai-providers.classify.test.js`); transport behavior (mid-stream data part + honest error
+  event, no-buffer rule FR-010, token-limit interception) is pinned against the real `pipeAsSSE`
+  (`chat.error-surfacing.test.js`); the concurrency→`rate_limited` payload is an end-to-end
+  supertest (`chat-cap-compaction.test.js`). This matches the repo's practice of avoiding a
+  brittle full-handler streamText mock. A live browser E2E per `quickstart.md` (T041) is owed to
+  the maintainer, consistent with prior features.
+- **Backend tests in this worktree**: the repo jest config ignores `/.claude/worktrees/`; run with
+  `--modulePathIgnorePatterns=/node_modules/ --testPathIgnorePatterns='/node_modules/|/client/'`
+  and `DATABASE_URL` pointed at a per-agent DB.

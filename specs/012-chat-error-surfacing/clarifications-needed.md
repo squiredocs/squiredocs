@@ -113,3 +113,15 @@ changes), not re-litigating in code.
 **Why it matters**: Without a mechanism, implementation is forced back to body-substring sniffing (banned by FR-013) or app-401s render a wrong `internal` banner instead of silently refreshing.
 
 **Decision**: Pass a custom `fetch` to the `DefaultChatTransport` constructor that wraps global fetch and, on `!response.ok`, reads the body text and throws `Object.assign(new Error(bodyText), { status: response.status })`. `handleChatError` then keys the auth branch on `error.status === 401`, and `parseChatError` parses the JSON body for the taxonomy code. Mid-stream SSE errors carry no status; `parseChatError` accepts both shapes. Chosen over patching the SDK or reading transport internals: it is the SDK's own extension point, ~10 lines, and survives SDK upgrades.
+
+---
+
+## D9 — Mid-stream structured payload rides a transient data part, not the error event's siblings (implementation-discovered)
+
+**Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-16)
+
+**Question**: The Channel B contract first specified `code`/`provider` as sibling fields on the mid-stream SSE `error` event (`{ type:'error', errorText, code, provider }`). Is that shape actually deliverable through the AI SDK transport?
+
+**Why it matters**: If the wire shape the design implies can't survive the SDK's stream parser, the client would never receive the mid-stream code and every mid-stream failure would degrade to `internal` — silently missing US1 scenario 8 and the SC-005 interruption reason.
+
+**Decision**: Carry the structured payload on an **adjacent transient `data-chat-error` part** instead of as siblings on the `error` event. Verified against `ai@6.0.141`: the UI-message-stream error part is a `z.strictObject({ type, errorText })` and `DefaultChatTransport.processResponseStream` **throws** on any chunk that fails schema validation, so extra siblings on the `error` event would break the entire stream (not merely be dropped). The SDK's sanctioned side-band channel is a `data-*` part (`data: unknown`, optional `transient`), delivered to the client `Chat`'s `onData` callback *before* `onError`, and — when `transient: true` — never persisted into the transcript. The server emits `data-chat-error` immediately before the `error` event; the client stashes `{ code, provider }` from `onData` and reads the honest `errorText` from `onError`. This is a wire-encoding refinement, not a behavior change: the client still renders mid-stream failures from the taxonomy code, `errorText` stays honest for degraded clients (D6), and neither chunk enters the reconnection replay buffer (FR-010). The design-doc prose ("mid-stream failures ride the SSE error event with the same structured payload") remains accurate and needs no amendment; `contracts/error-payload.md` Channel B was updated to the actual encoding.
