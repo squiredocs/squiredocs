@@ -125,3 +125,30 @@ needed.
 - **`docs/operations.md` observability section** (FR-030): replaced at
   merge-queue time with the real architecture — not edited in the authoring
   worktree.
+- **Narrow the Collector `hostfs` mount** (post-merge review, finding 6): the
+  Collector DaemonSet mounts host `/` read-only at `/hostfs` for the hostmetrics
+  `root_path` — which includes the Postgres data directory, so a Collector compromise
+  could read DB files and exfiltrate over allowed egress. Accepted with documentation
+  (standard hostmetrics pattern; mitigations: read-only mount,
+  `readOnlyRootFilesystem`, dropped caps / no privilege escalation, default-deny
+  egress). Promotion follow-up: narrow the mount to just the paths hostmetrics needs
+  (`/proc`, `/sys`, mountpoints) instead of `/`. Residual-risk block is at the mount
+  site in `k8s/o11y/collector-daemonset.yaml`.
+
+## Post-merge review dispositions (2026-07-16)
+
+Adversarial post-merge review of 013-o11y-platform; six findings, all dispositioned in
+the main tree (server/ and 014 untouched). Verified with `tofu fmt/validate` +
+`kustomize build` on both overlays (minikube still 0 o11y refs).
+
+| # | Sev | Area | Disposition |
+|---|-----|------|-------------|
+| 1 | HIGH | `alarms.tf` R53 health-check target | **FIXED** — probe `squiredocs.com` (CloudFront viewer alias), not `app.squiredocs.com` (origin record, prefix-list-scoped 443 that blocks R53 checkers → false page forever). Comment + `outputs`/ledger corrected. **Flagged for Sam's ratification.** |
+| 2 | HIGH | `networkpolicies.yaml` egress | **FIXED** — added `allow-collector-to-node-kubelet-and-apiserver` egress (TCP 10250 + 6443 to the prod node IP placeholder); without it kubeletstats + k8s_events were silently dead on first apply. Ops fills the node-IP placeholder in the same step as the monitoring-node IP; §6 verification line added. **Flagged for Sam's ratification** of the node-IP egress placeholder approach. |
+| 3 | MEDIUM | `monitoring.tf` internet path | **FIXED** — explicit `associate_public_ip_address = true` (egress only; ingress SG-locked); "private-IP only" comments in `monitoring.tf` + `outputs.tf` corrected. Recorded RD-15 RATIFIED-BY-DEFAULT (public-IP-with-locked-SG over NAT on cost, ~$32/mo vs $0). |
+| 4 | MEDIUM | `o11y-dashboards/README.md` import | **FIXED** — dashboard import rewritten to list-then-create-or-update-by-id (blind POST duplicated); dropped the unconditional "re-running is safe" claim; route-confirmation hedge now covers BOTH dashboard and alert routes; runbook records confirmed routes post-verify. |
+| 5 | LOW | `variables.tf` operator_cidr desc | **FIXED** — description now names the o11y UI/OTLP (5080/5081) ingress it also scopes. |
+| 6 | LOW | `collector-daemonset.yaml` hostfs `/` mount | **ACCEPTED-DOCUMENTED** — residual-risk block at the mount site + follow-up above (narrow to proc/sys/mountpoints). |
+
+Two HIGHs (1 and 2) apply chosen fixes flagged for Sam's ratification: the
+`squiredocs.com` probe target, and the node-IP egress placeholder for kubelet/API.

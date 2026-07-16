@@ -151,6 +151,18 @@ amended in the design doc.
   edge failures (CloudFront, DNS, WAF misconfig) that an origin-direct probe
   would miss; `/ready` is PG-gated so it is a real depth probe, and string
   matching fails closed if the body changes.
+- **Correction (2026-07-16, post-merge review)**: The default above named
+  `app.squiredocs.com` as "the public hostname / viewer path" — that was wrong.
+  `app.squiredocs.com` is the CloudFront **origin** A record (points at the node
+  EIP), and the origin's 443 ingress is scoped to the CloudFront origin-facing
+  prefix list, so Route 53's distributed checkers are BLOCKED at the origin — the
+  health check would fail and page falsely forever. The check now probes
+  `squiredocs.com`, the CloudFront **viewer** alias (full public path, no caching,
+  all methods forwarded; WAF fronts it and R53 checker volume is far below any rate
+  rule). The RATIONALE is unchanged — enter where users enter, full DNS → CloudFront
+  → origin → app `/ready` depth probe, string match fails closed. Fix in
+  `infra/terraform/alarms.tf` (`aws_route53_health_check.ready.fqdn`). Flagged for
+  Sam's ratification of the corrected probe target.
 
 ### RD-8 — Reuse of the existing SNS topic
 
@@ -245,6 +257,25 @@ amended in the design doc.
   a single 5-minute average that a one-minute spike could trip), and keeps both the
   threshold and the window tunable per RD-6's "all values are variables". Spec: FR-010;
   data-model.md Entity E.
+
+### RD-15 — Monitoring-node internet egress path (public IP vs NAT/endpoints) (post-merge review)
+
+- **Question**: `monitoring.tf` left the node's internet path to subnet defaults. That
+  is a silent fork: on a subnet with no auto-assign public IP and no NAT gateway / VPC
+  endpoints, cloud-init and SSM brick (no package/image pulls, no Session Manager); on a
+  subnet that auto-assigns, the node silently gets a public IP that contradicted the
+  "private-IP only" comments in `monitoring.tf` and `outputs.tf`. Which path?
+- **Default (RATIFIED-BY-DEFAULT, Sam pre-authorized, 2026-07-16)**: Set
+  `associate_public_ip_address = true` EXPLICITLY. The node has a public IP for EGRESS
+  ONLY (image/package pulls, S3, SSM). Ingress remains locked to the prod-node SG +
+  operator CIDR on 5080/5081 only (monitoring_sg.tf, SC-003) — the public IP admits
+  nothing inbound. The prod → monitoring OTLP ingest path stays on PRIVATE IPs in-VPC
+  (RD-5/RD-13). The misleading "private-IP only" comments were corrected to match.
+- **Rationale**: Public-IP-with-locked-SG chosen over a NAT gateway / VPC endpoints on
+  cost — ~$32/mo for a NAT gateway vs $0 — for a beta telemetry node whose inbound is
+  already SG-sealed. Making the choice explicit removes the subnet-default fork.
+  Revisit (NAT / VPC endpoints) if the posture tightens. Fix in `infra/terraform/
+  monitoring.tf`, comment corrections in `monitoring.tf` + `outputs.tf`.
 
 ---
 

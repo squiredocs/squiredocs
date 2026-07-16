@@ -93,9 +93,22 @@ The node boots with the committed unit/env; the TLS-enabled service crash-loops
 systemctl restart openobserve
 ```
 
-Fill the node private IP into the two cluster placeholders (RD-13):
-- `k8s/o11y/collector-daemonset.yaml` → `hostAliases[0].ip`
-- `k8s/o11y/networkpolicies.yaml` → `allow-collector-to-monitoring-node` egress `ipBlock.cidr` (`/32`)
+Fill the **monitoring node** private IP (`tofu output monitoring_private_ip`) into the
+two RD-13 placeholders — same sed-style substitution in both:
+- `k8s/o11y/collector-daemonset.yaml` → `hostAliases[0].ip` (placeholder `10.0.0.2`)
+- `k8s/o11y/networkpolicies.yaml` → `allow-collector-to-monitoring-node` egress
+  `ipBlock.cidr` (`/32`, placeholder `10.0.0.2/32`)
+
+In the **same step**, fill the **prod node** private IP (the k3s node — e.g.
+`kubectl get node -o wide`, INTERNAL-IP) into the kubelet/API-server egress placeholder
+(RD-13 style; on single-node k3s the kubelet at :10250 and the API server at :6443 share
+the node IP):
+- `k8s/o11y/networkpolicies.yaml` → `allow-collector-to-node-kubelet-and-apiserver`
+  egress `ipBlock.cidr` (`/32`, placeholder `10.0.0.3/32`)
+
+WITHOUT this last substitution the kubeletstats and k8s_events receivers are silently
+blocked by default-deny egress (no scrape, no events, no error surfaced) — see the §6
+verification line.
 
 ## 4. Cluster apply (Collector + policies + secrets)
 
@@ -111,21 +124,34 @@ kubectl apply -k k8s/overlays/aws-prod    # renders + applies the o11y namespace
 
 ## 5. Provision dashboards + alerts
 
-Follow `k8s/o11y-dashboards/README.md` (idempotent curl import; create the `ops-email`
-alert destination first). Confirm `var.ready_health_check_search_string` against the
-LIVE `/ready` body before trusting the Route 53 alarm (RD-7).
+Follow `k8s/o11y-dashboards/README.md` (curl import; create the `ops-email`
+alert destination first). Before the first import, confirm BOTH the dashboard and alert
+API routes against the pinned OpenObserve version (the dashboard POST creates a NEW
+dashboard each call, so the import is list-then-create-or-update-by-id; the flat alert
+`PUT /api/{org}/alerts/{name}` route may be stream-scoped on the pinned image).
+**Record the confirmed dashboard + alert route shapes here after ops verifies them**
+(replaces this note). Confirm `var.ready_health_check_search_string` against the
+LIVE `/ready` body before trusting the Route 53 alarm (RD-7). Note the Route 53 check
+targets the CloudFront viewer alias `squiredocs.com` (NOT the origin record
+`app.squiredocs.com`, whose 443 is prefix-list-scoped and would block the checkers).
 
 ## 6. Verification posture (design's post-apply acceptance, SC-008)
 
 - **Log durability**: `kubectl delete pod <collab-app pod>`; after restart, query the
   killed pod's PRIOR logs in OpenObserve — they persist (the top gap closed).
 - **Metrics cross-check**: `kubectl top nodes/pods` vs. the node/pod dashboards.
+- **kubelet + API-server receivers reachable**: collector logs show kubeletstats scrape
+  SUCCESS and k8s_events FLOWING (absence = the `allow-collector-to-node-kubelet-and-
+  apiserver` egress placeholder was never filled with the real prod node IP, so those
+  two receiver classes are silently blocked by default-deny egress).
 - **Alarm trips (each → SNS email)**: force a 5xx burst (CloudFront 5xx alarm);
   simulate a `/ready` failure (Route 53 health check → alarm); the Requests anomaly
   alarm needs a training window — expect it uninformative for the first days.
 - **Storage**: confirm OpenObserve writes Parquet to `squiredocs-openobserve`.
 - **Ingress lockdown**: confirm 5080/5081 are unreachable from outside the prod node
-  SG + operator CIDR.
+  SG + operator CIDR. The monitoring node has a PUBLIC IP for egress only
+  (`associate_public_ip_address = true`, RD-15) — verify it admits NOTHING inbound
+  beyond the SG rules (public-IP-with-locked-SG, chosen over NAT on cost).
 - **Cost**: after the first week, check against ~$12–24 + S3; tune `o11y_retention_days`.
 
 ## 7. Ongoing
