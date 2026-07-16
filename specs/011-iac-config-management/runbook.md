@@ -56,19 +56,21 @@ This runbook was authored before anything was applied. Much of it has since been
   new cluster currently holds a **throwaway** copy of real data, to be replaced by
   the final dump at the actual cutover.
 
-- **STILL OWED**: the **maintenance-window cutover itself (Phase 4)** and
-  **Phase 5 post-cutover**; **SNS subscription email confirmation** for the backup
-  alarm; the **010 browser smoke** (SC-009); ratification of **G1** (443-scope vs
-  ACME) and **G2** (feature-010 image). Sam drives the cutover — it needs his
-  go-ahead and a window.
+- **CUTOVER DONE (2026-07-16)**: production is live on the dedicated cluster (DNS
+  flipped to the new EIP, CloudFront on the https-only origin). See
+  `docs/operations.md` → "Cutover history & lessons" for the edge apply, the
+  AllViewer→AllViewerExceptHostHeader 502 fix, and the node `user_data`
+  `ignore_changes` guard.
+- **STILL OWED**: **SNS subscription email confirmation** for the backup alarm; the
+  **010 browser smoke** (SC-009); decommission the orphaned old node after a safety
+  window; optionally raise the origin DNS record TTL back to 300.
 
-> **Repo-branch note**: several of the DONE items above (AWS-CLI backup rework, ECR
-> timer in cloud-init, edge caching + deploy-time CloudFront invalidation) landed on
-> a **concurrent infra branch not yet merged to `main`**. On `main`, the
-> corresponding code (`Dockerfile.backup`, `script/backup-postgres.sh`,
-> `cloud-init.yaml.tftpl`, `edge.tf`, `deploy-aws.sh`) still shows the earlier
-> approach. `docs/operations.md` documents the operational reality; when the infra
-> branch merges, this note can be dropped.
+> **Repo state**: all of the DONE items above (AWS-CLI backup rework, ECR timer in
+> cloud-init, edge caching + deploy-time CloudFront invalidation, cert-manager TLS,
+> cutover fixes) are **merged to `main`** — `Dockerfile.backup`,
+> `script/backup-postgres.sh`, `cloud-init.yaml.tftpl`, `edge.tf`, `iam.tf`,
+> `deploy-aws.sh`, and `k8s/overlays/aws-prod/tls/` all reflect the operational
+> reality. `docs/operations.md` is the operator-facing companion.
 
 ---
 

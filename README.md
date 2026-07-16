@@ -141,18 +141,18 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 
 Production runs on AWS k3s in the `collab` namespace, served through CloudFront
 `<cloudfront-distribution-id>` (which terminates TLS for `squiredocs.com` and reaches the
-`app.squiredocs.com` origin). The infrastructure is mid-migration:
+`app.squiredocs.com` origin). Since the 2026-07-16 cutover it runs on a
+**dedicated hardened single-node k3s cluster** that is Squire's alone:
 
-- **Current production** is the **old shared node** (kube context `k3s-wft-aws`,
-  origin `<old-node-ip>`), which shares its EC2 instance, security group, and IAM
-  role with the wildfiretrackers.com workload. Deployed via the legacy
-  `envsubst`-based `script/deploy.sh` history; kept serving until cutover.
-- **The target** is a **dedicated hardened single-node k3s cluster** that is
-  Squire's alone (context `k3s-squiredocs`, node `<prod-instance-id>`, EIP
-  `<prod-eip>`), declared as code with **OpenTofu** (`infra/terraform/`),
-  **Kustomize** (`k8s/base` + `k8s/overlays/{minikube,aws-prod}`), and
-  **SOPS/age** secrets (`k8s/secrets/`). It is provisioned and validated; the
-  maintenance-window cutover is pending.
+- **Production** is the dedicated cluster (kube context `k3s-squiredocs`, node
+  `<prod-instance-id>`, EIP `<prod-eip>`) — its own EC2 instance, security group,
+  and IAM role. It is declared as code with **OpenTofu** (`infra/terraform/`),
+  **Kustomize** (`k8s/base` + `k8s/overlays/{minikube,aws-prod}`), and **SOPS/age**
+  secrets (`k8s/secrets/`). Origin TLS is a cert-manager + Let's Encrypt (Route53
+  DNS-01) certificate that auto-renews.
+- **The old shared node** (context `k3s-wft-aws`, `<old-node-ip>`), which shared its
+  EC2 instance, SG, and IAM role with the wildfiretrackers.com workload, is now
+  **orphaned** and awaits decommissioning.
 
 **The full operator guide is [docs/operations.md](docs/operations.md)** — cluster
 topology, OpenTofu/state, Kustomize, SOPS secrets, SSM node access, the ECR

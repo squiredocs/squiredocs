@@ -68,4 +68,25 @@ recorder) with no effect on the serving workload.
   resolved by the ops track in runbook §3.2. Structurally they are digest pins.
 - The KMS/CloudTrail/Config/edge resources are authored but **not applied** — every
   AWS mutation stays on the human-supervised ops track (Phase 1/2).
+
+## Post-cutover (2026-07-16) — converged, with follow-ups
+
+- **Origin TLS back-ported.** cert-manager + Let's Encrypt (Route53 DNS-01) is now in
+  the repo: `k8s/overlays/aws-prod/tls/{clusterissuer,certificate}.yaml`,
+  `k8s/secrets/route53-dns01.enc.yaml` (SOPS), the `squiredocs-cert-dns01` IAM user
+  in `iam.tf` (imported), and `script/bootstrap-cluster-addons.sh` (pinned
+  cert-manager install). Was live-only before; no longer out-of-repo memory.
+- **`cert-dns01` policy is broader than strictly needed.** It mirrors the live,
+  working policy (`ChangeResourceRecordSets` + `ListResourceRecordSets` +
+  `ListHostedZonesByName`). With a pinned `hostedZoneID`, cert-manager needs only
+  `GetChange` + `ChangeResourceRecordSets`. **Owed:** drop the two `List*` actions
+  and confirm a forced `cmctl renew app-squiredocs-tls -n collab` still succeeds
+  before removing them — tightening unverified risks a silent renewal failure →
+  cert expiry → outage.
+- **Third-party image digests were resolved** during provisioning (real arm64
+  digests pinned in `kustomization.yaml`); the `sha256:0000…` note above is
+  historical.
+- **`.sops.yaml` recipient is the real operator key** (matches
+  `k8s/secrets/age-operator.key`), and the committed `*.enc.yaml` hold real in-use
+  values — the earlier "throwaway placeholder recipient" framing was retired.
 </content>
