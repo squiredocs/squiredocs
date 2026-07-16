@@ -33,6 +33,7 @@ const DOCS = {
   '43a8653c-28f0-4598-9f92-9122ba686883': 'ui-theming-dark-mode.md',
   'c97e58df-4104-4e5d-8ab6-711a7b115696': 'infrastructure-and-environments.md',
   '247d3036-14c5-4f6e-adc6-b90f36cc80d8': 'product-documentation-site.md',
+  'cc54717e-2a4c-4f7d-ba91-2b518c83f85e': 'observability-and-telemetry.md',
 };
 
 const designDir = dirname(fileURLToPath(import.meta.url));

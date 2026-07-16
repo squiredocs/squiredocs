@@ -26,6 +26,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 ## Infrastructure
 
 - [Squire Infrastructure and Environments](https://squiredocs.com/d/c97e58df-4104-4e5d-8ab6-711a7b115696) — production k3s, the Minikube dev pod, deploy scripts, Redis, migrations, and the test infrastructure
+- [Squire Observability and Telemetry](https://squiredocs.com/d/cc54717e-2a4c-4f7d-ba91-2b518c83f85e) — the dedicated monitoring node (OpenObserve, S3-backed) fed by an OTel Collector on the prod cluster, app instrumentation (traces, metrics, structured logs), dashboards, and alerting
 
 ## Design Proposals
 
@@ -47,5 +48,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Squire Infrastructure and Environments | `design/infrastructure-and-environments.md` | Current implementation |
 | Proposal: Markdown Import & Two-Way Repo Sync | `design/markdown-import-two-way-sync.md` | Draft for review |
 | Squire Product Documentation Site | `design/product-documentation-site.md` | Ratified design |
+| Squire Observability and Telemetry | `design/observability-and-telemetry.md` | Ratified design |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).

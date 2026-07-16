@@ -80,6 +80,8 @@ Moving from the shared node to the dedicated cluster is a maintenance-window cut
 
 ## Observability & account controls
 
+This section covers _account-level_ controls only. App and infra observability — the dedicated monitoring node (OpenObserve, S3-backed) receiving OpenTelemetry from a Collector DaemonSet on the prod cluster, application instrumentation, dashboards, and alerting — is owned by the companion doc [Squire Observability and Telemetry](https://app.squiredocs.com/d/cc54717e-2a4c-4f7d-ba91-2b518c83f85e). Topology note: that design adds a second EC2 node (monitoring, t4g.small) alongside the single-node app cluster; it is provisioned in the same infra/terraform/ root and mirrors the prod node’s hardening posture (own SG, SSM-only IAM role, IMDSv2, encrypted EBS).
+
 - CloudTrail (multi-region, to S3), GuardDuty, and AWS Config with IAM Access Analyzer are enabled at the account level — audit history and threat detection are prerequisites for enterprise review, not afterthoughts.
 - ECR keeps scan-on-push and gains a lifecycle policy so image accumulation is bounded.
 - The IAM password policy is strengthened and MFA is confirmed on every human principal.
