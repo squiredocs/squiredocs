@@ -22,6 +22,19 @@ All provider knowledge lives in `server/api/ai-providers.js` (constitutionally: 
 
 Non-BYOK usage is metered to `ai_usage_log` with cache-aware token pricing; quota = monthly `ai_credit_cents` plus admin-granted extra credits (debited oldest-first). Credits are reserved up front and reconciled after the turn (TOCTOU guard); hitting the limit 429s and notifies the admin. BYOK requests skip metering entirely.
 
+## Error surfacing
+
+Every chat failure is classified **once, server-side, next to the provider call**, into a small typed taxonomy, and travels to the client as a structured code — never as raw provider text or a generic 500. The client renders messages from codes; it never substring-matches error bodies. Two transport channels, one shape: failures before any content stream back as HTTP JSON `{ error, code, provider? }` with an honest status (402/429/4xx, not 500); failures mid-stream ride the SSE error event with the same structured payload.
+
+**Taxonomy: **`app_usage_limit` (in-app monthly credits exhausted, pre-flight quota check), `byok_insufficient_credits` (the user’s own provider account is out of funds — Anthropic 400 "credit balance is too low", OpenAI 429 insufficient_quota, Google 429 RESOURCE_EXHAUSTED), `byok_invalid_key` (provider 401/403 on a user key), `provider_overloaded` (429/529/503 on any key), `rate_limited` (our per-user request limiter), `byok_misconfigured` (BYOK enabled but the key/model cannot be resolved), and `internal` (everything else). Token-limit errors stay out of the taxonomy — they are handled by compaction-and-retry, invisibly.
+
+- **Fatal codes end the turn honestly.** Billing, key, and rate-limit codes go straight to a specific banner with the action that actually fixes it (top up in the provider console, check Settings, wait). Only `internal`/network errors may enter the reconnect-recovery path — no fake "Reconnecting…" for an empty wallet.
+- **A user’s billing problem is not a server fault.** BYOK billing/key errors never page the operator via the exception notifier; `app_usage_limit` keeps its per-user-per-month admin email. Exhaustion of the **shared server key** is an operator incident: classified for the user like any provider billing error, but it does notify.
+- **Usage-limit state is derived, not latched.** The client clears the limit banner on the next send attempt (it re-trips immediately if still true); topping up, enabling BYOK, or a month rollover must not require a page reload.
+- **BYOK misconfiguration fails loudly.** If BYOK is active but the key or model cannot be resolved, the request is rejected with `byok_misconfigured` — it never silently falls back to the shared server key (which would bill the operator, unmetered).
+- **Mid-stream fatal errors are never swallowed.** When stream recovery finds a persisted partial reply but the triggering error was a fatal code, the transcript keeps a "response interrupted" notice with the reason instead of clearing the error — a truncated answer must be visibly truncated.
+- **One rendering source.** The side panel and the full-page chat render identical messages from the same code→message map; provider names come from the structured payload, not client-side inference of what mode was active when the error happened.
+
 ## Client surfaces
 
 A dockable panel (right or bottom) on every page, plus a full-page chat-centric mode (`/chat`) with history sidebar and a document side-pane the assistant is kept aware of. Add-selection-to-chat captures passages (with their enclosing heading and doc) as reference chips serialized into a `<referenced_passages>` block. Modify results render as inline color-coded diffs in the transcript.
