@@ -305,3 +305,14 @@ amended in the design doc.
 - Privacy invariant: document content never enters telemetry — identifiers only.
 - Two-feature split: 013 = platform (this spec), 014 = app instrumentation; the
   interface is `OTEL_EXPORTER_OTLP_ENDPOINT` → cluster-local Collector.
+
+## RD-4 amendment (2026-07-16, rollout — reality falsified the gRPC choice)
+
+RD-4 chose OTLP/gRPC 5081 for the Collector→OpenObserve hop. In production,
+OpenObserve's internal flight-search dials its OWN gRPC port for every query and
+rejects the private-CA server cert (`InvalidCertificate(UnknownIssuer)`), breaking
+all search while ingest appeared healthy. Amended (Sam-authorized rollout, applied
+live + back-ported): the Collector exports **OTLP/HTTP over TLS on 5080** (same
+private CA via `tls.ca_file`, same basicauth); `ZO_GRPC_TLS_ENABLED=false` so 5081
+carries only OpenObserve's self-dialing and never crosses the network (SG-locked
+regardless). The prod→monitoring ingest hop remains TLS end-to-end.
