@@ -24,7 +24,9 @@ RUN set -eux; \
     aws --version
 
 # Non-root runtime user (uid/gid 65532 — matches the CronJob securityContext).
-RUN groupadd -g 65532 backup && useradd -u 65532 -g 65532 -M -s /usr/sbin/nologin backup
+# NOTE: the Debian base already has a `backup` group (gid 34), so use a distinct
+# name; only the numeric 65532 matters (the pod runs runAsUser/runAsGroup 65532).
+RUN groupadd -g 65532 nonroot && useradd -u 65532 -g 65532 -M -s /usr/sbin/nologin nonroot
 
 # Bake the backup script in (no runtime fetch).
 COPY --chmod=0555 script/backup-postgres.sh /usr/local/bin/backup-postgres.sh
