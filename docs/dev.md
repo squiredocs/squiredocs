@@ -2,6 +2,10 @@
 
 This guide explains how to work with the Kubernetes-based development environment using Minikube and Mutagen for file synchronization.
 
+> **Operating production?** This guide is local-dev only. Production infrastructure
+> (the dedicated hardened k3s cluster, OpenTofu, SOPS secrets, SSM node access,
+> backups, edge, cutover) is documented in **[operations.md](operations.md)**.
+
 ## Two ways to drive this environment
 
 The steps in this guide work by hand, and they're also wrapped by a one-command CLI:
@@ -912,72 +916,36 @@ kubectl exec deployment/app-dev -n collab -- pkill -f node                      
 
 ## Database Backups
 
-A Kubernetes CronJob automatically backs up PostgreSQL to S3 daily.
+Database backups are a **production** concern, not a local-dev one — the Minikube
+environment does not run the backup CronJob. The full backup and restore
+operations for the production cluster (bucket hardening, the AWS-CLI-v2 uploader,
+the scoped writer credential, the freshness alarm, and the rehearsed restore
+procedure) are documented in **[operations.md](operations.md#backups--data-protection)**.
 
-### Configuration
+Quick summary of the production pipeline (see operations.md for detail):
 
-Create `k8s/s3cmd-configmap.yaml` with your S3 credentials (this file is gitignored):
+- A nightly Kubernetes CronJob (`postgres-backup`, `k8s/base/postgres-backup-cronjob.yaml`
+  + the aws-prod backup-hardening patch) runs `script/backup-postgres.sh`.
+- It uploads a timestamped `pg_dump` to the dedicated, Object-Locked
+  `s3://squiredocs-db-backups/` bucket, non-root, from a pinned image.
 
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: s3cmd-config
-  namespace: collab
-data:
-  s3cfg: |
-    [default]
-    access_key = YOUR_AWS_ACCESS_KEY
-    secret_key = YOUR_AWS_SECRET_KEY
-    host_base = s3.amazonaws.com
-    host_bucket = %(bucket)s.s3.amazonaws.com
-    use_https = True
-```
-
-### Deployment
-
-The backup cronjob is automatically deployed by `script/deploy-aws.sh` (and
-therefore `script/build-and-deploy-aws.sh`) as part of `deploy_infrastructure`,
-when `k8s/s3cmd-configmap.yaml` exists. The legacy `script/deploy.sh` (GKE) also
-deployed it.
-
-To deploy it manually (the cronjob image is the app image, so `${IMG}` must
-resolve to an image present in ECR):
+To inspect or trigger it against a cluster:
 
 ```bash
-kubectl apply -f k8s/s3cmd-configmap.yaml -n collab
-export IMG=$(kubectl get deployment collab-app -n collab \
-  -o jsonpath='{.spec.template.spec.containers[0].image}')
-envsubst < k8s/postgres-backup-cronjob.yaml | kubectl apply -f - -n collab
-```
-
-> **Runs as root.** `script/backup-postgres.sh` installs `postgresql-client` and
-> `s3cmd` via `apk add` and writes `/root/.s3cfg`, so the cronjob sets
-> `securityContext.runAsUser: 0`. The app image otherwise runs as the non-root
-> `appuser`; without this the backup fails with `apk: Permission denied`.
-
-### Monitoring
-
-```bash
-# Check cronjob status
 kubectl get cronjob -n collab
-
-# List completed backup jobs
 kubectl get jobs -n collab -l app=postgresbackup
-
-# View logs from last backup
-kubectl logs job/$(kubectl get jobs -n collab -l app=postgresbackup -o jsonpath='{.items[-1].metadata.name}') -n collab
-
-# Trigger manual backup
 kubectl create job --from=cronjob/postgres-backup manual-backup-$(date +%s) -n collab
 ```
 
-### Backup Details
+### Restoring a backup locally (Minikube)
 
-- **Schedule**: Daily at 9:38 AM UTC
-- **Storage**: `s3://earthquaketracksql/`
-- **Naming**: `collab-postgres-<hostname>-<arch>-<day-of-year>.sql.gz`
-- **Script**: `script/backup-postgres.sh`
+To seed a local Minikube Postgres from a production dump, stream it straight into
+the pod:
+
+```bash
+gunzip -c collab-backup.sql.gz \
+  | kubectl exec -i deployment/collab-postgres -n collab -- psql -U postgres -d collab_db
+```
 
 ## Document Image Storage (S3)
 
