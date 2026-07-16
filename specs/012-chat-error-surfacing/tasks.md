@@ -76,18 +76,18 @@ no raw provider text.
 
 - [X] T014 [P] [US1] Backend integration test `server/api/__tests__/chat.error-surfacing.test.js`: pre-stream failures return JSON `{error, code, provider?}` with the honest status for each class (quota→402 `app_usage_limit`; overloaded→429; invalid-key→400; etc.); classified non-internal never 500.
 - [X] T015 [P] [US1] Backend test in the same file: mid-stream failure emits the SSE `error` event carrying `{type:'error', errorText, code, provider?}` and is NOT written to the reconnection replay buffer (FR-010); token-limit chunk still triggers compaction (unchanged, FR-004).
-- [ ] T016 [P] [US1] Frontend test `client/src/contexts/__tests__/AiChatContext.errors.test.js`: `handleChatError` selects behavior from the parsed `code` (no `.includes()` on body text); unknown code → internal render.
+- [X] T016 [P] [US1] Frontend test `client/src/contexts/__tests__/AiChatContext.errors.test.js`: `handleChatError` selects behavior from the parsed `code` (no `.includes()` on body text); unknown code → internal render.
 
 ### Implementation for User Story 1
 
 - [X] T017 [US1] In `server/api/chat.js` outer `catch` (~888–902) and the early returns (quota ~597–607, model-resolve ~643–646, concurrency ~560), replace ad-hoc statuses/bodies with `chat-errors.classify(...)` + `buildErrorPayload` → `res.status(status).json(payload)`; set `Retry-After` for `rate_limited`/`provider_overloaded` when known. Remove the generic `'Internal server error'` body for classified non-internal cases.
 - [X] T018 [US1] In `server/api/chat.js` mid-stream path: capture the real error at the `streamText` `onError` seam (~760) / the `toUIMessageStream` error formatter, classify it, and emit the SSE `error` event with `{errorText, code, provider}` in `pipeAsSSE` (~356–366) — keeping the no-buffer rule and the token-limit interception (~338) intact (research R2).
 - [X] T019 [US1] In `server/rate-limit.js`, make the chat per-user 429 carry the structured `rate_limited` payload (via chat-errors) while leaving `reject429`/the uniform body for non-chat routes unchanged (spec: non-chat 429 out of scope).
-- [ ] T020 [US1] In `client/src/contexts/AiChatContext.jsx` `handleChatError` (~320): replace body-sniffing (`msg.includes('usage limit')`, etc.) with `parseChatError` → `code`; store the parsed `{code, provider, text}` as the instance's error state for rendering. **Also** convert the app-auth retry trigger (~332–345, currently `msg.includes('401')||'expired token'||'unauthorized'`) to be keyed on the response **status 401**, not body text — the silent refresh-and-retry behavior is preserved and app-auth stays outside the taxonomy (FR-005/FR-013/D7). No `.includes()` on error text remains in this function.
+- [X] T020 [US1] In `client/src/contexts/AiChatContext.jsx` `handleChatError` (~320): replace body-sniffing (`msg.includes('usage limit')`, etc.) with `parseChatError` → `code`; store the parsed `{code, provider, text}` as the instance's error state for rendering. **Also** convert the app-auth retry trigger (~332–345, currently `msg.includes('401')||'expired token'||'unauthorized'`) to be keyed on the response **status 401**, not body text — the silent refresh-and-retry behavior is preserved and app-auth stays outside the taxonomy (FR-005/FR-013/D7). No `.includes()` on error text remains in this function.
   **Mechanism (H1 resolution, D8)**: pass a custom `fetch` to the `DefaultChatTransport` constructor (~192) that wraps global fetch and, when `!response.ok`, reads the body text and throws `Object.assign(new Error(bodyText), { status: response.status })` — so `handleChatError` receives a status-bearing error before the transport's own body-only throw. `parseChatError` accepts this error (JSON body → code) and the 401 branch keys on `error.status === 401`. SSE mid-stream errors have no status; `parseChatError` handles both shapes.
-- [ ] T021 [US1] In `client/src/components/AiChatBody.jsx` (~47–58) render the banner text/action from the shared `MESSAGES` map using the parsed `code`+`provider`; keep the usage-limit banner path but source its copy from the map; Retry button only when `code ∈ RETRYABLE_CODES`.
-- [ ] T022 [US1] In `client/src/pages/ChatPage.jsx` (~143–151) pass the classified `errorMessage` (derived from the parsed code) into `AiChatBody` so the full page shows specific text (FR-014); today it passes none.
-- [ ] T023 [US1] In `client/src/components/AiPanel.jsx` remove `errorByokRef`/`prevErrorRef`/`errorWasByok` inference and the client-side `PROVIDER_LABELS` error-mode guess (~20, ~38–46, ~231); feed `code`+`provider` from the parsed payload so both surfaces use the same map (FR-008/FR-014).
+- [X] T021 [US1] In `client/src/components/AiChatBody.jsx` (~47–58) render the banner text/action from the shared `MESSAGES` map using the parsed `code`+`provider`; keep the usage-limit banner path but source its copy from the map; Retry button only when `code ∈ RETRYABLE_CODES`.
+- [X] T022 [US1] In `client/src/pages/ChatPage.jsx` (~143–151) pass the classified `errorMessage` (derived from the parsed code) into `AiChatBody` so the full page shows specific text (FR-014); today it passes none.
+- [X] T023 [US1] In `client/src/components/AiPanel.jsx` remove `errorByokRef`/`prevErrorRef`/`errorWasByok` inference and the client-side `PROVIDER_LABELS` error-mode guess (~20, ~38–46, ~231); feed `code`+`provider` from the parsed payload so both surfaces use the same map (FR-008/FR-014).
 
 **Checkpoint**: US1 fully functional — all seven classes render identical, honest messages in both surfaces. MVP.
 
@@ -104,14 +104,14 @@ mid-stream after partial content persisted → partial reply + interruption noti
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T024 [P] [US2] Frontend test in `client/src/contexts/__tests__/AiChatContext.errors.test.js`: a fatal `code` bypasses `recoverChat` (no reconnect); `internal`/network still enters recovery (FR-015).
-- [ ] T025 [P] [US2] Frontend test: mid-stream fatal error where recovery finds a persisted partial reply keeps a session-scoped interruption notice instead of clearing the error (FR-016/D5).
+- [X] T024 [P] [US2] Frontend test in `client/src/contexts/__tests__/AiChatContext.errors.test.js`: a fatal `code` bypasses `recoverChat` (no reconnect); `internal`/network still enters recovery (FR-015).
+- [X] T025 [P] [US2] Frontend test: mid-stream fatal error where recovery finds a persisted partial reply keeps a session-scoped interruption notice instead of clearing the error (FR-016/D5).
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] In `client/src/contexts/AiChatContext.jsx` `handleChatError` (~347–376): gate the recovery path on fatality — if `code ∈ FATAL_CODES`, render the banner and restore the draft (FR-018) without calling `recoverChat`; only `internal`/network proceed to recovery.
-- [ ] T027 [US2] In `client/src/contexts/AiChatContext.jsx` `recoverChat` (~299–314): when the persisted state has a complete-looking partial reply but the triggering error was fatal, set a session-scoped interruption notice `{chatId, reason}` (reason from the code's message) instead of the unconditional `clearError()` (~303).
-- [ ] T028 [US2] In `client/src/components/AiChatBody.jsx` render the interruption notice ("response interrupted: <reason>") beside the partial reply when present (session-scoped; absent after reload — D5).
+- [X] T026 [US2] In `client/src/contexts/AiChatContext.jsx` `handleChatError` (~347–376): gate the recovery path on fatality — if `code ∈ FATAL_CODES`, render the banner and restore the draft (FR-018) without calling `recoverChat`; only `internal`/network proceed to recovery.
+- [X] T027 [US2] In `client/src/contexts/AiChatContext.jsx` `recoverChat` (~299–314): when the persisted state has a complete-looking partial reply but the triggering error was fatal, set a session-scoped interruption notice `{chatId, reason}` (reason from the code's message) instead of the unconditional `clearError()` (~303).
+- [X] T028 [US2] In `client/src/components/AiChatBody.jsx` render the interruption notice ("response interrupted: <reason>") beside the partial reply when present (session-scoped; absent after reload — D5).
 
 **Checkpoint**: Fatal errors never fake a reconnect; truncated replies are visibly truncated in the live session.
 
@@ -127,12 +127,12 @@ succeeds, banner gone; send again with limit still in force → banner returns.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T029 [P] [US3] Frontend test in `client/src/contexts/__tests__/AiChatContext.errors.test.js`: usage-limit clears on the next send attempt and re-appears only on a fresh `app_usage_limit` rejection; no permanent latch (FR-017).
+- [X] T029 [P] [US3] Frontend test in `client/src/contexts/__tests__/AiChatContext.errors.test.js`: usage-limit clears on the next send attempt and re-appears only on a fresh `app_usage_limit` rejection; no permanent latch (FR-017).
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] In `client/src/contexts/AiChatContext.jsx` remove the permanent `setUsageLimitReached(true)` latch (~329) and instead clear the usage-limit state at the start of each send attempt, re-setting it only when a send is rejected with `app_usage_limit` (derived state — FR-017).
-- [ ] T031 [US3] Verify/adjust the send entry point (wherever `sendMessage` is dispatched in `AiChatContext.jsx`) clears the interruption notice and usage-limit state for the new attempt so a successful resend shows a clean transcript.
+- [X] T030 [US3] In `client/src/contexts/AiChatContext.jsx` remove the permanent `setUsageLimitReached(true)` latch (~329) and instead clear the usage-limit state at the start of each send attempt, re-setting it only when a send is rejected with `app_usage_limit` (derived state — FR-017).
+- [X] T031 [US3] Verify/adjust the send entry point (wherever `sendMessage` is dispatched in `AiChatContext.jsx`) clears the interruption notice and usage-limit state for the new attempt so a successful resend shows a clean transcript.
 
 **Checkpoint**: A lifted limit resumes chat with zero reloads; the banner re-derives correctly.
 

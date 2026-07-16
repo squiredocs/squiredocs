@@ -51,6 +51,27 @@
   gap: 10px;
 }
 
+/* Settings link inside the error banner (byok key/misconfig codes point here) */
+.ai-chat-body-error-link {
+  color: var(--warning);
+  font-weight: var(--font-semibold);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+/* Interruption notice — a mid-stream fatal error left a truncated reply. Uses the
+   warning palette like the error banner; session-scoped (gone after reload, D5). */
+.ai-chat-body-interrupted {
+  padding: 8px 16px;
+  margin: 0 12px 4px;
+  background: var(--warning-subtle);
+  color: var(--warning);
+  font-size: var(--text-base);
+  font-style: italic;
+  border-radius: 6px;
+  text-align: center;
+}
+
 /* Reconnecting banner — shown while auto-recovering a transient stream error.
    Reuses the editor reconnecting-banner colors, placed inline like the chat's
    other banners. */
