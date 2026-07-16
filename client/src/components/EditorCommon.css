@@ -98,26 +98,31 @@
   padding-left: 4px;
 }
 
-.editor-common-content .ProseMirror li[data-type="taskItem"] {
+/* Target the item via its taskList parent, not li[data-type="taskItem"]: the
+   interactive TaskItem NodeView (what renders in the editor) puts data-type on
+   the ul but not the li, so a li[data-type="taskItem"] rule never matches live
+   and the checkbox/content stack. The taskList parent is present in both the
+   NodeView and the serialized renderHTML form. */
+.editor-common-content .ProseMirror ul[data-type="taskList"] > li {
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
-.editor-common-content .ProseMirror li[data-type="taskItem"] > label {
+.editor-common-content .ProseMirror ul[data-type="taskList"] > li > label {
   flex: 0 0 auto;
   margin-top: 4px;
   user-select: none;
 }
 
-.editor-common-content .ProseMirror li[data-type="taskItem"] > div {
+.editor-common-content .ProseMirror ul[data-type="taskList"] > li > div {
   flex: 1 1 auto;
   min-width: 0;
 }
 
 /* Nested task lists keep the standard list indent (the flat taskList rule
    above would otherwise win on specificity and collapse it to 4px) */
-.editor-common-content .ProseMirror li[data-type="taskItem"] ul[data-type="taskList"] {
+.editor-common-content .ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] {
   padding-left: 24px;
 }
 
