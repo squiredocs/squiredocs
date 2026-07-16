@@ -12,6 +12,8 @@ spec:
       labels:
         app: db-migrate
     spec:
+      imagePullSecrets:
+        - name: ecr-creds
       containers:
         - name: db-migrate
           # Same app image as collab-app; resolved by the Kustomize `images:`

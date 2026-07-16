@@ -18,6 +18,11 @@ spec:
       labels:
         app: collab-app
     spec:
+      # ECR pull auth: the ecr-creds secret is minted on the node by a host timer
+      # (instance role). Absent in minikube (local image) — kubelet ignores a
+      # missing pull secret, so this is a no-op there.
+      imagePullSecrets:
+        - name: ecr-creds
       containers:
         - name: collab-app
           # Image name resolved by the Kustomize `images:` override per overlay

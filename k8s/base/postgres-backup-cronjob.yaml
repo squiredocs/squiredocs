@@ -17,6 +17,8 @@ spec:
           labels:
             app: postgresbackup
         spec:
+          imagePullSecrets:
+            - name: ecr-creds
           containers:
             - name: postgresbackup
               # Dedicated backup image (Dockerfile.backup): pg16-client + s3cmd
