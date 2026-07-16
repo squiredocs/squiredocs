@@ -67,12 +67,12 @@ needs to know. SPEC phase entries below; later phases append.
 
 Four findings from adversarial post-merge review, all fixed same-day in the main tree.
 
-- **HIGH-1 — privacy invariant bypass (FIXED; flagged for Sam's ratification).** The
+- **HIGH-1 — privacy invariant bypass (FIXED; RATIFIED by Sam 2026-07-16).** The
   `RedactionSpanProcessor` backstop swept only `span.attributes`, so error text could still
   reach the exporter through `span.status.message` (instrumentation-pg sets it to the raw PG
   error, which embeds user-supplied values) and `exception` span events (`recordException`
   from ioredis/express/MCP; MCP modify errors quote document text by design). Reviewer proved
-  the gap. Fix (strict default, **RBD-14** in clarifications-needed.md — flagged for Sam to
+  the gap. Fix (strict default, **RBD-14** in clarifications-needed.md — RATIFIED by Sam 2026-07-16; originally flagged for Sam to
   ratify because it hardens the invariant's default behavior): `onEnd` now also clears
   `span.status.message` (keeps `status.code=ERROR` so error-rate dashboards fire) and reduces
   every `exception` event to `exception.type` alone (drops `exception.message` /

@@ -164,8 +164,8 @@ Implementation-level defaults taken during planning where the design doc/plan we
 
 ## RBD-14: Error-path scrub = DROP message/stack entirely (not truncate)
 
-- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-16) — flagged for
-  Sam's explicit ratification (this hardens the privacy invariant's default; see
+- **Status**: RATIFIED by Sam 2026-07-16 (upgraded from RATIFIED-BY-DEFAULT; this
+  hardens the privacy invariant's default; see
   promotion-notes HIGH-1).
 - **Question**: Post-merge review (HIGH-1) proved the privacy backstop swept only
   `span.attributes`, so error text could still escape through two channels the
