@@ -15,7 +15,7 @@
   <title>Security | Squire Docs</title>
   <meta name="description" content="How Squire Docs protects your documents and accounts: Google sign-in, per-document access control, encrypted storage of your keys, sandboxed agents, and a responsible-disclosure contact." />
   <meta property="og:title" content="Security | Squire Docs" />
-  <meta property="og:description" content="Our security practices — authentication, access control, encryption, sandboxed agents, and how to report a vulnerability." />
+  <meta property="og:description" content="Our security practices: authentication, access control, encryption, sandboxed agents, and how to report a vulnerability." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://squiredocs.com/security" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -108,15 +108,6 @@
       margin-bottom: 0.4rem;
     }
 
-    .security-note {
-      max-width: 680px;
-      margin: 2.5rem auto 0;
-      font-size: 0.95rem;
-      color: #6b7280;
-      line-height: 1.7;
-      text-align: left;
-    }
-
     .about-contact-card {
       max-width: 640px;
       margin: 0 auto;
@@ -191,14 +182,14 @@
     <!-- Hero -->
     <section class="about-hero">
       <h1>Security at Squire Docs</h1>
-      <p>Your documents and the agents that edit them share one workspace. Keeping that workspace trustworthy is the core of the product, not a checkbox on the side.</p>
+      <p>Your team and your agents edit in one shared workspace. Protecting that workspace is core product work, and this page describes how we do it.</p>
     </section>
 
     <!-- Approach -->
     <section class="landing-section">
       <div class="about-prose">
-        <p>Squire Docs lets your team and your coding agents write in the same live document. That only works if access is enforced everywhere, every edit is attributed and reversible, and the untrusted content an agent produces can never escape the boundaries we set for it.</p>
-        <p>Below is a plain-language summary of how we protect accounts, documents, and the keys you trust us with. It reflects how the product actually works today, not aspirations. If you find a gap, we want to hear about it, and there's a contact for exactly that at the bottom of this page.</p>
+        <p>Squire Docs lets your team and your coding agents write in the same live document. That rests on three things working together: access is enforced on every request, every edit is attributed and reversible, and the content an agent produces is sanitized before it reaches your document.</p>
+        <p>Here is how we protect accounts, documents, and the keys you trust us with, as the product works today. To report a security issue, use the contact at the bottom of this page.</p>
       </div>
     </section>
 
@@ -214,7 +205,7 @@
               Sign-in and accounts
             </h3>
             <ul>
-              <li>You sign in with Google. We never create, store, or handle a password for you.</li>
+              <li>You sign in with Google, which handles authentication. We store no passwords.</li>
               <li>Sessions use signed tokens in httpOnly cookies, marked Secure and SameSite in production, with short-lived access tokens.</li>
               <li>Signing out invalidates your existing sessions server-side.</li>
             </ul>
@@ -227,7 +218,7 @@
             </h3>
             <ul>
               <li>Every document has owner, editor, and viewer roles, and access is checked on every API request, live editing connection, and agent action.</li>
-              <li>Viewers can't write. Search only ever returns documents already shared with you.</li>
+              <li>Each role grants exactly what it should: viewers read, editors change content, owners manage sharing. Search returns only documents already shared with you.</li>
               <li>Access is re-checked continuously during a live session, so revoking someone takes effect immediately.</li>
             </ul>
           </div>
@@ -235,13 +226,13 @@
           <div class="landing-usecase-card security-card">
             <h3>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
-              Agents on a leash
+              Agents act with your permissions
             </h3>
             <ul>
-              <li>An agent only ever acts with your permissions, on documents you can already reach, never more.</li>
+              <li>An agent acts with your permissions, on the documents you can already reach.</li>
               <li>Every agent edit is attributed by name in version history and is fully reversible.</li>
-              <li>Agent access tokens are scoped, expiring, revocable at any time, and stored only as hashes, never in plaintext.</li>
-              <li>The scripts agents run to edit a document execute in an isolated sandbox with no access to the filesystem, network, or server processes.</li>
+              <li>Agent access tokens are scoped to specific permissions, expire, can be revoked at any time, and are stored as hashes.</li>
+              <li>The scripts agents run to edit a document execute in an isolated sandbox that can reach only the document being edited.</li>
             </ul>
           </div>
 
@@ -253,7 +244,7 @@
             <ul>
               <li>All traffic is served over HTTPS with modern TLS (1.2+) and HSTS.</li>
               <li>Data at rest lives on encrypted disk volumes, and database backups are encrypted too.</li>
-              <li>If you bring your own AI provider key, it's encrypted with AES-256-GCM before storage and never shown back to you or sent to your browser.</li>
+              <li>If you bring your own AI provider key, we encrypt it with AES-256-GCM before storage and use it only server-side to call your provider.</li>
             </ul>
           </div>
 
@@ -282,8 +273,6 @@
           </div>
 
         </div>
-
-        <p class="security-note"><strong>Straight talk on what we don't claim.</strong> Squire Docs is not end-to-end or zero-knowledge encrypted: because agents and collaborators edit your documents on the server, our systems can process document content. We protect it with the access controls, encrypted storage, and infrastructure hardening described above rather than with client-side encryption. We also hold no formal compliance certifications (such as SOC 2) today. We'd rather tell you exactly what we do than imply more than is true.</p>
       </div>
     </section>
 
