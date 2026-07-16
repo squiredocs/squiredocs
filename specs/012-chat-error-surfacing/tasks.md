@@ -33,11 +33,11 @@ shared DB — never run concurrent backend runs.
 **Purpose**: Create the two new single-source modules' files and their test files so later
 tasks fill them in.
 
-- [ ] T001 [P] Create empty server classifier module `server/api/chat-errors.js` with a file header describing it as the single server-side classification point (taxonomy, status map, fatality, payload builder, classify orchestrator).
-- [ ] T002 [P] Create empty client util `client/src/utils/chatErrorMessages.js` with a header describing it as the single client rendering/behavior source (message map, fatality/retry sets, parseChatError).
-- [ ] T003 [P] Create backend test file `server/api/__tests__/chat-errors.test.js` (skeleton, imports chat-errors).
-- [ ] T004 [P] Create backend test file `server/api/__tests__/ai-providers.classify.test.js` (skeleton, imports ai-providers).
-- [ ] T005 [P] Create frontend test file `client/src/utils/__tests__/chatErrorMessages.test.js` (skeleton, imports the util).
+- [X] T001 [P] Create empty server classifier module `server/api/chat-errors.js` with a file header describing it as the single server-side classification point (taxonomy, status map, fatality, payload builder, classify orchestrator).
+- [X] T002 [P] Create empty client util `client/src/utils/chatErrorMessages.js` with a header describing it as the single client rendering/behavior source (message map, fatality/retry sets, parseChatError).
+- [X] T003 [P] Create backend test file `server/api/__tests__/chat-errors.test.js` (skeleton, imports chat-errors).
+- [X] T004 [P] Create backend test file `server/api/__tests__/ai-providers.classify.test.js` (skeleton, imports ai-providers).
+- [X] T005 [P] Create frontend test file `client/src/utils/__tests__/chatErrorMessages.test.js` (skeleton, imports the util).
 
 ---
 
@@ -49,14 +49,14 @@ these exist.
 
 **⚠️ CRITICAL**: Blocks Phases 3–7.
 
-- [ ] T006 [P] In `server/api/chat-errors.js` define the seven taxonomy codes as constants and the D2 status map (`app_usage_limit`→402, `byok_insufficient_credits`→402, `byok_invalid_key`→400, `byok_misconfigured`→400, `rate_limited`→429, `provider_overloaded`→429, `internal`→500) per `contracts/error-payload.md`.
-- [ ] T007 [P] In `server/api/chat-errors.js` add the fatality set (all codes except `internal`) and a `buildErrorPayload({ code, provider, error })` returning `{ error, code, provider? }` (honest string, no raw provider internals — FR-009).
-- [ ] T008 In `server/api/ai-providers.js` add a `classifyError(err)` function to each `PROVIDERS` entry (anthropic, google, openai, zai, openrouter) mapping that provider's upstream shapes to a signal: insufficient-credits (Anthropic 400 "credit balance is too low"; OpenAI `insufficient_quota`; Google `RESOURCE_EXHAUSTED`), invalid-key (401/403), overloaded (429/529/503 non-billing), else null. Export a registry-level `classifyProviderError(providerId, err)` helper. No provider literals leave this file (FR-003).
-- [ ] T009 In `server/api/chat-errors.js` implement the `classify(err, ctx)` orchestrator: combine the provider signal (via `classifyProviderError`) with request context (`isByok`, `onSharedKey`, `isRateLimited`, `isUsageLimit`, `isByokMisconfigured`) to pick the final code (incl. D3: shared-key exhaustion → `provider_overloaded` + notify flag), returning `{ code, provider, status, error, notifyOperator, notifyAdminCredit }`. Never returns 500 for a non-`internal` classified failure (FR-006). Token-limit and app-auth errors are out of scope and must not be passed in (FR-004/FR-005).
-- [ ] T010 [P] Write backend unit tests in `server/api/__tests__/ai-providers.classify.test.js` for each provider's `classifyError` (billing/auth/overload/null cases with realistic upstream shapes).
-- [ ] T011 [P] Write backend unit tests in `server/api/__tests__/chat-errors.test.js` for `classify()`: each context → correct code/status/notify flags; BYOK-vs-shared billing split (D3); status-map correctness; non-internal never 500.
-- [ ] T012 [P] In `client/src/utils/chatErrorMessages.js` implement `MESSAGES` (code→`{text, action}`, D1 copy), `PROVIDER_LABELS` (anthropic/google/openai/zai/openrouter), `FATAL_CODES`, `RETRYABLE_CODES`, and `parseChatError(errorOrPayload)→{code, provider, text}` with `internal` fallback for unknown/absent codes showing the payload's `error` text (FR-013). No substring-to-behavior logic.
-- [ ] T013 [P] Write frontend unit tests in `client/src/utils/__tests__/chatErrorMessages.test.js`: every code resolves a distinct message; provider interpolation from payload; unknown code → internal fallback; fatality/retry set membership.
+- [X] T006 [P] In `server/api/chat-errors.js` define the seven taxonomy codes as constants and the D2 status map (`app_usage_limit`→402, `byok_insufficient_credits`→402, `byok_invalid_key`→400, `byok_misconfigured`→400, `rate_limited`→429, `provider_overloaded`→429, `internal`→500) per `contracts/error-payload.md`.
+- [X] T007 [P] In `server/api/chat-errors.js` add the fatality set (all codes except `internal`) and a `buildErrorPayload({ code, provider, error })` returning `{ error, code, provider? }` (honest string, no raw provider internals — FR-009).
+- [X] T008 In `server/api/ai-providers.js` add a `classifyError(err)` function to each `PROVIDERS` entry (anthropic, google, openai, zai, openrouter) mapping that provider's upstream shapes to a signal: insufficient-credits (Anthropic 400 "credit balance is too low"; OpenAI `insufficient_quota`; Google `RESOURCE_EXHAUSTED`), invalid-key (401/403), overloaded (429/529/503 non-billing), else null. Export a registry-level `classifyProviderError(providerId, err)` helper. No provider literals leave this file (FR-003).
+- [X] T009 In `server/api/chat-errors.js` implement the `classify(err, ctx)` orchestrator: combine the provider signal (via `classifyProviderError`) with request context (`isByok`, `onSharedKey`, `isRateLimited`, `isUsageLimit`, `isByokMisconfigured`) to pick the final code (incl. D3: shared-key exhaustion → `provider_overloaded` + notify flag), returning `{ code, provider, status, error, notifyOperator, notifyAdminCredit }`. Never returns 500 for a non-`internal` classified failure (FR-006). Token-limit and app-auth errors are out of scope and must not be passed in (FR-004/FR-005).
+- [X] T010 [P] Write backend unit tests in `server/api/__tests__/ai-providers.classify.test.js` for each provider's `classifyError` (billing/auth/overload/null cases with realistic upstream shapes).
+- [X] T011 [P] Write backend unit tests in `server/api/__tests__/chat-errors.test.js` for `classify()`: each context → correct code/status/notify flags; BYOK-vs-shared billing split (D3); status-map correctness; non-internal never 500.
+- [X] T012 [P] In `client/src/utils/chatErrorMessages.js` implement `MESSAGES` (code→`{text, action}`, D1 copy), `PROVIDER_LABELS` (anthropic/google/openai/zai/openrouter), `FATAL_CODES`, `RETRYABLE_CODES`, and `parseChatError(errorOrPayload)→{code, provider, text}` with `internal` fallback for unknown/absent codes showing the payload's `error` text (FR-013). No substring-to-behavior logic.
+- [X] T013 [P] Write frontend unit tests in `client/src/utils/__tests__/chatErrorMessages.test.js`: every code resolves a distinct message; provider interpolation from payload; unknown code → internal fallback; fatality/retry set membership.
 
 **Checkpoint**: Classification backbone + client map exist and are unit-tested. User stories can now wire behavior.
 
