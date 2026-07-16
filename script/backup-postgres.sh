@@ -3,9 +3,10 @@
 #
 # Hardening vs. the old script:
 #   * NO `set -x` — the DB password never appears in traced output.
-#   * NO runtime `apk add` — pg_dump/s3cmd are baked into Dockerfile.backup.
+#   * NO runtime package install — pg_dump + AWS CLI v2 are baked into
+#     Dockerfile.backup (AWS CLI, not s3cmd: it sends the checksum Object Lock needs).
 #   * Password read from a MOUNTED FILE via PGPASSFILE — never on a command line
-#     or in argv; pg_dump/s3cmd pick it up from libpq's ~/.pgpass mechanism.
+#     or in argv; pg_dump picks it up from libpq's ~/.pgpass mechanism.
 #   * Timestamped filenames (full date+time) — a corrupt dump can never overwrite
 #     a good one (the old `%j` day-of-year collided within a year).
 #   * Uploads to squiredocs-db-backups (not the legacy shared earthquaketracksql).
@@ -14,7 +15,8 @@
 #   POSTGRES_HOST, POSTGRES_USER, POSTGRES_DATABASE
 #   POSTGRES_PASSWORD_FILE  — path to a file containing ONLY the password
 #   BACKUP_BUCKET           — target bucket (default squiredocs-db-backups)
-# s3cmd config is mounted at /etc/s3cmd/s3cfg (from the backup-s3cmd SOPS Secret).
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY — from the backup-writer-creds Secret
+#   AWS_DEFAULT_REGION      — optional (default us-east-1)
 
 set -eu
 # pipefail: in `pg_dump | gzip`, a pg_dump failure (down DB, auth error, OOM kill
@@ -44,13 +46,12 @@ printf '%s:%s:%s:%s:%s\n' \
   "$POSTGRES_HOST" "$POSTGRES_PORT" "$POSTGRES_DATABASE" "$POSTGRES_USER" \
   "$(cat "$POSTGRES_PASSWORD_FILE")" > "$PGPASSFILE"
 
-# s3cmd config from the mounted Secret (writable HOME may not exist for the
-# non-root user, so point s3cmd at the mount explicitly).
-S3CFG="/etc/s3cmd/s3cfg"
-if [ ! -r "$S3CFG" ]; then
-  echo "ERROR: s3cmd config not found at $S3CFG (mount the backup-s3cmd Secret)." >&2
-  exit 1
-fi
+# AWS credentials come from env (the backup-writer-creds Secret). AWS CLI v2 is
+# used instead of s3cmd because it sends the checksum header the Object-Lock
+# bucket requires on every PutObject (s3cmd sends none → 400 InvalidRequest).
+: "${AWS_ACCESS_KEY_ID:?ERROR: AWS_ACCESS_KEY_ID not set (mount the backup-writer-creds Secret)}"
+: "${AWS_SECRET_ACCESS_KEY:?ERROR: AWS_SECRET_ACCESS_KEY not set (mount the backup-writer-creds Secret)}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
 # Full date+time + host + arch → unique, sortable, non-colliding filename.
 fn="collab-postgres-$(hostname)-$(uname -m)-$(date -u '+%Y%m%dT%H%M%SZ').sql.gz"
@@ -65,5 +66,7 @@ cd "$workdir"
 pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" \
   | gzip > "$fn"
 
-s3cmd --config "$S3CFG" put "$fn" "s3://${BACKUP_BUCKET}/"
+# aws s3 cp sends a CRC checksum by default, satisfying the bucket's Object-Lock
+# requirement; SSE-KMS is applied by the bucket's default encryption.
+aws s3 cp "$fn" "s3://${BACKUP_BUCKET}/${fn}"
 echo "Uploaded s3://${BACKUP_BUCKET}/${fn}"
