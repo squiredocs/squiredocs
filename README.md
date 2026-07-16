@@ -139,11 +139,32 @@ The server will serve the built frontend from `client/dist` and handle WebSocket
 
 ## Kubernetes Deployment
 
-The application runs in production on a single AWS k3s cluster (the `wft-public` EC2 instance, kubectl context `k3s-wft-aws`), in the `collab` namespace alongside the wildfiretrackers.com workload in the `wft` namespace. CloudFront `<cloudfront-distribution-id>` (origin: `app.squiredocs.com` → `<old-node-ip>`) terminates SSL for `squiredocs.com`. Kubernetes manifests live in `k8s/` (shared with minikube/GKE) and `k8s/aws/` (k3s-only resources).
+Production runs on AWS k3s in the `collab` namespace, served through CloudFront
+`<cloudfront-distribution-id>` (which terminates TLS for `squiredocs.com` and reaches the
+`app.squiredocs.com` origin). The infrastructure is mid-migration:
 
-Local development uses Minikube. The legacy GKE path (`script/deploy.sh`) is retained for the rollback window after the initial cutover; it can be removed once the GKE collab namespace is fully decommissioned.
+- **Current production** is the **old shared node** (kube context `k3s-wft-aws`,
+  origin `<old-node-ip>`), which shares its EC2 instance, security group, and IAM
+  role with the wildfiretrackers.com workload. Deployed via the legacy
+  `envsubst`-based `script/deploy.sh` history; kept serving until cutover.
+- **The target** is a **dedicated hardened single-node k3s cluster** that is
+  Squire's alone (context `k3s-squiredocs`, node `<prod-instance-id>`, EIP
+  `<prod-eip>`), declared as code with **OpenTofu** (`infra/terraform/`),
+  **Kustomize** (`k8s/base` + `k8s/overlays/{minikube,aws-prod}`), and
+  **SOPS/age** secrets (`k8s/secrets/`). It is provisioned and validated; the
+  maintenance-window cutover is pending.
 
-### Minikube Setup
+**The full operator guide is [docs/operations.md](docs/operations.md)** — cluster
+topology, OpenTofu/state, Kustomize, SOPS secrets, SSM node access, the ECR
+pull-secret refresh, the backup pipeline, edge/CloudFront, the cutover procedure,
+observability, and the gotchas. Design ground truth is
+[design/infrastructure-and-environments.md](design/infrastructure-and-environments.md);
+the migration runbook is
+[specs/011-iac-config-management/runbook.md](specs/011-iac-config-management/runbook.md).
+
+Local development uses **Minikube** — see [docs/dev.md](docs/dev.md).
+
+### Minikube Setup (local development)
 
 ```bash
 # 1. Start minikube with sufficient resources
@@ -164,50 +185,57 @@ minikube start --cpus=10 --memory=12288 --disk-size=40g --driver=docker
 
 ### Seeding from a Production Backup
 
-Daily backups are stored in S3 (`s3://earthquaketracksql/`). To restore the latest collab backup:
+Nightly Postgres backups land in the dedicated `s3://squiredocs-db-backups/`
+bucket (SSE-KMS + Object Lock, timestamped filenames). To restore a backup into a
+cluster's Postgres pod, stream it in:
 
 ```bash
-# Download the latest backup
-aws s3 cp s3://earthquaketracksql/<latest-collab-backup>.sql.gz /tmp/collab-backup.sql.gz
-
-# Copy into the Postgres pod
-kubectl cp /tmp/collab-backup.sql.gz collab/<postgres-pod>:/tmp/collab-backup.sql.gz
-
-# Restore
-kubectl exec -n collab <postgres-pod> -- \
-  bash -c "gunzip -c /tmp/collab-backup.sql.gz | psql -U postgres -d collab_db"
+gunzip -c collab-backup.sql.gz \
+  | kubectl exec -i deploy/collab-postgres -n collab -- psql -U postgres -d collab_db
 ```
+
+For the dedicated cluster (no SSH; managed via SSM), relay the `.sql.gz` to the
+node through a presigned S3 URL first. The complete, rehearsed restore procedure is
+in [docs/operations.md](docs/operations.md#restore-procedure-rehearsed).
+
+> Historical note: the old shared node backed up to the shared `earthquaketracksql`
+> bucket with day-of-year filenames — superseded by `squiredocs-db-backups`.
 
 ### Deploy Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `script/setup-minikube.sh` | Creates storage classes and labels minikube nodes |
+| `script/setup-minikube.sh` | Creates storage classes and labels minikube nodes (local dev) |
 | `script/postgres-deploy.sh` | Deploys PostgreSQL (secret, PVC, deployment, service) for minikube |
 | `script/builddockerdev.sh` | Builds the Docker image in minikube's Docker context |
-| `script/deploy.sh` | Legacy GKE deploy (kept for rollback window): Redis, secrets, migrations, app, ingress, backup cronjob |
-| `script/backup-postgres.sh` | pg_dump backup script used by the CronJob |
-| **`script/build-and-deploy-aws.sh`** | **One-command production build + deploy** — ECR login, builds & pushes the arm64 image for HEAD, switches context, then runs `deploy-aws.sh` (passes through its flags) |
-| **`script/deploy-aws.sh`** | **Production deploy to k3s-wft-aws (collab namespace)** — pulls image from ECR, applies postgres + redis + app + ingress, runs db-migrate-job |
+| `script/deploy.sh` | Legacy shared-node/GKE deploy (`envsubst`-based; kept for the rollback window) |
+| `script/backup-postgres.sh` | pg_dump backup script baked into the backup image and run by the CronJob |
+| **`script/build-and-deploy-aws.sh`** | **One-command production build + deploy** — ECR login, builds & pushes the arm64 image for HEAD, switches context, then runs `deploy-aws.sh`. ⚠️ Still hardcodes the legacy `k3s-wft-aws` context; see the note below. |
+| **`script/deploy-aws.sh`** | **Production deploy via Kustomize** — guards the kube context (`DEPLOY_CONTEXT`, default `k3s-squiredocs`), resolves the app's ECR digest (fails closed), applies the `aws-prod` overlay, gates on the rollout + migrate Job, then tags the deploy. Secrets are applied separately via SOPS. |
 
 ### AWS k3s Deployment (production)
 
 ```bash
-# Build + deploy in one command (run on an ARM Mac — the k3s image is arm64).
-# Builds the image for the current HEAD, pushes to ECR, switches context, deploys:
-./script/build-and-deploy-aws.sh                # full deploy (infra + migrate + app)
-./script/build-and-deploy-aws.sh --apps-only    # typical: migrate, then roll the app
+# Apply the SOPS secrets once, then deploy (run on an ARM Mac — the image is arm64).
+for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
+./script/deploy-aws.sh
 ```
 
-> **Note:** CI (`.github/workflows/test.yml`) only runs the server and client tests — it does **not** build or push any image. So a production deploy always needs a local build+push, which is why `build-and-deploy-aws.sh` exists. To build/push and deploy as separate steps, do the build+push manually and then run `./script/deploy-aws.sh` (it pulls the HEAD-tagged image from ECR and errors if it's missing).
+> **Known inconsistency:** `build-and-deploy-aws.sh` still hardcodes
+> `CONTEXT="k3s-wft-aws"` (the legacy shared-node context) and switches to it
+> before calling `deploy-aws.sh`, whose guard expects `k3s-squiredocs`. The two
+> disagree, so the wrapper **fails closed** on the context guard (no wrong-cluster
+> deploy) but is unusable against the new cluster as written — set `DEPLOY_CONTEXT`
+> / point it at `k3s-squiredocs`, or build+push manually and run `deploy-aws.sh`
+> directly. See [docs/operations.md](docs/operations.md#deploy-tooling).
+
+> **Note:** CI (`.github/workflows/test.yml`) only runs the server and client tests — it does **not** build or push any image. So a production deploy always needs a local build+push. `deploy-aws.sh` resolves the app image's ECR digest from the pushed tag and fails if it's missing (no mutable-tag fallback).
 
 ### Notes
 
 - `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first (minikube only)
-- For minikube, the app image is `collab:latest` (built locally); for k3s production it pulls from ECR (`<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab`), arm64 only
-- For GKE (legacy), it pulls from GCP Artifact Registry
-- `deploy-aws.sh` and `deploy.sh` support `--skip-migrations` and `--wait` flags
-- The k3s collab namespace shares no infrastructure with the wft namespace — collab has its own postgres + redis pods
+- For minikube, the app image is `collab:latest` (built locally); for k3s production it pulls from ECR (`<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab`), arm64 only, pinned by digest at deploy time
+- The dedicated cluster shares no infrastructure with the wft workload — it has its own node, security group, IAM role, postgres + redis pods
 - See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.). Mutagen sync is almost always running and reliable — you can generally trust local changes are synced to the pod without verification.
 
 ## Configuration
@@ -983,32 +1011,24 @@ paragraphs.forEach((node, index) => {
 
 ### Database Backups
 
-A Kubernetes CronJob performs daily PostgreSQL backups to S3:
+A Kubernetes CronJob performs nightly PostgreSQL backups to a dedicated,
+hardened S3 bucket:
 
-- **Schedule**: Daily at 9:38 AM UTC
-- **Storage**: `s3://earthquaketracksql/` (shared bucket)
-- **Naming**: `collab-postgres-<hostname>-<arch>-<day-of-year>.sql.gz`
-- **Retention**: Day-of-year naming means backups are overwritten annually (365 backup slots)
+- **Schedule**: Nightly at 9:38 AM UTC
+- **Storage**: `s3://squiredocs-db-backups/` — SSE-KMS, versioning, Object Lock
+  (governance, 30-day retention), lifecycle to Glacier IR, block-all-public
+- **Naming**: `collab-postgres-<hostname>-<arch>-<timestamp>.sql.gz` (timestamped
+  so a corrupt dump can never overwrite a good one)
+- **Job posture**: runs non-root from a pinned image (no runtime `apk add`), reads
+  the DB password from a mounted file (never argv/traced), uploads with a scoped
+  `squiredocs-db-backup-writer` credential, and a CloudWatch dead-man alarm emails
+  if no backup lands in 26h
 
-**Setup**: The backup requires an S3 credentials ConfigMap. Create `k8s/s3cmd-configmap.yaml`:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: s3cmd-config
-  namespace: collab
-data:
-  s3cfg: |
-    [default]
-    access_key = YOUR_AWS_ACCESS_KEY
-    secret_key = YOUR_AWS_SECRET_KEY
-    host_base = s3.amazonaws.com
-    host_bucket = %(bucket)s.s3.amazonaws.com
-    use_https = True
-```
-
-This file is gitignored for security. The cronjob is automatically deployed by `script/deploy.sh` when the configmap exists.
+Full backup and restore operations — including why the uploader uses AWS CLI v2
+(s3cmd is incompatible with Object Lock) and the rehearsed restore procedure — are
+in [docs/operations.md](docs/operations.md#backups--data-protection). The legacy
+shared node backed up to the shared `earthquaketracksql` bucket; that is
+superseded.
 
 ## Database Migrations
 
