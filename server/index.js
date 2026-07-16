@@ -1,6 +1,15 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
+// Initialize OpenTelemetry BEFORE any application module loads (feature 014,
+// FR-001). This registers the CJS require-hook auto-instrumentation for
+// http/express/pg/ioredis and installs the non-throwing console shim, so every
+// subsequent require is instrumented and every console.* line becomes
+// trace-correlated JSON. Inert (no crash, no export) when no Collector endpoint
+// is configured — the default dev/CI/test state.
+const telemetry = require('./telemetry');
+telemetry.start();
+
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');
@@ -94,6 +103,12 @@ const PORT = process.env.PORT || 3001;
 // via a forged X-Forwarded-For chain (feature 010, FR-014/RD-5). Default 1
 // (immediate ingress / dev); prod sets TRUST_PROXY_HOPS=2 (CloudFront+Traefik).
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
+
+// HTTP golden-signal metrics (feature 014, US3/FR-011): record request count +
+// duration by (route template, status class) on response finish. Mounted first
+// so it times the whole request. Never throws into the request path.
+const telemetryMetrics = require('./telemetry/metrics');
+app.use(telemetryMetrics.httpMetricsMiddleware());
 
 // Reject malformed URLs early (e.g. /%c0 — invalid UTF-8 from scanners)
 // Express's router calls decodeURIComponent on path params, which throws
@@ -190,6 +205,10 @@ const POSTGRES_CONFIG = process.env.DATABASE_URL || {
 
 // Initialize PostgreSQL persistence
 const persistenceProvider = new PostgresPersistence(POSTGRES_CONFIG);
+
+// Register PG pool observable gauges (feature 014, US3/FR-013): total / idle /
+// waiting connection counts, sampled on the metric collection interval.
+telemetryMetrics.init({ getPool: () => persistenceProvider.getPool() });
 
 // Pending-persistence tracker (feature 010, US1/FR-004). Every in-flight Yjs
 // persistence promise registered by the bindState update listener lives here so
@@ -1999,6 +2018,7 @@ const runShutdown = createShutdown({
   redisPubSub,
   persistenceProvider,
   closeRedis,
+  telemetry,
   server,
   deadlineMs: Number(process.env.SHUTDOWN_DEADLINE_MS ?? 20000),
 });
