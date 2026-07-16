@@ -108,35 +108,33 @@
       margin-bottom: 0.4rem;
     }
 
-    .about-contact-card {
-      max-width: 640px;
-      margin: 0 auto;
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 16px;
-      padding: 2.5rem 2rem;
-      text-align: center;
+    .disclosure {
+      padding-top: 1rem;
+      padding-bottom: 4rem;
     }
 
-    .about-contact-card p {
+    .disclosure h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin: 0 0 0.75rem;
+    }
+
+    .disclosure p {
       font-size: 1.05rem;
-      color: #6b7280;
-      line-height: 1.7;
-      margin: 0 0 1.5rem;
-      text-align: left;
-    }
-
-    .disclosure-list {
-      max-width: 640px;
-      margin: 1.5rem auto 0;
-      text-align: left;
       color: #4b5563;
       line-height: 1.7;
-      padding-left: 1.1rem;
+      margin: 0;
     }
 
-    .disclosure-list li {
-      margin-bottom: 0.5rem;
+    .disclosure a {
+      color: #7c3aed;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .disclosure a:hover {
+      text-decoration: underline;
     }
 
     @media (max-width: 768px) {
@@ -277,19 +275,10 @@
     </section>
 
     <!-- Responsible disclosure -->
-    <section class="landing-section">
-      <div class="landing-section-content">
-        <h2 class="landing-section-title">Reporting a vulnerability</h2>
-        <div class="about-contact-card">
-          <p>If you believe you've found a security vulnerability in Squire Docs, please report it to us privately so we can fix it before it's disclosed. We welcome good-faith research and will not pursue legal action against researchers who follow responsible disclosure and avoid privacy violations, data destruction, or service disruption.</p>
-          <a href="mailto:security@squiredocs.com" class="landing-btn primary">security@squiredocs.com</a>
-          <ul class="disclosure-list">
-            <li>Include steps to reproduce, the impact, and any proof-of-concept. Encrypted or plain email is fine.</li>
-            <li>Please give us a reasonable window to investigate and remediate before any public disclosure.</li>
-            <li>Don't access, modify, or delete data that isn't yours, and use only test accounts you control.</li>
-            <li>We aim to acknowledge reports within a few business days and will keep you updated as we work through a fix.</li>
-          </ul>
-        </div>
+    <section class="landing-section disclosure">
+      <div class="about-prose">
+        <h2>Reporting a vulnerability</h2>
+        <p>Found a security issue? Email <a href="mailto:security@squiredocs.com">security@squiredocs.com</a> with steps to reproduce and the impact. We aim to acknowledge reports within a few business days and will keep you posted as we work through a fix. We welcome good-faith research and give researchers who follow responsible disclosure room to work.</p>
       </div>
     </section>
 
