@@ -7,7 +7,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Real-time Collaboration**: Multiple users can edit simultaneously with changes appearing in real-time
 - **In-App AI Assistant**: Built-in chat panel powered by Claude for editing, searching, and managing documents via natural language
 - **Chat-Centric Mode**: Full-page chat interface (`/chat`) with conversation history sidebar and optional document side pane — toggle between document-centric and chat-centric layouts via the view-switch button in the header
-- **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Desktop
+- **AI Agent Integration**: Model Context Protocol (MCP) support for AI-powered document editing from external agents like Claude Code, Kiro, and Claude Desktop
 - **Markdown Export**: Export any document you can view as a Markdown (`.md`) file from the editor's tools menu (uses the same Yjs→Markdown serializer that powers version-history diffs). The REST route supports repo-friendly options: `flavor=portable` degrades HTML-only marks for clean GitHub rendering (underline→emphasis, highlight→bold, styled spans→plain text — declared per mark in the format registry), `frontmatter=true` prepends a self-describing `squire:` YAML block (docGuid, title, clock, exportedAt, lastModifiedBy, flavor, lossy list), and `format=bundle` downloads a zip with image assets under `assets/<docSlug>/` and references rewritten to relative paths (bundle defaults: portable + frontmatter, both overridable). The route defaults to portable flavor (repo-friendly); pass `flavor=squire` for the full-fidelity dialect, which remains the internal canonical form. Task lists export as GFM `- [ ]`/`- [x]` and hard line breaks as trailing backslashes in every flavor
 - **Markdown Import**: Push markdown *into* Squire — create a fully populated document in one call (`create_document({ markdown })` or `POST /api/docs/import`), append or replace an existing document over REST (`PUT /api/docs/:docId/import`), or convert markdown to blocks inside a `modify` script with the `fromMarkdown()` sandbox helper. All surfaces share one import module; external images are fetched and rehosted server-side under an SSRF-safe policy, link hrefs are protocol-allowlisted, and a leading `squire:` frontmatter block is consumed defensively. See [Markdown Import Surfaces](#markdown-import-surfaces).
 - **Document Permissions**: Role-based access control (Owner, Editor, Viewer) with granular sharing
@@ -579,7 +579,7 @@ New users are dropped straight into a working, AI-assisted document instead of a
 
 ## AI Agent Integration (Model Context Protocol)
 
-This editor also supports external AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude Desktop.
+This editor also supports external AI agents via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling programmatic document manipulation through AI assistants like Claude Code, Kiro (AWS's spec-driven agentic IDE), and Claude Desktop.
 
 ### Features
 

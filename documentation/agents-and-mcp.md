@@ -5,7 +5,7 @@ description: Connect external AI agents to Squire Docs over the Model Context Pr
 order: 9
 ---
 
-External AI agents, such as Claude Code, Codex, and Claude Desktop, can connect to Squire Docs over the Model Context Protocol (MCP) and edit your documents alongside you. This page covers connecting, authenticating, what an agent can do, and how its edits are attributed.
+External AI agents, such as Claude Code, Kiro, Codex, and Claude Desktop, can connect to Squire Docs over the Model Context Protocol (MCP) and edit your documents alongside you. This page covers connecting, authenticating, what an agent can do, and how its edits are attributed.
 
 ## Connecting
 
@@ -22,6 +22,20 @@ claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp 
 ```
 
 This registers the server and completes the sign-in right from the terminal. An MCP client loads its server configuration at startup, so if you add the server from inside a running session, that session will not see it. To pick an in-progress agent conversation back up afterward, exit it first and append `&& claude --continue` to the command above — it resumes the conversation with the server connected.
+
+For [Kiro](https://kiro.dev), AWS's spec-driven agentic IDE, add Squire to the `mcpServers` block of your MCP config — `.kiro/settings/mcp.json` in a workspace, or `~/.kiro/settings/mcp.json` to make it available in every project:
+
+```json
+{
+  "mcpServers": {
+    "squire": {
+      "url": "https://squiredocs.com/mcp"
+    }
+  }
+}
+```
+
+Kiro hot-reloads the file when you save it and walks you through the OAuth sign-in in your browser on first use — no client IDs or secrets to set by hand. Squire pairs naturally with Kiro's spec-driven workflow: keep the spec Kiro plans and implements against as a living Squire document your team edits together, and every change Kiro makes is attributed and reversible alongside everyone else's.
 
 For any MCP-native client, point it at the endpoint above. The client's built-in OAuth discovery handles the rest through the standard chain, so you do not need to configure client IDs, secrets, or extra URLs by hand.
 

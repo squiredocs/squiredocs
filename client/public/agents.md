@@ -33,6 +33,25 @@ sessions instead). If anything doesn't take, the steps also work one at a
 time: after the add, `claude mcp list` should show `squire`; if the login
 didn't complete, run `/mcp` inside the restarted session to finish it there.
 
+For **Kiro** (AWS's spec-driven agentic IDE): add Squire to the `mcpServers`
+block of your MCP config — `.kiro/settings/mcp.json` in a workspace, or
+`~/.kiro/settings/mcp.json` for every project:
+
+```json
+{
+  "mcpServers": {
+    "squire": {
+      "url": "https://squiredocs.com/mcp"
+    }
+  }
+}
+```
+
+Kiro hot-reloads the file on save and completes the browser OAuth sign-in on
+first use — no client IDs or secrets to configure. The spec Kiro plans and
+implements against can be a living Squire document, with every edit attributed
+and reversible.
+
 For any MCP-native client: point it at the endpoint URL below. The client's
 built-in OAuth discovery follows the standard chain (RFC 9728
 `WWW-Authenticate` → `/.well-known/oauth-protected-resource/mcp` → the
