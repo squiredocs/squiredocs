@@ -170,3 +170,11 @@ Pending / follow-ups:
 - **S3 Parquet flush** not yet observed at rollout end (data in node WAL, no S3 errors) — confirm `squiredocs-openobserve` receives objects within a day.
 - **Requests-anomaly alarm** in ALARM until its training window passes (expected; fires one SNS email).
 - CA/server-cert expiries: CA 2036-07, server 2029-01 — calendar reminder owed (no cert-manager coverage for this CA).
+
+- **2026-07-17 canary result:** OpenObserve's scheduled alert engine DOES evaluate
+  SQL-over-metrics (an always-true canary fired and delivered email end-to-end via
+  SES SMTP — the full alert→destination→inbox path is proven). But ad-hoc `_search`
+  SQL over metrics streams returns no rows (PromQL is the metrics query path), so
+  the DASHBOARD panels (SQL queries) may render empty — at Sam's visual check, if
+  panels are blank, convert panel queries to PromQL (OpenObserve dashboards support
+  promql query type); alerts need no change.
