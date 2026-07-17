@@ -175,6 +175,9 @@ Pending / follow-ups:
   SQL-over-metrics (an always-true canary fired and delivered email end-to-end via
   SES SMTP — the full alert→destination→inbox path is proven). But ad-hoc `_search`
   SQL over metrics streams returns no rows (PromQL is the metrics query path), so
-  the DASHBOARD panels (SQL queries) may render empty — at Sam's visual check, if
-  panels are blank, convert panel queries to PromQL (OpenObserve dashboards support
-  promql query type); alerts need no change.
+  the DASHBOARD panels (SQL queries) may render empty. **RESOLVED 2026-07-17:** Sam's
+  screenshot showed zero panels — the original JSONs used an invented panel schema the
+  UI ignores. All four dashboards were regenerated against the real schema (v2, PromQL
+  panels, layout grid — reverse-engineered from openobserve/dashboards community repo),
+  every PromQL expression validated live against the API, and re-imported by id+hash.
+  Alerts need no change (SQL alert evaluation proven by canary).
