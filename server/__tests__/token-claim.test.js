@@ -37,7 +37,7 @@ describe('GET /api/tokens/claim', () => {
     });
 
   const secretFrom = (result) => {
-    const match = result.claimCommand.match(/Bearer (sqc_[A-Za-z0-9_-]+)/);
+    const match = result.claimCommand.match(/Bearer (one_time_use_[A-Za-z0-9_-]+)/);
     expect(match).not.toBeNull();
     return match[1];
   };
@@ -105,7 +105,7 @@ describe('GET /api/tokens/claim', () => {
   });
 
   test('unknown, malformed, and missing credentials share one 401 (no oracle)', async () => {
-    const forged = await claim('sqc_' + 'A'.repeat(43));
+    const forged = await claim('one_time_use_' + 'A'.repeat(43));
     expect(forged.status).toBe(401);
     expect(forged.body).toEqual({ error: 'Invalid or expired claim' });
 

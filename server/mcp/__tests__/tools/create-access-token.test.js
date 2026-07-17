@@ -69,7 +69,7 @@ describe('create_access_token tool', () => {
       expect(result.ttlSeconds).toBe(3600);
       expect(result.claimUrl).toBe('https://test.example.com/api/tokens/claim');
       expect(result.claimExpiresInSeconds).toBe(300);
-      expect(result.claimCommand).toMatch(/Bearer sqc_[A-Za-z0-9_-]+/);
+      expect(result.claimCommand).toMatch(/Bearer one_time_use_[A-Za-z0-9_-]+/);
       expect(result.claimCommand).toContain('-o ~/.squire/token');
       expect(result.message).toContain('No token is included in this response');
       expect(result.curlExample).toContain('/api/docs/<docId>/export?format=markdown');

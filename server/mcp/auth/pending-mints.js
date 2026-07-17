@@ -19,14 +19,16 @@ function hashSecret(secret) {
 
 /**
  * Store mint parameters and return the one-shot claim secret (the only copy —
- * only its hash is kept). The `sqc_` prefix distinguishes a claim secret from
- * a real `sk_sqd_` token in transcripts and logs.
+ * only its hash is kept). The `one_time_use_` prefix is a plain-language label
+ * so a claim secret is not mistaken for a real `sk_sqd_` API token in
+ * transcripts and logs — it is redeemable once, within minutes, and grants
+ * nothing but the claim.
  * @param {object} params - { userId, name, scopes, ttlSeconds,
  *   mintedByDelegationId, mintedByApiTokenId }
  * @returns {Promise<string>} claim secret
  */
 async function createPendingMint(params) {
-  const secret = `sqc_${crypto.randomBytes(32).toString('base64url')}`;
+  const secret = `one_time_use_${crypto.randomBytes(32).toString('base64url')}`;
   const key = KEY_PREFIX + hashSecret(secret);
   await getRedisClient().set(key, JSON.stringify(params), 'EX', CLAIM_TTL_SECONDS, 'NX');
   return secret;
