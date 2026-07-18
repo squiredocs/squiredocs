@@ -15,6 +15,8 @@ An Express router at `/mcp` speaks JSON-RPC (streamable HTTP); `mcp-stdio-bridge
 
 Tools that touch a document open a real y-websocket presence session on the user’s behalf (`server/mcp/agent-presence.js`): the agent appears as a live cursor named “AgentName (UserName)” with `isAgent: true`, its reads animate highlights, and its edits flow through the same update path as human edits — attributed per-update via `agent_name` and surfaced in version history’s recentAuthors. There is no privileged write path.
 
+**Amendment (Sam, 2026-07-18) — undo/redo become log-derived and stateless: **the undo and redo tools (and the chat Undo/Redo button, which shares their handler) no longer pop a presence session’s in-memory Y.UndoManager. They derive a surgical inverse from the edit’s persisted clock range in the update log, so they work from any server instance and survive session expiry and restarts; the session UndoManager is retired. Mechanism and semantics are designed in Squire Collaboration Core → Version history (amendment of the same date).
+
 ## The modify pipeline
 
 - **Sandbox: **scripts run in an isolated-vm V8 isolate (128 MB, 5s default / 30s max timeout) inside a worker thread — two layers of heap isolation, no Node APIs (`server/mcp/sandbox/executor.js`). Helpers (xpath, appendBlocks, cloneBlocks, createFormattedText…) are injected globals.
