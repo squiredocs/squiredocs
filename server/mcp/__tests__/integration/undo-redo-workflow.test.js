@@ -244,4 +244,91 @@ export default function edit(doc) {
     expect(undo.success).toBe(true);
     expect(undo.undone).toBe(false);
   });
+
+  // ---------------------------------------------------------------- US2 ----
+
+  test('concurrent duplicate undo: exactly one inverse row, the loser reports honestly (FR-028)', async () => {
+    const docGuid = await createDoc('US2 concurrent undo');
+    await modifyAppend(docGuid, 'RACED');
+    killSessions();
+
+    const preCount = (await logDump(docGuid)).length;
+    const attempt = () => undoService.performUndo(
+      { docGuid, userId: testUserId, agentName: AGENT_NAME },
+      { persistence, getSharedDoc: () => null }
+    );
+    const [a, b] = await Promise.all([attempt(), attempt()]);
+
+    const winners = [a, b].filter((r) => r.undone);
+    const losers = [a, b].filter((r) => !r.undone);
+    expect(winners.length).toBe(1); // zero-double-apply (SC-004)
+    expect(losers.length).toBe(1);
+    expect(losers[0].success).toBe(true);
+    expect(typeof losers[0].message).toBe('string');
+
+    // Exactly ONE inverse appended; the reversion applied exactly once.
+    const postCount = (await logDump(docGuid)).length;
+    expect(postCount).toBe(preCount + 1);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+  });
+
+  test('a live in-flight collaborator edit racing the undo survives byte-for-byte and merges (FR-013/RBD-9, SC-010)', async () => {
+    const docGuid = await createDoc('US2 live race');
+    await modifyAppend(docGuid, 'AGENT-EDIT');
+    killSessions();
+
+    // The serving instance's live doc holds an in-flight collaborator edit
+    // that is NOT yet persisted to the log (typed while the undo lands).
+    const liveDoc = await persistence.getYDoc(docGuid);
+    liveDoc.get('default', Y.XmlFragment).get(0).get(0).insert(14, ' TYPED-DURING-UNDO');
+    const liveBefore = liveDoc.get('default', Y.XmlFragment).toString();
+    expect(liveBefore).toContain('TYPED-DURING-UNDO');
+
+    try {
+      const result = await undoService.performUndo(
+        { docGuid, userId: testUserId, agentName: AGENT_NAME },
+        { persistence, getSharedDoc: () => liveDoc }
+      );
+      expect(result.undone).toBe(true);
+
+      // The collaborator's in-flight text survives byte-for-byte; only the
+      // agent's contribution reverted.
+      const liveAfter = liveDoc.get('default', Y.XmlFragment).toString();
+      expect(liveAfter).toBe('<paragraph>Original text. TYPED-DURING-UNDO</paragraph>');
+    } finally {
+      liveDoc.destroy();
+    }
+  });
+
+  test('a live in-flight deletion of everything the edit did yields the honest empty (supersession vs live state)', async () => {
+    const docGuid = await createDoc('US2 live supersession');
+    await modifyAppend(docGuid, 'DOOMED');
+    killSessions();
+
+    // In the live doc, a collaborator has already removed the agent's text
+    // (not yet persisted). Supersession is evaluated against the merged live
+    // state (FR-013): nothing left to undo, nothing appended.
+    const liveDoc = await persistence.getYDoc(docGuid);
+    const t = liveDoc.get('default', Y.XmlFragment).get(0).get(0);
+    t.delete(14, 7); // removes ' DOOMED'
+
+    const preCount = (await logDump(docGuid)).length;
+    try {
+      const result = await undoService.performUndo(
+        { docGuid, userId: testUserId, agentName: AGENT_NAME },
+        { persistence, getSharedDoc: () => liveDoc }
+      );
+      expect(result.undone).toBe(false);
+      expect(result.success).toBe(true);
+      expect((await logDump(docGuid)).length).toBe(preCount); // zero log growth (SC-004)
+
+      // The edit was NOT marked reverted — still active for a later undo.
+      const rec = await pool.query(
+        'SELECT state FROM agent_edits WHERE doc_guid = $1', [docGuid]
+      );
+      expect(rec.rows[0].state).toBe('active');
+    } finally {
+      liveDoc.destroy();
+    }
+  });
 });

@@ -56,6 +56,35 @@ class LogBuilder {
     return { clockStart: this.rows.length, clockEnd: this.rows.length };
   }
 
+  /** Snapshot for concurrent-fork edits. */
+  snapshot() {
+    return Y.encodeStateAsUpdate(this.doc);
+  }
+
+  /**
+   * A concurrent edit: authored on a fork of `snapshot` (its author had not
+   * yet seen later rows), then merged into the log as new rows.
+   */
+  forkEdit(identity, snapshot, fn) {
+    const fork = new Y.Doc();
+    Y.applyUpdate(fork, snapshot);
+    const payloads = [];
+    fork.on('update', (u) => payloads.push(u));
+    fork.transact(() => fn(fork, fork.get('default', Y.XmlFragment)));
+    fork.destroy();
+    const start = this.rows.length;
+    for (const u of payloads) {
+      Y.applyUpdate(this.doc, u);
+      this.rows.push({
+        clock: this.rows.length,
+        userId: identity.userId,
+        agentName: identity.agentName,
+        updateData: u,
+      });
+    }
+    return { clockStart: start, clockEnd: this.rows.length - 1 };
+  }
+
   buildDoc() {
     const doc = new Y.Doc();
     for (const r of this.rows) Y.applyUpdate(doc, r.updateData);
@@ -80,6 +109,46 @@ function applyInverse(log, inverseUpdate) {
   const doc = log.buildDoc();
   Y.applyUpdate(doc, inverseUpdate);
   return doc.get('default', Y.XmlFragment).toString();
+}
+
+/**
+ * The parity oracle (US2/SC-003): the SAME rows replayed onto a live-style
+ * gc:true doc through a real Y.UndoManager tracking exactly the in-range
+ * identity rows — the mechanism 016 retires — then undo(). The log-derived
+ * inverse must produce a byte-identical serialization.
+ */
+function oracleUndo(rows, range, identity) {
+  const doc = new Y.Doc();
+  const frag = doc.get('default', Y.XmlFragment);
+  let um = null;
+  for (const row of rows) {
+    if (!um && row.clock >= range.clockStart) {
+      um = new Y.UndoManager(frag, {
+        trackedOrigins: new Set(['tracked']),
+        captureTimeout: Number.MAX_SAFE_INTEGER,
+      });
+    }
+    const tracked = um
+      && row.clock >= range.clockStart && row.clock <= range.clockEnd
+      && row.userId === identity.userId
+      && (row.agentName ?? null) === (identity.agentName ?? null);
+    Y.applyUpdate(doc, row.updateData, tracked ? 'tracked' : 'untracked');
+  }
+  const popped = um ? um.undo() : null;
+  const text = frag.toString();
+  if (um) um.destroy();
+  doc.destroy();
+  return { text, popped: !!popped };
+}
+
+/** Run both mechanisms over the same log and assert byte parity (SC-003). */
+function bothWays(log, range, identity = AGENT) {
+  const res = computeInverse(log.rows, range, identity);
+  const logDerived = res ? applyInverse(log, res.inverseUpdate) : log.text();
+  const oracle = oracleUndo(log.rows, range, identity);
+  expect(logDerived).toBe(oracle.text);
+  expect(!!res).toBe(oracle.popped);
+  return { logDerived, inverse: res };
 }
 
 describe('computeInverse', () => {
@@ -199,6 +268,46 @@ describe('computeInverse', () => {
     }
   });
 
+  test('parity oracle: log-derived inverse matches a real live-session UndoManager.undo() byte-for-byte', () => {
+    // The same scenario driven two ways: (a) through the log rebuild +
+    // computeInverse, (b) through a live doc with a real Y.UndoManager
+    // tracking the agent's transactions — the mechanism 016 retires. The
+    // resulting serializations must be identical.
+    const ops = [
+      { who: HUMAN, target: false, fn: (d, f) => f.insert(0, [para('Intro paragraph.')]) },
+      { who: AGENT, target: true, fn: (d, f) => f.insert(1, [para('Agent-added summary.')]) },
+      { who: HUMAN, target: false, fn: (d, f) => f.get(0).get(0).insert(16, ' (edited by human)') },
+      { who: HUMAN, target: false, fn: (d, f) => f.get(1).get(0).insert(20, ' Human touched this too.') },
+    ];
+
+    // (a) log-derived
+    const log = new LogBuilder();
+    let range = null;
+    for (const op of ops) {
+      const r = log.edit(op.who, op.fn);
+      if (op.target) range = range ? { clockStart: range.clockStart, clockEnd: r.clockEnd } : r;
+    }
+    const res = computeInverse(log.rows, range, AGENT);
+    const logDerived = res ? applyInverse(log, res.inverseUpdate) : log.text();
+
+    // (b) live-session oracle
+    const doc = new Y.Doc();
+    const frag = doc.get('default', Y.XmlFragment);
+    const um = new Y.UndoManager(frag, {
+      trackedOrigins: new Set(['tracked']),
+      captureTimeout: Number.MAX_SAFE_INTEGER,
+    });
+    for (const op of ops) {
+      doc.transact(() => op.fn(doc, frag), op.target ? 'tracked' : 'untracked');
+    }
+    um.undo();
+    const oracle = frag.toString();
+
+    expect(logDerived).toBe(oracle);
+    um.destroy();
+    doc.destroy();
+  });
+
   test('live-doc merge: supersession is evaluated against merged live state (FR-013)', () => {
     const log = new LogBuilder();
     log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
@@ -215,5 +324,140 @@ describe('computeInverse', () => {
     // Without the live merge the inverse would exist.
     const res2 = computeInverse(log.rows, range, AGENT);
     expect(res2).not.toBeNull();
+  });
+});
+
+/**
+ * US2 semantics matrix (T016, SC-003/SC-004): every pole byte-compared, and —
+ * the parity oracle — asserted equal to a real live-session
+ * Y.UndoManager.undo() over the same scenario. popStackItem parity IS the
+ * Sam-ratified semantics; where a naive reading of "superseded" differs from
+ * what popStackItem does (e.g. concurrent duplicate deletions), the oracle
+ * wins by definition.
+ */
+describe('popStackItem-parity matrix (US2)', () => {
+  test('human edits before, after, and inside the agent insertion: only the agent contribution reverts', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Alpha.')]));
+    const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Agent paragraph.')]));
+    log.edit(HUMAN, (d, f) => f.get(0).get(0).insert(6, ' BEFORE-EDIT')); // before the insertion
+    log.edit(HUMAN, (d, f) => f.insert(2, [para('After paragraph.')])); // after it
+    log.edit(HUMAN, (d, f) => f.get(1).get(0).insert(16, ' HUMAN-INSIDE')); // inside it
+
+    const { logDerived } = bothWays(log, range);
+    // The agent's paragraph goes (with it, the text typed inside its element —
+    // exactly what popStackItem does); everything else byte-preserved.
+    expect(logDerived).toBe(
+      '<paragraph>Alpha. BEFORE-EDIT</paragraph><paragraph>After paragraph.</paragraph>'
+    );
+  });
+
+  test('agent-deleted paragraph is restored', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('One.'), para('Two.'), para('Three.')]));
+    const range = log.edit(AGENT, (d, f) => f.delete(1, 1));
+    expect(log.text()).toBe('<paragraph>One.</paragraph><paragraph>Three.</paragraph>');
+
+    const { logDerived } = bothWays(log, range);
+    expect(logDerived).toBe(
+      '<paragraph>One.</paragraph><paragraph>Two.</paragraph><paragraph>Three.</paragraph>'
+    );
+  });
+
+  test('content the agent deleted whose parent a later edit removed stays deleted — honest empty', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Keep.'), para('Agent trims this sentence. Rest stays.')]));
+    const range = log.edit(AGENT, (d, f) => f.get(1).get(0).delete(0, 27));
+    // A later edit removes the WHOLE paragraph the agent had trimmed inside —
+    // the restoration target's parent is gone: supersession skip (FR-010),
+    // and with nothing else in the edit, the honest empty result (FR-011).
+    log.edit(HUMAN, (d, f) => f.delete(1, 1));
+
+    const { logDerived, inverse } = bothWays(log, range);
+    expect(inverse).toBeNull();
+    expect(logDerived).toBe('<paragraph>Keep.</paragraph>');
+  });
+
+  test('concurrent duplicate deletion of the same content: exact popStackItem parity', () => {
+    // A collaborator who had NOT yet seen the agent's deletion deletes the
+    // same paragraph concurrently. popStackItem restores it on undo (the
+    // delete halves merge; restoration wins) — parity, not intuition, is the
+    // ratified contract, so the oracle defines the expectation.
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('A.'), para('B.')]));
+    const snap = log.snapshot();
+    const range = log.edit(AGENT, (d, f) => f.delete(1, 1));
+    log.forkEdit(HUMAN, snap, (d, f) => f.delete(1, 1)); // concurrent same-target delete
+
+    bothWays(log, range); // byte parity with the real UndoManager is the assertion
+  });
+
+  test('insertion partially rewritten later: only the surviving parts are removed', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+    const range = log.edit(AGENT, (d, f) => f.get(0).get(0).insert(5, ' AGENT WROTE THIS'));
+    // Human rewrites the middle of the agent's insertion.
+    log.edit(HUMAN, (d, f) => {
+      const t = log.frag.get(0).get(0);
+      t.delete(11, 5); // ' AGENT [WROTE] THIS' -> the human's replacement below
+      t.insert(11, 'REWROTE');
+    });
+
+    const { logDerived } = bothWays(log, range);
+    // Agent's surviving characters removed; the human's REWROTE preserved.
+    expect(logDerived).toBe('<paragraph>Base.REWROTE</paragraph>');
+  });
+
+  test('created-and-deleted-within-edit churn is not resurrected', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Stable.')]));
+    const r1 = log.edit(AGENT, (d, f) => f.insert(1, [para('Scratch work')]));
+    const r2 = log.edit(AGENT, (d, f) => {
+      f.delete(1, 1);
+      f.insert(1, [para('Final agent text.')]);
+    });
+    const range = { clockStart: r1.clockStart, clockEnd: r2.clockEnd };
+    expect(log.text()).toBe('<paragraph>Stable.</paragraph><paragraph>Final agent text.</paragraph>');
+
+    const { logDerived } = bothWays(log, range);
+    // The whole edit reverts as one unit; the internal scratch paragraph the
+    // edit itself deleted does NOT come back.
+    expect(logDerived).toBe('<paragraph>Stable.</paragraph>');
+    expect(logDerived).not.toContain('Scratch');
+  });
+
+  test('formatting-only edit (bold) reverts under the same rules (FR-012)', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Some emphasised words here.')]));
+    const range = log.edit(AGENT, (d, f) => f.get(0).get(0).format(5, 10, { bold: true }));
+    expect(log.text()).toBe('<paragraph>Some <bold>emphasised</bold> words here.</paragraph>');
+
+    const { logDerived } = bothWays(log, range);
+    expect(logDerived).toBe('<paragraph>Some emphasised words here.</paragraph>');
+  });
+
+  test('formatting later overridden on the same text is not resurrected', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Some emphasised words here.')]));
+    const range = log.edit(AGENT, (d, f) => f.get(0).get(0).format(5, 10, { bold: true }));
+    // A later edit overrides the same span's formatting entirely.
+    log.edit(HUMAN, (d, f) => f.get(0).get(0).format(5, 10, { bold: null, italic: true }));
+
+    const { logDerived } = bothWays(log, range);
+    // Parity with popStackItem; whatever the exact outcome, the agent's bold
+    // must NOT be resurrected over the human's override.
+    expect(logDerived).not.toContain('<bold>');
+    expect(logDerived).toContain('emphasised');
+  });
+
+  test('fully superseded edit: null inverse, byte-stable document (SC-004)', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Stable.')]));
+    const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Doomed insertion.')]));
+    log.edit(HUMAN, (d, f) => f.delete(1, 1)); // everything the edit did is gone
+
+    const { logDerived, inverse } = bothWays(log, range);
+    expect(inverse).toBeNull();
+    expect(logDerived).toBe('<paragraph>Stable.</paragraph>');
   });
 });
