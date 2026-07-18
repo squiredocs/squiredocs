@@ -582,6 +582,37 @@ function replaceMarkdownFileParts(messages) {
   });
 }
 
+/**
+ * Replace image file parts with a short text note in what is SENT to a
+ * text-only model (one whose def.supportsImages is false — the GLM models).
+ * The persisted UIMessages keep the image part (the transcript still renders
+ * the image), but a model that can't accept image input would otherwise 404
+ * the WHOLE request — including on a later text-only follow-up that merely
+ * replays an image from conversation history (the incoming-message pre-flight
+ * can't catch a history image). This keeps such chats usable: the model sees a
+ * note that an image was attached instead of the image itself. Non-mutating —
+ * returns new message/part objects where changes apply. Markdown parts are
+ * already swapped out by replaceMarkdownFileParts before this runs.
+ * @param {Array} messages - UIMessages (validated)
+ */
+function replaceUnsupportedImageParts(messages) {
+  return messages.map((msg) => {
+    if (msg.role !== 'user' || !Array.isArray(msg.parts)) return msg;
+    let changed = false;
+    const parts = msg.parts.map((part) => {
+      if (part?.type !== 'file' || typeof part.mediaType !== 'string' || !part.mediaType.startsWith('image/')) {
+        return part;
+      }
+      changed = true;
+      return {
+        type: 'text',
+        text: `[The user attached an image${part.filename ? ` ("${part.filename}")` : ''} here, but this model can't view images, so it is not included.]`,
+      };
+    });
+    return changed ? { ...msg, parts } : msg;
+  });
+}
+
 // ── Streaming chat endpoint ──────────────────────────────────────────────────
 
 router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
@@ -827,6 +858,13 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // Markdown attachments stay out of model context (byte channel): swap their
     // file parts for a short note pointing at the import_markdown tool.
     modelInputMessages = replaceMarkdownFileParts(modelInputMessages);
+    // A text-only model (GLM) 404s the whole request on ANY image block —
+    // including one replayed from history on a later text follow-up, which the
+    // incoming-message pre-flight above can't see. Swap image parts for a note
+    // so those chats keep working instead of failing every turn.
+    if (!def.supportsImages) {
+      modelInputMessages = replaceUnsupportedImageParts(modelInputMessages);
+    }
     const modelMessages = await convertToModelMessages(modelInputMessages);
     await inlineDataUrls(modelMessages, req.user.userId);
 
@@ -1209,6 +1247,8 @@ module.exports = {
   extractMessageImages, inlineDataUrls, compactMessages, isTokenLimitError, isInvalidArgumentError, MAX_STREAMS_PER_USER,
   // Markdown attachment byte channel (import_markdown tool).
   extractMessageMarkdown, replaceMarkdownFileParts,
+  // Text-only-model image handling: pre-flight detector + history strip.
+  messageHasImage, replaceUnsupportedImageParts,
   // Exposed for the F7 key-hardening test.
   attachmentKeyForUser,
 };

@@ -244,6 +244,51 @@ describe('markdown attachments — byte channel (import_markdown)', () => {
   });
 });
 
+describe('text-only models — image handling (GLM cannot accept image input)', () => {
+  const imgRef = 'attachment:chat-attachments/u/44444444-4444-4444-4444-444444444444';
+
+  it('messageHasImage detects an image file part, ignores text/markdown/pdf', () => {
+    expect(chat.messageHasImage({ parts: [{ type: 'file', mediaType: 'image/png', url: imgRef }] })).toBe(true);
+    expect(chat.messageHasImage({ parts: [{ type: 'text', text: 'hi' }] })).toBe(false);
+    expect(chat.messageHasImage({ parts: [{ type: 'file', mediaType: 'text/markdown', url: imgRef }] })).toBe(false);
+    expect(chat.messageHasImage({ parts: [{ type: 'file', mediaType: 'application/pdf', url: imgRef }] })).toBe(false);
+    expect(chat.messageHasImage({})).toBe(false);
+  });
+
+  it('replaceUnsupportedImageParts swaps image parts (in history too) for a note, non-mutating', () => {
+    const original = [
+      { role: 'user', parts: [
+        { type: 'text', text: 'what is in this?' },
+        { type: 'file', mediaType: 'image/png', url: imgRef, filename: 'shot.png' },
+      ] },
+      { role: 'assistant', parts: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', parts: [{ type: 'text', text: 'summarize the doc' }] },
+    ];
+    const out = chat.replaceUnsupportedImageParts(original);
+
+    // The image part became a text note naming the file; no image survives.
+    const swapped = out[0].parts[1];
+    expect(swapped.type).toBe('text');
+    expect(swapped.text).toContain('shot.png');
+    expect(swapped.text).toMatch(/can't view images/);
+    expect(out.every(m => (m.parts || []).every(p => !(p.type === 'file' && p.mediaType?.startsWith('image/'))))).toBe(true);
+
+    // Untouched messages keep object identity; originals not mutated.
+    expect(out[1]).toBe(original[1]);
+    expect(out[2]).toBe(original[2]);
+    expect(original[0].parts[1].type).toBe('file');
+  });
+
+  it('leaves non-image parts (text, markdown, pdf) untouched', () => {
+    const msgs = [{ role: 'user', parts: [
+      { type: 'text', text: 'hi' },
+      { type: 'file', mediaType: 'application/pdf', url: imgRef, filename: 'r.pdf' },
+    ] }];
+    const out = chat.replaceUnsupportedImageParts(msgs);
+    expect(out[0]).toBe(msgs[0]); // no image → no change → same reference
+  });
+});
+
 describe('attachmentKeyForUser — key hardening (review F7)', () => {
   const self = 'user-self';
   const uuid = '11111111-1111-1111-1111-111111111111';
