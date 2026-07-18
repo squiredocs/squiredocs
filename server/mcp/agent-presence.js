@@ -90,7 +90,11 @@ function _findSessionByClaimKey(claimKey) {
     const sessionId = sessionsByKey.get(sessionKey);
     if (sessionId) {
       const session = activeSessions.get(sessionId);
-      if (session) return session;
+      // Colon-bearing agentIds (e.g. `api-token:<id>`) make the dash-joined
+      // derivation ambiguous — a DIFFERENT session's key can collide with
+      // it. Trust the fast path only when the stored claimKey confirms the
+      // match; otherwise fall through to the exact scan below.
+      if (session && session.claimKey === claimKey) return session;
     }
   }
   for (const session of activeSessions.values()) {

@@ -378,6 +378,36 @@ describe('presence handoff', () => {
     });
   });
 
+  describe('claim-key resolution with colon-bearing agentIds (post-merge NIT-1)', () => {
+    test('a nudge for a colon-bearing agentId silences the right session, never a dash-collision decoy', async () => {
+      const COLON_AGENT = 'api-token:abc';
+      const COLON_KEY = `agent-presence:${USER}:${COLON_AGENT}:${DOC}`;
+      // Decoy whose dash-joined sessionKey ('user-1-api-token-abc-doc-1')
+      // collides with the naive fast-path derivation of COLON_KEY.
+      const decoy = createMockSession({
+        agentId: 'api-token-abc',
+        claimKey: `agent-presence:${USER}:api-token-abc:${DOC}`,
+      });
+      const target = createMockSession({
+        agentId: COLON_AGENT,
+        claimKey: COLON_KEY,
+      });
+
+      await presenceClaim.tryAcquire(COLON_KEY);
+      const { mod: b } = loadInstanceB();
+      await b.ensureHeldForWork(COLON_KEY);
+
+      // The colon-agent session is silenced; the decoy is untouched
+      expect(target.claimState).toBe('silent');
+      expect(target.provider.awareness.setLocalState).toHaveBeenCalledWith(null);
+      expect(decoy.claimState).toBe('holder');
+      expect(decoy.provider.awareness.setLocalState).not.toHaveBeenCalled();
+
+      removeMockSession(decoy);
+      removeMockSession(target);
+    });
+  });
+
   describe('crossed nudges (post-merge MEDIUM-1)', () => {
     async function passTime(ms) {
       fake.advance(ms);
