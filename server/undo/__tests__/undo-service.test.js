@@ -177,4 +177,54 @@ describe('undo-service (post-merge review pins)', () => {
       expect(await dbText(docGuid)).toBe('<paragraph>Original text. AGENT-EDIT</paragraph>');
     });
   });
+
+  // ------------------------------------------------------------------ M1 ----
+
+  describe('M1: exact clock-set targeting through the recorded chain', () => {
+    test('undoing a call whose recorded range spans another call\'s interleaved rows leaves that call intact', async () => {
+      // Two same-identity modify calls interleave: B rows at clocks 1 and 3,
+      // A rows at clocks 2 and 4 — each call's [min,max] range spans a row of
+      // the other. The recorded clock SETS keep the undos surgical.
+      const docGuid = randomUUID();
+      const doc = new Y.Doc();
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => frag.insert(0, [para('Base.')]));
+      for (const label of [' B1', ' A1', ' B2', ' A2']) {
+        doc.transact(() => {
+          const t = frag.get(0).get(0);
+          t.insert(t.length, label);
+        });
+      }
+      doc.destroy();
+      expect(payloads.length).toBe(5);
+      for (let clock = 0; clock < payloads.length; clock++) {
+        await pool.query(
+          `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, created_at)
+           VALUES ($1, $2, $3, $4, $5, now() - interval '30 minutes')`,
+          [docGuid, clock, Buffer.from(payloads[clock]),
+            clock === 0 ? null : userId, clock === 0 ? null : AGENT]
+        );
+      }
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 1, clockEnd: 3, clocks: [1, 3],
+      });
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 2, clockEnd: 4, clocks: [2, 4],
+      });
+      expect(await dbText(docGuid)).toBe('<paragraph>Base. B1 A1 B2 A2</paragraph>');
+
+      const deps = { persistence, getSharedDoc: () => null };
+      // LIFO: call A (edit_clock_start 2) first — B's rows 1 and 3 survive.
+      const undoA = await undoService.performUndo(identity(docGuid), deps);
+      expect(undoA.undone).toBe(true);
+      expect(await dbText(docGuid)).toBe('<paragraph>Base. B1 B2</paragraph>');
+
+      // Then call B — back to the base paragraph.
+      const undoB = await undoService.performUndo(identity(docGuid), deps);
+      expect(undoB.undone).toBe(true);
+      expect(await dbText(docGuid)).toBe('<paragraph>Base.</paragraph>');
+    });
+  });
 });

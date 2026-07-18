@@ -28,6 +28,9 @@ function mapRow(row) {
     state: row.state,
     undoTargetStart: row.undo_target_start,
     undoTargetEnd: row.undo_target_end,
+    // Exact clock set the next undo inverts (review M1); null = spanning
+    // fallback (legacy first-undo inserts, rows recorded pre-migration).
+    undoTargetClocks: row.undo_target_clocks ?? null,
     redoTargetStart: row.redo_target_start,
     redoTargetEnd: row.redo_target_end,
     lastUndoneAt: row.last_undone_at,
@@ -38,17 +41,21 @@ function mapRow(row) {
 /**
  * Record a freshly durable edit (modify's post-durability insert, FR-002/004).
  * Idempotent: the identity-unique constraint absorbs background re-records.
+ * `clocks` is the edit's EXACT covering clock set (review M1) — the durability
+ * wait knows precisely which rows carry the edit, so interleaved
+ * same-identity rows from a concurrent call are excluded from future undos.
+ * Omitted/null keeps the spanning-range fallback.
  * @returns {Promise<object|null>} The inserted row, or null when it already existed.
  */
-async function recordEdit(persistence, { docGuid, userId, agentName, clockStart, clockEnd }) {
+async function recordEdit(persistence, { docGuid, userId, agentName, clockStart, clockEnd, clocks = null }) {
   const result = await persistence.getPool().query(
     `INSERT INTO agent_edits
        (doc_guid, user_id, agent_name, edit_clock_start, edit_clock_end,
-        state, undo_target_start, undo_target_end)
-     VALUES ($1, $2, $3, $4, $5, 'active', $4, $5)
+        state, undo_target_start, undo_target_end, undo_target_clocks)
+     VALUES ($1, $2, $3, $4, $5, 'active', $4, $5, $6)
      ON CONFLICT (doc_guid, user_id, agent_name, edit_clock_start) DO NOTHING
      RETURNING *`,
-    [docGuid, userId, agentName, clockStart, clockEnd]
+    [docGuid, userId, agentName, clockStart, clockEnd, clocks && clocks.length ? clocks : null]
   );
   return result.rows.length ? mapRow(result.rows[0]) : null;
 }
@@ -184,8 +191,13 @@ async function finalizeClaim(persistence, opts) {
 
     // Record this application's own range as the next step's input (FR-014/016).
     if (mode === 'redo') {
+      // The redo's inverse is a single row, so the exact clock set (M1) is
+      // exactly [clock] — rewritten alongside the range it mirrors.
       await client.query(
-        'UPDATE agent_edits SET undo_target_start = $1, undo_target_end = $1, updated_at = now() WHERE id = $2',
+        `UPDATE agent_edits
+         SET undo_target_start = $1, undo_target_end = $1,
+             undo_target_clocks = ARRAY[$1]::integer[], updated_at = now()
+         WHERE id = $2`,
         [clock, targetRowId]
       );
     } else {

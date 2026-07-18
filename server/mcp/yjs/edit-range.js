@@ -16,8 +16,9 @@
  *      clocks never intersect the captured coverage).
  *
  * The recorded range is [min clock, max clock] of the identity rows that
- * intersect the captured coverage. Row selection at undo time re-applies the
- * identity filter inside the range (FR-001, FR-029).
+ * intersect the captured coverage, plus the EXACT covering clock set
+ * (review M1): concurrent same-identity calls can interleave clocks inside
+ * each other's [min,max] span, and undo must invert only this call's rows.
  */
 const Y = require('yjs');
 
@@ -146,9 +147,10 @@ const MAX_CLOCK = 2147483647; // Postgres int4 upper bound
  * @param {object} [opts]
  * @param {number} [opts.timeoutMs=5000]
  * @param {number} [opts.pollIntervalMs=150]
- * @returns {Promise<{clockStart: number, clockEnd: number} | null>} null on
- *   timeout (RBD-8: caller returns editRangePending and finishes recording in
- *   the background) or when there is nothing to record.
+ * @returns {Promise<{clockStart: number, clockEnd: number, clocks: number[]} | null>}
+ *   null on timeout (RBD-8: caller returns editRangePending and finishes
+ *   recording in the background) or when there is nothing to record. `clocks`
+ *   is the exact ascending clock set of the covering rows (M1).
  */
 async function awaitDurableRange(persistence, docGuid, identity, baselineClock, payloads, opts = {}) {
   const { timeoutMs = 5000, pollIntervalMs = 150 } = opts;
@@ -193,8 +195,8 @@ async function awaitDurableRange(persistence, docGuid, identity, baselineClock, 
       }
 
       if (covering.length > 0 && coverageContained(captured, storedCoverage)) {
-        const clocks = covering.map((r) => r.clock);
-        return { clockStart: Math.min(...clocks), clockEnd: Math.max(...clocks) };
+        const clocks = covering.map((r) => r.clock).sort((a, b) => a - b);
+        return { clockStart: clocks[0], clockEnd: clocks[clocks.length - 1], clocks };
       }
     }
 

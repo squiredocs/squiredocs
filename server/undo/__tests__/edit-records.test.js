@@ -48,14 +48,22 @@ describe('edit-records', () => {
   test('recordEdit inserts an active row with undo_target = edit range; duplicate insert is a no-op', async () => {
     const docGuid = randomUUID();
     const rec = await editRecords.recordEdit(persistence, {
-      docGuid, userId, agentName: AGENT, clockStart: 5, clockEnd: 8,
+      docGuid, userId, agentName: AGENT, clockStart: 5, clockEnd: 8, clocks: [5, 8],
     });
     expect(rec).toMatchObject({
       docGuid, userId, agentName: AGENT,
       editClockStart: 5, editClockEnd: 8,
       state: 'active', undoTargetStart: 5, undoTargetEnd: 8,
+      undoTargetClocks: [5, 8], // exact set (M1): clocks 6 and 7 are NOT this edit's
       redoTargetStart: null, redoTargetEnd: null,
     });
+
+    // Without a clock set (legacy callers) the column stays null — the
+    // spanning-range fallback.
+    const noClocks = await editRecords.recordEdit(persistence, {
+      docGuid: randomUUID(), userId, agentName: AGENT, clockStart: 1, clockEnd: 2,
+    });
+    expect(noClocks.undoTargetClocks).toBeNull();
 
     // Same identity + clockStart again (background re-record) — no duplicate.
     const dup = await editRecords.recordEdit(persistence, {
@@ -181,9 +189,11 @@ describe('edit-records', () => {
 
     const { rows } = await pool.query('SELECT * FROM agent_edits WHERE id = $1', [rec.id]);
     expect(rows[0].state).toBe('active');
-    // The next undo now targets the redo's own range (FR-016).
+    // The next undo now targets the redo's own range (FR-016) — and the exact
+    // clock set follows it (M1): the redo's inverse is that single row.
     expect(rows[0].undo_target_start).toBe(winner.clock);
     expect(rows[0].undo_target_end).toBe(winner.clock);
+    expect(rows[0].undo_target_clocks).toEqual([winner.clock]);
   });
 
   test('legacy first-undo: INSERT ... ON CONFLICT DO NOTHING arbitrates concurrent attempts', async () => {

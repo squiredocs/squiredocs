@@ -143,7 +143,7 @@ describe('awaitDurableRange', () => {
     ];
     const persistence = stubPersistence(rows);
     const range = await awaitDurableRange(persistence, 'doc-guid', IDENTITY, 0, captured, { timeoutMs: 500 });
-    expect(range).toEqual({ clockStart: 1, clockEnd: 2 });
+    expect(range).toEqual({ clockStart: 1, clockEnd: 2, clocks: [1, 2] });
     // Poll queried rows strictly after the baseline
     expect(persistence.calls[0][1]).toBe(1);
   });
@@ -218,7 +218,7 @@ describe('awaitDurableRange', () => {
     ];
     const persistence = stubPersistence(rows);
     const range = await awaitDurableRange(persistence, 'doc-guid', IDENTITY, 0, captured, { timeoutMs: 500 });
-    expect(range).toEqual({ clockStart: 1, clockEnd: 1 });
+    expect(range).toEqual({ clockStart: 1, clockEnd: 1, clocks: [1] });
   });
 
   test('excludes unrelated same-identity rows (different clientID) from the recorded range', async () => {
@@ -252,7 +252,7 @@ describe('awaitDurableRange', () => {
     ];
     const persistence = stubPersistence(rows);
     const range = await awaitDurableRange(persistence, 'doc-guid', IDENTITY, 2, captured, { timeoutMs: 500 });
-    expect(range).toEqual({ clockStart: 4, clockEnd: 4 });
+    expect(range).toEqual({ clockStart: 4, clockEnd: 4, clocks: [4] });
   });
 
   test('bounded wait: returns null when the rows never appear', async () => {

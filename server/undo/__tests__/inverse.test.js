@@ -308,6 +308,36 @@ describe('computeInverse', () => {
     doc.destroy();
   });
 
+  test('a clock-SET range inverts exactly the listed rows — interleaved same-identity rows survive (M1)', () => {
+    // Two same-identity calls interleave in the log: A's recorded [min,max]
+    // range spans B's rows. With the exact clock set, undoing A must leave
+    // B's content byte-for-byte intact.
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+    const b1 = log.edit(AGENT, (d, f) => { const t = f.get(0).get(0); t.insert(t.length, ' B1'); });
+    const a1 = log.edit(AGENT, (d, f) => { const t = f.get(0).get(0); t.insert(t.length, ' A1'); });
+    const b2 = log.edit(AGENT, (d, f) => { const t = f.get(0).get(0); t.insert(t.length, ' B2'); });
+    const a2 = log.edit(AGENT, (d, f) => { const t = f.get(0).get(0); t.insert(t.length, ' A2'); });
+    expect(log.text()).toBe('<paragraph>Base. B1 A1 B2 A2</paragraph>');
+
+    const res = computeInverse(log.rows, {
+      clockStart: a1.clockStart,
+      clockEnd: a2.clockEnd,
+      clocks: [a1.clockStart, a2.clockStart],
+    }, AGENT);
+    expect(res).not.toBeNull();
+    expect(applyInverse(log, res.inverseUpdate)).toBe('<paragraph>Base. B1 B2</paragraph>');
+
+    // The spanning-range fallback (no clock set — legacy rows) keeps its
+    // documented behavior: every identity row in [min,max] inverts.
+    const spanning = computeInverse(log.rows, {
+      clockStart: b1.clockStart,
+      clockEnd: b2.clockEnd,
+    }, AGENT);
+    expect(spanning).not.toBeNull();
+    expect(applyInverse(log, spanning.inverseUpdate)).toBe('<paragraph>Base. A2</paragraph>');
+  });
+
   test('live-doc merge: supersession is evaluated against merged live state (FR-013)', () => {
     const log = new LogBuilder();
     log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));

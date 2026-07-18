@@ -23,6 +23,7 @@ only in-flight feature adding migrations). Provide `exports.down` dropping the t
 | `state` | `text` | not null, `CHECK (state IN ('active','undone'))` | Chain polarity |
 | `undo_target_start` | `integer` | not null | Range the **next undo** inverts — init = edit range; after each redo, the redo's own range |
 | `undo_target_end` | `integer` | not null | (pair of the above) |
+| `undo_target_clocks` | `integer[]` | null | Post-merge review M1 (migration `1796500000000`): the EXACT clock set the next undo inverts — init = the edit's covering clock set from the durability wait; after each redo, `[c']` (the redo's inverse row). Null (legacy first-undo inserts, pre-migration rows) = spanning-range fallback |
 | `redo_target_start` | `integer` | null | Range the **next redo** inverts — the latest undo's inverse rows; null until first undo |
 | `redo_target_end` | `integer` | null | (pair of the above) |
 | `last_undone_at` | `timestamptz` | null | LIFO ordering for redo (RBD-4) |

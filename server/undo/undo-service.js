@@ -116,7 +116,13 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   let range = null;
 
   if (row) {
-    range = { clockStart: row.undoTargetStart, clockEnd: row.undoTargetEnd };
+    // undoTargetClocks (review M1): the exact clock set to invert; null on
+    // legacy/pre-migration rows falls back to the spanning range.
+    range = {
+      clockStart: row.undoTargetStart,
+      clockEnd: row.undoTargetEnd,
+      clocks: row.undoTargetClocks,
+    };
   } else {
     // Legacy fallback (FR-021, research R7): ONLY when the identity has no
     // 016 records at all for this doc — a pre-016 edit identifiable from the

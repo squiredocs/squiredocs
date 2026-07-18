@@ -45,7 +45,12 @@ const HISTORY_ORIGIN = 'history';
  * @param {Array<{clock: number, userId: string|null, agentName: string|null,
  *   updateData: Uint8Array}>} rows - The document's FULL update log in clock
  *   order (as returned by getUpdatesInRange/getUpdatesWithUsers with data).
- * @param {{clockStart: number, clockEnd: number}} range - The target range [s, e].
+ * @param {{clockStart: number, clockEnd: number, clocks?: number[]|null}} range -
+ *   The target range [s, e]. When `clocks` is present it is the EXACT clock
+ *   set constituting the edit (review M1): only those rows are tracked, so
+ *   interleaved same-identity rows from a concurrent call inside [s, e] are
+ *   never inverted. Without it (legacy/pre-migration records) every identity
+ *   row in the spanning range is tracked — the pre-M1 fallback.
  * @param {{userId: string, agentName: string|null}} identity - Acting identity;
  *   only rows attributed to it within the range constitute the edit
  *   (FR-001/FR-024/FR-029).
@@ -57,6 +62,9 @@ const HISTORY_ORIGIN = 'history';
  */
 function computeInverse(rows, range, identity, liveDoc = null) {
   const { clockStart, clockEnd } = range;
+  const clockSet = Array.isArray(range.clocks) && range.clocks.length > 0
+    ? new Set(range.clocks)
+    : null;
   const scratch = new Y.Doc({ gc: false });
   let undoManager = null;
   try {
@@ -85,7 +93,10 @@ function computeInverse(rows, range, identity, liveDoc = null) {
         });
       }
 
-      if (row.clock >= clockStart && row.clock <= clockEnd && isIdentityRow(row)) {
+      const inTarget = clockSet
+        ? clockSet.has(row.clock)
+        : (row.clock >= clockStart && row.clock <= clockEnd);
+      if (inTarget && isIdentityRow(row)) {
         Y.applyUpdate(scratch, data, EDIT_ORIGIN);
         trackedAny = true;
       } else {

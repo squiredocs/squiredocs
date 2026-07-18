@@ -577,7 +577,9 @@ async function handlerImpl(args, agentToken) {
           console.error('[modify] edit-range durability wait failed:', e.message);
         }
         if (editRange) {
-          response.editRange = editRange;
+          // Tool response keeps the documented {clockStart, clockEnd} shape;
+          // the exact covering clock set (review M1) goes to the record only.
+          response.editRange = { clockStart: editRange.clockStart, clockEnd: editRange.clockEnd };
           try {
             await editRecords.recordEdit(persistenceProvider, {
               docGuid,
@@ -585,6 +587,7 @@ async function handlerImpl(args, agentToken) {
               agentName: editIdentity.agentName,
               clockStart: editRange.clockStart,
               clockEnd: editRange.clockEnd,
+              clocks: editRange.clocks,
             });
           } catch (e) {
             console.error('[modify] agent_edits record insert failed:', e.message);
@@ -603,6 +606,7 @@ async function handlerImpl(args, agentToken) {
               agentName: editIdentity.agentName,
               clockStart: range.clockStart,
               clockEnd: range.clockEnd,
+              clocks: range.clocks,
             });
           }).catch((e) => {
             console.error('[modify] background edit-range recording failed:', e.message);
