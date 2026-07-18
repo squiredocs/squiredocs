@@ -27,6 +27,7 @@ const Y = require('yjs');
 const { ORIGIN_INVERSE_APPLY } = require('../origin');
 const editRecords = require('./edit-records');
 const { computeInverse } = require('./inverse');
+const { deriveLegacyRange } = require('./legacy');
 const documentService = require('../document-service');
 
 const MAX_CLOCK = 2147483647; // Postgres int4 upper bound
@@ -90,18 +91,38 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   const identity = { docGuid, userId, agentName };
 
   const row = await editRecords.nextUndoTarget(persistence, identity);
-  if (!row) {
-    // Legacy fallback (pre-016 edits with no record) arrives with US5 (T028);
-    // an unrecorded in-flight edit is the honest empty per RBD-7(b).
-    return {
-      success: true,
-      undone: false,
-      message: 'Nothing to undo: no recorded edit by you in this document.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
+  let mode = 'undo';
+  let legacyEdit = null;
+  let range = null;
+
+  if (row) {
+    range = { clockStart: row.undoTargetStart, clockEnd: row.undoTargetEnd };
+  } else {
+    // Legacy fallback (FR-021, research R7): ONLY when the identity has no
+    // 016 records at all for this doc — a pre-016 edit identifiable from the
+    // log's attribution. An unrecorded in-flight 016 edit stays the honest
+    // empty (RBD-7(b)): the derivation's freshness guard refuses just-landed
+    // runs, and any existing record suppresses the fallback entirely.
+    const hasAnyRecord = await editRecords.latestEdit(persistence, identity);
+    if (!hasAnyRecord) {
+      const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 100);
+      const derived = deriveLegacyRange(recent, { userId, agentName });
+      if (derived) {
+        mode = 'legacy-undo';
+        legacyEdit = { docGuid, userId, agentName, clockStart: derived.clockStart, clockEnd: derived.clockEnd };
+        range = derived;
+      }
+    }
+    if (!range) {
+      return {
+        success: true,
+        undone: false,
+        message: 'Nothing to undo: no recorded edit by you in this document.',
+        clock: await currentMaxClock(persistence, docGuid),
+      };
+    }
   }
 
-  const range = { clockStart: row.undoTargetStart, clockEnd: row.undoTargetEnd };
   const rows = await loadLog(persistence, docGuid);
   const liveDoc = (() => {
     try { return getSharedDoc(docGuid); } catch { return null; }
@@ -119,8 +140,9 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   }
 
   const { claimed, clock } = await editRecords.finalizeClaim(persistence, {
-    mode: 'undo',
-    rowId: row.id,
+    mode,
+    rowId: row ? row.id : undefined,
+    legacyEdit,
     docGuid,
     userId,
     agentName,
@@ -220,10 +242,24 @@ async function getUndoStatus({ docGuid, userId, agentName }, deps = {}) {
     editRecords.nextUndoTarget(persistence, identity),
     editRecords.nextRedoTarget(persistence, identity),
   ]);
-  return {
-    canUndo: !!undoTarget,
-    canRedo: !!(redoTarget && redoTarget.redoTargetStart != null),
-  };
+  if (undoTarget || redoTarget) {
+    return {
+      canUndo: !!undoTarget,
+      canRedo: !!(redoTarget && redoTarget.redoTargetStart != null),
+    };
+  }
+  // Legacy fallback (FR-021, research R8): no records at all — one bounded
+  // log read through the R7 derivation. Refusal (null) means honest
+  // unavailability; a pre-016 undo has no recorded inverse, so canRedo stays
+  // false here by construction (RBD-2).
+  try {
+    const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 100);
+    const derived = deriveLegacyRange(recent, { userId, agentName });
+    return { canUndo: !!derived, canRedo: false };
+  } catch (e) {
+    console.warn(`[undo-service] legacy status derivation failed for ${docGuid}:`, e.message);
+    return { canUndo: false, canRedo: false };
+  }
 }
 
 module.exports = { init, performUndo, performRedo, getUndoStatus };

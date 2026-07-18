@@ -51,8 +51,8 @@ function getToolLabel(toolName) {
 const DocLinkContext = createContext(null);
 
 // Holds the most recent completed `modify` part that actually changed a document.
-// The undo/redo button is rendered only on that part: the agent's UndoManager is a
-// single LIFO stack, so only the latest edit can be undone.
+// The undo/redo button is rendered only on that part: the chat surface exposes
+// latest-edit-only undo (the server's log-derived chain is LIFO per identity).
 const LastModifyContext = createContext(null);
 
 function isToolPart(part) {
@@ -553,18 +553,22 @@ function MarkdownLink({ href, children }) {
 const markdownLinkRenderer = { a: MarkdownLink };
 
 /**
- * Undo (↔ Redo) the agent's last edit directly from the chat. Drives the chat
- * assistant's server-side Y.UndoManager via the /undo and /redo endpoints — the
- * same manager its `modify` tool edited through — so it's a true surgical inverse
- * (unlike restore, it preserves edits made after the agent's).
+ * Undo (↔ Redo) the agent's last edit directly from the chat. The /undo and
+ * /redo endpoints derive a true surgical inverse from the document's durable
+ * update log (feature 016) — unlike restore, edits made after the agent's are
+ * preserved. No server session is involved: undo works from any instance, at
+ * any time after the edit, and across server restarts.
  *
  * The reverted state is persisted on the chat message (server sets a `reverted`
- * flag on this tool part), so it survives reloads. The Undo/Redo *button*,
- * though, only appears while the edit is actually reversible: that UndoManager is
- * in-memory and lives only for the few-minute life of the assistant's session
- * (lost on disconnect/restart), so we poll /undo-status and hide the button when
- * it can no longer act. Because the stack is LIFO the button is also only shown
- * on the most recent edit (isLatest).
+ * flag on this tool part), so it survives reloads. The button's visibility is
+ * governed by the log-derived /undo-status poll — the edit stays undoable for
+ * as long as the durable log says so (no session-lifetime disappearance).
+ * The chat surface is latest-edit-only (isLatest), matching the server's
+ * LIFO chain.
+ *
+ * An honest `undone/redone: false` response (nothing left to undo — e.g.
+ * later edits superseded everything) surfaces the server's message instead of
+ * silently doing nothing, and does NOT flip the reverted state.
  *
  * Renders a single row: the "Reverted" label (left) and the action button
  * (right). Returns null when there's nothing to show.
@@ -573,6 +577,8 @@ function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedCha
   const { api } = useAuth();
   const chatId = useAiChat()?.currentChatId || null;
   const [busy, setBusy] = useState(false);
+  // Inline feedback: request errors AND the server's honest nothing-left
+  // messages share the same display span.
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null); // { canUndo, canRedo } | null until first load
 
@@ -585,8 +591,9 @@ function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedCha
     }
   }, [api, docGuid]);
 
-  // Only the latest edit can be (un)done — poll its availability so the button
-  // disappears once the assistant's session (and its undo stack) expires.
+  // Only the latest edit can be (un)done from the chat — poll its log-derived
+  // availability (the 30s cadence keeps the button honest as collaborators
+  // edit around the undoable range; sessions play no part in it).
   useEffect(() => {
     if (!isLatest) { setStatus(null); return undefined; }
     let alive = true;
@@ -609,7 +616,13 @@ function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedCha
         { chatId, toolCallId },
       );
       const ok = undoing ? res.data?.undone : res.data?.redone;
-      if (ok) onRevertedChange(undoing);
+      if (ok) {
+        onRevertedChange(undoing);
+      } else if (res.data?.message) {
+        // Honest nothing-left result (FR-011): show the server's explanation;
+        // the reverted state is deliberately NOT flipped.
+        setError(res.data.message);
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Something went wrong');
     } finally {
@@ -975,7 +988,8 @@ function AiChatMessages({ messages, status, onDocLinkClick }) {
   const needsTypingBubble = isLoading && lastMsg?.role !== 'assistant';
 
   // The most recent completed modify that changed a document — only this part
-  // gets an undo/redo button (the agent's UndoManager is a single LIFO stack).
+  // gets an undo/redo button (the chat surface is latest-edit-only over the
+  // server's log-derived LIFO chain).
   // Memoized so it isn't rescanned on renders unrelated to a message change.
   const lastModifyPart = useMemo(() => findLastModifyPart(visibleMessages), [visibleMessages]);
 
