@@ -15,15 +15,17 @@ const Y = require('yjs');
 const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
 
 const mockEmbedMany = jest.fn();
+const mockEmbed = jest.fn();
 jest.mock('ai', () => ({
   embedMany: (...args) => mockEmbedMany(...args),
-  embed: jest.fn(),
+  embed: (...args) => mockEmbed(...args),
 }));
 jest.mock('@ai-sdk/google', () => ({
   google: { textEmbeddingModel: jest.fn(() => 'mock-embedding-model') },
 }));
 
 const searchIndexer = require('../search-indexer');
+const searchMod = require('../search');
 const { buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL } = searchIndexer;
 
 const fakeVector = () => Array.from({ length: 1536 }, (_, i) => ((i % 7) + 1) * 0.001);
@@ -295,6 +297,151 @@ describe('search indexer content-hash gating (017)', () => {
       expect(mockEmbedMany).toHaveBeenCalledTimes(1);
       const row = await getIndexRow(docGuid);
       expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput(row.content_text)));
+    });
+  });
+
+  describe('model watermark + targeted boot repair (US3)', () => {
+    const HEX64 = /^[0-9a-f]{64}$/;
+
+    async function flipModel(docGuid, model) {
+      await pool.query('UPDATE document_embeddings SET embedding_model = $2 WHERE doc_id = $1', [docGuid, model]);
+    }
+
+    async function bumpUpdatedAt(docGuid) {
+      // The documents BEFORE UPDATE trigger sets updated_at = now()
+      await pool.query('UPDATE documents SET title = title WHERE id = $1', [docGuid]);
+    }
+
+    test('watermark 1: chunk inserts list embedding_model explicitly, not via column default (FR-009)', async () => {
+      // Discriminating setup: point the column default somewhere else — an
+      // insert relying on the default would record the sentinel, an explicit
+      // insert records the configured model.
+      await pool.query(`ALTER TABLE document_embeddings ALTER COLUMN embedding_model SET DEFAULT 'default-model-sentinel'`);
+      try {
+        const docGuid = await createDoc('Watermark Fresh Doc', 'fresh body text for the watermark write test');
+        await searchIndexer.indexDocument(docGuid);
+        const chunks = await getChunks(docGuid);
+        expect(chunks.length).toBe(1);
+        for (const chunk of chunks) {
+          expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+        }
+      } finally {
+        await pool.query(`ALTER TABLE document_embeddings ALTER COLUMN embedding_model SET DEFAULT 'gemini-embedding-001'`);
+      }
+    });
+
+    test('watermark 2: model staleness overrides the hash gate — re-embed despite equal hash (CN-5, FR-011)', async () => {
+      const docGuid = await createDoc('Override Doc', 'unchanged body that must re-embed on model staleness');
+      await searchIndexer.indexDocument(docGuid);
+      const before = await getIndexRow(docGuid);
+      await flipModel(docGuid, 'old-model-test');
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.indexDocument(docGuid); // content unchanged
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1); // override beats the gate
+      const chunks = await getChunks(docGuid);
+      expect(chunks.length).toBe(1);
+      for (const chunk of chunks) {
+        expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+      }
+      expect((await getIndexRow(docGuid)).content_hash).toBe(before.content_hash); // same text, same hash
+    });
+
+    test('watermark 3: reindexStale selects missing-row, edit-stale, and model-stale docs — fresh docs cost zero calls (FR-010/011, SC-002)', async () => {
+      const docFresh = await createDoc('Repair Fresh', 'fresh fully matched document body');
+      await searchIndexer.indexDocument(docFresh);
+      const docModelStale = await createDoc('Repair Model Stale', 'model stale document body');
+      await searchIndexer.indexDocument(docModelStale);
+      await flipModel(docModelStale, 'old-model-test');
+      const docEditStale = await createDoc('Repair Edit Stale', 'edit stale document body');
+      await searchIndexer.indexDocument(docEditStale);
+      await bumpUpdatedAt(docEditStale); // updated_at > indexed_at, content unchanged
+      const docMissing = await createDoc('Repair Missing', 'never indexed document body');
+
+      const freshBefore = await getIndexRow(docFresh);
+      const editStaleBefore = await getIndexRow(docEditStale);
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.reindexStale();
+
+      // Exactly two embed cycles: the missing doc and the model-stale doc.
+      // The edit-stale doc is selected but hash-gated (0 calls); the fresh doc
+      // is not selected at all.
+      expect(mockEmbedMany).toHaveBeenCalledTimes(2);
+      expect((await getIndexRow(docMissing)).content_hash).toMatch(HEX64);
+      for (const chunk of await getChunks(docModelStale)) {
+        expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+      }
+      const editStaleAfter = await getIndexRow(docEditStale);
+      expect(editStaleAfter.indexed_at).not.toBe(editStaleBefore.indexed_at); // selected + refreshed
+      expect((await getIndexRow(docFresh)).indexed_at).toBe(freshBefore.indexed_at); // untouched
+    });
+
+    test('watermark 4: NULL embedding_model counts as stale (IS DISTINCT FROM)', async () => {
+      const docGuid = await createDoc('Null Model Doc', 'body whose chunk rows lose their model id');
+      await searchIndexer.indexDocument(docGuid);
+      await flipModel(docGuid, null);
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.reindexStale();
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      for (const chunk of await getChunks(docGuid)) {
+        expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+      }
+    });
+
+    test('watermark 5: a doc both edit-stale and model-stale is processed once — one embed cycle', async () => {
+      const docGuid = await createDoc('Doubly Stale Doc', 'first body of the doubly stale document');
+      await searchIndexer.indexDocument(docGuid);
+      await flipModel(docGuid, 'old-model-test');
+      setBody(docGuid, 'second body of the doubly stale document with edits');
+      await syncDoc(docGuid);
+      await bumpUpdatedAt(docGuid);
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.reindexStale();
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1); // converges in a single pass
+      const row = await getIndexRow(docGuid);
+      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput(row.content_text)));
+      for (const chunk of await getChunks(docGuid)) {
+        expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+      }
+    });
+
+    test('watermark 6: mixed-model rows stay queryable mid-repair (FR-012)', async () => {
+      const docA = await createDoc('Mixed Flamingo Alpha', 'flamingo colony report from the north lagoon');
+      const docB = await createDoc('Mixed Flamingo Beta', 'flamingo colony report from the south lagoon');
+      await searchIndexer.indexDocument(docA);
+      await searchIndexer.indexDocument(docB);
+      await flipModel(docA, 'old-model-test'); // simulated mid-repair state
+      for (const docGuid of [docA, docB]) {
+        await pool.query(
+          `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+          [docGuid, userId]
+        );
+      }
+      searchMod.init(pool);
+      searchMod._resetCache();
+      mockEmbed.mockImplementation(async () => ({ embedding: fakeVector() }));
+
+      const fulltext = await searchMod.searchDocuments(userId, 'flamingo', { mode: 'fulltext' });
+      expect(fulltext.rows.map((r) => r.doc_id).sort()).toEqual([docA, docB].sort());
+
+      const semantic = await searchMod.searchDocuments(userId, 'flamingo colonies', { mode: 'semantic' });
+      expect(semantic.rows.map((r) => r.doc_id).sort()).toEqual([docA, docB].sort());
+
+      // Settle the simulated repair so the idempotency test below starts clean
+      await searchIndexer.reindexStale();
+      searchMod._resetCache();
+    });
+
+    test('watermark 7: second boot after a completed repair does zero embedding work (SC-002)', async () => {
+      mockEmbedMany.mockClear();
+      await searchIndexer.reindexStale();
+      expect(mockEmbedMany).not.toHaveBeenCalled();
     });
   });
 

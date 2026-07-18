@@ -232,7 +232,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ### Tests for User Story 3 (write first, must fail)
 
-- [ ] T016 [US3] Extend `/local-dev/server/__tests__/search-indexer-gating.test.js` with a
+- [X] T016 [US3] Extend `/local-dev/server/__tests__/search-indexer-gating.test.js` with a
       model-watermark `describe` (reuse the T004 harness/mocks):
       1. fresh index writes `embedding_model = 'gemini-embedding-001'` explicitly on every
          chunk row (assert via SELECT, not column default — e.g. also assert an
@@ -253,7 +253,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] In `/local-dev/server/search-indexer.js`: (a) chunk INSERT lists
+- [X] T017 [US3] In `/local-dev/server/search-indexer.js`: (a) chunk INSERT lists
       `embedding_model` explicitly with `EMBEDDING_MODEL` (5th column/param); (b) in
       `indexDocument`'s unchanged-hash branch (T006), add the override probe —
       `SELECT EXISTS(SELECT 1 FROM document_embeddings de WHERE de.doc_id=$1 AND
@@ -264,7 +264,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
       de.embedding_model IS DISTINCT FROM $1)` parameterized with `EMBEDDING_MODEL`,
       keeping ordering, batching, and the concurrency cap (5) unchanged (FR-010, CN-4:
       no failed-embed hunt added).
-- [ ] T018 [US3] Run `npx jest server/__tests__/search-indexer-gating.test.js
+- [X] T018 [US3] Run `npx jest server/__tests__/search-indexer-gating.test.js
       server/__tests__/search-indexer.test.js server/__tests__/search-indexer-privacy.test.js
       server/__tests__/search.test.js --runInBand` — all green; existing suites unmodified.
 

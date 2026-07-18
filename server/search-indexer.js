@@ -147,7 +147,22 @@ async function indexDocument(docGuid) {
         });
       }
     } else if (storedHash === newHash) {
-      // Unchanged content: zero embedding-provider calls (FR-003).
+      // Unchanged content: zero embedding-provider calls (FR-003) — unless
+      // some chunk row was produced by a different model, in which case model
+      // staleness overrides the gate (CN-5/FR-011). The probe runs only on
+      // hash-match, the sole case where the gate could wrongly suppress repair.
+      const mismatch = await pool.query(
+        `SELECT EXISTS(
+           SELECT 1 FROM document_embeddings de
+           WHERE de.doc_id = $1 AND de.embedding_model IS DISTINCT FROM $2
+         ) AS stale`,
+        [docGuid, EMBEDDING_MODEL]
+      );
+      if (mismatch.rows[0] && mismatch.rows[0].stale) {
+        await generateAndStoreEmbeddings(docGuid, contentText, newHash).catch((err) => {
+          console.warn(`[SearchIndexer] Embedding generation failed for ${docGuid}, FTS still indexed:`, err.message);
+        });
+      }
     } else {
       await generateAndStoreEmbeddings(docGuid, contentText, newHash).catch((err) => {
         console.warn(`[SearchIndexer] Embedding generation failed for ${docGuid}, FTS still indexed:`, err.message);
@@ -223,10 +238,13 @@ async function generateAndStoreEmbeddings(docGuid, contentText, contentHash = co
     await client.query('DELETE FROM document_embeddings WHERE doc_id = $1', [docGuid]);
 
     for (let i = 0; i < chunks.length; i++) {
+      // embedding_model is written explicitly (FR-009) — never left to the
+      // column default — so boot repair can trust the watermark after a
+      // configured-model change.
       await client.query(
-        `INSERT INTO document_embeddings (doc_id, chunk_index, chunk_text, embedding)
-         VALUES ($1, $2, $3, $4)`,
-        [docGuid, i, chunks[i], JSON.stringify(allEmbeddings[i])]
+        `INSERT INTO document_embeddings (doc_id, chunk_index, chunk_text, embedding, embedding_model)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [docGuid, i, chunks[i], JSON.stringify(allEmbeddings[i]), EMBEDDING_MODEL]
       );
     }
 
@@ -254,13 +272,19 @@ async function reindexStale() {
   if (!pool) return;
 
   try {
-    // Find documents missing from the search index or with stale indexed_at
+    // Find documents missing from the search index, with stale indexed_at, or
+    // owning any chunk row recorded under a different embedding model
+    // (FR-010; IS DISTINCT FROM treats NULL models as stale — safe direction).
     const result = await pool.query(`
       SELECT d.id FROM documents d
       LEFT JOIN document_search_index si ON si.doc_id = d.id
       WHERE si.doc_id IS NULL OR si.indexed_at < d.updated_at
+        OR EXISTS (
+          SELECT 1 FROM document_embeddings de
+          WHERE de.doc_id = d.id AND de.embedding_model IS DISTINCT FROM $1
+        )
       ORDER BY d.updated_at DESC
-    `);
+    `, [EMBEDDING_MODEL]);
 
     const stale = result.rows;
     if (stale.length === 0) return;
