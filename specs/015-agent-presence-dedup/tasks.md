@@ -23,7 +23,7 @@ Existing backend layout: production code in `server/`, backend tests in `server/
 
 **Purpose**: The deterministic Redis fake every claim suite depends on.
 
-- [ ] T001 Create in-memory fake Redis helper in `server/mcp/__tests__/helpers/fake-claim-redis.js`: `set` with `NX`/`PX` semantics and a virtual clock (`advance(ms)` expires keys), emulation of the two owner-checked commands (`claimRefresh`: GET==id → PEXPIRE; `claimRelease`: GET==id → DEL), a `get`/`del` surface, an error-injection switch (`failNext(n)` / `failAll(bool)` and a hang mode for timeout tests), and a pub/sub bus (`publish(channel, buffer)` delivering to all registered handlers) so two module instances can be bridged. Export a factory so each test gets isolated state.
+- [X] T001 Create in-memory fake Redis helper in `server/mcp/__tests__/helpers/fake-claim-redis.js`: `set` with `NX`/`PX` semantics and a virtual clock (`advance(ms)` expires keys), emulation of the two owner-checked commands (`claimRefresh`: GET==id → PEXPIRE; `claimRelease`: GET==id → DEL), a `get`/`del` surface, an error-injection switch (`failNext(n)` / `failAll(bool)` and a hang mode for timeout tests), and a pub/sub bus (`publish(channel, buffer)` delivering to all registered handlers) so two module instances can be bridged. Export a factory so each test gets isolated state.
 
 ---
 
