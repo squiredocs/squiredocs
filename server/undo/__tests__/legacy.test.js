@@ -8,7 +8,7 @@
  * >10-second created_at gaps — legacy undo works. Anything ambiguous refuses
  * honestly: a guessed inverse is the one forbidden outcome (SC-011).
  */
-const { deriveLegacyRange, LEGACY_GAP_MS } = require('../legacy');
+const { deriveLegacyRange, LEGACY_FRESHNESS_MS } = require('../legacy');
 
 const IDENTITY = { userId: 'user-1', agentName: 'Squire Docs Assistant' };
 const NOW = Date.parse('2026-07-18T12:00:00Z');
@@ -103,6 +103,60 @@ describe('deriveLegacyRange — anchorless (trailing run)', () => {
   test('refuses on an empty or identity-free log', () => {
     expect(deriveLegacyRange([], IDENTITY, { now: NOW })).toBeNull();
     expect(deriveLegacyRange([row(0, FOREIGN, 0)], IDENTITY, { now: NOW })).toBeNull();
+  });
+});
+
+describe('deriveLegacyRange — truncated-window guard (review L3)', () => {
+  test('anchorless: refuses when the derived run starts at the first row of a truncated window', () => {
+    // The window (getRecentUpdatesWithUsers caps at 100 rows) starts at
+    // clock 5: the trailing identity run reaches the window head, so its true
+    // start may lie in rows the window cut off — unprovable, refuse.
+    const rows = [
+      row(5, ME, 100),
+      row(6, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
+  });
+
+  test('a run starting at clock 0 is provably complete and derives', () => {
+    const rows = [
+      row(0, ME, 100),
+      row(1, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toEqual({ clockStart: 0, clockEnd: 1 });
+  });
+
+  test('a run bounded below by a visible foreign row still derives from a truncated window', () => {
+    const rows = [
+      row(5, FOREIGN, 0),
+      row(6, ME, 100),
+      row(7, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toEqual({ clockStart: 6, clockEnd: 7 });
+  });
+
+  test('baseline-anchored: refuses when the run starts at the head of a truncated window', () => {
+    // baselineClock 2, window starts at clock 5 — rows 3 and 4 are unseen, so
+    // the first row after the baseline cannot be pinned.
+    const rows = [
+      row(5, ME, 100),
+      row(6, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 2, now: NOW })).toBeNull();
+  });
+});
+
+describe('deriveLegacyRange — freshness horizon covers the background recording bound (review L4)', () => {
+  test('anchorless derivation refuses a run younger than the background wait bound', () => {
+    // 30 seconds old: past the 10s segmentation gap (the pre-review
+    // threshold) but well inside the 60s background recording bound — a
+    // pending 016 modify's record may still land, so deriving now could
+    // produce a partial inverse for a partially recorded edit.
+    const rows = [
+      row(0, FOREIGN, 0),
+      row(1, ME, 3570), // NOW - 30s
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
   });
 });
 
@@ -212,7 +266,7 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
 });
 
 describe('deriveLegacyRange — the in-flight freshness guard (FR-004, RBD-7(b))', () => {
-  test('refuses a run whose newest row is younger than the gap threshold', () => {
+  test('refuses a run whose newest row is younger than the freshness threshold', () => {
     // An edit landing RIGHT NOW could be a partially persisted 016 modify
     // whose record is pending — deriving from it risks a partial inverse.
     const rows = [
@@ -220,8 +274,9 @@ describe('deriveLegacyRange — the in-flight freshness guard (FR-004, RBD-7(b))
       { clock: 1, userId: ME.userId, agentName: ME.agentName, createdAt: new Date(NOW - 2000) },
     ];
     expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
-    // The same run, aged past the threshold, derives fine.
-    const aged = rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt.getTime() - LEGACY_GAP_MS) }));
+    // The same run, aged past the threshold (L4: >= the background recording
+    // bound, not just the segmentation gap), derives fine.
+    const aged = rows.map((r) => ({ ...r, createdAt: new Date(r.createdAt.getTime() - LEGACY_FRESHNESS_MS) }));
     expect(deriveLegacyRange(aged, IDENTITY, { now: NOW })).toEqual({ clockStart: 1, clockEnd: 1 });
   });
 });

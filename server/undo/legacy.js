@@ -17,17 +17,29 @@
  *    one modify call land sub-second apart; separate calls are seconds to
  *    minutes apart), taking the segment nearest the anchor: the first
  *    segment when anchored at a baseline, the trailing segment otherwise.
+ *  - Truncated-window guard (review L3): the input is a BOUNDED window (the
+ *    last ~100 rows). A run that begins at the window's first row may extend
+ *    into rows the window cut off — its true start is unprovable — unless
+ *    that first row is clock 0, the log's origin. Refuse otherwise.
  *  - Freshness guard (the spec's undo-immediately-after-modify edge,
- *    FR-004/RBD-7(b)): refuse when the run's newest row is younger than the
- *    gap threshold — a just-landed run can be a partially persisted 016
- *    modify whose identifier is still being recorded, and a partial inverse
- *    is exactly what legacy derivation must never produce. Genuine pre-016
- *    edits are all historical (older than any threshold) by the time this
- *    code runs.
+ *    FR-004/RBD-7(b), threshold raised by review L4): refuse when the run's
+ *    newest row is younger than the background recording bound
+ *    (EDIT_RANGE_BACKGROUND_WAIT_MS) — a just-landed run can be a partially
+ *    persisted 016 modify whose identifier is still being recorded (for up
+ *    to that bound), and a partial inverse is exactly what legacy derivation
+ *    must never produce. Genuine pre-016 edits are all historical (older
+ *    than any threshold) by the time this code runs.
  */
+const { EDIT_RANGE_BACKGROUND_WAIT_MS } = require('../mcp/yjs/edit-range');
 
 /** Segmentation gap: an order of magnitude above intra-call row spacing. */
 const LEGACY_GAP_MS = 10_000;
+
+/**
+ * Freshness horizon (L4): a run is derivable only once it is older than the
+ * longest window in which a 016 modify's record could still be written.
+ */
+const LEGACY_FRESHNESS_MS = EDIT_RANGE_BACKGROUND_WAIT_MS;
 
 function isIdentityRow(row, identity) {
   return row.userId === identity.userId
@@ -64,12 +76,19 @@ function segment(run, gapMs) {
  * @param {number|null} [opts.baselineClock] - The chat part's persisted
  *   pre-edit clock, when available; omit for anchorless (trailing) lookup.
  * @param {number} [opts.gapMs=LEGACY_GAP_MS]
+ * @param {number} [opts.freshnessMs=LEGACY_FRESHNESS_MS]
  * @param {number} [opts.now=Date.now()]
  * @returns {{clockStart: number, clockEnd: number} | null} null = honest
- *   refusal (ambiguous, foreign-anchored, empty, or too fresh).
+ *   refusal (ambiguous, foreign-anchored, empty, window-truncated, or too
+ *   fresh).
  */
 function deriveLegacyRange(rows, identity, opts = {}) {
-  const { baselineClock = null, gapMs = LEGACY_GAP_MS, now = Date.now() } = opts;
+  const {
+    baselineClock = null,
+    gapMs = LEGACY_GAP_MS,
+    freshnessMs = LEGACY_FRESHNESS_MS,
+    now = Date.now(),
+  } = opts;
   if (!rows || rows.length === 0) return null;
 
   const sorted = [...rows].sort((a, b) => a.clock - b.clock);
@@ -101,12 +120,18 @@ function deriveLegacyRange(rows, identity, opts = {}) {
     run = segments[segments.length - 1]; // the segment nearest the tail
   }
 
-  // Freshness guard: a run still landing NOW may be a partially persisted
-  // 016 edit — never derive from it.
+  // Truncated-window guard (L3): a run beginning at the window's first row
+  // may continue into rows the bounded window cut off — its start cannot be
+  // proven — unless that row is clock 0 (the log provably begins there).
+  if (run[0] === sorted[0] && sorted[0].clock !== 0) return null;
+
+  // Freshness guard (L4 horizon): a run younger than the background
+  // recording bound may be a partially persisted 016 edit whose identifier
+  // is still being recorded — never derive from it.
   const newest = rowTime(run[run.length - 1]);
-  if (Number.isFinite(newest) && now - newest < gapMs) return null;
+  if (Number.isFinite(newest) && now - newest < Math.max(gapMs, freshnessMs)) return null;
 
   return { clockStart: run[0].clock, clockEnd: run[run.length - 1].clock };
 }
 
-module.exports = { deriveLegacyRange, LEGACY_GAP_MS };
+module.exports = { deriveLegacyRange, LEGACY_GAP_MS, LEGACY_FRESHNESS_MS };
