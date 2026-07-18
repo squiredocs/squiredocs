@@ -58,3 +58,17 @@ convergence claim is now actually true, and is enforced by test.
 
 - Deploy: prod runs the merged-but-unfixed `87e7e0c` behavior until the next
   deploy picks up these fix commits.
+
+## Prod-validation finding (2026-07-18, post-deploy)
+
+- **FOUND-IN-PROD**: duplicate avatars persisted after deploying 78f2fd8 despite
+  textbook claim-handoff logs. Root cause was OUTSIDE 015's diff: the Redis
+  awareness publisher (`server/index.js` redisAwarenessHandler) dropped the
+  `removed` client list, so silenced sessions ghosted ~30s on every other
+  instance (y-protocols staleness prune was the only eviction). Pre-existing gap
+  — departed humans ghosted cross-instance too — made glaring by 015 silencing
+  live connections on every handoff. Fixed in `ccd62ca` (+ regression suite
+  `server/__tests__/awareness-removal-propagation.test.js`, incl. proof the
+  pre-fix list leaves the ghost). Lesson recorded: the real-awareness handoff
+  tests asserted server-side awareness state but not the cross-instance RELAY;
+  any future presence work must test through the pub/sub bridge.
