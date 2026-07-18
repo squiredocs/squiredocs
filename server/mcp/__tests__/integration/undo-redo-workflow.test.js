@@ -331,4 +331,238 @@ export default function edit(doc) {
       liveDoc.destroy();
     }
   });
+
+  // ---------------------------------------------------------------- US3 ----
+
+  /** Append a FOREIGN (human) edit directly to the durable log. */
+  async function humanEdit(docGuid, fn) {
+    const doc = await persistence.getYDoc(docGuid);
+    const payloads = [];
+    doc.on('update', (u) => payloads.push(u));
+    doc.transact(() => fn(doc, doc.get('default', Y.XmlFragment)));
+    doc.destroy();
+    for (const u of payloads) {
+      await persistence.storeUpdate(docGuid, u, null, null); // unattributed = foreign
+    }
+  }
+
+  test('undo -> redo returns the document byte-for-byte to its pre-undo state (SC-005)', async () => {
+    const docGuid = await createDoc('US3 round trip');
+    await modifyAppend(docGuid, 'ROUNDTRIP');
+    killSessions();
+    const preUndo = await dbText(docGuid);
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+
+    const redo = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(redo.redone).toBe(true);
+    expect(redo.cursor).toBeUndefined(); // RBD-5
+    expect(typeof redo.clock).toBe('number');
+    expect(await dbText(docGuid)).toBe(preUndo);
+  });
+
+  test('ten undo/redo cycles stay exact at every pole, across a simulated restart and an instance switch (SC-005)', async () => {
+    const docGuid = await createDoc('US3 ten cycles');
+    await modifyAppend(docGuid, 'CYCLED');
+    killSessions();
+    const edited = '<paragraph>Original text. CYCLED</paragraph>';
+    const base = '<paragraph>Original text.</paragraph>';
+    const identity = { docGuid, userId: testUserId, agentName: AGENT_NAME };
+
+    for (let cycle = 0; cycle < 10; cycle++) {
+      // Cycle 3 runs on a "restarted" server (fresh persistence, no live doc);
+      // cycle 6 runs on a second "instance" (own persistence + own loaded doc).
+      let deps = { persistence, getSharedDoc: () => null };
+      let cleanup = null;
+      if (cycle === 3) {
+        const persistenceR = createPersistence();
+        deps = { persistence: persistenceR, getSharedDoc: () => null };
+        cleanup = () => persistenceR.destroy();
+      } else if (cycle === 6) {
+        const persistenceB = createPersistence();
+        const liveB = await persistenceB.getYDoc(docGuid);
+        deps = { persistence: persistenceB, getSharedDoc: () => liveB };
+        cleanup = async () => { liveB.destroy(); await persistenceB.destroy(); };
+      }
+
+      const undo = await undoService.performUndo(identity, deps);
+      expect(undo.undone).toBe(true);
+      expect(await dbText(docGuid)).toBe(base);
+
+      const redo = await undoService.performRedo(identity, deps);
+      expect(redo.redone).toBe(true);
+      expect(await dbText(docGuid)).toBe(edited);
+
+      if (cleanup) await cleanup();
+    }
+
+    // FR-016: after each redo the chain row's undo_target is the LATEST redo's
+    // own range, and redo_target the latest undo's range — never stale.
+    const rec = await pool.query('SELECT * FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+    expect(rec.rows.length).toBe(1);
+    const row = rec.rows[0];
+    expect(row.state).toBe('active');
+    const maxClock = (await logDump(docGuid)).length - 1;
+    expect(row.undo_target_start).toBe(maxClock); // the 10th redo's row
+    expect(row.undo_target_end).toBe(maxClock);
+    expect(row.redo_target_start).toBe(maxClock - 1); // the 10th undo's row
+  });
+
+  test('redo with intervening collaborator edits is surgical (FR-015)', async () => {
+    const docGuid = await createDoc('US3 intervening');
+    await modifyAppend(docGuid, 'AGENT-PART');
+    killSessions();
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+
+    // A human edits while the agent edit sits undone.
+    await humanEdit(docGuid, (d, f) => f.get(0).get(0).insert(14, ' HUMAN-WHILE-UNDONE'));
+
+    const redo = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(redo.redone).toBe(true);
+
+    const text = await dbText(docGuid);
+    expect(text).toContain('AGENT-PART'); // reapplied
+    expect(text).toContain('HUMAN-WHILE-UNDONE'); // preserved byte-for-byte
+    expect(text.startsWith('<paragraph>Original text.')).toBe(true);
+  });
+
+  test('redo whose restoration target was superseded reports the honest nothing-left (FR-015)', async () => {
+    const docGuid = await createDoc('US3 redo superseded');
+    await modifyAppend(docGuid, 'GONE-SOON');
+    killSessions();
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+
+    // The human deletes the WHOLE paragraph the redo would restore into.
+    await humanEdit(docGuid, (d, f) => f.delete(0, 1));
+
+    const preCount = (await logDump(docGuid)).length;
+    const redo = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(redo.success).toBe(true);
+    expect(redo.redone).toBe(false);
+    expect(typeof redo.message).toBe('string');
+    expect((await logDump(docGuid)).length).toBe(preCount); // nothing appended
+  });
+
+  test('redo of a pre-016 undo (reverted flag, no record) is honestly redone:false (RBD-2)', async () => {
+    const docGuid = await createDoc('US3 pre-016 undo');
+    // A pre-016 history: the edit and its session-era undo are plain log rows;
+    // no agent_edits record of any kind exists.
+    await modifyAppend(docGuid, 'OLD-EDIT');
+    await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+    killSessions();
+
+    const redo = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(redo.success).toBe(true);
+    expect(redo.redone).toBe(false);
+  });
+
+  test('chain results surface in version history as NEW attributed edits; prior versions untouched (FR-026/FR-027)', async () => {
+    const versionHistory = require('../../../version-history');
+    const docGuid = await createDoc('US3 version history');
+    await modifyAppend(docGuid, 'HISTORIED');
+    killSessions();
+
+    const updatesBefore = await persistence.getUpdatesWithUsers(docGuid);
+    const versionsBefore = versionHistory.groupUpdatesIntoVersions(updatesBefore, 1);
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+
+    const updatesAfter = await persistence.getUpdatesWithUsers(docGuid);
+    const versionsAfter = versionHistory.groupUpdatesIntoVersions(updatesAfter, 1);
+
+    // The log strictly grew; the shared version prefix is unchanged.
+    expect(updatesAfter.length).toBe(updatesBefore.length + 1);
+    expect(versionsAfter.length).toBeGreaterThan(versionsBefore.length);
+    for (let i = 0; i < versionsBefore.length; i++) {
+      expect(versionsAfter[i].clockStart).toBe(versionsBefore[i].clockStart);
+      expect(versionsAfter[i].clockEnd).toBe(versionsBefore[i].clockEnd);
+    }
+
+    // The inverse is its own NEW version, attributed to the acting identity.
+    const inverseVersion = versionsAfter.find(
+      (v) => v.clockStart <= undo.clock && undo.clock <= v.clockEnd
+    );
+    expect(inverseVersion).toBeDefined();
+    expect(inverseVersion.authors.some(
+      (a) => a.isAgent && a.id === testUserId && a.name.includes(AGENT_NAME)
+    )).toBe(true);
+  });
+
+  test('the chat endpoints set and clear the persisted reverted flag on the tool part (US3 scenario 5)', async () => {
+    const request = require('supertest');
+    const express = require('express');
+    const chatStore = require('../../../chat-store');
+    chatStore.init(pool);
+
+    const docGuid = await createDoc('US3 reverted flag');
+    await modifyAppend(docGuid, 'FLAGGED');
+    killSessions();
+
+    // A stored chat holding the modify tool part.
+    const toolCallId = 'call-016-' + Date.now();
+    const chatId = 'chat016' + Date.now();
+    await pool.query(
+      'INSERT INTO chats (id, user_id, messages) VALUES ($1, $2, $3)',
+      [chatId, testUserId, JSON.stringify([
+        { role: 'assistant', parts: [{ type: 'tool-modify', toolCallId, output: { changed: true } }] },
+      ])]
+    );
+
+    // Mini app replicating makeUndoRedoHandler + setChatPartReverted
+    // (server/index.js) — the endpoint logic under test.
+    async function setChatPartReverted(cId, userId, tcId, reverted) {
+      const messages = await chatStore.loadChat(cId, userId);
+      if (!messages || !messages.length) return;
+      let changed = false;
+      for (const m of messages) {
+        for (const p of (m.parts || [])) {
+          if (p.toolCallId === tcId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
+            if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
+            else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
+          }
+        }
+      }
+      if (changed) await chatStore.saveChat(cId, userId, messages);
+    }
+    const app = express();
+    app.use(express.json());
+    const makeHandler = (toolName) => async (req, res) => {
+      const role = await documents.getRole(req.params.docId, testUserId);
+      if (!role || role === 'viewer') return res.status(403).json({ error: 'forbidden' });
+      const result = await toolRegistry.executeTool(toolName, { docGuid: req.params.docId }, mockAgentToken);
+      const succeeded = toolName === 'undo' ? result.undone : result.redone;
+      if (succeeded && req.body?.chatId && req.body?.toolCallId) {
+        await setChatPartReverted(req.body.chatId, testUserId, req.body.toolCallId, toolName === 'undo');
+      }
+      res.json(result);
+    };
+    app.post('/api/docs/:docId/undo', makeHandler('undo'));
+    app.post('/api/docs/:docId/redo', makeHandler('redo'));
+
+    // Undo sets the flag...
+    const undoRes = await request(app)
+      .post(`/api/docs/${docGuid}/undo`).send({ chatId, toolCallId });
+    expect(undoRes.status).toBe(200);
+    expect(undoRes.body.undone).toBe(true);
+    expect(typeof undoRes.body.clock).toBe('number');
+    let messages = await chatStore.loadChat(chatId, testUserId);
+    expect(messages[0].parts[0].reverted).toBe(true);
+
+    // ...and a successful redo clears it.
+    const redoRes = await request(app)
+      .post(`/api/docs/${docGuid}/redo`).send({ chatId, toolCallId });
+    expect(redoRes.status).toBe(200);
+    expect(redoRes.body.redone).toBe(true);
+    messages = await chatStore.loadChat(chatId, testUserId);
+    expect(messages[0].parts[0].reverted).toBeUndefined();
+
+    await pool.query('DELETE FROM chats WHERE id = $1', [chatId]);
+  });
 });
