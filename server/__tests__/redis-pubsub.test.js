@@ -315,6 +315,108 @@ describe('redis-pubsub', () => {
     });
   });
 
+  describe('presence-claim channel (feature 015)', () => {
+    const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
+
+    test('publishPresenceClaimTakeover publishes on presence-claim with instance-ID framing', async () => {
+      await redisPubSub.init();
+
+      redisPubSub.publishPresenceClaimTakeover('agent-presence:u1:default:doc-1');
+      await tick();
+
+      const publisher = MockRedis.instances[1];
+      expect(publisher.published.length).toBe(1);
+      expect(publisher.published[0].channel).toBe('presence-claim');
+
+      const decoded = redisPubSub.decodeMessage(publisher.published[0].message);
+      expect(decoded.instanceId).toBe(redisPubSub.getInstanceId());
+      expect(JSON.parse(decoded.data.toString())).toEqual({
+        claimKey: 'agent-presence:u1:default:doc-1',
+      });
+    });
+
+    test('subscribed handler receives decoded { claimKey } from a foreign instance', async () => {
+      await redisPubSub.init();
+
+      const handler = jest.fn();
+      redisPubSub.subscribeToPresenceClaims(handler);
+      await tick();
+
+      const subscriber = MockRedis.instances[0];
+      expect(subscriber.subscriptions.has('presence-claim')).toBe(true);
+
+      const message = redisPubSub.encodeMessage(
+        Buffer.from(JSON.stringify({ claimKey: 'agent-presence:u1:default:doc-9' })),
+        OTHER_SERVER_ID
+      );
+      subscriber.emit('messageBuffer', Buffer.from('presence-claim'), message);
+      await tick();
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({ claimKey: 'agent-presence:u1:default:doc-9' });
+    });
+
+    test('self-messages are dropped', async () => {
+      await redisPubSub.init();
+
+      const handler = jest.fn();
+      redisPubSub.subscribeToPresenceClaims(handler);
+      await tick();
+
+      const subscriber = MockRedis.instances[0];
+      // Encoded with OUR instance ID (default) — must be filtered out
+      const message = redisPubSub.encodeMessage(
+        Buffer.from(JSON.stringify({ claimKey: 'agent-presence:u1:default:doc-9' }))
+      );
+      subscriber.emit('messageBuffer', Buffer.from('presence-claim'), message);
+      await tick();
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    test('malformed payloads are dropped without throwing', async () => {
+      await redisPubSub.init();
+
+      const handler = jest.fn();
+      redisPubSub.subscribeToPresenceClaims(handler);
+      await tick();
+
+      const subscriber = MockRedis.instances[0];
+      const malformed = redisPubSub.encodeMessage(Buffer.from('this is not json'), OTHER_SERVER_ID);
+      expect(() => {
+        subscriber.emit('messageBuffer', Buffer.from('presence-claim'), malformed);
+      }).not.toThrow();
+      await tick();
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    test('handler registered BEFORE init() still receives nudges after init() completes', async () => {
+      // Init-ordering rule (contract C): agentPresence.init runs before
+      // redisPubSub.init(), so pre-init registrations must not be dropped.
+      const handler = jest.fn();
+      redisPubSub.subscribeToPresenceClaims(handler);
+
+      // Not initialized yet: nothing subscribed, nothing delivered
+      expect(MockRedis.instances.length).toBe(0);
+
+      await redisPubSub.init();
+      await tick();
+
+      const subscriber = MockRedis.instances[0];
+      expect(subscriber.subscriptions.has('presence-claim')).toBe(true);
+
+      const message = redisPubSub.encodeMessage(
+        Buffer.from(JSON.stringify({ claimKey: 'agent-presence:u2:default:doc-2' })),
+        OTHER_SERVER_ID
+      );
+      subscriber.emit('messageBuffer', Buffer.from('presence-claim'), message);
+      await tick();
+
+      expect(handler).toHaveBeenCalledWith({ claimKey: 'agent-presence:u2:default:doc-2' });
+    });
+  });
+
   describe('isSubscribed', () => {
     test('returns true for subscribed documents', async () => {
       await redisPubSub.init();

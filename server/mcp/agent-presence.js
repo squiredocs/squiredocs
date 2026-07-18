@@ -132,7 +132,51 @@ function _buildAgentInfo(agentToken, userName, email, picture, userId) {
 }
 
 /**
+ * The single awareness-write gate (feature 015, FR-003/FR-004).
+ *
+ * EVERY awareness write in this module goes through here: writes proceed only
+ * when the session holds the presence claim (claimState === 'holder'), so
+ * silent sessions on non-holding instances announce nothing while remaining
+ * fully-functional working sessions. When claims are disabled (no Redis)
+ * every session is 'holder' and behavior is byte-identical to before (FR-012).
+ *
+ * @private
+ * @param {object} session - Session object
+ * @param {string} field - Awareness field ('user' | 'cursor')
+ * @param {*} value - Field value
+ * @param {boolean} [force=false] - Write even when silent. Used only for
+ *   clearing state on cleanup: clearing is always safe (it can only remove
+ *   announced presence, never add one).
+ */
+function _setAwareness(session, field, value, force = false) {
+  if (!session.provider || !session.provider.awareness) {
+    return;
+  }
+  if (!force && session.claimState === 'silent') {
+    return;
+  }
+  session.provider.awareness.setLocalStateField(field, value);
+}
+
+/**
+ * Silence a session's entire announced awareness state (FR-007): full
+ * setLocalState(null), not per-field — this is what y-protocols broadcasts
+ * to peers as a removal. The working session stays untouched.
+ * @private
+ * @param {object} session - Session object
+ */
+function _silenceAwareness(session) {
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalState(null);
+  }
+}
+
+/**
  * Update session cursor and broadcast to awareness
+ *
+ * The cursor value is ALWAYS recorded on session.cursor — even while the
+ * session is claim-silent — so a later takeover announces the agent's true
+ * current position (research R6); only the awareness write is gated.
  * @private
  * @param {object} session - Session object
  * @param {object} anchor - Anchor RelativePosition (JSON)
@@ -141,9 +185,7 @@ function _buildAgentInfo(agentToken, userName, email, picture, userId) {
 function _broadcastCursor(session, anchor, head) {
   session.cursor = { anchor, head };
   session.lastActivityAt = Date.now();
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('cursor', { anchor, head });
-  }
+  _setAwareness(session, 'cursor', { anchor, head });
 }
 
 /**
@@ -288,9 +330,10 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
     if (session && session.provider && session.provider.wsconnected && session.initialized) {
       _setSessionTimeout(session, duration);
 
-      // Ensure cursor is broadcast to awareness (in case it was cleared)
-      if (session.provider.awareness && session.cursor) {
-        session.provider.awareness.setLocalStateField('cursor', session.cursor);
+      // Ensure cursor is broadcast to awareness (in case it was cleared);
+      // gated on claim state (feature 015)
+      if (session.cursor) {
+        _setAwareness(session, 'cursor', session.cursor);
       }
 
       console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
@@ -344,10 +387,9 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             clearTimeout(session.highlightQueue.timeoutId);
             session.highlightQueue = null;
           }
-          // Clear awareness cursor
-          if (session.provider && session.provider.awareness) {
-            session.provider.awareness.setLocalStateField('cursor', null);
-          }
+          // Clear awareness cursor — force-written even for silent sessions:
+          // clearing is always safe (feature 015)
+          _setAwareness(session, 'cursor', null, true);
         }
 
         if (connectionTimeoutId) {
@@ -389,6 +431,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         sessionId,
         docGuid,
         userId,
+        agentId: agentToken.agentId || 'default', // Needed to derive the claim key (feature 015)
         key: sessionKey,
         provider,
         cleanup,
@@ -399,6 +442,8 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         undoManager: null,       // Will be created after connection
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
+        claimState: 'holder',    // 'holder' | 'silent' — gates every awareness write (feature 015).
+                                 // Defaults to 'holder': with claims disabled behavior is identical to before.
       });
       sessionsByKey.set(sessionKey, sessionId);
       // Add to userId index
@@ -443,7 +488,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             }
 
             try {
-              const awareness = provider.awareness;
               const session = activeSessions.get(sessionId);
               if (session) {
                 session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
@@ -451,7 +495,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
                 session.initialized = true;
 
                 if (session.cursor) {
-                  awareness.setLocalStateField('cursor', session.cursor);
+                  _setAwareness(session, 'cursor', session.cursor);
                 }
               }
 
@@ -612,9 +656,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   // Store agentInfo on session for later access
   session.agentInfo = agentInfo;
 
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('user', agentInfo);
-  }
+  _setAwareness(session, 'user', agentInfo);
 
   return session;
 }
