@@ -26,7 +26,7 @@ document text only) and flows exclusively through `buildEmbedHashInput` (CN-7).
 
 **Purpose**: capture the pre-feature baseline that SC-005 is measured against.
 
-- [ ] T001 Run the affected existing suites serially and record them green before any
+- [X] T001 Run the affected existing suites serially and record them green before any
       change: `npx jest server/__tests__/search.test.js server/__tests__/search-indexer.test.js
       server/__tests__/search-indexer-privacy.test.js server/__tests__/api-docs.test.js
       server/__tests__/documents.test.js --runInBand` (repo root). These files must still
@@ -41,13 +41,13 @@ document text only) and flows exclusively through `buildEmbedHashInput` (CN-7).
 
 **⚠️ CRITICAL**: T002 blocks US1 and US3 (not US2). T003 blocks US1 and US3.
 
-- [ ] T002 Create migration `/local-dev/migrations/1797000000000_add-content-hash-to-search-index.js`:
+- [X] T002 Create migration `/local-dev/migrations/1797000000000_add-content-hash-to-search-index.js`:
       `up` = `ALTER TABLE document_search_index ADD COLUMN content_hash TEXT` (nullable, no
       default, no backfill, no index); `down` = drop column. **Nothing else in this
       migration** (slot pre-assigned; 016 owns 1796…; new migrations must be
       > 1795000000000). Apply with `npm run migrate` and confirm the test DB picks it up
       via the normal Jest global setup (see data-model.md).
-- [ ] T003 In `/local-dev/server/search-indexer.js` add the two seam functions and export
+- [X] T003 In `/local-dev/server/search-indexer.js` add the two seam functions and export
       them: `buildEmbedHashInput(extractedText)` (017: returns the extracted body text
       unchanged — title never enters; see CN-1/CN-7) and `computeContentHash(input)`
       (Node `crypto` SHA-256, hex). Add them to `module.exports`. No call-site changes yet.
@@ -69,7 +69,7 @@ emptied doc → chunks deleted then settled.
 
 ### Tests for User Story 1 (write first, must fail)
 
-- [ ] T004 [US1] Create `/local-dev/server/__tests__/search-indexer-gating.test.js`:
+- [X] T004 [US1] Create `/local-dev/server/__tests__/search-indexer-gating.test.js`:
       DB-backed harness following `search.test.js` conventions (`createPool`,
       `createPersistence` from `./helpers/db`); seed docs through the persistence provider
       so `indexDocument` can extract real text; `jest.mock('ai')` so `embedMany` is a
@@ -94,13 +94,13 @@ emptied doc → chunks deleted then settled.
          titles for the same body — proving the gate consumes ONLY the seam function's
          output;
       8. pre-feature row (`content_hash IS NULL`) → regenerates on next pass (FR-004).
-- [ ] T005 [P] [US1] In the same new file (separate `describe`), unit-test the seam:
+- [X] T005 [P] [US1] In the same new file (separate `describe`), unit-test the seam:
       `computeContentHash` determinism + hex/64 shape; `buildEmbedHashInput` identity on
       body text in 017. Run the file; confirm the gate cases FAIL (gate not yet built).
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] In `/local-dev/server/search-indexer.js` rework `indexDocument` per
+- [X] T006 [US1] In `/local-dev/server/search-indexer.js` rework `indexDocument` per
       research.md R4 / data-model.md state diagram: compute
       `newHash = computeContentHash(buildEmbedHashInput(contentText))`; add
       `RETURNING content_hash` to the (otherwise unchanged, still unconditional) FTS
@@ -113,7 +113,7 @@ emptied doc → chunks deleted then settled.
       model-override probe here); otherwise call
       `generateAndStoreEmbeddings(docGuid, contentText, newHash)` keeping the existing
       best-effort `.catch` + log-privacy behavior (no titles/content in logs).
-- [ ] T007 [US1] In `/local-dev/server/search-indexer.js` change
+- [X] T007 [US1] In `/local-dev/server/search-indexer.js` change
       `generateAndStoreEmbeddings(docGuid, contentText, contentHash = computeContentHash(buildEmbedHashInput(contentText)))`:
       inside the existing transaction, after the chunk INSERTs, add
       `UPDATE document_search_index SET content_hash = $2 WHERE doc_id = $1`; keep the
@@ -122,7 +122,7 @@ emptied doc → chunks deleted then settled.
       in T006) but keep it harmless for the direct caller
       `server/scripts/backfill-search-index.js` (which skips empty docs itself — its 2-arg
       call now correctly advances the hash via the default parameter).
-- [ ] T008 [US1] Run `npx jest server/__tests__/search-indexer-gating.test.js
+- [X] T008 [US1] Run `npx jest server/__tests__/search-indexer-gating.test.js
       server/__tests__/search-indexer.test.js server/__tests__/search-indexer-privacy.test.js
       server/__tests__/search.test.js --runInBand`: T004 cases green; pre-existing tests
       green unmodified (FR-008/FR-022 — gating is bookkeeping only, no result/shape change).
@@ -143,7 +143,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
 
 ### Tests for User Story 2 (write first, must fail)
 
-- [ ] T009 [P] [US2] Extend `/local-dev/server/__tests__/search.test.js` (additions only —
+- [X] T009 [P] [US2] Extend `/local-dev/server/__tests__/search.test.js` (additions only —
       existing tests must remain byte-identical): in a NEW nested `describe` with its own
       documents (do not mutate the shared beforeAll fixtures), seed distinct
       `documents.updated_at` values (direct `UPDATE documents SET updated_at=…`); add
@@ -159,7 +159,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       `document_embeddings` rows directly with fake vectors so the vector leg and both
       hybrid legs demonstrably filter before ranking (out-of-window doc absent even when
       it is the nearest vector, and totals reflect the filtered set) (FR-016, SC-003).
-- [ ] T010 [P] [US2] Create `/local-dev/server/__tests__/list-documents-updated-after.test.js`:
+- [X] T010 [P] [US2] Create `/local-dev/server/__tests__/list-documents-updated-after.test.js`:
       require `server/mcp/tools/list-documents.js` directly (init with test persistence,
       call `handler(args, { userId, baseUrl })`); per `contracts/mcp-list-documents.md`:
       `updatedAfter`+`search` filters and totals; `updatedAfter` without `search` → thrown
@@ -169,7 +169,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       and list responses unchanged in shape/content (FR-022); `inputSchema.properties.updatedAfter`
       exists and `description` documents the `updatedAfter` vs `updatedSince` distinction;
       tool registry still exposes exactly 16 tools (`require('../mcp/tools')` keys length).
-- [ ] T011 [P] [US2] Extend `/local-dev/server/__tests__/api-docs.test.js`: update the
+- [X] T011 [P] [US2] Extend `/local-dev/server/__tests__/api-docs.test.js`: update the
       suite's inline `/api/docs` handler copy to mirror `server/index.js` (content branch +
       shared `parseUpdatedAfter` validator call — keep the "same as in server/index.js"
       comment honest), then add supertest cases: `updatedAfter` without
@@ -185,7 +185,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] In `/local-dev/server/search.js`: export
+- [X] T012 [US2] In `/local-dev/server/search.js`: export
       `parseUpdatedAfter(value, { hasContentSearch })` → `Date`, throwing `Error` with
       `code='INVALID_UPDATED_AFTER'` and the normative messages from
       `contracts/rest-api-docs.md`; accept `options.updatedAfter` (Date or ISO string,
@@ -197,20 +197,20 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       **before** limit/offset in every params array (`runSearchQuery` requires them last).
       When `updatedAfter` is absent, every generated SQL string and params array must be
       byte-identical to today's (FR-022).
-- [ ] T013 [US2] In `/local-dev/server/index.js` `/api/docs` handler (~line 575): at the
+- [X] T013 [US2] In `/local-dev/server/index.js` `/api/docs` handler (~line 575): at the
       top of the handler — before `rateLimit.enforceUser('search', …)` — if
       `req.query.updatedAfter` is present, call `search.parseUpdatedAfter(value,
       { hasContentSearch: !!(searchQuery && searchMode === 'content') })`; on throw return
       `res.status(400).json({ error: err.message })`; on success pass the parsed Date as
       `updatedAfter` in the `searchDocuments` options. No other handler changes.
-- [ ] T014 [US2] In `/local-dev/server/mcp/tools/list-documents.js`: add the
+- [X] T014 [US2] In `/local-dev/server/mcp/tools/list-documents.js`: add the
       `updatedAfter` property to `inputSchema` and the PARAMETERS/EXAMPLES prose exactly
       per `contracts/mcp-list-documents.md` (explicit contrast with `updatedSince`); in
       `handler`, on the search path validate via `search.parseUpdatedAfter` (throw = tool
       error) and pass through; before the list path, if `args.updatedAfter` is present
       without `search`, throw the misplaced-parameter error (CN-3). `updatedSince` logic
       untouched.
-- [ ] T015 [US2] Run `npx jest server/__tests__/search.test.js
+- [X] T015 [US2] Run `npx jest server/__tests__/search.test.js
       server/__tests__/list-documents-updated-after.test.js server/__tests__/api-docs.test.js
       server/__tests__/documents.test.js --runInBand` — new cases green, pre-existing
       cases green unmodified (SC-003/004/005/007).
@@ -232,7 +232,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ### Tests for User Story 3 (write first, must fail)
 
-- [ ] T016 [US3] Extend `/local-dev/server/__tests__/search-indexer-gating.test.js` with a
+- [X] T016 [US3] Extend `/local-dev/server/__tests__/search-indexer-gating.test.js` with a
       model-watermark `describe` (reuse the T004 harness/mocks):
       1. fresh index writes `embedding_model = 'gemini-embedding-001'` explicitly on every
          chunk row (assert via SELECT, not column default — e.g. also assert an
@@ -253,7 +253,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] In `/local-dev/server/search-indexer.js`: (a) chunk INSERT lists
+- [X] T017 [US3] In `/local-dev/server/search-indexer.js`: (a) chunk INSERT lists
       `embedding_model` explicitly with `EMBEDDING_MODEL` (5th column/param); (b) in
       `indexDocument`'s unchanged-hash branch (T006), add the override probe —
       `SELECT EXISTS(SELECT 1 FROM document_embeddings de WHERE de.doc_id=$1 AND
@@ -264,7 +264,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
       de.embedding_model IS DISTINCT FROM $1)` parameterized with `EMBEDDING_MODEL`,
       keeping ordering, batching, and the concurrency cap (5) unchanged (FR-010, CN-4:
       no failed-embed hunt added).
-- [ ] T018 [US3] Run `npx jest server/__tests__/search-indexer-gating.test.js
+- [X] T018 [US3] Run `npx jest server/__tests__/search-indexer-gating.test.js
       server/__tests__/search-indexer.test.js server/__tests__/search-indexer-privacy.test.js
       server/__tests__/search.test.js --runInBand` — all green; existing suites unmodified.
 
@@ -274,7 +274,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Documentation sweep (Constitution Principle I; same change set): update
+- [X] T019 [P] Documentation sweep (Constitution Principle I; same change set): update
       `/local-dev/ReadMe.md` where it describes content search / the indexer /
       `list_documents` parameters (add `updatedAfter`, hash gating, model self-repair as
       appropriate to its current level of detail); check the docs site content under
@@ -282,12 +282,12 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
       `server/mcp/tools/tool-documentation/` for any page enumerating `list_documents`
       parameters and update it. Do NOT edit `design/*` (Squire-synced), `CLAUDE.md`, or
       `docs/dev.md`.
-- [ ] T020 Full serial backend regression: `npm test` (backend Jest, one runner). Confirm:
+- [X] T020 Full serial backend regression: `npm test` (backend Jest, one runner). Confirm:
       no pre-existing test file modified except the documented extensions
       (`search.test.js`, `api-docs.test.js`); `agents-md-claims.test.js` and other
       MCP-description-dependent suites still green (tool description changed — if one
       asserts description text, reconcile per its own conventions).
-- [ ] T021 Walk `quickstart.md` expected-outcomes checklist (automated part; manual
+- [X] T021 Walk `quickstart.md` expected-outcomes checklist (automated part; manual
       provider scenarios are flagged for Sam per pipeline convention — deploys/manual
       checks stay with the maintainer).
 

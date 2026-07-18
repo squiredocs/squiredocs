@@ -5,6 +5,7 @@ const request = require('supertest');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const documents = require('../documents');
+const search = require('../search');
 const { createPool, createPersistence } = require('./helpers/db');
 
 // Mock JWT secret for testing
@@ -23,6 +24,11 @@ describe('API: /api/docs', () => {
   let authToken;
   let authToken2;
 
+  // Rate limiter stub mirroring rateLimit.enforceUser('search', req, res) in
+  // server/index.js — resolves true (allowed); spied on to prove the content
+  // branch stays metered for updatedAfter-filtered searches (FR-021).
+  const enforceUser = jest.fn(async () => true);
+
   beforeAll(async () => {
     // Use shared test database configuration
     pool = createPool();
@@ -30,6 +36,7 @@ describe('API: /api/docs', () => {
     await persistence._init();
 
     documents.init(pool);
+    search.init(pool);
 
     // Create test users
     const user1 = await pool.query(
@@ -69,13 +76,65 @@ describe('API: /api/docs', () => {
       }
     };
 
-    // Implement the /api/docs endpoint (same as in server/index.js)
+    // Implement the /api/docs endpoint (same as in server/index.js, with the
+    // real rate limiter replaced by the enforceUser stub above)
     app.get('/api/docs', requireAuth, async (req, res) => {
       try {
         const userId = req.user.userId;
+        const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode, distanceThreshold } = req.query;
 
-        // Get documents the user has access to with their role
-        const { rows: accessibleDocs } = await documents.getAccessibleDocuments(userId);
+        // Feature 017: validate updatedAfter up front — before the rate
+        // limiter — so misuse 400s cheaply and never silently no-ops (CN-3).
+        let updatedAfter;
+        if (req.query.updatedAfter !== undefined) {
+          try {
+            updatedAfter = search.parseUpdatedAfter(req.query.updatedAfter, {
+              hasContentSearch: !!(searchQuery && searchMode === 'content'),
+            });
+          } catch (err) {
+            return res.status(400).json({ error: err.message });
+          }
+        }
+
+        // Content search: delegate to the search module for hybrid FTS + vector search.
+        if (searchQuery && searchMode === 'content') {
+          if (!(await enforceUser('search', req, res))) return; // 429 sent
+
+          const results = await search.searchDocuments(userId, searchQuery, {
+            mode: mode || 'hybrid',
+            filter: filter || 'all',
+            sortBy: sortBy || 'relevance',
+            sortOrder: sortOrder || 'desc',
+            limit: limit ? parseInt(limit, 10) : 10,
+            offset: offset ? parseInt(offset, 10) : 0,
+            distanceThreshold: distanceThreshold ? parseFloat(distanceThreshold) : undefined,
+            updatedAfter,
+          });
+
+          const docs = results.rows.map((doc) => ({
+            docGuid: doc.doc_id,
+            title: doc.title || null,
+            updatedAt: doc.updated_at,
+            role: doc.role,
+            ownerName: doc.owner_name,
+            ownerEmail: doc.owner_email,
+            snippet: doc.snippet,
+            score: doc.score,
+            shareCount: doc.share_count,
+          }));
+
+          return res.json({ docs, pagination: results.pagination });
+        }
+
+        // Default: title-based search
+        const { rows: accessibleDocs } = await documents.getAccessibleDocuments(userId, {
+          search: searchQuery || null,
+          filter: filter || 'all',
+          sortBy: sortBy || 'updatedAt',
+          sortOrder: sortOrder || 'desc',
+          limit: limit ? parseInt(limit, 10) : null,
+          offset: offset ? parseInt(offset, 10) : 0,
+        });
 
         // Transform to response format
         const docs = accessibleDocs.map((doc) => ({
@@ -289,6 +348,124 @@ describe('API: /api/docs', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.docs[0].title).toBe(specialTitle);
+    });
+  });
+
+  // Feature 017 US2: updatedAfter on the content-search branch.
+  // Contract: specs/017-search-index-efficiency/contracts/rest-api-docs.md
+  describe('GET /api/docs updatedAfter (017 US2)', () => {
+    const OLD_TS = '2026-01-10T00:00:00Z';
+    const NEW_TS = '2026-06-05T00:00:00Z';
+    const CUTOFF = '2026-03-01T00:00:00Z';
+
+    beforeEach(() => {
+      enforceUser.mockClear();
+    });
+
+    async function seedContentDoc(docId, title, updatedAt, body) {
+      // Direct INSERT (not createDocument + UPDATE): the documents table has a
+      // BEFORE UPDATE trigger that overwrites updated_at with now().
+      await pool.query(
+        'INSERT INTO documents (id, title, creator_id, updated_at) VALUES ($1, $2, $3, $4)',
+        [docId, title, testUserId, updatedAt]
+      );
+      await pool.query(
+        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+        [docId, testUserId]
+      );
+      await pool.query(
+        `INSERT INTO document_search_index (doc_id, content_text, search_vector)
+         VALUES ($1, $2,
+           setweight(to_tsvector('english', $3), 'A') ||
+           setweight(to_tsvector('english', $2), 'B'))`,
+        [docId, body, title]
+      );
+    }
+
+    test('updatedAfter without a content search → 400 with the normative message', async () => {
+      const response = await request(app)
+        .get('/api/docs?updatedAfter=2026-07-01T00:00:00Z')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('updatedAfter requires a content search: pass search=<query> with searchMode=content');
+      expect(enforceUser).not.toHaveBeenCalled(); // rejected before the rate limiter
+    });
+
+    test('updatedAfter with search but non-content searchMode → 400', async () => {
+      const response = await request(app)
+        .get('/api/docs?search=kangaroo&updatedAfter=2026-07-01T00:00:00Z')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('updatedAfter requires a content search: pass search=<query> with searchMode=content');
+    });
+
+    test('unparseable updatedAfter → 400 with the normative message', async () => {
+      const response = await request(app)
+        .get('/api/docs?search=kangaroo&searchMode=content&updatedAfter=banana')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('updatedAfter must be a valid ISO-8601 timestamp');
+      expect(enforceUser).not.toHaveBeenCalled();
+    });
+
+    test('valid updatedAfter + content search → 200 filtered results with filtered totals', async () => {
+      await seedContentDoc(testDocId1, 'Old Kangaroo Notes', OLD_TS, 'kangaroo tracks from the old survey');
+      await seedContentDoc(testDocId2, 'New Kangaroo Notes', NEW_TS, 'kangaroo tracks from the new survey');
+
+      const response = await request(app)
+        .get(`/api/docs?search=kangaroo&searchMode=content&mode=fulltext&updatedAfter=${encodeURIComponent(CUTOFF)}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      const ids = response.body.docs.map((d) => d.docGuid);
+      expect(ids).toContain(testDocId2);
+      expect(ids).not.toContain(testDocId1);
+      expect(response.body.pagination.total).toBe(1);
+    });
+
+    test('future cutoff → 200 with empty docs and total 0', async () => {
+      await seedContentDoc(testDocId1, 'Old Kangaroo Notes', OLD_TS, 'kangaroo tracks from the old survey');
+
+      const response = await request(app)
+        .get('/api/docs?search=kangaroo&searchMode=content&mode=fulltext&updatedAfter=2030-01-01T00:00:00Z')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.docs).toEqual([]);
+      expect(response.body.pagination.total).toBe(0);
+    });
+
+    test('updatedAfter-filtered content searches still pass through the rate limiter (FR-021)', async () => {
+      await seedContentDoc(testDocId1, 'New Kangaroo Notes', NEW_TS, 'kangaroo tracks from the new survey');
+
+      const response = await request(app)
+        .get(`/api/docs?search=kangaroo&searchMode=content&mode=fulltext&updatedAfter=${encodeURIComponent(CUTOFF)}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      expect(enforceUser).toHaveBeenCalledTimes(1);
+      expect(enforceUser).toHaveBeenCalledWith('search', expect.anything(), expect.anything());
+    });
+
+    test('requests without the new params are unchanged (SC-005)', async () => {
+      await seedContentDoc(testDocId1, 'New Kangaroo Notes', NEW_TS, 'kangaroo tracks from the new survey');
+
+      const listResponse = await request(app)
+        .get('/api/docs')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(listResponse.status).toBe(200);
+      expect(listResponse.body.docs).toHaveLength(1);
+      expect(listResponse.body.docs[0]).not.toHaveProperty('snippet');
+
+      const searchResponse = await request(app)
+        .get('/api/docs?search=kangaroo&searchMode=content&mode=fulltext')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(searchResponse.status).toBe(200);
+      expect(searchResponse.body.docs.map((d) => d.docGuid)).toEqual([testDocId1]);
+      expect(searchResponse.body.pagination.total).toBe(1);
     });
   });
 });

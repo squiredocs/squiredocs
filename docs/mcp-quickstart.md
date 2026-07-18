@@ -131,7 +131,8 @@ Lists all documents accessible to you with their IDs, titles, roles, timestamps,
 - `filter` (optional): `"owned"`, `"shared_with_me"`, or `"all"` (default)
 - `search` (optional): content search query (with `searchMode`, `distanceThreshold`)
 - `sortBy` / `sortOrder` / `limit` / `offset` (optional): sorting and pagination
-- `updatedSince` (optional): ISO-8601 timestamp; only documents whose last content edit is after this time (list path only, not combinable with `search`)
+- `updatedAfter` (optional): ISO-8601 timestamp; search path only (requires `search`) — only documents whose `updatedAt` is strictly after this instant, filtered inside each search engine before ranking so results and totals reflect only recent documents. Not combinable with `updatedSince`
+- `updatedSince` (optional): ISO-8601 timestamp; only documents whose last content edit is after this time (list path only, not combinable with `search`). Unlike `updatedAfter`, filters on the update log (actual edits), not `updatedAt`
 
 **Returns:**
 - `documents`: Array of documents, each with `id`, `title`, `role`, `createdAt`, `updatedAt`, `shareCount`, `clock` (update counter, matches read_document/modify), and `lastModifiedAt` (time of last content edit; null if never edited — unlike `updatedAt`, not bumped by merely opening the doc). Use `clock`/`lastModifiedAt` with `updatedSince` for incremental syncs and exports.

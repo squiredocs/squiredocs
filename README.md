@@ -29,7 +29,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Conflict-free**: Automatic conflict resolution using Yjs CRDT technology
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
-- **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
+- **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion. Content searches accept an optional `updatedAfter` recency filter (REST `GET /api/docs?searchMode=content` and MCP `list_documents`) applied inside each engine before ranking, so results and totals reflect only recently updated documents. The indexer is incremental: a content hash of the extracted body text gates embedding regeneration (title/formatting churn costs zero provider calls), and each chunk row records the embedding model that produced it so boot repair automatically re-embeds documents after a model upgrade
 - **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, sending the beta welcome email to a user on demand (per-row button; never automatic; admin is BCC'd), reviewing a user's sharing activity (invites sent, collaborators on owned docs), setting the shared assistant's default AI model, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
 
 ## Technology Stack
@@ -609,7 +609,7 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 
 **Document Management:**
 - `create_document` - Create new documents with a title (use `modify` to add content)
-- `list_documents` - List accessible documents (or content-search them); rows include `clock` and `lastModifiedAt`, and `updatedSince` filters to recently edited docs for incremental syncs
+- `list_documents` - List accessible documents (or content-search them); rows include `clock` and `lastModifiedAt`, and `updatedSince` filters to recently edited docs for incremental syncs. Content searches accept `updatedAfter` (search path only, strictly after `updatedAt`, filtered before ranking) — distinct from the list-path-only `updatedSince`
 - `share_document` - Share with users and set permissions
 - `set_document_title` - Update document titles
 
@@ -1045,7 +1045,7 @@ paragraphs.forEach((node, index) => {
   - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
   - **AI usage**: `ai_usage_log` table (per-request token usage and cost tracking)
   - **AI extra credits**: `ai_extra_credits` table (one-off credit grants with optional expiration)
-  - **Search index**: per-document full-text (`tsvector`) and vector embedding columns (`pgvector`, `gemini-embedding-001`, 1536-dim) powering hybrid content search; refreshed by a background indexer as documents change
+  - **Search index**: per-document full-text (`tsvector`) and vector embedding columns (`pgvector`, `gemini-embedding-001`, 1536-dim) powering hybrid content search; refreshed by a background indexer as documents change. The full-text row also stores a `content_hash` (SHA-256 of the extracted body text) that gates embedding regeneration — unchanged text skips the provider entirely, and the hash only advances atomically with a successful chunk swap (or the empty-content chunk cleanup). Chunk rows record `embedding_model` explicitly; the boot-time repair pass re-indexes documents that are missing, edit-stale, or carry a different model
   - Schema is managed via migrations (see Database Migrations section below)
 - **Client**: Changes are cached in browser IndexedDB for offline support
 

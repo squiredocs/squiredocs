@@ -23,45 +23,40 @@ const name = 'list_documents';
 
 const description = `List and search documents accessible to you.
 
-When "search" is provided, performs hybrid content search (keyword + semantic) across document bodies and returns results ranked by relevance with snippets. Use "searchMode" to control search behavior.
-
-Without "search", lists documents with optional filtering and sorting.
+With "search", performs hybrid content search (keyword + semantic) across document bodies, ranked by relevance with snippets. Without "search", lists documents with optional filtering and sorting.
 
 PARAMETERS:
 - search: Search query — keywords or natural language. Searches document content, not just titles.
-- searchMode: "hybrid" (default, keyword + semantic), "fulltext" (keyword only), "semantic" (meaning-based only). Only applies when search is provided.
+- searchMode: "hybrid" (default, keyword + semantic), "fulltext" (keyword only), "semantic" (meaning-based only).
 - filter: "owned" | "shared_with_me" | "all" (default: "all")
 - sortBy: "relevance" (default when searching) | "updatedAt" (default when listing) | "createdAt"
 - sortOrder: "asc" | "desc" (default: "desc")
-- limit: 1-100 (default: 50 for listing, 10 for search)
-- offset: pagination offset (default: 0)
-- distanceThreshold: max cosine distance for vector results (default: 0.5). Lower = stricter. Only for semantic/hybrid search.
-- updatedSince: ISO-8601 timestamp. Only documents whose last content edit is after this time. List path only (not combinable with search).
+- limit: 1-100 (default 50 listing, 10 search)
+- offset: pagination offset (default 0)
+- distanceThreshold: max cosine distance for vector results (default 0.5; lower = stricter; semantic/hybrid only).
+- updatedAfter: ISO-8601. Search path only (requires search): only docs with updatedAt strictly after this instant, filtered inside each engine before ranking (totals too). Not combinable with updatedSince.
+- updatedSince: ISO-8601. Only documents whose last content edit is after this time. List path only (not combinable with search); filters on actual edits, unlike updatedAfter's updatedAt basis.
 
 RETURNS:
 - documents: Array of { id, title, url, role, updatedAt, ... }
   - When searching: includes snippet and score
   - When listing: includes createdAt, shareCount, clock (update counter) and
-    lastModifiedAt (last content edit, null if never edited; unlike updatedAt
-    it is not bumped by merely opening the doc — use with updatedSince for
-    incremental sync).
+    lastModifiedAt (last content edit, null if never edited; not bumped by
+    merely opening the doc — use with updatedSince for incremental sync).
 - pagination: { total, limit, offset, hasMore }
 
 EXAMPLES:
 // List all documents
 list_documents()
 
-// Search document content
-list_documents({ search: "authentication login flow" })
-
 // Keyword-only search
 list_documents({ search: "TODO refactor", searchMode: "fulltext" })
 
-// List owned documents, oldest first
-list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })
+// Search only recently updated documents
+list_documents({ search: "deploy", updatedAfter: "2026-07-01T00:00:00Z" })
 
-// Paginate through results
-list_documents({ limit: 10, offset: 0 })`;
+// List owned documents, oldest first
+list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })`;
 
 const inputSchema = {
   type: 'object',
@@ -115,6 +110,15 @@ const inputSchema = {
         'Max cosine distance for vector search results (0=identical, 1=orthogonal). ' +
         'Lower values return fewer, more relevant results. Default: 0.5. Only applies to semantic/hybrid search.',
     },
+    updatedAfter: {
+      type: 'string',
+      description:
+        'ISO-8601 timestamp. Search path only (requires "search"): admit only documents whose ' +
+        'last-updated time (the updatedAt field on results, also bumped by opening a doc) is ' +
+        'STRICTLY AFTER this instant — filtered inside each search engine before ranking, so ' +
+        'rankings and totals reflect only recent documents. Distinct from updatedSince, which ' +
+        'is list-path only and filters on last content edit. Not combinable with updatedSince.',
+    },
     updatedSince: {
       type: 'string',
       description:
@@ -140,6 +144,12 @@ async function handler(args, agentToken) {
         + 'last-edit time, or filter the search results client-side.'
       );
     }
+    // Feature 017: validate updatedAfter before searching — an unparseable
+    // value is a tool error, never a silently unfiltered result (CN-3).
+    let updatedAfter;
+    if (args.updatedAfter !== undefined) {
+      updatedAfter = search.parseUpdatedAfter(args.updatedAfter, { hasContentSearch: true });
+    }
     const { rows, pagination } = await search.searchDocuments(userId, args.search, {
       mode: args.searchMode,
       filter: args.filter,
@@ -148,6 +158,7 @@ async function handler(args, agentToken) {
       limit: args.limit,
       offset: args.offset,
       distanceThreshold: args.distanceThreshold,
+      updatedAfter,
     });
 
     return {
@@ -164,7 +175,15 @@ async function handler(args, agentToken) {
     };
   }
 
-  // List path: no search query
+  // List path: no search query — updatedAfter is search-only (CN-3): reject
+  // rather than silently ignore a filter the caller believes is applied.
+  if (args.updatedAfter !== undefined) {
+    throw new Error(
+      'updatedAfter requires a content search: provide "search". To filter the '
+      + 'list path by last content edit, use updatedSince.'
+    );
+  }
+
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
     filter: args.filter,
     sortBy: args.sortBy || 'updatedAt',
