@@ -19,6 +19,17 @@ The operating model for design-driven feature work in this repo. You (the orches
 - Decisions Sam hasn't answered get the best default, recorded as **RATIFIED-BY-DEFAULT (Sam pre-authorized, date)** in the feature's `clarifications-needed.md` with question/why/rationale; his later confirmations upgrade them in place. Never block on him; never decide silently.
 - Every feature accumulates `promotion-notes.md` (prototype relaxations owed at promotion) — review dispositions land there too.
 
+## Status events (mobile ledger)
+
+The ORCHESTRATOR (you, never subagents) publishes high-level pipeline events to the Pipeline Events doc at https://squiredocs.com/d/60c46c15-61ce-477d-a9a1-f6d42d4384d4 so Sam can track runs from his phone. Rules:
+
+- **Newest first**: insert each event at the TOP of the doc's bullet list (`list.insert(0, [item])` via the Squire MCP modify tool — read `get_tool_documentation({tool:"modify"})` first if you haven't this session).
+- **One line per event**, mobile-readable: `**MM-DD H:MMam/pm PT · NNN-slug** — what happened`. Bold the timestamp+feature lead-in. Timestamps are ALWAYS Pacific time (America/Los_Angeles — use `TZ=America/Los_Angeles date` to get it right, don't hand-convert).
+- **High-level only** — stage transitions, not activity: pipeline started, design amendment committed, spec complete, plan/analyze complete (+ gate result), spec artifacts committed, implementer started/finished, merge queue green/red, review findings count, fixes landed, pipeline complete. Roughly one event per pipeline stage per feature; never per-task or per-file noise.
+- Publish the event at the moment the stage transition happens (e.g. right after spawning the implementer, right after the merge-queue verification finishes) — the doc is Sam's live view, not an end-of-run report.
+- Failures and stops are events too (`merge queue RED: backend suite failing`, `analyze gate STOPPED the line: 2 HIGH findings`) — bad news lands in the ledger before Sam has to ask.
+- Publishing must never block the pipeline: if the MCP write fails, note it in your next status message to Sam and move on.
+
 ## The feature pipeline (new specs and converges)
 
 1. **Spec** (Fable agent): follows the speckit-specify skill with the parallel-safe overrides below. Returns a summary + its recorded decisions.
