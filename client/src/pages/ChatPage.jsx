@@ -19,7 +19,7 @@ import './ChatPage.css';
 function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToDoc, onNavigateBack, initialDocGuid }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
-  const { accentColor } = useByok();
+  const { accentColor, canAttachImages, activeModelLabel } = useByok();
   const chatFont = useChatFontScale();
   const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -168,6 +168,8 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
                 saveChatDraft={saveChatDraft}
                 pendingRefs={pendingRefs}
                 onRemoveRef={removeSelectionRef}
+                canAttachImages={canAttachImages}
+                imageModelLabel={activeModelLabel}
               />
             </div>
           </>

@@ -14,6 +14,7 @@ jest.mock('../s3-images', () => ({
   isEnabled: () => mockS3Enabled,
   putObject: (...a) => mockPutObject(...a),
   getObject: jest.fn(async (key) => Buffer.from('BYTES::' + key)),
+  getSignedGetUrl: jest.fn(async (key) => `https://s3.example/signed/${key}?sig=abc`),
   cspImageSources: () => [],
 }));
 
@@ -107,6 +108,58 @@ describe('chat attachments — upload endpoint (FR-016/019)', () => {
       .send({ data: PNG, mediaType: 'image/png' });
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ error: 'Image storage is not configured' });
+  });
+});
+
+describe('chat attachments — resolve endpoint (transcript display)', () => {
+  const uuid = '33333333-3333-3333-3333-333333333333';
+  const ownedRef = `attachment:chat-attachments/user-42/${uuid}`;
+
+  beforeEach(() => { mockS3Enabled = true; s3Images.getSignedGetUrl.mockClear(); });
+
+  it('resolves an owned reference to a presigned URL (no-store)', async () => {
+    const res = await request(buildApp())
+      .get('/api/chat/attachments/resolve')
+      .query({ ref: ownedRef })
+      .set('x-test-user', 'user-42');
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBe(`https://s3.example/signed/chat-attachments/user-42/${uuid}?sig=abc`);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(s3Images.getSignedGetUrl).toHaveBeenCalledWith(`chat-attachments/user-42/${uuid}`);
+  });
+
+  it("rejects another user's reference with 400 (never signs it)", async () => {
+    const res = await request(buildApp())
+      .get('/api/chat/attachments/resolve')
+      .query({ ref: ownedRef })
+      .set('x-test-user', 'user-other');
+    expect(res.status).toBe(400);
+    expect(s3Images.getSignedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a traversal reference with 400', async () => {
+    const res = await request(buildApp())
+      .get('/api/chat/attachments/resolve')
+      .query({ ref: `attachment:chat-attachments/user-42/../user-victim/${uuid}` })
+      .set('x-test-user', 'user-42');
+    expect(res.status).toBe(400);
+    expect(s3Images.getSignedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing/blank ref with 400', async () => {
+    const res = await request(buildApp())
+      .get('/api/chat/attachments/resolve')
+      .set('x-test-user', 'user-42');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 503 when S3 is unconfigured', async () => {
+    mockS3Enabled = false;
+    const res = await request(buildApp())
+      .get('/api/chat/attachments/resolve')
+      .query({ ref: ownedRef })
+      .set('x-test-user', 'user-42');
+    expect(res.status).toBe(503);
   });
 });
 

@@ -17,7 +17,7 @@ const MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i;
 const isMarkdownFile = (f) => MARKDOWN_EXTENSIONS.test(f.name || '') || f.type === 'text/markdown';
 const MAX_MARKDOWN_SIZE = 5 * 1024 * 1024; // server-side import cap (MAX_IMPORT_BYTES)
 
-const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed, chatId, getChatDraft, saveChatDraft, pendingRefs, onRemoveRef }, ref) {
+const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreaming, placeholder, autoFocus, draftText, onDraftConsumed, draftFiles, onDraftFilesConsumed, chatId, getChatDraft, saveChatDraft, pendingRefs, onRemoveRef, canAttachImages = true, imageModelLabel = null }, ref) {
   // Seed from the persisted per-chat draft so unsent input survives a panel
   // close/reopen or a chat switch (this component unmounts in both cases). The
   // parent keys us by chatId, so each chat mounts its own instance and these
@@ -61,7 +61,18 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
 
   const processFiles = useCallback((fileList) => {
     setFileError(null);
-    const files = Array.from(fileList);
+    let files = Array.from(fileList);
+    // Gate image attachments when the active model is text-only (e.g. GLM):
+    // sending an image makes the provider reject the whole turn, so drop the
+    // images up front, attach any remaining (non-image) files, and explain why.
+    if (!canAttachImages && files.some(f => f.type?.startsWith('image/'))) {
+      const who = imageModelLabel
+        ? `${imageModelLabel} can't read images`
+        : "The selected model can't read images";
+      setFileError(`${who}. Switch to a vision-capable model in Settings to attach images.`);
+      files = files.filter(f => !f.type?.startsWith('image/'));
+      if (files.length === 0) return;
+    }
     const accepted = files.filter(f => isMarkdownFile(f) || ACCEPTED_TYPES.includes(f.type));
     if (accepted.length === 0 && files.length > 0) {
       setFileError('Unsupported file type. Supported: Markdown, images, PDF, TXT, CSV.');
@@ -99,7 +110,7 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
       };
       reader.readAsDataURL(file);
     });
-  }, [pendingFiles.length]);
+  }, [pendingFiles.length, canAttachImages, imageModelLabel]);
 
   const removeFile = useCallback((index) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index));

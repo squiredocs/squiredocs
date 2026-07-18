@@ -309,6 +309,51 @@ describe('AiChatInput', () => {
     ]));
   });
 
+  it('blocks image attachment when the model is text-only, naming the model', async () => {
+    const ref = createRef();
+    const { container } = render(
+      <AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} canAttachImages={false} imageModelLabel="GLM-5.2" />
+    );
+
+    const file = createMockFile('shot.png', 1024, 'image/png');
+    ref.current.addFiles([file]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent(
+        "GLM-5.2 can't read images. Switch to a vision-capable model in Settings to attach images."
+      );
+    });
+    // The image is not attached as a preview.
+    expect(screen.queryByAltText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('still attaches non-image files on a text-only model (drops only the image)', async () => {
+    const ref = createRef();
+    const { container } = render(
+      <AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} canAttachImages={false} imageModelLabel="GLM-5.2" />
+    );
+
+    const img = createMockFile('shot.png', 1024, 'image/png');
+    const pdf = createMockFile('report.pdf', 1024, 'application/pdf');
+    ref.current.addFiles([img, pdf]);
+
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-preview-filename')).toHaveTextContent('report.pdf');
+    });
+    expect(screen.queryByAltText('shot.png')).not.toBeInTheDocument();
+    expect(container.querySelector('.ai-chat-file-error')).toHaveTextContent("can't read images");
+  });
+
+  it('allows image attachment by default (canAttachImages defaults true)', async () => {
+    const ref = createRef();
+    render(<AiChatInput ref={ref} onSend={onSend} onStop={onStop} isStreaming={false} />);
+
+    ref.current.addFiles([createMockFile('ok.png', 1024, 'image/png')]);
+    await waitFor(() => {
+      expect(screen.getByAltText('ok.png')).toBeInTheDocument();
+    });
+  });
+
   it('handles paste with image files', () => {
     const { container } = render(<AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} />);
     const textarea = screen.getByRole('textbox');

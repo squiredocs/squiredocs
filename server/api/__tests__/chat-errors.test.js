@@ -29,6 +29,14 @@ describe('chat-errors classify()', () => {
       expect(s).toMatchObject({ code: CODES.RATE_LIMITED, status: 429, notifyOperator: false });
     });
 
+    test('image on a text-only model → model_no_image_support 400, provider carried, no page', () => {
+      const s = classify(null, { isImageUnsupported: true, providerId: 'openrouter' });
+      expect(s).toMatchObject({ code: CODES.MODEL_NO_IMAGE_SUPPORT, status: 400, provider: 'openrouter', notifyOperator: false });
+      // A model that can't see images is a user-fixable, honest failure — the
+      // payload must not leak into the operator-page path.
+      expect(s.notifyAdminCredit).toBe(false);
+    });
+
     test('usage limit wins over a provider signal', () => {
       const s = classify(billing(400, 'credit balance is too low'), { isUsageLimit: true, isByok: false, providerId: 'anthropic' });
       expect(s.code).toBe(CODES.APP_USAGE_LIMIT);
@@ -107,6 +115,7 @@ describe('chat-errors classify()', () => {
         byok_misconfigured: 400,
         rate_limited: 429,
         provider_overloaded: 429,
+        model_no_image_support: 400,
         internal: 500,
       });
     });

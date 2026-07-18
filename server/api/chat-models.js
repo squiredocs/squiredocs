@@ -59,6 +59,21 @@ const MODEL_DEFS = [
   { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  93, output:  300 }, contextWindow: 1_048_576 },
 ];
 
+// Vision support. Anthropic/Google/OpenAI models all accept image input; the
+// GLM text models (z.ai + OpenRouter) do NOT — sending an image makes the
+// provider reject the whole request (z.ai/OpenRouter: 404 "No endpoints found
+// that support image input"). We gate image attachments on this both in the UI
+// (via getAvailableModels) and server-side (a pre-flight in chat.js) so a
+// text-only model fails honestly instead of as a generic "crash". A `def` may
+// set `supportsImages` explicitly to override (e.g. a future GLM-V); otherwise
+// it's derived from the provider.
+const VISION_PROVIDERS = new Set(['anthropic', 'google', 'openai']);
+for (const def of MODEL_DEFS) {
+  if (def.supportsImages === undefined) {
+    def.supportsImages = VISION_PROVIDERS.has(def.provider);
+  }
+}
+
 // Cached default provider clients (server-pool key from env), keyed by provider.
 const _providers = {};
 
@@ -231,6 +246,7 @@ function getAvailableModels() {
     label: def.label,
     provider: def.provider,
     modelId: def.modelId,
+    supportsImages: def.supportsImages,
   }));
 }
 

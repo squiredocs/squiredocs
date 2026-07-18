@@ -491,6 +491,21 @@ async function inlineDataUrls(modelMessages, userId) {
  * @param {string} userId
  * @returns {Promise<Array<{filename: string|null, mediaType: string, dataBase64: string}>>}
  */
+/**
+ * Cheap check for whether the incoming user message carries any image
+ * attachment — scans file parts by mediaType without fetching any bytes. Used
+ * for the text-only-model pre-flight, so we can reject before an S3 fetch or a
+ * provider call.
+ * @param {object} message
+ * @returns {boolean}
+ */
+function messageHasImage(message) {
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  return parts.some(
+    (p) => p?.type === 'file' && typeof p.mediaType === 'string' && p.mediaType.startsWith('image/'),
+  );
+}
+
 async function extractMessageImages(message, userId) {
   const parts = Array.isArray(message?.parts) ? message.parts : [];
   const images = [];
@@ -749,6 +764,18 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     const caps = getProviderConfig(def.provider).capabilities;
 
     console.log(`[Chat API] Using model: ${def.key} (${def.modelId})`);
+
+    // Pre-flight: a text-only model can't accept image attachments. Reject
+    // honestly here BEFORE any S3 fetch or provider call — otherwise the provider
+    // 404s the whole stream (z.ai/OpenRouter GLM: "No endpoints found that
+    // support image input"), which falls through to a generic `internal` error
+    // and pages the operator. The client also gates image attachment on the
+    // model's supportsImages flag; this is the server-side backstop.
+    if (!def.supportsImages && messageHasImage(message)) {
+      releaseReservation();
+      cleanupEntry();
+      return sendClassifiedError(classify(null, { isImageUnsupported: true, providerId }));
+    }
 
     // Per-doc baseline clock the agent has observed, populated below once the
     // message history is parsed. Passed by reference so modify's conflict guard

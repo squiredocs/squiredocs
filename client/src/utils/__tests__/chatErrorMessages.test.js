@@ -12,7 +12,8 @@ import {
 
 const ALL_CODES = [
   'app_usage_limit', 'byok_insufficient_credits', 'byok_invalid_key',
-  'byok_misconfigured', 'rate_limited', 'provider_overloaded', 'internal',
+  'byok_misconfigured', 'rate_limited', 'provider_overloaded',
+  'model_no_image_support', 'internal',
 ];
 
 describe('MESSAGES map', () => {
@@ -114,6 +115,15 @@ describe('parseChatError', () => {
     // must NOT resolve to app_usage_limit.
     const parsed = parseChatError(new Error('the AI usage limit reached message'));
     expect(parsed.code).toBe('internal');
+  });
+
+  it('model_no_image_support is fatal, non-retryable, and points at Settings', () => {
+    const parsed = parseChatError({ code: 'model_no_image_support', provider: 'openrouter' });
+    expect(parsed.code).toBe('model_no_image_support');
+    expect(parsed.text).toContain("can't read images");
+    expect(FATAL_CODES.has('model_no_image_support')).toBe(true);
+    expect(RETRYABLE_CODES.has('model_no_image_support')).toBe(false);
+    expect(MESSAGES.model_no_image_support.action).toBe('settings');
   });
 
   it('reads status when present on the error', () => {

@@ -27,6 +27,7 @@ const CODES = {
   BYOK_MISCONFIGURED: 'byok_misconfigured',
   RATE_LIMITED: 'rate_limited',
   PROVIDER_OVERLOADED: 'provider_overloaded',
+  MODEL_NO_IMAGE_SUPPORT: 'model_no_image_support',
   INTERNAL: 'internal',
 };
 
@@ -40,6 +41,7 @@ const STATUS_BY_CODE = {
   [CODES.BYOK_MISCONFIGURED]: 400,
   [CODES.RATE_LIMITED]: 429,
   [CODES.PROVIDER_OVERLOADED]: 429,
+  [CODES.MODEL_NO_IMAGE_SUPPORT]: 400,
   [CODES.INTERNAL]: 500,
 };
 
@@ -60,6 +62,7 @@ const DEFAULT_MESSAGES = {
   [CODES.BYOK_MISCONFIGURED]: 'Your AI model or key is not set up correctly. Fix it in Settings.',
   [CODES.RATE_LIMITED]: 'You are sending messages too fast. Wait a few seconds and try again.',
   [CODES.PROVIDER_OVERLOADED]: 'The AI provider is busy right now. Try again in a moment.',
+  [CODES.MODEL_NO_IMAGE_SUPPORT]: "The selected model can't read images. Switch to a vision-capable model in Settings, or remove the image.",
   [CODES.INTERNAL]: 'Something went wrong generating a response. Try again.',
 };
 
@@ -105,6 +108,7 @@ function providerRetryAfter(err) {
  * @param {boolean} [ctx.isUsageLimit]      Pre-flight in-app quota exhausted.
  * @param {boolean} [ctx.isRateLimited]     App per-user request/concurrency limit tripped.
  * @param {boolean} [ctx.isByokMisconfigured] BYOK on but key/model unresolvable.
+ * @param {boolean} [ctx.isImageUnsupported]  The turn attached an image but the resolved model is text-only.
  * @returns {{ code, status, error, provider?, notifyOperator, notifyAdminCredit, trueCause?, retryAfterSec? }}
  */
 function classify(err, ctx = {}) {
@@ -114,11 +118,17 @@ function classify(err, ctx = {}) {
     isUsageLimit = false,
     isRateLimited = false,
     isByokMisconfigured = false,
+    isImageUnsupported = false,
   } = ctx;
 
   // 1. App-level, pre-provider conditions — no provider signal needed.
   if (isUsageLimit) {
     return finalize(CODES.APP_USAGE_LIMIT, { notifyAdminCredit: true });
+  }
+  if (isImageUnsupported) {
+    // Caught before the provider call (a text-only model + an image attachment):
+    // an honest, fatal user error — not a server fault, so no operator page.
+    return finalize(CODES.MODEL_NO_IMAGE_SUPPORT, { provider: providerId });
   }
   if (isByokMisconfigured) {
     return finalize(CODES.BYOK_MISCONFIGURED, { provider: providerId });

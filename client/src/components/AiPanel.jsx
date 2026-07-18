@@ -220,7 +220,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
             greeting={getGreeting(user?.name)} accentColor={accentColor}
             onDocLinkClick={handleDocLinkClick}
           />
-          <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} pendingRefs={pendingRefs} onRemoveRef={removeSelectionRef} />
+          <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} pendingRefs={pendingRefs} onRemoveRef={removeSelectionRef} canAttachImages={byok.canAttachImages} imageModelLabel={byok.activeModelLabel} />
         </>
       )}
     </WrapperTag>

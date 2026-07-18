@@ -419,6 +419,46 @@ describe('AiChatMessages', () => {
     expect(container.querySelector('.ai-chat-image')).not.toBeInTheDocument();
   });
 
+  it('resolves an attachment: reference to a presigned URL before rendering', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValueOnce({ data: { url: 'https://s3.example/signed/x?sig=1' } });
+    const messages = [makeMsg({
+      role: 'user',
+      content: '',
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: 'attachment:chat-attachments/u/11111111-1111-1111-1111-111111111111', filename: 'shot.png' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+
+    // Placeholder first (no browsable URL yet), then the resolved <img>.
+    expect(container.querySelector('.ai-chat-image--loading')).toBeInTheDocument();
+    await waitFor(() => {
+      const img = container.querySelector('img.ai-chat-image');
+      expect(img).toBeInTheDocument();
+      expect(img.getAttribute('src')).toBe('https://s3.example/signed/x?sig=1');
+    });
+    expect(mockGet).toHaveBeenCalledWith('/api/chat/attachments/resolve', {
+      params: { ref: 'attachment:chat-attachments/u/11111111-1111-1111-1111-111111111111' },
+    });
+  });
+
+  it('shows an "Image unavailable" placeholder when a reference fails to resolve', async () => {
+    mockGet.mockReset();
+    mockGet.mockRejectedValueOnce(new Error('403'));
+    const messages = [makeMsg({
+      role: 'user',
+      content: '',
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: 'attachment:chat-attachments/u/22222222-2222-2222-2222-222222222222', filename: 'x.png' },
+      ],
+    })];
+    const { container } = render(<AiChatMessages messages={messages} status="ready" />);
+    await waitFor(() => {
+      expect(container.querySelector('.ai-chat-image--error')).toBeInTheDocument();
+    });
+  });
+
   // --------------- Document list (list_documents) ---------------
 
   it('renders document list with links when list_documents completes', () => {

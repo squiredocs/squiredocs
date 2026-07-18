@@ -955,6 +955,22 @@
   border: 1px solid color-mix(in srgb, var(--on-accent) 20%, transparent);
 }
 
+/* Placeholders shown while an uploaded image resolves to a presigned URL, or if
+   it can't be loaded. Sized in the image's ballpark so the bubble doesn't jump. */
+.ai-chat-image--loading,
+.ai-chat-image--error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  min-height: 80px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--on-accent) 12%, transparent);
+  font-size: var(--text-sm);
+  cursor: default;
+}
+
 .ai-chat-file-badge {
   display: inline-flex;
   align-items: center;

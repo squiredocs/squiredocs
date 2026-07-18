@@ -57,6 +57,10 @@ export const MESSAGES = {
     text: "You're sending messages too fast. Wait a few seconds and try again.",
     action: 'wait',
   },
+  model_no_image_support: {
+    text: "The selected model can't read images. Switch to a vision-capable model in Settings, or remove the image.",
+    action: 'settings',
+  },
   internal: {
     text: 'Something went wrong generating a response. Try again.',
     action: 'retry',
@@ -72,6 +76,7 @@ export const FATAL_CODES = new Set([
   'byok_misconfigured',
   'rate_limited',
   'provider_overloaded',
+  'model_no_image_support',
 ]);
 
 // Only these render a Retry button (D4). Others show their fixing action; the

@@ -825,6 +825,47 @@ function AssistantBubble({ groups, isLoading, citations, messageId }) {
   );
 }
 
+// Uploaded chat images carry an opaque `attachment:<key>` reference (feature
+// 010) instead of a browsable URL, to keep request bodies and stored messages
+// small. It isn't loadable by a bare <img src>, so resolve it to a short-lived
+// presigned S3 URL via an authenticated request first — mirroring ImageNodeView
+// for document images. data:/http URLs (legacy inline attachments) render as-is.
+const ATTACHMENT_SCHEME = 'attachment:';
+
+function ChatImage({ url, filename }) {
+  const { api } = useAuth();
+  const isRef = typeof url === 'string' && url.startsWith(ATTACHMENT_SCHEME);
+  const [resolvedSrc, setResolvedSrc] = useState(isRef ? null : url);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(false);
+    if (!isRef) { setResolvedSrc(url); return undefined; }
+    setResolvedSrc(null);
+    api.get('/api/chat/attachments/resolve', { params: { ref: url } })
+      .then((res) => { if (!cancelled) setResolvedSrc(res.data.url); })
+      .catch(() => { if (!cancelled) setError(true); });
+    return () => { cancelled = true; };
+  }, [url, isRef, api]);
+
+  if (error) {
+    return <div className="ai-chat-image ai-chat-image--error">⚠ Image unavailable</div>;
+  }
+  if (!resolvedSrc) {
+    return <div className="ai-chat-image ai-chat-image--loading">Loading image…</div>;
+  }
+  return (
+    <img
+      src={resolvedSrc}
+      alt={filename || 'Attached image'}
+      className="ai-chat-image"
+      onClick={() => window.open(resolvedSrc)}
+      onError={() => setError(true)}
+    />
+  );
+}
+
 /**
  * A single chat message (assistant bubble or user bubble), memoized so that a
  * streaming token — which replaces only the last message's object — re-renders
@@ -880,7 +921,7 @@ const MessageItem = React.memo(function MessageItem({ message, isLoading }) {
           <div className="ai-chat-images">
             {fileParts.map((fp, i) =>
               isImageType(fp.mediaType) ? (
-                <img key={i} src={fp.url} alt={fp.filename || 'Attached image'} className="ai-chat-image" onClick={() => window.open(fp.url)} />
+                <ChatImage key={i} url={fp.url} filename={fp.filename} />
               ) : (
                 <div key={i} className="ai-chat-file-badge">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

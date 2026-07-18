@@ -31,6 +31,27 @@ const ATTACHMENT_BODY_LIMIT = process.env.CHAT_ATTACHMENT_LIMIT || '25mb';
 const MARKDOWN_MIME = 'text/markdown';
 const MAX_MARKDOWN_BYTES = 5 * 1024 * 1024;
 
+// A chat-attachment key is exactly `chat-attachments/<userId>/<uuid>` — mirror of
+// chat.js:attachmentKeyForUser. Requiring the exact shape rejects traversal and
+// extra segments, and scopes resolution to the owner (feature 010 review F7).
+const ATTACHMENT_SCHEME = 'attachment:';
+const ATTACHMENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function attachmentKeyForUser(ref, userId) {
+  if (typeof ref !== 'string' || !ref.startsWith(ATTACHMENT_SCHEME)) return null;
+  const key = ref.slice(ATTACHMENT_SCHEME.length);
+  const segs = key.split('/');
+  if (
+    segs.length !== 3 ||
+    segs[0] !== 'chat-attachments' ||
+    segs[1] !== userId ||
+    !ATTACHMENT_UUID_RE.test(segs[2])
+  ) {
+    return null;
+  }
+  return key;
+}
+
 function createChatAttachmentsRouter() {
   const router = express.Router();
   const parseBody = express.json({ limit: ATTACHMENT_BODY_LIMIT });
@@ -93,6 +114,32 @@ function createChatAttachmentsRouter() {
       console.error('[ChatAttachments] upload failed:', err);
       notifyException(err, { req, source: 'chat-attachments' });
       return res.status(500).json({ error: 'Failed to store attachment' });
+    }
+  });
+
+  // GET /api/chat/attachments/resolve?ref=attachment:<key> — resolve an uploaded
+  // attachment reference to a short-lived presigned S3 URL so the transcript can
+  // display it. A bare `<img src>` can't carry the Bearer token and the stored
+  // reference isn't a browsable URL, so the client resolves it here first
+  // (mirrors the document-image path: GET .../images/:id → { url }). Ownership is
+  // enforced by the userId encoded in the key (FR-016), so a user can only
+  // resolve attachments they uploaded.
+  router.get('/api/chat/attachments/resolve', requireAuth, async (req, res) => {
+    if (!s3Images.isEnabled()) {
+      return res.status(503).json({ error: 'Image storage is not configured' });
+    }
+    const key = attachmentKeyForUser(req.query?.ref, req.user.userId);
+    if (!key) {
+      return res.status(400).json({ error: 'Invalid or inaccessible attachment reference' });
+    }
+    try {
+      const url = await s3Images.getSignedGetUrl(key);
+      res.set('Cache-Control', 'no-store');
+      return res.json({ url });
+    } catch (err) {
+      console.error('[ChatAttachments] resolve failed:', err);
+      notifyException(err, { req, source: 'chat-attachments' });
+      return res.status(500).json({ error: 'Failed to resolve attachment' });
     }
   });
 

@@ -52,8 +52,19 @@ export function ByokProvider({ children }) {
 
   const accentColor = settings?.enabled ? '#312e81' : '#7c3aed';
 
+  // The active chat model — only meaningful when BYOK is on (otherwise the chat
+  // uses the shared server default, which is always a vision-capable provider).
+  // The text-only models (GLM) are all BYOK-only, so gating image attachment on
+  // the BYOK-selected model covers every text-only case.
+  const activeModel = settings?.enabled && settings?.modelKey
+    ? (settings.models || []).find((m) => m.key === settings.modelKey) || null
+    : null;
+  // Allow images unless BYOK selected a model explicitly flagged as text-only.
+  const canAttachImages = !activeModel || activeModel.supportsImages !== false;
+  const activeModelLabel = activeModel?.label || null;
+
   return (
-    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey, accentColor }}>
+    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey, accentColor, canAttachImages, activeModelLabel }}>
       {children}
     </ByokContext.Provider>
   );
