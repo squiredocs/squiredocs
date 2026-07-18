@@ -47,9 +47,6 @@ const inputSchema = {
 async function handler(args, agentToken) {
   return handleUndoRedo(args, agentToken, persistenceProvider, {
     operationName: 'undo',
-    resultKey: 'undone',
-    canPerform: (um) => um.canUndo(),
-    perform: (um) => um.undo(),
   });
 }
 

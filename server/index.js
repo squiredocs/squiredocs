@@ -1287,12 +1287,17 @@ app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
 // API: Undo / Redo the chat assistant's last edit to a document.
 //
 // Unlike restore (which reverts to a point in time and discards later edits),
-// these drive the in-app chat assistant's own Y.UndoManager — the same session
-// manager its `modify` tool edited through — so they perform a true surgical
-// inverse. We rebuild the assistant's synthetic agent token (same user + agent
-// id) so executeTool lands on that exact session. Returns the tool result, e.g.
-// { success, undone|redone, cursor }. `undone:false` means there was nothing on
-// the stack (e.g. the agent session expired since the edit).
+// these derive a true surgical inverse from the durable yjs_updates log
+// (feature 016): the edit's recorded clock range is inverted and applied as a
+// normal forward update. No session is involved — undo works from any
+// instance, at any time, across restarts, and never creates a presence
+// session. We rebuild the assistant's synthetic agent token (same user +
+// agent id) so executeTool resolves the same acting identity the modify was
+// attributed to. Returns the tool result { success, undone|redone, message,
+// clock } — clock is the inverse's new log clock on success, the current max
+// on the honest-empty path (RBD-5). `undone:false` means there was honestly
+// nothing (left) to undo: no recorded edit, fully superseded, or a concurrent
+// request got there first (contracts/http-undo-api.md).
 function makeUndoRedoHandler(toolName, label) {
   return async (req, res) => {
     try {

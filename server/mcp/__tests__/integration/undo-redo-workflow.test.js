@@ -1,8 +1,12 @@
 /**
- * Integration test: modify -> undo -> redo via the MCP tools against a live
- * agent-presence session. Covers the server side of the chat "Undo edit" button,
- * which drives the assistant session's Y.UndoManager (undo/redo tools) — including
- * with a second client (the user's editor) connected to the same document.
+ * Integration: log-derived undo/redo (feature 016, US1/US2/US3/US4).
+ *
+ * The retired flow popped an in-memory session Y.UndoManager; these tests pin
+ * the replacement: undo/redo derive from the durable yjs_updates log via
+ * server/undo/undo-service.js, work with NO live session, from any instance,
+ * across simulated restarts, create zero presence sessions, and never rewrite
+ * history. The WS harness mirrors production bindState: every client-origin
+ * update is persisted per-update with (userId, agentName) attribution.
  */
 const http = require('http');
 const WebSocket = require('ws');
@@ -13,11 +17,17 @@ const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/
 const agentPresence = require('../../agent-presence');
 const documents = require('../../../documents');
 const documentService = require('../../../document-service');
+const { parseOrigin, ORIGIN_DB_LOAD } = require('../../../origin');
+const undoService = require('../../../undo/undo-service');
 
-const mockAgentToken = { userId: null, agentId: 'in-app-chat', agentName: 'Squire Docs Assistant', scopes: ['documents:read', 'documents:write'], rawToken: null };
+const AGENT_NAME = 'Squire Docs Assistant';
+const mockAgentToken = {
+  userId: null, agentId: 'in-app-chat', agentName: AGENT_NAME,
+  scopes: ['documents:read', 'documents:write'], rawToken: null,
+};
 
-describe('Undo/Redo workflow', () => {
-  let pool, persistence, httpServer, wss, testUserId, testDocGuid;
+describe('Log-derived undo/redo workflow', () => {
+  let pool, persistence, httpServer, wss, testUserId;
 
   beforeAll(async () => {
     pool = createPool();
@@ -26,20 +36,29 @@ describe('Undo/Redo workflow', () => {
     setPersistence({
       bindState: async (docName, ydoc) => {
         const g = extractDocGuid(docName);
-        Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(await persistence.getYDoc(g)));
+        ydoc.on('update', (update, origin) => {
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          persistence.storeUpdate(g, update, parsed.userId, parsed.agentName)
+            .catch((e) => console.error('[test bindState] persist failed:', e.message));
+        });
+        Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(await persistence.getYDoc(g)), ORIGIN_DB_LOAD);
       },
-      writeState: async (docName, ydoc) => {
-        await persistence.storeUpdate(extractDocGuid(docName), Y.encodeStateAsUpdate(ydoc));
-      },
+      writeState: async () => {},
     });
     documents.init(pool);
     documentService.init(getYDoc, extractDocGuid);
     toolRegistry.init(persistence);
     agentPresence.init(persistence);
+    undoService.init(persistence);
 
     httpServer = http.createServer();
     wss = new WebSocket.Server({ server: httpServer, verifyClient: () => true });
-    wss.on('connection', (ws, req) => setupWSConnection(ws, req, { gc: false }));
+    wss.on('connection', (ws, req) => {
+      ws.userId = testUserId;
+      ws.agentName = AGENT_NAME;
+      setupWSConnection(ws, req, { gc: false });
+    });
     await new Promise((r) => httpServer.listen(0, () => {
       process.env.WS_PORT = httpServer.address().port;
       process.env.WS_HOST = 'localhost';
@@ -49,27 +68,11 @@ describe('Undo/Redo workflow', () => {
 
     const u = await pool.query(
       `INSERT INTO users (google_id, name, email, picture) VALUES ($1,$2,$3,$4) RETURNING id`,
-      ['g-' + Date.now(), 'T', 't-' + Date.now() + '@e.com', 'x'],
+      ['g-wf-' + Date.now(), 'T', 'wf-' + Date.now() + '@e.com', 'x'],
     );
     testUserId = u.rows[0].id;
     mockAgentToken.userId = testUserId;
     mockAgentToken.rawToken = 'mock-' + Date.now();
-
-    const ydoc = new Y.Doc();
-    const frag = ydoc.get('default', Y.XmlFragment);
-    const p = new Y.XmlElement('paragraph');
-    const t = new Y.XmlText();
-    t.insert(0, 'Original text.');
-    p.insert(0, [t]);
-    frag.insert(0, [p]);
-    const d = await pool.query(
-      `INSERT INTO documents (id, title, creator_id) VALUES (uuid_generate_v4(),$1,$2) RETURNING id`,
-      ['Undo/Redo Test', testUserId],
-    );
-    testDocGuid = d.rows[0].id;
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`, [testDocGuid, testUserId]);
-    await pool.query(`INSERT INTO yjs_updates (doc_guid, clock, update_data, created_at) VALUES ($1,0,$2,NOW())`,
-      [testDocGuid, Buffer.from(Y.encodeStateAsUpdate(ydoc))]);
   });
 
   afterAll(async () => {
@@ -78,79 +81,167 @@ describe('Undo/Redo workflow', () => {
     wss.close();
     await new Promise((r) => httpServer.close(r));
     await new Promise((r) => setTimeout(r, 100));
+    await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [testUserId]);
     await pool.end();
   });
 
-  test('modify -> undo -> redo restores the edit', async () => {
-    const modify = toolRegistry.getTool('modify');
-    const readDoc = toolRegistry.getTool('read_document');
+  async function createDoc(title, initialText = 'Original text.') {
+    const ydoc = new Y.Doc();
+    const frag = ydoc.get('default', Y.XmlFragment);
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, initialText);
+    p.insert(0, [t]);
+    frag.insert(0, [p]);
+    const d = await pool.query(
+      `INSERT INTO documents (id, title, creator_id) VALUES (uuid_generate_v4(),$1,$2) RETURNING id`,
+      [title, testUserId],
+    );
+    const docGuid = d.rows[0].id;
+    await pool.query(
+      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`,
+      [docGuid, testUserId]
+    );
+    await pool.query(
+      `INSERT INTO yjs_updates (doc_guid, clock, update_data, created_at) VALUES ($1,0,$2,NOW())`,
+      [docGuid, Buffer.from(Y.encodeStateAsUpdate(ydoc))]
+    );
+    return docGuid;
+  }
 
+  async function modifyAppend(docGuid, text) {
+    const modify = toolRegistry.getTool('modify');
     const script = `
 export default function edit(doc) {
   const t = doc.get(0).get(0);
-  t.insert(t.length, ' EDITED');
+  t.insert(t.length, ' ${text}');
 }`;
-    const m = await modify.handler({ docGuid: testDocGuid, script }, mockAgentToken);
-    console.log('[undo-redo] modify.changed =', m.changed);
-    expect(m.changed).toBe(true);
+    const result = await modify.handler({ docGuid, script }, mockAgentToken);
+    expect(result.changed).toBe(true);
+    expect(result.editRange).toBeDefined();
+    return result;
+  }
 
-    const after = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
-    console.log('[undo-redo] after modify:', JSON.stringify(after.content || after.text));
+  /** Rebuild the doc from the DB alone — what any other instance would see. */
+  async function dbText(docGuid) {
+    const doc = await persistence.getYDoc(docGuid);
+    const text = doc.get('default', Y.XmlFragment).toString();
+    doc.destroy();
+    return text;
+  }
 
-    const undo = await toolRegistry.executeTool('undo', { docGuid: testDocGuid }, mockAgentToken);
-    console.log('[undo-redo] undo result:', JSON.stringify(undo));
+  async function logDump(docGuid) {
+    const { rows } = await pool.query(
+      'SELECT clock, md5(update_data) AS hash FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock',
+      [docGuid]
+    );
+    return rows;
+  }
+
+  function killSessions() {
+    agentPresence.clearUserSessions(testUserId);
+    expect(agentPresence._sessionsByKey.size).toBe(0);
+  }
+
+  // ---------------------------------------------------------------- US1 ----
+
+  test('undo works with NO live session, creates none, and the inverse row carries the acting identity', async () => {
+    const docGuid = await createDoc('US1 no-session undo');
+    await modifyAppend(docGuid, 'EDITED');
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. EDITED</paragraph>');
+
+    const preRows = await logDump(docGuid);
+    killSessions(); // the session (and the retired UndoManager) are gone
+
+    const sessionsBefore = agentPresence._sessionsByKey.size;
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.success).toBe(true);
     expect(undo.undone).toBe(true);
+    expect(typeof undo.clock).toBe('number');
+    expect(undo.cursor).toBeUndefined(); // RBD-5: cursor retired
 
-    const afterUndo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
-    console.log('[undo-redo] after undo:', JSON.stringify(afterUndo.content || afterUndo.text));
+    // FR-008 / SC-006: zero sessions created or extended by the undo
+    expect(agentPresence._sessionsByKey.size).toBe(sessionsBefore);
 
-    const redo = await toolRegistry.executeTool('redo', { docGuid: testDocGuid }, mockAgentToken);
-    console.log('[undo-redo] redo result:', JSON.stringify(redo));
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
 
-    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
-    console.log('[undo-redo] after redo:', JSON.stringify(afterRedo.content || afterRedo.text));
+    // SC-009: pre-existing rows byte-identical; the log strictly grew
+    const postRows = await logDump(docGuid);
+    expect(postRows.length).toBe(preRows.length + 1);
+    expect(postRows.slice(0, preRows.length)).toEqual(preRows);
 
-    expect(redo.redone).toBe(true);
+    // FR-026: the inverse is a normally-attributed row of the acting identity
+    const inverseRow = await pool.query(
+      'SELECT user_id, agent_name FROM yjs_updates WHERE doc_guid = $1 AND clock = $2',
+      [docGuid, undo.clock]
+    );
+    expect(inverseRow.rows[0].user_id).toBe(testUserId);
+    expect(inverseRow.rows[0].agent_name).toBe(AGENT_NAME);
   });
 
-  test('redo still works while a second client (the user editor) is connected', async () => {
-    const { WebsocketProvider } = require('y-websocket');
-    const modify = toolRegistry.getTool('modify');
-    const readDoc = toolRegistry.getTool('read_document');
+  test('cross-instance: edit through the WS instance, undo through a second instance sharing only the DB (SC-001)', async () => {
+    const docGuid = await createDoc('US1 cross-instance');
+    await modifyAppend(docGuid, 'FROM-A');
+    killSessions();
 
-    // Simulate the user having the document open in the editor: a second Yjs
-    // client connected to the same doc over the WebSocket.
-    const clientDoc = new Y.Doc();
-    const wsUrl = `ws://localhost:${process.env.WS_PORT}`;
-    const provider = new WebsocketProvider(wsUrl, `s/${testDocGuid}`, clientDoc, { WebSocketPolyfill: WebSocket, connect: true });
-    await new Promise((resolve) => {
-      if (provider.synced) return resolve();
-      provider.once('sync', resolve);
-    });
-    await new Promise((r) => setTimeout(r, 200));
+    // "Instance B": its own persistence and its own independently loaded doc.
+    const persistenceB = createPersistence();
+    const liveB = await persistenceB.getYDoc(docGuid);
+    try {
+      const result = await undoService.performUndo(
+        { docGuid, userId: testUserId, agentName: AGENT_NAME },
+        { persistence: persistenceB, getSharedDoc: () => liveB }
+      );
+      expect(result.undone).toBe(true);
+      // B's live doc saw the inverse applied...
+      expect(liveB.get('default', Y.XmlFragment).toString()).toBe('<paragraph>Original text.</paragraph>');
+      // ...and the durable truth reverted for every other instance.
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+    } finally {
+      liveB.destroy();
+      await persistenceB.destroy();
+    }
+  });
 
-    const script = `
-export default function edit(doc) {
-  const t = doc.get(0).get(0);
-  t.insert(t.length, ' SECOND');
-}`;
-    const m = await modify.handler({ docGuid: testDocGuid, script }, mockAgentToken);
-    expect(m.changed).toBe(true);
-    await new Promise((r) => setTimeout(r, 200));
-    console.log('[undo-redo] client sees after modify:', JSON.stringify(clientDoc.get('default', Y.XmlFragment).toString().slice(0, 80)));
+  test('undo after a simulated restart: fresh persistence, no shared doc, zero in-memory state (SC-002)', async () => {
+    const docGuid = await createDoc('US1 restart');
+    await modifyAppend(docGuid, 'BEFORE-RESTART');
+    killSessions();
 
-    const undo = await toolRegistry.executeTool('undo', { docGuid: testDocGuid }, mockAgentToken);
-    console.log('[undo-redo] undo:', JSON.stringify(undo));
-    await new Promise((r) => setTimeout(r, 200));
+    // "Restart": nothing in memory — a brand-new persistence, no live doc at all.
+    const persistenceR = createPersistence();
+    try {
+      const result = await undoService.performUndo(
+        { docGuid, userId: testUserId, agentName: AGENT_NAME },
+        { persistence: persistenceR, getSharedDoc: () => null }
+      );
+      expect(result.undone).toBe(true);
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+    } finally {
+      await persistenceR.destroy();
+    }
+  });
 
-    const redo = await toolRegistry.executeTool('redo', { docGuid: testDocGuid }, mockAgentToken);
-    console.log('[undo-redo] redo:', JSON.stringify(redo));
+  test('undo before the identifier is recorded is honestly empty (RBD-7(b))', async () => {
+    const docGuid = await createDoc('US1 unrecorded');
+    await modifyAppend(docGuid, 'UNRECORDED');
+    // Simulate the pre-durability window: the edit's rows are in the log but
+    // the agent_edits record does not exist (yet).
+    await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+    killSessions();
 
-    const afterRedo = await readDoc.handler({ docGuid: testDocGuid, format: 'markdown' }, mockAgentToken);
-    console.log('[undo-redo] after redo:', JSON.stringify(afterRedo.content || afterRedo.text));
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.success).toBe(true);
+    expect(undo.undone).toBe(false);
+    expect(typeof undo.message).toBe('string');
+    // No inverse was appended; the document is untouched.
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. UNRECORDED</paragraph>');
+  });
 
-    provider.destroy();
-    expect(undo.undone).toBe(true);
-    expect(redo.redone).toBe(true);
+  test('undo on a never-edited doc is honestly empty, not an error', async () => {
+    const docGuid = await createDoc('US1 never edited');
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.success).toBe(true);
+    expect(undo.undone).toBe(false);
   });
 });
