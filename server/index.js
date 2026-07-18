@@ -45,6 +45,7 @@ const chatStore = require('./chat-store');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
+const undoService = require('./undo/undo-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
@@ -1354,11 +1355,15 @@ app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo
 app.post('/api/docs/:docId/redo', requireAuth, makeUndoRedoHandler('redo', 'redo'));
 
 // API: Whether the chat assistant's edit can currently be undone/redone for a
-// document. Peeks the assistant's live presence session (the in-memory
-// Y.UndoManager) without creating one — so the chat UI only shows an undo/redo
-// button while the edit is actually reversible (the session expires a few
-// minutes after the edit, and is lost on disconnect/restart). Returns
-// { canUndo, canRedo }, both false when there's no live session.
+// document. Log-derived (feature 016, FR-019/RBD-6): two indexed agent_edits
+// lookups for the chat-assistant identity (user + CHAT_AGENT_NAME) — no
+// presence-session dependency, peek, or creation of any kind. Availability
+// therefore survives session expiry and server restarts for as long as the
+// edit genuinely remains undoable: the Undo button no longer disappears on
+// session expiry. canUndo is cheap availability, not a supersession proof —
+// a fully superseded edit surfaces the honest "nothing left to undo" at
+// action time and the client re-polls after every action. Returns
+// { canUndo, canRedo }; viewer-role and error responses stay both-false.
 app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
   try {
     const { docId } = req.params;
@@ -1366,7 +1371,11 @@ app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
     if (!role || role === 'viewer') {
       return res.json({ canUndo: false, canRedo: false });
     }
-    res.json(agentPresence.getUndoRedoAvailability(docId, req.user.userId, chat.CHAT_AGENT_ID));
+    res.json(await undoService.getUndoStatus({
+      docGuid: docId,
+      userId: req.user.userId,
+      agentName: chat.CHAT_AGENT_NAME,
+    }));
   } catch (error) {
     console.error('Error checking undo status:', error);
     res.json({ canUndo: false, canRedo: false });

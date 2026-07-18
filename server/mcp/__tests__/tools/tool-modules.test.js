@@ -229,6 +229,33 @@ describe('Tool Registry Integration', () => {
     expect(toolList.length).toBe(expectedTools.length);
   });
 
+  describe('undo/redo descriptions match the log-derived behavior (feature 016, FR-022/FR-023)', () => {
+    // The MCP surface stays at 16 tools; only undo/redo behavior and
+    // descriptions changed. Drift between description and behavior is a bug.
+    ['undo', 'redo'].forEach((name) => {
+      test(`${name} no longer promises cursor restoration`, () => {
+        const tool = require(`../../tools/${name}`);
+        expect(tool.description.toLowerCase()).not.toContain('cursor');
+      });
+
+      test(`${name} describes log-derived, per-identity, restart-surviving behavior`, () => {
+        const tool = require(`../../tools/${name}`);
+        const d = tool.description.toLowerCase();
+        expect(d).toContain('restart'); // survives restarts / session expiry
+        expect(d).toMatch(/your own|own edits|this agent/); // per-identity scoping
+        expect(d).toMatch(/preserved|untouched/); // surgical later-edits-preserved
+        expect(d).toContain('clock'); // the RBD-5 result field
+      });
+
+      test(`${name} keeps its schema and name (FR-022)`, () => {
+        const tool = require(`../../tools/${name}`);
+        expect(tool.name).toBe(name);
+        expect(tool.inputSchema.required).toEqual(['docGuid']);
+        expect(Object.keys(tool.inputSchema.properties)).toEqual(['docGuid']);
+      });
+    });
+  });
+
   test('getTool returns correct tool module', () => {
     const toolRegistry = require('../../tools/index');
 

@@ -4,7 +4,9 @@
  * Spawns a worker thread to execute user scripts in a separate V8 isolate,
  * then applies incremental Y.Doc updates back to the live document.
  * Preserves real-time streaming: cursor animations, highlight sequences,
- * and atomic undo (all updates grouped into one undo step).
+ * and atomic error rollback (all of one execution's updates grouped into one
+ * stack item on a transient, execution-scoped UndoManager — the
+ * session-lifetime UndoManager is retired; feature 016).
  */
 
 const { Worker } = require('worker_threads');
@@ -22,7 +24,7 @@ const TIMEOUT_GRACE_MS = 2000;
  * Execute compiled JavaScript in an isolated worker thread
  *
  * @param {string} jsCode - Compiled JavaScript code
- * @param {object} session - Agent session (contains provider, ydoc, sessionId, undoManager)
+ * @param {object} session - Agent session (contains provider, ydoc, sessionId)
  * @param {Y.XmlFragment} xmlFragment - Live document fragment to edit
  * @param {object} options - Execution options
  * @param {number} [options.timeout=5000] - Execution timeout in milliseconds
@@ -40,22 +42,19 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
     // 1. Encode snapshot of current document state
     const snapshot = Y.encodeStateAsUpdate(ydoc);
 
-    // 2. Configure UndoManager for undo grouping
-    //    All incremental updates from the worker will be tagged with sandboxOrigin
-    //    and merged into a single undo step.
+    // 2. Rollback manager: a TRANSIENT Y.UndoManager scoped to this execution
+    //    only. The session-lifetime UndoManager is retired (feature 016 —
+    //    undo/redo are log-derived), but modify's atomicity contract stands:
+    //    every incremental update from the worker is tagged with this
+    //    execution's sandboxOrigin and merged into ONE stack item, so a script
+    //    error or timeout rolls the whole edit back as a unit. The manager is
+    //    destroyed in cleanup — it never outlives the call, and it can never
+    //    merge with (or revert) an earlier modify's changes.
     const sandboxOrigin = 'sandbox-exec-' + Date.now();
-    const undoManager = session.undoManager;
-    undoManager.addTrackedOrigin(sandboxOrigin);
-
-    // Extend captureTimeout so all incremental updates merge into one undo step
-    const originalCaptureTimeout = undoManager.captureTimeout;
-    undoManager.captureTimeout = timeout + TIMEOUT_GRACE_MS + 5000;
-
-    // Close the previous capture group so this script's changes cannot merge
-    // into an earlier modify's undo step (the stretched captureTimeout would
-    // otherwise merge modify calls made within ~12s of each other, and a
-    // rollback here would revert the earlier successful edit too).
-    undoManager.stopCapturing();
+    const undoManager = new Y.UndoManager(xmlFragment, {
+      trackedOrigins: new Set([sandboxOrigin]),
+      captureTimeout: timeout + TIMEOUT_GRACE_MS + 5000,
+    });
 
     // Track total operation count from streamed messages
     let totalOperationCount = 0;
@@ -103,8 +102,7 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
     // Cleanup helper
     function cleanup() {
       clearTimeout(timeoutTimer);
-      undoManager.captureTimeout = originalCaptureTimeout;
-      undoManager.removeTrackedOrigin(sandboxOrigin);
+      undoManager.destroy();
       mutationAggregator.destroy();
     }
 

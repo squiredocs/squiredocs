@@ -15,11 +15,12 @@ describe('modify Integration', () => {
     xmlFragment = ydoc.get('default', Y.XmlFragment);
 
     // Mock session object
+    // No session undoManager: undo/redo are log-derived (feature 016) and
+    // script-error rollback uses a transient manager inside the bridge.
     mockSession = {
       provider: {
         doc: ydoc,
       },
-      undoManager: new Y.UndoManager(xmlFragment),
       sessionId: 'test-session-123',
     };
   });
@@ -504,7 +505,7 @@ describe('modify Integration', () => {
       expect(result.error).toContain('compilation');
     });
 
-    test('changes are atomic (undo manager)', async () => {
+    test('changes are atomic (single grouped edit; no session undo manager required)', async () => {
       const script = `
         export default function edit(doc) {
           const p1 = new Y.XmlElement('paragraph');
@@ -518,15 +519,10 @@ describe('modify Integration', () => {
         timeout: 5000,
       });
 
+      // All three inserts land together; atomicity on error is covered by the
+      // rollback tests below (transient bridge-internal UndoManager) — the
+      // retired session UndoManager is not involved (feature 016).
       expect(result.success).toBe(true);
-      expect(xmlFragment.length).toBe(3);
-
-      // Undo should revert all changes
-      mockSession.undoManager.undo();
-      expect(xmlFragment.length).toBe(0);
-
-      // Redo should restore all changes
-      mockSession.undoManager.redo();
       expect(xmlFragment.length).toBe(3);
     });
 
@@ -918,16 +914,14 @@ describe('modify Integration', () => {
     });
 
     test('rolls back partial changes when schema validation fails', async () => {
-      // Pre-populate with valid content, then recreate UndoManager
-      // so that the pre-populated content is part of the undo baseline
+      // Pre-populate with valid content: the bridge's transient rollback
+      // manager only tracks this execution's own updates, so pre-existing
+      // content is never part of the rollback.
       const para = new Y.XmlElement('paragraph');
       const text = new Y.XmlText();
       text.insert(0, 'Original content');
       para.insert(0, [text]);
       xmlFragment.insert(0, [para]);
-
-      // Recreate UndoManager so baseline includes existing content
-      mockSession.undoManager = new Y.UndoManager(xmlFragment);
 
       const script = `
         export default function edit(doc) {

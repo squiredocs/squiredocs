@@ -21,10 +21,19 @@ const { parseOrigin, ORIGIN_DB_LOAD } = require('../../../origin');
 const undoService = require('../../../undo/undo-service');
 
 const AGENT_NAME = 'Squire Docs Assistant';
+const OTHER_AGENT_NAME = 'Other MCP Agent';
 const mockAgentToken = {
   userId: null, agentId: 'in-app-chat', agentName: AGENT_NAME,
   scopes: ['documents:read', 'documents:write'], rawToken: null,
 };
+const otherAgentToken = {
+  userId: null, agentId: 'other-agent', agentName: OTHER_AGENT_NAME,
+  scopes: ['documents:read', 'documents:write'], rawToken: null,
+};
+
+// rawToken -> identity, so the WS harness attributes each connection's
+// updates like production auth does (ws.userId / ws.agentName).
+const tokenIdentities = new Map();
 
 describe('Log-derived undo/redo workflow', () => {
   let pool, persistence, httpServer, wss, testUserId;
@@ -55,8 +64,10 @@ describe('Log-derived undo/redo workflow', () => {
     httpServer = http.createServer();
     wss = new WebSocket.Server({ server: httpServer, verifyClient: () => true });
     wss.on('connection', (ws, req) => {
-      ws.userId = testUserId;
-      ws.agentName = AGENT_NAME;
+      const token = new URL(req.url, 'http://localhost').searchParams.get('token');
+      const ident = tokenIdentities.get(token) || { userId: testUserId, agentName: AGENT_NAME };
+      ws.userId = ident.userId;
+      ws.agentName = ident.agentName;
       setupWSConnection(ws, req, { gc: false });
     });
     await new Promise((r) => httpServer.listen(0, () => {
@@ -73,6 +84,10 @@ describe('Log-derived undo/redo workflow', () => {
     testUserId = u.rows[0].id;
     mockAgentToken.userId = testUserId;
     mockAgentToken.rawToken = 'mock-' + Date.now();
+    otherAgentToken.userId = testUserId;
+    otherAgentToken.rawToken = 'mock-other-' + Date.now();
+    tokenIdentities.set(mockAgentToken.rawToken, { userId: testUserId, agentName: AGENT_NAME });
+    tokenIdentities.set(otherAgentToken.rawToken, { userId: testUserId, agentName: OTHER_AGENT_NAME });
   });
 
   afterAll(async () => {
@@ -564,5 +579,142 @@ export default function edit(doc) {
     expect(messages[0].parts[0].reverted).toBeUndefined();
 
     await pool.query('DELETE FROM chats WHERE id = $1', [chatId]);
+  });
+
+  // ---------------------------------------------------------------- US4 ----
+
+  test('repeated MCP undo steps back LIFO through the identity\'s edits; redo reapplies most-recently-undone first (FR-017/RBD-4)', async () => {
+    const docGuid = await createDoc('US4 LIFO');
+    await modifyAppend(docGuid, 'ONE');
+    await modifyAppend(docGuid, 'TWO');
+    killSessions();
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. ONE TWO</paragraph>');
+
+    // Undo walks back: TWO first, then ONE, then honest empty.
+    let r = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(r.undone).toBe(true);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. ONE</paragraph>');
+
+    r = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(r.undone).toBe(true);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+
+    r = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(r.success).toBe(true);
+    expect(r.undone).toBe(false); // nothing left — never an error
+    expect(typeof r.message).toBe('string');
+
+    // Redo reapplies most-recently-undone first: ONE, then TWO.
+    r = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(r.redone).toBe(true);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. ONE</paragraph>');
+
+    r = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(r.redone).toBe(true);
+    expect(await dbText(docGuid)).toBe('<paragraph>Original text. ONE TWO</paragraph>');
+
+    r = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(r.success).toBe(true);
+    expect(r.redone).toBe(false);
+  });
+
+  test('identity scoping: an agent can only revert its own rows, never a human\'s or another agent\'s (FR-024)', async () => {
+    const docGuid = await createDoc('US4 identity scope');
+    // Human edit, then edits by two different agent identities of the SAME user.
+    await humanEdit(docGuid, (d, f) => f.get(0).get(0).insert(14, ' HUMAN'));
+    await modifyAppend(docGuid, 'CHAT-AGENT');
+    killSessions();
+
+    const modify = toolRegistry.getTool('modify');
+    const otherScript = `
+export default function edit(doc) {
+  const t = doc.get(0).get(0);
+  t.insert(t.length, ' OTHER-AGENT');
+}`;
+    const om = await modify.handler({ docGuid, script: otherScript }, otherAgentToken);
+    expect(om.changed).toBe(true);
+    agentPresence.clearUserSessions(testUserId);
+
+    // The OTHER agent's undo reverts ONLY its own edit...
+    let r = await toolRegistry.executeTool('undo', { docGuid }, otherAgentToken);
+    expect(r.undone).toBe(true);
+    let text = await dbText(docGuid);
+    expect(text).not.toContain('OTHER-AGENT');
+    expect(text).toContain('CHAT-AGENT'); // chat agent's edit untouched
+    expect(text).toContain('HUMAN'); // human edit untouched
+
+    // ...and with its own edit undone, it has nothing else to undo — it can
+    // never step onto the chat agent's or the human's rows.
+    r = await toolRegistry.executeTool('undo', { docGuid }, otherAgentToken);
+    expect(r.undone).toBe(false);
+
+    // The chat agent's own stack is intact and scoped the same way.
+    r = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(r.undone).toBe(true);
+    text = await dbText(docGuid);
+    expect(text).not.toContain('CHAT-AGENT');
+    expect(text).toContain('HUMAN');
+  });
+
+  test('viewer-role token is refused on undo and redo (FR-025) — with zero sessions created', async () => {
+    // A second user with only viewer access.
+    const v = await pool.query(
+      `INSERT INTO users (google_id, name, email, picture) VALUES ($1,$2,$3,$4) RETURNING id`,
+      ['g-viewer-' + Date.now(), 'V', 'viewer-' + Date.now() + '@e.com', 'x'],
+    );
+    const viewerId = v.rows[0].id;
+    const viewerToken = {
+      userId: viewerId, agentId: 'viewer-agent', agentName: 'Viewer Agent',
+      scopes: ['documents:read', 'documents:write'], rawToken: 'viewer-' + Date.now(),
+    };
+    const docGuid = await createDoc('US4 viewer refused');
+    await pool.query(
+      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'viewer')`,
+      [docGuid, viewerId]
+    );
+
+    const before = agentPresence._sessionsByKey.size;
+    await expect(toolRegistry.executeTool('undo', { docGuid }, viewerToken))
+      .rejects.toThrow(/editor access/);
+    await expect(toolRegistry.executeTool('redo', { docGuid }, viewerToken))
+      .rejects.toThrow(/editor access/);
+    expect(agentPresence._sessionsByKey.size).toBe(before);
+
+    await pool.query('DELETE FROM users WHERE id = $1', [viewerId]);
+  });
+
+  test('surface parity: the same sequence through MCP tools and through the chat endpoints yields identical states (SC-008)', async () => {
+    const request = require('supertest');
+    const express = require('express');
+    const app = express();
+    app.use(express.json());
+    const makeHandler = (toolName) => async (req, res) => {
+      const result = await toolRegistry.executeTool(toolName, { docGuid: req.params.docId }, mockAgentToken);
+      res.json(result);
+    };
+    app.post('/api/docs/:docId/undo', makeHandler('undo'));
+    app.post('/api/docs/:docId/redo', makeHandler('redo'));
+
+    const docMcp = await createDoc('US4 parity MCP');
+    const docChat = await createDoc('US4 parity chat');
+    for (const doc of [docMcp, docChat]) {
+      await modifyAppend(doc, 'STEP-ONE');
+      await modifyAppend(doc, 'STEP-TWO');
+    }
+    killSessions();
+
+    // Same sequence: undo, undo, redo.
+    await toolRegistry.executeTool('undo', { docGuid: docMcp }, mockAgentToken);
+    await toolRegistry.executeTool('undo', { docGuid: docMcp }, mockAgentToken);
+    await toolRegistry.executeTool('redo', { docGuid: docMcp }, mockAgentToken);
+
+    await request(app).post(`/api/docs/${docChat}/undo`).send({});
+    await request(app).post(`/api/docs/${docChat}/undo`).send({});
+    await request(app).post(`/api/docs/${docChat}/redo`).send({});
+
+    const mcpText = await dbText(docMcp);
+    const chatText = await dbText(docChat);
+    expect(mcpText).toBe(chatText);
+    expect(mcpText).toBe('<paragraph>Original text. STEP-ONE</paragraph>');
   });
 });

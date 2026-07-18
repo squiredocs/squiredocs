@@ -205,4 +205,25 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
   };
 }
 
-module.exports = { init, performUndo, performRedo };
+/**
+ * Cheap log-derived availability for the chat button poll (FR-019, RBD-6):
+ * two indexed agent_edits lookups — canUndo = a still-active recorded edit
+ * exists; canRedo = an undone record with a recorded inverse exists. Full
+ * supersession is discovered at action time (the honest undone:false), which
+ * the client already surfaces and re-polls after. No presence-session
+ * dependency of any kind (SC-006/SC-007).
+ */
+async function getUndoStatus({ docGuid, userId, agentName }, deps = {}) {
+  const { persistence } = resolveDeps(deps);
+  const identity = { docGuid, userId, agentName };
+  const [undoTarget, redoTarget] = await Promise.all([
+    editRecords.nextUndoTarget(persistence, identity),
+    editRecords.nextRedoTarget(persistence, identity),
+  ]);
+  return {
+    canUndo: !!undoTarget,
+    canRedo: !!(redoTarget && redoTarget.redoTargetStart != null),
+  };
+}
+
+module.exports = { init, performUndo, performRedo, getUndoStatus };

@@ -28,7 +28,6 @@ describe('Agent Presence Manager', () => {
       createdAt: Date.now(),
       cursor: null,
       initialized: true,
-      undoManager: {},
       clipboard: null,
       lastActivityAt: Date.now(),
       highlightQueue: null,
@@ -609,7 +608,6 @@ describe('cross-delete guard (feature 015, US3 — FR-014/FR-015)', () => {
   test('guarded cleanup still releases every resource the old session owns (FR-015)', async () => {
     const oldSession = await createRealSession();
     const providerDestroy = jest.spyOn(oldSession.provider, 'destroy');
-    const undoDestroy = jest.spyOn(oldSession.undoManager, 'destroy');
     oldSession.tempSelectionTimeoutId = setTimeout(() => {}, 60000);
     oldSession.highlightQueue = {
       positions: [{ anchor: {}, head: {} }],
@@ -625,8 +623,6 @@ describe('cross-delete guard (feature 015, US3 — FR-014/FR-015)', () => {
 
     // Own resources fully torn down…
     expect(providerDestroy).toHaveBeenCalled();
-    expect(undoDestroy).toHaveBeenCalled();
-    expect(oldSession.undoManager).toBeNull();
     expect(oldSession.tempSelectionTimeoutId).toBeNull();
     expect(oldSession.highlightQueue).toBeNull();
     expect(agentPresence.getSession(oldSession.sessionId)).toBeNull();

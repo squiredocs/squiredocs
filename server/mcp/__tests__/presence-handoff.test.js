@@ -72,7 +72,6 @@ describe('presence handoff', () => {
       createdAt: Date.now(),
       cursor: { anchor: { type: 'x' }, head: { type: 'x' } },
       initialized: true,
-      undoManager: { destroy: jest.fn() },
       clipboard: null,
       lastActivityAt: Date.now(),
       highlightQueue: null,
@@ -165,7 +164,6 @@ describe('presence handoff', () => {
       expect(agentPresence.getSession(session.sessionId)).toBe(session);
       expect(agentPresence._sessionsByKey.get(session.key)).toBe(session.sessionId);
       expect(session.provider.wsconnected).toBe(true);
-      expect(session.undoManager.destroy).not.toHaveBeenCalled();
       expect(session.cleanup).not.toHaveBeenCalled();
       expect(session.timeoutId).not.toBeNull();
 

@@ -103,7 +103,7 @@ describe('re-announce after silence with a real Awareness (CRITICAL-1 regression
       createdAt: Date.now(),
       cursor: null,
       initialized: true,
-      undoManager: null,
+
       clipboard: null,
       lastActivityAt: Date.now(),
       highlightQueue: null,
@@ -291,7 +291,7 @@ describe('two-pod A→B→A handoff with real awareness state (HIGH-1)', () => {
       createdAt: Date.now(),
       cursor: null,
       initialized: true,
-      undoManager: null,
+
       clipboard: null,
       lastActivityAt: Date.now(),
       highlightQueue: null,
