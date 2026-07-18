@@ -29,6 +29,7 @@ const editRecords = require('./edit-records');
 const { computeInverse } = require('./inverse');
 const { deriveLegacyRange } = require('./legacy');
 const documentService = require('../document-service');
+const defaultRedisPubSub = require('../redis-pubsub');
 
 const MAX_CLOCK = 2147483647; // Postgres int4 upper bound
 
@@ -49,7 +50,8 @@ function resolveDeps(deps = {}) {
       return null; // document service not initialized (tests) — no live doc
     }
   });
-  return { persistence, getSharedDoc };
+  const redisPubSub = deps.redisPubSub || defaultRedisPubSub;
+  return { persistence, getSharedDoc, redisPubSub };
 }
 
 async function currentMaxClock(persistence, docGuid) {
@@ -67,14 +69,32 @@ function loadLog(persistence, docGuid) {
 
 /**
  * Apply a committed inverse to the live shared doc (non-fatal on failure: the
- * row is durable; any subsequent load replays it — the restore posture).
+ * row is durable; any subsequent load replays it — the restore posture) and
+ * fan it out cross-instance.
+ *
+ * Redis fan-out (H1 review fix): the per-doc redis update handler is attached
+ * only by the WS connection handler (server/index.js). A doc reached via
+ * getSharedDoc on the undo path — or absent entirely — has no handler, so the
+ * applied inverse would never reach other pods and their editors (including
+ * the clicking user's, on another pod) would go silently stale. Publish
+ * explicitly in exactly that case. When the handler IS attached, the apply
+ * under ORIGIN_INVERSE_APPLY already publishes (that origin is deliberately
+ * not on the handler's skip-list), so publishing here would double-send.
  */
-function applyToLiveDoc(getSharedDoc, docGuid, inverseUpdate) {
+function applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverseUpdate) {
+  let sharedDoc = null;
   try {
-    const sharedDoc = getSharedDoc(docGuid);
+    sharedDoc = getSharedDoc(docGuid);
     if (sharedDoc) Y.applyUpdate(sharedDoc, inverseUpdate, ORIGIN_INVERSE_APPLY);
   } catch (err) {
     console.error(`[undo-service] live apply failed for ${docGuid}:`, err.message);
+  }
+  try {
+    if (redisPubSub.isEnabled() && !(sharedDoc && sharedDoc._redisUpdateHandler)) {
+      redisPubSub.publishUpdate(docGuid, inverseUpdate);
+    }
+  } catch (err) {
+    console.error(`[undo-service] inverse redis fan-out failed for ${docGuid}:`, err.message);
   }
 }
 
@@ -87,7 +107,7 @@ function applyToLiveDoc(getSharedDoc, docGuid, inverseUpdate) {
  * @returns {Promise<{success: boolean, undone: boolean, message: string, clock: number}>}
  */
 async function performUndo({ docGuid, userId, agentName }, deps = {}) {
-  const { persistence, getSharedDoc } = resolveDeps(deps);
+  const { persistence, getSharedDoc, redisPubSub } = resolveDeps(deps);
   const identity = { docGuid, userId, agentName };
 
   const row = await editRecords.nextUndoTarget(persistence, identity);
@@ -157,7 +177,7 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     };
   }
 
-  applyToLiveDoc(getSharedDoc, docGuid, inverse.inverseUpdate);
+  applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
   return {
     success: true,
     undone: true,
@@ -171,7 +191,7 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
  * algorithm over the last inverse's recorded clock range (research R4).
  */
 async function performRedo({ docGuid, userId, agentName }, deps = {}) {
-  const { persistence, getSharedDoc } = resolveDeps(deps);
+  const { persistence, getSharedDoc, redisPubSub } = resolveDeps(deps);
   const identity = { docGuid, userId, agentName };
 
   const row = await editRecords.nextRedoTarget(persistence, identity);
@@ -218,7 +238,7 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
     };
   }
 
-  applyToLiveDoc(getSharedDoc, docGuid, inverse.inverseUpdate);
+  applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
   return {
     success: true,
     redone: true,
