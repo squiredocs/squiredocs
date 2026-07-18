@@ -25,6 +25,24 @@ async function main() {
     if (rowCount > 0) {
       console.log(`Fixed ${rowCount} duplicate row(s) in pgmigrations`);
     }
+
+    // Retire the bookkeeping row for rolled-back feature 008's migration
+    // 1794000000000_create-mcp-pending-authorizations. It was applied in prod but
+    // its file was deleted on rollback and never down-migrated, leaving a phantom
+    // run-migration with no file on disk. node-pg-migrate's checkOrder walks the
+    // run-list and the on-disk list by index, so the phantom shifts them out of
+    // alignment and throws "Not run migration <X> is preceding already run
+    // migration 1794000000000_create-mcp-pending-authorizations" for whatever file
+    // lands at that index. Removing the row realigns the lists. Idempotent: 0 rows
+    // on any DB that never ran 008. The unused mcp_pending_authorizations table is
+    // left as-is (retire it separately if desired).
+    const { rowCount: orphanRows } = await pool.query(
+      'DELETE FROM pgmigrations WHERE name = $1',
+      ['1794000000000_create-mcp-pending-authorizations']
+    );
+    if (orphanRows > 0) {
+      console.log('Removed orphaned pgmigrations row for rolled-back 008 migration create-mcp-pending-authorizations');
+    }
   } catch (err) {
     // Table may not exist yet on first run — that's fine
     if (err.code !== '42P01') {
