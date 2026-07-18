@@ -204,6 +204,16 @@ function createFakeClaimRedis() {
       }
     },
 
+    /**
+     * Settle all currently-hung commands in REVERSE order of arrival — the
+     * later-issued command completes first (models reordered completion,
+     * e.g. a successor's SET landing before an in-flight stale DEL).
+     */
+    settleHungReversed() {
+      const pending = pendingHangs.splice(0, pendingHangs.length);
+      for (const p of pending.reverse()) p.resolve();
+    },
+
     // ---- pub/sub bus (bridges module instances in multi-instance tests) ----
 
     /** Raw bus publish: delivers payload to all handlers on the channel

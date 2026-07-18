@@ -61,6 +61,7 @@ let nudgeSubscribed = false;
 let commandsDefined = false;
 
 const OP_TIMED_OUT = Symbol('presence-claim-op-timeout');
+const RELEASE_SKIPPED = Symbol('presence-claim-release-skipped');
 
 function log(message, claimKey) {
   console.log(`[presence-claim] ${message} key=${claimKey} instance=${deps.instanceId()}`);
@@ -368,12 +369,26 @@ async function release(claimKey) {
   const wasHeld = !!(r && r.held);
   stopHeartbeat(claimKey);
   if (!deps.enabled() || !wasHeld) return;
-  const res = await runOp(() => client().claimRelease(claimKey, deps.instanceId()));
+  const res = await runOp(() => {
+    // Successor guard (post-merge LOW-1): release is fired-and-forgotten
+    // from session cleanup, so by the time this op actually runs a successor
+    // session on THIS instance may already have re-claimed the key
+    // (stopHeartbeat above dropped OUR record; a record existing again means
+    // a successor re-created it). The Lua owner check cannot protect the
+    // successor — its claim carries the same instance ID — so re-check after
+    // the async hop and skip the delete entirely.
+    if (claimRecords.has(claimKey)) return RELEASE_SKIPPED;
+    return client().claimRelease(claimKey, deps.instanceId());
+  });
   if (!res.ok) {
     // Record is gone (session over) — a lingering key expires by TTL.
     console.warn(
       `[presence-claim] release failed for ${claimKey} (claim will expire by TTL): ${res.error.message}`
     );
+    return;
+  }
+  if (res.value === RELEASE_SKIPPED) {
+    log('release skipped (successor holds the claim)', claimKey);
     return;
   }
   if (res.value === 1) {

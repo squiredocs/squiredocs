@@ -355,6 +355,27 @@ describe('presence handoff', () => {
 
       expect(fake.peek(KEY)).toBe('instance-Z');
     });
+
+    test("an in-flight release never deletes a successor session's fresh claim on this instance (post-merge LOW-1)", async () => {
+      await presenceClaim.tryAcquire(KEY);
+      expect(fake.peek(KEY)).toBe('instance-A');
+
+      // Session cleanup fires release without awaiting; before its DEL
+      // reaches Redis, a successor session's tool call re-claims the same
+      // key. The Lua owner check cannot protect the successor's claim — it
+      // carries the SAME instance ID.
+      fake.hang(true);
+      const releasing = presenceClaim.release(KEY);
+      const reclaiming = presenceClaim.ensureHeldForWork(KEY);
+      await jest.advanceTimersByTimeAsync(0); // both ops now in flight (hung)
+      fake.settleHungReversed(); // the successor's SET lands before the stale DEL
+      fake.hang(false);
+      await Promise.all([releasing, reclaiming]);
+
+      // The successor's claim must survive the stale release
+      expect(fake.peek(KEY)).toBe('instance-A');
+      expect(presenceClaim.isHeld(KEY)).toBe(true);
+    });
   });
 
   describe('crossed nudges (post-merge MEDIUM-1)', () => {
