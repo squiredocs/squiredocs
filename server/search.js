@@ -24,6 +24,50 @@ function init(p) {
 }
 
 /**
+ * Validate an `updatedAfter` value (feature 017, CN-3): shared by the REST
+ * handler, the MCP tool, and searchDocuments' defensive re-validation, so both
+ * entry points reject with identical semantics and the engine can never be
+ * reached with a silently ignored filter.
+ *
+ * @param {string|Date} value - ISO-8601 timestamp string (or already a Date)
+ * @param {object} opts
+ * @param {boolean} opts.hasContentSearch - Whether a content search accompanies the value
+ * @returns {Date} The parsed cutoff (strictly-after, exclusive comparison basis)
+ * @throws {Error} code 'INVALID_UPDATED_AFTER' — misplaced or unparseable value
+ */
+function parseUpdatedAfter(value, { hasContentSearch } = {}) {
+  if (!hasContentSearch) {
+    const err = new Error('updatedAfter requires a content search: pass search=<query> with searchMode=content');
+    err.code = 'INVALID_UPDATED_AFTER';
+    throw err;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if ((typeof value !== 'string' && !(value instanceof Date)) || Number.isNaN(date.getTime())) {
+    const err = new Error('updatedAfter must be a valid ISO-8601 timestamp');
+    err.code = 'INVALID_UPDATED_AFTER';
+    throw err;
+  }
+  return date;
+}
+
+/**
+ * Recency pre-filter join fragment (feature 017): admits only documents whose
+ * documents.updated_at is STRICTLY AFTER the bound cutoff, applied inside each
+ * engine's candidate CTE so ranking/fusion and COUNT(*) OVER() totals only
+ * ever see in-window candidates (FR-016). Returns '' when no filter is active
+ * so the emitted SQL stays byte-identical to the pre-017 queries (FR-022).
+ *
+ * @param {string} docIdExpr - Qualified doc-id column of the CTE's base table
+ * @param {number|null} paramIdx - 1-based param index of the cutoff, or null
+ * @returns {string} SQL fragment (empty string or a JOIN clause)
+ */
+function buildRecencyJoin(docIdExpr, paramIdx) {
+  if (!paramIdx) return '';
+  return `
+       JOIN documents rd ON rd.id = ${docIdExpr} AND rd.updated_at > $${paramIdx}`;
+}
+
+/**
  * Build a SQL fragment for filtering by document ownership role.
  * @param {string} filter - 'all', 'owned', or 'shared_with_me'
  * @param {string} alias - The document_shares table alias (e.g. 'ds', 'ds2')
@@ -62,6 +106,8 @@ function buildSearchOrderClause(sortBy, sortOrder, scoreExpr) {
  * @param {string} options.sortOrder - 'asc' or 'desc' (default: 'desc')
  * @param {number} options.limit - Max results (default 10, max 100)
  * @param {number} options.offset - Pagination offset (default 0)
+ * @param {string|Date} options.updatedAfter - Optional recency cutoff: only documents
+ *   with documents.updated_at strictly after this instant (feature 017, CN-2)
  * @returns {Promise<{rows: Array, pagination: object}>}
  */
 async function searchDocuments(userId, query, options = {}) {
@@ -75,6 +121,10 @@ async function searchDocuments(userId, query, options = {}) {
   const limit = Math.max(1, Math.min(100, parseInt(options.limit, 10) || 10));
   const offset = Math.max(0, parseInt(options.offset, 10) || 0);
   const distanceThreshold = parseFloat(options.distanceThreshold) || DEFAULT_DISTANCE_THRESHOLD;
+  // Defensive re-validation (CN-3): the engine can never silently no-op the filter.
+  const updatedAfter = options.updatedAfter == null
+    ? null
+    : parseUpdatedAfter(options.updatedAfter, { hasContentSearch: true });
 
   // Determine effective mode: fall back to fulltext if no embeddings or no API key
   let effectiveMode = mode;
@@ -87,11 +137,11 @@ async function searchDocuments(userId, query, options = {}) {
   }
 
   if (effectiveMode === 'fulltext') {
-    return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder);
+    return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
   } else if (effectiveMode === 'semantic') {
-    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold);
+    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
   } else {
-    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold);
+    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
   }
 }
 
@@ -129,12 +179,12 @@ async function getQueryEmbedding(query) {
  * Build the top_chunks CTE for HNSW-accelerated vector search.
  * Returns the nearest chunks filtered by distance threshold, capped at VECTOR_CANDIDATE_LIMIT.
  */
-function buildVectorCTE(embeddingParam, thresholdParam, roleCondition) {
+function buildVectorCTE(embeddingParam, thresholdParam, roleCondition, updatedAfterParam = null) {
   return `top_chunks AS (
        SELECT de.doc_id, de.chunk_text,
               (de.embedding <=> $${embeddingParam}::vector) AS distance
        FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('de.doc_id', updatedAfterParam)}
        WHERE (de.embedding <=> $${embeddingParam}::vector) < $${thresholdParam}
        ORDER BY de.embedding <=> $${embeddingParam}::vector
        LIMIT ${VECTOR_CANDIDATE_LIMIT}
@@ -181,8 +231,9 @@ async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
 /**
  * Full-text search only.
  */
-async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder) {
+async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter = null) {
   const roleCondition = buildRoleCondition(filter);
+  const updatedAfterParam = updatedAfter ? 3 : null;
 
   return runSearchQuery(
     `WITH cte AS (
@@ -192,10 +243,10 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet,
          ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) AS score
        FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      )`,
-    [userId, query, limit, offset],
+    updatedAfter ? [userId, query, updatedAfter, limit, offset] : [userId, query, limit, offset],
     { filter, sortBy, sortOrder }
   );
 }
@@ -203,12 +254,13 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Semantic (vector) search only.
  */
-async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold) {
+async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
+  const updatedAfterParam = updatedAfter ? 4 : null;
 
   return runSearchQuery(
-    `WITH ${buildVectorCTE(2, 3, roleCondition)},
+    `WITH ${buildVectorCTE(2, 3, roleCondition, updatedAfterParam)},
      cte AS (
        SELECT DISTINCT ON (doc_id)
          doc_id,
@@ -217,7 +269,9 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
        FROM top_chunks
        ORDER BY doc_id, distance ASC
      )`,
-    [userId, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
+    updatedAfter
+      ? [userId, JSON.stringify(queryEmbedding), distanceThreshold, updatedAfter, limit, offset]
+      : [userId, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
     { filter, sortBy, sortOrder }
   );
 }
@@ -225,9 +279,10 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Hybrid search using Reciprocal Rank Fusion (RRF).
  */
-async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold) {
+async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
+  const updatedAfterParam = updatedAfter ? 5 : null;
 
   return runSearchQuery(
     `WITH fts AS (
@@ -237,10 +292,10 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
        FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
      ),
-     ${buildVectorCTE(3, 4, roleCondition)},
+     ${buildVectorCTE(3, 4, roleCondition, updatedAfterParam)},
      vec AS (
        SELECT DISTINCT ON (doc_id) doc_id, chunk_text AS chunk_snippet, distance
        FROM top_chunks
@@ -259,7 +314,9 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        FROM fts f
        FULL OUTER JOIN vec_ranked vr ON f.doc_id = vr.doc_id
      )`,
-    [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
+    updatedAfter
+      ? [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, updatedAfter, limit, offset]
+      : [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
     { filter, sortBy, sortOrder }
   );
 }
@@ -305,4 +362,4 @@ function _resetCache() {
   _embeddingsCheckTime = 0;
 }
 
-module.exports = { init, searchDocuments, _resetCache };
+module.exports = { init, searchDocuments, parseUpdatedAfter, _resetCache };

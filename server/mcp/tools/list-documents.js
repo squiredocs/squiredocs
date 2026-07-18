@@ -36,7 +36,8 @@ PARAMETERS:
 - limit: 1-100 (default: 50 for listing, 10 for search)
 - offset: pagination offset (default: 0)
 - distanceThreshold: max cosine distance for vector results (default: 0.5). Lower = stricter. Only for semantic/hybrid search.
-- updatedSince: ISO-8601 timestamp. Only documents whose last content edit is after this time. List path only (not combinable with search).
+- updatedAfter: ISO-8601 timestamp. Search path only (requires search): only documents whose last-updated time (the updatedAt field on results, also bumped by opening a doc) is strictly after this instant — filtered inside each engine before ranking, so rankings and totals reflect only recent documents. Not combinable with updatedSince.
+- updatedSince: ISO-8601 timestamp. Only documents whose last content edit is after this time. List path only (not combinable with search). Unlike updatedAfter, filters on the update log (actual edits), not updatedAt.
 
 RETURNS:
 - documents: Array of { id, title, url, role, updatedAt, ... }
@@ -56,6 +57,9 @@ list_documents({ search: "authentication login flow" })
 
 // Keyword-only search
 list_documents({ search: "TODO refactor", searchMode: "fulltext" })
+
+// Search only recently updated documents
+list_documents({ search: "deployment checklist", updatedAfter: "2026-07-01T00:00:00Z" })
 
 // List owned documents, oldest first
 list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })
@@ -115,6 +119,15 @@ const inputSchema = {
         'Max cosine distance for vector search results (0=identical, 1=orthogonal). ' +
         'Lower values return fewer, more relevant results. Default: 0.5. Only applies to semantic/hybrid search.',
     },
+    updatedAfter: {
+      type: 'string',
+      description:
+        'ISO-8601 timestamp. Search path only (requires "search"): admit only documents whose ' +
+        'last-updated time (the updatedAt field on results, also bumped by opening a doc) is ' +
+        'STRICTLY AFTER this instant — filtered inside each search engine before ranking, so ' +
+        'rankings and totals reflect only recent documents. Distinct from updatedSince, which ' +
+        'is list-path only and filters on last content edit. Not combinable with updatedSince.',
+    },
     updatedSince: {
       type: 'string',
       description:
@@ -140,6 +153,12 @@ async function handler(args, agentToken) {
         + 'last-edit time, or filter the search results client-side.'
       );
     }
+    // Feature 017: validate updatedAfter before searching — an unparseable
+    // value is a tool error, never a silently unfiltered result (CN-3).
+    let updatedAfter;
+    if (args.updatedAfter !== undefined) {
+      updatedAfter = search.parseUpdatedAfter(args.updatedAfter, { hasContentSearch: true });
+    }
     const { rows, pagination } = await search.searchDocuments(userId, args.search, {
       mode: args.searchMode,
       filter: args.filter,
@@ -148,6 +167,7 @@ async function handler(args, agentToken) {
       limit: args.limit,
       offset: args.offset,
       distanceThreshold: args.distanceThreshold,
+      updatedAfter,
     });
 
     return {
@@ -164,7 +184,15 @@ async function handler(args, agentToken) {
     };
   }
 
-  // List path: no search query
+  // List path: no search query — updatedAfter is search-only (CN-3): reject
+  // rather than silently ignore a filter the caller believes is applied.
+  if (args.updatedAfter !== undefined) {
+    throw new Error(
+      'updatedAfter requires a content search: provide "search". To filter the '
+      + 'list path by last content edit, use updatedSince.'
+    );
+  }
+
   const { rows, total } = await documents.getAccessibleDocuments(userId, {
     filter: args.filter,
     sortBy: args.sortBy || 'updatedAt',

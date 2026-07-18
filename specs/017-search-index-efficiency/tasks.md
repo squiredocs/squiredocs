@@ -143,7 +143,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
 
 ### Tests for User Story 2 (write first, must fail)
 
-- [ ] T009 [P] [US2] Extend `/local-dev/server/__tests__/search.test.js` (additions only —
+- [X] T009 [P] [US2] Extend `/local-dev/server/__tests__/search.test.js` (additions only —
       existing tests must remain byte-identical): in a NEW nested `describe` with its own
       documents (do not mutate the shared beforeAll fixtures), seed distinct
       `documents.updated_at` values (direct `UPDATE documents SET updated_at=…`); add
@@ -159,7 +159,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       `document_embeddings` rows directly with fake vectors so the vector leg and both
       hybrid legs demonstrably filter before ranking (out-of-window doc absent even when
       it is the nearest vector, and totals reflect the filtered set) (FR-016, SC-003).
-- [ ] T010 [P] [US2] Create `/local-dev/server/__tests__/list-documents-updated-after.test.js`:
+- [X] T010 [P] [US2] Create `/local-dev/server/__tests__/list-documents-updated-after.test.js`:
       require `server/mcp/tools/list-documents.js` directly (init with test persistence,
       call `handler(args, { userId, baseUrl })`); per `contracts/mcp-list-documents.md`:
       `updatedAfter`+`search` filters and totals; `updatedAfter` without `search` → thrown
@@ -169,7 +169,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       and list responses unchanged in shape/content (FR-022); `inputSchema.properties.updatedAfter`
       exists and `description` documents the `updatedAfter` vs `updatedSince` distinction;
       tool registry still exposes exactly 16 tools (`require('../mcp/tools')` keys length).
-- [ ] T011 [P] [US2] Extend `/local-dev/server/__tests__/api-docs.test.js`: update the
+- [X] T011 [P] [US2] Extend `/local-dev/server/__tests__/api-docs.test.js`: update the
       suite's inline `/api/docs` handler copy to mirror `server/index.js` (content branch +
       shared `parseUpdatedAfter` validator call — keep the "same as in server/index.js"
       comment honest), then add supertest cases: `updatedAfter` without
@@ -185,7 +185,7 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] In `/local-dev/server/search.js`: export
+- [X] T012 [US2] In `/local-dev/server/search.js`: export
       `parseUpdatedAfter(value, { hasContentSearch })` → `Date`, throwing `Error` with
       `code='INVALID_UPDATED_AFTER'` and the normative messages from
       `contracts/rest-api-docs.md`; accept `options.updatedAfter` (Date or ISO string,
@@ -197,20 +197,20 @@ byte-identical. (No dependency on Phase 2/3 — can run in parallel with US1 aft
       **before** limit/offset in every params array (`runSearchQuery` requires them last).
       When `updatedAfter` is absent, every generated SQL string and params array must be
       byte-identical to today's (FR-022).
-- [ ] T013 [US2] In `/local-dev/server/index.js` `/api/docs` handler (~line 575): at the
+- [X] T013 [US2] In `/local-dev/server/index.js` `/api/docs` handler (~line 575): at the
       top of the handler — before `rateLimit.enforceUser('search', …)` — if
       `req.query.updatedAfter` is present, call `search.parseUpdatedAfter(value,
       { hasContentSearch: !!(searchQuery && searchMode === 'content') })`; on throw return
       `res.status(400).json({ error: err.message })`; on success pass the parsed Date as
       `updatedAfter` in the `searchDocuments` options. No other handler changes.
-- [ ] T014 [US2] In `/local-dev/server/mcp/tools/list-documents.js`: add the
+- [X] T014 [US2] In `/local-dev/server/mcp/tools/list-documents.js`: add the
       `updatedAfter` property to `inputSchema` and the PARAMETERS/EXAMPLES prose exactly
       per `contracts/mcp-list-documents.md` (explicit contrast with `updatedSince`); in
       `handler`, on the search path validate via `search.parseUpdatedAfter` (throw = tool
       error) and pass through; before the list path, if `args.updatedAfter` is present
       without `search`, throw the misplaced-parameter error (CN-3). `updatedSince` logic
       untouched.
-- [ ] T015 [US2] Run `npx jest server/__tests__/search.test.js
+- [X] T015 [US2] Run `npx jest server/__tests__/search.test.js
       server/__tests__/list-documents-updated-after.test.js server/__tests__/api-docs.test.js
       server/__tests__/documents.test.js --runInBand` — new cases green, pre-existing
       cases green unmodified (SC-003/004/005/007).

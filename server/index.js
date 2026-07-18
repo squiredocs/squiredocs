@@ -578,6 +578,20 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     const userId = req.user.userId;
     const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode, distanceThreshold } = req.query;
 
+    // Feature 017: validate updatedAfter up front — before the rate limiter —
+    // so misuse 400s cheaply (spending no search quota) and is never silently
+    // ignored (CN-3). Valid recency-filtered searches stay metered below.
+    let updatedAfter;
+    if (req.query.updatedAfter !== undefined) {
+      try {
+        updatedAfter = search.parseUpdatedAfter(req.query.updatedAfter, {
+          hasContentSearch: !!(searchQuery && searchMode === 'content'),
+        });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+    }
+
     // Content search: delegate to the search module for hybrid FTS + vector search.
     // Per-user rate limit (feature 010, US2/FR-006) applies only to the expensive
     // content-search branch — plain title search is unmetered.
@@ -592,6 +606,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         limit: limit ? parseInt(limit, 10) : 10,
         offset: offset ? parseInt(offset, 10) : 0,
         distanceThreshold: distanceThreshold ? parseFloat(distanceThreshold) : undefined,
+        updatedAfter,
       });
 
       const docs = results.rows.map((doc) => ({
