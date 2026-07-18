@@ -1,42 +1,34 @@
 /**
- * Shared handler for undo/redo MCP tools.
+ * Shared handler for the undo/redo MCP tools — and, through executeTool, for
+ * the chat endpoints (POST /api/docs/:docId/undo|redo). One mechanism, both
+ * surfaces (feature 016): both dispatch into the log-derived
+ * server/undo/undo-service.js core.
  *
- * Both tools follow the same flow: get session, check ability,
- * perform operation, resolve cursor, return result.
+ * The session Y.UndoManager era is over: no presence session is created,
+ * extended, or consulted here (FR-008) — the editor-role check is a direct
+ * role lookup (FR-025), and cursor restoration is retired from the result
+ * shape (RBD-5; the result carries the post-operation document `clock`
+ * instead).
  */
-
-const Y = require('yjs');
-const agentPresence = require('../agent-presence');
-const { createCursorPosition, resolveCursorPosition, getCursorContext } = require('../yjs/cursor-operations');
+const documents = require('../../documents');
+const undoService = require('../../undo/undo-service');
 
 /**
+ * @param {object} args - { docGuid }
+ * @param {object} agentToken - Decoded agent token (userId, agentName)
+ * @param {object} persistenceProvider - PostgresPersistence
  * @param {object} opts
- * @param {string} opts.operationName - 'undo' or 'redo'
- * @param {string} opts.resultKey - 'undone' or 'redone'
- * @param {Function} opts.canPerform - (undoManager) => boolean
- * @param {Function} opts.perform - (undoManager) => void
+ * @param {'undo'|'redo'} opts.operationName
  */
 async function handleUndoRedo(args, agentToken, persistenceProvider, opts) {
   if (!persistenceProvider) throw new Error(`${opts.operationName} tool not initialized`);
 
   const { docGuid } = args;
 
-  // Get or create session (verifies access and role internally)
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 3600, { requiredRole: 'editor' });
-
-  if (!session || !session.cursor) {
-    throw new Error('Failed to get session');
-  }
-
-  const undoManager = session.undoManager;
-
-  if (!undoManager || !opts.canPerform(undoManager)) {
-    return {
-      success: true,
-      [opts.resultKey]: false,
-      message: `Nothing to ${opts.operationName}`,
-      cursor: null,
-    };
+  // Editor role, verified WITHOUT creating a presence session (FR-025).
+  const role = await documents.getRole(docGuid, agentToken.userId);
+  if (!role || role === 'viewer') {
+    throw new Error(`You need editor access to ${opts.operationName} in this document`);
   }
 
   // Link-protocol allowlist (D-6) is NOT applied here by design: undo/redo
@@ -45,42 +37,17 @@ async function handleUndoRedo(args, agentToken, persistenceProvider, opts) {
   // first stored it (modify's sanitizeLinkHrefs, or the import pipeline). The
   // only href sources are those write boundaries, so re-sanitizing on replay
   // would be redundant work with no new input to inspect.
-  opts.perform(undoManager);
-
-  // Re-resolve cursor positions (they may have changed)
-  const ydoc = session.provider.doc;
-  const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-  let currentHead = session.cursor.head;
-  let resolved = resolveCursorPosition(xmlFragment, currentHead);
-  let warning = null;
-
-  if (!resolved) {
-    const safePos = createCursorPosition(xmlFragment, 0, 0);
-    agentPresence.updateSessionCursor(session.sessionId, safePos, safePos);
-    currentHead = safePos;
-    resolved = resolveCursorPosition(xmlFragment, currentHead);
-    warning = `Cursor position became invalid after ${opts.operationName}, reset to document start`;
-  }
-
-  const context = getCursorContext(xmlFragment, currentHead, 50, 50);
-
-  const result = {
-    success: true,
-    [opts.resultKey]: true,
-    cursor: {
-      block: resolved.blockIndex,
-      offset: resolved.offset,
-      blockType: resolved.blockType,
-      context: context ? `${context.before}|${context.after}` : '',
-    },
+  const target = {
+    docGuid,
+    userId: agentToken.userId,
+    agentName: agentToken.agentName,
   };
+  const deps = { persistence: persistenceProvider };
 
-  if (warning) {
-    result.warning = warning;
+  if (opts.operationName === 'undo') {
+    return undoService.performUndo(target, deps);
   }
-
-  return result;
+  return undoService.performRedo(target, deps);
 }
 
 module.exports = { handleUndoRedo };

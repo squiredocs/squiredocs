@@ -116,13 +116,19 @@ class PostgresPersistence {
    * @param {object|null} onBehalfOf - Optional provenance metadata for sync pushes
    *   ({name?, email?, commit?, url?}); persisted to on_behalf_of JSONB (feature
    *   004, D8). Null for every non-sync caller.
+   * @param {import('pg').PoolClient|null} externalClient - Optional caller-owned
+   *   client (feature 016, research R6): when provided, the insert (including
+   *   its max+1 / ON CONFLICT retry loop) runs on that client — inside whatever
+   *   transaction the caller has open — and the client is NOT released here.
+   *   The retry loop is transaction-safe: ON CONFLICT DO NOTHING never aborts
+   *   the enclosing transaction. Behavior without the parameter is unchanged.
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null) {
+  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null, externalClient = null) {
     await this._init();
 
     const MAX_RETRIES = 5;
-    const client = await this.pool.connect();
+    const client = externalClient || await this.pool.connect();
     try {
       let nextClock;
 
@@ -174,7 +180,7 @@ class PostgresPersistence {
 
       return nextClock;
     } finally {
-      client.release();
+      if (!externalClient) client.release();
     }
   }
 

@@ -463,14 +463,9 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         if (cleaned) return;
         cleaned = true;
 
-        // Get session to clean up UndoManager and awareness
+        // Get session to clean up timers and awareness
         const session = activeSessions.get(sessionId);
         if (session) {
-          // Destroy UndoManager
-          if (session.undoManager) {
-            session.undoManager.destroy();
-            session.undoManager = null;
-          }
           // Clear temporary selection timeout
           if (session.tempSelectionTimeoutId) {
             clearTimeout(session.tempSelectionTimeoutId);
@@ -548,7 +543,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         createdAt: Date.now(),
         cursor: null,            // Will be initialized after connection (can be null for empty docs)
         initialized: false,      // Set to true after sync completes - used for session reuse check
-        undoManager: null,       // Will be created after connection
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
         claimState: 'holder',    // 'holder' | 'silent' — gates every awareness write (feature 015).
@@ -599,7 +593,9 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             try {
               const session = activeSessions.get(sessionId);
               if (session) {
-                session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
+                // NOTE: no session Y.UndoManager — undo/redo are log-derived
+                // (feature 016); script-error rollback uses a transient
+                // manager inside the sandbox bridge.
                 session.cursor = initializeCursorAtStart(xmlFragment);
                 session.initialized = true;
 
@@ -1007,28 +1003,6 @@ function getSession(sessionId) {
   return activeSessions.get(sessionId) || null;
 }
 
-/**
- * Peek at undo/redo availability for an agent's live presence session WITHOUT
- * creating one. Returns false/false when no session is currently active for this
- * user+agent+doc (e.g. it expired, disconnected, or the server restarted) — which
- * is exactly when the in-memory UndoManager no longer holds the agent's edits.
- * Used to decide whether to surface an undo/redo affordance to the user.
- * @param {string} docGuid - Document UUID
- * @param {string} userId - User the agent acts on behalf of
- * @param {string} [agentId='default'] - Agent id (e.g. 'in-app-chat')
- * @returns {{ canUndo: boolean, canRedo: boolean }}
- */
-function getUndoRedoAvailability(docGuid, userId, agentId = 'default') {
-  const sessionKey = `${userId}-${agentId}-${docGuid}`;
-  const sessionId = sessionsByKey.get(sessionKey);
-  const session = sessionId ? activeSessions.get(sessionId) : null;
-  const um = session && session.undoManager;
-  return {
-    canUndo: !!(um && um.canUndo()),
-    canRedo: !!(um && um.canRedo()),
-  };
-}
-
 module.exports = {
   init,
   getOrCreateSession,
@@ -1040,7 +1014,6 @@ module.exports = {
   clearHighlightQueue,
   queueHighlightSequence,
   getSession,
-  getUndoRedoAvailability,
   // Internal indexes exposed for testing only
   _sessionsByKey: sessionsByKey,
   _sessionsByUserId: sessionsByUserId,

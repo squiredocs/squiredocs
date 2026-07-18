@@ -39,6 +39,9 @@ function init(persistence) {
   oauthFlow.init(pool);
   apiTokens.init(pool);
   toolRegistry.init(persistence);
+  // Log-derived undo/redo core (feature 016): both tool handlers and the
+  // chat endpoints resolve through this service.
+  require('../undo/undo-service').init(persistence);
 }
 
 /**

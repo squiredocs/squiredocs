@@ -1,0 +1,129 @@
+/**
+ * Log-derived surgical inverse (feature 016, research R1).
+ *
+ * To invert the clock range [s, e] for an acting identity, we do not
+ * re-implement undo semantics — we run the real thing: rebuild a gc-off
+ * scratch doc from the full update log in clock order, replay the identity's
+ * rows inside the range through a replica Y.UndoManager as ONE tracked
+ * StackItem (captureTimeout: MAX_SAFE_INTEGER merges every tracked
+ * transaction; untracked interleaved foreign rows neither join the item nor
+ * break the merge), pop it with undo(), and capture the resulting
+ * transaction's 'update' payload. That payload IS the popStackItem-equivalent
+ * inverse (yjs UndoManager.js):
+ *
+ *  - Insertions half: iterates the edit's struct id ranges, skips structs
+ *    already deleted (supersession skip, FR-010), deletes survivors by struct
+ *    identity — later edits' structs are different ids and are untouched
+ *    (FR-009).
+ *  - Deletions half: skips structs the edit itself created (internal churn is
+ *    not resurrected) and restores the rest via redoItem, which re-creates
+ *    content anchored by surviving neighbors; redoItem returns null when a
+ *    conflicting change wins (supersession skip for deletions). Content
+ *    restoration is why the scratch doc is gc:false from the FULL log — the
+ *    live doc gc's tombstones, the log never loses content (same reason
+ *    diff-service builds gc-off).
+ *  - Honest emptiness: with exactly one StackItem, performedChange === false
+ *    makes undo() return null — the fully-superseded case (FR-011).
+ *
+ * The returned update is an ordinary Yjs update from the scratch doc's fresh
+ * clientID: its delete set targets only the edit's own struct ids (idempotent
+ * and commutative under concurrency) and its restored items anchor to structs
+ * that exist in the log — applying it to the live doc is CRDT-correct and
+ * never rewrites history (FR-006). Public yjs API only.
+ */
+const Y = require('yjs');
+
+/** Origin under which the target edit's rows are replayed (tracked). */
+const EDIT_ORIGIN = 'undo-target-edit';
+/** Origin for every other log row (untracked history). */
+const HISTORY_ORIGIN = 'history';
+
+/**
+ * Compute the surgical inverse of an edit (or of an inverse — redo is the
+ * same algorithm over the inverse's recorded range, research R4).
+ *
+ * @param {Array<{clock: number, userId: string|null, agentName: string|null,
+ *   updateData: Uint8Array}>} rows - The document's FULL update log in clock
+ *   order (as returned by getUpdatesInRange/getUpdatesWithUsers with data).
+ * @param {{clockStart: number, clockEnd: number}} range - The target range [s, e].
+ * @param {{userId: string, agentName: string|null}} identity - Acting identity;
+ *   only rows attributed to it within the range constitute the edit
+ *   (FR-001/FR-024/FR-029).
+ * @param {Y.Doc|null} [liveDoc] - This instance's live shared doc, merged into
+ *   the scratch state before popping so supersession is evaluated against
+ *   in-flight, not-yet-persisted edits too (FR-013, RBD-9).
+ * @returns {{inverseUpdate: Uint8Array} | null} null = nothing left to undo
+ *   (fully superseded, or no identity rows in the range) — the honest empty.
+ */
+function computeInverse(rows, range, identity, liveDoc = null) {
+  const { clockStart, clockEnd } = range;
+  const scratch = new Y.Doc({ gc: false });
+  let undoManager = null;
+  try {
+    const fragment = scratch.get('default', Y.XmlFragment);
+
+    const isIdentityRow = (r) =>
+      r.userId === identity.userId && (r.agentName ?? null) === (identity.agentName ?? null);
+
+    let trackedAny = false;
+    for (const row of rows) {
+      const data = row.updateData instanceof Uint8Array
+        ? row.updateData
+        : new Uint8Array(row.updateData);
+
+      if (row.clock < clockStart) {
+        Y.applyUpdate(scratch, data, HISTORY_ORIGIN);
+        continue;
+      }
+
+      // Create the UndoManager lazily, right before the first in-range row —
+      // pre-range history must not be trackable under any circumstance.
+      if (!undoManager) {
+        undoManager = new Y.UndoManager(fragment, {
+          trackedOrigins: new Set([EDIT_ORIGIN]),
+          captureTimeout: Number.MAX_SAFE_INTEGER,
+        });
+      }
+
+      if (row.clock >= clockStart && row.clock <= clockEnd && isIdentityRow(row)) {
+        Y.applyUpdate(scratch, data, EDIT_ORIGIN);
+        trackedAny = true;
+      } else {
+        Y.applyUpdate(scratch, data, HISTORY_ORIGIN);
+      }
+    }
+
+    if (!undoManager || !trackedAny || undoManager.undoStack.length === 0) {
+      return null; // no identity rows in the range — nothing to invert
+    }
+
+    // Merge the live shared-doc state (in-flight edits not yet in the log)
+    // so supersession is evaluated against what the inverse merges into.
+    if (liveDoc) {
+      const missing = Y.encodeStateAsUpdate(liveDoc, Y.encodeStateVector(scratch));
+      Y.applyUpdate(scratch, missing, HISTORY_ORIGIN);
+    }
+
+    // Pop the one StackItem, capturing the transaction's update payload.
+    let inverseUpdate = null;
+    const onUpdate = (update) => { inverseUpdate = update; };
+    scratch.on('update', onUpdate);
+    let popped;
+    try {
+      popped = undoManager.undo();
+    } finally {
+      scratch.off('update', onUpdate);
+    }
+
+    if (!popped || !inverseUpdate) {
+      return null; // performedChange === false — fully superseded (FR-011)
+    }
+
+    return { inverseUpdate };
+  } finally {
+    if (undoManager) undoManager.destroy();
+    scratch.destroy();
+  }
+}
+
+module.exports = { computeInverse, EDIT_ORIGIN, HISTORY_ORIGIN };

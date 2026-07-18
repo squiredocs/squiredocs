@@ -623,7 +623,7 @@ describe('AiChatMessages', () => {
     expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
   });
 
-  it('does NOT show the button when undo is no longer available (session expired)', async () => {
+  it('does NOT show the button when the log-derived status reports nothing undoable', async () => {
     mockGet.mockReset();
     mockGet.mockResolvedValue({ data: { canUndo: false, canRedo: false } });
     const { queryByRole } = render(
@@ -729,6 +729,61 @@ describe('AiChatMessages', () => {
     fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
     expect(await findByText('No permission')).toBeInTheDocument();
     expect(await findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
+  });
+
+  // ------- feature 016: log-derived status + honest empty results -------
+
+  it('surfaces the honest nothing-left message on undone:false and does NOT flip to Reverted', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    mockPost.mockReset();
+    // The server executed fine but there was honestly nothing left to undo
+    // (fully superseded / already undone by a concurrent request).
+    mockPost.mockResolvedValue({
+      data: { success: true, undone: false, message: 'Nothing left to undo: later edits already superseded everything this edit changed.', clock: 7 },
+    });
+    const { findByRole, findByText, container, queryByText } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
+    // The server's message is shown to the user (no silent no-op)...
+    expect(await findByText(/Nothing left to undo/)).toBeInTheDocument();
+    // ...and the part is NOT marked reverted (no state flip, FR-011).
+    expect(queryByText('Reverted')).toBeNull();
+    expect(container.querySelector('.ai-diff-wrap--undone')).toBeNull();
+  });
+
+  it('surfaces the honest message on redone:false without clearing the Reverted state', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(redoAvailable);
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({
+      data: { success: true, redone: false, message: 'Nothing to redo: no undone edit with a recorded inverse in this document.', clock: 3 },
+    });
+    const { findByRole, findByText, queryByText } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput, 'doc-123', { reverted: true })]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Redo edit' }));
+    expect(await findByText(/Nothing to redo/)).toBeInTheDocument();
+    expect(queryByText('Reverted')).toBeInTheDocument(); // state unchanged
+  });
+
+  it('re-fetches log-derived status after every action (retained behavior)', async () => {
+    mockGet.mockReset();
+    mockGet.mockResolvedValue(undoAvailable);
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ data: { success: true, undone: false, message: 'Nothing to undo.' } });
+    const { findByRole } = render(
+      <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+    );
+
+    fireEvent.click(await findByRole('button', { name: 'Undo edit' }));
+    // initial poll + post-action re-fetch
+    await waitFor(() => expect(mockGet.mock.calls.filter(
+      (c) => c[0] === '/api/docs/doc-123/undo-status'
+    ).length).toBeGreaterThanOrEqual(2));
   });
 });
 

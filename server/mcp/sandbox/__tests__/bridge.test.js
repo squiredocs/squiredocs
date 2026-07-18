@@ -23,9 +23,10 @@ describe('Bridge', () => {
     ydoc = new Y.Doc();
     xmlFragment = ydoc.get('default', Y.XmlFragment);
 
+    // No session undoManager (feature 016): rollback uses a transient
+    // manager internal to the bridge; the session carries none.
     mockSession = {
       provider: { doc: ydoc },
-      undoManager: new Y.UndoManager(xmlFragment),
       sessionId: 'test-session-bridge',
     };
 
@@ -107,9 +108,6 @@ describe('Bridge', () => {
       para.insert(0, [text]);
       xmlFragment.insert(0, [para]);
 
-      // Recreate UndoManager so baseline includes existing content
-      mockSession.undoManager = new Y.UndoManager(xmlFragment);
-
       const jsCode = compileTypeScript(`
         export default function edit(doc) {
           const block = doc.get(0);
@@ -180,9 +178,6 @@ describe('Bridge', () => {
       para.insert(0, [text]);
       xmlFragment.insert(0, [para]);
 
-      // Recreate UndoManager so baseline includes existing content
-      mockSession.undoManager = new Y.UndoManager(xmlFragment);
-
       const jsCode = compileTypeScript(`
         export default function edit(doc) {
           doc.delete(0, doc.length);
@@ -242,8 +237,8 @@ describe('Bridge', () => {
     }, 10000);
   });
 
-  describe('undo grouping', () => {
-    test('all streamed updates are grouped into one undo step', async () => {
+  describe('rollback grouping (feature 016: transient bridge-internal manager)', () => {
+    test('multi-operation scripts execute without any session undo manager', async () => {
       const jsCode = compileTypeScript(`
         export default function edit(doc) {
           for (let i = 0; i < 5; i++) {
@@ -256,50 +251,33 @@ describe('Bridge', () => {
         }
       `);
 
+      // The session carries no undoManager (retired): success requires none.
+      expect(mockSession.undoManager).toBeUndefined();
       const result = await executeInWorker(jsCode, mockSession, xmlFragment, { timeout: 5000 });
 
       expect(result.success).toBe(true);
       expect(xmlFragment.length).toBe(5);
+    });
 
-      // One undo should revert ALL changes
-      mockSession.undoManager.undo();
+    test('a multi-update script error rolls back ALL streamed updates as one unit', async () => {
+      const jsCode = compileTypeScript(`
+        export default function edit(doc) {
+          for (let i = 0; i < 5; i++) {
+            const p = new Y.XmlElement('paragraph');
+            const t = new Y.XmlText();
+            t.insert(0, 'Para ' + i);
+            p.insert(0, [t]);
+            doc.insert(doc.length, [p]);
+          }
+          throw new Error('fail after five inserts');
+        }
+      `);
+
+      const result = await executeInWorker(jsCode, mockSession, xmlFragment, { timeout: 5000 });
+
+      expect(result.success).toBe(false);
+      // Every streamed update rolled back atomically by the transient manager.
       expect(xmlFragment.length).toBe(0);
-
-      // Redo should restore all
-      mockSession.undoManager.redo();
-      expect(xmlFragment.length).toBe(5);
-    });
-
-    test('restores captureTimeout after execution', async () => {
-      const originalTimeout = mockSession.undoManager.captureTimeout;
-
-      const jsCode = compileTypeScript(`
-        export default function edit(doc) {
-          const p = new Y.XmlElement('paragraph');
-          doc.insert(0, [p]);
-        }
-      `);
-
-      await executeInWorker(jsCode, mockSession, xmlFragment, { timeout: 5000 });
-
-      // captureTimeout should be restored to original value
-      expect(mockSession.undoManager.captureTimeout).toBe(originalTimeout);
-    });
-
-    test('cleans up tracked origin after execution', async () => {
-      const origSize = mockSession.undoManager.trackedOrigins.size;
-
-      const jsCode = compileTypeScript(`
-        export default function edit(doc) {
-          const p = new Y.XmlElement('paragraph');
-          doc.insert(0, [p]);
-        }
-      `);
-
-      await executeInWorker(jsCode, mockSession, xmlFragment, { timeout: 5000 });
-
-      // Should not leak tracked origins
-      expect(mockSession.undoManager.trackedOrigins.size).toBe(origSize);
     });
   });
 
@@ -333,8 +311,6 @@ describe('Bridge', () => {
       para1.insert(0, [text1]);
       xmlFragment.insert(0, [para1]);
 
-      mockSession.undoManager = new Y.UndoManager(xmlFragment);
-
       const jsCode = compileTypeScript(`
         export default function edit(doc) {
           const p = new Y.XmlElement('paragraph');
@@ -342,16 +318,16 @@ describe('Bridge', () => {
           t.insert(0, 'New');
           p.insert(0, [t]);
           doc.insert(doc.length, [p]);
+          throw new Error('fail so the bridge rolls back');
         }
       `);
 
       const result = await executeInWorker(jsCode, mockSession, xmlFragment, { timeout: 5000 });
 
-      expect(result.success).toBe(true);
-      expect(xmlFragment.length).toBe(2);
-
-      // Undo should only revert the new paragraph
-      mockSession.undoManager.undo();
+      // The transient rollback manager only tracks THIS execution's updates:
+      // the failed script's paragraph is rolled back, pre-existing content
+      // is untouched.
+      expect(result.success).toBe(false);
       expect(xmlFragment.length).toBe(1);
       expect(xmlFragment.get(0).get(0).toString()).toBe('Existing');
     });

@@ -10,6 +10,7 @@ const {
   ORIGIN_DB_LOAD,
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
+  ORIGIN_INVERSE_APPLY,
   createOrigin,
   parseOrigin,
 } = require('../origin');
@@ -21,9 +22,9 @@ function shouldPublishToRedis(origin) {
 }
 
 describe('origin sentinels', () => {
-  test('the three sentinels are distinct string values', () => {
-    const set = new Set([ORIGIN_DB_LOAD, ORIGIN_REDIS, ORIGIN_SYNC_PUSH]);
-    expect(set.size).toBe(3);
+  test('the four sentinels are distinct string values', () => {
+    const set = new Set([ORIGIN_DB_LOAD, ORIGIN_REDIS, ORIGIN_SYNC_PUSH, ORIGIN_INVERSE_APPLY]);
+    expect(set.size).toBe(4);
   });
 });
 
@@ -55,5 +56,25 @@ describe('Redis publish predicate — F3 fan-out routing', () => {
     // This is the exact combination F3 requires — no double-store, yet fanned out.
     expect(parseOrigin(ORIGIN_SYNC_PUSH)).toBeNull();
     expect(shouldPublishToRedis(ORIGIN_SYNC_PUSH)).toBe(true);
+  });
+});
+
+describe('ORIGIN_INVERSE_APPLY — feature 016 log-derived undo (research R3)', () => {
+  // A log-derived inverse is stored FIRST (one attributed row via storeUpdate)
+  // and then applied to the live shared doc with this sentinel — byte-for-byte
+  // the ORIGIN_SYNC_PUSH treatment: the bindState persistence listener must
+  // skip it (no unattributed double-store), yet the Redis publisher must fan
+  // it out so other instances holding the doc see the reversion live.
+  test('parseOrigin returns null (bindState listener never double-stores an inverse)', () => {
+    expect(parseOrigin(ORIGIN_INVERSE_APPLY)).toBeNull();
+  });
+
+  test('NOT on the Redis publish skip-list (inverse fans out cross-instance)', () => {
+    expect(shouldPublishToRedis(ORIGIN_INVERSE_APPLY)).toBe(true);
+  });
+
+  test('suppressed from persistence AND published to Redis, together', () => {
+    expect(parseOrigin(ORIGIN_INVERSE_APPLY)).toBeNull();
+    expect(shouldPublishToRedis(ORIGIN_INVERSE_APPLY)).toBe(true);
   });
 });

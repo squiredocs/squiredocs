@@ -410,6 +410,11 @@ async function deleteDocument(docId) {
   await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
   await pool.query('DELETE FROM document_share_invites WHERE doc_id = $1', [docId]);
 
+  // Undo/redo chain records (feature 016): agent_edits has no FK on the
+  // document, so remove the doc's rows here — the log itself is removed by
+  // the caller via clearDocument, and chain state must not outlive it.
+  await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docId]);
+
   // Delete document record
   const result = await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
 

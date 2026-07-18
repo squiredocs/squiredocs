@@ -423,8 +423,28 @@ describe('Documents module', () => {
     test('returns false for non-existent document', async () => {
       const randomDocId = require('crypto').randomUUID();
       const deleted = await documents.deleteDocument(randomDocId);
-      
+
       expect(deleted).toBe(false);
+    });
+
+    test('removes the document\'s agent_edits records (feature 016)', async () => {
+      // An undo/redo chain record for the doc (log-derived undo, feature 016)
+      await pool.query(
+        `INSERT INTO agent_edits
+           (doc_guid, user_id, agent_name, edit_clock_start, edit_clock_end,
+            state, undo_target_start, undo_target_end)
+         VALUES ($1, $2, 'Squire Docs Assistant', 1, 2, 'active', 1, 2)`,
+        [testDocId, testUserId]
+      );
+
+      const deleted = await documents.deleteDocument(testDocId);
+      expect(deleted).toBe(true);
+
+      const rec = await pool.query(
+        'SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1',
+        [testDocId]
+      );
+      expect(rec.rows[0].n).toBe(0);
     });
   });
 });
