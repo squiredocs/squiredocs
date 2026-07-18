@@ -58,7 +58,7 @@ them. No database migrations are required.
 
 ### Personal Access Token (`sk_sqd_` / legacy `sqd_`)
 - `api_tokens` table (via `server/mcp/auth/api-tokens.js`).
-- SHA-256-hashed at rest; 25-per-user cap; scoped; expiring.
+- SHA-256-hashed at rest; 250-per-user cap; scoped; expiring.
 - **Unchanged.** agents.md documents both prefixes as of this feature (they
   already both work; the documentation just names the fact).
 

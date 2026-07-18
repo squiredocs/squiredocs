@@ -15,14 +15,14 @@ let pool = null;
 const TOKEN_PREFIX = 'sk_sqd_';
 const LEGACY_TOKEN_PREFIXES = ['sqd_'];
 const TOKEN_RANDOM_BYTES = 30;
-const MAX_TOKENS_PER_USER = 25;
+const MAX_TOKENS_PER_USER = 250;
 const DEFAULT_SCOPES = ['documents:read', 'documents:write'];
 
 // Temporary tokens minted by the create_access_token MCP tool.
 const MINTED_TOKEN_DEFAULT_TTL_SECONDS = 3600;
 const MINTED_TOKEN_MIN_TTL_SECONDS = 60;
 const MINTED_TOKEN_MAX_TTL_SECONDS = 86400;
-const MAX_MINTED_PER_MINTER = 5;
+const MAX_MINTED_PER_MINTER = 50;
 
 /**
  * Whether a string looks like an API token (current or legacy prefix).

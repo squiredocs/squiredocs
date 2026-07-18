@@ -228,7 +228,7 @@ describe('ApiTokenList', () => {
 
     it('shows error on failed creation', async () => {
       mockApi.post.mockRejectedValue({
-        response: { data: { error: 'Maximum of 25 active tokens per user' } },
+        response: { data: { error: 'Maximum of 250 active tokens per user' } },
       });
 
       render(<ApiTokenList />);
@@ -241,7 +241,7 @@ describe('ApiTokenList', () => {
       fireEvent.click(screen.getByText('Create'));
 
       await waitFor(() => {
-        expect(screen.getByText('Maximum of 25 active tokens per user')).toBeDefined();
+        expect(screen.getByText('Maximum of 250 active tokens per user')).toBeDefined();
       });
     });
   });

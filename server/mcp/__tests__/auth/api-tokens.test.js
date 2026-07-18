@@ -106,15 +106,16 @@ describe('API Tokens module', () => {
       expect(record.scopes).toEqual(['documents:read']);
     });
 
-    test('enforces max 25 active tokens per user', async () => {
-      // Create 25 tokens
-      for (let i = 0; i < 25; i++) {
+    test('enforces max active tokens per user', async () => {
+      const max = apiTokens.MAX_TOKENS_PER_USER;
+      // Fill the user to the cap
+      for (let i = 0; i < max; i++) {
         await apiTokens.createToken(testUserId, `Token ${i}`);
       }
 
       await expect(
-        apiTokens.createToken(testUserId, 'Token 26')
-      ).rejects.toThrow('Maximum of 25 active tokens per user');
+        apiTokens.createToken(testUserId, `Token ${max + 1}`)
+      ).rejects.toThrow(`Maximum of ${max} active tokens per user`);
     });
 
     test('rejects empty name', async () => {

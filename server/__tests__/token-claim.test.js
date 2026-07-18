@@ -131,14 +131,14 @@ describe('GET /api/tokens/claim', () => {
     expect((await claim(secret)).status).toBe(401);
   });
 
-  test('the 25-token user cap refuses the claim with a 409', async () => {
+  test('the per-user token cap refuses the claim with a 409', async () => {
     const secret = secretFrom(await mint());
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < apiTokens.MAX_TOKENS_PER_USER; i++) {
       await apiTokens.createToken(testUserId, `Filler ${i}`);
     }
     const res = await claim(secret);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/Maximum of 25 active tokens/);
+    expect(res.body.error).toMatch(/Maximum of \d+ active tokens/);
   });
 
   test('nothing secret is console-logged across mint and claim', async () => {

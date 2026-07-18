@@ -191,28 +191,30 @@ describe('create_access_token tool', () => {
   });
 
   describe('per-minter cap', () => {
-    test('sixth mint from the same delegation revokes the oldest', async () => {
+    test('minting one past the cap revokes the oldest', async () => {
+      const cap = apiTokens.MAX_MINTED_PER_MINTER;
       const tokens = [];
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < cap + 1; i++) {
         tokens.push(await mint({ inline: true }, jwtPrincipal()));
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
 
-      expect(tokens[5].message).toContain('older minted token(s) were revoked');
+      expect(tokens[cap].message).toContain('older minted token(s) were revoked');
       expect(await apiTokens.verifyToken(tokens[0].token)).toBeNull();
-      expect(await apiTokens.verifyToken(tokens[5].token)).not.toBeNull();
+      expect(await apiTokens.verifyToken(tokens[cap].token)).not.toBeNull();
 
       const active = await apiTokens.listUserTokens(testUserId);
-      expect(active).toHaveLength(5);
+      expect(active).toHaveLength(cap);
     });
   });
 
   describe('global cap passthrough', () => {
-    test('the 25-token user cap still applies', async () => {
-      for (let i = 0; i < 25; i++) {
+    test('the per-user token cap still applies', async () => {
+      const max = apiTokens.MAX_TOKENS_PER_USER;
+      for (let i = 0; i < max; i++) {
         await apiTokens.createToken(testUserId, `Filler ${i}`);
       }
-      await expect(mint({ inline: true }, jwtPrincipal())).rejects.toThrow(/Maximum of 25 active tokens/);
+      await expect(mint({ inline: true }, jwtPrincipal())).rejects.toThrow(/Maximum of \d+ active tokens/);
     });
   });
 

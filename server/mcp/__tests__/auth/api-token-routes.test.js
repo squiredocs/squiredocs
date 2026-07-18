@@ -146,7 +146,7 @@ describe('API Token Routes', () => {
     });
 
     test('returns 400 when max tokens exceeded', async () => {
-      apiTokens.createToken.mockRejectedValue(new Error('Maximum of 25 active tokens per user'));
+      apiTokens.createToken.mockRejectedValue(new Error('Maximum of 250 active tokens per user'));
 
       const app = createApp();
       const res = await request(app)
