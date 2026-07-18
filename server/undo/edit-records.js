@@ -129,24 +129,31 @@ async function hasPendingRecording(persistence, { docGuid, userId, agentName }, 
   return clock > maxAccounted;
 }
 
-/** Conditional undo claim on an open client/transaction. True when this caller won. */
-async function claimUndo(client, rowId) {
+/**
+ * Conditional undo claim on an open client/transaction. True when this caller
+ * won. The CAS covers state AND the target range (review M3): a caller whose
+ * inverse was computed from a range that has since been rewritten (undo →
+ * redo → this claim landing late) must lose, or a stale inverse commits.
+ */
+async function claimUndo(client, rowId, targetRange) {
   const result = await client.query(
     `UPDATE agent_edits
      SET state = 'undone', last_undone_at = now(), updated_at = now()
-     WHERE id = $1 AND state = 'active'`,
-    [rowId]
+     WHERE id = $1 AND state = 'active'
+       AND undo_target_start = $2 AND undo_target_end = $3`,
+    [rowId, targetRange.clockStart, targetRange.clockEnd]
   );
   return result.rowCount === 1;
 }
 
-/** Conditional redo claim. True when this caller won. */
-async function claimRedo(client, rowId) {
+/** Conditional redo claim, symmetric on redo_target (M3). True when this caller won. */
+async function claimRedo(client, rowId, targetRange) {
   const result = await client.query(
     `UPDATE agent_edits
      SET state = 'active', updated_at = now()
-     WHERE id = $1 AND state = 'undone'`,
-    [rowId]
+     WHERE id = $1 AND state = 'undone'
+       AND redo_target_start = $2 AND redo_target_end = $3`,
+    [rowId, targetRange.clockStart, targetRange.clockEnd]
   );
   return result.rowCount === 1;
 }
@@ -181,6 +188,10 @@ async function insertLegacyUndone(client, { docGuid, userId, agentName, clockSta
  * @param {object} opts
  * @param {'undo'|'redo'|'legacy-undo'} opts.mode
  * @param {number} [opts.rowId] - agent_edits row id (undo/redo)
+ * @param {{clockStart: number, clockEnd: number}} [opts.targetRange] - The
+ *   range the caller computed its inverse FROM (undo/redo modes; review M3):
+ *   the claim CAS requires the row still to carry exactly this range, so an
+ *   inverse computed from a stale read can never commit
  * @param {object} [opts.legacyEdit] - { docGuid, userId, agentName, clockStart,
  *   clockEnd } for the legacy first-undo insert
  * @param {string} opts.docGuid
@@ -192,7 +203,10 @@ async function insertLegacyUndone(client, { docGuid, userId, agentName, clockSta
  *   a concurrent request won (honest already-undone/redone, FR-028)
  */
 async function finalizeClaim(persistence, opts) {
-  const { mode, rowId, legacyEdit, docGuid, userId, agentName, inverseUpdate } = opts;
+  const { mode, rowId, targetRange, legacyEdit, docGuid, userId, agentName, inverseUpdate } = opts;
+  if ((mode === 'undo' || mode === 'redo') && !targetRange) {
+    throw new Error(`finalizeClaim: targetRange is required for mode ${mode} (M3 range CAS)`);
+  }
   const pool = persistence.getPool();
   const client = await pool.connect();
   try {
@@ -201,9 +215,9 @@ async function finalizeClaim(persistence, opts) {
     let claimed;
     let targetRowId = rowId ?? null;
     if (mode === 'undo') {
-      claimed = await claimUndo(client, rowId);
+      claimed = await claimUndo(client, rowId, targetRange);
     } else if (mode === 'redo') {
-      claimed = await claimRedo(client, rowId);
+      claimed = await claimRedo(client, rowId, targetRange);
     } else if (mode === 'legacy-undo') {
       const r = await insertLegacyUndone(client, legacyEdit);
       claimed = r.inserted;

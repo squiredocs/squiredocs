@@ -125,6 +125,7 @@ describe('edit-records', () => {
     });
     const result = await editRecords.finalizeClaim(persistence, {
       mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 0, clockEnd: 0 },
       docGuid, userId, agentName: AGENT,
       inverseUpdate: makeUpdate('the inverse'),
     });
@@ -153,6 +154,7 @@ describe('edit-records', () => {
     });
     const attempt = () => editRecords.finalizeClaim(persistence, {
       mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 0, clockEnd: 0 },
       docGuid, userId, agentName: AGENT,
       inverseUpdate: makeUpdate('inverse'),
     });
@@ -166,6 +168,58 @@ describe('edit-records', () => {
     expect(rows[0].n).toBe(1); // only the winner appended
   });
 
+  test('claim CAS covers the target range too (M3): a stale range never commits', async () => {
+    const docGuid = randomUUID();
+    const rec = await editRecords.recordEdit(persistence, {
+      docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
+    });
+
+    // Undo claim computed from a STALE read of the target range — refused,
+    // nothing transitions, nothing is appended.
+    const stale = await editRecords.finalizeClaim(persistence, {
+      mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 5, clockEnd: 9 },
+      docGuid, userId, agentName: AGENT,
+      inverseUpdate: makeUpdate('stale inverse'),
+    });
+    expect(stale.claimed).toBe(false);
+    let state = await pool.query('SELECT state FROM agent_edits WHERE id = $1', [rec.id]);
+    expect(state.rows[0].state).toBe('active');
+    let count = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+    expect(count.rows[0].n).toBe(0);
+
+    // The range actually on the row commits.
+    const undo = await editRecords.finalizeClaim(persistence, {
+      mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 0, clockEnd: 0 },
+      docGuid, userId, agentName: AGENT,
+      inverseUpdate: makeUpdate('inverse'),
+    });
+    expect(undo.claimed).toBe(true);
+
+    // Redo claims are symmetric on redo_target: stale range refused...
+    const staleRedo = await editRecords.finalizeClaim(persistence, {
+      mode: 'redo', rowId: rec.id,
+      targetRange: { clockStart: undo.clock + 7, clockEnd: undo.clock + 7 },
+      docGuid, userId, agentName: AGENT,
+      inverseUpdate: makeUpdate('stale redo'),
+    });
+    expect(staleRedo.claimed).toBe(false);
+    state = await pool.query('SELECT state FROM agent_edits WHERE id = $1', [rec.id]);
+    expect(state.rows[0].state).toBe('undone');
+
+    // ...the recorded redo target commits.
+    const redo = await editRecords.finalizeClaim(persistence, {
+      mode: 'redo', rowId: rec.id,
+      targetRange: { clockStart: undo.clock, clockEnd: undo.clock },
+      docGuid, userId, agentName: AGENT,
+      inverseUpdate: makeUpdate('redo'),
+    });
+    expect(redo.claimed).toBe(true);
+    count = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+    expect(count.rows[0].n).toBe(2); // only the two winners appended
+  });
+
   test('redo claim is symmetric (WHERE state=\'undone\'); loser reports honestly', async () => {
     const docGuid = randomUUID();
     const rec = await editRecords.recordEdit(persistence, {
@@ -173,13 +227,17 @@ describe('edit-records', () => {
     });
     // Undo first so the row is redoable.
     const undo = await editRecords.finalizeClaim(persistence, {
-      mode: 'undo', rowId: rec.id, docGuid, userId, agentName: AGENT,
+      mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 0, clockEnd: 0 },
+      docGuid, userId, agentName: AGENT,
       inverseUpdate: makeUpdate('inverse'),
     });
     expect(undo.claimed).toBe(true);
 
     const attempt = () => editRecords.finalizeClaim(persistence, {
-      mode: 'redo', rowId: rec.id, docGuid, userId, agentName: AGENT,
+      mode: 'redo', rowId: rec.id,
+      targetRange: { clockStart: undo.clock, clockEnd: undo.clock },
+      docGuid, userId, agentName: AGENT,
       inverseUpdate: makeUpdate('redo update'),
     });
     const [a, b] = await Promise.all([attempt(), attempt()]);
@@ -231,7 +289,9 @@ describe('edit-records', () => {
       storeUpdate: async () => { throw new Error('boom: simulated insert failure'); },
     };
     await expect(editRecords.finalizeClaim(failing, {
-      mode: 'undo', rowId: rec.id, docGuid, userId, agentName: AGENT,
+      mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: 0, clockEnd: 0 },
+      docGuid, userId, agentName: AGENT,
       inverseUpdate: makeUpdate('inverse'),
     })).rejects.toThrow('boom');
 

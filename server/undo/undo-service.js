@@ -184,6 +184,11 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   const { claimed, clock } = await editRecords.finalizeClaim(persistence, {
     mode,
     rowId: row ? row.id : undefined,
+    // M3: the claim CAS re-checks the exact range this inverse was computed
+    // from — if a concurrent chain step rewrote it, this claim must lose.
+    targetRange: mode === 'undo'
+      ? { clockStart: range.clockStart, clockEnd: range.clockEnd }
+      : undefined,
     legacyEdit,
     docGuid,
     userId,
@@ -246,6 +251,7 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
   const { claimed, clock } = await editRecords.finalizeClaim(persistence, {
     mode: 'redo',
     rowId: row.id,
+    targetRange: range, // M3: CAS on the exact redo range the inverse used
     docGuid,
     userId,
     agentName,
