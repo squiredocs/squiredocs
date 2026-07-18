@@ -30,6 +30,17 @@ const ORIGIN_REDIS = 'redis';
 const ORIGIN_SYNC_PUSH = 'sync-push';
 
 /**
+ * Sentinel: a log-derived undo/redo inverse (feature 016) broadcast onto the
+ * live shared doc AFTER the undo service has already stored the one attributed
+ * inverse row (store-then-apply, research R3). parseOrigin returns null so the
+ * bindState persistence listener does NOT re-store an unattributed second row;
+ * like ORIGIN_SYNC_PUSH it is deliberately NOT on the Redis publish skip-list,
+ * so other instances holding the doc receive the reversion through the normal
+ * cross-instance fan-out.
+ */
+const ORIGIN_INVERSE_APPLY = 'inverse-apply';
+
+/**
  * Build a canonical origin object for a Yjs transaction.
  * Always returns { userId, agentName } — never a bare string.
  *
@@ -49,7 +60,12 @@ function createOrigin(userId, agentName = null) {
  * @returns {{ userId: string|null, agentName: string|null } | null}
  */
 function parseOrigin(origin) {
-  if (origin === ORIGIN_DB_LOAD || origin === ORIGIN_REDIS || origin === ORIGIN_SYNC_PUSH) {
+  if (
+    origin === ORIGIN_DB_LOAD
+    || origin === ORIGIN_REDIS
+    || origin === ORIGIN_SYNC_PUSH
+    || origin === ORIGIN_INVERSE_APPLY
+  ) {
     return null;
   }
 
@@ -71,6 +87,7 @@ module.exports = {
   ORIGIN_DB_LOAD,
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
+  ORIGIN_INVERSE_APPLY,
   createOrigin,
   parseOrigin,
 };
