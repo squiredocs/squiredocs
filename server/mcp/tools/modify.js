@@ -19,6 +19,8 @@ const {
   rehostImportOriginImages,
   sanitizeLinkHrefs,
 } = require('../image-validate');
+const { captureEditUpdates, awaitDurableRange } = require('../yjs/edit-range');
+const editRecords = require('../../undo/edit-records');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
 // Upper bound on the echoed post-edit content (serialized chars). A modify
@@ -34,6 +36,14 @@ const MAX_ECHO_CONTENT_CHARS = 60_000;
 // snapshot bytes several-fold.
 const MAX_SOURCE_DOCS = 10;
 const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
+
+// Bounded durability wait for the edit identifier (feature 016, RBD-8):
+// modify polls the log until the identity's stored rows cover every captured
+// payload, then returns editRange. On timeout it returns editRangePending and
+// finishes the recording in the background (bounded too, just longer).
+const EDIT_RANGE_WAIT_MS = 5000;
+const EDIT_RANGE_POLL_MS = 150;
+const EDIT_RANGE_BACKGROUND_WAIT_MS = 60000;
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -411,6 +421,12 @@ async function handlerImpl(args, agentToken) {
   console.log(`[modify:DIAGNOSTIC] sessionId=${session.sessionId}`);
   console.log(`[modify:DIAGNOSTIC] blockCountBefore=${blockCountBefore}`);
 
+  // Capture this call's own update payloads — script transactions AND the
+  // post-script sanitization passes below — for the durable edit identifier
+  // (feature 016, FR-001, research R2). Remote updates arriving through the
+  // session's provider mid-call are excluded: they are other authors' edits.
+  const editCapture = captureEditUpdates(ydoc, { excludeOrigins: [session.provider] });
+
   try {
     // Execute the script
     const result = await executeScript(script, session, xmlFragment, {
@@ -476,6 +492,10 @@ async function handlerImpl(args, agentToken) {
       console.error('[modify] link href validation failed:', e.message);
     }
 
+    // The edit is complete (script + every sanitization pass) — close the
+    // identifier capture window. Everything after this point is read-only.
+    const editPayloads = editCapture.stop();
+
     // Capture state after script execution for change detection and diff
     const blockCountAfter = xmlFragment.toArray().length;
     const mdAfter = toMarkdown(xmlFragment);
@@ -531,9 +551,64 @@ async function handlerImpl(args, agentToken) {
         changed,
         operationCount: result.operationCount,
         summary: result.summary,
+        // RBD-1: `clock` KEEPS its pre-edit-baseline meaning — the chat
+        // staleness/conflict machinery reads it. The edit identifier is the
+        // separate, explicit editRange below.
         diff,
         clock: currentClock,
       };
+
+      // Durable edit identifier (feature 016, FR-001..004): wait (bounded)
+      // until the log's identity-attributed rows provably cover every payload
+      // this call produced, then return the range and record the agent_edits
+      // row. On timeout, return editRangePending and finish in the background
+      // (RBD-8) — an undo arriving before the record exists finds nothing and
+      // reports honestly (RBD-7(b)).
+      if (changed) {
+        const editIdentity = { userId: agentToken.userId, agentName: agentToken.agentName };
+        const baseline = typeof currentClock === 'number' ? currentClock : -1;
+        let editRange = null;
+        try {
+          editRange = await awaitDurableRange(
+            persistenceProvider, docGuid, editIdentity, baseline, editPayloads,
+            { timeoutMs: EDIT_RANGE_WAIT_MS, pollIntervalMs: EDIT_RANGE_POLL_MS }
+          );
+        } catch (e) {
+          console.error('[modify] edit-range durability wait failed:', e.message);
+        }
+        if (editRange) {
+          response.editRange = editRange;
+          try {
+            await editRecords.recordEdit(persistenceProvider, {
+              docGuid,
+              userId: editIdentity.userId,
+              agentName: editIdentity.agentName,
+              clockStart: editRange.clockStart,
+              clockEnd: editRange.clockEnd,
+            });
+          } catch (e) {
+            console.error('[modify] agent_edits record insert failed:', e.message);
+          }
+        } else {
+          response.editRangePending = true;
+          // Background completion: keep polling (longer bound), then record.
+          awaitDurableRange(
+            persistenceProvider, docGuid, editIdentity, baseline, editPayloads,
+            { timeoutMs: EDIT_RANGE_BACKGROUND_WAIT_MS, pollIntervalMs: 500 }
+          ).then((range) => {
+            if (!range) return null;
+            return editRecords.recordEdit(persistenceProvider, {
+              docGuid,
+              userId: editIdentity.userId,
+              agentName: editIdentity.agentName,
+              clockStart: range.clockStart,
+              clockEnd: range.clockEnd,
+            });
+          }).catch((e) => {
+            console.error('[modify] background edit-range recording failed:', e.message);
+          });
+        }
+      }
       if (sourceGuids.length > 0) {
         response.sourceDocGuids = sourceGuids;
       }
@@ -614,6 +689,7 @@ async function handlerImpl(args, agentToken) {
       throw new Error(result.error);
     }
   } catch (error) {
+    editCapture.stop(); // idempotent; the success path already stopped it
     throw new Error(`Script execution failed: ${error.message}`);
   }
 }
