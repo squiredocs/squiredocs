@@ -470,7 +470,15 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
           provider = null;
         }
         activeSessions.delete(sessionId);
-        sessionsByKey.delete(sessionKey);
+        // Cross-delete guard (feature 015, FR-014): only remove the shared
+        // key mapping when it still points at THIS session. A newer session
+        // may have taken the key over; deleting its mapping would orphan it
+        // (unfindable, unextendable) and make duplicates snowball. All other
+        // teardown above/below is this session's own and runs regardless
+        // (FR-015).
+        if (sessionsByKey.get(sessionKey) === sessionId) {
+          sessionsByKey.delete(sessionKey);
+        }
         // Remove from userId index
         const userSessions = sessionsByUserId.get(userId);
         if (userSessions) {

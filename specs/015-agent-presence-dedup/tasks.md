@@ -93,11 +93,11 @@ Existing backend layout: production code in `server/`, backend tests in `server/
 
 ### Tests for User Story 3 (write first, watch fail)
 
-- [ ] T017 [P] [US3] Extend `server/mcp/__tests__/agent-presence.test.js` with a cross-delete-guard block: (a) old session's cleanup runs after a newer session owns the same sessionKey → `sessionsByKey` still maps to the newer sessionId, which stays findable via `getUndoRedoAvailability` and reusable via the reuse path (FR-014, SC-005); (b) a session that still owns its mapping deletes it on cleanup exactly as today (spec US3 scenario 2); (c) the guarded cleanup still releases every own resource — provider destroyed, undoManager destroyed, timers cleared, highlightQueue cleared, `activeSessions`/`sessionsByUserId` entries removed (FR-015); (d) a repeated stale→replace→cleanup cycle loop never yields >1 live session per key (spec US3 scenario 3).
+- [X] T017 [P] [US3] Extend `server/mcp/__tests__/agent-presence.test.js` with a cross-delete-guard block: (a) old session's cleanup runs after a newer session owns the same sessionKey → `sessionsByKey` still maps to the newer sessionId, which stays findable via `getUndoRedoAvailability` and reusable via the reuse path (FR-014, SC-005); (b) a session that still owns its mapping deletes it on cleanup exactly as today (spec US3 scenario 2); (c) the guarded cleanup still releases every own resource — provider destroyed, undoManager destroyed, timers cleared, highlightQueue cleared, `activeSessions`/`sessionsByUserId` entries removed (FR-015); (d) a repeated stale→replace→cleanup cycle loop never yields >1 live session per key (spec US3 scenario 3).
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Implement the guard in the cleanup closure of `server/mcp/agent-presence.js` (today's unconditional `sessionsByKey.delete(sessionKey)` at :362): delete only when `sessionsByKey.get(sessionKey) === sessionId`; leave all other teardown unconditional. No changes to `activeSessions`/`sessionsByUserId` handling (unique-keyed, cannot cross-delete — plan Decision 6). Depends on T017 (independent of Phases 3–4; only needs Phase 2's file state).
+- [X] T018 [US3] Implement the guard in the cleanup closure of `server/mcp/agent-presence.js` (today's unconditional `sessionsByKey.delete(sessionKey)` at :362): delete only when `sessionsByKey.get(sessionKey) === sessionId`; leave all other teardown unconditional. No changes to `activeSessions`/`sessionsByUserId` handling (unique-keyed, cannot cross-delete — plan Decision 6). Depends on T017 (independent of Phases 3–4; only needs Phase 2's file state).
 
 **Checkpoint**: US3 independently green — runnable even with claims disabled.
 

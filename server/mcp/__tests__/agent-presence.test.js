@@ -1,7 +1,11 @@
 /**
  * Tests for Agent Presence Manager
  */
+const http = require('http');
+const WebSocket = require('ws');
+const { setupWSConnection } = require('y-websocket/bin/utils');
 const agentPresence = require('../agent-presence');
+const presenceClaim = require('../presence-claim');
 
 describe('Agent Presence Manager', () => {
   // Helper to create a mock session and add it to all indexes
@@ -489,5 +493,164 @@ describe('Agent Presence Manager', () => {
       expect(result).toBe(true);
       expect(session.cleanup).toHaveBeenCalled();
     });
+  });
+});
+
+describe('cross-delete guard (feature 015, US3 — FR-014/FR-015)', () => {
+  // Real sessions (real cleanup closures) against a local y-websocket server;
+  // persistence is mocked, claims are disabled — US3 is a pure
+  // single-instance bookkeeping fix, runnable with no coordination at all.
+  jest.setTimeout(30000);
+
+  let httpServer;
+  let wss;
+  const DOC_GUID = '99999999-aaaa-bbbb-cccc-000000000015';
+  const USER_ID = 'guard-user';
+  const SESSION_KEY = `${USER_ID}-default-${DOC_GUID}`;
+
+  const mockPersistence = {
+    getPool: () => ({
+      query: async () => ({
+        rows: [
+          {
+            id: DOC_GUID,
+            role: 'editor',
+            name: 'Guard User',
+            email: 'guard@example.com',
+            picture: '',
+          },
+        ],
+      }),
+    }),
+    getUpdateCount: async () => 0,
+  };
+
+  function makeToken() {
+    return {
+      userId: USER_ID,
+      agentId: 'default',
+      agentName: 'Guard Agent',
+      rawToken: 'mock-token',
+    };
+  }
+
+  async function createRealSession() {
+    // sessionIds are Date.now()-based; keep successive creations in
+    // distinct milliseconds
+    await new Promise((r) => setTimeout(r, 2));
+    return agentPresence.getOrCreateSession(DOC_GUID, makeToken(), 60);
+  }
+
+  function liveSessionsForKey() {
+    let count = 0;
+    for (const session of agentPresence.getActiveSessions().values()) {
+      if (session.key === SESSION_KEY) count += 1;
+    }
+    return count;
+  }
+
+  beforeAll(async () => {
+    presenceClaim._setDepsForTests({ enabled: () => false });
+    httpServer = http.createServer();
+    wss = new WebSocket.Server({ server: httpServer, verifyClient: () => true });
+    wss.on('connection', (ws, req) => setupWSConnection(ws, req, { gc: false }));
+    await new Promise((resolve) => {
+      httpServer.listen(0, () => {
+        process.env.WS_PORT = String(httpServer.address().port);
+        process.env.WS_HOST = 'localhost';
+        process.env.WS_PROTOCOL = 'ws';
+        resolve();
+      });
+    });
+    agentPresence.init(mockPersistence);
+  });
+
+  afterAll(async () => {
+    agentPresence.clearUserSessions(USER_ID);
+    await new Promise((resolve) => wss.close(resolve));
+    await new Promise((resolve) => httpServer.close(resolve));
+    presenceClaim._resetForTests();
+  });
+
+  afterEach(() => {
+    agentPresence.clearUserSessions(USER_ID);
+  });
+
+  test("an old session's cleanup never orphans the newer session owning the same key", async () => {
+    const oldSession = await createRealSession();
+    expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(oldSession.sessionId);
+
+    // Force stale so the next call creates a replacement instead of reusing
+    oldSession.provider.wsconnected = false;
+    const newSession = await createRealSession();
+    expect(newSession.sessionId).not.toBe(oldSession.sessionId);
+    expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(newSession.sessionId);
+
+    // The stale session's cleanup fires late (timeout expiry / failure path)
+    oldSession.cleanup();
+
+    // FR-014: the mapping still points at the newer session…
+    expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(newSession.sessionId);
+    // …which stays findable and reusable by the next tool call (SC-005)
+    const reused = await createRealSession();
+    expect(reused.sessionId).toBe(newSession.sessionId);
+  });
+
+  test('a session that still owns its mapping deletes it on cleanup exactly as before', async () => {
+    const session = await createRealSession();
+    expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(session.sessionId);
+
+    session.cleanup();
+
+    expect(agentPresence._sessionsByKey.has(SESSION_KEY)).toBe(false);
+    expect(agentPresence.getSession(session.sessionId)).toBeNull();
+  });
+
+  test('guarded cleanup still releases every resource the old session owns (FR-015)', async () => {
+    const oldSession = await createRealSession();
+    const providerDestroy = jest.spyOn(oldSession.provider, 'destroy');
+    const undoDestroy = jest.spyOn(oldSession.undoManager, 'destroy');
+    oldSession.tempSelectionTimeoutId = setTimeout(() => {}, 60000);
+    oldSession.highlightQueue = {
+      positions: [{ anchor: {}, head: {} }],
+      currentIndex: 0,
+      timeoutId: setTimeout(() => {}, 60000),
+      isProcessing: false,
+    };
+
+    oldSession.provider.wsconnected = false;
+    const newSession = await createRealSession();
+
+    oldSession.cleanup();
+
+    // Own resources fully torn down…
+    expect(providerDestroy).toHaveBeenCalled();
+    expect(undoDestroy).toHaveBeenCalled();
+    expect(oldSession.undoManager).toBeNull();
+    expect(oldSession.tempSelectionTimeoutId).toBeNull();
+    expect(oldSession.highlightQueue).toBeNull();
+    expect(agentPresence.getSession(oldSession.sessionId)).toBeNull();
+    const userSessions = agentPresence._sessionsByUserId.get(USER_ID);
+    expect(userSessions.has(oldSession.sessionId)).toBe(false);
+    // …while the shared mapping (owned by the newer session) survives
+    expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(newSession.sessionId);
+  });
+
+  test('repeated stale→replace→cleanup cycles never leave more than one live session per key', async () => {
+    let current = await createRealSession();
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      const stale = current;
+      stale.provider.wsconnected = false;
+      current = await createRealSession();
+      expect(current.sessionId).not.toBe(stale.sessionId);
+
+      stale.cleanup();
+
+      expect(liveSessionsForKey()).toBe(1);
+      expect(agentPresence._sessionsByKey.get(SESSION_KEY)).toBe(current.sessionId);
+      // And the next call keeps reusing the live one instead of stacking new sessions
+      const reused = await createRealSession();
+      expect(reused.sessionId).toBe(current.sessionId);
+    }
   });
 });
