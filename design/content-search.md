@@ -25,6 +25,8 @@ Chunking becomes structure-aware: documents split along heading boundaries into 
 
 The search evaluation harness becomes first-class on main (rescued and re-ported from the rag-search-v2 branch, which stays a reference only): Recall@k / MRR / nDCG / recall@token-budget metrics, a variant-sweep runner, and a CURATED long-tail eval set (paraphrased/conceptual, multi-doc, and no-answer queries) replacing the saturated LLM-drafted set. **Decision (Sam, 2026-07-18): **the chunking/preamble work is built now with the eval measuring it before/after — measurement informs tuning rather than gating the build (overriding the gap analysis’ build-only-if-eval-says-so recommendation). The LLM reranker stays off by default: the existing eval showed it lowered MRR at ~5.7s/query on this corpus; it remains a flag pending curated-eval evidence.
 
+**Addition (Sam, 2026-07-18) — titles join the embedded text: **today the document title is keyword-indexed at weight A but never embedded (chunks are body-text only), so conceptual title matches leak through the semantic leg. From 018 onward, every chunk’s embedded text begins with its heading_path headed by the DOCUMENT TITLE — titles become semantically searchable corpus-wide. Corollary: the 017 re-embed hash expands to cover the title once it is part of embedded text (a title change must bust the gate); until 018 lands, 017’s title-excluded hash remains correct because the title is not embedded.
+
 ## Authorization
 
 Search never widens access: every query CTE joins `document_shares` on the requesting user, so both engines are pre-filtered to accessible documents before ranking.
