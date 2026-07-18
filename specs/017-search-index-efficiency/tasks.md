@@ -274,7 +274,7 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Documentation sweep (Constitution Principle I; same change set): update
+- [X] T019 [P] Documentation sweep (Constitution Principle I; same change set): update
       `/local-dev/ReadMe.md` where it describes content search / the indexer /
       `list_documents` parameters (add `updatedAfter`, hash gating, model self-repair as
       appropriate to its current level of detail); check the docs site content under
@@ -282,12 +282,12 @@ reboot-equivalent (`reindexStale()`), exactly that doc re-embeds; second run doe
       `server/mcp/tools/tool-documentation/` for any page enumerating `list_documents`
       parameters and update it. Do NOT edit `design/*` (Squire-synced), `CLAUDE.md`, or
       `docs/dev.md`.
-- [ ] T020 Full serial backend regression: `npm test` (backend Jest, one runner). Confirm:
+- [X] T020 Full serial backend regression: `npm test` (backend Jest, one runner). Confirm:
       no pre-existing test file modified except the documented extensions
       (`search.test.js`, `api-docs.test.js`); `agents-md-claims.test.js` and other
       MCP-description-dependent suites still green (tool description changed — if one
       asserts description text, reconcile per its own conventions).
-- [ ] T021 Walk `quickstart.md` expected-outcomes checklist (automated part; manual
+- [X] T021 Walk `quickstart.md` expected-outcomes checklist (automated part; manual
       provider scenarios are flagged for Sam per pipeline convention — deploys/manual
       checks stay with the maintainer).
 
