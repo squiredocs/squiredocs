@@ -833,6 +833,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       docGuid,
       messageImages,
       messageMarkdown,
+      // Text-only models (GLM) don't get the vision tools — offering them lets the
+      // agent 404 the turn by feeding image bytes back through a tool result.
+      supportsImages: def.supportsImages,
     });
 
     // Validate and convert UI messages for streamText.

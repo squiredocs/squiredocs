@@ -63,7 +63,7 @@ function AiChatBody({
       ) : status === 'error' && error && (
         <div className="ai-chat-body-error">
           {errorInfo?.text || 'Something went wrong. Please try again.'}
-          {errorInfo?.code === 'byok_invalid_key' || errorInfo?.code === 'byok_misconfigured' ? (
+          {MESSAGES[errorInfo?.code]?.action === 'settings' ? (
             <a className="ai-chat-body-error-link" href="/settings">Open Settings</a>
           ) : null}
           {canRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}

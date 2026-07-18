@@ -60,6 +60,19 @@ describe('chat-tools', () => {
       expect(mockTool).toHaveBeenCalledTimes(7); // 3 MCP tools + 4 chat-only tools
     });
 
+    it('omits the vision tools for a text-only model (supportsImages:false)', () => {
+      // A GLM (text-only) model 404s if the agent feeds image bytes back via a
+      // tool result, so view_image/view_svg_blocks/insert_image must not be
+      // offered. import_markdown stays (it never sends image content).
+      const tools = buildTools(fakeToken, { supportsImages: false });
+      expect(tools).not.toHaveProperty('insert_image');
+      expect(tools).not.toHaveProperty('view_image');
+      expect(tools).not.toHaveProperty('view_svg_blocks');
+      expect(tools).toHaveProperty('import_markdown');
+      // Non-image tools are unaffected.
+      expect(tools).toHaveProperty('read_document');
+    });
+
     it('passes results through when under the size limit', async () => {
       const smallResult = { content: 'hello', blockCount: 1 };
       mockExecuteTool.mockResolvedValue(smallResult);

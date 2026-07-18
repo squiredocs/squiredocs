@@ -215,7 +215,7 @@ function buildWebTools(providerName, provider) {
  * @param {object} agentToken - { userId, agentName }
  * @param {object} ctx - { messageImages, messageMarkdown, docGuid }
  */
-function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [], docGuid: chatDocGuid } = {}) {
+function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [], docGuid: chatDocGuid, supportsImages = true } = {}) {
   const { tool, jsonSchema } = require('ai');
   const tools = {};
   const userId = agentToken.userId;
@@ -424,6 +424,21 @@ function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [],
     },
   });
 
+  // A text-only model (GLM, supportsImages === false) can't accept image
+  // content. The vision tools would let the agent 404 the whole turn by feeding
+  // image bytes back through a tool result — view_image/view_svg_blocks resolve
+  // to `image-data`/`image_url` content, which the provider rejects exactly like
+  // an attached image ("No endpoints found that support image input"). This path
+  // bypasses the message-level image guards entirely (the bytes come from a tool
+  // result, not a message part), so gate it here. insert_image is also dead on a
+  // text-only model — no image attachment ever reaches it. import_markdown stays:
+  // it pipes bytes to the importer, never to the model.
+  if (!supportsImages) {
+    delete tools.insert_image;
+    delete tools.view_image;
+    delete tools.view_svg_blocks;
+  }
+
   return tools;
 }
 
@@ -436,7 +451,7 @@ function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [],
  * @param {object} [opts.provider] - AI SDK provider factory
  * @returns {object} Map of tool name -> AI SDK tool definition
  */
-function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder, docGuid, messageImages, messageMarkdown } = {}) {
+function buildTools(syntheticAgentToken, { providerName, provider, pool, observedClockHolder, docGuid, messageImages, messageMarkdown, supportsImages = true } = {}) {
   const { tool, jsonSchema } = require('ai');
   const mcpTools = toolRegistry.getToolList();
   const aiTools = {};
@@ -508,7 +523,7 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
 
   // Chat-only image tools (insert from chat attachment, view doc images,
   // render SVG blocks for vision).
-  Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, messageMarkdown, docGuid }));
+  Object.assign(aiTools, buildImageTools(syntheticAgentToken, { messageImages, messageMarkdown, docGuid, supportsImages }));
 
   return aiTools;
 }
