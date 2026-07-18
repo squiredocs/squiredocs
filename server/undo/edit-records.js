@@ -96,6 +96,39 @@ async function nextRedoTarget(persistence, { docGuid, userId, agentName }) {
   return mapRow(result.rows[0]);
 }
 
+/**
+ * True while the identity's newest log row looks like an edit whose record is
+ * still being written (review M2 — the editRangePending window): the row is
+ * (a) newer than every clock any agent_edits row accounts for — edit ranges,
+ * undo targets (redo inverses) and redo targets (undo inverses) — and
+ * (b) younger than `freshnessMs` (callers pass the background wait bound, so
+ * anything the background recorder could still record counts as pending).
+ * Rows older than that will never be recorded and must not wedge undo.
+ */
+async function hasPendingRecording(persistence, { docGuid, userId, agentName }, freshnessMs) {
+  const pool = persistence.getPool();
+  const newest = await pool.query(
+    `SELECT clock, created_at FROM yjs_updates
+     WHERE doc_guid = $1 AND user_id = $2 AND agent_name = $3
+     ORDER BY clock DESC LIMIT 1`,
+    [docGuid, userId, agentName]
+  );
+  if (newest.rows.length === 0) return false;
+  const { clock, created_at: createdAt } = newest.rows[0];
+  if (Date.now() - new Date(createdAt).getTime() >= freshnessMs) return false;
+  const accounted = await pool.query(
+    `SELECT GREATEST(
+        COALESCE(MAX(edit_clock_end), -1),
+        COALESCE(MAX(undo_target_end), -1),
+        COALESCE(MAX(redo_target_end), -1)) AS max_clock
+     FROM agent_edits
+     WHERE doc_guid = $1 AND user_id = $2 AND agent_name = $3`,
+    [docGuid, userId, agentName]
+  );
+  const maxAccounted = accounted.rows[0]?.max_clock ?? -1;
+  return clock > maxAccounted;
+}
+
 /** Conditional undo claim on an open client/transaction. True when this caller won. */
 async function claimUndo(client, rowId) {
   const result = await client.query(
@@ -222,6 +255,7 @@ module.exports = {
   latestEdit,
   nextUndoTarget,
   nextRedoTarget,
+  hasPendingRecording,
   claimUndo,
   claimRedo,
   insertLegacyUndone,

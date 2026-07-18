@@ -19,7 +19,13 @@ const {
   rehostImportOriginImages,
   sanitizeLinkHrefs,
 } = require('../image-validate');
-const { captureEditUpdates, awaitDurableRange } = require('../yjs/edit-range');
+const {
+  captureEditUpdates,
+  awaitDurableRange,
+  EDIT_RANGE_WAIT_MS,
+  EDIT_RANGE_POLL_MS,
+  EDIT_RANGE_BACKGROUND_WAIT_MS,
+} = require('../yjs/edit-range');
 const editRecords = require('../../undo/edit-records');
 const { MODIFY_DOCUMENTATION } = require('./tool-documentation/modify');
 
@@ -36,14 +42,6 @@ const MAX_ECHO_CONTENT_CHARS = 60_000;
 // snapshot bytes several-fold.
 const MAX_SOURCE_DOCS = 10;
 const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
-
-// Bounded durability wait for the edit identifier (feature 016, RBD-8):
-// modify polls the log until the identity's stored rows cover every captured
-// payload, then returns editRange. On timeout it returns editRangePending and
-// finishes the recording in the background (bounded too, just longer).
-const EDIT_RANGE_WAIT_MS = 5000;
-const EDIT_RANGE_POLL_MS = 150;
-const EDIT_RANGE_BACKGROUND_WAIT_MS = 60000;
 
 // Persistence provider - set by init function
 let persistenceProvider = null;

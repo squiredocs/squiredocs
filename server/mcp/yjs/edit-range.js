@@ -135,6 +135,16 @@ function coverageIntersects(a, b) {
 
 const MAX_CLOCK = 2147483647; // Postgres int4 upper bound
 
+// Bounds for the durability wait (feature 016, RBD-8): modify waits inline up
+// to EDIT_RANGE_WAIT_MS; on timeout it returns editRangePending and keeps
+// polling in the background up to EDIT_RANGE_BACKGROUND_WAIT_MS. The
+// background bound doubles as the freshness horizon everywhere the system
+// must assume an identity row MIGHT still get recorded (undo's
+// pending-recording guard, legacy derivation's freshness guard).
+const EDIT_RANGE_WAIT_MS = 5000;
+const EDIT_RANGE_POLL_MS = 150;
+const EDIT_RANGE_BACKGROUND_WAIT_MS = 60000;
+
 /**
  * Poll the log until the identity's rows after `baselineClock` durably cover
  * every captured payload, then return the covering rows' clock range.
@@ -205,4 +215,10 @@ async function awaitDurableRange(persistence, docGuid, identity, baselineClock, 
   }
 }
 
-module.exports = { captureEditUpdates, awaitDurableRange };
+module.exports = {
+  captureEditUpdates,
+  awaitDurableRange,
+  EDIT_RANGE_WAIT_MS,
+  EDIT_RANGE_POLL_MS,
+  EDIT_RANGE_BACKGROUND_WAIT_MS,
+};

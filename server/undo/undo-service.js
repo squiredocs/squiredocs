@@ -30,6 +30,7 @@ const { computeInverse } = require('./inverse');
 const { deriveLegacyRange } = require('./legacy');
 const documentService = require('../document-service');
 const defaultRedisPubSub = require('../redis-pubsub');
+const { EDIT_RANGE_BACKGROUND_WAIT_MS } = require('../mcp/yjs/edit-range');
 
 const MAX_CLOCK = 2147483647; // Postgres int4 upper bound
 
@@ -116,6 +117,21 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   let range = null;
 
   if (row) {
+    // Review M2: during the editRangePending window (RBD-8) the newest edit's
+    // rows are in the log but its record is not — honoring nextUndoTarget
+    // here would silently undo the WRONG (older) edit. Refuse honestly until
+    // the recording lands or ages past the background wait bound.
+    const pendingRecording = await editRecords.hasPendingRecording(
+      persistence, identity, EDIT_RANGE_BACKGROUND_WAIT_MS
+    );
+    if (pendingRecording) {
+      return {
+        success: true,
+        undone: false,
+        message: 'Nothing undone: your latest edit is still being recorded — retry shortly.',
+        clock: await currentMaxClock(persistence, docGuid),
+      };
+    }
     // undoTargetClocks (review M1): the exact clock set to invert; null on
     // legacy/pre-migration rows falls back to the spanning range.
     range = {

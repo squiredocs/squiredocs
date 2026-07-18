@@ -227,4 +227,85 @@ describe('undo-service (post-merge review pins)', () => {
       expect(await dbText(docGuid)).toBe('<paragraph>Base.</paragraph>');
     });
   });
+
+  // ------------------------------------------------------------------ M2 ----
+
+  describe('M2: undo during the editRangePending window', () => {
+    /**
+     * Append a fresh identity row on top of the current log — the pre-record
+     * state of a modify whose durability wait is still running.
+     */
+    async function appendPendingEditRow(docGuid, text, interval = "'0 seconds'") {
+      const doc = await persistence.getYDoc(docGuid);
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => {
+        const t = frag.get(0).get(0);
+        t.insert(t.length, ` ${text}`);
+      });
+      doc.destroy();
+      expect(payloads.length).toBe(1);
+      const { rows } = await pool.query(
+        'SELECT COALESCE(MAX(clock), -1) + 1 AS next FROM yjs_updates WHERE doc_guid = $1',
+        [docGuid]
+      );
+      const clock = Number(rows[0].next);
+      await pool.query(
+        `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, created_at)
+         VALUES ($1, $2, $3, $4, $5, now() - interval ${interval})`,
+        [docGuid, clock, Buffer.from(payloads[0]), userId, AGENT]
+      );
+      return clock;
+    }
+
+    test('refuses honestly while the newest edit\'s rows are unrecorded — the OLDER edit stays untouched', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid); // recorded edit A (aged)
+      // Edit B's row just landed; its agent_edits record does not exist yet.
+      await appendPendingEditRow(docGuid, 'B-PENDING');
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.success).toBe(true);
+      expect(res.undone).toBe(false);
+      expect(res.message).toMatch(/still being recorded/i);
+
+      // A was NOT undone: record still active, nothing appended, text intact.
+      const rec = await pool.query('SELECT state FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+      expect(rec.rows).toHaveLength(1);
+      expect(rec.rows[0].state).toBe('active');
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text. AGENT-EDIT B-PENDING</paragraph>');
+    });
+
+    test('once the newest edit IS recorded, undo proceeds and targets it (not the older one)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+      const clock = await appendPendingEditRow(docGuid, 'B-RECORDED');
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: clock, clockEnd: clock, clocks: [clock],
+      });
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.undone).toBe(true);
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text. AGENT-EDIT</paragraph>');
+    });
+
+    test('unrecorded rows OLDER than the background wait bound never wedge undo', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+      // An anomaly: an identity row that was never recorded and never will be
+      // (background recording failed) — aged past the wait bound.
+      await appendPendingEditRow(docGuid, 'B-ORPHANED', "'5 minutes'");
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.undone).toBe(true); // undoes A; the orphan is invisible to undo
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text. B-ORPHANED</paragraph>');
+    });
+  });
 });
