@@ -26,7 +26,7 @@ document text only) and flows exclusively through `buildEmbedHashInput` (CN-7).
 
 **Purpose**: capture the pre-feature baseline that SC-005 is measured against.
 
-- [ ] T001 Run the affected existing suites serially and record them green before any
+- [X] T001 Run the affected existing suites serially and record them green before any
       change: `npx jest server/__tests__/search.test.js server/__tests__/search-indexer.test.js
       server/__tests__/search-indexer-privacy.test.js server/__tests__/api-docs.test.js
       server/__tests__/documents.test.js --runInBand` (repo root). These files must still
@@ -41,13 +41,13 @@ document text only) and flows exclusively through `buildEmbedHashInput` (CN-7).
 
 **⚠️ CRITICAL**: T002 blocks US1 and US3 (not US2). T003 blocks US1 and US3.
 
-- [ ] T002 Create migration `/local-dev/migrations/1797000000000_add-content-hash-to-search-index.js`:
+- [X] T002 Create migration `/local-dev/migrations/1797000000000_add-content-hash-to-search-index.js`:
       `up` = `ALTER TABLE document_search_index ADD COLUMN content_hash TEXT` (nullable, no
       default, no backfill, no index); `down` = drop column. **Nothing else in this
       migration** (slot pre-assigned; 016 owns 1796…; new migrations must be
       > 1795000000000). Apply with `npm run migrate` and confirm the test DB picks it up
       via the normal Jest global setup (see data-model.md).
-- [ ] T003 In `/local-dev/server/search-indexer.js` add the two seam functions and export
+- [X] T003 In `/local-dev/server/search-indexer.js` add the two seam functions and export
       them: `buildEmbedHashInput(extractedText)` (017: returns the extracted body text
       unchanged — title never enters; see CN-1/CN-7) and `computeContentHash(input)`
       (Node `crypto` SHA-256, hex). Add them to `module.exports`. No call-site changes yet.

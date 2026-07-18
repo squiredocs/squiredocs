@@ -5,6 +5,7 @@
  * generates tsvector for full-text search and embeddings for
  * vector/semantic search, and upserts into the search index tables.
  */
+const crypto = require('crypto');
 const { toPlainText } = require('./mcp/yjs/serialization');
 
 let persistenceProvider = null;
@@ -56,6 +57,26 @@ function markDirty(docGuid) {
   }, DEBOUNCE_MS);
 
   dirtyTimers.set(docGuid, timer);
+}
+
+/**
+ * Build the exact input string the content hash covers. This is the ONLY
+ * producer of hash input (CN-7 seam): in 017 it is the identity on the
+ * extracted body text — the title never enters (CN-1), and generated/derived
+ * text (e.g. feature 018's contextual preambles) is permanently excluded.
+ * Feature 018 widens this to buildEmbedHashInput(title, extractedText) as a
+ * signature-only change; the gate logic and content_hash semantics stay put.
+ */
+function buildEmbedHashInput(extractedText) {
+  return extractedText;
+}
+
+/**
+ * Deterministic fingerprint over the seam's output: SHA-256, hex (64 chars).
+ * The gate consumes ONLY computeContentHash(buildEmbedHashInput(...)).
+ */
+function computeContentHash(input) {
+  return crypto.createHash('sha256').update(input || '', 'utf8').digest('hex');
 }
 
 /**
@@ -208,4 +229,4 @@ async function flushDirty() {
   await Promise.allSettled(pending.map((docGuid) => indexDocument(docGuid)));
 }
 
-module.exports = { init, markDirty, indexDocument, reindexStale, flushDirty, chunkText, generateAndStoreEmbeddings, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS };
+module.exports = { init, markDirty, indexDocument, reindexStale, flushDirty, chunkText, generateAndStoreEmbeddings, buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS };
