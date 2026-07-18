@@ -64,7 +64,7 @@ recordRateLimitRejection(cat)  // increments ratelimit.rejections{category=cat};
                                // never throws into the 429 path (edge case)
 ```
 
-`rate-limit.js` calls `recordRateLimitRejection(className)` at both 429 emit points (`reject429` and `registrationAdmissionMiddleware`).
+`rate-limit.js` calls `recordRateLimitRejection(className)` at its 429 emit point (`reject429`). _(**Superseded 2026-07-18:** the second emit point, `registrationAdmissionMiddleware`, no longer exists — the registration admission caps were removed and sign-up is now unlimited, so there is no `register`-category 429 to count. See feature 010 `promotion-notes.md` §8. `reject429` still counts every remaining category: auth, token, search, import, export, chat, upload.)_
 
 ## Contract 5 — Console shim (`server/logger.js`)
 

@@ -32,8 +32,8 @@ Doc convergence is deliberately **not** done in this worktree (finding C1 / pipe
 | `REDIS_PASSWORD` | (unset) | Redis AUTH; **unset ⇒ byte-identical** to prior behavior |
 | `RL_AUTH_PER_MIN` | `30` | per-IP `/auth/*` budget |
 | `RL_TOKEN_PER_MIN` | `30` | per-IP `POST /mcp/auth/token` budget |
-| `RL_REGISTER_PER_HOUR` | `5` | per-IP registration budget (shared w/ auto-register) |
-| `RL_REGISTER_GLOBAL_PER_DAY` | `200` | global daily anonymous-registration cap |
+| ~~`RL_REGISTER_PER_HOUR`~~ | ~~`5`~~ | ~~per-IP registration budget (shared w/ auto-register)~~ — **removed 2026-07-18, see §8** |
+| ~~`RL_REGISTER_GLOBAL_PER_DAY`~~ | ~~`200`~~ | ~~global daily anonymous-registration cap~~ — **removed 2026-07-18, see §8** |
 | `RL_SEARCH_PER_MIN` | `30` | per-user content-search budget |
 | `RL_IMPORT_PER_MIN` | `10` | per-user markdown-import budget |
 | `RL_EXPORT_PER_MIN` | `20` | per-user document-export budget |
@@ -97,3 +97,34 @@ currently in a MISCONF (RDB-snapshot-failing) state that rejects writes, so the 
 limiter path exercises its memory-insurance degrade fallback; the shared-store persistence
 assertion in `rate-limit-degrade.test.js` self-skips with a logged note when Redis is not
 writable, and runs for real against a healthy Redis.
+
+## 8. Dispositions (2026-07-18) — post-merge relaxations
+
+Two hardening controls originally shipped by this feature (and its 011 edge companion) were
+deliberately removed on 2026-07-18. Recorded here as the designated disposition log.
+
+1. **Registration admission caps removed (reverses FR-011, relaxes SC-004).** The per-IP `register`
+   limiter (5/hour, `RL_REGISTER_PER_HOUR`) and the global `register:global` limiter
+   (200/day, single shared `GLOBAL_KEY='all'` counter, `RL_REGISTER_GLOBAL_PER_DAY`) were removed
+   from `server/rate-limit.js`, along with the `checkRegistrationAdmission` /
+   `registrationAdmissionMiddleware` helpers and the `GLOBAL_KEY` constant;
+   `server/__tests__/registration-caps.test.js` was deleted. `POST /mcp/auth/register` and the
+   authorize/approve auto-register paths are now **intentionally unlimited**. **Why:** the global
+   limiter was a single shared counter, so one abuser — or plain organic growth — exceeding 200
+   registrations in a UTC day locked out **all** new sign-ups for that day, a self-inflicted
+   cross-tenant DoS; the product decision is to never rate-limit sign-up. Coarse flood protection
+   now comes only from the edge WAF `RateLimitPerIP` rule (2000 req/5min per IP; feature 011
+   `infra/terraform/edge.tf`). All other rate-limit classes (auth, token, search, import, export,
+   chat, upload) are unchanged. Env vars `RL_REGISTER_PER_HOUR` and `RL_REGISTER_GLOBAL_PER_DAY`
+   are now inert (§2 rows struck).
+
+2. **WAF `AWSManagedRulesCommonRuleSet` removed (feature 011, applied live).** The priority-1
+   Common managed rule set was removed from the `squiredocs-edge` WebACL. **Why:** it is
+   browser/form-oriented and false-positives on a document app's legitimate request bodies —
+   `GenericRFI_BODY` returned 403 on an `http://localhost` OAuth loopback redirect URI (breaking
+   every fresh MCP client OAuth/DCR connect), and `CrossSiteScripting_BODY` / SQLi sub-rules fire
+   on ordinary docs and chat containing `<script>` or SQL text. Remaining WAF rules
+   (`AWSManagedRulesKnownBadInputsRuleSet`, `AWSManagedRulesAmazonIpReputationList`, and the
+   `RateLimitPerIP` 2000/5min rate rule) still block. Full disposition lives in feature 011's specs;
+   noted here because `RateLimitPerIP` is now the sole remaining bound on anonymous
+   registered-agent growth (see disposition 1).

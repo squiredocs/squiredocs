@@ -1,13 +1,21 @@
 # Contract: Rate Limiting, Registration Caps & Trust Proxy
 
+> **Superseded 2026-07-18:** the two registration limiter classes (`register` per-IP and
+> `register:global`) were **removed entirely** — sign-up is now intentionally unlimited. See the
+> struck rows below and the "Registration admission" section. Rationale: the global limiter was a
+> single shared counter, so one abuser (or plain organic growth) exceeding 200 registrations in a
+> UTC day locked out **all** new sign-ups for that day — a self-inflicted cross-tenant DoS. Coarse
+> flood protection now comes only from the edge WAF `RateLimitPerIP` (2000 req/5min per IP, feature
+> 011 `infra/terraform/edge.tf`). All other classes below are unchanged.
+
 ## Limited routes & default budgets (RD-1, all env-overridable)
 
 | Route(s) | Scope | Class | Default | Env var |
 |----------|-------|-------|---------|---------|
 | `/auth/*` | per-IP | `auth` | 30 / min | `RL_AUTH_PER_MIN` |
 | `POST /mcp/auth/token` | per-IP | `token` | 30 / min | `RL_TOKEN_PER_MIN` |
-| `POST /mcp/auth/register` + authorize/approve auto-register | per-IP | `register` | 5 / hour | `RL_REGISTER_PER_HOUR` |
-| anonymous registration (aggregate) | global | `register:global` | 200 / day | `RL_REGISTER_GLOBAL_PER_DAY` |
+| ~~`POST /mcp/auth/register` + authorize/approve auto-register~~ | ~~per-IP~~ | ~~`register`~~ | ~~5 / hour~~ | ~~`RL_REGISTER_PER_HOUR`~~ _(removed 2026-07-18)_ |
+| ~~anonymous registration (aggregate)~~ | ~~global~~ | ~~`register:global`~~ | ~~200 / day~~ | ~~`RL_REGISTER_GLOBAL_PER_DAY`~~ _(removed 2026-07-18)_ |
 | content search (`GET /api/docs?searchMode=content`) | per-user | `search` | 30 / min | `RL_SEARCH_PER_MIN` |
 | markdown import (`POST /api/docs/import`, `PUT /api/docs/:id/import`) | per-user | `import` | 10 / min | `RL_IMPORT_PER_MIN` |
 | document export (`GET /api/docs/:id/export`) | per-user | `export` | 20 / min | `RL_EXPORT_PER_MIN` |
@@ -39,14 +47,22 @@ Content-Type: application/json
   FR-008): never crash, never reject all traffic, never fully unlimited. Dev without Redis uses the
   memory limiter via the same code path.
 
-## Registration admission (FR-011, RD-2)
+## Registration admission (FR-011, RD-2) — **REMOVED 2026-07-18**
 
-Before any `registerAgent(...)` that would create a **new** row (in `handleRegister`,
-`handleAuthorize`, `handleApprove`):
-- consume the per-IP `register` budget (shared key across all three paths), **and**
-- consume the global daily counter (`rl:register:global`).
-Over either bound → uniform 429, **no row written** (SC-004). Existing-agent lookups and idempotent
-re-registration do not consume the budget.
+> **Superseded 2026-07-18:** registration admission caps were removed. `POST /mcp/auth/register`
+> and the authorize/approve auto-register paths are now **intentionally unlimited** — sign-up is
+> never gated. The helpers `checkRegistrationAdmission` / `registrationAdmissionMiddleware` and the
+> `GLOBAL_KEY` constant were deleted from `server/rate-limit.js`, and
+> `server/__tests__/registration-caps.test.js` was removed. This reverses FR-011 and deliberately
+> relaxes SC-004; the only remaining bound on registered-agent growth is the edge WAF volumetric
+> rule (`RateLimitPerIP`, 2000 req/5min per IP). The original design (below) is retained for the
+> record.
+>
+> _Original design (no longer implemented):_ Before any `registerAgent(...)` that would create a
+> **new** row (in `handleRegister`, `handleAuthorize`, `handleApprove`): consume the per-IP
+> `register` budget (shared key across all three paths), **and** consume the global daily counter
+> (`rl:register:global`). Over either bound → uniform 429, **no row written**. Existing-agent
+> lookups and idempotent re-registration did not consume the budget.
 
 ## Trust proxy (FR-014/015, RD-5)
 

@@ -27,6 +27,9 @@ node-pg-migrate migrations**:
    content search, import, export, chat. Budgets from env (RD-1); 429 + `Retry-After` +
    neutral body (FR-009); `/health` + `/ready` exempt (FR-012). Anonymous registration gets a
    per-IP budget **plus** a global daily cap (RD-2) that admits before any row is written.
+   _(**Amended 2026-07-18:** the registration admission caps were removed — sign-up is now
+   intentionally unlimited; see `promotion-notes.md` §8. The rest of this rate-limiting narrative
+   still holds.)_
    `trust proxy` changes from blanket `true` to numeric `TRUST_PROXY_HOPS` (default 1, RD-5)
    so the limiter key can't be spoofed via `X-Forwarded-For`.
 
@@ -172,7 +175,7 @@ server/
 ├── api/
 │   ├── chat.js                 # resolve attachment references → file parts + messageImages (user-scoped)
 │   └── chat-attachments.js     # NEW — POST /api/chat/attachments (requireAuth, S3, user-scoped key)
-└── mcp/auth/oauth-flow.js      # apply registration admission caps on register + auto-register paths
+└── mcp/auth/oauth-flow.js      # (registration admission caps removed 2026-07-18 — sign-up unlimited; see promotion-notes §8)
 
 client/
 └── src/contexts/AiChatContext.jsx (+ input component)  # upload files to S3, send references not base64

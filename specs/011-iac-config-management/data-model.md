@@ -18,7 +18,7 @@
 | Backup bucket | `aws_s3_bucket` + config resources | SSE-KMS (CMK), versioning, Object Lock (governance 30d), lifecycle (Glacier IR@30d, expire@365d), block public access | FR-005, RD-5 |
 | Backup freshness alarm | `aws_cloudwatch_metric_alarm` + `aws_sns_topic` + subscription | fire when no `PutRequests` in 26h → email (`alarm_email` var) | FR-005, RD-6 |
 | CloudFront distribution | `aws_cloudfront_distribution` (imported) | `<cloudfront-distribution-id>`, origin `https-only`, access logging; import block; NEVER recreated | FR-006, SC-004 |
-| WAF WebACL | `aws_wafv2_web_acl` (+ association) | Common (body-size→count) + KnownBadInputs + IpReputation + rate 2000/5min | FR-006, RD-4 |
+| WAF WebACL | `aws_wafv2_web_acl` (+ association) | ~~Common (body-size→count) +~~ KnownBadInputs + IpReputation + rate 2000/5min **(Common removed 2026-07-18 — false-positived on OAuth loopback redirect URIs and doc/chat bodies)** | FR-006, RD-4 |
 | Route53 origin record | `aws_route53_route53_record` (A) | `app.squiredocs.com` → EIP, TTL 60; in existing zone via data source | FR-006, RD-14, G3 |
 | Hosted zone | `data "aws_route53_zone"` | `squiredocs.com` **read-only** — never a managed resource | FR-006, SC-004 |
 | CF prefix list | `data "aws_ec2_managed_prefix_list"` | AWS-managed CloudFront origin-facing list (for 443 scoping) | FR-003, G1 |

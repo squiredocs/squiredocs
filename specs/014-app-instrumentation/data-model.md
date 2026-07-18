@@ -16,7 +16,7 @@ The **only** attribute/label values allowed in any signal. Anything not on this 
 | `http.status_code` | `429` | HTTP span |
 | `mcp.tool.name` | `modify` | MCP span, MCP metrics |
 | `sync.operation` / `collab.operation` | `pubsub.update`, `markdown.sync` | collab spans |
-| `ratelimit.category` | `auth`,`chat`,`search`,`register` | 429 counter |
+| `ratelimit.category` | `auth`,`chat`,`search` (`register` removed 2026-07-18 — sign-up unlimited, no `register` 429; see 010 promotion-notes §8) | 429 counter |
 | `outcome` | `success`/`error` | MCP span |
 | durations / counts (numeric) | ms, n | all |
 

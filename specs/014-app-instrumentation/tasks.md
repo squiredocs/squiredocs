@@ -79,7 +79,7 @@ description: "Task list for 014-app-instrumentation"
 - [X] T016 [P] [US3] Write `server/__tests__/telemetry-metrics.test.js` FIRST (must fail): request metrics, 429 counter increment with correct category label, pool gauge values (FR-023).
 - [X] T017 [US3] Create `server/telemetry/metrics.js`: `httpMetricsMiddleware()` (count+duration histogram by route template + status class), `recordRateLimitRejection(category)` (never throws into the 429 path), `init({getPool})` (register observable pool gauges) (contract 4, FR-011/012/013).
 - [X] T018 [US3] Edit `server/index.js`: mount `httpMetricsMiddleware()` early in the middleware chain and call `metrics.init({ getPool: () => persistenceProvider.getPool() })`.
-- [X] T019 [US3] Edit `server/rate-limit.js`: call `recordRateLimitRejection(className)` at both 429 emit points (`reject429` path and `registrationAdmissionMiddleware`) (FR-012).
+- [X] T019 [US3] Edit `server/rate-limit.js`: call `recordRateLimitRejection(className)` at both 429 emit points (`reject429` path and `registrationAdmissionMiddleware`) (FR-012). _(Amended 2026-07-18: `registrationAdmissionMiddleware` was removed with the registration admission caps — the call now lives only in the `reject429` path; see feature 010 promotion-notes §8.)_
 - [X] T020 [US3] Edit `server/postgres-persistence.js` only if needed to expose live pool counts via `getPool()` for the gauges. Confirm T016 passes.
 
 **Checkpoint**: US1 + US2 + US3 all work independently.

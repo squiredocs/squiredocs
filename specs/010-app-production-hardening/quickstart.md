@@ -30,9 +30,12 @@ Authoritative gate: `npm test` (backend Jest serial + client Vitest) and `npm ru
 3. Spoof resistance (FR-015, SC-003): supertest with forged `X-Forwarded-For: 1.2.3.4, 5.6.7.8`
    and with no header at all; assert `req.ip`/limiter key is the true trusted-hop address, 0
    successful spoof-keyed requests over budget.
-4. Registration caps (FR-011, SC-004): flood `POST /mcp/auth/register` from one IP → capped at the
+4. ~~Registration caps (FR-011, SC-004): flood `POST /mcp/auth/register` from one IP → capped at the
    per-IP budget, over-budget requests 429 with **no** new `registered_agents` row; aggregate never
-   exceeds the global daily cap. Repeat via the authorize auto-register path sharing the same budget.
+   exceeds the global daily cap. Repeat via the authorize auto-register path sharing the same budget.~~
+   _(**Superseded 2026-07-18:** registration admission caps removed — sign-up is now unlimited; there
+   is nothing to verify here. `POST /mcp/auth/register` and the auto-register paths return no 429.
+   See promotion-notes §8.)_
 5. Per-user (FR-006): as one user, exceed `RL_CHAT_PER_MIN` → 429 keyed on user, other users
    unaffected.
 6. Degrade (FR-008): with Redis unavailable, requests still served and limited per-process; no

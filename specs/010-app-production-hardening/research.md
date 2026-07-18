@@ -90,6 +90,12 @@ the memory limiter first).
 
 ## R3 — Anonymous registration admission caps (US2, FR-011, RD-2)
 
+> **Amended 2026-07-18:** the registration admission caps designed and built below were **removed**
+> from `server/rate-limit.js` (both the per-IP `register` budget and the global `rl:register:global`
+> counter, plus the `checkRegistrationAdmission` helper). Sign-up is now intentionally unlimited —
+> the single shared global counter meant one abuser or organic growth could lock out all new sign-ups
+> for a UTC day. See `promotion-notes.md` §8 disposition 1. The original research is preserved below.
+
 **Decision.** The registered-agents store grows from three code paths in `oauth-flow.js`:
 `handleRegister` (L602, `POST /mcp/auth/register`) and the two auto-register calls in
 `handleAuthorize` (L114) and `handleApprove` (L215). All three funnel through `registerAgent(...)`.

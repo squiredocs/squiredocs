@@ -118,16 +118,32 @@ amended in the design doc.
 
 ### RD-4 — WAF managed rule sets and rate rule
 
+> **Superseded 2026-07-18 (applied live to the prod `squiredocs-edge` WebACL):**
+> `AWSManagedRulesCommonRuleSet` (priority 1) was **removed entirely**. It is
+> browser/form-oriented and false-positives on a document app's legitimate request
+> bodies: `GenericRFI_BODY` returned 403 on an `http://localhost` OAuth loopback
+> redirect URI — breaking every fresh MCP client OAuth/DCR connect — and the
+> `CrossSiteScripting_BODY` / SQLi sub-rules fire on ordinary docs and chat containing
+> `<script>` or SQL text. The `SizeRestrictions_BODY`→count override went away with the
+> rule set it belonged to. **Remaining WAF rules (all still blocking):**
+> `AWSManagedRulesKnownBadInputsRuleSet`, `AWSManagedRulesAmazonIpReputationList`, and
+> the `RateLimitPerIP` rate-based rule (2000 req/5 min per IP). The original decision
+> is retained below for the record. See also feature 010 `promotion-notes.md` §8
+> disposition 2 (`RateLimitPerIP` is now the sole bound on anonymous registered-agent
+> growth).
+
 - **Question**: Which WAF rules front the distribution?
-- **Default**: `AWSManagedRulesCommonRuleSet` (with `SizeRestrictions_BODY`
+- **Default** _(original — Common since removed)_: `AWSManagedRulesCommonRuleSet` (with `SizeRestrictions_BODY`
   overridden to count — document import/export and chat bodies legitimately exceed
   the 8 KB inspection default), `AWSManagedRulesKnownBadInputsRuleSet`,
   `AWSManagedRulesAmazonIpReputationList`, plus one rate-based rule: 2000
   requests/5 min per IP, block. CloudWatch metrics enabled on all.
-- **Rationale**: The standard three managed sets cover the design's "managed rule
+- **Rationale** _(original)_: The standard three managed sets cover the design's "managed rule
   sets" with near-zero false-positive risk once the body-size rule (the one known
   collision with Squire's real traffic) is neutralized; the rate rule matches the
   design's "rate rules" as a backstop above the app's own Redis-backed limits.
+  _(2026-07-18 update: the Common set's false-positive risk proved higher than "near-zero"
+  in practice — see the superseded note above — so it was dropped rather than further tuned.)_
 
 ### RD-5 — Backup lifecycle, retention, and Object Lock mode
 

@@ -13,11 +13,11 @@ Represents remaining request allowance for a (route-class, principal) pair.
 | Field | Value | Notes |
 |-------|-------|-------|
 | key | `rl:<class>:<scope>:<principal>` | e.g. `rl:auth:ip:1.2.3.4`, `rl:chat:user:<uuid>` |
-| class | `auth` \| `token` \| `register` \| `search` \| `import` \| `export` \| `chat` | one per limited route class |
+| class | `auth` \| `token` \| `search` \| `import` \| `export` \| `chat` | one per limited route class (the `register` class was removed 2026-07-18 — see §2) |
 | scope | `ip` \| `user` | unauth routes key on IP; expensive routes on user id |
 | principal | `req.ip` (at trusted hop) \| `req.user.userId` | IP is spoof-resistant after the numeric trust-proxy change |
 | points | env budget (RD-1 defaults) | consumed per request |
-| duration | window seconds (per class) | `/auth/*` 60s, `token` 60s, `register` 3600s, per-user classes 60s |
+| duration | window seconds (per class) | `/auth/*` 60s, `token` 60s, per-user classes 60s (`register` 3600s removed 2026-07-18) |
 | ttl | = duration (auto-expire) | bounds limiter storage (FR-007, Edge Cases) |
 
 - **Consumed** once per matching request. When points are exhausted within the window → 429.
@@ -26,25 +26,36 @@ Represents remaining request allowance for a (route-class, principal) pair.
 - **Readable/consistent** from either replica because it lives in the shared tier.
 
 Defaults (RD-1, all env-overridable — env names fixed in `contracts/rate-limiting.md`):
-`auth` 30/min · `token` 30/min · `register` 5/hour · `search` 30/min · `import` 10/min ·
+`auth` 30/min · `token` 30/min · `search` 30/min · `import` 10/min ·
 `export` 20/min · `chat` 30/min (on top of the existing concurrent-stream cap + AI quota).
+(The `register` 5/hour class was removed 2026-07-18 — see §2.)
 
 ---
 
-## 2. Anonymous registration admission (Redis counters)
+## 2. Anonymous registration admission (Redis counters) — **REMOVED 2026-07-18**
 
-Bounds growth of the existing `registered_agents` store from anonymous traffic (FR-011, RD-2).
-No schema change to `registered_agents`; these are admission gates in front of `registerAgent(...)`.
+> **Superseded 2026-07-18:** these admission counters were removed. Sign-up (`POST /mcp/auth/register`
+> and the authorize/approve auto-register paths) is now **intentionally unlimited**; the `rl:register:ip`
+> and `rl:register:global` keys are no longer written, and the `checkRegistrationAdmission` /
+> `registrationAdmissionMiddleware` helpers and `GLOBAL_KEY` constant were deleted from
+> `server/rate-limit.js`. Reason: the global key was a single shared counter, so exceeding 200
+> registrations in a UTC day (abuse **or** organic growth) locked out all new sign-ups for the day —
+> a cross-tenant DoS. This reverses FR-011 and relaxes SC-004; growth is now bounded only by the edge
+> WAF `RateLimitPerIP` rule (2000 req/5min per IP). Original design retained below for the record.
+
+_Original design (no longer implemented):_ Bounded growth of the existing `registered_agents` store
+from anonymous traffic. No schema change to `registered_agents`; these were admission gates in front
+of `registerAgent(...)`.
 
 | Field | Value | Notes |
 |-------|-------|-------|
-| per-IP key | `rl:register:ip:<ip>` | 5/hour, **shared** with the authorize/approve auto-register path |
-| global key | `rl:register:global` | default 200/**day**, 24h TTL — backstop against distributed floods |
-| consumed when | a **new** row is about to be created | existing-agent lookups / idempotent re-registration don't consume |
-| over budget | uniform 429, **no row written** | SC-004 |
+| ~~per-IP key~~ | ~~`rl:register:ip:<ip>`~~ | ~~5/hour, **shared** with the authorize/approve auto-register path~~ _(removed 2026-07-18)_ |
+| ~~global key~~ | ~~`rl:register:global`~~ | ~~default 200/**day**, 24h TTL — backstop against distributed floods~~ _(removed 2026-07-18)_ |
+| ~~consumed when~~ | ~~a **new** row is about to be created~~ | ~~existing-agent lookups / idempotent re-registration don't consume~~ |
+| ~~over budget~~ | ~~uniform 429, **no row written**~~ | ~~SC-004~~ |
 
-Applies at all three creation sites: `handleRegister` (`POST /mcp/auth/register`), and the
-auto-register branches in `handleAuthorize` and `handleApprove`.
+~~Applies at all three creation sites: `handleRegister` (`POST /mcp/auth/register`), and the
+auto-register branches in `handleAuthorize` and `handleApprove`.~~
 
 ---
 
