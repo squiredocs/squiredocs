@@ -69,7 +69,7 @@ emptied doc → chunks deleted then settled.
 
 ### Tests for User Story 1 (write first, must fail)
 
-- [ ] T004 [US1] Create `/local-dev/server/__tests__/search-indexer-gating.test.js`:
+- [X] T004 [US1] Create `/local-dev/server/__tests__/search-indexer-gating.test.js`:
       DB-backed harness following `search.test.js` conventions (`createPool`,
       `createPersistence` from `./helpers/db`); seed docs through the persistence provider
       so `indexDocument` can extract real text; `jest.mock('ai')` so `embedMany` is a
@@ -94,13 +94,13 @@ emptied doc → chunks deleted then settled.
          titles for the same body — proving the gate consumes ONLY the seam function's
          output;
       8. pre-feature row (`content_hash IS NULL`) → regenerates on next pass (FR-004).
-- [ ] T005 [P] [US1] In the same new file (separate `describe`), unit-test the seam:
+- [X] T005 [P] [US1] In the same new file (separate `describe`), unit-test the seam:
       `computeContentHash` determinism + hex/64 shape; `buildEmbedHashInput` identity on
       body text in 017. Run the file; confirm the gate cases FAIL (gate not yet built).
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] In `/local-dev/server/search-indexer.js` rework `indexDocument` per
+- [X] T006 [US1] In `/local-dev/server/search-indexer.js` rework `indexDocument` per
       research.md R4 / data-model.md state diagram: compute
       `newHash = computeContentHash(buildEmbedHashInput(contentText))`; add
       `RETURNING content_hash` to the (otherwise unchanged, still unconditional) FTS
@@ -113,7 +113,7 @@ emptied doc → chunks deleted then settled.
       model-override probe here); otherwise call
       `generateAndStoreEmbeddings(docGuid, contentText, newHash)` keeping the existing
       best-effort `.catch` + log-privacy behavior (no titles/content in logs).
-- [ ] T007 [US1] In `/local-dev/server/search-indexer.js` change
+- [X] T007 [US1] In `/local-dev/server/search-indexer.js` change
       `generateAndStoreEmbeddings(docGuid, contentText, contentHash = computeContentHash(buildEmbedHashInput(contentText)))`:
       inside the existing transaction, after the chunk INSERTs, add
       `UPDATE document_search_index SET content_hash = $2 WHERE doc_id = $1`; keep the
@@ -122,7 +122,7 @@ emptied doc → chunks deleted then settled.
       in T006) but keep it harmless for the direct caller
       `server/scripts/backfill-search-index.js` (which skips empty docs itself — its 2-arg
       call now correctly advances the hash via the default parameter).
-- [ ] T008 [US1] Run `npx jest server/__tests__/search-indexer-gating.test.js
+- [X] T008 [US1] Run `npx jest server/__tests__/search-indexer-gating.test.js
       server/__tests__/search-indexer.test.js server/__tests__/search-indexer-privacy.test.js
       server/__tests__/search.test.js --runInBand`: T004 cases green; pre-existing tests
       green unmodified (FR-008/FR-022 — gating is bookkeeping only, no result/shape change).

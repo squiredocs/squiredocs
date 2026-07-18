@@ -107,8 +107,15 @@ async function indexDocument(docGuid) {
     const contentText = toPlainText(xmlFragment);
     const title = ydoc.getMap('meta').get('title') || '';
 
-    // Step 1: Upsert FTS index (always succeeds, no external API)
-    await pool.query(
+    // Fingerprint of exactly this extraction — travels with the text into the
+    // embed transaction so an in-flight newer edit can never be recorded (FR-005).
+    const newHash = computeContentHash(buildEmbedHashInput(contentText));
+
+    // Step 1: Upsert FTS index (always succeeds, no external API). The upsert
+    // never writes content_hash — RETURNING reads back the previously stored
+    // fingerprint (the hash only advances with the chunk-swap or empty-cleanup
+    // transactions below), so this doubles as the gate's stored-hash lookup.
+    const upsertResult = await pool.query(
       `INSERT INTO document_search_index (doc_id, content_text, search_vector, indexed_at)
        VALUES ($1, $2,
          setweight(to_tsvector('english', COALESCE($3, '')), 'A') ||
@@ -117,14 +124,35 @@ async function indexDocument(docGuid) {
        ON CONFLICT (doc_id) DO UPDATE SET
          content_text = EXCLUDED.content_text,
          search_vector = EXCLUDED.search_vector,
-         indexed_at = EXCLUDED.indexed_at`,
+         indexed_at = EXCLUDED.indexed_at
+       RETURNING content_hash`,
       [docGuid, contentText, title]
     );
+    // A real upsert always returns exactly one row; a missing row means we
+    // could not read a stored fingerprint (degenerate pool, e.g. unit-test
+    // fakes) — treat the hash as unknown and skip destructive maintenance.
+    const upsertRow = upsertResult.rows[0];
+    const storedHash = upsertRow ? upsertRow.content_hash : undefined;
 
-    // Step 2: Generate and store chunk embeddings (may fail — FTS still works)
-    await generateAndStoreEmbeddings(docGuid, contentText).catch((err) => {
-      console.warn(`[SearchIndexer] Embedding generation failed for ${docGuid}, FTS still indexed:`, err.message);
-    });
+    // Step 2: hash-gated embedding maintenance (best-effort — FTS still works)
+    const chunks = chunkText(contentText);
+    if (chunks.length === 0) {
+      // Empty/unembeddable content is a terminal state (CN-6): delete any stale
+      // chunk rows and advance the hash in one transaction, exactly once (the
+      // hash-inequality gate). Runs regardless of provider-key presence —
+      // there is nothing to embed, so "disabled embeddings" is irrelevant.
+      if (upsertRow && storedHash !== newHash) {
+        await cleanupEmptyDocument(docGuid, newHash).catch((err) => {
+          console.warn(`[SearchIndexer] Empty-content chunk cleanup failed for ${docGuid}:`, err.message);
+        });
+      }
+    } else if (storedHash === newHash) {
+      // Unchanged content: zero embedding-provider calls (FR-003).
+    } else {
+      await generateAndStoreEmbeddings(docGuid, contentText, newHash).catch((err) => {
+        console.warn(`[SearchIndexer] Embedding generation failed for ${docGuid}, FTS still indexed:`, err.message);
+      });
+    }
 
     // Log identifiers + sizes only — never the title text (feeds the telemetry
     // pipeline; the design doc forbids titles/search queries in logs).
@@ -135,9 +163,38 @@ async function indexDocument(docGuid) {
 }
 
 /**
- * Generate embeddings for document chunks and store them.
+ * Delete a document's chunk rows and advance its content hash in one
+ * transaction — the successful "regeneration" for empty/unembeddable text
+ * (CN-6). Failure rolls back, leaving the prior hash so the next pass retries.
  */
-async function generateAndStoreEmbeddings(docGuid, contentText) {
+async function cleanupEmptyDocument(docGuid, contentHash) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM document_embeddings WHERE doc_id = $1', [docGuid]);
+    await client.query(
+      'UPDATE document_search_index SET content_hash = $2 WHERE doc_id = $1',
+      [docGuid, contentHash]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Generate embeddings for document chunks and store them. The optional
+ * contentHash (fingerprint of exactly this contentText via the CN-7 seam)
+ * is written atomically with the chunk swap — callers that omit it (e.g.
+ * scripts/backfill-search-index.js) get the seam-derived default, which is
+ * correct by construction for the text they just passed.
+ */
+async function generateAndStoreEmbeddings(docGuid, contentText, contentHash = computeContentHash(buildEmbedHashInput(contentText))) {
+  // No provider key → embeddings disabled: return BEFORE any DB write so the
+  // stored hash never advances for content that was never embedded (CN-4).
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) return;
 
   const { embedMany } = require('ai');
@@ -172,6 +229,13 @@ async function generateAndStoreEmbeddings(docGuid, contentText) {
         [docGuid, i, chunks[i], JSON.stringify(allEmbeddings[i])]
       );
     }
+
+    // Advance the fingerprint atomically with the chunk swap it describes
+    // (FR-005): a failed/rolled-back swap leaves the prior hash in place.
+    await client.query(
+      'UPDATE document_search_index SET content_hash = $2 WHERE doc_id = $1',
+      [docGuid, contentHash]
+    );
 
     await client.query('COMMIT');
   } catch (err) {

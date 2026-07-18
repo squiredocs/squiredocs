@@ -1,0 +1,316 @@
+/**
+ * Feature 017 — content-hash gating of embedding regeneration (US1) and the
+ * embedding-model watermark + targeted boot repair (US3).
+ *
+ * DB-backed suite following search.test.js conventions (shared test DB, serial).
+ * The `ai` package is mocked so embedMany is a controllable spy: provider call
+ * counts prove the gate (zero calls on unchanged content), a rejection switch
+ * proves the no-lost-updates rule (hash advances only with a successful chunk
+ * swap), and fake 1536-dim vectors stand in for real embeddings.
+ *
+ * Gate table: specs/017-search-index-efficiency/contracts/indexer-internal.md
+ */
+const cryptoLib = require('crypto');
+const Y = require('yjs');
+const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+
+const mockEmbedMany = jest.fn();
+jest.mock('ai', () => ({
+  embedMany: (...args) => mockEmbedMany(...args),
+  embed: jest.fn(),
+}));
+jest.mock('@ai-sdk/google', () => ({
+  google: { textEmbeddingModel: jest.fn(() => 'mock-embedding-model') },
+}));
+
+const searchIndexer = require('../search-indexer');
+const { buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL } = searchIndexer;
+
+const fakeVector = () => Array.from({ length: 1536 }, (_, i) => ((i % 7) + 1) * 0.001);
+
+/** Default mock behavior: resolve one fake vector per input value. */
+function resolveEmbeddings() {
+  mockEmbedMany.mockImplementation(async ({ values }) => ({
+    embeddings: values.map(() => fakeVector()),
+  }));
+}
+
+describe('search indexer content-hash gating (017)', () => {
+  let pool;
+  let persistence;
+  let userId;
+  let savedApiKey;
+  const liveDocs = new Map(); // docGuid -> local Y.Doc mirror
+  const createdDocIds = [];
+
+  beforeAll(async () => {
+    savedApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-017';
+
+    pool = createPool();
+    persistence = createPersistence();
+    await persistence._init();
+    searchIndexer.init(persistence);
+
+    userId = await createTestUser(pool, 'search-gating-017@example.com');
+  });
+
+  afterAll(async () => {
+    if (savedApiKey === undefined) {
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    } else {
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedApiKey;
+    }
+    if (createdDocIds.length > 0) {
+      await pool.query('DELETE FROM document_embeddings WHERE doc_id = ANY($1)', [createdDocIds]);
+      await pool.query('DELETE FROM document_search_index WHERE doc_id = ANY($1)', [createdDocIds]);
+      for (const docGuid of createdDocIds) {
+        await persistence.clearDocument(docGuid);
+      }
+      await pool.query('DELETE FROM documents WHERE id = ANY($1)', [createdDocIds]);
+    }
+    await cleanupTestUser(pool, userId);
+    await persistence.destroy();
+    await pool.end();
+  });
+
+  beforeEach(() => {
+    mockEmbedMany.mockReset();
+    resolveEmbeddings();
+  });
+
+  /** Create a documents row + persisted Yjs doc with a title and body text. */
+  async function createDoc(title, body) {
+    const docGuid = cryptoLib.randomUUID();
+    await pool.query(
+      'INSERT INTO documents (id, title, creator_id) VALUES ($1, $2, $3)',
+      [docGuid, title, userId]
+    );
+    const ydoc = new Y.Doc();
+    ydoc.getMap('meta').set('title', title);
+    if (body) {
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [new Y.XmlText(body)]);
+      ydoc.getXmlFragment('default').insert(0, [para]);
+    }
+    await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(ydoc), userId);
+    liveDocs.set(docGuid, ydoc);
+    createdDocIds.push(docGuid);
+    return docGuid;
+  }
+
+  /** Persist the current local Y.Doc state for docGuid. */
+  async function syncDoc(docGuid) {
+    await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(liveDocs.get(docGuid)), userId);
+  }
+
+  function setTitle(docGuid, title) {
+    liveDocs.get(docGuid).getMap('meta').set('title', title);
+  }
+
+  function setBody(docGuid, body) {
+    const frag = liveDocs.get(docGuid).getXmlFragment('default');
+    frag.delete(0, frag.length);
+    if (body) {
+      const para = new Y.XmlElement('paragraph');
+      para.insert(0, [new Y.XmlText(body)]);
+      frag.insert(0, [para]);
+    }
+  }
+
+  async function getIndexRow(docGuid) {
+    const r = await pool.query(
+      `SELECT content_hash, content_text, indexed_at::text AS indexed_at
+       FROM document_search_index WHERE doc_id = $1`,
+      [docGuid]
+    );
+    return r.rows[0];
+  }
+
+  async function getChunks(docGuid) {
+    const r = await pool.query(
+      `SELECT id, chunk_index, chunk_text, embedding_model
+       FROM document_embeddings WHERE doc_id = $1 ORDER BY chunk_index`,
+      [docGuid]
+    );
+    return r.rows;
+  }
+
+  async function ftsMatches(docGuid, word) {
+    const r = await pool.query(
+      `SELECT search_vector @@ websearch_to_tsquery('english', $2) AS m
+       FROM document_search_index WHERE doc_id = $1`,
+      [docGuid, word]
+    );
+    return r.rows[0].m;
+  }
+
+  describe('gate semantics (US1)', () => {
+    test('case 1: first index embeds and stores a 64-char hex content_hash', async () => {
+      const docGuid = await createDoc('Gating One', 'the quick brown fox jumps over the lazy dog');
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const row = await getIndexRow(docGuid);
+      expect(row.content_hash).toMatch(/^[0-9a-f]{64}$/);
+      const chunks = await getChunks(docGuid);
+      expect(chunks.length).toBe(1);
+    });
+
+    test('case 2: title-only change → zero provider calls, chunks untouched, FTS refreshed, hash unchanged', async () => {
+      const docGuid = await createDoc('Original Title', 'stable body text about penguins and glaciers');
+      await searchIndexer.indexDocument(docGuid);
+      const before = await getIndexRow(docGuid);
+      const chunksBefore = await getChunks(docGuid);
+      mockEmbedMany.mockClear();
+
+      setTitle(docGuid, 'Zebra Renamed Title');
+      await syncDoc(docGuid);
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).not.toHaveBeenCalled();
+      const after = await getIndexRow(docGuid);
+      expect(after.content_hash).toBe(before.content_hash);
+      // FTS row refreshed: new title findable, freshness watermark advanced
+      expect(await ftsMatches(docGuid, 'zebra')).toBe(true);
+      expect(after.indexed_at >= before.indexed_at).toBe(true);
+      expect(after.indexed_at).not.toBe(before.indexed_at);
+      // Chunk rows untouched (same row ids, same text)
+      const chunksAfter = await getChunks(docGuid);
+      expect(chunksAfter).toEqual(chunksBefore);
+    });
+
+    test('case 3: body change → exactly one regeneration, hash advances to the new text hash', async () => {
+      const docGuid = await createDoc('Body Change Doc', 'first draft of the essay');
+      await searchIndexer.indexDocument(docGuid);
+      const before = await getIndexRow(docGuid);
+      mockEmbedMany.mockClear();
+
+      setBody(docGuid, 'second draft of the essay with much better arguments');
+      await syncDoc(docGuid);
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const after = await getIndexRow(docGuid);
+      expect(after.content_hash).not.toBe(before.content_hash);
+      expect(after.content_hash).toBe(computeContentHash(buildEmbedHashInput(after.content_text)));
+    });
+
+    test('case 4: embed failure → chunks untouched, hash NOT advanced, fulltext still works; next pass retries and succeeds', async () => {
+      const docGuid = await createDoc('Failure Doc', 'original resilient body text');
+      await searchIndexer.indexDocument(docGuid);
+      const before = await getIndexRow(docGuid);
+      const chunksBefore = await getChunks(docGuid);
+      mockEmbedMany.mockClear();
+
+      setBody(docGuid, 'updated wonderful body text that fails to embed');
+      await syncDoc(docGuid);
+      mockEmbedMany.mockRejectedValueOnce(new Error('provider down'));
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const afterFail = await getIndexRow(docGuid);
+      expect(afterFail.content_hash).toBe(before.content_hash); // not advanced
+      expect(await getChunks(docGuid)).toEqual(chunksBefore); // rollback: untouched
+      expect(await ftsMatches(docGuid, 'wonderful')).toBe(true); // FTS refreshed regardless
+
+      // Next indexing pass detects the mismatch and succeeds
+      mockEmbedMany.mockClear();
+      await searchIndexer.indexDocument(docGuid);
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const afterRetry = await getIndexRow(docGuid);
+      expect(afterRetry.content_hash).toBe(computeContentHash(buildEmbedHashInput(afterRetry.content_text)));
+      expect(afterRetry.content_hash).not.toBe(before.content_hash);
+    });
+
+    test('case 5: emptied body → chunks deleted, hash advances; further no-change passes cost nothing', async () => {
+      const docGuid = await createDoc('Emptied Doc', 'text that will be deleted entirely soon');
+      await searchIndexer.indexDocument(docGuid);
+      expect((await getChunks(docGuid)).length).toBe(1);
+      mockEmbedMany.mockClear();
+
+      setBody(docGuid, null);
+      await syncDoc(docGuid);
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).not.toHaveBeenCalled();
+      expect((await getChunks(docGuid)).length).toBe(0); // ghost chunks removed (CN-6)
+      const settled = await getIndexRow(docGuid);
+      expect(settled.content_hash).toBe(computeContentHash(buildEmbedHashInput('')));
+
+      // Second no-change pass: zero provider calls AND no delete transaction
+      const connectSpy = jest.spyOn(pool, 'connect');
+      await searchIndexer.indexDocument(docGuid);
+      expect(mockEmbedMany).not.toHaveBeenCalled();
+      expect(connectSpy).not.toHaveBeenCalled(); // settled: no repeated cleanup
+      connectSpy.mockRestore();
+      expect((await getIndexRow(docGuid)).content_hash).toBe(settled.content_hash);
+    });
+
+    test('case 6: no API key + changed content → zero calls, hash NOT advanced', async () => {
+      const docGuid = await createDoc('Disabled Embeddings Doc', 'body before the key disappears');
+      await searchIndexer.indexDocument(docGuid);
+      const before = await getIndexRow(docGuid);
+      mockEmbedMany.mockClear();
+
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      try {
+        setBody(docGuid, 'body changed while embeddings are disabled');
+        await syncDoc(docGuid);
+        await searchIndexer.indexDocument(docGuid);
+
+        expect(mockEmbedMany).not.toHaveBeenCalled();
+        const after = await getIndexRow(docGuid);
+        expect(after.content_hash).toBe(before.content_hash); // CN-4: never recorded as done
+      } finally {
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-017';
+      }
+    });
+
+    test('case 7 (CN-7 seam): stored hash equals computeContentHash(buildEmbedHashInput(text)) and is title-independent', async () => {
+      const body = 'identical body text shared by two differently titled documents';
+      const docA = await createDoc('Title Alpha', body);
+      const docB = await createDoc('Completely Different Beta', body);
+      await searchIndexer.indexDocument(docA);
+      await searchIndexer.indexDocument(docB);
+
+      const rowA = await getIndexRow(docA);
+      const rowB = await getIndexRow(docB);
+      // The gate consumes ONLY the seam function's output
+      expect(rowA.content_hash).toBe(computeContentHash(buildEmbedHashInput(rowA.content_text)));
+      expect(rowB.content_hash).toBe(computeContentHash(buildEmbedHashInput(rowB.content_text)));
+      // Same body, different titles → identical seam output → identical hash
+      expect(buildEmbedHashInput(rowA.content_text)).toBe(buildEmbedHashInput(rowB.content_text));
+      expect(rowA.content_hash).toBe(rowB.content_hash);
+    });
+
+    test('case 8: pre-feature row (content_hash IS NULL) regenerates on next pass', async () => {
+      const docGuid = await createDoc('Pre Feature Doc', 'content indexed before feature 017 existed');
+      await searchIndexer.indexDocument(docGuid);
+      await pool.query('UPDATE document_search_index SET content_hash = NULL WHERE doc_id = $1', [docGuid]);
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.indexDocument(docGuid);
+
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const row = await getIndexRow(docGuid);
+      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput(row.content_text)));
+    });
+  });
+
+  describe('hash seam unit behavior (CN-7)', () => {
+    test('computeContentHash is deterministic sha256 hex (64 chars)', () => {
+      const a = computeContentHash('hello world');
+      const b = computeContentHash('hello world');
+      expect(a).toBe(b);
+      expect(a).toMatch(/^[0-9a-f]{64}$/);
+      expect(computeContentHash('hello worlds')).not.toBe(a);
+      expect(a).toBe(cryptoLib.createHash('sha256').update('hello world', 'utf8').digest('hex'));
+    });
+
+    test('buildEmbedHashInput is the identity on body text in 017', () => {
+      expect(buildEmbedHashInput('some extracted text')).toBe('some extracted text');
+      expect(buildEmbedHashInput('')).toBe('');
+    });
+  });
+});
