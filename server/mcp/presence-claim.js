@@ -197,6 +197,39 @@ function handleTakeoverNudge(payload) {
 }
 
 /**
+ * The tool-call hook (FR-006/FR-009): make sure THIS instance holds the
+ * claim for work it is about to perform. Always resolves { held: true }
+ * (fail-open by definition — FR-013):
+ * - claims disabled              -> no-op
+ * - already held (local belief)  -> no-op: no Redis write, no nudge (FR-009)
+ * - not held                     -> unconditional takeover
+ *                                   (SET key id PX ttl) + one nudge publish
+ * - Redis error/timeout          -> fail-open, treat as held (RBD-2)
+ * @param {string} claimKey
+ * @returns {Promise<{held: true}>}
+ */
+async function ensureHeldForWork(claimKey) {
+  if (!deps.enabled()) return { held: true };
+  const r = record(claimKey);
+  if (r.held) return { held: true };
+  const res = await runOp(() => client().set(claimKey, deps.instanceId(), 'PX', config.ttlMs));
+  if (!res.ok) {
+    enterFailOpen(r, res.error);
+    r.held = true;
+    return { held: true };
+  }
+  opSucceeded(r);
+  r.held = true;
+  log('takeover', claimKey);
+  try {
+    deps.publishTakeover(claimKey);
+  } catch (err) {
+    console.error(`[presence-claim] takeover nudge publish failed for ${claimKey}:`, err.message);
+  }
+  return { held: true };
+}
+
+/**
  * Atomic initial acquire / survivor probe: SET key instanceId NX PX ttl
  * (FR-002). Returns true iff acquired — or claims disabled / fail-open
  * (holder-favoring, RBD-2). Never throws.
@@ -266,6 +299,7 @@ function _setDepsForTests(overrides = {}) {
 module.exports = {
   init,
   buildClaimKey,
+  ensureHeldForWork,
   tryAcquire,
   isHeld,
   _resetForTests,

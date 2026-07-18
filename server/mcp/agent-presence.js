@@ -76,11 +76,79 @@ function reservoirSample(items, k) {
 }
 
 /**
+ * Resolve the local session for a presence-claim key (feature 015).
+ * Fast path: derive the sessionKey (claim keys and session keys use the same
+ * raw components). Fallback: scan sessions for a stored claimKey match.
+ * @private
+ * @param {string} claimKey - agent-presence:{userId}:{agentId}:{docGuid}
+ * @returns {object|null} Session object or null
+ */
+function _findSessionByClaimKey(claimKey) {
+  const parts = claimKey.split(':');
+  if (parts.length >= 4 && parts[0] === 'agent-presence') {
+    const sessionKey = parts.slice(1).join('-');
+    const sessionId = sessionsByKey.get(sessionKey);
+    if (sessionId) {
+      const session = activeSessions.get(sessionId);
+      if (session) return session;
+    }
+  }
+  for (const session of activeSessions.values()) {
+    if (session.claimKey === claimKey) return session;
+  }
+  return null;
+}
+
+/**
+ * Presence claim lost (takeover nudge from another instance, or a heartbeat
+ * that discovered foreign ownership): silence the whole announced awareness
+ * state (FR-007) without touching the working session (FR-004). Idempotent —
+ * unknown or already-silent claims are a no-op.
+ * @private
+ * @param {string} claimKey
+ */
+function _onClaimLost(claimKey) {
+  const session = _findSessionByClaimKey(claimKey);
+  if (!session || session.claimState === 'silent') {
+    return;
+  }
+  session.claimState = 'silent';
+  _silenceAwareness(session);
+  console.log(`[agent-presence] presence silenced (claim lost) for ${claimKey}`);
+}
+
+/**
+ * Presence claim acquired by this instance's heartbeat probe (failover after
+ * a holder crash, or pickup after a clean release): re-announce the agent
+ * identity and its last recorded cursor (US4).
+ * @private
+ * @param {string} claimKey
+ */
+function _onClaimAcquired(claimKey) {
+  const session = _findSessionByClaimKey(claimKey);
+  if (!session || session.claimState === 'holder') {
+    return;
+  }
+  session.claimState = 'holder';
+  if (session.agentInfo) {
+    _setAwareness(session, 'user', session.agentInfo);
+  }
+  if (session.cursor) {
+    _setAwareness(session, 'cursor', session.cursor);
+  }
+  console.log(`[agent-presence] presence re-announced (claim acquired) for ${claimKey}`);
+}
+
+/**
  * Initialize the agent presence manager with a persistence provider
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Wire the presence-claim coordinator (feature 015). Runs before
+  // redisPubSub.init() — the nudge subscription is recorded now and
+  // subscribed when pub/sub initializes (contract C init-ordering rule).
+  presenceClaim.init({ onLost: _onClaimLost, onAcquired: _onClaimAcquired });
 }
 
 /**
@@ -657,14 +725,24 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   // Store agentInfo on session for later access
   session.agentInfo = agentInfo;
 
-  // Presence-claim wiring (feature 015): only the claim-holding instance
-  // announces the agent. Disabled/fail-open resolves holder-favoring.
+  // Presence-claim wiring (feature 015): the claim follows the work. This
+  // runs on EVERY tool call (create, reuse, and extend paths all funnel
+  // through here — research R3), so the instance executing the work takes
+  // the claim over (FR-006) and announces AFTER the claim resolves, making
+  // the call's activity stream originate from the executing instance
+  // (FR-008). Already-holder calls are a pure no-op inside ensureHeldForWork
+  // (FR-009); disabled/fail-open resolve holder-favoring (FR-012/FR-013).
   const claimKey = presenceClaim.buildClaimKey(userId, agentId, docGuid);
   session.claimKey = claimKey;
-  const acquired = await presenceClaim.tryAcquire(claimKey);
-  session.claimState = acquired || presenceClaim.isHeld(claimKey) ? 'holder' : 'silent';
+  const wasSilent = session.claimState === 'silent';
+  await presenceClaim.ensureHeldForWork(claimKey);
+  session.claimState = 'holder'; // ensureHeldForWork always resolves held
 
   _setAwareness(session, 'user', agentInfo);
+  if (wasSilent && session.cursor) {
+    // Re-announce the current position after a takeover (research R6)
+    _setAwareness(session, 'cursor', session.cursor);
+  }
 
   return session;
 }
