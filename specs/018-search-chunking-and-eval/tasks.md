@@ -1,5 +1,14 @@
 # Tasks: Structure-Aware Search Chunking, Selective Contextual Preambles, and a First-Class Evaluation Harness
 
+> **T004 — 017 alignment facts (recorded 2026-07-18, against merged main `0dcaef8`)**
+>
+> - **Hash column**: `content_hash` on `document_search_index` (migration `1797000000000_add-content-hash-to-search-index.js`). Advanced ONLY inside the chunk-swap transaction (`generateAndStoreEmbeddings`) or the empty-doc cleanup (`cleanupEmptyDocument`); the FTS upsert reads it back via `RETURNING content_hash`.
+> - **Seam (CN-7)**: `buildEmbedHashInput(extractedText)` at `server/search-indexer.js:70` — identity on body text in 017; the gate consumes ONLY `computeContentHash(buildEmbedHashInput(...))` (compute call site `indexDocument`, plus the default-param in `generateAndStoreEmbeddings`). 018 changes the seam signature to `buildEmbedHashInput(title, extractedText)` → `title + '\n' + extractedText` (DR-1); gate logic untouched.
+> - **`generateAndStoreEmbeddings(docGuid, contentText, contentHash = computeContentHash(buildEmbedHashInput(contentText)))`**: no-key early return BEFORE any DB write (CN-4); `chunkText` → `embedMany` batches of 100; DELETE+INSERT+`UPDATE … SET content_hash` in one transaction. External caller: `server/scripts/backfill-search-index.js:88` (passes `(doc_id, contentText)` only — must be updated for the new signature).
+> - **Model repair predicate** in `reindexStale()`: `EXISTS (SELECT 1 FROM document_embeddings de WHERE de.doc_id = d.id AND de.embedding_model IS DISTINCT FROM $1)` OR'd with missing-row/edit-stale; concurrency 5 via slice + `Promise.allSettled`. In-pass model-staleness override probe also lives in `indexDocument` (hash-match branch).
+> - **`updatedAfter` SQL shape**: `buildRecencyJoin(docIdExpr, paramIdx)` in `server/search.js:64` emits `JOIN documents rd ON rd.id = <expr> AND rd.updated_at > $N`, applied inside each engine CTE (fts, top_chunks). The new chunk-keyword sub-select must carry the same fragment.
+> - **Plan-assumption deltas found**: (1) tasks.md T010 said hash tests live in `search-embedded-text.test.js` "targeting 017's hash function" — correct, but note two EXISTING 017 tests assert the title-EXCLUDED hash (`search-indexer-gating.test.js` case 2 "title-only change → zero provider calls", case 7 "title-independent hash", and the seam unit test "identity on body text") — these are deliberately amended by 018 per DR-1's corollary, not regressions. (2) The hash is stored on `document_search_index` (017 FR-002 as assumed) — no delta. (3) `toStructured(xmlFragment)` exists and is exported at `server/mcp/yjs/serialization.js:778` as plan D11 assumed — no delta.
+
 **Input**: Design documents from `/specs/018-search-chunking-and-eval/`
 
 **Prerequisites**: plan.md, spec.md, research.md (D1–D13), data-model.md, contracts/, quickstart.md
@@ -16,10 +25,10 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `server/search/` module directory and `server/search/config.js` implementing the shared config surface exactly per `contracts/search-config.md` (`getSearchConfig(overrides)`: chunking/preambles/rerank/chunkTargetTokens/headingFillRatio/overlapRatio/distanceThreshold; env parsing; **SEARCH_RERANK default false**). Reference: `git show rag-search-v2:server/search/config.js` (adapt — drop denseTopN/sparseTopN/rrfK/fusedTopN/rerankKeep; the doc-level RRF is frozen).
-- [ ] T002 [P] Add npm scripts to `package.json`: `"search:eval": "node server/search/eval/run-eval.js"` and `"search:eval:check": "node server/search/eval/check-eval-set.js"`; add `server/search/eval/eval-results.*.json` to `.gitignore`.
-- [ ] T003 [P] Unit tests for the config surface in `server/__tests__/search-config.test.js`: env parsing, override precedence, rerank default **off**, defaults match `contracts/search-config.md` table.
-- [ ] T004 Verify 017 integration points on merged main and record them at the top of this file as a dated note: hash column name + hash-compute call site in `server/search-indexer.js`, model-repair predicate in `reindexStale()`, `updatedAfter` SQL condition shape in `server/search.js`. `[017-align]` — if 017 is not merged, STOP (spec Assumption: 018 is blocked on 017).
+- [X] T001 Create `server/search/` module directory and `server/search/config.js` implementing the shared config surface exactly per `contracts/search-config.md` (`getSearchConfig(overrides)`: chunking/preambles/rerank/chunkTargetTokens/headingFillRatio/overlapRatio/distanceThreshold; env parsing; **SEARCH_RERANK default false**). Reference: `git show rag-search-v2:server/search/config.js` (adapt — drop denseTopN/sparseTopN/rrfK/fusedTopN/rerankKeep; the doc-level RRF is frozen).
+- [X] T002 [P] Add npm scripts to `package.json`: `"search:eval": "node server/search/eval/run-eval.js"` and `"search:eval:check": "node server/search/eval/check-eval-set.js"`; add `server/search/eval/eval-results.*.json` to `.gitignore`.
+- [X] T003 [P] Unit tests for the config surface in `server/__tests__/search-config.test.js`: env parsing, override precedence, rerank default **off**, defaults match `contracts/search-config.md` table.
+- [X] T004 Verify 017 integration points on merged main and record them at the top of this file as a dated note: hash column name + hash-compute call site in `server/search-indexer.js`, model-repair predicate in `reindexStale()`, `updatedAfter` SQL condition shape in `server/search.js`. `[017-align]` — if 017 is not merged, STOP (spec Assumption: 018 is blocked on 017).
 
 **Checkpoint**: config surface exists and is tested; 017 alignment facts recorded.
 

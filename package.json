@@ -22,6 +22,8 @@
     "migrate:down": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate down', {stdio: 'inherit'})\"",
     "migrate:create": "node-pg-migrate create",
     "migrate:redo": "node -e \"require('./script/setup-db-env.js'); require('child_process').execSync('node-pg-migrate redo', {stdio: 'inherit'})\"",
+    "search:eval": "node server/search/eval/run-eval.js",
+    "search:eval:check": "node server/search/eval/check-eval-set.js",
     "build:sandbox-bundle": "node server/mcp/sandbox/build-isolate-bundle.js"
   },
   "keywords": [
