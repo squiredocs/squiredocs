@@ -160,6 +160,10 @@
 
 .admin-actions {
   text-align: right;
+  white-space: nowrap;
+}
+.admin-actions .admin-btn-sm + .admin-btn-sm {
+  margin-left: 6px;
 }
 
 /* ─── Extra credit tag in remaining column ─────────────── */

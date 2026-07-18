@@ -22,6 +22,9 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   // Trusted (email sending) toggle
   const [togglingEmailUserId, setTogglingEmailUserId] = useState(null);
 
+  // Welcome-email send (per-row)
+  const [sendingWelcomeUserId, setSendingWelcomeUserId] = useState(null);
+
   // Grant form state
   const [grantingUserId, setGrantingUserId] = useState(null);
   const [grantAmount, setGrantAmount] = useState('');
@@ -120,6 +123,22 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       fetchUsers();
     } catch { /* ignore */ }
     finally { setTogglingEmailUserId(null); }
+  };
+
+  const handleSendWelcome = async (u) => {
+    const confirmMsg = u.welcomeEmailSentAt
+      ? `The welcome email was already sent to ${u.email} on ${formatDate(u.welcomeEmailSentAt)}. Send it again?`
+      : `Send the welcome email to ${u.email}? (You'll be BCC'd.)`;
+    if (!window.confirm(confirmMsg)) return;
+    setSendingWelcomeUserId(u.id);
+    try {
+      await api.post(`/api/admin/users/${u.id}/welcome-email`);
+      fetchUsers();
+    } catch (err) {
+      window.alert(err.response?.data?.error || 'Failed to send welcome email');
+    } finally {
+      setSendingWelcomeUserId(null);
+    }
   };
 
   const refreshExpanded = async (userId) => {
@@ -327,6 +346,18 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                         )}
                       </td>
                       <td className="admin-actions">
+                        <button
+                          className="admin-btn-sm"
+                          onClick={() => handleSendWelcome(u)}
+                          disabled={sendingWelcomeUserId === u.id}
+                          title={u.welcomeEmailSentAt
+                            ? `Welcome email sent ${formatDate(u.welcomeEmailSentAt)} — click to resend`
+                            : 'Send the beta welcome email to this user (you are BCC’d)'}
+                        >
+                          {sendingWelcomeUserId === u.id
+                            ? 'Sending…'
+                            : `${u.welcomeEmailSentAt ? '✓' : '✉'} Welcome email`}
+                        </button>
                         <button
                           className="admin-btn-sm"
                           onClick={() => toggleExpand(u.id)}

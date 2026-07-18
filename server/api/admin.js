@@ -5,6 +5,7 @@
  */
 const express = require('express');
 const aiUsage = require('../ai-usage');
+const { sendWelcomeEmail } = require('../email');
 const appSettings = require('./app-settings');
 const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey } = require('./chat-models');
 const { hasServerKey } = require('./ai-providers');
@@ -86,6 +87,7 @@ router.get('/users', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT
         u.id, u.name, u.email, u.picture, u.is_admin, u.email_enabled,
+        u.welcome_email_sent_at,
         u.ai_credit_cents, u.created_at, u.last_login_at,
         COALESCE(d.doc_count, 0)::int AS doc_count,
         COALESCE(a.ai_used_cents, 0)::int AS ai_used_cents,
@@ -121,6 +123,7 @@ router.get('/users', async (req, res) => {
       picture: r.picture,
       isAdmin: r.is_admin,
       emailEnabled: r.email_enabled,
+      welcomeEmailSentAt: r.welcome_email_sent_at,
       aiCreditCents: r.ai_credit_cents,
       createdAt: r.created_at,
       lastLoginAt: r.last_login_at,
@@ -192,6 +195,41 @@ router.patch('/users/:userId/email-enabled', async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error updating email_enabled:', err);
     res.status(500).json({ error: 'Failed to update email setting' });
+  }
+});
+
+/**
+ * POST /users/:userId/welcome-email — send the beta welcome email to a user.
+ * Manual, admin-triggered (never automatic). BCCs the admin. Records the send
+ * time in users.welcome_email_sent_at on success.
+ */
+router.post('/users/:userId/welcome-email', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { rows } = await pool.query('SELECT id, name, email FROM users WHERE id = $1', [userId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = rows[0];
+    const firstName = (user.name || '').trim().split(/\s+/)[0] || '';
+
+    const result = await sendWelcomeEmail({ to: user.email, firstName });
+    if (!result.ok) {
+      if (result.skipped) {
+        return res.status(503).json({ error: 'Email is not configured (SES_FROM_EMAIL unset)' });
+      }
+      return res.status(502).json({ error: `Failed to send email: ${result.error}` });
+    }
+
+    const upd = await pool.query(
+      'UPDATE users SET welcome_email_sent_at = now() WHERE id = $1 RETURNING welcome_email_sent_at',
+      [userId]
+    );
+    res.json({ welcomeEmailSentAt: upd.rows[0].welcome_email_sent_at });
+  } catch (err) {
+    console.error('[Admin] Error sending welcome email:', err);
+    res.status(500).json({ error: 'Failed to send welcome email' });
   }
 });
 

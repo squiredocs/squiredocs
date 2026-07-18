@@ -36,20 +36,28 @@ const escapeHtml = (s) => String(s)
 
 /**
  * Send an email via SES SMTP. Never throws.
+ * Returns a result object so callers that care (e.g. an admin-triggered send)
+ * can report success/failure; fire-and-forget callers can ignore it.
+ *   { ok: true, messageId }        — sent
+ *   { ok: false, skipped: true }   — SES not configured
+ *   { ok: false, error }           — send failed
  */
-async function sendEmail({ to, subject, html, replyTo }) {
+async function sendEmail({ to, subject, html, replyTo, bcc }) {
   if (!FROM_EMAIL) {
     console.warn('SES_FROM_EMAIL not set — skipping email:', subject);
-    return;
+    return { ok: false, skipped: true };
   }
 
   try {
     const message = { from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html };
     if (replyTo) message.replyTo = sanitizeHeader(replyTo);
+    if (bcc) message.bcc = bcc;
     const info = await getTransporter().sendMail(message);
     console.log('Email sent:', subject, '->', to, `(messageId: ${info.messageId})`);
+    return { ok: true, messageId: info.messageId };
   } catch (err) {
     console.error('Failed to send email:', subject, err.message);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -180,4 +188,41 @@ const sendShareInvite = (opts) => sendShareEmail({ ...opts, pending: true });
 /** Notify an existing user that a document has just been shared with them. */
 const sendShareNotification = (opts) => sendShareEmail({ ...opts, pending: false });
 
-module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification };
+/** Render the beta welcome email body. `firstName` is already escaped by the caller. */
+function welcomeEmailHtml(firstName) {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #1a1a1a;">
+      <p>Hi ${firstName},</p>
+      <p>Welcome to Squire Docs! I'm Sam, one of the founders.</p>
+      <p>We just opened our public beta, and I'm excited to have you try it out. Squire is built for engineering teams (and their coding agents) to write specs, design docs, and ADRs together, with two-way markdown sync to your repo and every edit attributed, human or AI.</p>
+      <p>Right now we're looking for a small group of design partners to help shape the product. If that's you, here's what's in it for you:</p>
+      <ul>
+        <li><strong>$200/month in AI credits</strong>, instead of the standard $10, for as long as you're an active design partner.</li>
+        <li>In exchange, we'd ask for <strong>25 minutes a month</strong> to hear how you're using Squire and what's not working.</li>
+      </ul>
+      <p>One thing on our roadmap I'd especially love your input on: <strong>teams and organization features</strong>. If you have thoughts on how your team should manage shared docs, permissions, or workspaces, that conversation would be a big help.</p>
+      <p>If you're interested, just reply to this email and I'll grab time on your calendar.</p>
+      <p>Thanks for giving Squire a try.</p>
+      <p>Sam<br>Squire Docs</p>
+    </div>
+  `;
+}
+
+/**
+ * Send the beta welcome email to a new sign-up. Admin-triggered (never automatic).
+ * BCCs the admin (ADMIN_EMAIL) so Sam keeps a copy, and sets Reply-To to the admin
+ * so the recipient's reply reaches a real inbox rather than the no-reply From.
+ * Returns the sendEmail result object.
+ */
+function sendWelcomeEmail({ to, firstName }) {
+  const name = escapeHtml((firstName && String(firstName).trim()) || 'there');
+  return sendEmail({
+    to,
+    replyTo: ADMIN_EMAIL || undefined,
+    bcc: ADMIN_EMAIL || undefined,
+    subject: 'Welcome to Squire Docs',
+    html: welcomeEmailHtml(name),
+  });
+}
+
+module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification, sendWelcomeEmail };

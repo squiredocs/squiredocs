@@ -30,7 +30,7 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - **Document Management**: Create, share, and delete documents with permission enforcement
 - **Near-Realtime Document List**: Document list polls for updates every 5 seconds and on tab visibility change
 - **Full-Text & Semantic Search**: Search box on the document list searches document *contents* using hybrid search — PostgreSQL full-text (`tsvector`) combined with pgvector semantic/embedding search, fused via Reciprocal Rank Fusion
-- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, reviewing a user's sharing activity (invites sent, collaborators on owned docs), setting the shared assistant's default AI model, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
+- **Admin Area**: Admin dashboard for viewing user stats (docs, AI usage, last login), granting extra AI credits, marking users "trusted" to enable outbound share email, sending the beta welcome email to a user on demand (per-row button; never automatic; admin is BCC'd), reviewing a user's sharing activity (invites sent, collaborators on owned docs), setting the shared assistant's default AI model, and email notifications (sign-up, login, credit-limit, support requests, exceptions)
 
 ## Technology Stack
 
@@ -260,7 +260,7 @@ for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
 - `ANTHROPIC_API_KEY`: Anthropic API key (required when using `claude-haiku`, `claude-sonnet`, or `claude-opus` model)
 - `GOOGLE_GENERATIVE_AI_API_KEY`: Google AI API key (required when using a `gemini-*` model)
 - `ADMIN_EMAIL`: Email address for admin notifications — sign-up, login, AI credit-limit exhaustion, support requests, and unhandled exception alerts (optional; all notifications skipped if unset)
-- `SES_FROM_EMAIL`: AWS SES verified sender address for transactional email — admin notifications plus document share invitations/notifications (optional; email is skipped if unset). Set to `no-reply@squiredocs.com`. Sending invitations to external (non-admin) recipients requires the SES account to have production access (out of the sandbox) and the `squiredocs.com` domain verified in SES. Note: user-initiated share email is additionally gated per user by the `users.email_enabled` flag (off by default; toggled from the Admin page) — admin/ops notifications to `ADMIN_EMAIL` are not gated
+- `SES_FROM_EMAIL`: AWS SES verified sender address for transactional email — admin notifications, document share invitations/notifications, plus the admin-triggered beta welcome email (optional; email is skipped if unset). Set to `no-reply@squiredocs.com`. Sending invitations to external (non-admin) recipients requires the SES account to have production access (out of the sandbox) and the `squiredocs.com` domain verified in SES. Note: user-initiated share email is additionally gated per user by the `users.email_enabled` flag (off by default; toggled from the Admin page) — admin/ops notifications to `ADMIN_EMAIL` are not gated
 - `SES_SMTP_HOST`: SES SMTP endpoint (default: `email-smtp.us-west-2.amazonaws.com`)
 - `SES_SMTP_USER`: SES SMTP username
 - `SES_SMTP_PASS`: SES SMTP password
@@ -576,6 +576,15 @@ New users are dropped straight into a working, AI-assisted document instead of a
 - **Login wiring** (`server/auth/routes.js`): the OAuth callback and dev-login resolve onboarding (`seed: true`) and choose the redirect; `GET /auth/me` resolves it read-only (`seed: false`) and returns `welcomeDocId` / `onboarded` so the client can route on refresh and dev-bypass.
 - **Doc-creation wiring**: `POST /api/docs` (`server/index.js`) and the `create_document` MCP tool (`server/mcp/tools/create-document.js`) call `onboarding.markEngagedFromDocCreation(userId)` after creating the doc — fire-and-forget, so it never blocks or fails creation.
 - **Client**: `App.jsx` reads `?welcome=1` (and the `/auth/me` fields on the landing route), opens the panel, and calls `aiChat.sendWelcomeMessage()` once. The kickoff/greeting lives in `client/src/contexts/AiChatContext.jsx`; the hidden message is filtered in `client/src/components/AiChatMessages.jsx`.
+
+### Beta welcome email (admin-triggered)
+
+Separate from the in-app welcome *doc* above: a plain-text-style HTML **welcome email** sent to new sign-ups. It is **never sent automatically** — an admin sends it per user from a button on each row of the Admin page.
+
+- **Send action** (`client/src/pages/AdminPage.jsx`): each user row has a "✉ Welcome email" button; once sent it shows "✓ Welcome email" and displays the send date on hover. Re-sending prompts for confirmation. A confirm dialog notes that the admin is BCC'd.
+- **Endpoint** (`server/api/admin.js`): `POST /api/admin/users/:userId/welcome-email` (behind `requireAdmin`) looks up the user, derives their first name from `users.name`, sends the email, and stamps `users.welcome_email_sent_at` on success. Returns 503 if SES is unconfigured, 502 on send failure (no stamp written in either case).
+- **Message** (`server/email.js` → `sendWelcomeEmail`): subject "Welcome to Squire Docs", body from the Squire-authored source doc, addressed "Hi &lt;first name&gt;," (falls back to "there"; first name is HTML-escaped). **BCCs `ADMIN_EMAIL`** and sets **Reply-To to `ADMIN_EMAIL`** so replies reach a real inbox rather than the no-reply From. Like share email, delivery to external recipients requires SES production access.
+- **Schema** (`migrations/1794000000000_add-welcome-email-sent-to-users.js`): `users.welcome_email_sent_at` (timestamptz, NULL until first sent).
 
 ## AI Agent Integration (Model Context Protocol)
 
@@ -969,7 +978,7 @@ paragraphs.forEach((node, index) => {
 │   │   ├── app-settings.js   # Global admin-editable settings (shared assistant default model)
 │   │   └── admin.js          # Admin dashboard endpoints
 │   ├── ai-usage.js          # AI usage metering (quota checks, cost computation, usage logging)
-│   ├── email.js             # Admin email notifications (signup, login, credit limit, support)
+│   ├── email.js             # Email: admin notifications (signup, login, credit limit, support), share invites, welcome email
 │   ├── exception-notifier.js # Rate-limited exception email alerts
 │   ├── chat-store.js        # Chat persistence (CRUD with ownership checks)
 │   └── mcp/                  # Model Context Protocol integration
