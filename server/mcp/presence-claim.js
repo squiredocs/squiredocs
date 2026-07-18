@@ -96,6 +96,10 @@ function client() {
         numberOfKeys: 1,
         lua: "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
       });
+      c.defineCommand('claimAdopt', {
+        numberOfKeys: 1,
+        lua: "local v = redis.call('GET', KEYS[1]); if v == false or v == ARGV[1] then redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2]); return 1 else return 0 end",
+      });
     }
     commandsDefined = true;
   }
@@ -234,8 +238,7 @@ async function ensureHeldForWork(claimKey) {
  * (FR-002). Returns true iff acquired — or claims disabled / fail-open
  * (holder-favoring, RBD-2). Never throws.
  * @param {string} claimKey
- * @param {string} [transition='acquired'] - log label for a winning acquire
- *   (the heartbeat probe passes 'reacquired (expiry)').
+ * @param {string} [transition='acquired'] - log label for a winning acquire.
  * @returns {Promise<boolean>}
  */
 async function tryAcquire(claimKey, transition = 'acquired') {
@@ -257,13 +260,45 @@ async function tryAcquire(claimKey, transition = 'acquired') {
 }
 
 /**
+ * Non-holder heartbeat probe: acquire-if-free-or-mine (post-merge MEDIUM-1).
+ * Lua: GET is false (free) or equal to our instance ID -> SET PX ttl, 1;
+ * otherwise 0. Unlike the NX probe this also reclaims a key this instance
+ * still owns in Redis but locally believes it lost — the both-silent state
+ * crossed nudges leave behind — so convergence takes ONE heartbeat instead
+ * of a full TTL expiry. Returns true iff adopted (or disabled / fail-open,
+ * holder-favoring like tryAcquire). Never throws.
+ * @private
+ * @param {string} claimKey
+ * @param {string} transition - log label for a winning adopt
+ * @returns {Promise<boolean>}
+ */
+async function tryAdopt(claimKey, transition) {
+  if (!deps.enabled()) return true;
+  const r = record(claimKey);
+  const res = await runOp(() => client().claimAdopt(claimKey, deps.instanceId(), config.ttlMs));
+  if (!res.ok) {
+    enterFailOpen(r, res.error);
+    r.held = true; // behave as holder on coordination failure (RBD-2)
+    return true;
+  }
+  opSucceeded(r);
+  const adopted = res.value === 1;
+  if (adopted && !r.held) {
+    r.held = true;
+    log(transition, claimKey);
+  }
+  return adopted;
+}
+
+/**
  * One heartbeat tick for a claim (research R4). Holder: owner-checked TTL
  * refresh — a refresh that discovers foreign ownership (or an expired key)
  * silences this instance (FR-005, the lost-nudge backstop). Non-holder with
- * a live local session: NX probe — success means the previous holder died
- * (TTL expiry, FR-010) or released cleanly (RBD-4), so announce via
- * onAcquired. Keeps ticking through fail-open so recovery is automatic
- * (US4 scenarios 3-4). Never throws.
+ * a live local session: adopt probe (acquire-if-free-or-mine) — success
+ * means the previous holder died (TTL expiry, FR-010), released cleanly
+ * (RBD-4), or WAS this instance all along (crossed nudges, MEDIUM-1), so
+ * announce via onAcquired. Keeps ticking through fail-open so recovery is
+ * automatic (US4 scenarios 3-4). Never throws.
  * @private
  */
 async function heartbeatTick(claimKey) {
@@ -284,7 +319,7 @@ async function heartbeatTick(claimKey) {
       if (callbacks.onLost) callbacks.onLost(claimKey);
     }
   } else {
-    const acquired = await tryAcquire(claimKey, 'reacquired (expiry)');
+    const acquired = await tryAdopt(claimKey, 'reacquired (probe)');
     if (acquired && r.held && callbacks.onAcquired) {
       callbacks.onAcquired(claimKey);
     }

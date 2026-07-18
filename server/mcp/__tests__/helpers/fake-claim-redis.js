@@ -6,9 +6,10 @@
  * Redis (research R8). Provides:
  *
  * - `client`: the command surface presence-claim.js uses —
- *   `set(key, value, 'PX', ttl[, 'NX'])`, `get`, `del`, and the two Lua
+ *   `set(key, value, 'PX', ttl[, 'NX'])`, `get`, `del`, and the three Lua
  *   owner-checked commands emulated directly as methods
  *   (`claimRefresh(key, id, ttlMs)` → GET==id ? PEXPIRE+1 : 0;
+ *    `claimAdopt(key, id, ttlMs)` → GET absent or ==id ? SET PX+1 : 0;
  *    `claimRelease(key, id)` → GET==id ? DEL+1 : 0). `defineCommand` is a
  *   no-op (the commands already exist).
  * - A virtual clock: `advance(ms)` moves time forward and expires keys.
@@ -97,6 +98,18 @@ function createFakeClaimRedis() {
       const entry = liveEntry(key);
       if (entry && entry.value === String(instanceId)) {
         entry.expiresAt = now + Number(ttlMs);
+        return 1;
+      }
+      return 0;
+    },
+
+    // Emulation of the Lua script: GET absent or == id -> SET PX + 1, else 0
+    // (acquire-if-free-or-mine; the non-holder heartbeat probe)
+    async claimAdopt(key, instanceId, ttlMs) {
+      await guard(['claimAdopt', key, instanceId, ttlMs]);
+      const entry = liveEntry(key);
+      if (!entry || entry.value === String(instanceId)) {
+        store.set(key, { value: String(instanceId), expiresAt: now + Number(ttlMs) });
         return 1;
       }
       return 0;

@@ -356,4 +356,58 @@ describe('presence handoff', () => {
       expect(fake.peek(KEY)).toBe('instance-Z');
     });
   });
+
+  describe('crossed nudges (post-merge MEDIUM-1)', () => {
+    async function passTime(ms) {
+      fake.advance(ms);
+      await jest.advanceTimersByTimeAsync(ms);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('both-silent crossed-nudge state converges to a single announcer within ONE heartbeat, not TTL expiry', async () => {
+      const session = createMockSession();
+      const bOnAcquired = jest.fn();
+      const { mod: b } = loadInstanceB({ onAcquired: bOnAcquired });
+
+      // Near-simultaneous tool calls on both instances; each nudge is
+      // delivered only AFTER both takeovers completed (crossed in flight).
+      fake.queueBus(true);
+      await b.ensureHeldForWork(KEY); // key -> instance-B, nudge queued
+      await presenceClaim.ensureHeldForWork(KEY); // key -> instance-A, nudge queued
+      fake.flushBus(); // both stale nudges land: each instance silences itself
+      fake.queueBus(false);
+
+      // The pathological state: BOTH silent, the key still owned by the last
+      // writer (A) and no longer refreshed — the agent is dark cluster-wide.
+      expect(presenceClaim.isHeld(KEY)).toBe(false);
+      expect(b.isHeld(KEY)).toBe(false);
+      expect(session.claimState).toBe('silent');
+      expect(fake.peek(KEY)).toBe('instance-A');
+
+      presenceClaim.startHeartbeat(KEY);
+      b.startHeartbeat(KEY);
+
+      // ONE heartbeat (5s) — far before the 15s TTL could free the key — the
+      // owner's probe must adopt its own live key and re-announce.
+      await passTime(5000);
+      expect(session.claimState).toBe('holder');
+      expect(session.provider.awareness.setLocalStateField).toHaveBeenCalledWith(
+        'user',
+        session.agentInfo
+      );
+      // ...while the non-owner stays silent: still exactly one announcer.
+      expect(b.isHeld(KEY)).toBe(false);
+      expect(bOnAcquired).not.toHaveBeenCalled();
+      expect(fake.peek(KEY)).toBe('instance-A');
+
+      removeMockSession(session);
+    });
+  });
 });

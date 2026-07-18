@@ -44,8 +44,14 @@ startHeartbeat(claimKey)    // Ensure the per-claim timer runs (AGENT_CLAIM_HEAR
                             //   unref()'d). Holder tick: owner-checked refresh (Lua:
                             //   GET==id -> PEXPIRE); refresh returning "not owner" ->
                             //   mark lost + fire onLost (FR-005). Non-holder tick:
-                            //   tryAcquire probe; success -> mark held + return value
-                            //   surfaces via onAcquired (below).
+                            //   adopt probe (Lua acquire-if-free-or-mine — see B);
+                            //   success -> mark held + surface via onAcquired (below).
+                            //   The probe must NOT be plain SET NX: after crossed
+                            //   nudges both instances are silent while the key is
+                            //   still live and owned by one of them, and an NX probe
+                            //   cannot reclaim a key its own instance owns — leaving
+                            //   the agent dark until TTL expiry instead of one
+                            //   heartbeat.
 stopHeartbeat(claimKey)     // Stop + drop local claim record. Called from session cleanup.
 
 // Optional callback registered in init:
@@ -88,6 +94,7 @@ _resetForTests()            // Clear module state, timers, registered scripts.
 | Acquire | `SET key id NX PX <AGENT_CLAIM_TTL_MS>` — atomic, first-writer-wins (FR-002) |
 | Takeover | `SET key id PX <AGENT_CLAIM_TTL_MS>` — unconditional (FR-006), always paired with a nudge publish |
 | Refresh | Lua (atomic): `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) else return 0 end` |
+| Adopt (non-holder probe) | Lua (atomic): `local v = redis.call('GET', KEYS[1]); if v == false or v == ARGV[1] then redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2]); return 1 else return 0 end` — acquire-if-free-**or-mine**, so the both-silent crossed-nudge state converges within one heartbeat |
 | Release | Lua (atomic): `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end` |
 | Client | Shared command client `server/redis.js getRedisClient()` — never the pub/sub clients |
 
