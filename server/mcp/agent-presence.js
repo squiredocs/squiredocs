@@ -8,6 +8,7 @@ const WebSocket = require('ws');
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 const { ROLES } = require('../documents');
+const presenceClaim = require('./presence-claim');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -75,11 +76,79 @@ function reservoirSample(items, k) {
 }
 
 /**
+ * Resolve the local session for a presence-claim key (feature 015).
+ * Fast path: derive the sessionKey (claim keys and session keys use the same
+ * raw components). Fallback: scan sessions for a stored claimKey match.
+ * @private
+ * @param {string} claimKey - agent-presence:{userId}:{agentId}:{docGuid}
+ * @returns {object|null} Session object or null
+ */
+function _findSessionByClaimKey(claimKey) {
+  const parts = claimKey.split(':');
+  if (parts.length >= 4 && parts[0] === 'agent-presence') {
+    const sessionKey = parts.slice(1).join('-');
+    const sessionId = sessionsByKey.get(sessionKey);
+    if (sessionId) {
+      const session = activeSessions.get(sessionId);
+      if (session) return session;
+    }
+  }
+  for (const session of activeSessions.values()) {
+    if (session.claimKey === claimKey) return session;
+  }
+  return null;
+}
+
+/**
+ * Presence claim lost (takeover nudge from another instance, or a heartbeat
+ * that discovered foreign ownership): silence the whole announced awareness
+ * state (FR-007) without touching the working session (FR-004). Idempotent —
+ * unknown or already-silent claims are a no-op.
+ * @private
+ * @param {string} claimKey
+ */
+function _onClaimLost(claimKey) {
+  const session = _findSessionByClaimKey(claimKey);
+  if (!session || session.claimState === 'silent') {
+    return;
+  }
+  session.claimState = 'silent';
+  _silenceAwareness(session);
+  console.log(`[agent-presence] presence silenced (claim lost) for ${claimKey}`);
+}
+
+/**
+ * Presence claim acquired by this instance's heartbeat probe (failover after
+ * a holder crash, or pickup after a clean release): re-announce the agent
+ * identity and its last recorded cursor (US4).
+ * @private
+ * @param {string} claimKey
+ */
+function _onClaimAcquired(claimKey) {
+  const session = _findSessionByClaimKey(claimKey);
+  if (!session || session.claimState === 'holder') {
+    return;
+  }
+  session.claimState = 'holder';
+  if (session.agentInfo) {
+    _setAwareness(session, 'user', session.agentInfo);
+  }
+  if (session.cursor) {
+    _setAwareness(session, 'cursor', session.cursor);
+  }
+  console.log(`[agent-presence] presence re-announced (claim acquired) for ${claimKey}`);
+}
+
+/**
  * Initialize the agent presence manager with a persistence provider
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Wire the presence-claim coordinator (feature 015). Runs before
+  // redisPubSub.init() — the nudge subscription is recorded now and
+  // subscribed when pub/sub initializes (contract C init-ordering rule).
+  presenceClaim.init({ onLost: _onClaimLost, onAcquired: _onClaimAcquired });
 }
 
 /**
@@ -132,7 +201,51 @@ function _buildAgentInfo(agentToken, userName, email, picture, userId) {
 }
 
 /**
+ * The single awareness-write gate (feature 015, FR-003/FR-004).
+ *
+ * EVERY awareness write in this module goes through here: writes proceed only
+ * when the session holds the presence claim (claimState === 'holder'), so
+ * silent sessions on non-holding instances announce nothing while remaining
+ * fully-functional working sessions. When claims are disabled (no Redis)
+ * every session is 'holder' and behavior is byte-identical to before (FR-012).
+ *
+ * @private
+ * @param {object} session - Session object
+ * @param {string} field - Awareness field ('user' | 'cursor')
+ * @param {*} value - Field value
+ * @param {boolean} [force=false] - Write even when silent. Used only for
+ *   clearing state on cleanup: clearing is always safe (it can only remove
+ *   announced presence, never add one).
+ */
+function _setAwareness(session, field, value, force = false) {
+  if (!session.provider || !session.provider.awareness) {
+    return;
+  }
+  if (!force && session.claimState === 'silent') {
+    return;
+  }
+  session.provider.awareness.setLocalStateField(field, value);
+}
+
+/**
+ * Silence a session's entire announced awareness state (FR-007): full
+ * setLocalState(null), not per-field — this is what y-protocols broadcasts
+ * to peers as a removal. The working session stays untouched.
+ * @private
+ * @param {object} session - Session object
+ */
+function _silenceAwareness(session) {
+  if (session.provider && session.provider.awareness) {
+    session.provider.awareness.setLocalState(null);
+  }
+}
+
+/**
  * Update session cursor and broadcast to awareness
+ *
+ * The cursor value is ALWAYS recorded on session.cursor — even while the
+ * session is claim-silent — so a later takeover announces the agent's true
+ * current position (research R6); only the awareness write is gated.
  * @private
  * @param {object} session - Session object
  * @param {object} anchor - Anchor RelativePosition (JSON)
@@ -141,9 +254,7 @@ function _buildAgentInfo(agentToken, userName, email, picture, userId) {
 function _broadcastCursor(session, anchor, head) {
   session.cursor = { anchor, head };
   session.lastActivityAt = Date.now();
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('cursor', { anchor, head });
-  }
+  _setAwareness(session, 'cursor', { anchor, head });
 }
 
 /**
@@ -260,6 +371,9 @@ function _waitForDocumentContent(ydoc, docGuid) {
  * @returns {Promise<object>} Session object with provider, awareness, sessionId, etc.
  */
 async function _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName) {
+  const agentId = agentToken.agentId || 'default';
+  const claimKey = presenceClaim.buildClaimKey(userId, agentId, docGuid);
+
   // CRITICAL: Check if there's already a session creation in progress
   // This prevents race conditions when multiple tools are called concurrently
   if (pendingSessionCreations.has(sessionKey)) {
@@ -288,9 +402,10 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
     if (session && session.provider && session.provider.wsconnected && session.initialized) {
       _setSessionTimeout(session, duration);
 
-      // Ensure cursor is broadcast to awareness (in case it was cleared)
-      if (session.provider.awareness && session.cursor) {
-        session.provider.awareness.setLocalStateField('cursor', session.cursor);
+      // Ensure cursor is broadcast to awareness (in case it was cleared);
+      // gated on claim state (feature 015)
+      if (session.cursor) {
+        _setAwareness(session, 'cursor', session.cursor);
       }
 
       console.log(`[agent-presence] Reusing existing session for ${userName} in ${docGuid}`);
@@ -344,10 +459,9 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             clearTimeout(session.highlightQueue.timeoutId);
             session.highlightQueue = null;
           }
-          // Clear awareness cursor
-          if (session.provider && session.provider.awareness) {
-            session.provider.awareness.setLocalStateField('cursor', null);
-          }
+          // Clear awareness cursor — force-written even for silent sessions:
+          // clearing is always safe (feature 015)
+          _setAwareness(session, 'cursor', null, true);
         }
 
         if (connectionTimeoutId) {
@@ -359,7 +473,21 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
           provider = null;
         }
         activeSessions.delete(sessionId);
-        sessionsByKey.delete(sessionKey);
+        // Cross-delete guard (feature 015, FR-014): only remove the shared
+        // key mapping when it still points at THIS session. A newer session
+        // may have taken the key over; deleting its mapping would orphan it
+        // (unfindable, unextendable) and make duplicates snowball. All other
+        // teardown above/below is this session's own and runs regardless
+        // (FR-015).
+        if (sessionsByKey.get(sessionKey) === sessionId) {
+          sessionsByKey.delete(sessionKey);
+          // Release the presence claim with the same ownership discipline
+          // (FR-011/RBD-4): only the session that still owns the key mapping
+          // releases — if a newer local session owns the key, the claim (and
+          // its heartbeat) now belongs to it and must survive this cleanup.
+          // Fire-and-forget: cleanup stays synchronous and infallible.
+          presenceClaim.release(claimKey).catch(() => {});
+        }
         // Remove from userId index
         const userSessions = sessionsByUserId.get(userId);
         if (userSessions) {
@@ -389,6 +517,8 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         sessionId,
         docGuid,
         userId,
+        agentId,                 // Needed to derive the claim key (feature 015)
+        claimKey,                // Presence-claim key for this session (feature 015)
         key: sessionKey,
         provider,
         cleanup,
@@ -399,6 +529,8 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         undoManager: null,       // Will be created after connection
         clipboard: null,         // Clipboard storage for copy/paste
         lastActivityAt: Date.now(),
+        claimState: 'holder',    // 'holder' | 'silent' — gates every awareness write (feature 015).
+                                 // Defaults to 'holder': with claims disabled behavior is identical to before.
       });
       sessionsByKey.set(sessionKey, sessionId);
       // Add to userId index
@@ -443,7 +575,6 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
             }
 
             try {
-              const awareness = provider.awareness;
               const session = activeSessions.get(sessionId);
               if (session) {
                 session.undoManager = new Y.UndoManager(xmlFragment, { captureTimeout: 500 });
@@ -451,7 +582,7 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
                 session.initialized = true;
 
                 if (session.cursor) {
-                  awareness.setLocalStateField('cursor', session.cursor);
+                  _setAwareness(session, 'cursor', session.cursor);
                 }
               }
 
@@ -612,9 +743,28 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   // Store agentInfo on session for later access
   session.agentInfo = agentInfo;
 
-  if (session.provider && session.provider.awareness) {
-    session.provider.awareness.setLocalStateField('user', agentInfo);
+  // Presence-claim wiring (feature 015): the claim follows the work. This
+  // runs on EVERY tool call (create, reuse, and extend paths all funnel
+  // through here — research R3), so the instance executing the work takes
+  // the claim over (FR-006) and announces AFTER the claim resolves, making
+  // the call's activity stream originate from the executing instance
+  // (FR-008). Already-holder calls are a pure no-op inside ensureHeldForWork
+  // (FR-009); disabled/fail-open resolve holder-favoring (FR-012/FR-013).
+  const claimKey = session.claimKey || presenceClaim.buildClaimKey(userId, agentId, docGuid);
+  session.claimKey = claimKey;
+  const wasSilent = session.claimState === 'silent';
+  await presenceClaim.ensureHeldForWork(claimKey);
+  session.claimState = 'holder'; // ensureHeldForWork always resolves held
+
+  _setAwareness(session, 'user', agentInfo);
+  if (wasSilent && session.cursor) {
+    // Re-announce the current position after a takeover (research R6)
+    _setAwareness(session, 'cursor', session.cursor);
   }
+
+  // Refresh while holding, probe while silent — for as long as the session
+  // lives (stopped by the claim release in cleanup)
+  presenceClaim.startHeartbeat(claimKey);
 
   return session;
 }

@@ -30,7 +30,8 @@ Expected outcomes per scenario:
 
 | Scenario | Suite | Proves |
 |---|---|---|
-| Claim acquire / heartbeat refresh / owner-checked release vs mocked Redis | `presence-claim.test.js` | FR-002, FR-005, FR-011; contract E1/E5/E6 |
+| Claim acquire (NX+PX), local belief, disabled mode, transition logging vs mocked Redis | `presence-claim.test.js` | FR-002, FR-012, FR-016; contract E1/E7 |
+| Heartbeat refresh (owner-checked) / owner-checked release (own + foreign) | `presence-handoff.test.js` (failover block) | FR-005, FR-011; contract E5/E6 |
 | Atomic first-claim race: two instances, one winner | `presence-multi-instance.test.js` | FR-002, spec edge "simultaneous first tool calls" |
 | Takeover handoff: `ensureHeldForWork` on non-holder flips owner, publishes one nudge; receiving instance silences via `setLocalState(null)` while its session stays alive | `presence-handoff.test.js` | FR-006/007/008, SC-003 (asserted < 1 s with fake timers) |
 | Holder path no-op: no nudge, no re-announce | `presence-handoff.test.js` | FR-009 |
@@ -39,7 +40,7 @@ Expected outcomes per scenario:
 | Heartbeat backstop: lost nudge, holder's refresh sees foreign owner, silences | `presence-handoff.test.js` | FR-005, spec edge "nudge lost" |
 | Fail-open, Redis absent: no REDIS_HOST → announce as today, zero claim I/O | `presence-claim-failopen.test.js` | FR-012, SC-006 |
 | Fail-open, Redis erroring/timing out: ops resolve holder-favoring within `AGENT_CLAIM_OP_TIMEOUT_MS`, tool path never rejects, recovery resumes claiming | `presence-claim-failopen.test.js` | FR-013/RBD-2/RBD-5, SC-007, US4-3/4 |
-| Cross-delete guard: stale session cleanup leaves a newer session's key mapping intact; own-mapping cleanup still deletes; full resource teardown either way | `agent-presence.test.js` | FR-014/015, SC-005, US3 |
+| Cross-delete guard: stale session cleanup leaves a newer session's key mapping intact; own-mapping cleanup still deletes; full resource teardown either way (real sessions against a local y-websocket server, claims disabled) | `agent-presence.test.js` | FR-014/015, SC-005, US3 |
 | Awareness gating: silent sessions perform zero awareness writes; cursor still recorded locally; holder announces user+cursor | `agent-presence.test.js` | FR-003/004, US1-2 |
 | Multi-instance simulation: two module instances, one fake Redis + bridged pub/sub, alternating `ensureHeldForWork` calls → at most one holder at every steady-state point, activity always from the executing instance | `presence-multi-instance.test.js` | SC-001/002, US1/US2 |
 | Nudge channel: encode/route/self-filter on `presence-claim` channel | `redis-pubsub.test.js` | Contract C |

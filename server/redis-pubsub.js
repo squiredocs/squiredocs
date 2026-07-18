@@ -22,12 +22,23 @@ const INSTANCE_ID = crypto.randomUUID();
 const AWARENESS_PREFIX = 'awareness:';
 const UPDATES_PREFIX = 'updates:';
 
+// Presence-claim takeover nudges (feature 015): one global channel — claim
+// events are rare and tiny, so no per-doc suffix (research R5).
+const PRESENCE_CLAIM_CHANNEL = 'presence-claim';
+
 // Separate Redis clients for pub/sub (required by Redis - can't mix pub/sub with commands)
 let subscriberClient = null;
 let publisherClient = null;
 
 // Track subscribed documents: docId -> { awarenessHandler, updateHandler }
 const documentSubscriptions = new Map();
+
+// Presence-claim nudge handlers. Handlers may be registered BEFORE init()
+// (agent-presence initializes from server/mcp/tools/index.js well before
+// redisPubSub.init() runs in the server.listen callback); registration only
+// records the handler and init() issues the actual channel SUBSCRIBE.
+const presenceClaimHandlers = [];
+let presenceClaimSubscribed = false;
 
 // Track initialization state
 let initialized = false;
@@ -163,6 +174,21 @@ async function init() {
         if (sub?.updateHandler) {
           sub.updateHandler(decoded.data);
         }
+      } else if (channel === PRESENCE_CLAIM_CHANNEL) {
+        let payload;
+        try {
+          payload = JSON.parse(decoded.data.toString());
+        } catch (parseErr) {
+          console.warn('[RedisPubSub] Dropping malformed presence-claim payload');
+          return;
+        }
+        for (const handler of presenceClaimHandlers) {
+          try {
+            handler(payload);
+          } catch (handlerErr) {
+            console.error('[RedisPubSub] presence-claim handler error:', handlerErr.message);
+          }
+        }
       }
     } catch (err) {
       console.error('[RedisPubSub] Error handling message:', err.message);
@@ -192,6 +218,16 @@ async function init() {
   }
 
   initialized = true;
+
+  // Issue the presence-claim channel SUBSCRIBE for handlers registered before
+  // init() ran (feature 015 contract C: pre-init registrations are never
+  // silently dropped).
+  if (presenceClaimHandlers.length > 0 && !presenceClaimSubscribed) {
+    presenceClaimSubscribed = true;
+    subscriberClient.subscribe(PRESENCE_CLAIM_CHANNEL).catch((err) => {
+      console.error('[RedisPubSub] Error subscribing to presence-claim channel:', err.message);
+    });
+  }
 
   // Clear any disabled warning interval since we're now enabled
   if (disabledWarningInterval) {
@@ -313,6 +349,42 @@ function publishUpdate(docId, update) {
 }
 
 /**
+ * Register a handler for presence-claim takeover nudges (feature 015).
+ * Safe to call before init(): the handler is recorded and the channel
+ * SUBSCRIBE is issued by init(); if init() already ran, the SUBSCRIBE is
+ * issued immediately. Handlers receive the decoded JSON payload
+ * ({ claimKey }) from OTHER instances only (self-messages are filtered by
+ * the instance-ID framing).
+ * @param {Function} handler - handler(payloadObject)
+ */
+function subscribeToPresenceClaims(handler) {
+  presenceClaimHandlers.push(handler);
+  if (initialized && subscriberClient && !presenceClaimSubscribed) {
+    presenceClaimSubscribed = true;
+    subscriberClient.subscribe(PRESENCE_CLAIM_CHANNEL).catch((err) => {
+      console.error('[RedisPubSub] Error subscribing to presence-claim channel:', err.message);
+    });
+  }
+}
+
+/**
+ * Publish a presence-claim takeover nudge (feature 015). Fire-and-forget:
+ * errors are logged, never thrown — delivery is best-effort (the heartbeat
+ * ownership check backstops a lost nudge).
+ * @param {string} claimKey - agent-presence:{userId}:{agentId}:{docGuid}
+ */
+function publishPresenceClaimTakeover(claimKey) {
+  if (!isEnabled()) {
+    return;
+  }
+  publisherClient
+    .publish(PRESENCE_CLAIM_CHANNEL, encodeMessage(Buffer.from(JSON.stringify({ claimKey }))))
+    .catch((err) => {
+      console.error(`[RedisPubSub] Error publishing presence-claim takeover for ${claimKey}:`, err.message);
+    });
+}
+
+/**
  * Get the number of active document subscriptions
  * @returns {number}
  */
@@ -346,6 +418,13 @@ async function cleanup() {
     unsubscribeFromDocument(docId);
   }
 
+  // Unsubscribe the presence-claim channel (handlers stay registered so a
+  // later re-init resubscribes them)
+  if (presenceClaimSubscribed) {
+    subscriberClient?.unsubscribe(PRESENCE_CLAIM_CHANNEL);
+    presenceClaimSubscribed = false;
+  }
+
   // Close clients
   if (subscriberClient) {
     await subscriberClient.quit().catch(() => {});
@@ -377,6 +456,8 @@ module.exports = {
   unsubscribeFromDocument,
   publishAwareness,
   publishUpdate,
+  subscribeToPresenceClaims,
+  publishPresenceClaimTakeover,
   getSubscriptionCount,
   isSubscribed,
   cleanup,
@@ -391,6 +472,13 @@ module.exports = {
       unsubscribeFromDocument(docId);
     }
     documentSubscriptions.clear();
+
+    // Drop presence-claim channel state (handlers cleared for test isolation)
+    if (presenceClaimSubscribed) {
+      subscriberClient?.unsubscribe(PRESENCE_CLAIM_CHANNEL);
+    }
+    presenceClaimHandlers.length = 0;
+    presenceClaimSubscribed = false;
 
     // Close existing clients to avoid zombie connections
     if (subscriberClient) {
