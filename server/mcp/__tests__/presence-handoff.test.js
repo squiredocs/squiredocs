@@ -216,4 +216,125 @@ describe('presence handoff', () => {
       }
     });
   });
+
+  describe('failover and release (US4)', () => {
+    // Every test drives the heartbeat with jest fake timers while moving the
+    // fake Redis virtual clock in lockstep.
+    async function passTime(ms) {
+      fake.advance(ms);
+      await jest.advanceTimersByTimeAsync(ms);
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('holder heartbeat refreshes the claim TTL', async () => {
+      await presenceClaim.tryAcquire(KEY);
+      presenceClaim.startHeartbeat(KEY);
+      expect(fake.peekTtl(KEY)).toBe(15000);
+
+      await passTime(10000); // two ticks without refresh would leave 5000
+      expect(fake.peek(KEY)).toBe('instance-A');
+      expect(fake.peekTtl(KEY)).toBe(15000); // owner-checked refresh reset it
+    });
+
+    test('a lost nudge is backstopped: the holder silences within one heartbeat of a foreign takeover (FR-005)', async () => {
+      const session = createMockSession();
+      await presenceClaim.tryAcquire(KEY);
+      presenceClaim.startHeartbeat(KEY);
+
+      // Instance B takes over but its nudge is LOST (publish suppressed)
+      const { mod: b } = loadInstanceB();
+      b._setDepsForTests({ publishTakeover: () => {} });
+      await b.ensureHeldForWork(KEY);
+      expect(fake.peek(KEY)).toBe('instance-B');
+      expect(presenceClaim.isHeld(KEY)).toBe(true); // A still believes — nudge never arrived
+
+      // One heartbeat later A's owner-checked refresh discovers the loss…
+      await passTime(5000);
+      expect(presenceClaim.isHeld(KEY)).toBe(false);
+      expect(session.claimState).toBe('silent');
+      expect(session.provider.awareness.setLocalState).toHaveBeenCalledWith(null);
+      // …and the foreign claim was NOT extended by A's refresh attempts
+      expect(fake.peek(KEY)).toBe('instance-B');
+      expect(fake.peekTtl(KEY)).toBeLessThanOrEqual(10000);
+
+      removeMockSession(session);
+    });
+
+    test('holder crash: survivor probe acquires after TTL expiry and re-announces (FR-010/SC-004)', async () => {
+      // A crashed holder elsewhere in the cluster owns the key, no heartbeat
+      fake.setKey(KEY, 'instance-Z', 15000);
+
+      // This instance's session lost the initial race: silent, probing
+      const session = createMockSession({ claimState: 'silent' });
+      expect(await presenceClaim.tryAcquire(KEY)).toBe(false);
+      presenceClaim.startHeartbeat(KEY);
+
+      // Before expiry: probes never steal from a live claim
+      await passTime(10000);
+      expect(fake.peek(KEY)).toBe('instance-Z');
+      expect(session.claimState).toBe('silent');
+
+      // Past the TTL the claim expires and the next probe wins
+      await passTime(10000);
+      expect(fake.peek(KEY)).toBe('instance-A');
+      expect(session.claimState).toBe('holder');
+      expect(session.provider.awareness.setLocalStateField).toHaveBeenCalledWith(
+        'user',
+        session.agentInfo
+      );
+      expect(session.provider.awareness.setLocalStateField).toHaveBeenCalledWith(
+        'cursor',
+        session.cursor
+      );
+
+      removeMockSession(session);
+    });
+
+    test('clean release: survivor picks the claim up on its next probe without any TTL wait (FR-011/RBD-4)', async () => {
+      fake.setKey(KEY, 'instance-Z', 15000);
+      const session = createMockSession({ claimState: 'silent' });
+      expect(await presenceClaim.tryAcquire(KEY)).toBe(false);
+      presenceClaim.startHeartbeat(KEY);
+
+      // The holder's session ends cleanly: owner-checked delete, key gone now
+      fake.deleteKey(KEY);
+
+      // One heartbeat — far less than the TTL — is enough
+      await passTime(5000);
+      expect(fake.peek(KEY)).toBe('instance-A');
+      expect(session.claimState).toBe('holder');
+
+      removeMockSession(session);
+    });
+
+    test('release deletes an owned claim immediately and stops the heartbeat for good', async () => {
+      await presenceClaim.tryAcquire(KEY);
+      presenceClaim.startHeartbeat(KEY);
+
+      await presenceClaim.release(KEY);
+
+      expect(fake.peek(KEY)).toBeNull(); // owner-checked DEL, no expiry wait
+      const callsAfterRelease = fake.callCount();
+
+      // The claim never outlives its session: no tick ever runs again
+      await passTime(60000);
+      expect(fake.callCount()).toBe(callsAfterRelease);
+      expect(fake.peek(KEY)).toBeNull();
+    });
+
+    test('release never deletes a foreign claim (contract E6)', async () => {
+      fake.setKey(KEY, 'instance-Z', 15000);
+
+      await presenceClaim.release(KEY);
+
+      expect(fake.peek(KEY)).toBe('instance-Z');
+    });
+  });
 });

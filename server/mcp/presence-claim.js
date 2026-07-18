@@ -257,6 +257,96 @@ async function tryAcquire(claimKey, transition = 'acquired') {
 }
 
 /**
+ * One heartbeat tick for a claim (research R4). Holder: owner-checked TTL
+ * refresh — a refresh that discovers foreign ownership (or an expired key)
+ * silences this instance (FR-005, the lost-nudge backstop). Non-holder with
+ * a live local session: NX probe — success means the previous holder died
+ * (TTL expiry, FR-010) or released cleanly (RBD-4), so announce via
+ * onAcquired. Keeps ticking through fail-open so recovery is automatic
+ * (US4 scenarios 3-4). Never throws.
+ * @private
+ */
+async function heartbeatTick(claimKey) {
+  const r = claimRecords.get(claimKey);
+  if (!r || !r.heartbeatTimer) return; // stopped while a tick was pending
+  if (r.held) {
+    const res = await runOp(() => client().claimRefresh(claimKey, deps.instanceId(), config.ttlMs));
+    if (!res.ok) {
+      enterFailOpen(r, res.error); // stay held (RBD-2); recovery on a later tick
+      return;
+    }
+    opSucceeded(r);
+    if (res.value !== 1) {
+      // The claim is owned elsewhere (or expired and gone): we are no longer
+      // the announcer. The next tick probes for re-acquisition.
+      r.held = false;
+      log('silenced (heartbeat)', claimKey);
+      if (callbacks.onLost) callbacks.onLost(claimKey);
+    }
+  } else {
+    const acquired = await tryAcquire(claimKey, 'reacquired (expiry)');
+    if (acquired && r.held && callbacks.onAcquired) {
+      callbacks.onAcquired(claimKey);
+    }
+  }
+}
+
+/**
+ * Ensure the per-claim heartbeat timer is running (AGENT_CLAIM_HEARTBEAT_MS,
+ * unref'd). Started on session use — holder or silent alike — and stopped by
+ * release()/stopHeartbeat() from session cleanup, so a claim never outlives
+ * its session (spec edge case). No-op when claims are disabled.
+ */
+function startHeartbeat(claimKey) {
+  if (!deps.enabled()) return;
+  const r = record(claimKey);
+  if (r.heartbeatTimer) return;
+  r.heartbeatTimer = setInterval(() => {
+    heartbeatTick(claimKey).catch(() => {}); // heartbeat may never throw
+  }, config.heartbeatMs);
+  if (typeof r.heartbeatTimer.unref === 'function') r.heartbeatTimer.unref();
+}
+
+/**
+ * Stop the per-claim heartbeat and drop the local claim record.
+ */
+function stopHeartbeat(claimKey) {
+  const r = claimRecords.get(claimKey);
+  if (!r) return;
+  if (r.heartbeatTimer) {
+    clearInterval(r.heartbeatTimer);
+    r.heartbeatTimer = null;
+  }
+  claimRecords.delete(claimKey);
+}
+
+/**
+ * Release a claim on session cleanup (FR-011/RBD-4): stop the heartbeat,
+ * drop the local record, and — only when this instance believed it held the
+ * claim — delete the Redis key owner-checked (never a foreign instance's
+ * claim). Safe when not held or disabled; never throws.
+ * @param {string} claimKey
+ * @returns {Promise<void>}
+ */
+async function release(claimKey) {
+  const r = claimRecords.get(claimKey);
+  const wasHeld = !!(r && r.held);
+  stopHeartbeat(claimKey);
+  if (!deps.enabled() || !wasHeld) return;
+  const res = await runOp(() => client().claimRelease(claimKey, deps.instanceId()));
+  if (!res.ok) {
+    // Record is gone (session over) — a lingering key expires by TTL.
+    console.warn(
+      `[presence-claim] release failed for ${claimKey} (claim will expire by TTL): ${res.error.message}`
+    );
+    return;
+  }
+  if (res.value === 1) {
+    log('released', claimKey);
+  }
+}
+
+/**
  * Synchronous local belief about holding a claim. Holder-favoring when
  * claims are disabled or the claim is failing open.
  */
@@ -301,7 +391,10 @@ module.exports = {
   buildClaimKey,
   ensureHeldForWork,
   tryAcquire,
+  release,
   isHeld,
+  startHeartbeat,
+  stopHeartbeat,
   _resetForTests,
   _setDepsForTests,
 };

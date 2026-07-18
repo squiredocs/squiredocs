@@ -371,6 +371,9 @@ function _waitForDocumentContent(ydoc, docGuid) {
  * @returns {Promise<object>} Session object with provider, awareness, sessionId, etc.
  */
 async function _createSessionCore(docGuid, agentToken, duration, userId, sessionKey, userName) {
+  const agentId = agentToken.agentId || 'default';
+  const claimKey = presenceClaim.buildClaimKey(userId, agentId, docGuid);
+
   // CRITICAL: Check if there's already a session creation in progress
   // This prevents race conditions when multiple tools are called concurrently
   if (pendingSessionCreations.has(sessionKey)) {
@@ -478,6 +481,12 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         // (FR-015).
         if (sessionsByKey.get(sessionKey) === sessionId) {
           sessionsByKey.delete(sessionKey);
+          // Release the presence claim with the same ownership discipline
+          // (FR-011/RBD-4): only the session that still owns the key mapping
+          // releases — if a newer local session owns the key, the claim (and
+          // its heartbeat) now belongs to it and must survive this cleanup.
+          // Fire-and-forget: cleanup stays synchronous and infallible.
+          presenceClaim.release(claimKey).catch(() => {});
         }
         // Remove from userId index
         const userSessions = sessionsByUserId.get(userId);
@@ -508,7 +517,8 @@ async function _createSessionCore(docGuid, agentToken, duration, userId, session
         sessionId,
         docGuid,
         userId,
-        agentId: agentToken.agentId || 'default', // Needed to derive the claim key (feature 015)
+        agentId,                 // Needed to derive the claim key (feature 015)
+        claimKey,                // Presence-claim key for this session (feature 015)
         key: sessionKey,
         provider,
         cleanup,
@@ -740,7 +750,7 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
   // the call's activity stream originate from the executing instance
   // (FR-008). Already-holder calls are a pure no-op inside ensureHeldForWork
   // (FR-009); disabled/fail-open resolve holder-favoring (FR-012/FR-013).
-  const claimKey = presenceClaim.buildClaimKey(userId, agentId, docGuid);
+  const claimKey = session.claimKey || presenceClaim.buildClaimKey(userId, agentId, docGuid);
   session.claimKey = claimKey;
   const wasSilent = session.claimState === 'silent';
   await presenceClaim.ensureHeldForWork(claimKey);
@@ -751,6 +761,10 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
     // Re-announce the current position after a takeover (research R6)
     _setAwareness(session, 'cursor', session.cursor);
   }
+
+  // Refresh while holding, probe while silent — for as long as the session
+  // lives (stopped by the claim release in cleanup)
+  presenceClaim.startHeartbeat(claimKey);
 
   return session;
 }
