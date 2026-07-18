@@ -42,7 +42,7 @@ RETURNS:
   - When searching: includes snippet and score
   - When listing: includes createdAt, shareCount, clock (update counter) and
     lastModifiedAt (last content edit, null if never edited; not bumped by
-    merely opening the doc — use with updatedSince for incremental sync).
+    merely opening the doc - use with updatedSince for incremental sync).
 - pagination: { total, limit, offset, hasMore }
 
 EXAMPLES:

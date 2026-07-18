@@ -348,7 +348,20 @@ describe('search indexer content-hash gating (017)', () => {
       expect((await getIndexRow(docGuid)).content_hash).toBe(before.content_hash); // same text, same hash
     });
 
+    // reindexStale() scans the whole shared test DB, so stragglers from a prior
+    // killed run (stale indexed_at / flipped model on leaked fixture docs) can
+    // inflate the global embed-call counts asserted below. Heal the DB first so
+    // only THIS suite's fixtures are repair-eligible (post-merge review F4).
+    async function healStragglers() {
+      await pool.query(
+        `UPDATE document_search_index SET indexed_at = now()
+         WHERE doc_id IN (SELECT id FROM documents)`
+      );
+      await pool.query('UPDATE document_embeddings SET embedding_model = $1', [EMBEDDING_MODEL]);
+    }
+
     test('watermark 3: reindexStale selects missing-row, edit-stale, and model-stale docs — fresh docs cost zero calls (FR-010/011, SC-002)', async () => {
+      await healStragglers();
       const docFresh = await createDoc('Repair Fresh', 'fresh fully matched document body');
       await searchIndexer.indexDocument(docFresh);
       const docModelStale = await createDoc('Repair Model Stale', 'model stale document body');
@@ -439,6 +452,8 @@ describe('search indexer content-hash gating (017)', () => {
     });
 
     test('watermark 7: second boot after a completed repair does zero embedding work (SC-002)', async () => {
+      await healStragglers(); // guard against leaked stale fixtures (review F4)
+      await searchIndexer.reindexStale();
       mockEmbedMany.mockClear();
       await searchIndexer.reindexStale();
       expect(mockEmbedMany).not.toHaveBeenCalled();

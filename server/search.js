@@ -41,8 +41,18 @@ function parseUpdatedAfter(value, { hasContentSearch } = {}) {
     err.code = 'INVALID_UPDATED_AFTER';
     throw err;
   }
+  // Strict ISO-8601 only (post-merge review F2): V8's Date() also accepts
+  // formats like "07/01/2026" and parses them in SERVER-LOCAL time, silently
+  // shifting the cutoff by the TZ offset on non-UTC hosts. Require a
+  // YYYY-MM-DD prefix so a typo'd format gets the promised 400, never a
+  // subtly wrong window.
+  const ISO_PREFIX_RE = /^\d{4}-\d{2}-\d{2}([T ].+)?$/;
   const date = value instanceof Date ? value : new Date(value);
-  if ((typeof value !== 'string' && !(value instanceof Date)) || Number.isNaN(date.getTime())) {
+  if (
+    (typeof value !== 'string' && !(value instanceof Date)) ||
+    (typeof value === 'string' && !ISO_PREFIX_RE.test(value)) ||
+    Number.isNaN(date.getTime())
+  ) {
     const err = new Error('updatedAfter must be a valid ISO-8601 timestamp');
     err.code = 'INVALID_UPDATED_AFTER';
     throw err;
