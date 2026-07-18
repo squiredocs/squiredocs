@@ -36,8 +36,8 @@
 
 ## Phase 2: Foundational (blocking all stories)
 
-- [ ] T005 Migration `migrations/1798000000000_chunk-structure-columns.js` per `contracts/chunk-record.md`: add nullable `heading_path TEXT[]`, `preamble_text TEXT`, `embedded_text TEXT`, `token_estimate INTEGER`, `search_vector TSVECTOR` to `document_embeddings`; GIN index `idx_embeddings_search_vector_gin`; symmetric `down`. No backfill, no `noTransaction`. Verify slot ordering (> 1797000000000, > 1795000000000 floor; `script/migrate.js` phantom-008 cleanup already handles checkOrder).
-- [ ] T006 Migration test in `server/__tests__/search-indexer.test.js` (or existing migration-check pattern): after migrate, legacy-shaped inserts (only doc_id/chunk_index/chunk_text/embedding) still succeed with the new columns NULL — proves legacy rows and the rollout discriminator (`embedded_text IS NULL`) work.
+- [X] T005 Migration `migrations/1798000000000_chunk-structure-columns.js` per `contracts/chunk-record.md`: add nullable `heading_path TEXT[]`, `preamble_text TEXT`, `embedded_text TEXT`, `token_estimate INTEGER`, `search_vector TSVECTOR` to `document_embeddings`; GIN index `idx_embeddings_search_vector_gin`; symmetric `down`. No backfill, no `noTransaction`. Verify slot ordering (> 1797000000000, > 1795000000000 floor; `script/migrate.js` phantom-008 cleanup already handles checkOrder).
+- [X] T006 Migration test in `server/__tests__/search-indexer.test.js` (or existing migration-check pattern): after migrate, legacy-shaped inserts (only doc_id/chunk_index/chunk_text/embedding) still succeed with the new columns NULL — proves legacy rows and the rollout discriminator (`embedded_text IS NULL`) work.
 
 **Checkpoint**: schema in place; legacy rows representable. User stories can begin.
 
