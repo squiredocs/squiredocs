@@ -1918,7 +1918,16 @@ wss.on('connection', (ws, req) => {
           // Skip if update came from Redis (prevent feedback loops)
           if (origin === ORIGIN_REDIS) return;
 
-          const changedClients = added.concat(updated);
+          // `removed` MUST be included: a client that clears its state
+          // (setLocalState(null) — e.g. an agent presence session silenced on
+          // claim loss, feature 015 — or a ws-close eviction) is reported here
+          // and encodeAwarenessUpdate encodes its null state, which removes it
+          // on every receiving instance. Dropping `removed` (the pre-2026-07-18
+          // behavior) meant remote instances/browsers never heard about the
+          // removal and showed a ghost presence until y-protocols' 30s
+          // staleness prune — observed in prod as persisting duplicate agent
+          // avatars during the 015 validation.
+          const changedClients = added.concat(updated).concat(removed);
           if (changedClients.length > 0) {
             try {
               const update = awarenessProtocol.encodeAwarenessUpdate(
