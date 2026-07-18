@@ -67,8 +67,14 @@ _resetForTests()            // Clear module state, timers, registered scripts.
 - `onLost(claimKey)`: resolve session via `sessionsByKey`; set
   `claimState='silent'`; `provider.awareness.setLocalState(null)` (FR-007). Session,
   provider, timers, undo history untouched. Idempotent.
-- `onAcquired(claimKey)`: resolve session; set `claimState='holder'`; re-announce
-  `setLocalStateField('user', session.agentInfo)` then cursor if present (US4).
+- `onAcquired(claimKey)`: resolve session; set `claimState='holder'`; re-announce by
+  rebuilding the FULL awareness state —
+  `setLocalState({ user: session.agentInfo, ...(session.cursor ? { cursor: session.cursor } : {}) })`
+  (US4). A silenced session's local awareness state is `null`, and y-protocols'
+  `setLocalStateField` is a no-op on a null state, so a per-field re-announce
+  after silence would never land; every re-announce path (heartbeat re-acquire
+  AND the tool-call takeover branch) must restore both fields via a full-state
+  write.
 - Every awareness write goes through the gate: writes proceed iff
   `session.claimState === 'holder'`; cursor values are always recorded on
   `session.cursor` regardless (R6).

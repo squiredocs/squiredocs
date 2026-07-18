@@ -224,7 +224,25 @@ function _setAwareness(session, field, value, force = false) {
   if (!force && session.claimState === 'silent') {
     return;
   }
-  session.provider.awareness.setLocalStateField(field, value);
+  const awareness = session.provider.awareness;
+  if (typeof awareness.getLocalState === 'function' && awareness.getLocalState() === null) {
+    // Silenced sessions have a null local state (setLocalState(null) in
+    // _silenceAwareness), and y-protocols' setLocalStateField is a NO-OP on
+    // a null state — a per-field write here would silently never land and
+    // the avatar would stay dark cluster-wide. Re-announce by rebuilding the
+    // WHOLE state: restore BOTH companions (agent identity and the last
+    // recorded cursor) from session state, then apply this write on top.
+    if (value === null || value === undefined) {
+      return; // clearing a field of an already-removed state: nothing to do
+    }
+    const rebuilt = {};
+    if (session.agentInfo) rebuilt.user = session.agentInfo;
+    if (session.cursor) rebuilt.cursor = session.cursor;
+    rebuilt[field] = value;
+    awareness.setLocalState(rebuilt);
+    return;
+  }
+  awareness.setLocalStateField(field, value);
 }
 
 /**
