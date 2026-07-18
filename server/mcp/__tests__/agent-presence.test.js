@@ -16,8 +16,9 @@ describe('Agent Presence Manager', () => {
       agentId: 'default',
       provider: {
         wsconnected: true,
-        awareness: { setLocalStateField: jest.fn() },
+        awareness: { setLocalStateField: jest.fn(), setLocalState: jest.fn() },
       },
+      claimState: 'holder',
       cleanup: jest.fn(),
       timeoutId: null,
       createdAt: Date.now(),
@@ -389,6 +390,71 @@ describe('Agent Presence Manager', () => {
 
       cleanupMockSession(session1.sessionId);
       cleanupMockSession(session2.sessionId);
+    });
+  });
+
+  describe('awareness-write gate (feature 015, FR-003/FR-004/FR-012)', () => {
+    const anchor = { type: 'a', tname: null, item: null };
+    const head = { type: 'b', tname: null, item: null };
+
+    test('silent session performs zero awareness writes while cursor still updates locally', () => {
+      jest.useFakeTimers();
+      const session = createMockSession({ claimState: 'silent' });
+      const writes = session.provider.awareness.setLocalStateField;
+
+      // updateSessionCursor path
+      expect(agentPresence.updateSessionCursor(session.sessionId, anchor, head)).toBe(true);
+      expect(session.cursor).toEqual({ anchor, head });
+      expect(writes).not.toHaveBeenCalled();
+
+      // setTemporarySelection path (including its collapse timeout)
+      expect(agentPresence.setTemporarySelection(session.sessionId, anchor, head)).toBe(true);
+      jest.advanceTimersByTime(20000);
+      expect(session.cursor).toEqual({ anchor: head, head }); // collapsed locally
+      expect(writes).not.toHaveBeenCalled();
+
+      // queueHighlightSequence path (multi-position: intermediate + final)
+      expect(
+        agentPresence.queueHighlightSequence(session.sessionId, [
+          { anchor, head },
+          { anchor: head, head: anchor },
+        ])
+      ).toBe(true);
+      jest.advanceTimersByTime(60000);
+      expect(writes).not.toHaveBeenCalled();
+      expect(session.cursor).not.toBeNull(); // still recorded locally
+
+      expect(session.provider.awareness.setLocalState).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+      cleanupMockSession(session.sessionId);
+    });
+
+    test('holder session announces cursor writes through the gate', () => {
+      const session = createMockSession({ claimState: 'holder' });
+      const writes = session.provider.awareness.setLocalStateField;
+
+      agentPresence.updateSessionCursor(session.sessionId, anchor, head);
+      expect(writes).toHaveBeenCalledWith('cursor', { anchor, head });
+
+      agentPresence.setTemporarySelection(session.sessionId, anchor, head);
+      expect(writes).toHaveBeenCalledWith('cursor', { anchor, head });
+
+      cleanupMockSession(session.sessionId);
+    });
+
+    test('sessions without claim wiring (disabled mode) write exactly as before', () => {
+      // With claims disabled every session is created 'holder'; a session
+      // object missing the field entirely must also behave as a holder so
+      // pre-feature behavior is byte-identical (FR-012).
+      const session = createMockSession({ claimState: undefined });
+      const writes = session.provider.awareness.setLocalStateField;
+
+      agentPresence.updateSessionCursor(session.sessionId, anchor, head);
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(writes).toHaveBeenCalledWith('cursor', { anchor, head });
+
+      cleanupMockSession(session.sessionId);
     });
   });
 

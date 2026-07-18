@@ -197,6 +197,33 @@ function handleTakeoverNudge(payload) {
 }
 
 /**
+ * Atomic initial acquire / survivor probe: SET key instanceId NX PX ttl
+ * (FR-002). Returns true iff acquired — or claims disabled / fail-open
+ * (holder-favoring, RBD-2). Never throws.
+ * @param {string} claimKey
+ * @param {string} [transition='acquired'] - log label for a winning acquire
+ *   (the heartbeat probe passes 'reacquired (expiry)').
+ * @returns {Promise<boolean>}
+ */
+async function tryAcquire(claimKey, transition = 'acquired') {
+  if (!deps.enabled()) return true;
+  const r = record(claimKey);
+  const res = await runOp(() => client().set(claimKey, deps.instanceId(), 'PX', config.ttlMs, 'NX'));
+  if (!res.ok) {
+    enterFailOpen(r, res.error);
+    r.held = true; // behave as holder on coordination failure (RBD-2)
+    return true;
+  }
+  opSucceeded(r);
+  const acquired = res.value === 'OK';
+  if (acquired && !r.held) {
+    r.held = true;
+    log(transition, claimKey);
+  }
+  return acquired;
+}
+
+/**
  * Synchronous local belief about holding a claim. Holder-favoring when
  * claims are disabled or the claim is failing open.
  */
@@ -239,6 +266,7 @@ function _setDepsForTests(overrides = {}) {
 module.exports = {
   init,
   buildClaimKey,
+  tryAcquire,
   isHeld,
   _resetForTests,
   _setDepsForTests,

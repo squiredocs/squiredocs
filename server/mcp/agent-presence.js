@@ -8,6 +8,7 @@ const WebSocket = require('ws');
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 const { ROLES } = require('../documents');
+const presenceClaim = require('./presence-claim');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -655,6 +656,13 @@ async function getOrCreateSession(docGuid, agentToken, durationSeconds = DEFAULT
 
   // Store agentInfo on session for later access
   session.agentInfo = agentInfo;
+
+  // Presence-claim wiring (feature 015): only the claim-holding instance
+  // announces the agent. Disabled/fail-open resolves holder-favoring.
+  const claimKey = presenceClaim.buildClaimKey(userId, agentId, docGuid);
+  session.claimKey = claimKey;
+  const acquired = await presenceClaim.tryAcquire(claimKey);
+  session.claimState = acquired || presenceClaim.isHeld(claimKey) ? 'holder' : 'silent';
 
   _setAwareness(session, 'user', agentInfo);
 
