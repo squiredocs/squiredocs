@@ -20,6 +20,18 @@ const { MutationAggregator } = require('../mutation-aggregator');
 // Grace period added to timeout for worker termination
 const TIMEOUT_GRACE_MS = 2000;
 
+// Monotonic per-process sequence for execution-scoped origins (review L6):
+// Date.now() alone collides for executions starting in the same millisecond,
+// and colliding origins would merge two concurrent executions into one
+// rollback stack item — an error in one would revert the other's updates.
+let sandboxExecSeq = 0;
+
+/** Unique origin for one sandbox execution's updates. */
+function makeSandboxOrigin() {
+  sandboxExecSeq += 1;
+  return `sandbox-exec-${Date.now()}-${sandboxExecSeq}`;
+}
+
 /**
  * Execute compiled JavaScript in an isolated worker thread
  *
@@ -50,7 +62,7 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
     //    error or timeout rolls the whole edit back as a unit. The manager is
     //    destroyed in cleanup — it never outlives the call, and it can never
     //    merge with (or revert) an earlier modify's changes.
-    const sandboxOrigin = 'sandbox-exec-' + Date.now();
+    const sandboxOrigin = makeSandboxOrigin();
     const undoManager = new Y.UndoManager(xmlFragment, {
       trackedOrigins: new Set([sandboxOrigin]),
       captureTimeout: timeout + TIMEOUT_GRACE_MS + 5000,
@@ -250,4 +262,4 @@ function executeInWorker(jsCode, session, xmlFragment, options = {}) {
   });
 }
 
-module.exports = { executeInWorker };
+module.exports = { executeInWorker, makeSandboxOrigin };
