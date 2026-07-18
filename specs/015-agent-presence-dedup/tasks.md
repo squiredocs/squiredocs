@@ -126,10 +126,10 @@ Existing backend layout: production code in `server/`, backend tests in `server/
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T024 [P] FR-016 logging audit across `server/mcp/presence-claim.js` and `server/mcp/agent-presence.js`: every transition (acquired, takeover, silenced-by-nudge, silenced-by-heartbeat, released, reacquired-after-expiry, fail-open enter/recover) logs one `[presence-claim]` line with claim key + instance ID; spot-assert the key transitions in existing suites where cheap.
-- [ ] T025 [P] Update `README.md`: add `AGENT_CLAIM_TTL_MS`, `AGENT_CLAIM_HEARTBEAT_MS`, `AGENT_CLAIM_OP_TIMEOUT_MS` to the environment-variable section and a one-line note on cluster-wide agent presence dedup where agent presence is described (near the "Agent presence (cursor/highlights)" architecture line) (Constitution I).
+- [X] T024 [P] FR-016 logging audit across `server/mcp/presence-claim.js` and `server/mcp/agent-presence.js`: every transition (acquired, takeover, silenced-by-nudge, silenced-by-heartbeat, released, reacquired-after-expiry, fail-open enter/recover) logs one `[presence-claim]` line with claim key + instance ID; spot-assert the key transitions in existing suites where cheap.
+- [X] T025 [P] Update `README.md`: add `AGENT_CLAIM_TTL_MS`, `AGENT_CLAIM_HEARTBEAT_MS`, `AGENT_CLAIM_OP_TIMEOUT_MS` to the environment-variable section and a one-line note on cluster-wide agent presence dedup where agent presence is described (near the "Agent presence (cursor/highlights)" architecture line) (Constitution I).
 - [ ] T026 Full serial backend regression: `npx jest --runInBand server` with REDIS_HOST unset (SC-006), then the feature suites per quickstart.md; fix any fallout without weakening assertions.
-- [ ] T027 Reconcile `specs/015-agent-presence-dedup/quickstart.md` scenario table against the implemented suites (file names, scenario coverage); update quickstart if names drifted during implementation.
+- [X] T027 Reconcile `specs/015-agent-presence-dedup/quickstart.md` scenario table against the implemented suites (file names, scenario coverage); update quickstart if names drifted during implementation.
 
 ---
 

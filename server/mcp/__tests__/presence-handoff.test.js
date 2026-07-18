@@ -124,14 +124,27 @@ describe('presence handoff', () => {
       await presenceClaim.tryAcquire(KEY);
       expect(fake.peek(KEY)).toBe('instance-A');
 
-      const { mod: b, publishSpy } = loadInstanceB();
-      const result = await b.ensureHeldForWork(KEY);
+      const logSpy = jest.spyOn(console, 'log');
+      try {
+        const { mod: b, publishSpy } = loadInstanceB();
+        const result = await b.ensureHeldForWork(KEY);
 
-      expect(result).toEqual({ held: true });
-      expect(fake.peek(KEY)).toBe('instance-B'); // owner flipped
-      expect(publishSpy).toHaveBeenCalledTimes(1);
-      expect(publishSpy).toHaveBeenCalledWith(KEY);
-      expect(b.isHeld(KEY)).toBe(true);
+        expect(result).toEqual({ held: true });
+        expect(fake.peek(KEY)).toBe('instance-B'); // owner flipped
+        expect(publishSpy).toHaveBeenCalledTimes(1);
+        expect(publishSpy).toHaveBeenCalledWith(KEY);
+        expect(b.isHeld(KEY)).toBe(true);
+
+        // FR-016 spot check: takeover and nudge-silence transitions logged
+        // with claim key + instance ID
+        const lines = logSpy.mock.calls
+          .map((args) => args[0])
+          .filter((line) => typeof line === 'string' && line.startsWith('[presence-claim]'));
+        expect(lines).toContain(`[presence-claim] takeover key=${KEY} instance=instance-B`);
+        expect(lines).toContain(`[presence-claim] silenced (nudge) key=${KEY} instance=instance-A`);
+      } finally {
+        logSpy.mockRestore();
+      }
     });
 
     test("the nudge silences the previous holder's session via setLocalState(null), leaving the working session intact", async () => {
@@ -318,7 +331,13 @@ describe('presence handoff', () => {
       await presenceClaim.tryAcquire(KEY);
       presenceClaim.startHeartbeat(KEY);
 
+      const logSpy = jest.spyOn(console, 'log');
       await presenceClaim.release(KEY);
+      const lines = logSpy.mock.calls
+        .map((args) => args[0])
+        .filter((line) => typeof line === 'string' && line.startsWith('[presence-claim]'));
+      logSpy.mockRestore();
+      expect(lines).toContain(`[presence-claim] released key=${KEY} instance=instance-A`); // FR-016
 
       expect(fake.peek(KEY)).toBeNull(); // owner-checked DEL, no expiry wait
       const callsAfterRelease = fake.callCount();

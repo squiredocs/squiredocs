@@ -83,6 +83,19 @@ describe('presence-claim', () => {
       expect(presenceClaim.isHeld('agent-presence:other:default:doc')).toBe(false);
     });
 
+    test('a winning acquire logs one [presence-claim] transition with key and instance (FR-016)', async () => {
+      const logSpy = jest.spyOn(console, 'log');
+      try {
+        await presenceClaim.tryAcquire(KEY);
+        const lines = logSpy.mock.calls
+          .map((args) => args[0])
+          .filter((line) => typeof line === 'string' && line.startsWith('[presence-claim]'));
+        expect(lines).toEqual([`[presence-claim] acquired key=${KEY} instance=${INSTANCE_A}`]);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
     test('losing an acquire leaves local belief not-held', async () => {
       fake.setKey(KEY, 'instance-B', 15000);
 
