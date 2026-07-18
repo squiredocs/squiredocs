@@ -13,15 +13,17 @@ const { optionalAuth } = require('../../auth/middleware');
 
 const router = express.Router();
 
-// Public endpoints (agent-initiated). Rate limits (feature 010, US2):
+// Public endpoints (agent-initiated). Rate limits:
 //  - POST /token gets the per-IP `token` budget applied to THIS handler only,
 //    not the whole /mcp/auth/* mount — /authorize stays unlimited (FR-005, A1).
-//  - POST /register gets registration-admission (per-IP + global daily cap)
-//    so an over-budget request is rejected 429 with no row written (FR-011).
+//  - POST /register is intentionally UNLIMITED: sign-up is never gated (the
+//    per-IP + global-daily admission caps were removed 2026-07-18 — a shared
+//    global counter let one abuser lock out all sign-ups). Coarse edge-level
+//    flood protection remains via the WAF per-IP rate limit (2000/5min).
 router.get('/authorize', optionalAuth, oauthFlow.handleAuthorize);
 router.post('/token', rateLimit.perIp('token'), oauthFlow.handleToken);
 router.post('/revoke', oauthFlow.handleRevoke);
-router.post('/register', rateLimit.registrationAdmissionMiddleware(), oauthFlow.handleRegister);
+router.post('/register', oauthFlow.handleRegister);
 
 // Protected endpoints (user-initiated, require session auth)
 router.post('/approve', requireAuth, oauthFlow.handleApprove);

@@ -20,25 +20,18 @@ const { getRedisClient, isRedisEnabled } = require('./redis');
 const { recordRateLimitRejection } = require('./telemetry/metrics');
 
 const MIN = 60;
-const HOUR = 60 * 60;
-const DAY = 24 * 60 * 60;
 
 // Route-class budgets: points per fixed duration window. Points are env-overridable
 // (RD-1); the window is fixed by the class. keyPrefix carries the namespace.
 const CLASSES = {
   auth:              { keyPrefix: 'rl:auth:ip',        points: num('RL_AUTH_PER_MIN', 30),            duration: MIN },
   token:             { keyPrefix: 'rl:token:ip',       points: num('RL_TOKEN_PER_MIN', 30),           duration: MIN },
-  register:          { keyPrefix: 'rl:register:ip',    points: num('RL_REGISTER_PER_HOUR', 5),        duration: HOUR },
-  'register:global': { keyPrefix: 'rl:register:global', points: num('RL_REGISTER_GLOBAL_PER_DAY', 200), duration: DAY },
   search:            { keyPrefix: 'rl:search:user',    points: num('RL_SEARCH_PER_MIN', 30),          duration: MIN },
   import:            { keyPrefix: 'rl:import:user',     points: num('RL_IMPORT_PER_MIN', 10),          duration: MIN },
   export:            { keyPrefix: 'rl:export:user',     points: num('RL_EXPORT_PER_MIN', 20),          duration: MIN },
   chat:              { keyPrefix: 'rl:chat:user',       points: num('RL_CHAT_PER_MIN', 30),            duration: MIN },
   upload:            { keyPrefix: 'rl:upload:user',     points: num('RL_UPLOAD_PER_MIN', 20),          duration: MIN },
 };
-
-// Constant sub-key for the single global registration counter.
-const GLOBAL_KEY = 'all';
 
 function num(envVar, def) {
   const raw = process.env[envVar];
@@ -195,58 +188,18 @@ function perUser(className) {
   };
 }
 
-/**
- * Registration admission (FR-011, RD-2): consume BOTH the per-IP `register`
- * budget and the global daily counter before any new registered_agents row is
- * written. Over either bound ⇒ not allowed (caller returns 429, no row).
- * Shared per-IP key across handleRegister / handleAuthorize / handleApprove.
- * @param {string} ip
- * @returns {Promise<{allowed: boolean, retryAfterSec: number|null}>}
- */
-async function checkRegistrationAdmission(ip) {
-  if (!limitingActive()) return { allowed: true, retryAfterSec: null };
-  const key = ip || 'unknown';
-  try {
-    await consume('register', key);
-  } catch (rejRes) {
-    if (isBudgetRejection(rejRes)) {
-      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(rejRes.msBeforeNext / 1000)) };
-    }
-    // limiter malfunction → fail open on the per-IP bound, still try global below.
-    console.error('[RateLimit] register per-IP limiter error (failing open):', rejRes?.message || rejRes);
-  }
-  try {
-    await consume('register:global', GLOBAL_KEY);
-  } catch (rejRes) {
-    if (isBudgetRejection(rejRes)) {
-      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil(rejRes.msBeforeNext / 1000)) };
-    }
-    console.error('[RateLimit] register global limiter error (failing open):', rejRes?.message || rejRes);
-  }
-  return { allowed: true, retryAfterSec: null };
-}
-
-/**
- * Express guard for the /register route: runs admission, sends the uniform 429
- * (no row written) when over budget, else continues.
- */
-function registrationAdmissionMiddleware() {
-  return async function registrationAdmission(req, res, next) {
-    const { allowed, retryAfterSec } = await checkRegistrationAdmission(clientIp(req));
-    if (allowed) return next();
-    // Count the registration-admission 429 by category (feature 014, FR-012).
-    recordRateLimitRejection('register');
-    if (retryAfterSec) res.set('Retry-After', String(retryAfterSec));
-    res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
-  };
-}
+// NOTE: registration admission caps were removed 2026-07-18. Sign-up (POST
+// /mcp/auth/register and the authorize/approve auto-register paths) is
+// intentionally unlimited — we never want to gate new users. The former design
+// (a per-IP 5/hr budget plus a single GLOBAL daily counter of 200) let one
+// abuser lock out registration for ALL users by spending the shared global
+// budget. Coarse edge-level flood protection remains via the WAF per-IP rate
+// limit (2000/5min) in infra/terraform/edge.tf.
 
 module.exports = {
   perIp,
   perUser,
   enforceUser,
-  checkRegistrationAdmission,
-  registrationAdmissionMiddleware,
   reject429,
   clientIp,
   CLASSES,

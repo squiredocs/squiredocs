@@ -88,8 +88,7 @@ const PORT = process.env.PORT || 3001;
 //   REDIS_PASSWORD=(unset)          Redis AUTH; unset ⇒ byte-identical behavior
 //   RL_AUTH_PER_MIN=30              per-IP /auth budget
 //   RL_TOKEN_PER_MIN=30            per-IP POST /mcp/auth/token budget
-//   RL_REGISTER_PER_HOUR=5          per-IP registration budget (shared w/ auto-register)
-//   RL_REGISTER_GLOBAL_PER_DAY=200  global daily anonymous-registration cap
+//   (registration is intentionally unlimited — no sign-up gate; caps removed 2026-07-18)
 //   RL_SEARCH_PER_MIN=30            per-user content-search budget
 //   RL_IMPORT_PER_MIN=10            per-user markdown-import budget
 //   RL_EXPORT_PER_MIN=20            per-user document-export budget
