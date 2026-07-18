@@ -102,10 +102,10 @@ PARAMETERS:
   copy across docs with cloneBlocks()
 - echoContent: true to echo the full updated document (default false)
 
-RETURNS: changed, diff (verify your edit with it), clock, operationCount,
-summary; content only with echoContent: true. conflict + editedBy on
-concurrent edits (re-read the doc, merge, retry). Script errors include
-line numbers and hints — follow them.`;
+RETURNS: changed, diff (verify your edit with it), clock, editRange (undo
+handle), operationCount, summary; content only with echoContent: true.
+conflict + editedBy on concurrent edits (re-read, merge, retry). Script
+errors include line numbers and hints.`;
 
 const chatDescription = MODIFY_DOCUMENTATION;
 

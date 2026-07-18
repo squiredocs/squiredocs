@@ -513,7 +513,9 @@ RETURNS
 - content: The full updated document (structured format, same as read_document), only when echoContent: true was passed and the document is under 60,000 characters. This reflects the document AFTER your edit.
 - contentOmitted: true when the content was not echoed (echoContent off, or the document is too large). Use read_document if you need the full current content.
 - blockCount / characterCount: Size of the updated document (present only with echoContent: true)
-- clock: The document's update counter, so you can track its version
+- clock: The document's update counter as observed BEFORE your edit (the pre-edit baseline), so you can track its version
+- editRange: { clockStart, clockEnd } — the durable identifier of exactly this edit's rows in the document's update log (present only when changed is true). This is the handle undo uses; you don't need to pass it anywhere — the undo tool resolves your edits from the log.
+- editRangePending: true — returned instead of editRange in the rare case the edit's durability was still being confirmed when the call returned; the server finishes recording in the background
 - conflict: true if the edit was refused because someone else changed the document since you last read it. The result then includes editedBy (who changed it). Re-read the document with read_document (or retry with echoContent: true to get the current content inline), fold in their changes, and retry.
 - mermaidErrors: Present only if the document contains Mermaid diagram(s) with INVALID syntax. An array of { block, error, source } — these diagrams will show an error to the user instead of rendering. The edit was still applied; fix the reported diagram(s) in a follow-up modify.
 - svgErrors: Present only if the document contains SVG block(s) with problems: content the editor's sanitizer will strip (scripts, event handlers, foreignObject, external references), a missing <svg> root, or malformed XML. Same { block, error, source } shape as mermaidErrors. The edit was still applied; fix the reported block(s) in a follow-up modify.
