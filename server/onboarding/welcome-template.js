@@ -43,7 +43,7 @@ const WELCOME_DOC_NODES = [
       '    subgraph Clients["Contributors"]',
       '        T["You & your team<br/>(live cursors)"]',
       '        A["Squire Assistant<br/>(in-app AI)"]',
-      '        C["Your coding agents<br/>(Claude Code via MCP)"]',
+      '        C["Your coding agents<br/>(Claude Code · Kiro via MCP)"]',
       '    end',
       '',
       '    D[("Living document<br>Yjs CRDT<br>attributed · versioned · reversible")]',
@@ -65,7 +65,14 @@ const WELCOME_DOC_NODES = [
   {
     type: 'paragraph',
     content:
-      'Squire Docs speaks MCP, so agents like Claude Code can read and edit your docs right alongside you. In a terminal (not inside a running agent session), run:',
+      'Squire Docs speaks MCP, so agents like Claude Code and Kiro can read and edit your docs right alongside you. However they connect, your agent appears in your docs as a named, attributed cursor.',
+  },
+  {
+    type: 'paragraph',
+    content: [
+      { text: 'Claude Code', marks: ['bold'] },
+      ' — in a terminal (not inside a running agent session), run:',
+    ],
   },
   {
     type: 'codeBlock',
@@ -75,14 +82,34 @@ const WELCOME_DOC_NODES = [
   {
     type: 'paragraph',
     content: [
-      'Your browser opens to authorize with the account you are signed in with, and from then on your agent appears in your docs as a named, attributed cursor. See the ',
-      { text: 'agent guide', marks: [{ type: 'link', href: 'https://squiredocs.com/agents.md' }] },
-      ' and ',
+      { text: 'Kiro', marks: ['bold'] },
+      " (AWS's spec-driven agentic IDE) — add Squire to the mcpServers block of your MCP config (.kiro/settings/mcp.json in a workspace, or ~/.kiro/settings/mcp.json for every project). Kiro hot-reloads the file on save and walks you through the browser sign-in on first use:",
+    ],
+  },
+  {
+    type: 'codeBlock',
+    language: 'json',
+    content: [
+      '{',
+      '  "mcpServers": {',
+      '    "squire": {',
+      '      "url": "https://squiredocs.com/mcp"',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    type: 'paragraph',
+    content: [
+      'Using a different agent? Point it at ',
+      { text: 'https://squiredocs.com/agents.md', marks: [{ type: 'link', href: 'https://squiredocs.com/agents.md' }] },
+      ' — most MCP-native agents can read that page and connect themselves. For the full picture, see ',
       {
         text: 'Agents & MCP',
         marks: [{ type: 'link', href: 'https://squiredocs.com/documentation/agents-and-mcp' }],
       },
-      ' for the full picture.',
+      '.',
     ],
   },
   { type: 'heading', level: 2, content: 'About Squire Docs' },
