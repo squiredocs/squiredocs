@@ -235,3 +235,146 @@ describe('re-announce after silence with a real Awareness (CRITICAL-1 regression
     expect(state.cursor).toEqual(CURSOR);
   });
 });
+
+describe('two-pod A→B→A handoff with real awareness state (HIGH-1)', () => {
+  // The isolated module copies still require server/redis at load; all deps
+  // are overridden, so a real connection must never be attempted.
+  let fake;
+  let pods;
+  let awarenesses;
+  let plantedByPod;
+
+  /**
+   * Load an isolated agent-presence + presence-claim module PAIR (one
+   * simulated pod) wired to the shared fake Redis and nudge bus under its
+   * own instance identity, with a working fake persistence provider.
+   */
+  function loadPod(instanceId) {
+    let ap;
+    let pc;
+    jest.isolateModules(() => {
+      pc = require('../presence-claim');
+      ap = require('../agent-presence');
+    });
+    const pubsub = fake.makePubSubFor(instanceId);
+    pc._setDepsForTests({
+      enabled: () => true,
+      getClient: () => fake.client,
+      instanceId: () => instanceId,
+      subscribeTakeover: (h) => pubsub.subscribeToPresenceClaims(h),
+      publishTakeover: (k) => pubsub.publishPresenceClaimTakeover(k),
+    });
+    ap.init(makeFakePersistence()); // wires pc.init({ onLost, onAcquired })
+    const pod = { instanceId, ap, pc };
+    pods.push(pod);
+    plantedByPod.set(pod, []);
+    return pod;
+  }
+
+  /**
+   * Plant an initialized, connected session (real Awareness) in a pod's
+   * indexes — the state a pod is in after its own earlier tool call created
+   * the working session. getOrCreateSession then exercises its real reuse +
+   * claim-takeover path on it.
+   */
+  function plantSession(pod, overrides = {}) {
+    const awareness = new awarenessProtocol.Awareness(new Y.Doc());
+    awarenesses.push(awareness);
+    const session = {
+      sessionId: `pod-${pod.instanceId}-${Date.now()}-${Math.random()}`,
+      docGuid: DOC,
+      userId: USER,
+      agentId: AGENT,
+      provider: { wsconnected: true, awareness },
+      cleanup: jest.fn(),
+      timeoutId: null,
+      createdAt: Date.now(),
+      cursor: null,
+      initialized: true,
+      undoManager: null,
+      clipboard: null,
+      lastActivityAt: Date.now(),
+      highlightQueue: null,
+      claimState: 'holder',
+      claimKey: KEY,
+      ...overrides,
+    };
+    session.key = `${session.userId}-${session.agentId}-${session.docGuid}`;
+    pod.ap.getActiveSessions().set(session.sessionId, session);
+    pod.ap._sessionsByKey.set(session.key, session.sessionId);
+    if (!pod.ap._sessionsByUserId.has(session.userId)) {
+      pod.ap._sessionsByUserId.set(session.userId, new Set());
+    }
+    pod.ap._sessionsByUserId.get(session.userId).add(session.sessionId);
+    plantedByPod.get(pod).push(session);
+    return session;
+  }
+
+  /** A pod's announced awareness state (null when silenced). */
+  function announcedState(session) {
+    return session.provider.awareness.getLocalState();
+  }
+
+  /** True when the pod is actually announcing the agent to peers. */
+  function isAnnouncing(session) {
+    const state = announcedState(session);
+    return !!(state && state.user);
+  }
+
+  beforeEach(() => {
+    fake = createFakeClaimRedis();
+    pods = [];
+    awarenesses = [];
+    plantedByPod = new Map();
+  });
+
+  afterEach(() => {
+    for (const [pod, sessions] of plantedByPod) {
+      for (const session of sessions) {
+        if (session.timeoutId) clearTimeout(session.timeoutId);
+        pod.ap.getActiveSessions().delete(session.sessionId);
+      }
+      pod.pc._resetForTests();
+    }
+    for (const aw of awarenesses) aw.destroy();
+  });
+
+  test('alternating tool calls: exactly one real announcer after each settle; the returning pod re-announces', async () => {
+    const podA = loadPod('instance-A');
+    const podB = loadPod('instance-B');
+    const sessionA = plantSession(podA, { cursor: CURSOR });
+    const sessionB = plantSession(podB);
+    const token = { userId: USER, agentId: AGENT, agentName: 'Test Agent' };
+
+    // Tool call on pod A: A claims and announces
+    await podA.ap.getOrCreateSession(DOC, token, 60);
+    expect(fake.peek(KEY)).toBe('instance-A');
+    expect(isAnnouncing(sessionA)).toBe(true);
+    expect(isAnnouncing(sessionB)).toBe(false);
+
+    // Tool call on pod B: takeover; the nudge silences A's REAL awareness
+    await podB.ap.getOrCreateSession(DOC, token, 60);
+    expect(fake.peek(KEY)).toBe('instance-B');
+    expect(announcedState(sessionA)).toBeNull(); // fully removed, not just user-less
+    expect(isAnnouncing(sessionB)).toBe(true);
+    expect([sessionA, sessionB].filter(isAnnouncing)).toHaveLength(1);
+
+    // Tool call back on pod A (the A→B→A handoff): the returning pod's
+    // awareness must be REBUILT from null — this was CRITICAL-1's dark spot.
+    await podA.ap.getOrCreateSession(DOC, token, 60);
+    expect(fake.peek(KEY)).toBe('instance-A');
+    expect(announcedState(sessionB)).toBeNull();
+    const stateA = announcedState(sessionA);
+    expect(stateA).not.toBeNull();
+    expect(stateA.user).toBeTruthy();
+    expect(stateA.user.name).toBe('Test Agent (Sam)');
+    expect(stateA.cursor).toEqual(CURSOR); // last recorded position restored
+    expect([sessionA, sessionB].filter(isAnnouncing)).toHaveLength(1);
+
+    // And B→A→B: the other direction re-announces just the same
+    await podB.ap.getOrCreateSession(DOC, token, 60);
+    expect(announcedState(sessionA)).toBeNull();
+    expect(isAnnouncing(sessionB)).toBe(true);
+    expect([sessionA, sessionB].filter(isAnnouncing)).toHaveLength(1);
+  });
+});

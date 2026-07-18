@@ -19,6 +19,8 @@
  *   returns `{ subscribeToPresenceClaims, publishPresenceClaimTakeover }`
  *   with real-Redis semantics (self-messages are not delivered back to the
  *   publishing instance — mirroring redis-pubsub's instance-ID filter).
+ *   `queueBus(true)` switches to delayed delivery: publishes are held until
+ *   `flushBus([reorder])`, enabling crossed/late-nudge scenarios.
  *
  * Export is a factory so every test gets isolated state.
  */
@@ -34,6 +36,8 @@ function createFakeClaimRedis() {
   const pendingHangs = []; // { resolve, reject } for hung ops
   const calls = []; // [opName, ...args] per attempted command
   const busHandlers = []; // { channel, handler, instanceId }
+  let busQueueMode = false;
+  const queuedBusDeliveries = []; // { handler, payload } awaiting flushBus()
 
   function liveEntry(key) {
     const entry = store.get(key);
@@ -190,13 +194,35 @@ function createFakeClaimRedis() {
     // ---- pub/sub bus (bridges module instances in multi-instance tests) ----
 
     /** Raw bus publish: delivers payload to all handlers on the channel
-     *  registered under a DIFFERENT instance ID (self-filter, like prod). */
+     *  registered under a DIFFERENT instance ID (self-filter, like prod).
+     *  In queued mode (queueBus(true)) deliveries are held until flushBus()
+     *  — modeling real pub/sub latency, where a nudge can arrive AFTER the
+     *  receiver has itself taken the claim over (crossed nudges). */
     publish(channel, payload, senderInstanceId) {
       for (const entry of busHandlers) {
         if (entry.channel === channel && entry.instanceId !== senderInstanceId) {
-          entry.handler(payload);
+          if (busQueueMode) {
+            queuedBusDeliveries.push({ handler: entry.handler, payload });
+          } else {
+            entry.handler(payload);
+          }
         }
       }
+    },
+
+    /** Toggle queued (delayed/reorderable) bus delivery. */
+    queueBus(on) {
+      busQueueMode = !!on;
+    },
+
+    /**
+     * Deliver every queued bus message. Default order is publish order;
+     * pass reorder(deliveries) => deliveries to reshuffle before delivery.
+     */
+    flushBus(reorder) {
+      let pending = queuedBusDeliveries.splice(0, queuedBusDeliveries.length);
+      if (reorder) pending = reorder(pending);
+      for (const d of pending) d.handler(d.payload);
     },
 
     /** Raw bus subscribe. */
