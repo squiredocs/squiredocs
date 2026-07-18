@@ -21,9 +21,15 @@ The operating model for design-driven feature work in this repo. You (the orches
 
 ## Status events (mobile ledger)
 
-The ORCHESTRATOR (you, never subagents) publishes high-level pipeline events to the Pipeline Events doc at https://squiredocs.com/d/60c46c15-61ce-477d-a9a1-f6d42d4384d4 so Sam can track runs from his phone. Rules:
+The ORCHESTRATOR (you, never subagents) publishes high-level pipeline events to the Pipeline Events doc at https://squiredocs.com/d/60c46c15-61ce-477d-a9a1-f6d42d4384d4 so Sam can track runs from his phone.
 
-- **Newest first**: insert each event at the TOP of the doc's bullet list (`list.insert(0, [item])` via the Squire MCP modify tool — read `get_tool_documentation({tool:"modify"})` first if you haven't this session).
+Doc structure (maintain it exactly): H1 title → intro paragraph → `## In flight now` → the STATUS list → `## Events` → the newest-first event list. Target each list via its heading (`//heading[contains(., "In flight now")]/following-sibling::bulletList[1]`, same for Events) — never a bare `//bulletList`, which grabs whichever list is first.
+
+**The status list is a live snapshot, not a log**: on EVERY event publish, REWRITE it (replace all items, never append) to reflect current reality — one bullet per in-flight agent (`NNN-slug · stage · model · since H:MMam/pm PT`), one per queued item worth seeing (`NNN-slug · queued behind NNN`), and a single `idle` / `PAUSED (reason)` bullet when nothing runs. Keep it ≤6 bullets — it's the at-a-glance answer to "what's happening right now"; the history lives below in Events.
+
+Event rules:
+
+- **Newest first**: insert each event at the TOP of the Events list (`list.insert(0, [item])` via the Squire MCP modify tool — read `get_tool_documentation({tool:"modify"})` first if you haven't this session), and refresh the In-flight-now status list in the same modify call.
 - **One line per event**, mobile-readable: `**MM-DD H:MMam/pm PT · NNN-slug** — what happened`. Bold the timestamp+feature lead-in. Timestamps are ALWAYS Pacific time (America/Los_Angeles — use `TZ=America/Los_Angeles date` to get it right, don't hand-convert).
 - **High-level only** — stage transitions, not activity: pipeline started, design amendment committed, spec complete, plan/analyze complete (+ gate result), spec artifacts committed, implementer started/finished, merge queue green/red, review findings count, fixes landed, pipeline complete. Roughly one event per pipeline stage per feature; never per-task or per-file noise.
 - Publish the event at the moment the stage transition happens (e.g. right after spawning the implementer, right after the merge-queue verification finishes) — the doc is Sam's live view, not an end-of-run report.
