@@ -91,16 +91,20 @@ function getAI() {
 const CHAT_AGENT_NAME = 'Squire Docs Assistant';
 
 // Stable agent id for the in-app chat assistant. Combined with the user id and
-// doc guid it forms the agent-presence session key, so the in-process tool calls
-// during streaming AND any out-of-band call (e.g. the chat undo/redo endpoints)
-// land on the same session — and therefore the same Y.UndoManager.
+// doc guid it forms the agent-presence session key, so the in-process tool
+// calls during streaming reuse one presence session. Undo/redo do NOT depend
+// on it: since feature 016 they are log-derived, keyed on the (userId,
+// CHAT_AGENT_NAME) attribution of the durable rows — no session, no
+// Y.UndoManager.
 const CHAT_AGENT_ID = 'in-app-chat';
 
 /**
  * Build the synthetic agent token for the in-app chat assistant for a request.
- * Centralizing this keeps the session identity (user + CHAT_AGENT_ID) identical
- * across the streaming chat handler and the undo/redo endpoints, which is what
- * lets a user-triggered undo reuse the agent's own UndoManager.
+ * Centralizing this keeps the acting identity (userId + CHAT_AGENT_NAME)
+ * identical across the streaming chat handler and the undo/redo endpoints:
+ * the log-derived undo chain (feature 016) resolves agent_edits rows by that
+ * identity, so a user-triggered undo finds exactly the edits the chat
+ * assistant recorded.
  * @param {object} req - Authenticated Express request (req.user.userId)
  * @returns {object} Synthetic agent token (includes rawToken)
  */

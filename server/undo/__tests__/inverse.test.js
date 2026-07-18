@@ -53,7 +53,14 @@ class LogBuilder {
   applyRow(identity, update) {
     this._pending = [];
     Y.applyUpdate(this.doc, update);
-    return { clockStart: this.rows.length, clockEnd: this.rows.length };
+    const clock = this.rows.length;
+    this.rows.push({
+      clock,
+      userId: identity.userId,
+      agentName: identity.agentName,
+      updateData: update,
+    });
+    return { clockStart: clock, clockEnd: clock };
   }
 
   /** Snapshot for concurrent-fork edits. */
