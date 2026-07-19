@@ -30,7 +30,7 @@ Write the requirements the way Kiro expects them. Kiro uses user stories with ac
 
 Keep one document per feature, matching one `.kiro/specs/<feature>/` folder.
 
-If the requirements already exist as a file — Kiro scaffolds a `requirements.md`, or you drafted one in the repo — don't retype it into the editor. Squire Docs imports markdown over a single HTTP call, so an existing file goes straight up into a new, shareable document. And you don't have to make that call yourself: ask Kiro.
+If the requirements already exist as a file (Kiro scaffolds a `requirements.md`, or you drafted one in the repo), don't retype it into the editor. Squire Docs imports markdown over a single HTTP call, so an existing file goes straight up into a new, shareable document. And you don't have to make that call yourself: ask Kiro.
 
 > "Import `.kiro/specs/bulk-export/requirements.md` into Squire Docs and give me the share link."
 
@@ -49,7 +49,7 @@ The Squire Docs document and `.kiro/specs/bulk-export/requirements.md` are two v
 - **Pull the team's edits down:** "Sync the requirements doc down before you start." Kiro reads the current document and updates `.kiro/specs/bulk-export/requirements.md`, so it builds against what your team last agreed on.
 - **Push your own edits up:** "Push my requirements changes up to Squire Docs." Kiro sends the file up as attributed changes that merge with whatever your team edited in the browser, instead of overwriting it.
 
-Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents — but you never have to think about it. Kiro lives in the repo, so keeping the file and the document in sync is a one-line request.
+Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents, but you never have to think about it. Kiro lives in the repo, so keeping the file and the document in sync is a one-line request.
 
 ## Step 4: Let Kiro take it from requirements to design and tasks
 

@@ -29,7 +29,7 @@ The review flow becomes direct:
 - **Share a link.** The PM opens the spec in their browser. No repository access, no local setup, no export.
 - **They edit the actual spec.** Comments and edits land on the real document, not a copy. When the PM rewrites an acceptance criterion, they have rewritten the spec, not left a note asking someone else to.
 - **Every change is attributed.** You can see which requirements the PM shaped and which the engineer wrote, so review is a record, not a guess.
-- **It syncs back through your coding agent.** The reconciled spec returns to the repository as markdown with no hand-merge — a job your coding agent does in one step, as the next section shows.
+- **It syncs back through your coding agent.** The reconciled spec returns to the repository as markdown with no hand-merge, a job your coding agent does in one step, as the next section shows.
 
 ## What you tell the agent
 
@@ -39,7 +39,7 @@ You do not run the sync yourself. You tell the coding agent already working in y
 - **Pull the PM's review back:** "Sync the checkout spec down before you start." The agent reads the current document and updates the repo file, so your build sees exactly what the PM last edited.
 - **Send your own edits up:** "Push my spec changes up to Squire Docs." The agent's edits land as attributed changes that merge with whatever the PM did in the browser, instead of overwriting it.
 
-Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents — but you never have to think about it. The agent lives in the repo, so keeping the file and the document in sync is a one-line request, and the version your PM reviews and the version your build reads never drift.
+Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents, but you never have to think about it. The agent lives in the repo, so keeping the file and the document in sync is a one-line request, and the version your PM reviews and the version your build reads never drift.
 
 ## Why this changes the review, not just the tooling
 

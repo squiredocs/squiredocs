@@ -12,7 +12,7 @@ Four tools now let a person and an AI edit the same document: Google Docs, Notio
 
 The four tools were built for different jobs, and that origin explains most of what they do well.
 
-**Google Docs** is the standard for people writing together. It was built for human collaboration years before agents could write, and nothing beats it at that.
+**Google Docs** is the standard for people writing together. It was built for human collaboration years before agents could write.
 
 **Notion** is a workspace and database. Documents are one part of a larger system of pages, tasks, and structured data.
 
@@ -35,7 +35,7 @@ The top two rows carry most of the weight: whether the document syncs to your re
 
 ## Google Docs
 
-Google Docs is the best tool in the world for people writing together, and that is not close. If your document is written and reviewed entirely by humans, it is hard to beat.
+Google Docs is the best tool for people writing together. If your document is written and reviewed entirely by humans, it is hard to beat.
 
 Its gap is agents. The AI help is prompt-based: you ask for a change and it rewrites a span of text. A third-party coding agent cannot open a Google Doc and make a one-line change the way it edits a source file. Attribution is built around human editors and version history, not around telling agent edits apart from yours. And a Google Doc is not a file in your repository. You can export markdown, but it is a one-way, lossy copy, not a sync.
 
