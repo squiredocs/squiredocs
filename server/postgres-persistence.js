@@ -221,19 +221,70 @@ class PostgresPersistence {
   }
 
   /**
+   * THE single gap-tolerant choke point every yjs_updates log-rebuild reader
+   * funnels through (feature 021 US3 FR-013..016 → generalized in 023 FR-007).
+   *
+   * Clocks are assigned via MAX+1 races and commits land asynchronously, so a
+   * read racing a mid-commit row can see {…k, k+2…} and integrate nothing
+   * causally after the gap (observed 2026-07-18: a headings-only skeleton).
+   * This runs the caller's clock-ordered SELECT, checks contiguity WITHIN the
+   * fetched rows (`_findFirstGap`), and on a gap retries the FULL fetch up to
+   * COLLAB_READ_GAP_RETRIES times (default 2) after waits from
+   * COLLAB_READ_GAP_RETRY_DELAYS_MS (default 100,300) — ONE shared, bounded
+   * budget, no per-path knobs (FR-008). A read still gapped after the budget is
+   * returned as-is with a structured warn line tagged `label` (FR-010); the
+   * CALLER decides the still-gapped consequence (serve / skip-cache / abort —
+   * D-2). Gap-free reads take the plain query path plus one integer pass.
+   *
+   * @param {import('pg').PoolClient} client - open client to query on
+   * @param {string} sql - clock-ordered SELECT (must select a `clock` column)
+   * @param {Array} params - query parameters
+   * @param {string} label - reader tag for the warn line, e.g. `getYDoc <guid>`
+   * @param {object} [opts]
+   * @param {boolean} [opts.descending=false] - true when `sql` is DESC-ordered
+   *   (recentFirst); contiguity is then judged on an ascending view of the rows
+   * @returns {Promise<{rows: Array, gapped: boolean, retries: number}>}
+   * @private
+   */
+  async _fetchRowsWithGapRetry(client, sql, params, label, { descending = false } = {}) {
+    const maxRetriesRaw = parseInt(process.env.COLLAB_READ_GAP_RETRIES, 10);
+    const maxRetries = Number.isFinite(maxRetriesRaw) && maxRetriesRaw >= 0 ? maxRetriesRaw : 2;
+    const delays = (process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS || '100,300')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+
+    let result;
+    let retries = 0;
+    let firstGapAfterClock;
+    for (;;) {
+      result = await client.query(sql, params);
+      const rowsForGap = descending ? [...result.rows].reverse() : result.rows;
+      firstGapAfterClock = this._findFirstGap(rowsForGap);
+      if (firstGapAfterClock === null || retries >= maxRetries) break;
+      const delay = delays.length > 0 ? delays[Math.min(retries, delays.length - 1)] : 100;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      retries += 1;
+    }
+
+    if (firstGapAfterClock !== null) {
+      // FR-010: never an error, never an unbounded wait — but observable.
+      console.warn(
+        `[Postgres] ${label}: served with clock gap (retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock})`
+      );
+    }
+
+    return { rows: result.rows, gapped: firstGapAfterClock !== null, retries };
+  }
+
+  /**
    * Get all updates for a document and reconstruct the Y.Doc.
    *
-   * Gap-tolerant (feature 021 US3, FR-013..016): clocks are assigned via
-   * MAX+1 retry races and commits land asynchronously, so a read racing a
-   * mid-commit row can see {…k, k+2…} and integrate nothing causally after
-   * the gap. On a detected gap the FULL fetch is retried up to
-   * COLLAB_READ_GAP_RETRIES times (default 2) after waits from
-   * COLLAB_READ_GAP_RETRY_DELAYS_MS (default 100,300) — one bounded budget
-   * regardless of gap count. A read still gapped after the budget is served
-   * as-is (the log is append-only; the next read heals) with a structured
-   * warn line. Gap-free reads take the exact pre-021 path plus the single
-   * contiguity pass. Single choke point: every log-rebuild reader (history,
-   * diffs, exports, MCP read, getDiff/bindState) funnels through here.
+   * Gap-tolerant via `_fetchRowsWithGapRetry` — the single choke point every
+   * log-rebuild reader (history, diffs, exports, MCP read, getDiff/bindState)
+   * funnels through (023 FR-007). Serving-only path: a read still gapped after
+   * the budget is served as-is (the log is append-only; the next read heals),
+   * with the warn line the fetcher emits.
    *
    * @param {string} docGuid - Document GUID
    * @returns {Promise<Y.Doc>} The reconstructed Yjs document
@@ -243,44 +294,22 @@ class PostgresPersistence {
 
     const client = await this.pool.connect();
     try {
-      const maxRetriesRaw = parseInt(process.env.COLLAB_READ_GAP_RETRIES, 10);
-      const maxRetries = Number.isFinite(maxRetriesRaw) && maxRetriesRaw >= 0 ? maxRetriesRaw : 2;
-      const delays = (process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS || '100,300')
-        .split(',')
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => Number.isFinite(n) && n >= 0);
-
       const queryStart = Date.now();
-      let result;
-      let retries = 0;
-      let firstGapAfterClock;
-      for (;;) {
-        result = await client.query(
-          'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
-          [docGuid]
-        );
-        firstGapAfterClock = this._findFirstGap(result.rows);
-        if (firstGapAfterClock === null || retries >= maxRetries) break;
-        const delay = delays.length > 0 ? delays[Math.min(retries, delays.length - 1)] : 100;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        retries += 1;
-      }
+      const { rows } = await this._fetchRowsWithGapRetry(
+        client,
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
+        [docGuid],
+        `getYDoc ${docGuid}`
+      );
       const queryTime = Date.now() - queryStart;
 
-      if (firstGapAfterClock !== null) {
-        // FR-015: never an error, never an unbounded wait — but observable.
-        console.warn(
-          `[Postgres] getYDoc ${docGuid}: served with clock gap (retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock})`
-        );
-      }
-
       const applyStart = Date.now();
-      const ydoc = this._buildYDocFromRows(result.rows);
+      const ydoc = this._buildYDocFromRows(rows);
       const applyTime = Date.now() - applyStart;
 
-      if (result.rows.length > 0) {
-        const totalBytes = result.rows.reduce((sum, r) => sum + r.update_data.length, 0);
-        console.log(`[Postgres] getYDoc ${docGuid}: ${result.rows.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
+      if (rows.length > 0) {
+        const totalBytes = rows.reduce((sum, r) => sum + r.update_data.length, 0);
+        console.log(`[Postgres] getYDoc ${docGuid}: ${rows.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
       }
 
       return ydoc;

@@ -21,7 +21,7 @@ priority P2 and are ordered by the spec's own dependency note).
 
 **Purpose**: Green baseline + the numbers SC-007/FR-005 are compared against.
 
-- [ ] T001 Verify green baseline: run (serially) `npx jest server/__tests__/postgres-persistence.test.js server/__tests__/postgres-gap-read.test.js server/__tests__/version-history.test.js server/__tests__/diff-service.test.js server/__tests__/pending-writes-flush.test.js server/undo/__tests__` and record pre-023 single-writer `DB_PERSIST` latency plus timeline latency on a large fixture in `specs/023-version-history-hardening/baseline-notes.md` (feeds SC-003/SC-007 comparisons; do not commit failures forward)
+- [X] T001 Verify green baseline: run (serially) `npx jest server/__tests__/postgres-persistence.test.js server/__tests__/postgres-gap-read.test.js server/__tests__/version-history.test.js server/__tests__/diff-service.test.js server/__tests__/pending-writes-flush.test.js server/undo/__tests__` and record pre-023 single-writer `DB_PERSIST` latency plus timeline latency on a large fixture in `specs/023-version-history-hardening/baseline-notes.md` (feeds SC-003/SC-007 comparisons; do not commit failures forward)
 
 ---
 
@@ -30,8 +30,8 @@ priority P2 and are ordered by the spec's own dependency note).
 **Purpose**: The single gap-tolerant fetch choke point every later story builds on
 (research R2). Behavior-identical refactor — 021 tests must stay green unchanged.
 
-- [ ] T002 Extract `_fetchRowsWithGapRetry(client, sql, params, label)` in `/local-dev/server/postgres-persistence.js` (021 loop + `_findFirstGap` + shared `COLLAB_READ_GAP_RETRIES`/`COLLAB_READ_GAP_RETRY_DELAYS_MS` knobs + 021-format warn line with `label`; returns `{ rows, gapped, retries }`) and refactor `getYDoc` onto it, per contracts/persistence-write-read.md
-- [ ] T003 Add fetcher unit tests (return shape, label in warn line, budget sharing, gap-free zero-overhead path) to `/local-dev/server/__tests__/postgres-gap-read.test.js` and confirm all existing 021 gap tests pass unchanged
+- [X] T002 Extract `_fetchRowsWithGapRetry(client, sql, params, label)` in `/local-dev/server/postgres-persistence.js` (021 loop + `_findFirstGap` + shared `COLLAB_READ_GAP_RETRIES`/`COLLAB_READ_GAP_RETRY_DELAYS_MS` knobs + 021-format warn line with `label`; returns `{ rows, gapped, retries }`) and refactor `getYDoc` onto it, per contracts/persistence-write-read.md
+- [X] T003 Add fetcher unit tests (return shape, label in warn line, budget sharing, gap-free zero-overhead path) to `/local-dev/server/__tests__/postgres-gap-read.test.js` and confirm all existing 021 gap tests pass unchanged
 
 **Checkpoint**: getYDoc behavior identical; fetcher available to all stories.
 
