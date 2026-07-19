@@ -133,3 +133,22 @@ first-class on main; reranker off by default. The older sentence in "The two
 engines" describing 6000-char windows is superseded in-document by the 018
 amendment section per the doc's amendment convention — no falsified mechanism,
 no Squire-doc amendment required.
+
+## Final verification (T038)
+
+- Backend: full serial Jest suite on a dedicated worktree DB
+  (`collab_test_db_018`): **188 suites / 3196 tests, all green** (195 s).
+  One earlier run showed a 10 s timeout in
+  `server/mcp/__tests__/integration/document-editing-workflow.test.js`
+  ("modify: delete entire block") under machine load ~3.4; the identical test
+  also timed out at unmodified base `0dcaef8` in a throwaway worktree, proving
+  it environmental, and it passes in the final run.
+- Client: `npm run test:client` — **50 suites / 642 tests green**; `npm run
+  build` green (client untouched by this feature — zero client changes,
+  SC-004).
+- Quickstart: §1 via the suites; §2 chunk inspection done against the real
+  seeded corpus (heading trails, token estimates, title-headed embedded_text,
+  preambles present — and it caught the harness FTS-row bug); §3 covered by
+  T019/T020 tests plus the corpus inspection; §4 run for real (tables above);
+  §5 covered by the T012 rollout tests (legacy rows serving + reindexStale
+  migration + idempotent second pass).

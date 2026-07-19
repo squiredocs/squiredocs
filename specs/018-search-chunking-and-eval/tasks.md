@@ -137,7 +137,7 @@
 - [X] T035 [P] Update `README.md` search section: structure-aware chunking, title-headed embedded text, selective preambles, eval harness commands, reranker flag default (Constitution I).
 - [X] T036 [P] Update `docs/dev.md`: how to run `search:eval` / `search:eval:check` in the dev pod, key/corpus prerequisites, serial-test reminder (Constitution I).
 - [X] T037 Design-doc conformance check: verify `design/content-search.md` (incl. the Addition) matches the built reality; if implementation falsified any documented mechanism, amend via the Squire doc + `node design/sync.mjs` — never hand-edit (Constitution VI).
-- [ ] T038 Full verification: `npm run test:server` (serial) and `npm run test:client` green; quickstart §1–§5 spot-run; confirm zero response-shape drift (SC-004) and zero client changes.
+- [X] T038 Full verification: `npm run test:server` (serial) and `npm run test:client` green; quickstart §1–§5 spot-run; confirm zero response-shape drift (SC-004) and zero client changes.
 
 ---
 
