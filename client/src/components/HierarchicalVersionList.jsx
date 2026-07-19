@@ -442,7 +442,11 @@ function HierarchicalVersionList({
                   <HistoryItem
                     key={version.id}
                     item={versionWithSubtitle}
-                    isSelected={selection?.id === version.id && !selection?.isClock}
+                    // A sub-version shares its parent's id (both String(clockEnd)),
+                    // so guard on isSubVersion — the flag selectUpdate actually
+                    // sets — to keep selecting a sub-version from ALSO highlighting
+                    // its parent. (isClock was never set anywhere.)
+                    isSelected={selection?.id === version.id && !selection?.isSubVersion}
                     onClick={() => onSelectVersion(version)}
                     isExpandable={true}
                     isExpanded={isExpanded}

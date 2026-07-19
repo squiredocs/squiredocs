@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
@@ -60,6 +60,11 @@ export function useVersionHistory(docGuid) {
   // Hierarchical drill-down state
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
+
+  // Monotonic request sequence for diff loads. selectVersion/selectUpdate fire
+  // async diff fetches; a slower earlier response must never overwrite a newer
+  // selection's preview. Only the response whose seq is still current applies.
+  const diffRequestSeqRef = useRef(0);
 
   // Group versions client-side using browser's local timezone for proper display
   const groupedVersions = useMemo(() => groupVersionsByPeriod(versions), [versions]);
@@ -145,18 +150,15 @@ export function useVersionHistory(docGuid) {
   const loadDiffData = useCallback(async (currentClock, previousClock) => {
     if (!docGuid) return null;
 
-    try {
-      const params = new URLSearchParams({ currentClock: currentClock.toString() });
-      if (previousClock >= 0) {
-        params.append('previousClock', previousClock.toString());
-      }
-      const response = await api.get(`/api/docs/${docGuid}/history/diff?${params}`);
-      // Return the server-computed diff data directly
-      return response.data;
-    } catch (err) {
-      console.error('Error loading diff data:', err);
-      return null;
+    const params = new URLSearchParams({ currentClock: currentClock.toString() });
+    if (previousClock >= 0) {
+      params.append('previousClock', previousClock.toString());
     }
+    // Let failures propagate: selectVersion/selectUpdate surface the error and
+    // clear the stale preview rather than silently keeping the previous diff.
+    const response = await api.get(`/api/docs/${docGuid}/history/diff?${params}`);
+    // Return the server-computed diff data directly
+    return response.data;
   }, [docGuid, api]);
 
   /**
@@ -164,25 +166,33 @@ export function useVersionHistory(docGuid) {
    */
   const selectVersion = useCallback(async (version) => {
     setSelection(version);
-    if (version) {
-      setIsLoadingContent(true);
-      try {
-        // Load diff data - server returns pre-computed document and changes
-        const previousClock = version.clockStart > 0 ? version.clockStart - 1 : -1;
-        const diffResult = await loadDiffData(version.clockEnd, previousClock);
-        if (diffResult) {
-          setDiffData(diffResult);
-          // Legacy compatibility - no longer needed but kept for any remaining consumers
-          setVersionContent(null);
-          setPreviousVersionContent(null);
-        }
-      } finally {
-        setIsLoadingContent(false);
-      }
-    } else {
+    if (!version) {
       setVersionContent(null);
       setPreviousVersionContent(null);
       setDiffData(null);
+      return;
+    }
+
+    const seq = ++diffRequestSeqRef.current;
+    setIsLoadingContent(true);
+    setError(null);
+    try {
+      // Load diff data - server returns pre-computed document and changes
+      const previousClock = version.clockStart > 0 ? version.clockStart - 1 : -1;
+      const diffResult = await loadDiffData(version.clockEnd, previousClock);
+      if (seq !== diffRequestSeqRef.current) return; // superseded by a newer selection
+      setDiffData(diffResult);
+      // Legacy compatibility - no longer needed but kept for any remaining consumers
+      setVersionContent(null);
+      setPreviousVersionContent(null);
+    } catch (err) {
+      if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
+      console.error('Error loading version diff:', err);
+      // Clear the preview rather than showing a wrong (previous) diff.
+      setDiffData(null);
+      setError(err.response?.data?.error || 'Failed to load version content');
+    } finally {
+      if (seq === diffRequestSeqRef.current) setIsLoadingContent(false);
     }
   }, [loadDiffData]);
 
@@ -256,7 +266,9 @@ export function useVersionHistory(docGuid) {
       updateCount: subVersion.updateCount,
     });
 
+    const seq = ++diffRequestSeqRef.current;
     setIsLoadingContent(true);
+    setError(null);
     try {
       // Use previousClock from server (provides correct sequential baseline)
       // Falls back to clockStart - 1 for backwards compatibility
@@ -264,14 +276,18 @@ export function useVersionHistory(docGuid) {
         ? subVersion.previousClock
         : subVersion.clockStart - 1;
       const diffResult = await loadDiffData(subVersion.clockEnd, previousClock);
-      if (diffResult) {
-        setDiffData(diffResult);
-        // Legacy compatibility - no longer needed
-        setVersionContent(null);
-        setPreviousVersionContent(null);
-      }
+      if (seq !== diffRequestSeqRef.current) return; // superseded by a newer selection
+      setDiffData(diffResult);
+      // Legacy compatibility - no longer needed
+      setVersionContent(null);
+      setPreviousVersionContent(null);
+    } catch (err) {
+      if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
+      console.error('Error loading update diff:', err);
+      setDiffData(null);
+      setError(err.response?.data?.error || 'Failed to load version content');
     } finally {
-      setIsLoadingContent(false);
+      if (seq === diffRequestSeqRef.current) setIsLoadingContent(false);
     }
   }, [loadDiffData]);
 

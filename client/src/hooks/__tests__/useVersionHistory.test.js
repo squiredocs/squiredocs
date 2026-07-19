@@ -135,6 +135,59 @@ describe('useVersionHistory', () => {
       expect(mockApi.get).toHaveBeenCalledWith('/api/docs/doc-123/history/diff?currentClock=10&previousClock=4');
     });
 
+    it('ignores an out-of-order diff response so the latest selection wins (F4)', async () => {
+      const diffA = { document: 'A', meta: { currentClock: 10 } };
+      const diffB = { document: 'B', meta: { currentClock: 20 } };
+      let resolveA;
+      let resolveB;
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // initial history
+        .mockImplementationOnce(() => new Promise((r) => { resolveA = () => r({ data: diffA }); }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveB = () => r({ data: diffB }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let pA;
+      let pB;
+      act(() => {
+        pA = result.current.selectVersion({ id: 'vA', clockStart: 5, clockEnd: 10 });
+        pB = result.current.selectVersion({ id: 'vB', clockStart: 15, clockEnd: 20 });
+      });
+
+      // Newer selection (B) resolves first, then the slower older one (A).
+      await act(async () => { resolveB(); await pB; });
+      await act(async () => { resolveA(); await pA; });
+
+      // The stale A response must NOT clobber B's preview.
+      expect(result.current.diffData).toEqual(diffB);
+    });
+
+    it('sets error and clears diffData on a diff fetch failure (F4)', async () => {
+      const goodDiff = { document: 'ok', meta: { currentClock: 10 } };
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // initial history
+        .mockResolvedValueOnce({ data: goodDiff }) // first selection succeeds
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } }); // second fails
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v1', clockStart: 5, clockEnd: 10 });
+      });
+      expect(result.current.diffData).toEqual(goodDiff);
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v2', clockStart: 15, clockEnd: 20 });
+      });
+
+      // No stale preview retained; error surfaced.
+      expect(result.current.diffData).toBeNull();
+      expect(result.current.error).toBe('diff boom');
+    });
+
     it('clears content when selecting null', async () => {
       mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
 

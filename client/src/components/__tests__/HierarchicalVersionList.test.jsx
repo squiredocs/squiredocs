@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import HierarchicalVersionList from '../HierarchicalVersionList';
 
 /**
@@ -85,5 +85,62 @@ describe('HierarchicalVersionList — OnBehalfOfList (sync provenance)', () => {
     expect(line.textContent).toContain(hostile);
     // It is present strictly as text, not as child HTML.
     expect(line.innerHTML).not.toContain('<img');
+  });
+});
+
+describe('HierarchicalVersionList — selection highlight (F4)', () => {
+  it('highlights only the sub-version, not its id-colliding parent, on sub-version select', () => {
+    // A sub-version's id equals its parent version's id (both String(clockEnd)).
+    const version = {
+      id: '5', name: null, clockStart: 1, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+    };
+    const subVersion = {
+      id: '5', clockStart: 5, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], updateCount: 1,
+    };
+
+    const { container } = render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={{ id: '5', isSubVersion: true }}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        versionUpdates={{ '5': [subVersion] }}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    // Expand the parent version to render its sub-versions.
+    fireEvent.click(screen.getByLabelText('Expand'));
+
+    const selected = container.querySelectorAll('.hierarchy-item.selected');
+    // Exactly one item is highlighted, and it is the sub-version (not the parent).
+    expect(selected).toHaveLength(1);
+    expect(selected[0].classList.contains('hierarchy-update')).toBe(true);
+    expect(selected[0].classList.contains('hierarchy-version')).toBe(false);
+  });
+
+  it('highlights the parent version (only) when a top-level version is selected', () => {
+    const version = {
+      id: '5', name: null, clockStart: 1, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+    };
+
+    const { container } = render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={{ id: '5' }} // top-level version selection (no isSubVersion)
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    const selected = container.querySelectorAll('.hierarchy-item.selected');
+    expect(selected).toHaveLength(1);
+    expect(selected[0].classList.contains('hierarchy-version')).toBe(true);
   });
 });

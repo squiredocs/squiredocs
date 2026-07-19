@@ -160,6 +160,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff
     totalEdits,
     isLoading: versionHistoryLoading,
+    isLoadingContent: versionContentLoading,
     selectVersion,
     restoreVersion,
     createNamedVersion,
@@ -377,7 +378,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               diffData={diffData}
               versionContent={versionContent}
               selection={selection}
-              isLoading={versionHistoryLoading}
+              isLoading={versionContentLoading}
               showDiff={showDiffHighlights}
             />
           </div>
