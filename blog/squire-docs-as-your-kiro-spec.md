@@ -2,7 +2,7 @@
 slug: squire-docs-as-your-kiro-spec
 title: Using a Squire Docs document as your Kiro spec
 description: A short tutorial for keeping your Kiro spec as a living Squire Docs document, so your PM can edit it and your agent can read it, with two-way markdown sync to the repo.
-date: 2026-07-17
+date: 2026-06-28
 author: Sam Goldstein
 ---
 

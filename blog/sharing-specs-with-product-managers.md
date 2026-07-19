@@ -2,7 +2,7 @@
 slug: sharing-specs-with-product-managers
 title: Sharing specs with product managers for review
 description: When specs live in the repo, getting a PM's review means copying the spec out and reconciling changes back by hand. Squire Docs removes the copy.
-date: 2026-07-19
+date: 2026-07-05
 author: Sam Goldstein
 ---
 

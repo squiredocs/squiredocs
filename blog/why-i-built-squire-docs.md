@@ -2,7 +2,7 @@
 slug: why-i-built-squire-docs
 title: Why I built Squire Docs
 description: Specs and design docs are where software decisions get made, but the tools split humans from their coding agents. Squire Docs is one place where both write together.
-date: 2026-07-10
+date: 2026-06-14
 author: Sam Goldstein
 ---
 

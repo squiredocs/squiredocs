@@ -2,7 +2,7 @@
 slug: squire-docs-vs-google-docs-notion-proof
 title: Squire Docs vs. Google Docs vs. Notion vs. Proof
 description: A direct comparison of four ways people and AI edit the same document, and the one question that separates them: does the document live in your repository?
-date: 2026-07-19
+date: 2026-07-12
 author: Sam Goldstein
 ---
 

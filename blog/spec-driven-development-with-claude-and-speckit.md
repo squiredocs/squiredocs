@@ -2,7 +2,7 @@
 slug: spec-driven-development-with-claude-and-speckit
 title: Spec-driven development with Claude, Squire Docs, and Spec Kit
 description: How we combine Claude, Squire Docs, and Spec Kit into a design-to-merged pipeline where the written spec is the source of truth and agents implement against it.
-date: 2026-07-14
+date: 2026-06-21
 author: Sam Goldstein
 ---
 
