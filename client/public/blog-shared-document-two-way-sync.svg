@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 440" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555555"/>
+    </marker>
+  </defs>
+
+  <rect width="1040" height="440" fill="#ffffff"/>
+
+  <!-- Equal editors subgraph -->
+  <rect x="30" y="40" width="290" height="360" rx="6" fill="#fafafa" stroke="#9aa0a6" stroke-width="1.5"/>
+  <text x="52" y="70" font-size="17" fill="#3c4043">Equal editors</text>
+
+  <!-- Editor nodes -->
+  <g stroke="#9aa0a6" stroke-width="1.5">
+    <rect x="70" y="96" width="210" height="54" rx="27" fill="#ececec"/>
+    <rect x="70" y="190" width="210" height="54" rx="27" fill="#ececec"/>
+    <rect x="70" y="284" width="210" height="54" rx="27" fill="#ececec"/>
+  </g>
+  <g font-size="17" fill="#1a1a1a" text-anchor="middle">
+    <text x="175" y="129">Engineer</text>
+    <text x="175" y="223">Product manager</text>
+    <text x="175" y="317">Coding agent</text>
+  </g>
+
+  <!-- The document -->
+  <rect x="520" y="185" width="176" height="64" rx="3" fill="#7c3aed" stroke="#6d28d9" stroke-width="2"/>
+  <text x="608" y="222" font-size="18" fill="#ffffff" text-anchor="middle">The document</text>
+
+  <!-- Markdown repo cylinder -->
+  <g fill="#ececec" stroke="#9aa0a6" stroke-width="1.5">
+    <path d="M825 172 L825 258 A95 14 0 0 0 1015 258 L1015 172"/>
+    <ellipse cx="920" cy="172" rx="95" ry="14"/>
+  </g>
+  <text x="920" y="220" font-size="15" fill="#1a1a1a" text-anchor="middle">Markdown in your repo</text>
+
+  <!-- Editor <-> document links (bidirectional) -->
+  <g fill="none" stroke="#555555" stroke-width="1.6" marker-start="url(#arrow)" marker-end="url(#arrow)">
+    <path d="M282 118 Q400 120 518 192"/>
+    <path d="M282 217 L518 217"/>
+    <path d="M282 316 Q400 314 518 242"/>
+  </g>
+
+  <!-- document <-> repo two-way sync -->
+  <line x1="700" y1="217" x2="820" y2="217" stroke="#555555" stroke-width="1.6"
+        marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="760" y="204" font-size="15" fill="#1a1a1a" text-anchor="middle">two-way sync</text>
+</svg>

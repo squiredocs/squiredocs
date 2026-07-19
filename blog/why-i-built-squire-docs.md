@@ -8,7 +8,7 @@ author: Sam Goldstein
 
 Squire Docs is a collaborative editor where engineers, product managers, and coding agents write the same document together. Every edit is attributed, and the document syncs both ways to markdown in your repository. I built it because the document is where software decisions actually get made, and no existing tool let a human and an agent edit that document as equals.
 
-![Engineers, product managers, and coding agents editing one shared document as equals, with the document syncing both ways to the markdown file in your repository.](/blog-shared-document-two-way-sync.png)
+![Engineers, product managers, and coding agents editing one shared document as equals, with the document syncing both ways to the markdown file in your repository.](/blog-shared-document-two-way-sync.svg)
 
 ## The problem I kept hitting
 
