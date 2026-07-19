@@ -9,7 +9,7 @@ The document’s shape and the machinery that converts it between representation
 
 ## The schema
 
-`shared/prosemirror-schema.js` defines the node set — paragraph, heading, bulletList/orderedList/listItem, blockquote, codeBlock, `mermaid` and `svg` diagram blocks, hardBreak, horizontalRule, image (atom; app-URL src only), and table/tableRow/tableCell/tableHeader — and the marks: bold, italic, underline, strike, code, subscript, superscript, highlight, link, textStyle (color, backgroundColor, fontFamily, fontSize, lineHeight), plus `diffInsert`/`diffDelete` used only by version diffs. Notably absent today: task lists, footnotes, math, callouts, comments/suggestions.
+`shared/prosemirror-schema.js` defines the node set — paragraph, heading, bulletList/orderedList/listItem, blockquote, codeBlock, `mermaid` and `svg` diagram blocks, hardBreak, horizontalRule, image (atom; app-URL src only), and table/tableRow/tableCell/tableHeader — and the marks: bold, italic, underline, strike, code, subscript, superscript, highlight, link, textStyle (color, backgroundColor, fontFamily, fontSize, lineHeight), plus `diffInsert`/`diffDelete`/`diffInsertWord`/`diffDeleteWord` (the word-emphasis tier, 022) used only by version diffs. Notably absent today: task lists, footnotes, math, callouts, comments/suggestions.
 
 ## The format registry
 
@@ -25,6 +25,8 @@ The document’s shape and the machinery that converts it between representation
 ## Version diffs
 
 The diff pipeline is markdown-mediated: both clock states serialize via `toMarkdown`, `diffLines` computes hunks, and `markdownToPm` rebuilds an annotated document with diffInsert/diffDelete marks the editor renders. Formatting-only changes are detected separately (equal text, different XML). This markdown-canonical-form trick is also the foundation the two-way repo sync proposal builds on.
+
+**Amendment (Sam, 2026-07-19) — word-level two-tier diff highlighting (feature 022): **line-level marking makes a one-word edit unreadable on long lines, so replace regions (a removed run immediately followed by an added run in the `diffLines` output) get a word-level refinement pass: both sides are parsed unmarked by the frozen strict parser, their plain text is word-diffed (`diffWordsWithSpace`, whitespace-preserving — the right granularity for prose), and the resulting text nodes are split so changed words carry the new strong marks `diffInsertWord`/`diffDeleteWord` while unchanged words on the same line keep the subtle `diffInsert`/`diffDelete` (two-tier: line tint + word emphasis, GitHub-style). The refinement is post-processing over the parser’s output — the characterization-frozen parser is untouched — and degrades to plain line-level marks when the region doesn’t align. The two word marks are produced only by the diff service, never by user editing; the diff cache version bumps v7→v8. The same shared word-segmentation helper drives the chat tool-output diff (see In-App AI Assistant).
 
 ## Editor side
 
