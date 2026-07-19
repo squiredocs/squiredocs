@@ -1,5 +1,13 @@
 # Version Diff Implementation Status Update
 
+> **SUPERSEDED (2026-07-19).** This document describes the abandoned
+> y-prosemirror snapshot-diff approach. The shipped implementation is the
+> markdown-mediated line diff in `server/diff-service.js` (diffInsert/diffDelete
+> marks), refined since feature 022 with word-level two-tier highlighting
+> (`server/diff/apply-word-marks.js`, `shared/diff/word-diff.js`). Kept for
+> historical context only — see README "Diff Highlighting" and
+> `design/document-model-format-pipeline.md` for current ground truth.
+
 ## Overview
 
 This document tracks the implementation of inline diff visualization in the version history panel using y-prosemirror's built-in snapshot diff feature. The goal is to show what changed between versions with green highlighting for additions and red strikethrough for deletions.

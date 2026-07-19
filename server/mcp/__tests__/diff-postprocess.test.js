@@ -340,6 +340,18 @@ describe('postProcessDiffLines — inlineSegments (word-level)', () => {
     expect(result.inlineSegments).toBeUndefined();
   });
 
+  test('an oversized -/+ pair degrades to tint-only (no segments, no throw) — perf guardrail', () => {
+    const { MAX_SIDE_CHARS } = require('../../../shared/diff/word-diff');
+    const hugeBefore = '-' + 'aa bb '.repeat(MAX_SIDE_CHARS / 6 + 1);
+    const hugeAfter = '+' + 'cc dd '.repeat(MAX_SIDE_CHARS / 6 + 1);
+    const result = postProcessDiffLines([hugeBefore, hugeAfter, '-small x', '+small y'], []);
+    // The huge pair (output idx 0/1) gets no segments; the small pair (2/3) still does
+    expect(result.inlineSegments[0]).toBeUndefined();
+    expect(result.inlineSegments[1]).toBeUndefined();
+    expect(result.inlineSegments[2].filter((s) => s.changed).map((s) => s.text)).toEqual(['x']);
+    expect(result.inlineSegments[3].filter((s) => s.changed).map((s) => s.text)).toEqual(['y']);
+  });
+
   test('unequal -/+ counts pair up to min(del,add); surplus rows are segment-free', () => {
     // 3 del, 1 add — a text change so it is NOT format-only.
     const lines = ['-alpha one', '-beta two', '-gamma three', '+alpha ONE'];

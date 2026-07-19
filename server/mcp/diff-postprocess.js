@@ -185,6 +185,7 @@ function postProcessDiffLines(lines, hunkStarts) {
         const beforeText = stripSpanTags(lines[delStart + k].slice(1));
         const afterText = stripSpanTags(lines[addStart + k].slice(1));
         const segs = computeWordSegments(beforeText, afterText);
+        if (!segs) continue; // oversized/slow pair: row tint only (fail-open)
         inlineSegments[delOutIdx[k]] = segs.before;
         inlineSegments[addOutIdx[k]] = segs.after;
       }

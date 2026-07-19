@@ -480,6 +480,29 @@ describe('DiffService', () => {
       prev.destroy();
       curr.destroy();
     });
+
+    test('guardrail null (oversized/slow region) degrades to line-level marks WITHOUT logging an error', () => {
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const wordDiff = require('../../shared/diff/word-diff');
+      const segSpy = jest.spyOn(wordDiff, 'computeWordSegments').mockReturnValue(null);
+
+      const prev = docFrom([{ text: 'The quick brown fox' }]);
+      const curr = docFrom([{ text: 'The slow brown fox' }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffDelete');
+      expect(json).toContain('diffInsert');
+      expect(json).not.toContain('diffDeleteWord');
+      expect(json).not.toContain('diffInsertWord');
+      // Expected degradation, not an error: nothing logged
+      expect(consoleError).not.toHaveBeenCalled();
+
+      segSpy.mockRestore();
+      consoleError.mockRestore();
+      prev.destroy();
+      curr.destroy();
+    });
   });
 
   describe('computeDiff', () => {

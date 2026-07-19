@@ -142,6 +142,12 @@ function stampSide(doc, segments, side) {
  * @param {string} addedMd - the added side of the region (curr markdown)
  * @returns {Array<object>} refined removed blocks followed by refined added blocks
  */
+function lineLevelFallback(removedMd, addedMd) {
+  const removed = markdownToPm(removedMd, 'diffDelete', STRICT);
+  const added = markdownToPm(addedMd, 'diffInsert', STRICT);
+  return [...(removed.content || []), ...(added.content || [])];
+}
+
 function applyWordMarks(removedMd, addedMd) {
   try {
     const removedDoc = markdownToPm(removedMd, null, STRICT);
@@ -150,10 +156,15 @@ function applyWordMarks(removedMd, addedMd) {
     const plainRemoved = plainTextOf(removedDoc);
     const plainAdded = plainTextOf(addedDoc);
 
-    const { before, after } = wordDiff.computeWordSegments(plainRemoved, plainAdded);
+    const segs = wordDiff.computeWordSegments(plainRemoved, plainAdded);
+    if (!segs) {
+      // Oversized or slow region (size cap / diff timeout): expected
+      // degradation, not an error — line-level marks, no log.
+      return lineLevelFallback(removedMd, addedMd);
+    }
 
-    const removedBlocks = stampSide(removedDoc, before, 'delete');
-    const addedBlocks = stampSide(addedDoc, after, 'insert');
+    const removedBlocks = stampSide(removedDoc, segs.before, 'delete');
+    const addedBlocks = stampSide(addedDoc, segs.after, 'insert');
     return [...removedBlocks, ...addedBlocks];
   } catch (err) {
     // Fail-open: degrade the region to today's line-level marks (RBD-3/FR-012).
@@ -161,9 +172,7 @@ function applyWordMarks(removedMd, addedMd) {
       loggedOnce = true;
       console.error('[apply-word-marks] refinement failed, using line-level marks:', err.message);
     }
-    const removed = markdownToPm(removedMd, 'diffDelete', STRICT);
-    const added = markdownToPm(addedMd, 'diffInsert', STRICT);
-    return [...(removed.content || []), ...(added.content || [])];
+    return lineLevelFallback(removedMd, addedMd);
   }
 }
 

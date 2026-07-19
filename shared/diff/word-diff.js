@@ -12,6 +12,16 @@
 
 const { diffWordsWithSpace } = require('diff');
 
+// Guardrails against pathological inputs (post-merge review HIGH, 2026-07-19):
+// Myers word-diff is O(N*D) and runs synchronously on the single Node process —
+// two large, mostly-dissimilar sides (whole-doc rewrite, giant single-line
+// paragraph) would block the event loop for seconds to minutes. Beyond ~20k
+// chars a side, word emphasis has no skim value anyway (a rewrite reads as all
+// strong). Oversized or slow inputs return null and the callers degrade to the
+// existing line-level presentation (RBD-3 fail-open).
+const MAX_SIDE_CHARS = 20000;
+const DIFF_TIMEOUT_MS = 250;
+
 /**
  * Coalesce adjacent segments that share the same `changed` flag, concatenating
  * their text. Guarantees no two consecutive segments carry the same flag.
@@ -46,13 +56,19 @@ function coalesce(segments) {
  *
  * Faithfulness: `before.map(s => s.text).join('') === before` (same for after).
  *
+ * Returns null (caller degrades to line-level, no word emphasis) when either
+ * side exceeds MAX_SIDE_CHARS or the diff exceeds DIFF_TIMEOUT_MS.
+ *
  * @param {string} before
  * @param {string} after
  * @returns {{ before: Array<{text: string, changed: boolean}>,
- *             after:  Array<{text: string, changed: boolean}> }}
+ *             after:  Array<{text: string, changed: boolean}> } | null}
  */
 function computeWordSegments(before, after) {
-  const parts = diffWordsWithSpace(before, after);
+  if (before.length > MAX_SIDE_CHARS || after.length > MAX_SIDE_CHARS) return null;
+  // jsdiff returns undefined when the timeout is exceeded.
+  const parts = diffWordsWithSpace(before, after, { timeout: DIFF_TIMEOUT_MS });
+  if (!parts) return null;
   const beforeSegs = [];
   const afterSegs = [];
 
@@ -73,4 +89,4 @@ function computeWordSegments(before, after) {
   };
 }
 
-module.exports = { computeWordSegments };
+module.exports = { computeWordSegments, MAX_SIDE_CHARS, DIFF_TIMEOUT_MS };

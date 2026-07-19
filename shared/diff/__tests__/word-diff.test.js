@@ -1,4 +1,4 @@
-const { computeWordSegments } = require('../word-diff');
+const { computeWordSegments, MAX_SIDE_CHARS } = require('../word-diff');
 
 // Picked up by the backend Jest project (CommonJS, alongside shared/markdown tests).
 
@@ -54,5 +54,15 @@ describe('computeWordSegments', () => {
     const a = computeWordSegments('the quick fox', 'the slow fox');
     const b = computeWordSegments('the quick fox', 'the slow fox');
     expect(a).toEqual(b);
+  });
+
+  test('oversized input returns null so callers degrade to line-level (perf guardrail)', () => {
+    const big = 'word '.repeat(MAX_SIDE_CHARS / 5 + 1); // just over the cap
+    expect(big.length).toBeGreaterThan(MAX_SIDE_CHARS);
+    expect(computeWordSegments(big, 'small')).toBeNull();
+    expect(computeWordSegments('small', big)).toBeNull();
+    // At/under the cap still segments normally
+    const ok = 'a'.repeat(MAX_SIDE_CHARS);
+    expect(computeWordSegments(ok, ok)).not.toBeNull();
   });
 });

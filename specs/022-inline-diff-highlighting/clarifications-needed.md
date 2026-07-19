@@ -106,3 +106,24 @@ re-decided:
   depending on its container — more machinery for a speculative aesthetic concern in a
   prose-first product. If code-block refinement proves noisy in practice, excluding it
   later is a small, additive change at the refinement layer. Spec: Edge Cases.
+
+## RBD-5: Word-diff perf guardrails — 20,000 chars/side cap + 250ms jsdiff timeout
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-19) — values await
+  Sam's ratification
+- **Question**: What ceiling should bound the synchronous word-diff so a huge
+  replace region (whole-doc rewrite, giant single-line paragraph) cannot block
+  the Node event loop? (Raised as the HIGH finding in the 2026-07-19 post-merge
+  review; the ratified decisions set no perf ceiling — a spec gap, not a
+  contradiction.)
+- **Why it matters**: Myers word-diff is O(N·D) and synchronous; two ~300KB
+  mostly-dissimilar sides could stall every request for seconds to minutes. The
+  pre-022 line-level diff was orders of magnitude cheaper on the same input.
+- **Decision**: `computeWordSegments` returns `null` when either side exceeds
+  `MAX_SIDE_CHARS = 20000` or jsdiff's `timeout: 250` (ms) fires; both callers
+  degrade to the line-level presentation silently (expected degradation under
+  RBD-3, not an error). Rationale: beyond ~20k chars a side, word emphasis has
+  no skim value (a rewrite reads as all-strong anyway), so nothing of value is
+  lost; 250ms bounds the worst case per region/pair while never firing on
+  realistic prose. Constants exported from `shared/diff/word-diff.js` for
+  test pinning and easy tuning.

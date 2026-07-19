@@ -29,6 +29,37 @@ build OK (see the implementation report).
   are already exported to `design/`; this implementation converges to them. Any
   post-merge ratification checkboxes in the decisions ledger are Sam's to tick.
 
+## Post-merge review dispositions (2026-07-19, reviewer: Fable — MERGE STANDS)
+
+- **HIGH — unbounded synchronous word-diff (FIXED same-day, orchestrator):**
+  Myers word-diff over two large mostly-dissimilar sides (whole-doc rewrite via
+  the history path; giant single-line paragraph via the chat path) ran with no
+  ceiling and could block the Node event loop for seconds-to-minutes. Fix:
+  `computeWordSegments` now returns `null` when either side exceeds
+  `MAX_SIDE_CHARS` (20,000) or jsdiff's `timeout` (250ms) fires; both callers
+  degrade to the line-level presentation with no error logged (expected
+  degradation per RBD-3). Constants are RBD-5 in the clarifications ledger —
+  Sam to ratify the values.
+- **LOW — paste re-introduces diff marks (ACCEPTED, pre-existing class):**
+  copying from the version preview and pasting into a live editor parses
+  `ins.diff-word` into a real `diffInsertWord` mark. The same is true of the
+  pre-022 `diffInsert`/`diffDelete` via bare `ins`/`del` parse rules, so this is
+  a pre-existing class made slightly more visible, not a new hole. Markdown
+  export drops the marks. Owed at promotion: strip all four diff marks in the
+  editor's paste transform (one transformPasted hook) — small, do with the next
+  editor-surface feature.
+- **LOW — fail-open catch can rethrow when the parser itself throws (ACCEPTED):**
+  if `markdownToPm` throws on the same input in the catch path, the error
+  escapes `applyWordMarks` — but it is absorbed by `computeDiff`'s outer try
+  (diffFailed=true, no 500, no cache poison), and pre-022 threw identically on
+  the same input. No behavioral regression; letter-of-FR-012 gap noted.
+- **LOW — log-once observability (ACCEPTED):** refinement failures log once per
+  process lifetime. With the 013/014 observability stack, a rate-limited log or
+  metric would be more diagnosable — fold into the next observability pass.
+- **Docs (DONE same-day):** README diff sections updated for the two-tier
+  behavior; `docs/version-diff-status-update.md` stamped SUPERSEDED (it
+  described the abandoned y-prosemirror snapshot approach).
+
 ## Implementation notes (not decisions — for the reviewer's awareness)
 
 - **Chat segment text is span-stripped, not merely prefix-stripped.** The
