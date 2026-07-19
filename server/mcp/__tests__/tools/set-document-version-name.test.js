@@ -125,14 +125,18 @@ describe('set_document_version_name', () => {
       ).rejects.toThrow('Cannot create version: document has no edit history');
     });
 
-    test('throws error for viewer role', async () => {
+    test('allows viewer role to create a named version (F9 permissive alignment)', async () => {
       mockPool.query.mockResolvedValue({
         rows: [{ role: 'viewer' }],
       });
 
-      await expect(
-        tool.handler({ docGuid: 'doc-123', name: 'Draft 1' }, mockAgentToken)
-      ).rejects.toThrow('Permission denied: viewers cannot manage document versions');
+      const result = await tool.handler(
+        { docGuid: 'doc-123', name: 'Draft 1' },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.created).toBe(true);
     });
 
     test('throws error for document not found', async () => {
@@ -219,14 +223,21 @@ describe('set_document_version_name', () => {
       ).rejects.toThrow('Invalid versionId format');
     });
 
-    test('throws error for viewer role', async () => {
+    test('allows viewer role to manage versions (F9 permissive alignment, Sam-ratified 2026-07-19)', async () => {
+      // Previously viewers were blocked here; the tool now matches the REST/web
+      // behavior, which permits any role with access. Naming is non-destructive.
       mockPool.query.mockResolvedValue({
         rows: [{ role: 'viewer' }],
       });
 
-      await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: '550e8400-e29b-41d4-a716-446655440000', name: 'Final' }, mockAgentToken)
-      ).rejects.toThrow('Permission denied: viewers cannot manage document versions');
+      const result = await tool.handler(
+        { docGuid: 'doc-123', versionId: '550e8400-e29b-41d4-a716-446655440000', name: 'Final' },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.updated).toBe(true);
+      expect(mockPersistence.updateVersionName).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', 'Final', 'doc-123');
     });
   });
 
@@ -274,14 +285,19 @@ describe('set_document_version_name', () => {
       ).rejects.toThrow('Invalid versionId format');
     });
 
-    test('throws error for viewer role', async () => {
+    test('allows viewer role to remove a version name (F9 permissive alignment)', async () => {
       mockPool.query.mockResolvedValue({
         rows: [{ role: 'viewer' }],
       });
 
-      await expect(
-        tool.handler({ docGuid: 'doc-123', versionId: '550e8400-e29b-41d4-a716-446655440000', name: null }, mockAgentToken)
-      ).rejects.toThrow('Permission denied: viewers cannot manage document versions');
+      const result = await tool.handler(
+        { docGuid: 'doc-123', versionId: '550e8400-e29b-41d4-a716-446655440000', name: null },
+        mockAgentToken
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.deleted).toBe(true);
+      expect(mockPersistence.deleteNamedVersion).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', 'doc-123');
     });
 
     test('throws error for version from different document', async () => {

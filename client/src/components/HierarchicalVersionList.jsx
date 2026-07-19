@@ -127,7 +127,10 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, on
  */
 function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
   const canRestore = !item.isCurrent && userRole !== 'viewer';
-  const canName = userRole !== 'viewer';
+  // Naming a version is permitted for viewer+ (Sam-ratified 2026-07-19, F9):
+  // matches the REST/MCP server behavior, which allows any role with access.
+  // Restore stays edit-only (it mutates the live doc); naming is non-destructive.
+  const canName = !!userRole;
   const canRename = item.isNamed;
   const canRemoveName = item.isNamed && !item.isSubVersion;
 

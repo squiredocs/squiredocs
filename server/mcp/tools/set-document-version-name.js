@@ -195,9 +195,11 @@ async function handler(args, agentToken) {
     throw new Error('Document not found or you do not have access');
   }
 
-  if (accessResult.rows[0].role === 'viewer') {
-    throw new Error('Permission denied: viewers cannot manage document versions');
-  }
+  // Naming/managing versions is permitted for viewer+ (Sam-ratified 2026-07-19,
+  // F9): this aligns the MCP tool with the REST routes and the web UI's actual
+  // server behavior, which already allow any role with access. Version history
+  // itself is always preserved, so a viewer naming a checkpoint is non-
+  // destructive. Tightening is deferred.
 
   // MODIFY or NAME existing version (with versionId)
   if (versionId) {

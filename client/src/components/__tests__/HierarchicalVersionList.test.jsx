@@ -175,6 +175,30 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
     expect(container.querySelector('.hierarchy-updates-more')).toBeNull();
   });
 
+  it('offers "Name this version" to a viewer (F9 permissive alignment)', () => {
+    const version = {
+      id: '5', name: null, clockStart: 1, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+    };
+
+    render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        userRole="viewer"
+        isLoading={false}
+      />
+    );
+
+    // Open the item options menu.
+    fireEvent.click(screen.getByTitle('Options'));
+    expect(screen.getByText('Name this version')).toBeInTheDocument();
+    // Restore stays edit-only (mutates the doc), so it is NOT offered to viewers.
+    expect(screen.queryByText('Restore this version')).toBeNull();
+  });
+
   it('highlights the parent version (only) when a top-level version is selected', () => {
     const version = {
       id: '5', name: null, clockStart: 1, clockEnd: 5,
