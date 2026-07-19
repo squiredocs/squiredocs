@@ -199,7 +199,7 @@ alert-path failures swallowed).
 
 ### Tests for User Story 3 (write FIRST — must FAIL before T018)
 
-- [ ] T017 [P] [US3] Gap-read tests in `server/__tests__/postgres-gap-read.test.js`
+- [X] T017 [P] [US3] Gap-read tests in `server/__tests__/postgres-gap-read.test.js`
       (jest, serial; drive retry timing via `COLLAB_READ_GAP_RETRIES` /
       `COLLAB_READ_GAP_RETRY_DELAYS_MS` set to small values, not wall-clock defaults):
       (a) store clocks `…k, k+2…`, read, release `k+1` during the retry window ⇒ complete
@@ -209,7 +209,7 @@ alert-path failures swallowed).
       (FR-016); (d) head-of-history: contiguous rows starting at clock 5 ⇒ no gap;
       (e) multiple gaps ⇒ single (non-compounding) retry budget; (f) empty and single-row
       reads unchanged (edge cases).
-- [ ] T018 [US3] Implement gap tolerance in `server/postgres-persistence.js` `getYDoc`
+- [X] T018 [US3] Implement gap tolerance in `server/postgres-persistence.js` `getYDoc`
       (:211-235) per contracts/gap-read.md: add `clock` to the SELECT, single-pass
       contiguity check, ≤`COLLAB_READ_GAP_RETRIES` full re-fetches with
       `COLLAB_READ_GAP_RETRY_DELAYS_MS` waits, serve-as-is + structured log after the
