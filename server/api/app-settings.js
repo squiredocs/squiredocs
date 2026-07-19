@@ -75,6 +75,30 @@ function getCollabBindingHardening() {
 }
 
 /**
+ * Cross-replica-fresh read for the kill-switch (feature 021, review MEDIUM-2).
+ * The in-memory cache is write-through only on the pod that served the PUT, so
+ * on a multi-replica cluster an admin flip wouldn't reach the other pods until
+ * restart — exactly when the emergency switch is needed. The /api/client-config
+ * bootstrap reads DIRECTLY from the DB (one cheap indexed SELECT at page load,
+ * not on the hot render path) so every replica honors a flip within a refresh.
+ * Falls back to the cached value if the DB read fails (never blocks bootstrap).
+ */
+async function getCollabBindingHardeningFresh() {
+  if (!pool) return getCollabBindingHardening();
+  try {
+    const { rows } = await pool.query(
+      'SELECT value FROM app_settings WHERE key = $1', [COLLAB_BINDING_HARDENING]
+    );
+    const value = rows[0] ? rows[0].value : null;
+    cache.set(COLLAB_BINDING_HARDENING, value); // keep the cache warm too
+    return value !== 'false';
+  } catch (err) {
+    console.error('[AppSettings] collab-hardening fresh read failed, using cache:', err.message);
+    return getCollabBindingHardening();
+  }
+}
+
+/**
  * Engage/release the 021 kill-switch. Enabled clears the row (unset = ON keeps
  * the default-ON invariant literal in the store); disabled stores 'false'.
  * setSetting writes through the cache, so the flip is immediate — no restart.
@@ -101,6 +125,7 @@ module.exports = {
   getSharedDefaultModel,
   setSharedDefaultModel,
   getCollabBindingHardening,
+  getCollabBindingHardeningFresh,
   setCollabBindingHardening,
   SHARED_DEFAULT_MODEL,
   COLLAB_BINDING_HARDENING,

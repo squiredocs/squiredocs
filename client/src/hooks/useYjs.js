@@ -28,7 +28,12 @@ if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
 function getOrCreateDoc(docGuid) {
   if (docCache.has(docGuid)) return docCache.get(docGuid);
 
-  const ydoc = new Y.Doc();
+  // Set the Y.Doc's guid to the real document GUID so downstream consumers that
+  // read `ydoc.guid` — notably the 021 render-skip beacon — report the actual
+  // document instead of a random per-tab UUID (review MEDIUM-3). IndexeddbPersistence
+  // keys off the separate `docGuid` string argument below, not ydoc.guid, so this
+  // has no persistence/cache side effect.
+  const ydoc = new Y.Doc({ guid: docGuid });
   const cached = { ydoc, indexeddbProvider: null };
   docCache.set(docGuid, cached);
 

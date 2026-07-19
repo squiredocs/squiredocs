@@ -5,7 +5,17 @@
 FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS client-builder
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN npm ci
+# The patch-package postinstall (patch-package --error-on-fail) needs the patch
+# files present BEFORE `npm ci` runs, or it finds zero patches, exits 0, and the
+# image silently ships STOCK @tiptap/y-tiptap — the delete-on-catch bug 021
+# fixes (feature 021, review CRITICAL-1). Copy patches first, then assert the
+# patch actually applied: `--error-on-fail` only catches FAILED applications,
+# not absent ones, so an explicit in-image sentinel grep is the real backstop.
+COPY client/patches ./patches/
+RUN npm ci \
+ && grep -q 'SQUIRE-021:' node_modules/@tiptap/y-tiptap/dist/y-tiptap.js \
+ && grep -q 'SQUIRE-021:' node_modules/@tiptap/y-tiptap/dist/y-tiptap.cjs \
+ || { echo 'FATAL: @tiptap/y-tiptap 021 patch not applied in the image build'; exit 1; }
 COPY client/ ./
 # Client source imports from ../shared (svg-sanitizer), so the shared dir must
 # exist in the builder stage too (it's also copied into the runtime stage below).

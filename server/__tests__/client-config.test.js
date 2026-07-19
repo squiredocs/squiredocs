@@ -43,8 +43,8 @@ describe('021 kill-switch: app-settings + admin flip + /api/client-config', () =
     // existing admin-route suites; here the router is mounted directly.
     app.use('/api/admin', admin.router);
     // Mirror server/index.js exactly:
-    app.get('/api/client-config', requireAuth, (req, res) => {
-      res.json({ collabBindingHardening: appSettings.getCollabBindingHardening() });
+    app.get('/api/client-config', requireAuth, async (req, res) => {
+      res.json({ collabBindingHardening: await appSettings.getCollabBindingHardeningFresh() });
     });
   });
 
@@ -119,5 +119,24 @@ describe('021 kill-switch: app-settings + admin flip + /api/client-config', () =
       .get('/api/client-config')
       .set('Authorization', 'Bearer not-a-token');
     expect(badAuth.status).toBe(401);
+  });
+
+  // MEDIUM-2 regression: a flip written by ANOTHER replica (DB row changed
+  // without this pod's cache being updated) is reflected at bootstrap because
+  // /api/client-config reads fresh from the DB, not the stale in-memory cache.
+  test('/api/client-config reflects a DB flip made out-of-band (cross-replica freshness)', async () => {
+    // Simulate the other pod disabling: write the row directly, leave THIS
+    // pod's cache stale-ON.
+    // Direct DB write (NOT setSetting), so this pod's cache stays stale-ON.
+    await pool.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('collab_binding_hardening','false',now())
+       ON CONFLICT (key) DO UPDATE SET value='false'`
+    );
+    expect(appSettings.getCollabBindingHardening()).toBe(true); // cached view is stale-ON
+    const res = await request(app).get('/api/client-config').set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.collabBindingHardening).toBe(false); // fresh read saw the other pod's flip
+    // Clean up: clear the row (default-ON) for later tests.
+    await pool.query("DELETE FROM app_settings WHERE key = 'collab_binding_hardening'");
   });
 });

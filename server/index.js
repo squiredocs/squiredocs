@@ -421,8 +421,11 @@ app.use('/api/support', express.json(), support.router);
 // browser at app bootstrap (client/src/hooks/useClientConfig.js). Absent
 // setting = true (default ON, fail-safe: a failed fetch also leaves the
 // client hardened).
-app.get('/api/client-config', requireAuth, (req, res) => {
-  res.json({ collabBindingHardening: appSettings.getCollabBindingHardening() });
+app.get('/api/client-config', requireAuth, async (req, res) => {
+  // Fresh DB read so a kill-switch flip reaches every replica at the next page
+  // load, not just the pod that served the admin PUT (feature 021 review
+  // MEDIUM-2). Bootstrap-only — never on the render hot path.
+  res.json({ collabBindingHardening: await appSettings.getCollabBindingHardeningFresh() });
 });
 
 /**
