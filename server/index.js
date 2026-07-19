@@ -396,6 +396,15 @@ app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin', requireAdmin, admin.router);
 app.use('/api/support', express.json(), support.router);
 
+// Client runtime configuration (feature 021, DR-2). Authenticated read of a
+// server-owned boolean — the binding-hardening kill-switch delivered to the
+// browser at app bootstrap (client/src/hooks/useClientConfig.js). Absent
+// setting = true (default ON, fail-safe: a failed fetch also leaves the
+// client hardened).
+app.get('/api/client-config', requireAuth, (req, res) => {
+  res.json({ collabBindingHardening: appSettings.getCollabBindingHardening() });
+});
+
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities
 app.get('/.well-known/oauth-authorization-server', (req, res) => {

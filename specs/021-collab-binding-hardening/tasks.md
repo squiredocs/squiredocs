@@ -25,16 +25,16 @@ in-flight 018 (`server/search/**`, `server/search.js`, `server/search-indexer.js
 **Purpose**: Land the 3.0.7 baseline and the patch-application machinery every US1 task
 builds on.
 
-- [ ] T001 Pin `@tiptap/y-tiptap` to exact `3.0.7` as a direct dependency in
+- [X] T001 Pin `@tiptap/y-tiptap` to exact `3.0.7` as a direct dependency in
       `client/package.json`, run `npm install` to update `client/package-lock.json`, and
       confirm the hoisted `client/node_modules/@tiptap/y-tiptap` is 3.0.7 (research R1:
       `@tiptap/extension-collaboration`'s `^3.0.0` is satisfied; the patched functions were
       diff-verified byte-identical 3.0.1→3.0.7 except upstream's own hardening of
       `restoreRelativeSelection`/`_typeChanged`).
-- [ ] T002 Add `patch-package` to `client/package.json` devDependencies with
+- [X] T002 Add `patch-package` to `client/package.json` devDependencies with
       `"postinstall": "patch-package --error-on-fail"`, create empty `client/patches/`
       directory, and verify `npm ci` in `client/` succeeds end-to-end (research R3).
-- [ ] T003 [P] Create the headless binding test harness in
+- [X] T003 [P] Create the headless binding test harness in
       `client/src/test/bindingHarness.js` (research R8): two relayed `Y.Doc`s, app schema
       derived from `getBaseExtensions()` in `client/src/extensions/editorExtensions.js`,
       real `ySyncPlugin` + jsdom `EditorView` (minimal view-shim fallback documented in the
@@ -50,14 +50,14 @@ builds on.
 **Purpose**: The FR-008 guard (must exist before the patch so patch work is test-driven)
 and the runtime-config channel the patch reads (DR-2).
 
-- [ ] T004 [P] Write the dependency-drift guard test
+- [X] T004 [P] Write the dependency-drift guard test
       `client/src/__tests__/binding-patch-guard.test.js` per contracts/binding-patch.md
       "Survival guard": asserts installed version `=== '3.0.7'`, all five
       `SQUIRE-021:<site-id>` sentinels present in
       `client/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js`, and
       `client/patches/@tiptap+y-tiptap+3.0.7.patch` exists. MUST FAIL now (no patch yet) —
       it goes green only when T010 lands (FR-008, SC-007).
-- [ ] T005 [P] Server kill-switch storage + endpoints: add `collab_binding_hardening`
+- [X] T005 [P] Server kill-switch storage + endpoints: add `collab_binding_hardening`
       accessors to `server/api/app-settings.js`, `GET`/`PUT
       /settings/collab-binding-hardening` to `server/api/admin.js` (existing shared-model
       pattern; PUT `{enabled}` writes `null`/`'false'` per
@@ -65,7 +65,7 @@ and the runtime-config channel the patch reads (DR-2).
       (requireAuth) to `server/index.js` returning `{ collabBindingHardening }` with
       absent-key ⇒ `true`. Backend test in `server/__tests__/client-config.test.js`
       (default-ON, flip round-trip, auth required).
-- [ ] T006 [P] Client kill-switch plumbing: `client/src/hooks/useClientConfig.js` fetches
+- [X] T006 [P] Client kill-switch plumbing: `client/src/hooks/useClientConfig.js` fetches
       `/api/client-config` once at app bootstrap (AuthContext axios instance), sets
       `globalThis.__SQUIRE_COLLAB_HARDENING__`; failure leaves it unset (fail-safe ON).
       Wire into `client/src/App.jsx` bootstrap. Vitest coverage in

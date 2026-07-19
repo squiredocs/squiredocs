@@ -11,6 +11,16 @@
 
 const SHARED_DEFAULT_MODEL = 'shared_default_model';
 
+/**
+ * Feature 021 kill-switch for the client editor-binding hardening patch.
+ * Absent or 'true' = hardened behaviors ON (default); 'false' = kill-switch
+ * engaged, the client binding reverts to stock. Delivered to browsers via
+ * GET /api/client-config; flipped from the admin settings endpoint. The
+ * server guardrail and the quarantine layer are independent of this flag
+ * (DR-2).
+ */
+const COLLAB_BINDING_HARDENING = 'collab_binding_hardening';
+
 let pool = null;
 const cache = new Map();
 
@@ -56,6 +66,23 @@ async function setSetting(key, value) {
   cache.set(key, value);
 }
 
+/**
+ * Whether the 021 binding-hardening patch is enabled. True unless the stored
+ * value is exactly 'false' (absent = default ON — fail-safe).
+ */
+function getCollabBindingHardening() {
+  return getSetting(COLLAB_BINDING_HARDENING) !== 'false';
+}
+
+/**
+ * Engage/release the 021 kill-switch. Enabled clears the row (unset = ON keeps
+ * the default-ON invariant literal in the store); disabled stores 'false'.
+ * setSetting writes through the cache, so the flip is immediate — no restart.
+ */
+async function setCollabBindingHardening(enabled) {
+  await setSetting(COLLAB_BINDING_HARDENING, enabled ? null : 'false');
+}
+
 /** The admin-selected shared-assistant default model key, or null when unset. */
 function getSharedDefaultModel() {
   return getSetting(SHARED_DEFAULT_MODEL);
@@ -73,5 +100,8 @@ module.exports = {
   setSetting,
   getSharedDefaultModel,
   setSharedDefaultModel,
+  getCollabBindingHardening,
+  setCollabBindingHardening,
   SHARED_DEFAULT_MODEL,
+  COLLAB_BINDING_HARDENING,
 };

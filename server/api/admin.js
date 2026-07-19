@@ -80,6 +80,40 @@ router.put('/settings/shared-model', async (req, res) => {
 });
 
 /**
+ * GET /settings/collab-binding-hardening — the feature-021 binding-patch
+ * kill-switch (DR-2). enabled=true is the default (row absent).
+ */
+router.get('/settings/collab-binding-hardening', async (req, res) => {
+  try {
+    res.json({ enabled: appSettings.getCollabBindingHardening() });
+  } catch (err) {
+    console.error('[Admin] Error fetching collab binding hardening setting:', err);
+    res.status(500).json({ error: 'Failed to fetch collab binding hardening setting' });
+  }
+});
+
+/**
+ * PUT /settings/collab-binding-hardening — flip the kill-switch.
+ * Body: { enabled: boolean }. enabled=true clears the row (default-ON stays
+ * literal in the store); enabled=false engages the kill-switch — clients
+ * revert to the stock binding on their next config fetch (at most a page
+ * refresh; open tabs read the flag live and may pick it up sooner).
+ */
+router.put('/settings/collab-binding-hardening', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+    await appSettings.setCollabBindingHardening(enabled);
+    res.json({ enabled: appSettings.getCollabBindingHardening() });
+  } catch (err) {
+    console.error('[Admin] Error updating collab binding hardening setting:', err);
+    res.status(500).json({ error: 'Failed to update collab binding hardening setting' });
+  }
+});
+
+/**
  * GET /users  — list all users with aggregate stats
  */
 router.get('/users', async (req, res) => {
