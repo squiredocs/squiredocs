@@ -9,7 +9,15 @@ function loadMermaid() {
         startOnLoad: false,
         securityLevel: 'strict',
         theme: 'neutral',
-        fontFamily: 'inherit',
+        // Explicit sans stack (mirrors --font-sans), NOT 'inherit': Mermaid
+        // bakes fontFamily into the SVG's internal <style>, but on-page that
+        // resolved to 'inherit' with nothing to inherit once the SVG is cloned
+        // for export/rasterization (prepareSvgForExport strips the root style),
+        // so copied/exported diagrams fell back to serif. An explicit stack
+        // ending in the sans-serif generic renders identically on-page and
+        // stays sans-serif standalone.
+        fontFamily:
+          "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         // Render labels as SVG <text> instead of <foreignObject> so the
         // rendered diagram can be drawn into a <canvas> without tainting
         // it (foreignObject SVGs throw SecurityError on toDataURL).
