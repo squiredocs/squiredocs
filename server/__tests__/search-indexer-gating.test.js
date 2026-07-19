@@ -9,6 +9,13 @@
  * swap), and fake 1536-dim vectors stand in for real embeddings.
  *
  * Gate table: specs/017-search-index-efficiency/contracts/indexer-internal.md
+ *
+ * AMENDED by feature 018 (DR-1, design-ratified): the title joins the embedded
+ * text, so the hash seam widened to buildEmbedHashInput(title, bodyText) and a
+ * title-only change now BUSTS the gate (it must re-embed — the stored embedded
+ * text leads with the title). Cases 2 and 7 below assert the new behavior;
+ * their 017-era assertions (title-independent hash, title change = zero calls)
+ * were deliberately inverted per design/content-search.md's Addition.
  */
 const cryptoLib = require('crypto');
 const Y = require('yjs');
@@ -159,27 +166,40 @@ describe('search indexer content-hash gating (017)', () => {
       expect(chunks.length).toBe(1);
     });
 
-    test('case 2: title-only change → zero provider calls, chunks untouched, FTS refreshed, hash unchanged', async () => {
+    test('case 2 (018 DR-1): title-only change → BUSTS the gate: one regeneration, hash advances, embedded text leads with the new title', async () => {
       const docGuid = await createDoc('Original Title', 'stable body text about penguins and glaciers');
       await searchIndexer.indexDocument(docGuid);
       const before = await getIndexRow(docGuid);
-      const chunksBefore = await getChunks(docGuid);
       mockEmbedMany.mockClear();
 
       setTitle(docGuid, 'Zebra Renamed Title');
       await syncDoc(docGuid);
       await searchIndexer.indexDocument(docGuid);
 
-      expect(mockEmbedMany).not.toHaveBeenCalled();
+      // The title is part of the embedded text (DR-1), so a title change must
+      // re-embed — exactly once.
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
       const after = await getIndexRow(docGuid);
-      expect(after.content_hash).toBe(before.content_hash);
+      expect(after.content_hash).not.toBe(before.content_hash);
+      expect(after.content_hash).toBe(
+        computeContentHash(buildEmbedHashInput('Zebra Renamed Title', after.content_text))
+      );
       // FTS row refreshed: new title findable, freshness watermark advanced
       expect(await ftsMatches(docGuid, 'zebra')).toBe(true);
       expect(after.indexed_at >= before.indexed_at).toBe(true);
       expect(after.indexed_at).not.toBe(before.indexed_at);
-      // Chunk rows untouched (same row ids, same text)
-      const chunksAfter = await getChunks(docGuid);
-      expect(chunksAfter).toEqual(chunksBefore);
+      // The stored embedded text now leads with the new title
+      const embedded = await pool.query(
+        'SELECT embedded_text FROM document_embeddings WHERE doc_id = $1', [docGuid]
+      );
+      for (const row of embedded.rows) {
+        expect(row.embedded_text.startsWith('Zebra Renamed Title')).toBe(true);
+      }
+
+      // A second pass with nothing changed is gated again: zero calls
+      mockEmbedMany.mockClear();
+      await searchIndexer.indexDocument(docGuid);
+      expect(mockEmbedMany).not.toHaveBeenCalled();
     });
 
     test('case 3: body change → exactly one regeneration, hash advances to the new text hash', async () => {
@@ -195,7 +215,7 @@ describe('search indexer content-hash gating (017)', () => {
       expect(mockEmbedMany).toHaveBeenCalledTimes(1);
       const after = await getIndexRow(docGuid);
       expect(after.content_hash).not.toBe(before.content_hash);
-      expect(after.content_hash).toBe(computeContentHash(buildEmbedHashInput(after.content_text)));
+      expect(after.content_hash).toBe(computeContentHash(buildEmbedHashInput('Body Change Doc', after.content_text)));
     });
 
     test('case 4: embed failure → chunks untouched, hash NOT advanced, fulltext still works; next pass retries and succeeds', async () => {
@@ -221,7 +241,7 @@ describe('search indexer content-hash gating (017)', () => {
       await searchIndexer.indexDocument(docGuid);
       expect(mockEmbedMany).toHaveBeenCalledTimes(1);
       const afterRetry = await getIndexRow(docGuid);
-      expect(afterRetry.content_hash).toBe(computeContentHash(buildEmbedHashInput(afterRetry.content_text)));
+      expect(afterRetry.content_hash).toBe(computeContentHash(buildEmbedHashInput('Failure Doc', afterRetry.content_text)));
       expect(afterRetry.content_hash).not.toBe(before.content_hash);
     });
 
@@ -238,7 +258,7 @@ describe('search indexer content-hash gating (017)', () => {
       expect(mockEmbedMany).not.toHaveBeenCalled();
       expect((await getChunks(docGuid)).length).toBe(0); // ghost chunks removed (CN-6)
       const settled = await getIndexRow(docGuid);
-      expect(settled.content_hash).toBe(computeContentHash(buildEmbedHashInput('')));
+      expect(settled.content_hash).toBe(computeContentHash(buildEmbedHashInput('Emptied Doc', '')));
 
       // Second no-change pass: zero provider calls AND no delete transaction
       const connectSpy = jest.spyOn(pool, 'connect');
@@ -269,7 +289,7 @@ describe('search indexer content-hash gating (017)', () => {
       }
     });
 
-    test('case 7 (CN-7 seam): stored hash equals computeContentHash(buildEmbedHashInput(text)) and is title-independent', async () => {
+    test('case 7 (CN-7 seam, 018 DR-1): stored hash equals the seam output and is TITLE-AWARE', async () => {
       const body = 'identical body text shared by two differently titled documents';
       const docA = await createDoc('Title Alpha', body);
       const docB = await createDoc('Completely Different Beta', body);
@@ -279,11 +299,12 @@ describe('search indexer content-hash gating (017)', () => {
       const rowA = await getIndexRow(docA);
       const rowB = await getIndexRow(docB);
       // The gate consumes ONLY the seam function's output
-      expect(rowA.content_hash).toBe(computeContentHash(buildEmbedHashInput(rowA.content_text)));
-      expect(rowB.content_hash).toBe(computeContentHash(buildEmbedHashInput(rowB.content_text)));
-      // Same body, different titles → identical seam output → identical hash
-      expect(buildEmbedHashInput(rowA.content_text)).toBe(buildEmbedHashInput(rowB.content_text));
-      expect(rowA.content_hash).toBe(rowB.content_hash);
+      expect(rowA.content_hash).toBe(computeContentHash(buildEmbedHashInput('Title Alpha', rowA.content_text)));
+      expect(rowB.content_hash).toBe(computeContentHash(buildEmbedHashInput('Completely Different Beta', rowB.content_text)));
+      // Same body, DIFFERENT titles → different seam output → different hash
+      // (DR-1: the title is embedded, so it must be fingerprinted)
+      expect(rowA.content_text).toBe(rowB.content_text);
+      expect(rowA.content_hash).not.toBe(rowB.content_hash);
     });
 
     test('case 8: pre-feature row (content_hash IS NULL) regenerates on next pass', async () => {
@@ -296,7 +317,7 @@ describe('search indexer content-hash gating (017)', () => {
 
       expect(mockEmbedMany).toHaveBeenCalledTimes(1);
       const row = await getIndexRow(docGuid);
-      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput(row.content_text)));
+      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput('Pre Feature Doc', row.content_text)));
     });
   });
 
@@ -405,7 +426,7 @@ describe('search indexer content-hash gating (017)', () => {
 
       expect(mockEmbedMany).toHaveBeenCalledTimes(1); // converges in a single pass
       const row = await getIndexRow(docGuid);
-      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput(row.content_text)));
+      expect(row.content_hash).toBe(computeContentHash(buildEmbedHashInput('Doubly Stale Doc', row.content_text)));
       for (const chunk of await getChunks(docGuid)) {
         expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
       }
@@ -455,9 +476,9 @@ describe('search indexer content-hash gating (017)', () => {
       expect(a).toBe(cryptoLib.createHash('sha256').update('hello world', 'utf8').digest('hex'));
     });
 
-    test('buildEmbedHashInput is the identity on body text in 017', () => {
-      expect(buildEmbedHashInput('some extracted text')).toBe('some extracted text');
-      expect(buildEmbedHashInput('')).toBe('');
+    test('buildEmbedHashInput is title + \\n + body since 018 (DR-1)', () => {
+      expect(buildEmbedHashInput('A Title', 'some extracted text')).toBe('A Title\nsome extracted text');
+      expect(buildEmbedHashInput('', '')).toBe('\n');
     });
   });
 });

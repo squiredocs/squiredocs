@@ -2,10 +2,34 @@
  * Tests for the search indexer module
  */
 const crypto = require('crypto');
-const { createPool, createTestUser, cleanupTestUser } = require('./helpers/db');
-const { chunkText } = require('../search-indexer');
+const Y = require('yjs');
+const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+
+// Mock the ai SDK: embedMany is a controllable spy (fake 1536-dim vectors),
+// so pipeline tests prove provider-call counts without any provider.
+const mockEmbedMany = jest.fn();
+const mockEmbed = jest.fn();
+jest.mock('ai', () => ({
+  embedMany: (...args) => mockEmbedMany(...args),
+  embed: (...args) => mockEmbed(...args),
+  generateObject: jest.fn(),
+  jsonSchema: (s) => s,
+}));
+jest.mock('@ai-sdk/google', () => ({
+  google: { textEmbeddingModel: jest.fn(() => 'mock-embedding-model') },
+}));
+
+const searchIndexer = require('../search-indexer');
+const searchMod = require('../search');
+const { chunkText, buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL } = searchIndexer;
 
 const fakeVector = () => Array.from({ length: 1536 }, (_, i) => ((i % 5) + 1) * 0.001);
+
+function resolveEmbeddings() {
+  mockEmbedMany.mockImplementation(async ({ values }) => ({
+    embeddings: values.map(() => fakeVector()),
+  }));
+}
 
 describe('chunkText', () => {
   test('returns single chunk for short text', () => {
@@ -155,5 +179,323 @@ describe('chunk-structure-columns migration (018 T006)', () => {
        WHERE tablename = 'document_embeddings' AND indexname = 'idx_embeddings_search_vector_gin'`
     );
     expect(r.rows.length).toBe(1);
+  });
+});
+
+// ————————————————————————————————————————————————————————————————————————
+// Feature 018 US1 — indexer pipeline integration (T011) and rollout
+// continuity (T012). DB-backed, following search-indexer-gating conventions.
+// Preambles are disabled here (SEARCH_PREAMBLES=off) — the preamble gating
+// tests live in their own describe (T019); this block proves the structure
+// pipeline itself.
+// ————————————————————————————————————————————————————————————————————————
+describe('structure-aware indexing pipeline (018 T011/T012)', () => {
+  let pool;
+  let persistence;
+  let userId;
+  let savedApiKey;
+  let savedPreambles;
+  const liveDocs = new Map();
+  const createdDocIds = [];
+
+  beforeAll(async () => {
+    savedApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-018';
+    savedPreambles = process.env.SEARCH_PREAMBLES;
+    process.env.SEARCH_PREAMBLES = 'off';
+
+    pool = createPool();
+    persistence = createPersistence();
+    await persistence._init();
+    searchIndexer.init(persistence);
+    userId = await createTestUser(pool, 'search-pipeline-018@example.com');
+  });
+
+  afterAll(async () => {
+    if (savedApiKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedApiKey;
+    if (savedPreambles === undefined) delete process.env.SEARCH_PREAMBLES;
+    else process.env.SEARCH_PREAMBLES = savedPreambles;
+
+    if (createdDocIds.length > 0) {
+      await pool.query('DELETE FROM document_embeddings WHERE doc_id = ANY($1)', [createdDocIds]);
+      await pool.query('DELETE FROM document_search_index WHERE doc_id = ANY($1)', [createdDocIds]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = ANY($1)', [createdDocIds]);
+      for (const docGuid of createdDocIds) {
+        await persistence.clearDocument(docGuid);
+      }
+      await pool.query('DELETE FROM documents WHERE id = ANY($1)', [createdDocIds]);
+    }
+    await cleanupTestUser(pool, userId);
+    await persistence.destroy();
+    await pool.end();
+  });
+
+  beforeEach(() => {
+    mockEmbedMany.mockReset();
+    mockEmbed.mockReset();
+    resolveEmbeddings();
+  });
+
+  /** Build Yjs blocks: strings become paragraphs; {h: level, text} become headings. */
+  function buildBlocks(frag, blocks) {
+    const els = blocks.map((b) => {
+      if (typeof b === 'string') {
+        const para = new Y.XmlElement('paragraph');
+        para.insert(0, [new Y.XmlText(b)]);
+        return para;
+      }
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', String(b.h));
+      heading.insert(0, [new Y.XmlText(b.text)]);
+      return heading;
+    });
+    frag.insert(0, els);
+  }
+
+  async function createDoc(title, blocks) {
+    const docGuid = crypto.randomUUID();
+    await pool.query(
+      'INSERT INTO documents (id, title, creator_id) VALUES ($1, $2, $3)',
+      [docGuid, title, userId]
+    );
+    const ydoc = new Y.Doc();
+    ydoc.getMap('meta').set('title', title);
+    if (blocks && blocks.length) buildBlocks(ydoc.getXmlFragment('default'), blocks);
+    await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(ydoc), userId);
+    liveDocs.set(docGuid, ydoc);
+    createdDocIds.push(docGuid);
+    return docGuid;
+  }
+
+  async function setBlocks(docGuid, blocks) {
+    const ydoc = liveDocs.get(docGuid);
+    const frag = ydoc.getXmlFragment('default');
+    frag.delete(0, frag.length);
+    buildBlocks(frag, blocks);
+    await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(ydoc), userId);
+  }
+
+  async function getChunks(docGuid) {
+    const r = await pool.query(
+      `SELECT chunk_index, chunk_text, heading_path, preamble_text, embedded_text,
+              token_estimate, embedding_model,
+              (search_vector IS NOT NULL) AS has_vector
+       FROM document_embeddings WHERE doc_id = $1 ORDER BY chunk_index`,
+      [docGuid]
+    );
+    return r.rows;
+  }
+
+  async function getHash(docGuid) {
+    const r = await pool.query('SELECT content_hash FROM document_search_index WHERE doc_id = $1', [docGuid]);
+    return r.rows[0] && r.rows[0].content_hash;
+  }
+
+  const longSection = (tag) =>
+    Array.from({ length: 40 }, (_, i) => `This is sentence ${i + 1} about ${tag} with plenty of detail.`).join(' ');
+
+  test('T011a: indexDocument writes new-scheme rows — trails, title-headed embedded_text, tokens, vectors, model (FR-008/FR-009)', async () => {
+    const docGuid = await createDoc('Ops Runbook', [
+      { h: 1, text: 'Operations' },
+      longSection('operations overview'),
+      { h: 2, text: 'Deployment' },
+      longSection('deployment steps'),
+    ]);
+    await searchIndexer.indexDocument(docGuid);
+
+    const chunks = await getChunks(docGuid);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    for (const chunk of chunks) {
+      expect(Array.isArray(chunk.heading_path)).toBe(true);
+      expect(chunk.embedded_text).not.toBeNull();
+      expect(chunk.embedded_text.startsWith('Ops Runbook')).toBe(true);
+      const headerLine = chunk.embedded_text.split('\n')[0];
+      expect(headerLine).toBe(['Ops Runbook', ...chunk.heading_path].join(' > '));
+      expect(chunk.token_estimate).toBeGreaterThan(0);
+      expect(chunk.has_vector).toBe(true);
+      expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+      // chunk_text is raw document-authored text: no header, no title prefix
+      expect(chunk.chunk_text.startsWith('Ops Runbook >')).toBe(false);
+    }
+    const paths = chunks.map((c) => c.heading_path);
+    expect(paths).toContainEqual(['Operations']);
+    expect(paths).toContainEqual(['Operations', 'Deployment']);
+    // What was embedded is the composed embedded_text, not bare chunk text
+    const embeddedValues = mockEmbedMany.mock.calls.flatMap(([{ values }]) => values);
+    expect(embeddedValues.length).toBe(chunks.length);
+    for (const v of embeddedValues) {
+      expect(v.startsWith('Ops Runbook')).toBe(true);
+    }
+  });
+
+  test('T011b: whole-set swap is transactional — mid-swap INSERT failure leaves the complete OLD set serving (FR-010, RBD-7)', async () => {
+    const docGuid = await createDoc('Swap Doc', [
+      { h: 1, text: 'Alpha' },
+      longSection('alpha material'),
+      { h: 1, text: 'Beta' },
+      longSection('beta material'),
+    ]);
+    await searchIndexer.indexDocument(docGuid);
+    const before = await getChunks(docGuid);
+    expect(before.length).toBeGreaterThanOrEqual(2);
+    const hashBefore = await getHash(docGuid);
+
+    // New content whose SECOND chunk trips a sentinel insert failure
+    await setBlocks(docGuid, [
+      { h: 1, text: 'Alpha' },
+      longSection('replacement alpha'),
+      { h: 1, text: 'Beta' },
+      `${longSection('replacement beta')} FAILSWAP sentinel.`,
+    ]);
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION fail_on_sentinel() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.chunk_text LIKE '%FAILSWAP%' THEN
+          RAISE EXCEPTION 'sentinel insert failure';
+        END IF;
+        RETURN NEW;
+      END; $$ LANGUAGE plpgsql`);
+    await pool.query(`
+      CREATE TRIGGER trg_fail_sentinel BEFORE INSERT ON document_embeddings
+      FOR EACH ROW EXECUTE FUNCTION fail_on_sentinel()`);
+    try {
+      await searchIndexer.indexDocument(docGuid); // swap fails mid-INSERT, must roll back
+      const after = await getChunks(docGuid);
+      expect(after).toEqual(before); // complete old set still serves
+      expect(await getHash(docGuid)).toBe(hashBefore); // hash not advanced
+    } finally {
+      await pool.query('DROP TRIGGER IF EXISTS trg_fail_sentinel ON document_embeddings');
+      await pool.query('DROP FUNCTION IF EXISTS fail_on_sentinel');
+    }
+
+    // With the fault removed, the next pass completes the swap
+    await searchIndexer.indexDocument(docGuid);
+    const swapped = await getChunks(docGuid);
+    expect(swapped.map((c) => c.chunk_text).join(' ')).toContain('replacement alpha');
+    expect(await getHash(docGuid)).not.toBe(hashBefore);
+  });
+
+  test('T011c: unchanged title+body re-persist ⇒ zero embedding calls (017 gate intact, SC-007)', async () => {
+    const docGuid = await createDoc('Gate Doc', [{ h: 1, text: 'Only' }, 'stable body text.']);
+    await searchIndexer.indexDocument(docGuid);
+    expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+    mockEmbedMany.mockClear();
+
+    await searchIndexer.indexDocument(docGuid);
+    expect(mockEmbedMany).not.toHaveBeenCalled();
+  });
+
+  test('T011d: empty doc ⇒ zero chunk rows, FTS row maintained (edge case)', async () => {
+    const docGuid = await createDoc('Empty Doc', []);
+    await searchIndexer.indexDocument(docGuid);
+    expect((await getChunks(docGuid)).length).toBe(0);
+    const fts = await pool.query('SELECT 1 FROM document_search_index WHERE doc_id = $1', [docGuid]);
+    expect(fts.rows.length).toBe(1);
+    expect(mockEmbedMany).not.toHaveBeenCalled();
+  });
+
+  test('T011e (017-F3): backfill-path default hash equals indexDocument-path hash — no doubled re-embed', async () => {
+    const { toStructured, toPlainText } = require('../mcp/yjs/serialization');
+    const docGuid = await createDoc('Backfill Parity Doc', [{ h: 1, text: 'Body' }, 'backfill parity content.']);
+    const ydoc = liveDocs.get(docGuid);
+    const frag = ydoc.getXmlFragment('default');
+    const contentText = toPlainText(frag);
+    const nodes = toStructured(frag);
+
+    // The real backfill only ever selects docs that already have an FTS row —
+    // seed it first, exactly as production state would be.
+    await pool.query(
+      `INSERT INTO document_search_index (doc_id, content_text, search_vector)
+       VALUES ($1, $2, to_tsvector('english', $2)) ON CONFLICT (doc_id) DO NOTHING`,
+      [docGuid, contentText]
+    );
+    // Backfill path: generateAndStoreEmbeddings without an explicit hash —
+    // the default-param producer must be title-aware (017 review finding F3).
+    await searchIndexer.generateAndStoreEmbeddings(docGuid, { title: 'Backfill Parity Doc', contentText, nodes });
+    const storedHash = await getHash(docGuid);
+    expect(storedHash).toBe(computeContentHash(buildEmbedHashInput('Backfill Parity Doc', contentText)));
+
+    // The very next indexDocument pass must be a no-op (hash parity)
+    mockEmbedMany.mockClear();
+    await searchIndexer.indexDocument(docGuid);
+    expect(mockEmbedMany).not.toHaveBeenCalled();
+  });
+
+  describe('rollout continuity (T012, FR-011/SC-012)', () => {
+    let docLegacy;
+    let docFresh;
+
+    async function simulateLegacy(docGuid, bodyText) {
+      // Rewind the doc's rows to the pre-018 shape: fixed-window columns only,
+      // hash computed body-only (the 017 producer) — exactly what a pre-018
+      // deploy leaves behind.
+      await pool.query(
+        `UPDATE document_embeddings
+         SET heading_path = NULL, preamble_text = NULL, embedded_text = NULL,
+             token_estimate = NULL, search_vector = NULL
+         WHERE doc_id = $1`,
+        [docGuid]
+      );
+      await pool.query(
+        'UPDATE document_search_index SET content_hash = $2 WHERE doc_id = $1',
+        [docGuid, computeContentHash(bodyText)]
+      );
+    }
+
+    beforeAll(async () => {
+      docLegacy = await createDoc('Legacy Rollout Doc', [
+        { h: 1, text: 'Legacy Heading' },
+        'legacy walrus content that was indexed under the fixed-window scheme.',
+      ]);
+      await searchIndexer.indexDocument(docLegacy);
+      await simulateLegacy(docLegacy, 'Legacy Heading\nlegacy walrus content that was indexed under the fixed-window scheme.\n');
+
+      docFresh = await createDoc('Fresh Rollout Doc', [
+        { h: 1, text: 'Fresh Heading' },
+        'fresh narwhal content indexed under the structure scheme.',
+      ]);
+      await searchIndexer.indexDocument(docFresh);
+
+      for (const docGuid of [docLegacy, docFresh]) {
+        await pool.query(
+          `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+          [docGuid, userId]
+        );
+      }
+    });
+
+    test('T012a: legacy rows (embedded_text IS NULL) keep serving semantic search (SC-012)', async () => {
+      const legacyRows = await getChunks(docLegacy);
+      expect(legacyRows.length).toBeGreaterThan(0);
+      for (const row of legacyRows) expect(row.embedded_text).toBeNull();
+
+      searchMod.init(pool);
+      searchMod._resetCache();
+      mockEmbed.mockImplementation(async () => ({ embedding: fakeVector() }));
+      const results = await searchMod.searchDocuments(userId, 'walrus content', { mode: 'semantic' });
+      expect(results.rows.map((r) => r.doc_id)).toContain(docLegacy);
+    });
+
+    test('T012b: reindexStale selects exactly the legacy-owning docs and re-chunks them', async () => {
+      mockEmbedMany.mockClear();
+      await searchIndexer.reindexStale();
+
+      // Exactly one embed cycle: the legacy doc. The fresh doc is untouched.
+      expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+      const migrated = await getChunks(docLegacy);
+      expect(migrated.length).toBeGreaterThan(0);
+      for (const row of migrated) {
+        expect(row.embedded_text).not.toBeNull();
+        expect(row.embedded_text.startsWith('Legacy Rollout Doc')).toBe(true);
+        expect(row.has_vector).toBe(true);
+      }
+    });
+
+    test('T012c: after full migration a second reindexStale does zero chunking work (FR-011)', async () => {
+      mockEmbedMany.mockClear();
+      await searchIndexer.reindexStale();
+      expect(mockEmbedMany).not.toHaveBeenCalled();
+    });
   });
 });
