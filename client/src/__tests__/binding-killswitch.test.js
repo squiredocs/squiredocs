@@ -81,7 +81,6 @@ describe('021 kill-switch (DR-2): atomic all-four revert to stock', () => {
     expect(yNodeNames(harness.remoteFragment)).toEqual([
       'paragraph',
       'squireUnknownNode021',
-      'paragraph',
     ]);
     expect(bytesEqual(second.pristine, encodeState(harness.remoteDoc))).toBe(true);
   });

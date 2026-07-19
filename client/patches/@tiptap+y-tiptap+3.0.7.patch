@@ -1,0 +1,756 @@
+diff --git a/node_modules/@tiptap/y-tiptap/dist/y-tiptap.cjs b/node_modules/@tiptap/y-tiptap/dist/y-tiptap.cjs
+index 824431f..13ed1c2 100644
+--- a/node_modules/@tiptap/y-tiptap/dist/y-tiptap.cjs
++++ b/node_modules/@tiptap/y-tiptap/dist/y-tiptap.cjs
+@@ -166,6 +166,83 @@ const getUserColor = (colorMapping, colors, user) => {
+   return /** @type {ColorDef} */ (colorMapping.get(user))
+ };
+ 
++
++/**
++ * ---- Squire feature 021: binding hardening helpers -------------------------
++ * (see the SQUIRE-021 sentinel sites below; patch delivered via patch-package,
++ * guard test: client/src/__tests__/binding-patch-guard.test.js)
++ *
++ * squireHardeningEnabled() is the runtime kill-switch (DR-2): read LIVE at
++ * every decision point; anything other than the explicit boolean false means
++ * hardened (fail-safe default ON). When OFF every patched site executes the
++ * verbatim stock 3.0.7 code path — one flag, all four behaviors, atomic.
++ */
++const squireHardeningEnabled = () =>
++  typeof globalThis === 'undefined' || globalThis.__SQUIRE_COLLAB_HARDENING__ !== false;
++
++/**
++ * Once-per-element-per-binding-instance bounded log + fire-and-forget report
++ * (FR-003, RBD-6, DR-3). The skip itself is unconditional — bounding applies
++ * to logging only. Reporting can never affect rendering.
++ */
++const squireLogSkip = (nodeType, elOrText, meta, err, standIn) => {
++  if (meta.squireLoggedFailures) {
++    if (meta.squireLoggedFailures.has(elOrText)) return
++    meta.squireLoggedFailures.add(elOrText);
++  }
++  const docId = elOrText && elOrText.doc ? elOrText.doc.guid : undefined;
++  console.error(
++    '[SquireCollab] render failure — skipping node, shared doc untouched',
++    { nodeType, docId, standIn: standIn != null, error: err }
++  );
++  try {
++    const reporter = typeof globalThis !== 'undefined' ? globalThis.__SQUIRE_SKIP_REPORTER__ : undefined;
++    if (typeof reporter === 'function') {
++      reporter({ docId, nodeType, errorName: err && err.name ? err.name : 'Error' });
++    }
++  } catch (_squireReportErr) {
++    // swallowed: the reporter hook must never throw into the render path
++  }
++};
++
++/**
++ * Shared render-failure handler (SQUIRE-021 sites 1-2): NEVER mutates the
++ * shared doc (FR-001); attempts a createAndFill stand-in first
++ * (DR-1/Addition-2); registers the element in the binding's skip registry so
++ * the PM→Y diff can never delete it through the front door (site 5); logs and
++ * reports once per element per instance; marks the binding possibly-divergent
++ * (RBD-3). Note: a stand-in is identity-tracked — the pair (Y element, view
++ * node) drops out of the diff together. Editing INSIDE a stand-in is an
++ * accepted degraded-view edge; it can add content to Y but never destroy any.
++ */
++const squireHandleRenderFailure = (el, schema, meta, err) => {
++  meta.mapping.delete(el);
++  let standIn = null;
++  if (el && el.nodeName && schema && schema.nodes && schema.nodes[el.nodeName]) {
++    try {
++      const yAttrs = el.getAttributes();
++      const attrs = {};
++      for (const k in yAttrs) {
++        if (yAttrs[k] !== null && typeof yAttrs[k] !== 'object') attrs[k] = yAttrs[k];
++      }
++      standIn = schema.nodes[el.nodeName].createAndFill(attrs) || null;
++    } catch (_squireFillErr) {
++      standIn = null;
++    }
++  }
++  if (standIn !== null) {
++    meta.mapping.set(el, standIn);
++    if (meta.squireStandIns) meta.squireStandIns.set(el, standIn);
++  }
++  const squireIsNewFailure = meta.squireSkippedTypes ? !meta.squireSkippedTypes.has(el) : false;
++  if (meta.squireSkippedTypes) meta.squireSkippedTypes.add(el);
++  squireLogSkip(el && el.nodeName ? el.nodeName : '#element', el, meta, err, standIn);
++  if (squireIsNewFailure && typeof meta.squireMarkDivergent === 'function') {
++    meta.squireMarkDivergent();
++  }
++  return standIn
++};
++
+ /**
+  * This plugin listens to changes in prosemirror view and keeps yXmlState and view in sync.
+  *
+@@ -211,6 +288,9 @@ const ySyncPlugin = (yXmlFragment, {
+         }
+       },
+       apply: (tr, pluginState) => {
++        // (Squire 021, see SQUIRE-021 writeback-gate) record whether this
++        // transaction changed the editor doc; consumed by the update() hook.
++        if (tr.docChanged) binding._squirePendingDocChanged = true;
+         const change = tr.getMeta(ySyncPluginKey);
+         if (change !== undefined) {
+           pluginState = Object.assign({}, pluginState);
+@@ -270,10 +350,20 @@ const ySyncPlugin = (yXmlFragment, {
+       onFirstRender();
+       return {
+         update: () => {
++          /* SQUIRE-021:writeback-gate — the editor→Yjs diff runs only when the
++             triggering transaction(s) actually changed the editor doc
++             (FR-006). Selection-only, metadata, and other doc-unchanged
++             transactions never write to the shared doc — especially when the
++             view has diverged from it (the incident's second half). */
++          const squireDocChanged = binding._squirePendingDocChanged === true;
++          binding._squirePendingDocChanged = false;
+           const pluginState = plugin.getState(view.state);
+           if (
+             pluginState.snapshot == null && pluginState.prevSnapshot == null
+           ) {
++            if (squireHardeningEnabled() && !squireDocChanged) {
++              return
++            }
+             if (
+               // If the content doesn't change initially, we don't render anything to Yjs
+               // If the content was cleared by a user action, we want to catch the change and
+@@ -537,6 +627,32 @@ class ProsemirrorBinding {
+       this.beforeTransactionSelection = null;
+     };
+     this._domSelectionInView = null;
++    // ---- Squire feature 021: per-instance skip registry + divergence marker
++    // (data-model.md "Binding skip registry"; consumed at the SQUIRE-021
++    // tracked-skip site). Rebuilt every render pass: fail => add,
++    // success => remove.
++    this.squireSkippedTypes = new Set();
++    this.squireStandIns = new Map();
++    this.squireLoggedFailures = new Set();
++    this.squireDivergent = false;
++    this._squireResolutionScheduled = false;
++    this.squireMarkDivergent = () => {
++      this.squireDivergent = true;
++      if (this._squireResolutionScheduled) return
++      this._squireResolutionScheduled = true;
++      eventloop__namespace.timeout(0, () => {
++        this._squireResolutionScheduled = false;
++        if (this.prosemirrorView == null) return
++        this.squireDivergent = false;
++        if (!squireHardeningEnabled()) return
++        // FR-007: resolve detected divergence by re-rendering the view FROM
++        // the shared doc — never by "correcting" the shared doc from the
++        // view. A re-render that fails again just re-skips (bounded: repeat
++        // failures are not "new" and do not reschedule — no render/failure
++        // cycling, FR-004).
++        this._forceRerender();
++      });
++    };
+   }
+ 
+   /**
+@@ -778,6 +894,19 @@ class ProsemirrorBinding {
+     });
+   }
+ 
++  /**
++   * Squire 021 selection-restore seam: the guarded call site (SQUIRE-021
++   * selection-guard) routes through this method so tests can stub a throw
++   * against the real call site.
++   *
++   * @param {import('prosemirror-state').Transaction} tr
++   * @param {ReturnType<typeof getRelativeSelection>} relSel
++   * @param {import('prosemirror-model').Node} [oldDoc]
++   */
++  _restoreRelativeSelection (tr, relSel, oldDoc) {
++    restoreRelativeSelection(tr, relSel, this, oldDoc);
++  }
++
+   /**
+    * @param {Array<Y.YEvent<any>>} events
+    * @param {Y.Transaction} transaction
+@@ -828,7 +957,29 @@ class ProsemirrorBinding {
+         this.prosemirrorView.state.doc.content.size,
+         new PModel__namespace.Slice(PModel__namespace.Fragment.from(fragmentContent), 0, 0)
+       );
+-      restoreRelativeSelection(tr, this.beforeTransactionSelection, this, oldDoc);
++      /* SQUIRE-021:selection-guard — a selection-restore throw must not
++         abort the remote-change render (FR-005): the render commits with all
++         remote content; the selection degrades to a clamped near position.
++         The restore is routed through the binding seam
++         _restoreRelativeSelection so tests can inject a throw. */
++      if (squireHardeningEnabled()) {
++        try {
++          this._restoreRelativeSelection(tr, this.beforeTransactionSelection, oldDoc);
++        } catch (squireSelErr) {
++          this.squireMarkDivergent();
++          try {
++            const squireRelSel = this.beforeTransactionSelection;
++            const squirePrevHead = squireRelSel && typeof squireRelSel.absHead === 'number' ? squireRelSel.absHead : 0;
++            const squireClamped = math__namespace.min(math__namespace.max(squirePrevHead, 0), tr.doc.content.size);
++            tr.setSelection(prosemirrorState.TextSelection.near(tr.doc.resolve(squireClamped)));
++          } catch (_squireFallbackErr) {
++            // keep the transaction's default (position-mapped) selection
++          }
++          console.error('[SquireCollab] selection restore failed — render committed with a clamped selection', squireSelErr);
++        }
++      } else {
++        restoreRelativeSelection(tr, this.beforeTransactionSelection, this, oldDoc);
++      }
+       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y__namespace.UndoManager });
+       if (
+         this.beforeTransactionSelection !== null && this._isLocalCursorInView()
+@@ -866,6 +1017,11 @@ class ProsemirrorBinding {
+ 
+   destroy () {
+     if (this.prosemirrorView == null) return
++    // Squire 021: reset the per-instance skip registry — an editor recreation
++    // re-logs by design (RBD-6).
++    this.squireSkippedTypes.clear();
++    this.squireStandIns.clear();
++    this.squireLoggedFailures.clear();
+     this.prosemirrorView = null;
+     this.type.unobserveDeep(this._observeFunction);
+     this.doc.off('beforeAllTransactions', this.beforeAllTransactions);
+@@ -928,6 +1084,10 @@ const createNodeFromYElement = (
+   computeYChange
+ ) => {
+   const children = [];
++  // Squire 021: set when a child text run failed to render (see SQUIRE-021
++  // render-catch-text) — this element's view node then no longer reflects the
++  // shared content and must be diff-excluded like a stand-in.
++  let squireTextSkipped = false;
+   /**
+    * @param {Y.XmlElement | Y.XmlText} type
+    */
+@@ -973,6 +1133,10 @@ const createNodeFromYElement = (
+             children.push(textchild);
+           }
+         });
++      } else if (squireHardeningEnabled()) {
++        // Squire 021: the run was skipped (hardened text catch) — flag the
++        // containing element for pair-wise diff exclusion.
++        squireTextSkipped = true;
+       }
+     }
+   };
+@@ -997,8 +1161,28 @@ const createNodeFromYElement = (
+     }
+     const node = schema.node(el.nodeName, attrs, children);
+     meta.mapping.set(el, node);
++    if (squireHardeningEnabled() && meta.squireSkippedTypes) {
++      if (squireTextSkipped) {
++        // Squire 021: a child text run was skipped — register the containing
++        // element as a diff-excluded stand-in pair (contract site 2).
++        meta.squireSkippedTypes.add(el);
++        if (meta.squireStandIns) meta.squireStandIns.set(el, node);
++      } else {
++        // Successful render: the element rejoins the diff (fail => add,
++        // success => remove).
++        meta.squireSkippedTypes.delete(el);
++        if (meta.squireStandIns) meta.squireStandIns.delete(el);
++      }
++    }
+     return node
+   } catch (e) {
++    /* SQUIRE-021:render-catch-element — a render failure must NEVER delete,
++       alter, or otherwise write to the shared document (FR-001..004):
++       createAndFill stand-in first, then tracked skip + bounded log/report. */
++    if (squireHardeningEnabled()) {
++      return squireHandleRenderFailure(el, schema, meta, e)
++    }
++    // stock 3.0.7 (kill-switch OFF):
+     // an error occured while creating the node. This is probably a result of a concurrent action.
+     /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
+       /** @type {Y.Item} */ (el._item).delete(transaction);
+@@ -1034,6 +1218,19 @@ const createTextNodesFromYText = (
+       nodes.push(schema.text(delta.insert, attributesToMarks(delta.attributes, schema)));
+     }
+   } catch (e) {
++    /* SQUIRE-021:render-catch-text — same contract as the element site on the
++       text-run path (FR-001..003): skip the run, keep the shared text intact,
++       bounded log + report; the containing element is registered as a
++       diff-excluded pair by the caller. */
++    if (squireHardeningEnabled()) {
++      const squireIsNewTextFailure = _meta.squireLoggedFailures ? !_meta.squireLoggedFailures.has(text) : false;
++      squireLogSkip('#text', text, _meta, e, null);
++      if (squireIsNewTextFailure && typeof _meta.squireMarkDivergent === 'function') {
++        _meta.squireMarkDivergent();
++      }
++      return null
++    }
++    // stock 3.0.7 (kill-switch OFF):
+     // an error occured while creating the node. This is probably a result of a concurrent action.
+     /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
+       /** @type {Y.Item} */ (text._item).delete(transaction);
+@@ -1377,9 +1574,41 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+     }
+   }
+   // update children
+-  const pChildren = normalizePNodeContent(pNode);
++  /* SQUIRE-021:tracked-skip — Y children in the binding's skip registry (and
++     their createAndFill/text-skip stand-ins on the view side) are INVISIBLE
++     to this diff: excluded from child matching, never counted toward the
++     delete length, never deleted, never "updated" toward a stand-in — the
++     pair drops out together (DR-1/Addition-1, research R2). Matching walks
++     the FILTERED sequences; every mutation translates back to REAL fragment
++     indices via squireYRealIndex. With the kill-switch OFF (or no registry —
++     e.g. the plain-meta conversion call sites) the arrays are the stock ones
++     and the diff is byte-identical to stock 3.0.7. */
++  const squireSkips = squireHardeningEnabled() && meta.squireSkippedTypes &&
++    meta.squireSkippedTypes.size > 0
++    ? meta.squireSkippedTypes
++    : null;
++  const pChildrenAll = normalizePNodeContent(pNode);
++  const yChildrenAll = yDomFragment.toArray();
++  let pChildren = pChildrenAll;
++  let yChildren = yChildrenAll;
++  let squireYRealIndex = null;
++  if (squireSkips !== null) {
++    yChildren = [];
++    squireYRealIndex = [];
++    for (let i = 0; i < yChildrenAll.length; i++) {
++      if (squireSkips.has(yChildrenAll[i])) continue
++      yChildren.push(yChildrenAll[i]);
++      squireYRealIndex.push(i);
++    }
++    if (meta.squireStandIns && meta.squireStandIns.size > 0) {
++      const squireStandInNodes = new Set(meta.squireStandIns.values());
++      pChildren = pChildrenAll.filter((p) => p instanceof Array || !squireStandInNodes.has(p));
++    }
++  }
++  const squireRealIndex = (i) => squireYRealIndex === null
++    ? i
++    : (i < squireYRealIndex.length ? squireYRealIndex[i] : yDomFragment.length);
+   const pChildCnt = pChildren.length;
+-  const yChildren = yDomFragment.toArray();
+   const yChildCnt = yChildren.length;
+   const minCnt = math__namespace.min(pChildCnt, yChildCnt);
+   let left = 0;
+@@ -1472,9 +1701,12 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+           );
+           right += 1;
+         } else {
+-          meta.mapping.delete(yDomFragment.get(left));
+-          yDomFragment.delete(left, 1);
+-          yDomFragment.insert(left, [
++          // (Squire 021 tracked-skip) 1-for-1 replace at the REAL index —
++          // keeps the filtered→real map valid for the rest of the pass.
++          const squireLeft = squireRealIndex(left);
++          meta.mapping.delete(yDomFragment.get(squireLeft));
++          yDomFragment.delete(squireLeft, 1);
++          yDomFragment.insert(squireLeft, [
+             createTypeFromTextOrElementNode(leftP, meta)
+           ]);
+           left += 1;
+@@ -1490,15 +1722,28 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
+       yChildren[0].delete(0, yChildren[0].length);
+     } else if (yDelLen > 0) {
+-      yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
+-      yDomFragment.delete(left, yDelLen);
++      if (squireYRealIndex === null) {
++        yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
++        yDomFragment.delete(left, yDelLen);
++      } else {
++        // (Squire 021 tracked-skip) delete each unmatched NON-SKIPPED child
++        // at its real index, descending, so skipped children interleaved in
++        // the range survive untouched.
++        for (let i = left + yDelLen - 1; i >= left; i--) {
++          meta.mapping.delete(yChildren[i]);
++          yDomFragment.delete(squireYRealIndex[i], 1);
++        }
++      }
+     }
+     if (left + right < pChildCnt) {
+       const ins = [];
+       for (let i = left; i < pChildCnt - right; i++) {
+         ins.push(createTypeFromTextOrElementNode(pChildren[i], meta));
+       }
+-      yDomFragment.insert(left, ins);
++      // (Squire 021 tracked-skip) insert at the real boundary index — after
++      // the descending middle deletes this is exactly where the unmatched
++      // middle began (stock semantics), skipped neighbors preserved.
++      yDomFragment.insert(squireRealIndex(left), ins);
+     }
+   }, ySyncPluginKey);
+ };
+diff --git a/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js b/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js
+index ed2c98f..a2fdab7 100644
+--- a/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js
++++ b/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js
+@@ -132,6 +132,83 @@ const getUserColor = (colorMapping, colors, user) => {
+   return /** @type {ColorDef} */ (colorMapping.get(user))
+ };
+ 
++
++/**
++ * ---- Squire feature 021: binding hardening helpers -------------------------
++ * (see the SQUIRE-021 sentinel sites below; patch delivered via patch-package,
++ * guard test: client/src/__tests__/binding-patch-guard.test.js)
++ *
++ * squireHardeningEnabled() is the runtime kill-switch (DR-2): read LIVE at
++ * every decision point; anything other than the explicit boolean false means
++ * hardened (fail-safe default ON). When OFF every patched site executes the
++ * verbatim stock 3.0.7 code path — one flag, all four behaviors, atomic.
++ */
++const squireHardeningEnabled = () =>
++  typeof globalThis === 'undefined' || globalThis.__SQUIRE_COLLAB_HARDENING__ !== false;
++
++/**
++ * Once-per-element-per-binding-instance bounded log + fire-and-forget report
++ * (FR-003, RBD-6, DR-3). The skip itself is unconditional — bounding applies
++ * to logging only. Reporting can never affect rendering.
++ */
++const squireLogSkip = (nodeType, elOrText, meta, err, standIn) => {
++  if (meta.squireLoggedFailures) {
++    if (meta.squireLoggedFailures.has(elOrText)) return
++    meta.squireLoggedFailures.add(elOrText);
++  }
++  const docId = elOrText && elOrText.doc ? elOrText.doc.guid : undefined;
++  console.error(
++    '[SquireCollab] render failure — skipping node, shared doc untouched',
++    { nodeType, docId, standIn: standIn != null, error: err }
++  );
++  try {
++    const reporter = typeof globalThis !== 'undefined' ? globalThis.__SQUIRE_SKIP_REPORTER__ : undefined;
++    if (typeof reporter === 'function') {
++      reporter({ docId, nodeType, errorName: err && err.name ? err.name : 'Error' });
++    }
++  } catch (_squireReportErr) {
++    // swallowed: the reporter hook must never throw into the render path
++  }
++};
++
++/**
++ * Shared render-failure handler (SQUIRE-021 sites 1-2): NEVER mutates the
++ * shared doc (FR-001); attempts a createAndFill stand-in first
++ * (DR-1/Addition-2); registers the element in the binding's skip registry so
++ * the PM→Y diff can never delete it through the front door (site 5); logs and
++ * reports once per element per instance; marks the binding possibly-divergent
++ * (RBD-3). Note: a stand-in is identity-tracked — the pair (Y element, view
++ * node) drops out of the diff together. Editing INSIDE a stand-in is an
++ * accepted degraded-view edge; it can add content to Y but never destroy any.
++ */
++const squireHandleRenderFailure = (el, schema, meta, err) => {
++  meta.mapping.delete(el);
++  let standIn = null;
++  if (el && el.nodeName && schema && schema.nodes && schema.nodes[el.nodeName]) {
++    try {
++      const yAttrs = el.getAttributes();
++      const attrs = {};
++      for (const k in yAttrs) {
++        if (yAttrs[k] !== null && typeof yAttrs[k] !== 'object') attrs[k] = yAttrs[k];
++      }
++      standIn = schema.nodes[el.nodeName].createAndFill(attrs) || null;
++    } catch (_squireFillErr) {
++      standIn = null;
++    }
++  }
++  if (standIn !== null) {
++    meta.mapping.set(el, standIn);
++    if (meta.squireStandIns) meta.squireStandIns.set(el, standIn);
++  }
++  const squireIsNewFailure = meta.squireSkippedTypes ? !meta.squireSkippedTypes.has(el) : false;
++  if (meta.squireSkippedTypes) meta.squireSkippedTypes.add(el);
++  squireLogSkip(el && el.nodeName ? el.nodeName : '#element', el, meta, err, standIn);
++  if (squireIsNewFailure && typeof meta.squireMarkDivergent === 'function') {
++    meta.squireMarkDivergent();
++  }
++  return standIn
++};
++
+ /**
+  * This plugin listens to changes in prosemirror view and keeps yXmlState and view in sync.
+  *
+@@ -177,6 +254,9 @@ const ySyncPlugin = (yXmlFragment, {
+         }
+       },
+       apply: (tr, pluginState) => {
++        // (Squire 021, see SQUIRE-021 writeback-gate) record whether this
++        // transaction changed the editor doc; consumed by the update() hook.
++        if (tr.docChanged) binding._squirePendingDocChanged = true;
+         const change = tr.getMeta(ySyncPluginKey);
+         if (change !== undefined) {
+           pluginState = Object.assign({}, pluginState);
+@@ -236,10 +316,20 @@ const ySyncPlugin = (yXmlFragment, {
+       onFirstRender();
+       return {
+         update: () => {
++          /* SQUIRE-021:writeback-gate — the editor→Yjs diff runs only when the
++             triggering transaction(s) actually changed the editor doc
++             (FR-006). Selection-only, metadata, and other doc-unchanged
++             transactions never write to the shared doc — especially when the
++             view has diverged from it (the incident's second half). */
++          const squireDocChanged = binding._squirePendingDocChanged === true;
++          binding._squirePendingDocChanged = false;
+           const pluginState = plugin.getState(view.state);
+           if (
+             pluginState.snapshot == null && pluginState.prevSnapshot == null
+           ) {
++            if (squireHardeningEnabled() && !squireDocChanged) {
++              return
++            }
+             if (
+               // If the content doesn't change initially, we don't render anything to Yjs
+               // If the content was cleared by a user action, we want to catch the change and
+@@ -503,6 +593,32 @@ class ProsemirrorBinding {
+       this.beforeTransactionSelection = null;
+     };
+     this._domSelectionInView = null;
++    // ---- Squire feature 021: per-instance skip registry + divergence marker
++    // (data-model.md "Binding skip registry"; consumed at the SQUIRE-021
++    // tracked-skip site). Rebuilt every render pass: fail => add,
++    // success => remove.
++    this.squireSkippedTypes = new Set();
++    this.squireStandIns = new Map();
++    this.squireLoggedFailures = new Set();
++    this.squireDivergent = false;
++    this._squireResolutionScheduled = false;
++    this.squireMarkDivergent = () => {
++      this.squireDivergent = true;
++      if (this._squireResolutionScheduled) return
++      this._squireResolutionScheduled = true;
++      eventloop.timeout(0, () => {
++        this._squireResolutionScheduled = false;
++        if (this.prosemirrorView == null) return
++        this.squireDivergent = false;
++        if (!squireHardeningEnabled()) return
++        // FR-007: resolve detected divergence by re-rendering the view FROM
++        // the shared doc — never by "correcting" the shared doc from the
++        // view. A re-render that fails again just re-skips (bounded: repeat
++        // failures are not "new" and do not reschedule — no render/failure
++        // cycling, FR-004).
++        this._forceRerender();
++      });
++    };
+   }
+ 
+   /**
+@@ -744,6 +860,19 @@ class ProsemirrorBinding {
+     });
+   }
+ 
++  /**
++   * Squire 021 selection-restore seam: the guarded call site (SQUIRE-021
++   * selection-guard) routes through this method so tests can stub a throw
++   * against the real call site.
++   *
++   * @param {import('prosemirror-state').Transaction} tr
++   * @param {ReturnType<typeof getRelativeSelection>} relSel
++   * @param {import('prosemirror-model').Node} [oldDoc]
++   */
++  _restoreRelativeSelection (tr, relSel, oldDoc) {
++    restoreRelativeSelection(tr, relSel, this, oldDoc);
++  }
++
+   /**
+    * @param {Array<Y.YEvent<any>>} events
+    * @param {Y.Transaction} transaction
+@@ -794,7 +923,29 @@ class ProsemirrorBinding {
+         this.prosemirrorView.state.doc.content.size,
+         new PModel.Slice(PModel.Fragment.from(fragmentContent), 0, 0)
+       );
+-      restoreRelativeSelection(tr, this.beforeTransactionSelection, this, oldDoc);
++      /* SQUIRE-021:selection-guard — a selection-restore throw must not
++         abort the remote-change render (FR-005): the render commits with all
++         remote content; the selection degrades to a clamped near position.
++         The restore is routed through the binding seam
++         _restoreRelativeSelection so tests can inject a throw. */
++      if (squireHardeningEnabled()) {
++        try {
++          this._restoreRelativeSelection(tr, this.beforeTransactionSelection, oldDoc);
++        } catch (squireSelErr) {
++          this.squireMarkDivergent();
++          try {
++            const squireRelSel = this.beforeTransactionSelection;
++            const squirePrevHead = squireRelSel && typeof squireRelSel.absHead === 'number' ? squireRelSel.absHead : 0;
++            const squireClamped = math.min(math.max(squirePrevHead, 0), tr.doc.content.size);
++            tr.setSelection(TextSelection.near(tr.doc.resolve(squireClamped)));
++          } catch (_squireFallbackErr) {
++            // keep the transaction's default (position-mapped) selection
++          }
++          console.error('[SquireCollab] selection restore failed — render committed with a clamped selection', squireSelErr);
++        }
++      } else {
++        restoreRelativeSelection(tr, this.beforeTransactionSelection, this, oldDoc);
++      }
+       tr = tr.setMeta(ySyncPluginKey, { isChangeOrigin: true, isUndoRedoOperation: transaction.origin instanceof Y.UndoManager });
+       if (
+         this.beforeTransactionSelection !== null && this._isLocalCursorInView()
+@@ -832,6 +983,11 @@ class ProsemirrorBinding {
+ 
+   destroy () {
+     if (this.prosemirrorView == null) return
++    // Squire 021: reset the per-instance skip registry — an editor recreation
++    // re-logs by design (RBD-6).
++    this.squireSkippedTypes.clear();
++    this.squireStandIns.clear();
++    this.squireLoggedFailures.clear();
+     this.prosemirrorView = null;
+     this.type.unobserveDeep(this._observeFunction);
+     this.doc.off('beforeAllTransactions', this.beforeAllTransactions);
+@@ -894,6 +1050,10 @@ const createNodeFromYElement = (
+   computeYChange
+ ) => {
+   const children = [];
++  // Squire 021: set when a child text run failed to render (see SQUIRE-021
++  // render-catch-text) — this element's view node then no longer reflects the
++  // shared content and must be diff-excluded like a stand-in.
++  let squireTextSkipped = false;
+   /**
+    * @param {Y.XmlElement | Y.XmlText} type
+    */
+@@ -939,6 +1099,10 @@ const createNodeFromYElement = (
+             children.push(textchild);
+           }
+         });
++      } else if (squireHardeningEnabled()) {
++        // Squire 021: the run was skipped (hardened text catch) — flag the
++        // containing element for pair-wise diff exclusion.
++        squireTextSkipped = true;
+       }
+     }
+   };
+@@ -963,8 +1127,28 @@ const createNodeFromYElement = (
+     }
+     const node = schema.node(el.nodeName, attrs, children);
+     meta.mapping.set(el, node);
++    if (squireHardeningEnabled() && meta.squireSkippedTypes) {
++      if (squireTextSkipped) {
++        // Squire 021: a child text run was skipped — register the containing
++        // element as a diff-excluded stand-in pair (contract site 2).
++        meta.squireSkippedTypes.add(el);
++        if (meta.squireStandIns) meta.squireStandIns.set(el, node);
++      } else {
++        // Successful render: the element rejoins the diff (fail => add,
++        // success => remove).
++        meta.squireSkippedTypes.delete(el);
++        if (meta.squireStandIns) meta.squireStandIns.delete(el);
++      }
++    }
+     return node
+   } catch (e) {
++    /* SQUIRE-021:render-catch-element — a render failure must NEVER delete,
++       alter, or otherwise write to the shared document (FR-001..004):
++       createAndFill stand-in first, then tracked skip + bounded log/report. */
++    if (squireHardeningEnabled()) {
++      return squireHandleRenderFailure(el, schema, meta, e)
++    }
++    // stock 3.0.7 (kill-switch OFF):
+     // an error occured while creating the node. This is probably a result of a concurrent action.
+     /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
+       /** @type {Y.Item} */ (el._item).delete(transaction);
+@@ -1000,6 +1184,19 @@ const createTextNodesFromYText = (
+       nodes.push(schema.text(delta.insert, attributesToMarks(delta.attributes, schema)));
+     }
+   } catch (e) {
++    /* SQUIRE-021:render-catch-text — same contract as the element site on the
++       text-run path (FR-001..003): skip the run, keep the shared text intact,
++       bounded log + report; the containing element is registered as a
++       diff-excluded pair by the caller. */
++    if (squireHardeningEnabled()) {
++      const squireIsNewTextFailure = _meta.squireLoggedFailures ? !_meta.squireLoggedFailures.has(text) : false;
++      squireLogSkip('#text', text, _meta, e, null);
++      if (squireIsNewTextFailure && typeof _meta.squireMarkDivergent === 'function') {
++        _meta.squireMarkDivergent();
++      }
++      return null
++    }
++    // stock 3.0.7 (kill-switch OFF):
+     // an error occured while creating the node. This is probably a result of a concurrent action.
+     /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
+       /** @type {Y.Item} */ (text._item).delete(transaction);
+@@ -1343,9 +1540,41 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+     }
+   }
+   // update children
+-  const pChildren = normalizePNodeContent(pNode);
++  /* SQUIRE-021:tracked-skip — Y children in the binding's skip registry (and
++     their createAndFill/text-skip stand-ins on the view side) are INVISIBLE
++     to this diff: excluded from child matching, never counted toward the
++     delete length, never deleted, never "updated" toward a stand-in — the
++     pair drops out together (DR-1/Addition-1, research R2). Matching walks
++     the FILTERED sequences; every mutation translates back to REAL fragment
++     indices via squireYRealIndex. With the kill-switch OFF (or no registry —
++     e.g. the plain-meta conversion call sites) the arrays are the stock ones
++     and the diff is byte-identical to stock 3.0.7. */
++  const squireSkips = squireHardeningEnabled() && meta.squireSkippedTypes &&
++    meta.squireSkippedTypes.size > 0
++    ? meta.squireSkippedTypes
++    : null;
++  const pChildrenAll = normalizePNodeContent(pNode);
++  const yChildrenAll = yDomFragment.toArray();
++  let pChildren = pChildrenAll;
++  let yChildren = yChildrenAll;
++  let squireYRealIndex = null;
++  if (squireSkips !== null) {
++    yChildren = [];
++    squireYRealIndex = [];
++    for (let i = 0; i < yChildrenAll.length; i++) {
++      if (squireSkips.has(yChildrenAll[i])) continue
++      yChildren.push(yChildrenAll[i]);
++      squireYRealIndex.push(i);
++    }
++    if (meta.squireStandIns && meta.squireStandIns.size > 0) {
++      const squireStandInNodes = new Set(meta.squireStandIns.values());
++      pChildren = pChildrenAll.filter((p) => p instanceof Array || !squireStandInNodes.has(p));
++    }
++  }
++  const squireRealIndex = (i) => squireYRealIndex === null
++    ? i
++    : (i < squireYRealIndex.length ? squireYRealIndex[i] : yDomFragment.length);
+   const pChildCnt = pChildren.length;
+-  const yChildren = yDomFragment.toArray();
+   const yChildCnt = yChildren.length;
+   const minCnt = math.min(pChildCnt, yChildCnt);
+   let left = 0;
+@@ -1438,9 +1667,12 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+           );
+           right += 1;
+         } else {
+-          meta.mapping.delete(yDomFragment.get(left));
+-          yDomFragment.delete(left, 1);
+-          yDomFragment.insert(left, [
++          // (Squire 021 tracked-skip) 1-for-1 replace at the REAL index —
++          // keeps the filtered→real map valid for the rest of the pass.
++          const squireLeft = squireRealIndex(left);
++          meta.mapping.delete(yDomFragment.get(squireLeft));
++          yDomFragment.delete(squireLeft, 1);
++          yDomFragment.insert(squireLeft, [
+             createTypeFromTextOrElementNode(leftP, meta)
+           ]);
+           left += 1;
+@@ -1456,15 +1688,28 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
+       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
+       yChildren[0].delete(0, yChildren[0].length);
+     } else if (yDelLen > 0) {
+-      yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
+-      yDomFragment.delete(left, yDelLen);
++      if (squireYRealIndex === null) {
++        yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
++        yDomFragment.delete(left, yDelLen);
++      } else {
++        // (Squire 021 tracked-skip) delete each unmatched NON-SKIPPED child
++        // at its real index, descending, so skipped children interleaved in
++        // the range survive untouched.
++        for (let i = left + yDelLen - 1; i >= left; i--) {
++          meta.mapping.delete(yChildren[i]);
++          yDomFragment.delete(squireYRealIndex[i], 1);
++        }
++      }
+     }
+     if (left + right < pChildCnt) {
+       const ins = [];
+       for (let i = left; i < pChildCnt - right; i++) {
+         ins.push(createTypeFromTextOrElementNode(pChildren[i], meta));
+       }
+-      yDomFragment.insert(left, ins);
++      // (Squire 021 tracked-skip) insert at the real boundary index — after
++      // the descending middle deletes this is exactly where the unmatched
++      // middle began (stock semantics), skipped neighbors preserved.
++      yDomFragment.insert(squireRealIndex(left), ins);
+     }
+   }, ySyncPluginKey);
+ };

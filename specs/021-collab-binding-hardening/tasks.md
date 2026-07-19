@@ -87,7 +87,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
 
 ### Tests for User Story 1 (write FIRST — all must FAIL against stock 3.0.7)
 
-- [ ] T007 [P] [US1] Render-failure repro tests in
+- [X] T007 [P] [US1] Render-failure repro tests in
       `client/src/__tests__/binding-render-failure.test.js` (harness): (a) forced throwing
       node (remote inserts unknown nodeName) ⇒ remote/shared Y.Doc **byte-identical**,
       remainder renders, one bounded log with node type + doc identity + error (RBD-6),
@@ -98,7 +98,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       legitimate local edit elsewhere commits ⇒ the skipped node SURVIVES in Y and the edit
       lands (DR-1/Addition-1; contract site 5 incl. the index-translation
       neighbors case: skipped node between two edited siblings).
-- [ ] T008 [P] [US1] Selection + write-back repro tests in
+- [X] T008 [P] [US1] Selection + write-back repro tests in
       `client/src/__tests__/binding-selection-writeback.test.js` (harness): (a) selection
       throw via the `binding._restoreRelativeSelection` seam ⇒ render still commits with
       all remote content, selection at a clamped near position incl. empty-doc case
@@ -106,7 +106,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       doc-unchanged transaction (selection-only, then metadata-only) ⇒ zero editor→Yjs
       write-back, nothing deleted from Y (SC-003, FR-006); (c) divergence resolution
       re-renders FROM Yjs: view converges, Y byte-unchanged (FR-007, RBD-3).
-- [ ] T009 [P] [US1] Kill-switch revert test in
+- [X] T009 [P] [US1] Kill-switch revert test in
       `client/src/__tests__/binding-killswitch.test.js`: with
       `globalThis.__SQUIRE_COLLAB_HARDENING__ = false` the forced-throw repro **deletes
       from Y again** (stock 3.0.7 behavior — proving genuine revert, DR-2); restoring the
@@ -115,7 +115,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Author the patch (contracts/binding-patch.md sites 1–5) by editing
+- [X] T010 [US1] Author the patch (contracts/binding-patch.md sites 1–5) by editing
       `client/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js` (+ mirrored `dist/y-tiptap.cjs`):
       render-catch element+text (createAndFill → tracked-skip → bounded log/report; NO Y
       mutation), `_restoreRelativeSelection` seam + guard + clamped fallback on the 3.0.7
@@ -126,7 +126,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       sentinels. Then `npx patch-package @tiptap/y-tiptap --error-on-fail` to emit
       `client/patches/@tiptap+y-tiptap+3.0.7.patch`; commit the patch file. Turns T004,
       T007, T008, T009 green.
-- [ ] T011 [US1] Verify patch survival: rm -rf `client/node_modules`, `npm ci`, re-run
+- [X] T011 [US1] Verify patch survival: rm -rf `client/node_modules`, `npm ci`, re-run
       T004/T007/T008/T009 suites green (proves postinstall re-application; SC-007's
       install-path half).
 - [ ] T012 [P] [US1] Skip reporter client: `client/src/utils/skipReporter.js`
