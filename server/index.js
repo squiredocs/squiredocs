@@ -1600,13 +1600,13 @@ app.put('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
       return res.status(403).json({ error: 'You do not have access to this document' });
     }
 
-    // Verify the version belongs to this document
-    const existingVersion = await persistenceProvider.getVersionById(versionId);
-    if (!existingVersion || existingVersion.doc_id !== docId) {
+    // Verify the version belongs to this document (also enforced doc-scoped in SQL)
+    const existingVersion = await persistenceProvider.getVersionById(versionId, docId);
+    if (!existingVersion) {
       return res.status(404).json({ error: 'Version not found' });
     }
 
-    const version = await persistenceProvider.updateVersionName(versionId, name);
+    const version = await persistenceProvider.updateVersionName(versionId, name, docId);
     res.json({ version });
   } catch (error) {
     console.error('Error renaming version:', error);
@@ -1627,13 +1627,13 @@ app.delete('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res)
       return res.status(403).json({ error: 'You do not have access to this document' });
     }
 
-    // Verify the version belongs to this document
-    const existingVersion = await persistenceProvider.getVersionById(versionId);
-    if (!existingVersion || existingVersion.doc_id !== docId) {
+    // Verify the version belongs to this document (also enforced doc-scoped in SQL)
+    const existingVersion = await persistenceProvider.getVersionById(versionId, docId);
+    if (!existingVersion) {
       return res.status(404).json({ error: 'Version not found' });
     }
 
-    const deleted = await persistenceProvider.deleteNamedVersion(versionId);
+    const deleted = await persistenceProvider.deleteNamedVersion(versionId, docId);
     if (!deleted) {
       return res.status(404).json({ error: 'Version not found' });
     }

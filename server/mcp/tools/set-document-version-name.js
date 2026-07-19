@@ -57,7 +57,7 @@ async function lookupVersionById(docGuid, versionId, persistenceProvider) {
 
   // Handle UUID - existing named version
   if (parsed.type === 'uuid') {
-    const version = await persistenceProvider.getVersionById(parsed.uuid);
+    const version = await persistenceProvider.getVersionById(parsed.uuid, docGuid);
     if (!version || version.doc_id !== docGuid) {
       return null;
     }
@@ -211,14 +211,14 @@ async function handler(args, agentToken) {
     if (version.isNamed && version.id) {
       // This is an already-named version - UPDATE or DELETE only
       if (name === null) {
-        // DELETE: Remove the named version
-        await persistenceProvider.deleteNamedVersion(version.id);
+        // DELETE: Remove the named version (doc-scoped in SQL — F7)
+        await persistenceProvider.deleteNamedVersion(version.id, docGuid);
         return { success: true, deleted: true, message: 'Named version removed from timeline' };
       }
 
-      // UPDATE: Rename the version
+      // UPDATE: Rename the version (doc-scoped in SQL — F7)
       const trimmedName = validateName(name);
-      const updated = await persistenceProvider.updateVersionName(version.id, trimmedName);
+      const updated = await persistenceProvider.updateVersionName(version.id, trimmedName, docGuid);
       return {
         success: true,
         updated: true,

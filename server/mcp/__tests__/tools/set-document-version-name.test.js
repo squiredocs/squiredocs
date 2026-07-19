@@ -177,7 +177,7 @@ describe('set_document_version_name', () => {
       expect(result.updated).toBe(true);
       expect(result.version.name).toBe('Final');
       expect(result.message).toBe('Version renamed to "Final"');
-      expect(mockPersistence.updateVersionName).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', 'Final');
+      expect(mockPersistence.updateVersionName).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', 'Final', 'doc-123');
     });
 
     test('throws error for empty name', async () => {
@@ -257,7 +257,7 @@ describe('set_document_version_name', () => {
       expect(result.deleted).toBe(true);
       expect(result.message).toBe('Named version removed from timeline');
       expect(result.version).toBeUndefined();
-      expect(mockPersistence.deleteNamedVersion).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000');
+      expect(mockPersistence.deleteNamedVersion).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000', 'doc-123');
     });
 
     test('throws error for version not found', async () => {

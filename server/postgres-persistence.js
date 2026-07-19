@@ -694,18 +694,21 @@ class PostgresPersistence {
   }
 
   /**
-   * Update a named version
+   * Update a named version. Doc-scoped: the UPDATE only touches a row whose
+   * doc_id matches, so a versionId from another document is a no-op (returns
+   * undefined) — the 019 cross-doc leak class is impossible at the SQL layer (F7).
    * @param {string} versionId - Version ID
    * @param {string} name - New version name
-   * @returns {Promise<Object>} Updated version
+   * @param {string} docGuid - Owning document GUID (scope guard)
+   * @returns {Promise<Object>} Updated version (undefined if no doc-scoped match)
    */
-  async updateVersionName(versionId, name) {
+  async updateVersionName(versionId, name, docGuid) {
     await this._init();
     const client = await this.pool.connect();
     try {
       const result = await client.query(
-        'UPDATE document_versions SET name = $1 WHERE id = $2 RETURNING *',
-        [name, versionId]
+        'UPDATE document_versions SET name = $1 WHERE id = $2 AND doc_id = $3 RETURNING *',
+        [name, versionId, docGuid]
       );
       return result.rows[0];
     } finally {
@@ -714,17 +717,19 @@ class PostgresPersistence {
   }
 
   /**
-   * Delete a named version
+   * Delete a named version. Doc-scoped (F7): a versionId from another document
+   * deletes nothing and returns false.
    * @param {string} versionId - Version ID
+   * @param {string} docGuid - Owning document GUID (scope guard)
    * @returns {Promise<boolean>} True if deleted
    */
-  async deleteNamedVersion(versionId) {
+  async deleteNamedVersion(versionId, docGuid) {
     await this._init();
     const client = await this.pool.connect();
     try {
       const result = await client.query(
-        'DELETE FROM document_versions WHERE id = $1',
-        [versionId]
+        'DELETE FROM document_versions WHERE id = $1 AND doc_id = $2',
+        [versionId, docGuid]
       );
       return result.rowCount > 0;
     } finally {
@@ -733,11 +738,14 @@ class PostgresPersistence {
   }
 
   /**
-   * Get a named version by ID
+   * Get a named version by ID. Doc-scoped (F7): a versionId belonging to another
+   * document returns null, making the 019 cross-doc read leak impossible at the
+   * SQL layer regardless of any caller-side check.
    * @param {string} versionId - Version ID
+   * @param {string} docGuid - Owning document GUID (scope guard)
    * @returns {Promise<Object|null>} Version or null
    */
-  async getVersionById(versionId) {
+  async getVersionById(versionId, docGuid) {
     await this._init();
     const client = await this.pool.connect();
     try {
@@ -745,8 +753,8 @@ class PostgresPersistence {
         `SELECT v.*, u.name as creator_name, u.email as creator_email, u.picture as creator_picture
          FROM document_versions v
          LEFT JOIN users u ON v.created_by = u.id
-         WHERE v.id = $1`,
-        [versionId]
+         WHERE v.id = $1 AND v.doc_id = $2`,
+        [versionId, docGuid]
       );
       return result.rows[0] || null;
     } finally {

@@ -120,4 +120,49 @@ describe('PostgresPersistence', () => {
       expect(humanRow.clock).not.toBe(agentRow.clock);
     });
   });
+
+  // F7: getVersionById / updateVersionName / deleteNamedVersion are doc-scoped
+  // in SQL (AND doc_id = $n), so a versionId from another document can never be
+  // read, renamed, or deleted through a different docGuid — the 019 cross-doc
+  // leak class is impossible below the call regardless of caller checks.
+  describe('doc-scoped named-version primitives (F7)', () => {
+    const docA = crypto.randomUUID();
+    const docB = crypto.randomUUID();
+    let versionAId;
+
+    beforeAll(async () => {
+      const created = await persistence.createNamedVersion(docA, 0, 0, 'A checkpoint', humanUserId);
+      versionAId = created.id;
+    });
+
+    afterAll(async () => {
+      await pool.query('DELETE FROM document_versions WHERE doc_id IN ($1, $2)', [docA, docB]);
+    });
+
+    test('getVersionById returns the version for its own doc, null for a foreign doc', async () => {
+      expect(await persistence.getVersionById(versionAId, docA)).not.toBeNull();
+      expect(await persistence.getVersionById(versionAId, docB)).toBeNull();
+    });
+
+    test('updateVersionName is a no-op across docs (foreign docGuid renames nothing)', async () => {
+      const foreign = await persistence.updateVersionName(versionAId, 'Hijacked', docB);
+      expect(foreign).toBeUndefined();
+      // Name unchanged when read through the owning doc.
+      const still = await persistence.getVersionById(versionAId, docA);
+      expect(still.name).toBe('A checkpoint');
+
+      // Same-doc rename works.
+      const ok = await persistence.updateVersionName(versionAId, 'Renamed', docA);
+      expect(ok.name).toBe('Renamed');
+    });
+
+    test('deleteNamedVersion is a no-op across docs, deletes for the owning doc', async () => {
+      expect(await persistence.deleteNamedVersion(versionAId, docB)).toBe(false);
+      // Still present.
+      expect(await persistence.getVersionById(versionAId, docA)).not.toBeNull();
+      // Owning doc deletes it.
+      expect(await persistence.deleteNamedVersion(versionAId, docA)).toBe(true);
+      expect(await persistence.getVersionById(versionAId, docA)).toBeNull();
+    });
+  });
 });
