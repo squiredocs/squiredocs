@@ -20,7 +20,9 @@ function init(persistence) {
  */
 const name = 'share_document';
 
-const description = 'Share a document with another user by email address';
+const description =
+  'Share a document with another user by email address. Only the document '
+  + 'owner can share a document — editors and viewers cannot.';
 
 const inputSchema = {
   type: 'object',

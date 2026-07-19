@@ -51,6 +51,14 @@ function buildDedupKey(toolName, input) {
   if (toolName === 'read_document') {
     const format = input.format || 'structured';
     const xpath = input.xpath || '';
+    // Versioned reads (feature 019 DR-1: read_document absorbed
+    // read_document_version) group per (docGuid, versionId, xpath, format) —
+    // the SAME key the legacy tool produces, so a client switching mid-
+    // conversation dedups against its earlier alias calls. Versioned and
+    // current reads never share a group in either direction.
+    if (input.versionId) {
+      return `rv:${docGuid}:${input.versionId}:${xpath}:${format}`;
+    }
     if (xpath) return `rx:${docGuid}:${xpath}:${format}`;
     return `full:${docGuid}:${format}`;
   }

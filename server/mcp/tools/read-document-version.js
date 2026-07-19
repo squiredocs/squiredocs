@@ -1,14 +1,15 @@
 /**
- * read_document_version MCP Tool
+ * read_document_version MCP Tool — HIDDEN deprecation alias (feature 019 DR-1).
  *
- * Read document content at a specific version with optional XPath filtering.
- * Aligned with read_document tool but for historical versions.
+ * read_document absorbed this tool's behavior via its optional versionId
+ * parameter. This module is a thin delegate to the shared historical-read
+ * core in read-helpers.js: it left getToolList() (not advertised to any
+ * client) but is still accepted by executeTool for a transition window so
+ * connected clients mid-conversation keep working. Name, schema, and handler
+ * behavior are unchanged.
  */
 
-const Y = require('yjs');
-const documents = require('../../documents');
-const versionHistory = require('../../version-history');
-const { queryAndSerialize } = require('./read-helpers');
+const { readDocumentAtVersion } = require('./read-helpers');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -22,35 +23,16 @@ function init(persistence) {
 }
 
 /**
- * Tool definition for MCP discovery
+ * Tool definition (kept for the execute path; no longer advertised)
  */
 const name = 'read_document_version';
 
-const description = `Read document content as it existed at a specific version, with optional
-XPath filtering. Supports the same XPath syntax and output formats as
-read_document. Use it to review historical content or understand what changed
-between versions.
+const description = `DEPRECATED alias: use read_document with the versionId parameter instead.
+Reads document content as it existed at a specific version, with the same
+XPath syntax and output formats as read_document.
 
-PARAMETERS:
-- docGuid: Document UUID (required)
-- versionId: Version identifier (required) - UUID for named versions, or the
-  clock number as a string (e.g. "42") for auto-generated versions
-- xpath: XPath expression to filter results (optional)
-- format: "structured" or "markdown" (optional, default "structured")
-
-RETURNS:
-- content: Structured array or Markdown string (based on format)
-- matchCount: Number of elements returned (when using xpath)
-- blockCount / characterCount: Size of this version / of the result
-- version: Version metadata { id, name, clockStart, clockEnd, timestamp }
-
-EXAMPLE:
-await read_document_version({
-  docGuid: "abc-123",
-  versionId: "42",
-  xpath: "//heading",
-  format: "markdown"
-});`;
+RETURNS: content, blockCount, characterCount, matchCount (with xpath), and
+version metadata { id, name, clockStart, clockEnd, timestamp }.`;
 
 const inputSchema = {
   type: 'object',
@@ -78,48 +60,20 @@ const inputSchema = {
 };
 
 /**
- * Handler function for the tool
+ * Handler function for the tool — delegates to the shared historical core.
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('read_document_version tool not initialized');
 
   const { docGuid, versionId, xpath: xpathExpr, format = 'structured' } = args;
-  const userId = agentToken.userId;
 
-  // Check document access
-  if (!await documents.hasAccess(docGuid, userId)) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  // Get version content
-  const versionData = await versionHistory.getVersionContent(
-    persistenceProvider,
+  return readDocumentAtVersion(persistenceProvider, {
     docGuid,
-    versionId
-  );
-
-  // Create Y.Doc from version content
-  const ydoc = new Y.Doc();
-  Y.applyUpdate(ydoc, new Uint8Array(versionData.content));
-  const xmlFragment = ydoc.get('default', Y.XmlFragment);
-
-  const { content, blockCount, characterCount, matchCount } = queryAndSerialize(xmlFragment, xpathExpr, format);
-
-  const result = {
-    content,
-    blockCount,
-    characterCount,
-    version: versionData.version,
-  };
-
-  if (matchCount !== undefined) {
-    result.matchCount = matchCount;
-  }
-
-  // Cleanup
-  ydoc.destroy();
-
-  return result;
+    versionId,
+    xpathExpr,
+    format,
+    userId: agentToken.userId,
+  });
 }
 
 module.exports = {

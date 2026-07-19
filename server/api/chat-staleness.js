@@ -16,6 +16,16 @@
 const SNAPSHOT_TOOLS = new Set(['read_document', 'modify']);
 
 /**
+ * Whether a tool call is a snapshot of CURRENT content. A read_document call
+ * WITH versionId returns historical content (feature 019 DR-1) — it must
+ * neither advance the observed-clock baseline nor count as the agent's
+ * latest view of the document.
+ */
+function isCurrentSnapshotCall(toolName, input) {
+  return SNAPSHOT_TOOLS.has(toolName) && !(input && input.versionId);
+}
+
+/**
  * Highest document clock the agent has observed per document, derived from its
  * read_document / modify tool results. Edits beyond this clock that the agent
  * did not make are news to the agent.
@@ -29,7 +39,7 @@ function getObservedClocks(messages) {
   for (const msg of messages) {
     if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
     for (const part of msg.content) {
-      if (part.type === 'tool-call' && SNAPSHOT_TOOLS.has(part.toolName) && part.input?.docGuid) {
+      if (part.type === 'tool-call' && isCurrentSnapshotCall(part.toolName, part.input) && part.input?.docGuid) {
         docByCall.set(part.toolCallId, part.input.docGuid);
       }
     }
@@ -70,7 +80,7 @@ function getRevertedDocs(messages) {
     for (const part of parts) {
       const toolName = part.toolName
         || (typeof part.type === 'string' && part.type.startsWith('tool-') ? part.type.slice(5) : null);
-      if (!toolName || !SNAPSHOT_TOOLS.has(toolName)) continue;
+      if (!toolName || !isCurrentSnapshotCall(toolName, part.input)) continue;
       const docGuid = part.input?.docGuid;
       if (!docGuid) continue;
       lastSnapshot.set(docGuid, { toolName, reverted: part.reverted === true });
@@ -142,4 +152,5 @@ module.exports = {
   foreignEditsSince,
   buildStalenessNote,
   SNAPSHOT_TOOLS,
+  isCurrentSnapshotCall,
 };

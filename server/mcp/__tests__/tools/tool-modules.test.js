@@ -33,6 +33,9 @@ describe('Tool Module Smoke Tests', () => {
     // Script-tool documentation
     'get-tool-documentation',
 
+    // Byte-channel recipe (feature 019)
+    'import-markdown-file',
+
     // Version history tools
     'list-document-versions',
     'read-document-version',
@@ -213,11 +216,13 @@ describe('Tool Module Smoke Tests', () => {
 });
 
 describe('Tool Registry Integration', () => {
-  test('all tool modules are registered in index.js', () => {
+  test('all tool modules are registered in index.js (the FINAL sixteen — 019 DR-1)', () => {
     const toolRegistry = require('../../tools/index');
     const toolList = toolRegistry.getToolList();
 
-    // Expected tool names
+    // Expected ADVERTISED tool names. read_document_version is deliberately
+    // absent: it left getToolList() and lives on only as a hidden deprecation
+    // alias (feature 019 DR-1); import_markdown_file joined (feature 019 US1).
     const expectedTools = [
       // Document management
       'list_documents',
@@ -239,11 +244,11 @@ describe('Tool Registry Integration', () => {
       'import_markdown_file',
       // Version history tools
       'list_document_versions',
-      'read_document_version',
       'set_document_version_name',
       'restore_document_version',
       'compare_document_versions',
     ];
+    expect(expectedTools.length).toBe(16);
 
     // Check each tool is registered
     expectedTools.forEach((toolName) => {
@@ -256,6 +261,53 @@ describe('Tool Registry Integration', () => {
 
     // Check we have exactly the expected number of tools
     expect(toolList.length).toBe(expectedTools.length);
+  });
+
+  describe('hidden deprecation alias + scope drop (feature 019 DR-1)', () => {
+    const toolRegistry = require('../../tools/index');
+
+    test('read_document_version is NOT advertised in getToolList()', () => {
+      const toolList = toolRegistry.getToolList();
+      expect(toolList.find((t) => t.name === 'read_document_version')).toBeUndefined();
+    });
+
+    test('getTool("read_document_version") still returns the module (hidden alias)', () => {
+      const tool = toolRegistry.getTool('read_document_version');
+      expect(tool).not.toBeNull();
+      expect(tool.name).toBe('read_document_version');
+      expect(typeof tool.handler).toBe('function');
+    });
+
+    test('executeTool still resolves read_document_version (transition window)', async () => {
+      // A missing required parameter proves the tool RESOLVED (validation
+      // ran) rather than failing with "Unknown tool".
+      await expect(
+        toolRegistry.executeTool('read_document_version', {}, { scopes: ['documents:read'] })
+      ).rejects.toThrow(/missing required parameter/);
+      await expect(
+        toolRegistry.executeTool('read_document_version', {}, { scopes: ['documents:read'] })
+      ).rejects.not.toThrow(/Unknown tool/);
+    });
+
+    test('read_document_version keeps its documents:read scope gate', async () => {
+      await expect(
+        toolRegistry.executeTool('read_document_version', { docGuid: 'x', versionId: '1' }, { scopes: [] })
+      ).rejects.toThrow(/Insufficient scope: 'documents:read'/);
+    });
+
+    test('get_tool_documentation requires NO scope (write-only principals can read docs)', async () => {
+      const result = await toolRegistry.executeTool(
+        'get_tool_documentation',
+        { tool: 'modify' },
+        { scopes: ['documents:write'] }
+      );
+      expect(result.documentation).toBeDefined();
+    });
+
+    test('share_document description carries the owner-only sentence', () => {
+      const shareDocument = require('../../tools/share-document');
+      expect(shareDocument.description.toLowerCase()).toMatch(/owner/);
+    });
   });
 
   describe('undo/redo descriptions match the log-derived behavior (feature 016, FR-022/FR-023)', () => {

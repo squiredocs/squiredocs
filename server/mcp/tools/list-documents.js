@@ -23,19 +23,7 @@ const name = 'list_documents';
 
 const description = `List and search documents accessible to you.
 
-With "search", performs hybrid content search (keyword + semantic) across document bodies, ranked by relevance with snippets. Without "search", lists documents with optional filtering and sorting.
-
-PARAMETERS:
-- search: Search query — keywords or natural language. Searches document content, not just titles.
-- searchMode: "hybrid" (default, keyword + semantic), "fulltext" (keyword only), "semantic" (meaning-based only).
-- filter: "owned" | "shared_with_me" | "all" (default: "all")
-- sortBy: "relevance" (default when searching) | "updatedAt" (default when listing) | "createdAt"
-- sortOrder: "asc" | "desc" (default: "desc")
-- limit: 1-100 (default 50 listing, 10 search)
-- offset: pagination offset (default 0)
-- distanceThreshold: max cosine distance for vector results (default 0.5; lower = stricter; semantic/hybrid only).
-- updatedAfter: ISO-8601. Search path only (requires search): only docs with updatedAt strictly after this instant, filtered inside each engine before ranking (totals too). Not combinable with updatedSince.
-- updatedSince: ISO-8601. Only documents whose last content edit is after this time. List path only (not combinable with search); filters on actual edits, unlike updatedAfter's updatedAt basis.
+With "search", performs hybrid content search (keyword + semantic) across document bodies, ranked by relevance with snippets. Without "search", lists documents with optional filtering and sorting. Parameter details live in the input schema; note updatedAfter (search path) and updatedSince (list path) are not combinable.
 
 RETURNS:
 - documents: Array of { id, title, url, role, updatedAt, ... }

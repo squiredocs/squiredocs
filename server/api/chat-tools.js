@@ -118,8 +118,10 @@ async function importChatMarkdown({ args = {}, messageMarkdown, userId, agentNam
 // be read in chunks via xpath. Reactive compaction handles overall context.
 const MAX_RESULT_CHARS = 100_000;
 
-// Tools that support xpath for reading documents in chunks
-const XPATH_TOOLS = new Set(['read_document', 'read_document_version']);
+// Tools that support xpath for reading documents in chunks.
+// read_document_version left the advertised surface (feature 019 DR-1) —
+// versioned reads go through read_document({ versionId }) now.
+const XPATH_TOOLS = new Set(['read_document']);
 
 /**
  * Build an error message for an oversized tool result.
@@ -484,7 +486,9 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
           // other author's edits, so a blind retry should re-trip the guard until it
           // calls read_document (which advances the clock).
           const sawContent = !(result?.conflict === true && result?.content === undefined);
-          if (observedClockHolder?.byDoc && args?.docGuid && SNAPSHOT_TOOLS.has(name) && sawContent) {
+          // A versionId read returns HISTORICAL content — never advance the
+          // current-content baseline from it (feature 019 DR-1).
+          if (observedClockHolder?.byDoc && args?.docGuid && SNAPSHOT_TOOLS.has(name) && !args?.versionId && sawContent) {
             const clk = result?.clock;
             if (typeof clk === 'number') {
               const prev = observedClockHolder.byDoc.get(args.docGuid);
