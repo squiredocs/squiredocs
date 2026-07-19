@@ -290,3 +290,99 @@ describe('HierarchicalVersionList — US1 menu reachability & dismissal (024)', 
     expect(screen.queryByText('Restore this version')).toBeNull();
   });
 });
+
+/**
+ * US2 (024) — actions run through in-app dialogs, never window.prompt/confirm, and
+ * still invoke the same callbacks with the same arguments (024/C5, FR-004/005).
+ */
+describe('HierarchicalVersionList — US2 in-app dialogs (024)', () => {
+  function renderList(version, handlers = {}) {
+    return render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        onCreateNamedVersion={handlers.onCreateNamedVersion || vi.fn().mockResolvedValue(true)}
+        onRenameVersion={handlers.onRenameVersion || vi.fn().mockResolvedValue(true)}
+        onDeleteVersion={handlers.onDeleteVersion || vi.fn().mockResolvedValue(true)}
+        onRestoreVersion={handlers.onRestoreVersion || vi.fn().mockResolvedValue(false)}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+  }
+
+  const baseVersion = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+
+  it('never calls window.prompt or window.confirm for any action', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('X');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const named = { ...baseVersion, name: 'Old name', isNamed: true };
+    renderList(named);
+
+    // Rename
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Rename'));
+    expect(screen.getByRole('textbox').value).toBe('Old name');
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Restore
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Remove name
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Remove name'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+    confirmSpy.mockRestore();
+  });
+
+  it('name → onCreateNamedVersion(trimmedName, clockEnd)', async () => {
+    const onCreateNamedVersion = vi.fn().mockResolvedValue(true);
+    renderList(baseVersion, { onCreateNamedVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Name this version'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Milestone  ' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onCreateNamedVersion).toHaveBeenCalledWith('Milestone', 5);
+  });
+
+  it('rename → onRenameVersion(id, trimmedName)', async () => {
+    const onRenameVersion = vi.fn().mockResolvedValue(true);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onRenameVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Rename'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New name' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onRenameVersion).toHaveBeenCalledWith('5', 'New name');
+  });
+
+  it('restore → onRestoreVersion(id)', async () => {
+    const onRestoreVersion = vi.fn().mockResolvedValue(false);
+    renderList(baseVersion, { onRestoreVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(onRestoreVersion).toHaveBeenCalledWith('5');
+  });
+
+  it('remove name → onDeleteVersion(id)', async () => {
+    const onDeleteVersion = vi.fn().mockResolvedValue(true);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onDeleteVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Remove name'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove name' }));
+    expect(onDeleteVersion).toHaveBeenCalledWith('5');
+  });
+});

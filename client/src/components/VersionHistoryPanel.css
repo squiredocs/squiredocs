@@ -363,7 +363,9 @@
   text-align: center;
 }
 
-/* Dialogs */
+/* Dialogs — styled in-app name/rename + restore/remove-name dialogs (024/US2).
+   Revived from the previously-dead .version-dialog* block; now the real styling
+   for VersionNameDialog + VersionConfirmDialog. */
 .version-dialog-overlay {
   position: fixed;
   top: 0;
@@ -375,6 +377,7 @@
   align-items: center;
   justify-content: center;
   z-index: 200;
+  padding: 20px;
 }
 
 .version-dialog {
@@ -393,9 +396,26 @@
   color: var(--text-primary);
 }
 
+.version-dialog-message {
+  margin: 0 0 16px;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Failure surfacing — the dialog stays open and shows this line (FR-006). */
+.version-dialog-error {
+  margin: 0 0 16px;
+  font-size: var(--text-base);
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
 .version-dialog input {
   width: 100%;
   padding: 10px 12px;
+  min-height: 44px; /* touch target (SC-003) */
   background: var(--surface-raised);
   color: var(--text-primary);
   border: 1px solid var(--border-subtle);
@@ -417,7 +437,8 @@
 }
 
 .version-dialog-actions button {
-  padding: 8px 16px;
+  padding: 10px 16px;
+  min-height: 44px; /* touch target (SC-003) */
   border-radius: 4px;
   font-size: var(--text-md);
   cursor: pointer;
@@ -447,6 +468,20 @@
 .version-dialog-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Phone bottom-sheet treatment, mirroring ShareDialog.css (024/US2, SC-004). */
+@media (max-width: 480px) {
+  .version-dialog-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .version-dialog {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+  }
 }
 
 /* Responsive */

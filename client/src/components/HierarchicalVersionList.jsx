@@ -1,6 +1,8 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { generateColorFromId } from '../utils/colorUtils';
+import VersionNameDialog from './VersionNameDialog';
+import VersionConfirmDialog from './VersionConfirmDialog';
 import './HierarchicalVersionList.css';
 
 /**
@@ -341,6 +343,8 @@ function HierarchicalVersionList({
   userRole,
   isLoading,
   filter = 'all', // 'all' or 'named'
+  docGuid,
+  onNavigateToDoc, // post-restore in-app navigation (024/US4); reload fallback if absent
 }) {
   // Filter versions based on filter prop
   const filteredVersions = filter === 'named'
@@ -402,34 +406,82 @@ function HierarchicalVersionList({
     }
   };
 
-  const handleNameItem = async (item) => {
-    const name = prompt(item.name ? 'Rename version:' : 'Name this version:', item.name || '');
-    if (name && name.trim()) {
-      if (item.isNamed) {
-        await onRenameVersion(item.id, name.trim());
+  // In-app dialog state replacing the native prompt/confirm calls (024/US2).
+  // `item` is captured at open time so a mid-flight history refresh can't make the
+  // action target a stale row (Edge Case: "Dialog open during data refresh").
+  // Shape: { kind: 'name'|'rename'|'restore'|'removeName', item, busy, error } | null.
+  const [dialog, setDialog] = useState(null);
+
+  const openNameDialog = (item) => {
+    setMenuOpen(null);
+    setDialog({ kind: item.isNamed ? 'rename' : 'name', item, busy: false, error: null });
+  };
+
+  const openRestoreDialog = (item) => {
+    setMenuOpen(null);
+    setDialog({ kind: 'restore', item, busy: false, error: null });
+  };
+
+  const openRemoveNameDialog = (item) => {
+    setMenuOpen(null);
+    setDialog({ kind: 'removeName', item, busy: false, error: null });
+  };
+
+  const closeDialog = () => setDialog(null);
+
+  const runDialogAction = async (fn, failureMessage) => {
+    setDialog(prev => (prev ? { ...prev, busy: true, error: null } : prev));
+    try {
+      return await fn();
+    } catch (err) {
+      setDialog(prev => (prev ? { ...prev, busy: false, error: err?.message || failureMessage } : prev));
+      return undefined;
+    }
+  };
+
+  const handleConfirmName = async (trimmedName) => {
+    const item = dialog?.item;
+    if (!item) return;
+    // Rename by id; name by clockEnd — semantics preserved exactly (024/C5, FR-005).
+    const result = await runDialogAction(
+      () => (item.isNamed
+        ? onRenameVersion(item.id, trimmedName)
+        : onCreateNamedVersion(trimmedName, item.clockEnd)),
+      'Failed to save the version name.'
+    );
+    if (result !== undefined) closeDialog();
+  };
+
+  const handleConfirmRemoveName = async () => {
+    const item = dialog?.item;
+    if (!item) return;
+    const result = await runDialogAction(
+      () => onDeleteVersion(item.id),
+      'Failed to remove the version name.'
+    );
+    if (result !== undefined) closeDialog();
+  };
+
+  const handleConfirmRestore = async () => {
+    const item = dialog?.item;
+    if (!item) return;
+    const success = await runDialogAction(
+      () => onRestoreVersion(item.id),
+      'Failed to restore this version.'
+    );
+    if (success === undefined) return; // threw — error already surfaced, stay open
+    if (success) {
+      closeDialog();
+      // In-app navigation (no full reload) is wired in US4 (onNavigateToDoc).
+      if (onNavigateToDoc && docGuid) {
+        onNavigateToDoc(docGuid);
       } else {
-        // Use clockEnd for both versions and sub-versions
-        await onCreateNamedVersion(name.trim(), item.clockEnd);
-      }
-    }
-    setMenuOpen(null);
-  };
-
-  const handleDeleteVersion = async (version) => {
-    if (window.confirm(`Remove name "${version.name}" from this version?`)) {
-      await onDeleteVersion(version.id);
-    }
-    setMenuOpen(null);
-  };
-
-  const handleRestoreItem = async (item) => {
-    if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
-      const success = await onRestoreVersion(item.id);
-      if (success) {
         window.location.reload();
       }
+    } else {
+      // Server rejected the restore — keep the dialog open with an error.
+      setDialog(prev => (prev ? { ...prev, busy: false, error: 'Failed to restore this version.' } : prev));
     }
-    setMenuOpen(null);
   };
 
   if (isLoading) {
@@ -447,7 +499,13 @@ function HierarchicalVersionList({
     );
   }
 
+  const dialogItem = dialog?.item;
+  const removeNameMessage = dialogItem?.name
+    ? `Remove the name "${dialogItem.name}" from this version?`
+    : 'Remove the name from this version?';
+
   return (
+    <>
     <div className="hierarchy-list">
       {filteredVersions.map((month) => (
         <div key={month.label} className="hierarchy-month">
@@ -489,9 +547,9 @@ function HierarchicalVersionList({
                     menuRef={menuRef}
                     dropdownRef={dropdownRef}
                     onMenuOpen={() => setMenuOpen(prev => prev === version.id ? null : version.id)}
-                    onNameVersion={() => handleNameItem(version)}
-                    onRestoreVersion={() => handleRestoreItem(version)}
-                    onDeleteVersion={() => handleDeleteVersion(version)}
+                    onNameVersion={() => openNameDialog(version)}
+                    onRestoreVersion={() => openRestoreDialog(version)}
+                    onDeleteVersion={() => openRemoveNameDialog(version)}
                     userRole={userRole}
                   >
                     {isExpanded && (
@@ -513,8 +571,8 @@ function HierarchicalVersionList({
                                   menuRef={menuRef}
                                   dropdownRef={dropdownRef}
                                   onMenuOpen={() => setMenuOpen(prev => prev === menuKey ? null : menuKey)}
-                                  onNameVersion={() => handleNameItem(subVersionItem)}
-                                  onRestoreVersion={() => handleRestoreItem(subVersionItem)}
+                                  onNameVersion={() => openNameDialog(subVersionItem)}
+                                  onRestoreVersion={() => openRestoreDialog(subVersionItem)}
                                   userRole={userRole}
                                 />
                               );
@@ -538,6 +596,39 @@ function HierarchicalVersionList({
         </div>
       ))}
     </div>
+
+    <VersionNameDialog
+      isOpen={dialog?.kind === 'name' || dialog?.kind === 'rename'}
+      mode={dialog?.kind === 'rename' ? 'rename' : 'name'}
+      initialValue={dialog?.kind === 'rename' ? (dialogItem?.name || '') : ''}
+      onConfirm={handleConfirmName}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+
+    <VersionConfirmDialog
+      isOpen={dialog?.kind === 'restore'}
+      title="Restore this version?"
+      message="A new version will be created with the restored content."
+      confirmLabel="Restore"
+      onConfirm={handleConfirmRestore}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+
+    <VersionConfirmDialog
+      isOpen={dialog?.kind === 'removeName'}
+      title="Remove name"
+      message={removeNameMessage}
+      confirmLabel="Remove name"
+      onConfirm={handleConfirmRemoveName}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+    </>
   );
 }
 
