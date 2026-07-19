@@ -9,6 +9,7 @@ const {
   formatTimestamp,
   restoreVersion,
   getVersionContent,
+  getUpdatesForVersion,
   getCurrentSessionAuthors,
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
@@ -1220,6 +1221,83 @@ describe('version-history module', () => {
       expect(restoredMarks[0]).toEqual({ text: 'Check out ', attrs: {} });
       expect(restoredMarks[1]).toEqual({ text: 'this link', attrs: { link: 'https://example.com' } });
       expect(restoredMarks[2]).toEqual({ text: ' for more info.', attrs: {} });
+    });
+  });
+
+  describe('getUpdatesForVersion previousClock (F1 sub-version baseline)', () => {
+    // Three sub-groups within one parent version: clocks 1-3, 4-6, 7-9, with
+    // >10s (UPDATE_GROUPING_THRESHOLD) timestamp gaps between the groups so
+    // grouping splits them into three ascending sub-versions.
+    const baseTime = new Date('2024-01-01T10:00:00Z').getTime();
+    const mkUpdate = (clock, offsetMs) => ({
+      clock,
+      createdAt: new Date(baseTime + offsetMs).toISOString(),
+      userId: 'user-1',
+      userName: 'Alice',
+      userEmail: 'alice@example.com',
+      userPicture: null,
+      agentName: null,
+    });
+
+    // Group A: 1,2,3 close together; Group B: 4,5,6 (>10s after A);
+    // Group C: 7,8,9 (>10s after B).
+    const rangeUpdates = [
+      mkUpdate(1, 0),
+      mkUpdate(2, 1000),
+      mkUpdate(3, 2000),
+      mkUpdate(4, 15000),
+      mkUpdate(5, 16000),
+      mkUpdate(6, 17000),
+      mkUpdate(7, 30000),
+      mkUpdate(8, 31000),
+      mkUpdate(9, 32000),
+    ];
+
+    const mockPersistence = {
+      getUpdatesInRange: async () => rangeUpdates,
+    };
+
+    test('each sub-version baselines against the END of the previous (older) sub-version', async () => {
+      const { subversions } = await getUpdatesForVersion(mockPersistence, 'doc', 1, 9);
+
+      // Returned newest-first (post-reverse).
+      expect(subversions.map(s => s.clockEnd)).toEqual([9, 6, 3]);
+
+      const byEnd = Object.fromEntries(subversions.map(s => [s.clockEnd, s]));
+
+      // Oldest sub-version (1-3) diffs against clockStart - 1 = 0.
+      expect(byEnd[3].clockStart).toBe(1);
+      expect(byEnd[3].previousClock).toBe(0);
+
+      // Middle sub-version (4-6) diffs against the previous group's end (3).
+      expect(byEnd[6].clockStart).toBe(4);
+      expect(byEnd[6].previousClock).toBe(3);
+
+      // Newest sub-version (7-9) diffs against the previous group's end (6).
+      expect(byEnd[9].clockStart).toBe(7);
+      expect(byEnd[9].previousClock).toBe(6);
+    });
+
+    test('previousClock is monotonic and never points forward past its own group', async () => {
+      const { subversions } = await getUpdatesForVersion(mockPersistence, 'doc', 1, 9);
+      for (const sv of subversions) {
+        // A baseline must precede the group it is a baseline for (no inversion).
+        expect(sv.previousClock).toBeLessThan(sv.clockStart);
+      }
+    });
+
+    test('oldest sub-version reports previousClock -1 when the range starts at clock 0', async () => {
+      const zeroStart = {
+        getUpdatesInRange: async () => [
+          mkUpdate(0, 0),
+          mkUpdate(1, 1000),
+          mkUpdate(2, 15000),
+        ],
+      };
+      const { subversions } = await getUpdatesForVersion(zeroStart, 'doc', 0, 2);
+      const oldest = subversions[subversions.length - 1];
+      expect(oldest.clockStart).toBe(0);
+      expect(oldest.previousClock).toBe(-1);
     });
   });
 

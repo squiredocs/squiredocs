@@ -319,6 +319,20 @@ describe('list_document_versions tool', () => {
           expect(subversion).toHaveProperty('authors');
           expect(subversion).toHaveProperty('updateCount');
           expect(subversion).toHaveProperty('previousClock');
+
+          // F1 value-level invariant: previousClock is the diff BASELINE — the
+          // clock just before this sub-version's own range — so it must be
+          // strictly less than clockStart (never inverted/forward). Across the
+          // newest-first list, each sub-version chains to the immediately older
+          // one: newer.previousClock === olderNeighbor.clockEnd.
+          const subs = resultWith.versions[0].subversions;
+          for (let k = 0; k < subs.length; k++) {
+            expect(subs[k].previousClock).toBeLessThan(subs[k].clockStart);
+            if (k + 1 < subs.length) {
+              // subs are newest-first; subs[k+1] is the next-older group.
+              expect(subs[k].previousClock).toBe(subs[k + 1].clockEnd);
+            }
+          }
         }
 
         // Check metadata fields

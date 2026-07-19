@@ -240,9 +240,6 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       nv => nv.clockStart <= autoVersion.clockEnd && nv.clockEnd >= autoVersion.clockStart
     );
 
-    console.log(`[MergeVersions] Auto version ${autoVersion.clockStart}-${autoVersion.clockEnd}, overlapping named:`,
-      overlappingNamed.map(nv => `${nv.name}(${nv.clockStart}-${nv.clockEnd})`));
-
     if (overlappingNamed.length === 0) {
       // No overlap - keep the auto version as-is
       result.push({
@@ -262,7 +259,6 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       for (const nv of overlappingNamed) {
         // Add auto version fragment after this named version (if any)
         if (nv.clockEnd < currentEnd) {
-          console.log(`[MergeVersions] Creating fragment ${nv.clockEnd + 1}-${currentEnd} after ${nv.name}`);
           result.push({
             ...autoVersion,
             clockStart: nv.clockEnd + 1,
@@ -278,7 +274,6 @@ function mergeNamedVersions(autoVersions, namedVersions) {
 
       // Add any remaining fragment before the first named version
       if (autoVersion.clockStart <= currentEnd) {
-        console.log(`[MergeVersions] Creating fragment ${autoVersion.clockStart}-${currentEnd} before named versions`);
         result.push({
           ...autoVersion,
           clockStart: autoVersion.clockStart,
@@ -520,10 +515,6 @@ async function getVersionTimeline(persistence, docGuid) {
 
   // Merge with named versions
   const versions = mergeNamedVersions(autoVersions, namedVersions);
-
-  // DEBUG: Log final merged versions
-  console.log('[GetVersionTimeline] Final merged versions:',
-    versions.map(v => `${v.name || 'auto'}(${v.clockStart}-${v.clockEnd})`));
 
   // Format versions for API response
   const formattedVersions = versions.map(v => ({
@@ -808,14 +799,18 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
   );
   const groupTime = Date.now() - groupStart;
 
-  // Map to response format and reverse to show most recent first (newest first)
+  // Map to response format and reverse to show most recent first (newest first).
+  // subVersions is ASCENDING (oldest first); the .reverse() happens after this
+  // map. A sub-version's diff baseline is the END of the PREVIOUS (older)
+  // sub-version — subVersions[i - 1].clockEnd — and the oldest sub-version
+  // (i === 0) diffs against the clock just before the range (clockStart - 1).
   const allSubversions = subVersions.map((sv, i) => ({
     id: String(sv.clockEnd),
     clockStart: sv.clockStart,
     clockEnd: sv.clockEnd,
-    previousClock: i === subVersions.length - 1
+    previousClock: i === 0
       ? (clockStart > 0 ? clockStart - 1 : -1)
-      : subVersions[i + 1].clockEnd,
+      : subVersions[i - 1].clockEnd,
     timestamp: sv.timestamp,
     formattedTimestamp: formatTimestamp(sv.timestamp),
     authors: sv.authors || [],
