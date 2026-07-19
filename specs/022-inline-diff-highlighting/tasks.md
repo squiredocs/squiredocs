@@ -127,8 +127,8 @@ on both surfaces (strong highlight distinguishable, text readable).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T026 Run the full targeted suite serially and confirm green: `npx jest server/mcp/__tests__/diff-postprocess.test.js server/__tests__/diff-service.test.js server/__tests__/markdown-strict-characterization.test.js server/__tests__/format-roundtrip.test.js --runInBand` and `cd client && npx vitest run src/components/__tests__/AiChatMessages.test.jsx` (+ the shared word-diff test) — quickstart.md automated section (SC-008).
-- [ ] T027 [P] Sanity-check no unrelated diff/format suites regressed (broader `npx jest server/__tests__ server/mcp/__tests__ --runInBand`); confirm the cache bump did not break any other CACHE_VERSION-coupled assertion.
+- [X] T026 Run the full targeted suite serially and confirm green: `npx jest server/mcp/__tests__/diff-postprocess.test.js server/__tests__/diff-service.test.js server/__tests__/markdown-strict-characterization.test.js server/__tests__/format-roundtrip.test.js --runInBand` and `cd client && npx vitest run src/components/__tests__/AiChatMessages.test.jsx` (+ the shared word-diff test) — quickstart.md automated section (SC-008).
+- [X] T027 [P] Sanity-check no unrelated diff/format suites regressed (broader `npx jest server/__tests__ server/mcp/__tests__ --runInBand`); confirm the cache bump did not break any other CACHE_VERSION-coupled assertion.
 - [ ] T028 Run the quickstart.md manual validation end to end (chat one-word edit, undo/redo card, version-history one-word edit, format-only + pure-add sanity) — SC-001/SC-002/SC-006. (Owner: Sam / deploy-time.)
 
 ---
