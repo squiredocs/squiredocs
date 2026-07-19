@@ -785,6 +785,101 @@ describe('AiChatMessages', () => {
       (c) => c[0] === '/api/docs/doc-123/undo-status'
     ).length).toBeGreaterThanOrEqual(2));
   });
+
+  // --------------- 020: undo/redo tool cards render the revert diff ---------------
+
+  describe('undo/redo tool card diff gate (020, FR-008/RBD-4)', () => {
+    const undoRedoPart = (toolName, output) => ({
+      type: `tool-${toolName}`,
+      toolName,
+      toolCallId: 'tc-u1',
+      state: 'output-available',
+      input: { docGuid: 'doc-123' },
+      output,
+    });
+
+    const makeUndoRedoMsg = (toolName, output) => makeMsg({
+      role: 'assistant',
+      parts: [undoRedoPart(toolName, output)],
+    });
+
+    const revertDiff = {
+      lines: ['-Removed by the undo', '+Restored by the undo'],
+      hunkStarts: [{ index: 0, oldStart: 1, newStart: 1 }],
+    };
+
+    it('renders the DiffView beneath a successful undo card label', () => {
+      const output = { success: true, undone: true, message: 'Edit undone.', clock: 5, diff: revertDiff };
+      const { container } = render(
+        <AiChatMessages messages={[makeUndoRedoMsg('undo', output)]} status="ready" />,
+      );
+
+      const card = container.querySelector('.ai-tool-card');
+      expect(card.textContent).toContain('Undoing in');
+      const wrap = card.querySelector('.ai-diff-wrap');
+      expect(wrap).toBeInTheDocument();
+      expect(wrap.querySelector('.ai-diff-table')).toBeInTheDocument();
+      expect(wrap.textContent).toContain('Removed by the undo');
+      expect(wrap.textContent).toContain('Restored by the undo');
+    });
+
+    it('renders the DiffView beneath a successful redo card label', () => {
+      const output = { success: true, redone: true, message: 'Edit reapplied.', clock: 6, diff: revertDiff };
+      const { container } = render(
+        <AiChatMessages messages={[makeUndoRedoMsg('redo', output)]} status="ready" />,
+      );
+
+      const card = container.querySelector('.ai-tool-card');
+      expect(card.textContent).toContain('Redoing in');
+      expect(card.querySelector('.ai-diff-wrap')).toBeInTheDocument();
+      expect(card.querySelector('.ai-diff-table')).toBeInTheDocument();
+    });
+
+    it('honest-empty undo stays label-only: no diff area, no format-only branch (SC-003)', () => {
+      const output = { success: true, undone: false, message: 'Nothing left to undo.', clock: 4 };
+      const { container } = render(
+        <AiChatMessages messages={[makeUndoRedoMsg('undo', output)]} status="ready" />,
+      );
+
+      const card = container.querySelector('.ai-tool-card');
+      expect(card).toBeInTheDocument();
+      expect(card.querySelector('.ai-diff-wrap')).toBeNull();
+      expect(card.querySelector('.ai-diff-format-only')).toBeNull();
+    });
+
+    it('never renders the "Formatting changes only" branch on undo/redo cards regardless of output (RBD-4)', () => {
+      // Even output that mimics modify's changed-without-diff shape: the gate
+      // is presence-of-diff ONLY — no isFormatOnly branch for undo/redo.
+      const output = { success: true, undone: true, message: 'Edit undone.', clock: 5, changed: true };
+      const { container } = render(
+        <AiChatMessages messages={[makeUndoRedoMsg('undo', output)]} status="ready" />,
+      );
+
+      expect(container.querySelector('.ai-diff-format-only')).toBeNull();
+      expect(container.querySelector('.ai-diff-wrap')).toBeNull();
+    });
+
+    it('modify cards are untouched: diff render, format-only branch, and UndoEditButton still work (FR-010)', async () => {
+      mockGet.mockReset();
+      mockGet.mockResolvedValue(undoAvailable);
+
+      // Diff-carrying modify: DiffView + UndoEditButton.
+      const withDiff = render(
+        <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+      );
+      expect(withDiff.container.querySelector('.ai-diff-wrap')).toBeInTheDocument();
+      expect(await withDiff.findByRole('button', { name: 'Undo edit' })).toBeInTheDocument();
+      expect(withDiff.container.querySelector('.ai-diff-format-only')).toBeNull();
+      withDiff.unmount();
+
+      // Format-only modify (changed, no diff): the format-only branch renders.
+      const formatOnly = render(
+        <AiChatMessages messages={[makeModifyMsg({ changed: true })]} status="ready" />,
+      );
+      expect(formatOnly.container.querySelector('.ai-diff-format-only')).toBeInTheDocument();
+      expect(formatOnly.container.querySelector('.ai-diff-wrap')).toBeNull();
+    });
+  });
 });
 
 describe('ThinkingBlock live summary', () => {
