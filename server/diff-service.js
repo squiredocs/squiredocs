@@ -17,9 +17,10 @@ const { schema } = require('../shared/prosemirror-schema');
 const { getRedisClient, isRedisEnabled } = require('./redis');
 const { toMarkdown } = require('./mcp/yjs/serialization');
 const { markdownToPm } = require('../shared/markdown');
+const { applyWordMarks } = require('./diff/apply-word-marks');
 const { extractXml, extractText } = require('./yjs-utils');
 
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 
 class DiffService {
   constructor(pool) {
@@ -194,11 +195,19 @@ class DiffService {
     // Diff the markdown line by line
     const parts = diffLines(prevMd, currMd);
 
-    // Build annotated ProseMirror document from diff parts
+    // Build annotated ProseMirror document from diff parts. A replace region
+    // (a `removed` part immediately followed by an `added` part) is refined to
+    // word-level two-tier marks (feature 022); lone added/removed and unchanged
+    // parts stay exactly as before.
     const allBlocks = [];
-    for (const part of parts) {
+    for (let idx = 0; idx < parts.length; idx++) {
+      const part = parts[idx];
       const md = part.value;
-      if (part.added) {
+      if (part.removed && idx + 1 < parts.length && parts[idx + 1].added) {
+        // Replace region → word-level refinement (fail-open inside applyWordMarks).
+        allBlocks.push(...applyWordMarks(md, parts[idx + 1].value));
+        idx += 1; // consume the paired added part
+      } else if (part.added) {
         const parsed = markdownToPm(md, 'diffInsert', { strict: true });
         allBlocks.push(...(parsed.content || []));
       } else if (part.removed) {

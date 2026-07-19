@@ -65,4 +65,15 @@
   border-radius: 2px;
 }
 
+/* Word-level (Tier 2) strong emphasis on the changed words, layered over the
+   subtle whole-line insert/delete tint (feature 022). Same base text-decoration
+   behavior as the subtle marks; only the background is stronger. */
+.version-preview ins.diff-word {
+  background-color: var(--canvas-diff-add-bg-strong);
+}
+
+.version-preview del.diff-word {
+  background-color: var(--canvas-diff-del-bg-strong);
+}
+
 

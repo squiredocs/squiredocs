@@ -89,6 +89,21 @@ const DiffDelete = Mark.create({
   renderHTML() { return ['del', 0]; },
 });
 
+// Word-level (Tier 2) diff marks — diff-service provenance only (feature 022).
+// No addInputRules / addKeyboardShortcuts: a normal edit never produces them
+// (FR-009 / SC-009). VersionPreview renders them via getBaseExtensions.
+const DiffInsertWord = Mark.create({
+  name: 'diffInsertWord',
+  parseHTML() { return [{ tag: 'ins.diff-word' }]; },
+  renderHTML() { return ['ins', { class: 'diff-word' }, 0]; },
+});
+
+const DiffDeleteWord = Mark.create({
+  name: 'diffDeleteWord',
+  parseHTML() { return [{ tag: 'del.diff-word' }]; },
+  renderHTML() { return ['del', { class: 'diff-word' }, 0]; },
+});
+
 export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null } = {}) {
   return [
     StarterKit.configure({
@@ -119,6 +134,8 @@ export function getBaseExtensions({ openLinksOnClick = false, imageUpload = null
     }),
     DiffInsert,
     DiffDelete,
+    DiffInsertWord,
+    DiffDeleteWord,
     MermaidNode,
     SvgNode,
     ImageNode.configure({ imageUpload }),

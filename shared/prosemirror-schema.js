@@ -423,6 +423,24 @@ const marks = {
     },
   },
 
+  // Word-level (Tier 2) diff marks — produced ONLY by the diff service
+  // (server/diff/apply-word-marks.js). No input rule or editing path creates
+  // them (feature 022, FR-009); their presence must not alter live-document
+  // behavior. Rendered/parsed as <ins class="diff-word"> / <del class="diff-word">.
+  diffInsertWord: {
+    parseDOM: [{ tag: 'ins.diff-word' }],
+    toDOM() {
+      return ['ins', { class: 'diff-word' }, 0];
+    },
+  },
+
+  diffDeleteWord: {
+    parseDOM: [{ tag: 'del.diff-word' }],
+    toDOM() {
+      return ['del', { class: 'diff-word' }, 0];
+    },
+  },
+
   textStyle: {
     attrs: {
       color: { default: null },
