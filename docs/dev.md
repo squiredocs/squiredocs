@@ -375,6 +375,39 @@ kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm install
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev/client && npm install <package>"
 ```
 
+### Workflow 3.5: Search Evaluation Harness (feature 018)
+
+The retrieval-quality harness lives at `server/search/eval/` and runs
+on-demand in the dev pod — it is an **operator tool, never part of CI**
+(it needs a live `GOOGLE_GENERATIVE_AI_API_KEY`, a populated corpus, and
+it re-indexes the corpus per variant):
+
+```bash
+# Composition audit of the curated eval set (offline, no API key needed)
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run search:eval:check"
+
+# Minimum sweep: fixed (old chunking) → structure → structure+preambles.
+# Re-indexes ALL documents per variant — run it against a corpus you are
+# happy to re-embed, and restore your preferred config afterwards by
+# letting the sweep end on the shipping variant (it does, by default).
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run search:eval"
+
+# Saturation-guard verdict over a results file (SC-009)
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run search:eval:check eval-results.<timestamp>.json"
+
+# Optional flagged variants / fast iteration
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run search:eval -- --rerank"
+kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run search:eval -- --variant=structure-preambles --limit=10"
+```
+
+- The eval set (`server/search/eval/eval-set.json`) is versioned and
+  curated by hand; `seed-eval-corpus.js` reproduces the deterministic
+  sandbox corpus the committed draft set references (point `DATABASE_URL`
+  at a scratch database first — never at a corpus you care about).
+- Results land as `server/search/eval/eval-results.<ts>.json` (git-ignored).
+- Reminder: backend Jest stays strictly serial — never run the harness and
+  a backend test run against the same database at the same time.
+
 ### Workflow 4: Database Operations
 
 ```bash
