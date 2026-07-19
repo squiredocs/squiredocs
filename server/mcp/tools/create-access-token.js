@@ -106,18 +106,18 @@ function resolveTtlSeconds(ttlSeconds) {
 }
 
 /**
- * Handler function for the tool
- * @param {object} args - { scopes?, ttlSeconds? }
- * @param {object} agentToken - Authenticated principal (agent JWT or API token)
- * @returns {Promise<object>} Minted token details (plaintext shown once)
+ * Mint-eligibility guards shared by both delivery modes and both tools that
+ * prepare claim deliveries (create_access_token, import_markdown_file).
+ *
+ * No chaining: a token minted by this tool cannot mint further tokens.
+ * Otherwise each child would be a fresh minter with its own cap budget.
+ *
+ * Delegation liveness: agent JWTs are stateless (1h expiry) and minting is
+ * the one operation whose product outlives the JWT, so re-check the
+ * delegation in the DB — a just-revoked delegation must not be able to mint
+ * a fresh 24h token during the remainder of its JWT's lifetime.
  */
-async function handler(args, agentToken) {
-  const granted = agentToken.scopes || [];
-  const scopes = resolveScopes(args.scopes, granted);
-  const ttlSeconds = resolveTtlSeconds(args.ttlSeconds);
-
-  // No chaining: a token minted by this tool cannot mint further tokens.
-  // Otherwise each child would be a fresh minter with its own cap budget.
+async function assertCanMint(agentToken) {
   if (agentToken.apiTokenId) {
     const parent = await apiTokens.getTokenById(agentToken.apiTokenId);
     if (parent && (parent.minted_by_delegation_id || parent.minted_by_api_token_id)) {
@@ -127,16 +127,55 @@ async function handler(args, agentToken) {
     }
   }
 
-  // Agent JWTs are stateless (1h expiry) and minting is the one operation
-  // whose product outlives the JWT, so re-check the delegation in the DB —
-  // a just-revoked delegation must not be able to mint a fresh 24h token
-  // during the remainder of its JWT's lifetime.
   if (agentToken.delegationId) {
     const check = await delegation.checkDelegation(agentToken.delegationId, null);
     if (!check.isValid) {
       throw new Error(`Cannot mint token: ${check.reason}`);
     }
   }
+}
+
+/**
+ * Prepare a one-shot claim delivery for the calling principal: run the
+ * mint-eligibility guards, create the pending-mint record in Redis, and
+ * return the claim ingredients. This is the single mint path shared with
+ * import_markdown_file (feature 019, R1) — the pending-mint record shape,
+ * claim window, hashing, and redemption are untouched.
+ *
+ * @param {object} agentToken - Authenticated principal (agent JWT or API token)
+ * @param {object} opts - { scopes, ttlSeconds, name }
+ * @returns {Promise<{claimSecret: string, claimUrl: string, claimExpiresInSeconds: number}>}
+ */
+async function prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name }) {
+  await assertCanMint(agentToken);
+
+  const claimSecret = await pendingMints.createPendingMint({
+    userId: agentToken.userId,
+    name,
+    scopes,
+    ttlSeconds,
+    mintedByDelegationId: agentToken.delegationId || null,
+    mintedByApiTokenId: agentToken.apiTokenId || null,
+  });
+
+  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
+  return {
+    claimSecret,
+    claimUrl: `${baseUrl}/api/tokens/claim`,
+    claimExpiresInSeconds: pendingMints.CLAIM_TTL_SECONDS,
+  };
+}
+
+/**
+ * Handler function for the tool
+ * @param {object} args - { scopes?, ttlSeconds? }
+ * @param {object} agentToken - Authenticated principal (agent JWT or API token)
+ * @returns {Promise<object>} Minted token details (plaintext shown once)
+ */
+async function handler(args, agentToken) {
+  const granted = agentToken.scopes || [];
+  const scopes = resolveScopes(args.scopes, granted);
+  const ttlSeconds = resolveTtlSeconds(args.ttlSeconds);
 
   const minter = {
     delegationId: agentToken.delegationId || null,
@@ -164,6 +203,7 @@ async function handler(args, agentToken) {
     // Explicit opt-in for shell-less agents: the token is delivered in-band
     // (there is no other channel available to such an agent) with a
     // do-not-echo warning leading the result.
+    await assertCanMint(agentToken);
     const displaced = await apiTokens.enforceMinterCap(minter);
     const { token, record } = await apiTokens.createToken(agentToken.userId, tokenName, {
       scopes,
@@ -196,20 +236,17 @@ async function handler(args, agentToken) {
   // bytes, so the credential goes server → disk without transiting model
   // context. The claim secret below is acceptable transcript residue: it is
   // one-shot, expires in minutes, and grants nothing but the claim.
-  const claimSecret = await pendingMints.createPendingMint({
-    userId: agentToken.userId,
-    name: tokenName,
+  const { claimSecret, claimUrl, claimExpiresInSeconds } = await prepareClaimDelivery(agentToken, {
     scopes,
     ttlSeconds,
-    mintedByDelegationId: minter.delegationId,
-    mintedByApiTokenId: minter.apiTokenId,
+    name: tokenName,
   });
 
   return {
     scopes,
     ttlSeconds,
-    claimUrl: `${baseUrl}/api/tokens/claim`,
-    claimExpiresInSeconds: pendingMints.CLAIM_TTL_SECONDS,
+    claimUrl,
+    claimExpiresInSeconds,
     claimCommand:
       `umask 077; mkdir -p ~/.squire\n` +
       `curl -sf -H "Authorization: Bearer ${claimSecret}" \\\n` +
@@ -234,4 +271,5 @@ module.exports = {
   description,
   inputSchema,
   handler,
+  prepareClaimDelivery,
 };

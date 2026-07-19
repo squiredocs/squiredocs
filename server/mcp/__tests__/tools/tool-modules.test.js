@@ -126,9 +126,12 @@ describe('Tool Module Smoke Tests', () => {
 
   describe('Description Quality', () => {
     // MCP clients (e.g. Claude Code) truncate tool descriptions at 2KB.
-    // Large references belong in tool-documentation/ served by
-    // get_tool_documentation, not in the description.
-    const MAX_DESCRIPTION_CHARS = 2048;
+    // Truncation operates on ENCODED length, so the cap is measured in UTF-8
+    // BYTES, not characters — the descriptions contain multi-byte punctuation
+    // and box-drawing art that a character count undercounts (feature 019,
+    // FR-016/SC-004/research R4). Large references belong in
+    // tool-documentation/ served by get_tool_documentation.
+    const MAX_DESCRIPTION_BYTES = 2048;
 
     toolModules.forEach((moduleName) => {
       test(`${moduleName} has substantive description`, () => {
@@ -144,10 +147,34 @@ describe('Tool Module Smoke Tests', () => {
         expect(description).not.toMatch(/FIXME:/i);
       });
 
-      test(`${moduleName} description fits the 2KB client truncation budget`, () => {
+      test(`${moduleName} description fits the 2KB client truncation budget (UTF-8 bytes)`, () => {
         const toolModule = require(`../../tools/${moduleName}`);
-        expect(toolModule.description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
+        expect(Buffer.byteLength(toolModule.description, 'utf8')).toBeLessThanOrEqual(MAX_DESCRIPTION_BYTES);
       });
+    });
+  });
+
+  describe('Byte budgets over the live registry (feature 019, FR-016/SC-004)', () => {
+    // Registry-driven so every ADVERTISED tool — including tools added after
+    // this test was written — is covered by construction, not by remembering
+    // to extend the module list above.
+    const MAX_DESCRIPTION_BYTES = 2048;
+    const MAX_INSTRUCTIONS_BYTES = 1536; // RBD-7: 75% of the truncation cap
+
+    test('every advertised tool description is ≤ 2,048 UTF-8 bytes', () => {
+      const toolRegistry = require('../../tools/index');
+      const toolList = toolRegistry.getToolList();
+      expect(toolList.length).toBeGreaterThan(0);
+      const overCap = toolList
+        .map((tool) => ({ name: tool.name, bytes: Buffer.byteLength(tool.description, 'utf8') }))
+        .filter((t) => t.bytes > MAX_DESCRIPTION_BYTES);
+      expect(overCap).toEqual([]);
+    });
+
+    test('server instructions are ≤ 1,536 UTF-8 bytes (RBD-7)', () => {
+      const { SERVER_INSTRUCTIONS } = require('../../index');
+      expect(typeof SERVER_INSTRUCTIONS).toBe('string');
+      expect(Buffer.byteLength(SERVER_INSTRUCTIONS, 'utf8')).toBeLessThanOrEqual(MAX_INSTRUCTIONS_BYTES);
     });
   });
 
@@ -208,6 +235,8 @@ describe('Tool Registry Integration', () => {
       'get_tool_documentation',
       // Temporary API token minting
       'create_access_token',
+      // Byte-channel recipe (feature 019)
+      'import_markdown_file',
       // Version history tools
       'list_document_versions',
       'read_document_version',

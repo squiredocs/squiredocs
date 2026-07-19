@@ -444,4 +444,5 @@ module.exports = {
   router,
   oauthRouter,
   init,
+  SERVER_INSTRUCTIONS,
 };
