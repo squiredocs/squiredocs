@@ -19,6 +19,57 @@ not the mechanism.
 
 ---
 
+## DR-1: Design Addition (234858d) folded in as design-ratified
+
+- **Status**: DESIGN-RATIFIED (Sam, 2026-07-18 — `design/collaboration-core.md`,
+  **Addition — 021 refined by upstream research**, commit 234858d; postdates the spec)
+- **Delta vs. spec**: the Addition refines the fix contract beyond the amendments the spec
+  cites: (1) skipped-node protection (log-and-skip alone leaves a front door: the next
+  legitimate local edit's PM→Y diff deletes the skipped node) via placeholder OR
+  tracked-skip — **plan chose tracked-skip exclusion** (research R2: placeholders can be
+  written into Yjs by the diff whenever the identity mapping is cleared, and would add a
+  schema-registry surface); (2) createAndFill-style filling attempted before skipping;
+  (3) baseline bump of the vendored binding 3.0.1 → 3.0.7 FIRST, patches on that baseline
+  (per-function diff verification in research R1: the patched functions are byte-identical
+  across versions except upstream's own selection-restore hardening); (4) TipTap
+  `enableContentCheck`/`onContentError` + disable-collaboration quarantine as a second
+  layer; (5) upstream filing (y-tiptap issue + y-prosemirror #39/#258) recorded as an owed
+  follow-up in the plan's Promotion Notes, not a feature task.
+- **Handling**: design wins over the older spec text; folded into plan/contracts/tasks as
+  ratified design, analyze notes the spec↔Addition delta as resolved-by-design (not a
+  stop-the-line finding).
+
+## DR-2: Runtime kill-switch for the binding patch
+
+- **Status**: DESIGN-RATIFIED (Sam risk review, relayed 2026-07-19)
+- **Decision**: the binding patch ships with a runtime kill-switch reverting all four
+  patched behaviors to stock without rebuild/redeploy. One flag, atomic revert (no
+  per-behavior mixing in v1); default ON; at most a page refresh to take effect. Channel:
+  the existing admin-editable `app_settings` store (key `collab_binding_hardening`) served
+  to the client via a new authenticated `GET /api/client-config`, applied as a live-read
+  global with fail-safe default ON (research R4). A test proves stock behavior returns
+  under flag-off (the incident repro deletes again), i.e. the switch genuinely reverts.
+  The server guardrail stays active regardless of the flag; the quarantine layer
+  (enableContentCheck) is independent of it.
+- **Rationale** (Sam): the combined patch is first-of-its-kind in y-prosemirror's sync
+  path; prod needs an instant revert that isn't a deploy rollback.
+
+## DR-3: Render-skip events are observable server-side
+
+- **Status**: DESIGN-RATIFIED (Sam divergence review, relayed 2026-07-19)
+- **Decision**: skip/stand-in events are reported to the server, not just console-logged.
+  Verified there is no existing client→server telemetry path (feature 014 explicitly
+  scoped out browser instrumentation), so per the pre-authorized fallback a minimal
+  authenticated beacon is added: `POST /api/collab/render-skip-report` (doc id, node type,
+  error class, binding version, count; content-free), batched/debounced client-side under
+  the RBD-6 once-per-element rule, fire-and-forget, active regardless of kill-switch
+  state; server emits a structured log + OTel counter on the feature-014 metrics spine.
+  Test: a forced skip produces exactly one report (contract:
+  runtime-config-and-skip-report.md).
+- **Rationale** (Sam): divergence classes 2/3 (invalid composites, mixed-version clients)
+  are expected-rare — the point is to KNOW within minutes if they occur in prod; same
+  silence-is-not-acceptable philosophy as the deletion guardrail.
+
 ## RBD-1: Guardrail defaults — 10-second freshness window, per-(doc,user) alert suppression
 
 - **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-18)
