@@ -32,6 +32,7 @@
  * never rewrites history (FR-006). Public yjs API only.
  */
 const Y = require('yjs');
+const { toMarkdown } = require('../mcp/yjs/serialization');
 
 /** Origin under which the target edit's rows are replayed (tracked). */
 const EDIT_ORIGIN = 'undo-target-edit';
@@ -57,8 +58,13 @@ const HISTORY_ORIGIN = 'history';
  * @param {Y.Doc|null} [liveDoc] - This instance's live shared doc, merged into
  *   the scratch state before popping so supersession is evaluated against
  *   in-flight, not-yet-persisted edits too (FR-013, RBD-9).
- * @returns {{inverseUpdate: Uint8Array} | null} null = nothing left to undo
- *   (fully superseded, or no identity rows in the range) — the honest empty.
+ * @returns {{inverseUpdate: Uint8Array, preMarkdown: string|null,
+ *   postMarkdown: string|null} | null} null = nothing left to undo (fully
+ *   superseded, or no identity rows in the range) — the honest empty. The
+ *   markdown pair brackets the pop (feature 020, RBD-3): captured from the
+ *   scratch fragment immediately before and after undoManager.undo(), AFTER
+ *   the live-doc merge — race-free and honest post-supersession. Best-effort:
+ *   both null when serialization throws; the inverse is never lost to it.
  */
 function computeInverse(rows, range, identity, liveDoc = null) {
   const { clockStart, clockEnd } = range;
@@ -115,6 +121,15 @@ function computeInverse(rows, range, identity, liveDoc = null) {
       Y.applyUpdate(scratch, missing, HISTORY_ORIGIN);
     }
 
+    // Markdown bracket, half 1 (020, RBD-3): the pre-pop state — after the
+    // live merge, immediately before undo(). Best-effort only.
+    let preMarkdown = null;
+    try {
+      preMarkdown = toMarkdown(fragment);
+    } catch {
+      preMarkdown = null;
+    }
+
     // Pop the one StackItem, capturing the transaction's update payload.
     let inverseUpdate = null;
     const onUpdate = (update) => { inverseUpdate = update; };
@@ -130,7 +145,19 @@ function computeInverse(rows, range, identity, liveDoc = null) {
       return null; // performedChange === false — fully superseded (FR-011)
     }
 
-    return { inverseUpdate };
+    // Markdown bracket, half 2: the post-pop state. The pair nulls together —
+    // a half-bracket can only produce a dishonest diff.
+    let postMarkdown = null;
+    if (preMarkdown !== null) {
+      try {
+        postMarkdown = toMarkdown(fragment);
+      } catch {
+        postMarkdown = null;
+      }
+    }
+    if (postMarkdown === null) preMarkdown = null;
+
+    return { inverseUpdate, preMarkdown, postMarkdown };
   } finally {
     if (undoManager) undoManager.destroy();
     scratch.destroy();
