@@ -140,13 +140,18 @@ printed it or you are driving the flow yourself — present it like this:
 
 ## Core tools
 
-- `read_document` — read a document (optionally filtered by XPath).
+- `read_document` — read a document (optionally filtered by XPath; pass
+  `versionId` to read a historical version).
 - `modify` — apply an edit via a TypeScript script (the primary editing tool).
 - `create_document` — create a document, optionally populated from markdown.
+- `import_markdown_file` — sync or import an existing markdown file: returns a
+  ready-to-run shell recipe (one-shot token claim + import + receipt
+  write-back) without the file's content ever entering model context.
 - `list_documents` — list documents you can access.
-- `get_tool_documentation` — full API reference for the script-based tools.
+- `get_tool_documentation` — full API reference for the script-based tools and
+  the REST byte channel.
 
-Additional tools include `list_document_versions`, `read_document_version`,
+Additional tools include `list_document_versions`,
 `compare_document_versions`, `restore_document_version`,
 `set_document_version_name`, `set_document_title`, `share_document`,
 `get_collaborators`, `undo`, `redo`, and `create_access_token`.
@@ -186,6 +191,29 @@ export:
 curl -H "Authorization: Bearer $(cat ~/.squire/token)" \
   "https://squiredocs.com/api/docs/<docId>/export?format=markdown" -o doc.md
 ```
+
+## Sync a repo file
+
+To keep a markdown file and a Squire document exactly faithful to each other,
+never retype the file through tool parameters — walk this loop instead:
+
+1. **Get a write-capable token.** Easiest: call `import_markdown_file` — it
+   returns one ready-to-run compound command that does steps 1–3 in a single
+   shell invocation (one-shot token claim, import, receipt write-back). Or
+   mint a write-scoped token yourself with
+   `create_access_token({ scopes: ["documents:read", "documents:write"] })`.
+2. **Initial import with `frontmatter=true`.**
+   `POST /api/docs/import?frontmatter=true` with the file's bytes (or
+   `PUT /api/docs/:docId/import?...&frontmatter=true` for an existing
+   document) — byte-faithful, and the response's `markdown` receipt is the
+   canonical re-export stamped with `squire:` frontmatter (docGuid, clock).
+3. **Write the receipt back over the source file.** The receipt-stamped file
+   is now a valid sync baseline.
+4. **Ongoing pushes with `mode=sync`.** After editing the file, push it with
+   `PUT /api/docs/:docId/import?mode=sync` — its edits are replayed as CRDT
+   operations anchored at the file's baseline, merging cleanly with edits
+   made in the app. Write each returned receipt back over the file to refresh
+   the baseline.
 
 ## Start here
 

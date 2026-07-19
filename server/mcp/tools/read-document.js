@@ -10,7 +10,7 @@ const {
   createNodeSelection,
   createExpandingBlockHighlights,
 } = require('../yjs/cursor-operations');
-const { queryAndSerialize } = require('./read-helpers');
+const { queryAndSerialize, readDocumentAtVersion } = require('./read-helpers');
 const versionHistory = require('../../version-history');
 
 // Persistence provider - set by init function
@@ -29,14 +29,9 @@ function init(persistence) {
  */
 const name = 'read_document';
 
-const description = `Read document content with optional XPath filtering. Returns structured JSON
-or Markdown. Use this to understand document structure before modifying.
-
-PARAMETERS:
-- docGuid: Document UUID (required)
-- xpath: XPath expression to filter results (optional; omit for the entire
-  document; same XPath syntax as the modify tool)
-- format: "structured" or "markdown" (optional, default "structured")
+const description = `Read document content — current, or historical via versionId — with optional
+XPath filtering. Returns structured JSON or Markdown. Use this to understand
+document structure before modifying. Same XPath syntax as the modify tool.
 
 XPATH EXAMPLES:
 - "//heading" - all headings
@@ -46,14 +41,9 @@ XPATH EXAMPLES:
 - "//heading[contains(., 'Tasks')]/following-sibling::bulletList[1]" - the
   bullet list after a specific heading
 
-RETURNS:
-- content: Structured array or Markdown string (based on format)
-- matchCount: Number of elements returned (when using xpath)
-- blockCount: Total blocks in document
-- characterCount: Total characters in result
-- clock: Current document version (update counter)
-- lastModifiedAt / lastModifiedBy: Last modification time and author
-- recentAuthors: Authors from the current editing session
+RETURNS: content, blockCount, characterCount, matchCount (with xpath), and —
+for current reads — clock, lastModifiedAt/By, recentAuthors. With versionId
+the content is historical and the result carries version metadata instead.
 
 EXAMPLE:
 await read_document({ docGuid: "abc-123", xpath: "//heading", format: "markdown" });`;
@@ -75,6 +65,11 @@ const inputSchema = {
       enum: ['markdown', 'structured'],
       description: 'Output format (default: "structured")',
     },
+    versionId: {
+      type: 'string',
+      description:
+        'Optional: read the document as of this version — a version UUID or a clock number as a string (e.g. "42"). Omit for current content.',
+    },
   },
   required: ['docGuid'],
 };
@@ -86,7 +81,20 @@ const inputSchema = {
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('read_document tool not initialized');
 
-  const { docGuid, xpath: xpathExpr, format = 'structured' } = args;
+  const { docGuid, versionId, xpath: xpathExpr, format = 'structured' } = args;
+
+  // Historical read (feature 019 DR-1): identical xpath/format semantics via
+  // the shared core, but NO presence session and NO highlights — reading a
+  // version must not move the live cursor — and the version result shape.
+  if (versionId !== undefined) {
+    return readDocumentAtVersion(persistenceProvider, {
+      docGuid,
+      versionId,
+      xpathExpr,
+      format,
+      userId: agentToken.userId,
+    });
+  }
 
   // Get document (verifies access internally)
   const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60);

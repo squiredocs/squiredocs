@@ -92,6 +92,12 @@ reference untouched).
   Bytes not characters because truncation operates on encoded length. Trimming duplicated
   teaching prose is safe because the full references live in get_tool_documentation by
   design; that is precisely why the summaries exist.
+- **As-implemented (2026-07-19, UTF-8 bytes, test-asserted over the live registry)**:
+  `create_document` 1,982; `modify` 1,830 (was 2,049 — over the cap); server
+  instructions 1,225 (cap 1,536). Both trims landed as planned (modify's
+  NON-NEGOTIABLE RULES block moved to get_tool_documentation with a one-line
+  XPath/incremental pointer kept; create_document's WHY INCREMENTAL collapsed
+  to one line).
 
 ## RBD-5: Shell-less guidance content in the recipe tool's result
 
@@ -161,6 +167,14 @@ reference untouched).
   hidden map (no handler fork); historical reads skip presence/highlights (a
   version read must not move the live cursor); dedup/staleness semantics mirror
   today's read_document_version rules (plan research R5).
+- **As-implemented diet results (2026-07-19, UTF-8 bytes over the live
+  registry — all ≤ 2,048, test-asserted)**: get_collaborators 506 (was 2,787
+  — banner art removed, latent truncation bug fixed); undo 634 / redo 688
+  (were 1,767/1,727; every 016-asserted phrase preserved); read_document 868
+  (was 1,194; gained versionId); list_documents 1,135 (was 1,988);
+  share_document 129 (was 51; gained the owner-only sentence);
+  import_markdown_file 988 (new); hidden read_document_version alias 337.
+  Advertised count: SIXTEEN.
 
 ## RBD-7: Server-instructions size target
 

@@ -17,8 +17,21 @@ jest.mock('../../sandbox/xpath', () => ({
   xpath: jest.fn(),
 }));
 
+// Mocks for the versionId (historical read) branch — feature 019 DR-1.
+jest.mock('../../../documents', () => ({
+  hasAccess: jest.fn(),
+}));
+jest.mock('../../../version-history', () => ({
+  getVersionContent: jest.fn(),
+  createAuthor: jest.fn(),
+  getCurrentSessionAuthors: jest.fn(() => []),
+}));
+
 const readDocument = require('../../tools/read-document');
+const readDocumentVersion = require('../../tools/read-document-version');
 const agentPresence = require('../../agent-presence');
+const documents = require('../../../documents');
+const versionHistory = require('../../../version-history');
 const { xpath } = require('../../sandbox/xpath');
 
 describe('read_document tool', () => {
@@ -416,6 +429,164 @@ describe('read_document tool', () => {
       await expect(
         readDocument.handler({ docGuid: 'test-doc-id' }, { userId: 'unauthorized-user' })
       ).rejects.toThrow('Document not found or you do not have access');
+    });
+  });
+
+  // ==========================================================================
+  // versionId — read_document absorbs read_document_version (feature 019 DR-1)
+  // ==========================================================================
+  describe('versionId (historical reads)', () => {
+    const VERSION_UUID = '7c3a2f10-9b2d-4f6e-a1c2-5d8e9f0a1b2c';
+    let historicalDoc;
+    let historicalFragment;
+    let versionMeta;
+
+    beforeEach(() => {
+      // A historical Y.Doc whose content differs from the live mockDoc.
+      historicalDoc = new Y.Doc();
+      historicalFragment = historicalDoc.get('default', Y.XmlFragment);
+      const heading = new Y.XmlElement('heading');
+      heading.setAttribute('level', 1);
+      const headingText = new Y.XmlText();
+      headingText.insert(0, 'Historical Heading');
+      heading.insert(0, [headingText]);
+      const para = new Y.XmlElement('paragraph');
+      const paraText = new Y.XmlText();
+      paraText.insert(0, 'Historical paragraph content');
+      para.insert(0, [paraText]);
+      historicalFragment.insert(0, [heading, para]);
+
+      versionMeta = {
+        id: '42',
+        name: null,
+        clockStart: 40,
+        clockEnd: 42,
+        timestamp: '2026-07-01T00:00:00Z',
+      };
+
+      documents.hasAccess.mockResolvedValue(true);
+      versionHistory.getVersionContent.mockResolvedValue({
+        content: Buffer.from(Y.encodeStateAsUpdate(historicalDoc)),
+        version: versionMeta,
+      });
+      readDocumentVersion.init({
+        getPool: () => mockPool,
+        getRecentUpdatesWithUsers: jest.fn().mockResolvedValue([]),
+      });
+    });
+
+    test('accepts a clock-number string and returns the historical content with version metadata', async () => {
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: '42', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+
+      expect(versionHistory.getVersionContent).toHaveBeenCalledWith(
+        expect.anything(), 'test-doc-id', '42'
+      );
+      expect(result.content).toContain('# Historical Heading');
+      expect(result.content).toContain('Historical paragraph content');
+      expect(result.content).not.toContain('Test Heading'); // not the live doc
+      expect(result.blockCount).toBe(2);
+      expect(result.version).toEqual(versionMeta);
+    });
+
+    test('accepts a version UUID', async () => {
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: VERSION_UUID },
+        { userId: 'test-user' }
+      );
+      expect(versionHistory.getVersionContent).toHaveBeenCalledWith(
+        expect.anything(), 'test-doc-id', VERSION_UUID
+      );
+      expect(result.version).toEqual(versionMeta);
+    });
+
+    test('returns the version result shape — no url/clock/lastModified/recentAuthors', async () => {
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: '42' },
+        { userId: 'test-user' }
+      );
+      expect(Object.keys(result).sort()).toEqual(
+        ['blockCount', 'characterCount', 'content', 'version']
+      );
+    });
+
+    test('creates NO presence session and NO highlights on versioned reads', async () => {
+      await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: '42' },
+        { userId: 'test-user' }
+      );
+      expect(agentPresence.getOrCreateSession).not.toHaveBeenCalled();
+      expect(agentPresence.queueHighlightSequence).not.toHaveBeenCalled();
+    });
+
+    test('supports identical xpath semantics against the historical version', async () => {
+      const headings = historicalFragment.toArray().filter(
+        (n) => n instanceof Y.XmlElement && n.nodeName === 'heading'
+      );
+      xpath.mockReturnValue(headings);
+
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: '42', xpath: '//heading', format: 'structured' },
+        { userId: 'test-user' }
+      );
+
+      expect(result.matchCount).toBe(1);
+      expect(result.content[0].type).toBe('heading');
+      expect(result.content[0].content).toBe('Historical Heading');
+    });
+
+    test('behaves identically to the read_document_version tool (ported behavior)', async () => {
+      const viaReadDocument = await readDocument.handler(
+        { docGuid: 'test-doc-id', versionId: '42', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+      const viaLegacyTool = await readDocumentVersion.handler(
+        { docGuid: 'test-doc-id', versionId: '42', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+      expect(viaReadDocument).toEqual(viaLegacyTool);
+    });
+
+    test('enforces access via documents.hasAccess (no presence path)', async () => {
+      documents.hasAccess.mockResolvedValue(false);
+      await expect(
+        readDocument.handler(
+          { docGuid: 'test-doc-id', versionId: '42' },
+          { userId: 'unauthorized' }
+        )
+      ).rejects.toThrow('Document not found or you do not have access');
+      expect(versionHistory.getVersionContent).not.toHaveBeenCalled();
+    });
+
+    test('propagates unknown-version errors unchanged', async () => {
+      versionHistory.getVersionContent.mockRejectedValue(new Error('Version not found'));
+      await expect(
+        readDocument.handler(
+          { docGuid: 'test-doc-id', versionId: 'invalid-format' },
+          { userId: 'test-user' }
+        )
+      ).rejects.toThrow('Version not found');
+    });
+
+    test('without versionId the current-content behavior is unchanged (presence + full shape)', async () => {
+      const result = await readDocument.handler(
+        { docGuid: 'test-doc-id', format: 'markdown' },
+        { userId: 'test-user' }
+      );
+      expect(agentPresence.getOrCreateSession).toHaveBeenCalled();
+      expect(result.content).toContain('# Test Heading');
+      expect(result).toHaveProperty('url');
+      expect(result).toHaveProperty('clock');
+      expect(result).toHaveProperty('recentAuthors');
+      expect(result.version).toBeUndefined();
+    });
+
+    test('inputSchema gains optional versionId (string), docGuid stays the only required param', () => {
+      expect(readDocument.inputSchema.properties.versionId).toBeDefined();
+      expect(readDocument.inputSchema.properties.versionId.type).toBe('string');
+      expect(readDocument.inputSchema.required).toEqual(['docGuid']);
     });
   });
 

@@ -25,7 +25,7 @@ land. NO database migrations anywhere. Do not touch specs/016-*, 017-*, 018-*.
 **Purpose**: Make the two shared assertion targets reachable by tests. No
 behavior change.
 
-- [ ] T001 Export `SERVER_INSTRUCTIONS` from `server/mcp/index.js` (add it to
+- [X] T001 Export `SERVER_INSTRUCTIONS` from `server/mcp/index.js` (add it to
       `module.exports`; the constant itself is unchanged in this task) so tests
       can measure and assert its content and byte size.
 
@@ -39,14 +39,14 @@ later story asserts against.
 **⚠️ CRITICAL**: T002 blocks US1; T003 defines the RED gate that US6 + US2 turn
 green.
 
-- [ ] T002 Extract `prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name })`
+- [X] T002 Extract `prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name })`
       in `server/mcp/tools/create-access-token.js` per research R1: move the
       no-chaining guard, the delegation-liveness re-check, and the
       `pendingMints.createPendingMint(...)` call into the exported helper; the
       existing `handler` calls it. Pure refactor — the full existing suites
       `server/mcp/__tests__/tools/create-access-token.test.js` and
       `server/__tests__/token-claim.test.js` MUST pass unmodified (SC-009 guard).
-- [ ] T003 Convert the description cap in
+- [X] T003 Convert the description cap in
       `server/mcp/__tests__/tools/tool-modules.test.js` from characters to UTF-8
       bytes per research R4: assert
       `Buffer.byteLength(tool.description, 'utf8') <= 2048` for every tool in
@@ -73,7 +73,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
 
 ### Tests for User Story 1 (write FIRST, must fail)
 
-- [ ] T004 [P] [US1] Contract test
+- [X] T004 [P] [US1] Contract test
       `server/mcp/__tests__/tools/import-markdown-file.test.js` per
       contracts/import-markdown-file.md: module exports (name/description/
       inputSchema/handler/init); first description line contains "sync" and names
@@ -91,7 +91,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
       `create_access_token({ inline: true })`, `rest_api`, and the in-context
       path (RBD-5/FR-007); statelessness: a bogus docGuid still returns a recipe
       (FR-008).
-- [ ] T005 [P] [US1] Registry/scope + claim-security regression tests: in
+- [X] T005 [P] [US1] Registry/scope + claim-security regression tests: in
       `server/mcp/__tests__/tools/import-markdown-file.test.js` (registry
       section) assert `getToolList()` contains `import_markdown_file`,
       `TOOL_SCOPES` gating via `executeTool` — a `['documents:read']`-only
@@ -106,7 +106,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Implement `server/mcp/tools/import-markdown-file.js` per
+- [X] T006 [US1] Implement `server/mcp/tools/import-markdown-file.js` per
       contracts/import-markdown-file.md and research R2: intent resolution +
       instructive parameter errors; call `prepareClaimDelivery` (T002) with
       scopes `["documents:read","documents:write"]`, default TTL, name
@@ -117,13 +117,13 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
       `GET .../export?format=markdown&frontmatter=true -o "$FILE"`; result
       fields `{ command, intent, docGuid?, claimExpiresInSeconds, message,
       guidance }`; description first line contains "sync", ≤ 2,048 UTF-8 bytes.
-- [ ] T007 [US1] Register the tool in `server/mcp/tools/index.js`: require +
+- [X] T007 [US1] Register the tool in `server/mcp/tools/index.js`: require +
       add `import_markdown_file` to the `tools` map and
       `TOOL_SCOPES.import_markdown_file = 'documents:write'`; update the
       expected-tools list in `server/mcp/__tests__/tools/tool-modules.test.js`
       (temporarily 17 advertised — US6/T010 brings it to 16; if US6 lands first
       in a re-ordering, go straight to 16).
-- [ ] T008 [US1] End-to-end integration test
+- [X] T008 [US1] End-to-end integration test
       `__tests__/integration/import-recipe-e2e.test.js` per research R6 (SC-002):
       bootstrap like `__tests__/integration/docs-import-api.test.js` + mount
       `server/api/token-claim.js`, `app.listen(0)`; call the tool handler with
@@ -153,7 +153,7 @@ can read docs.
 
 ### Tests for User Story 6 (write FIRST, must fail)
 
-- [ ] T009 [P] [US6] Extend `server/mcp/__tests__/tools/read-document.test.js`
+- [X] T009 [P] [US6] Extend `server/mcp/__tests__/tools/read-document.test.js`
       per contracts/read-document-merge.md: `versionId` accepted (UUID and
       clock-number string), historical content returned with `version` metadata
       and identical xpath/format semantics (port the behavioral cases from
@@ -167,7 +167,7 @@ can read docs.
       `executeTool('get_tool_documentation', …)` succeeds for a
       `['documents:write']`-only principal (scope drop); share_document
       description contains the owner-only sentence.
-- [ ] T010 [P] [US6] Chat-layer tests in
+- [X] T010 [P] [US6] Chat-layer tests in
       `server/__tests__/chat-tools.test.js` (and chat-staleness/chat-dedup
       suites if separate): `XPATH_TOOLS` no longer contains
       `read_document_version` and oversized-result paging guidance still fires
@@ -186,18 +186,18 @@ can read docs.
 
 ### Implementation for User Story 6
 
-- [ ] T011 [US6] Extract the historical-read core from
+- [X] T011 [US6] Extract the historical-read core from
       `server/mcp/tools/read-document-version.js` into a shared function in
       `server/mcp/tools/read-helpers.js`; add optional `versionId` to
       `server/mcp/tools/read-document.js` (schema property + handler branch:
       `documents.hasAccess` check, no presence session/highlights, version
       result shape); make `read-document-version.js` a thin delegate. Existing
       `read-document-version.test.js` keeps passing unmodified.
-- [ ] T012 [US6] `server/mcp/tools/index.js`: move `read_document_version` to a
+- [X] T012 [US6] `server/mcp/tools/index.js`: move `read_document_version` to a
       `HIDDEN_TOOL_ALIASES` map consulted by `getTool()` (out of `getToolList()`),
       keep its `TOOL_SCOPES` entry; DELETE the `get_tool_documentation` entry
       from `TOOL_SCOPES` (scope drop).
-- [ ] T013 [P] [US6] Description diet per contracts/teaching-surfaces.md §2 and
+- [X] T013 [P] [US6] Description diet per contracts/teaching-surfaces.md §2 and
       research R9: `server/mcp/tools/undo.js` and `redo.js` to ~500 B each
       preserving every 016-asserted phrase (no "cursor"; "restart";
       per-identity; "preserved/untouched"; "clock");
@@ -206,7 +206,7 @@ can read docs.
       descriptions in `server/mcp/tools/read-document.js` and
       `server/mcp/tools/list-documents.js` (keep XPath examples); add the
       owner-only sentence to `server/mcp/tools/share-document.js`.
-- [ ] T014 [US6] Chat surfaces per contracts/read-document-merge.md:
+- [X] T014 [US6] Chat surfaces per contracts/read-document-merge.md:
       `server/api/chat.js` VERSION HISTORY workflow line → "read_document (with
       versionId) or compare_document_versions"; `server/api/chat-tools.js`
       `XPATH_TOOLS` drops `read_document_version`;
@@ -230,7 +230,7 @@ client; every pinned word present; byte test fully green.
 
 ### Tests for User Story 2 (write FIRST, must fail)
 
-- [ ] T015 [P] [US2] New suite
+- [X] T015 [P] [US2] New suite
       `server/mcp/__tests__/tools/trigger-surfaces.test.js` per
       contracts/teaching-surfaces.md §1 and research R7: create_document title
       (first) line names syncing/importing an existing file as the excluded case
@@ -248,20 +248,20 @@ client; every pinned word present; byte test fully green.
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Rewrite `server/mcp/tools/create-document.js` description +
+- [X] T016 [US2] Rewrite `server/mcp/tools/create-document.js` description +
       schema per FR-009/FR-010/FR-011/FR-012: new title line with the
       existing-file exclusion; add the already-read-it sentence to the
       byte-channel redirect; collapse WHY INCREMENTAL to one line; keep title
       precedence, at-least-one-of rule, parameter semantics; add the one-sentence
       redirect to the `markdown` param schema description; total ≤ 2,048 UTF-8
       bytes.
-- [ ] T017 [P] [US2] Trim + extend `server/mcp/tools/modify.js` description per
+- [X] T017 [P] [US2] Trim + extend `server/mcp/tools/modify.js` description per
       FR-013: remove the NON-NEGOTIABLE RULES block (canonical home is
       get_tool_documentation), keep a one-line XPath/incremental pointer, extend
       the redirect to "Replacing or syncing content from an EXISTING markdown
       file? … PUT /api/docs/:docId/import (mode=replace / mode=sync)"; land
       ≤ 2,048 UTF-8 bytes (over cap today — this closes T003's last red).
-- [ ] T018 [P] [US2] `server/mcp/tools/get-tool-documentation.js`: headline
+- [X] T018 [P] [US2] `server/mcp/tools/get-tool-documentation.js`: headline
       (first line) names the REST byte channel + `rest_api` alongside the script
       tools (FR-014). `server/mcp/index.js` `SERVER_INSTRUCTIONS`: CHANNEL RULE
       sentence gains "to sync/import an existing file" (FR-015), total ≤ 1,536
@@ -282,7 +282,7 @@ thresholds ± allowRetyped behave per the matrix.
 
 ### Tests for User Story 3 (write FIRST, must fail)
 
-- [ ] T019 [P] [US3] New suite
+- [X] T019 [P] [US3] New suite
       `server/mcp/__tests__/tools/create-document-teaching.test.js` per
       contracts/teaching-surfaces.md §3: full matrix — sub-nudge call result
       DEEP-EQUALS pre-019 shape (no new fields, FR-021); at-nudge (exactly 2,048
@@ -303,7 +303,7 @@ thresholds ± allowRetyped behave per the matrix.
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] Implement in `server/mcp/tools/create-document.js`:
+- [X] T020 [US3] Implement in `server/mcp/tools/create-document.js`:
       `resolveTeachingThresholds()` per research R3 (call-time env read,
       pair-wise validation, defaults 2,048/10,240); measure
       `Buffer.byteLength(markdown, 'utf8')` BEFORE any side effect; refusal path
@@ -312,7 +312,7 @@ thresholds ± allowRetyped behave per the matrix.
       allowRetyped creations; add `allowRetyped` (boolean) to `inputSchema` with
       a description stating it is only meaningful at/above the refusal
       threshold; sub-nudge path byte-identical.
-- [ ] T021 [US3] Verify SC-007: run
+- [X] T021 [US3] Verify SC-007: run
       `server/mcp/__tests__/tools/create-document.test.js` and
       `server/mcp/__tests__/create-document-markdown.test.js` UNMODIFIED — both
       must pass (their fixtures are sub-nudge; if any fixture is ≥ 2,048 bytes,
@@ -332,7 +332,7 @@ rejection codes byte-identical.
 
 ### Tests for User Story 4 (write FIRST, must fail)
 
-- [ ] T022 [P] [US4] Extend `server/__tests__/markdown-sync.rejection.test.js`
+- [X] T022 [P] [US4] Extend `server/__tests__/markdown-sync.rejection.test.js`
       (message-level) and `__tests__/integration/sync-push.route.test.js`
       (route-level 400 body) per contracts/teaching-surfaces.md §4: the
       `sync_baseline_missing` message includes the verbatim remedy sentence
@@ -343,7 +343,7 @@ rejection codes byte-identical.
 
 ### Implementation for User Story 4
 
-- [ ] T023 [US4] Append the remedy sentence to
+- [X] T023 [US4] Append the remedy sentence to
       `REJECTION_MESSAGES.sync_baseline_missing` in
       `server/api/docs-import.js` (line ~78). One-string change; the other
       three entries untouched.
@@ -364,7 +364,7 @@ steps present.
 
 ### Tests for User Story 5 (write FIRST, must fail)
 
-- [ ] T024 [P] [US5] Extend `server/__tests__/agents-md-claims.test.js` per
+- [X] T024 [P] [US5] Extend `server/__tests__/agents-md-claims.test.js` per
       research R8: heading "Sync a repo file" exists; that section names (tolerant
       regexes) `import_markdown_file` (or minting a write-scoped token),
       `frontmatter=true` initial import, receipt write-back over the source
@@ -374,7 +374,7 @@ steps present.
 
 ### Implementation for User Story 5
 
-- [ ] T025 [US5] Edit `client/public/agents.md`: add the "Sync a repo file"
+- [X] T025 [US5] Edit `client/public/agents.md`: add the "Sync a repo file"
       section (four recipe steps, both entry points: the recipe tool and the
       manual mint path) near "## REST endpoints"; update "## Core tools" —
       remove `read_document_version` from the additional-tools list, note
@@ -388,19 +388,19 @@ steps present.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T026 [P] Update `README.md` per Constitution I: MCP tool list (~lines
+- [X] T026 [P] Update `README.md` per Constitution I: MCP tool list (~lines
       600–640) — add `import_markdown_file`, fold `read_document_version` into
       the `read_document` bullet (hidden alias noted), get_tool_documentation
       scope note; chat section "All 15 MCP document tools" count/wording
       (~line 496); mention the create_document nudge/refusal and the
       `CREATE_DOCUMENT_NUDGE_BYTES`/`CREATE_DOCUMENT_REFUSAL_BYTES` env vars
       where env config is documented.
-- [ ] T027 [P] Re-measure and record final byte sizes (all advertised
+- [X] T027 [P] Re-measure and record final byte sizes (all advertised
       descriptions + instructions) with a one-off
       `node -e` using `Buffer.byteLength`, confirm against implement-time
       `main` (spec Assumptions), and note the numbers in the feature's
       clarifications-needed.md DR-1/RBD-4 entries if they moved.
-- [ ] T028 Run the FULL backend suite serially (`npm test -- --runInBand`) plus
+- [X] T028 Run the FULL backend suite serially (`npm test -- --runInBand`) plus
       the quickstart.md automated block; fix any fallout. Verify
       `server/mcp/__tests__/tools/read-document-version.test.js`,
       `create-access-token.test.js`, `token-claim.test.js`, and all

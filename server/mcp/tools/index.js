@@ -22,6 +22,10 @@ const modify = require('./modify');
 // Temporary REST API token minting (scoped <= caller, auto-expiring)
 const createAccessToken = require('./create-access-token');
 
+// Sync/import recipe for existing markdown files (no content — returns a
+// one-shot claim + curl + receipt-write-back shell command; feature 019)
+const importMarkdownFile = require('./import-markdown-file');
+
 // Documentation for the script-based tools (modify, compare_document_versions)
 const getToolDocumentation = require('./get-tool-documentation');
 
@@ -58,12 +62,22 @@ const tools = {
   // Temporary API token minting for shell/REST access (e.g. export API)
   create_access_token: createAccessToken,
 
+  // Byte-channel recipe: sync/import an existing markdown file (feature 019)
+  import_markdown_file: importMarkdownFile,
+
   // Version history tools
   list_document_versions: listDocumentVersions,
-  read_document_version: readDocumentVersion,
   set_document_version_name: setDocumentVersionName,
   restore_document_version: restoreDocumentVersion,
   compare_document_versions: compareDocumentVersions,
+};
+
+// Hidden deprecation aliases (feature 019 DR-1): absent from getToolList()
+// (not advertised to any client) but still resolved by getTool()/executeTool()
+// for a transition window, so connected clients mid-conversation keep working.
+// read_document absorbed read_document_version via its versionId parameter.
+const HIDDEN_TOOL_ALIASES = {
+  read_document_version: readDocumentVersion,
 };
 
 /**
@@ -71,7 +85,7 @@ const tools = {
  * @param {PostgresPersistence} persistence - PostgreSQL persistence provider
  */
 function init(persistence) {
-  Object.values(tools).forEach((tool) => {
+  [...Object.values(tools), ...Object.values(HIDDEN_TOOL_ALIASES)].forEach((tool) => {
     if (tool.init) {
       tool.init(persistence);
     }
@@ -94,12 +108,13 @@ function getToolList() {
 }
 
 /**
- * Get a specific tool by name
+ * Get a specific tool by name — advertised tools first, then hidden
+ * deprecation aliases (executable but not listed).
  * @param {string} name - Tool name
  * @returns {object|null} Tool module or null
  */
 function getTool(name) {
-  return tools[name] || null;
+  return tools[name] || HIDDEN_TOOL_ALIASES[name] || null;
 }
 
 // Required scopes per tool
@@ -113,6 +128,9 @@ const TOOL_SCOPES = {
   redo: 'documents:write',
   set_document_version_name: 'documents:write',
   restore_document_version: 'documents:write',
+  // The recipe mints a write-capable token — a read-only principal must be
+  // refused at the tool boundary, not minutes later at claim time (019 FR-001)
+  import_markdown_file: 'documents:write',
   // Read operations
   list_documents: 'documents:read',
   read_document: 'documents:read',
@@ -120,7 +138,9 @@ const TOOL_SCOPES = {
   list_document_versions: 'documents:read',
   read_document_version: 'documents:read',
   compare_document_versions: 'documents:read',
-  get_tool_documentation: 'documents:read',
+  // get_tool_documentation deliberately has NO scope entry (feature 019
+  // DR-1): it serves static documentation text, and a write-only token must
+  // be able to read the docs it needs.
   // Minting is additionally capped at the caller's own scopes in the handler
   create_access_token: 'documents:read',
 };

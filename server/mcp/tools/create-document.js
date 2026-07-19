@@ -24,17 +24,18 @@ function init() {}
  */
 const name = 'create_document';
 
-const description = `Create a new document, optionally seeded from markdown.
+const description = `Create a new document from content you are authoring — NOT for syncing/importing an existing markdown file (use import_markdown_file for that).
 
 IF THE MARKDOWN ALREADY EXISTS AS A FILE (or any bytes outside your context):
-do NOT retype it through this tool's markdown parameter — prefer the REST
-import route (POST /api/docs/import; PUT /api/docs/:docId/import for
-updates). It moves the bytes over HTTP without transiting model context,
+do NOT retype it through this tool's markdown parameter. Even if you have
+already read the file, the file remains the source of truth — use the byte
+channel: call import_markdown_file for a ready-to-run one-shot recipe, or
+mint with create_access_token({ scopes: ["documents:read",
+"documents:write"] }) and POST /api/docs/import (PUT /api/docs/:docId/import
+for updates). It moves the bytes over HTTP without transiting model context,
 returns a canonical-markdown receipt for exact verification, and with
 frontmatter=true the receipt written back over your file makes the new doc
-sync-ready from birth. Mint a token with create_access_token({ scopes:
-["documents:read", "documents:write"] }), then see
-get_tool_documentation({ tool: "rest_api" }).
+sync-ready from birth. See get_tool_documentation({ tool: "rest_api" }).
 
 ONE-CALL CREATION FROM MARKDOWN (preferred when you are authoring the
 content in-context):
@@ -53,13 +54,8 @@ modify or read_document):
 1. create_document({ title: "My Doc" })     → Creates empty document
 2. modify({ script: "add heading..." })     → Add title/heading first
 3. modify({ script: "add section 1..." })   → Add first section
-
-WHY INCREMENTAL (for authoring new content):
-- User sees content appear progressively (better UX)
-- Each change syncs immediately to all viewers
-- Smaller scripts are more reliable
-- Easier to recover from errors (partial content preserved)
-- Natural undo boundaries (each modify = one undo step)`;
+Why incremental: progressive display, live sync to viewers, more reliable
+small scripts, and natural undo boundaries (each modify = one undo step).`;
 
 
 const inputSchema = {
@@ -74,11 +70,54 @@ const inputSchema = {
       type: 'string',
       description: 'Optional markdown to seed the document with. Imported as '
         + 'rich blocks via the shared import pipeline; the first heading stays '
-        + 'in the body.',
+        + 'in the body. Do NOT retype markdown that already exists as a file — '
+        + 'import the file over the REST byte channel instead '
+        + '(import_markdown_file / POST /api/docs/import).',
+    },
+    allowRetyped: {
+      type: 'boolean',
+      description: 'Acknowledge deliberately retyping bulk markdown through '
+        + 'model context. Only meaningful at/above the size-refusal threshold '
+        + '(default 10,240 UTF-8 bytes), where it is always honored; ignored '
+        + 'below it.',
     },
   },
   required: [],
 };
+
+// Teaching thresholds (feature 019, FR-017/RBD-3): the nudge and soft
+// refusal trigger on the UTF-8 byte length of the markdown argument.
+const TEACHING_DEFAULTS = { nudgeBytes: 2048, refusalBytes: 10240 };
+
+/**
+ * Resolve the teaching thresholds from the environment AT CALL TIME
+ * (research R3 — testable without module-cache gymnastics). Pair-wise
+ * validation: any invalid configuration (non-numeric, non-integer, <= 0, or
+ * refusal <= nudge) falls back to BOTH defaults — a typo'd env var must
+ * never turn the soft refusal into refuse-everything or disable teaching.
+ */
+function resolveTeachingThresholds() {
+  const rawNudge = process.env.CREATE_DOCUMENT_NUDGE_BYTES;
+  const rawRefusal = process.env.CREATE_DOCUMENT_REFUSAL_BYTES;
+  if (rawNudge === undefined && rawRefusal === undefined) {
+    return { ...TEACHING_DEFAULTS };
+  }
+  const nudgeBytes = rawNudge === undefined ? TEACHING_DEFAULTS.nudgeBytes : Number(rawNudge);
+  const refusalBytes = rawRefusal === undefined ? TEACHING_DEFAULTS.refusalBytes : Number(rawRefusal);
+  const valid =
+    Number.isInteger(nudgeBytes) && nudgeBytes > 0 &&
+    Number.isInteger(refusalBytes) && refusalBytes > nudgeBytes;
+  return valid ? { nudgeBytes, refusalBytes } : { ...TEACHING_DEFAULTS };
+}
+
+/** The FR-018 success nudge appended to results at/above the nudge threshold. */
+function buildNudge(markdownBytes) {
+  return ` NOTE: ${markdownBytes} bytes of markdown passed through model context. `
+    + 'If this content exists as a file, prefer the byte channel — '
+    + 'POST /api/docs/import is byte-faithful and returns a canonical receipt '
+    + 'for exact verification (receipt-verified). See import_markdown_file or '
+    + 'get_tool_documentation({ tool: "rest_api" }).';
+}
 
 /**
  * Handler function for the tool
@@ -95,6 +134,24 @@ async function handler(args, agentToken) {
   const hasTitle = typeof explicitTitle === 'string';
   if (!hasTitle && !hasMarkdown) {
     throw new Error('create_document requires at least one of: title, markdown');
+  }
+
+  // Teaching evaluation (feature 019, FR-017..FR-021): measured in UTF-8
+  // BYTES, BEFORE any side effect — a refused call must create nothing. The
+  // refusal is never unconditional: allowRetyped: true is honored for any
+  // caller at any size (shell-less agents have no byte channel).
+  const markdownBytes = hasMarkdown ? Buffer.byteLength(markdown, 'utf8') : 0;
+  const { nudgeBytes, refusalBytes } = resolveTeachingThresholds();
+  if (markdownBytes >= refusalBytes && args.allowRetyped !== true) {
+    throw new Error(
+      `create_document refused: the markdown argument is ${markdownBytes} UTF-8 bytes of retyped `
+      + `content (soft-refusal threshold: ${refusalBytes}). Nothing was created. Markdown that `
+      + 'already exists as a file should move over the byte channel instead — POST /api/docs/import '
+      + '(byte-faithful, receipt-verified; call import_markdown_file for a ready-to-run recipe, or '
+      + 'see get_tool_documentation({ tool: "rest_api" })). If you cannot use a shell or make HTTP '
+      + 'requests, or you genuinely authored this content in-context, retry the identical call with '
+      + 'allowRetyped: true — it is always honored.'
+    );
   }
 
   // Title precedence (FR-008): explicit title → frontmatter squire: title →
@@ -184,6 +241,12 @@ async function handler(args, agentToken) {
     result.blocks = importReport.blocks;
     result.images = importReport.images;
     result.message = `Created document "${title}" with ${importReport.blocks.imported} imported block(s)`;
+  }
+  // FR-018/FR-020: at/above the nudge threshold (including allowRetyped
+  // creations) the SUCCESS result points at the byte channel. Below it the
+  // result is byte-identical to the pre-019 shape (FR-021).
+  if (markdownBytes >= nudgeBytes) {
+    result.message += buildNudge(markdownBytes);
   }
   return result;
 }

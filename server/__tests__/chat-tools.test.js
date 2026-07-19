@@ -129,10 +129,10 @@ describe('chat-tools', () => {
       expect(error.error).toContain('REQUIREMENTS FOR SUMMARIZATION');
     });
 
-    it('includes xpath paging instructions for read_document_version', () => {
+    it('uses the generic message for read_document_version (left the chat surface — 019 DR-1)', () => {
       const error = buildOversizedError('read_document_version', 500_000, MAX_RESULT_CHARS, { blockCount: 100 });
-      expect(error.error).toContain('xpath');
-      expect(error.error).toContain('100 blocks');
+      expect(error.error).toContain('too large');
+      expect(error.error).not.toContain('xpath');
     });
 
     it('uses generic message for non-xpath tools', () => {
@@ -150,10 +150,53 @@ describe('chat-tools', () => {
   });
 
   describe('XPATH_TOOLS', () => {
-    it('contains read_document and read_document_version', () => {
+    it('contains read_document but no longer read_document_version (019 DR-1)', () => {
       expect(XPATH_TOOLS.has('read_document')).toBe(true);
-      expect(XPATH_TOOLS.has('read_document_version')).toBe(true);
+      // read_document_version left the chat surface — paging guidance keys
+      // off read_document (with versionId) now.
+      expect(XPATH_TOOLS.has('read_document_version')).toBe(false);
       expect(XPATH_TOOLS.has('list_documents')).toBe(false);
+    });
+
+    it('oversized-result paging guidance still fires for read_document', () => {
+      const error = buildOversizedError('read_document', 500_000, MAX_RESULT_CHARS, { blockCount: 100 });
+      expect(error.error).toContain('xpath');
+      expect(error.error).toContain('100 blocks');
+    });
+  });
+
+  describe('derived chat tool set (feature 019 DR-1 / X1 — real registry)', () => {
+    // chat-tools builds its tool map from toolRegistry.getToolList(), so the
+    // chat agent's exposure follows the advertised registry. Both changes here
+    // are CONSCIOUS decisions, not accidents (design amendment c790282 defers
+    // chat/MCP exposure partitioning):
+    // - read_document_version leaves chat's list with the registry (hidden
+    //   alias is not advertised);
+    // - import_markdown_file APPEARS in chat: the in-app chat agent is
+    //   shell-less, but the recipe result's guidance field (RBD-5) covers
+    //   exactly that caller, and the claim-secret residue class is identical
+    //   to create_access_token, which chat already exposes.
+    it('drops read_document_version and includes import_markdown_file', () => {
+      const realRegistry = jest.requireActual('../mcp/tools');
+      mockGetToolList.mockReturnValue(realRegistry.getToolList());
+      mockGetTool.mockImplementation((name) => realRegistry.getTool(name));
+      try {
+        const tools = buildTools(fakeToken);
+        expect(tools).not.toHaveProperty('read_document_version');
+        expect(tools).toHaveProperty('import_markdown_file');
+        // The advertised registry the chat set derives from is the final 16.
+        expect(realRegistry.getToolList()).toHaveLength(16);
+
+        // RBD-5 conscious-exposure guard: the tool that chat now exposes must
+        // itself carry the shell-less signpost in its static surface (the
+        // result-level guidance is asserted in import-markdown-file.test.js).
+        const mod = realRegistry.getTool('import_markdown_file');
+        expect(mod.description).toMatch(/no shell/i);
+      } finally {
+        // jest.clearAllMocks() clears calls but NOT implementations — restore
+        // the default so later tests see the file-level mock again.
+        mockGetTool.mockImplementation(() => null);
+      }
     });
   });
 

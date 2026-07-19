@@ -24,52 +24,16 @@ function init(persistence) {
  */
 const name = 'get_collaborators';
 
-const description = `Get information about other users currently in the document.
+const description = `Get information about other users currently in the document: who else is
+editing, where their cursors are, and what they're working on. Useful for
+coordinating with other users/agents and avoiding edits to the same area
+simultaneously.
 
-═══════════════════════════════════════════════════════════════════════════
-COLLABORATIVE AWARENESS
-═══════════════════════════════════════════════════════════════════════════
-
-See who else is editing the document, where their cursors are, and what they're working on.
-Useful for coordination and avoiding edit conflicts.
-
-WHEN TO USE THIS:
-- Check who else is in the document
-- See where others are editing
-- Coordinate with other users/agents
-- Avoid editing same area simultaneously
-
-═══════════════════════════════════════════════════════════════════════════
-PARAMETERS
-═══════════════════════════════════════════════════════════════════════════
-
-- docGuid: Document UUID (required)
-
-═══════════════════════════════════════════════════════════════════════════
-RETURNS
-═══════════════════════════════════════════════════════════════════════════
-
-- collaborators: Array of users
-  - userId: User identifier
-  - name: User display name
-  - color: User cursor color
-  - isAgent: true if AI agent, false if human
-  - cursor: (if user has cursor visible)
-    - block: Block index
-    - offset: Offset within block
-    - blockType: Type of block
-    - hasSelection: true if text selected
-    - selectionPreview: First 50 chars of selection (if any)
-- totalCount: Number of collaborators
-
-═══════════════════════════════════════════════════════════════════════════
-EXAMPLE
-═══════════════════════════════════════════════════════════════════════════
-
-// See who's in the document
-await get_collaborators({
-  docGuid: "abc-123"
-});`;
+RETURNS:
+- collaborators: array of users, each with clientId, name, color, isAgent
+  (true for AI agents), and cursor when visible — { block, offset, blockType,
+  hasSelection, selectionPreview (first 50 chars of any selection) }
+- totalCount: number of collaborators`;
 
 const inputSchema = {
   type: 'object',

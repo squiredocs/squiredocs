@@ -16,7 +16,7 @@ function init() {}
 
 const name = 'get_tool_documentation';
 
-const description = `Get the complete API documentation for this server's script-based tools.
+const description = `Get the complete API docs for the script tools AND the REST byte channel (rest_api: markdown export, import, two-way sync).
 
 MCP clients truncate long tool descriptions, so the modify and
 compare_document_versions descriptions are short summaries. Call this tool to

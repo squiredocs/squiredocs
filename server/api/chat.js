@@ -157,7 +157,7 @@ FINDING A DOCUMENT:
 
 VERSION HISTORY:
 1. list_document_versions to see the timeline
-2. read_document_version or compare_document_versions for details
+2. read_document (with versionId) or compare_document_versions for details
 3. restore_document_version to roll back (this is non-destructive)
 
 USER ATTACHED A MARKDOWN FILE (the message notes an attached .md file whose content is not in the conversation):

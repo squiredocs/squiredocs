@@ -75,7 +75,12 @@ function parseOnBehalfOf(req) {
  */
 const REJECTION_MESSAGES = {
   sync_doc_mismatch: 'The file\'s frontmatter names a different document than the request target.',
-  sync_baseline_missing: 'No baseline clock: provide squire.clock frontmatter or the baselineClock parameter.',
+  // The first-time remedy sentence is design-pinned verbatim (feature 019,
+  // FR-022): the first sync attempt is the highest-intent moment in the
+  // funnel — the message must explain the bootstrap, not just what's missing.
+  sync_baseline_missing: 'No baseline clock: provide squire.clock frontmatter or the baselineClock parameter. '
+    + 'First sync of this file? Do an initial import with frontmatter=true and write the returned '
+    + 'markdown receipt back over the file — it is then a valid sync baseline.',
   sync_baseline_invalid: 'The baseline clock is malformed, negative, or beyond the document\'s current clock.',
   sync_baseline_unavailable: 'The document can no longer be reconstructed at that baseline clock.',
 };
@@ -403,4 +408,5 @@ module.exports = {
   MAX_IMPORT_BYTES,
   parseOnBehalfOf,
   setCanReconstruct,
+  REJECTION_MESSAGES,
 };
