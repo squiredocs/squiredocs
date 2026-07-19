@@ -985,6 +985,36 @@ describe('AiChatMessages', () => {
       expect(cells[0].textContent).toBe('-old');
       expect(cells[1].textContent).toBe('+new');
     });
+
+    it('a persisted pre-feature tool part (no inlineSegments) renders byte-identically and logs no error (T022, SC-004)', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Persisted shape: plain JSON part, no toolName, no streaming state.
+      const persisted = {
+        id: 'stored-diff-1',
+        role: 'assistant',
+        parts: [{
+          type: 'tool-modify',
+          toolCallId: 'call-old',
+          state: 'output-available',
+          input: { docGuid: 'doc-123' },
+          output: {
+            changed: true,
+            diff: {
+              lines: [' context', '-removed row', '+added row'],
+              hunkStarts: [{ index: 0, oldStart: 1, newStart: 1 }],
+            },
+          },
+        }],
+      };
+      const { container } = render(<AiChatMessages messages={[persisted]} status="ready" />);
+      const table = container.querySelector('.ai-diff-table');
+      expect(table).toBeInTheDocument();
+      expect(container.querySelector('.ai-diff-word')).toBeNull();
+      const cells = [...container.querySelectorAll('.ai-diff-cell')].map((c) => c.textContent);
+      expect(cells).toEqual([' context', '-removed row', '+added row']);
+      expect(errorSpy).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
   });
 });
 

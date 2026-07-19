@@ -316,7 +316,10 @@ describe('undo-service (post-merge review pins)', () => {
   // ----------------------------------------------------------- feature 020 ----
 
   describe('020: diff attach on success results', () => {
-    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer'];
+    // `inlineSegments` is the feature-022 additive word-level field, part of
+    // the modify/undo/redo diff shape by construction (computeChatDiff produces
+    // it — the undo card needs no undo-specific code).
+    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer', 'inlineSegments'];
 
     /** toMarkdown of a one-paragraph doc with the given text. */
     function mdOfPara(text) {
@@ -418,6 +421,16 @@ describe('undo-service (post-merge review pins)', () => {
       // Modify parity shape: only the contract's members, non-empty lines.
       expect(Object.keys(res.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
       expect(res.diff.lines.length).toBeGreaterThan(0);
+      // Feature 022 (T021): the revert is a word-level change (" AGENT-EDIT"
+      // removed), so the undo card carries inlineSegments by construction —
+      // word emphasis with zero undo-specific code.
+      expect(res.diff.inlineSegments).toBeDefined();
+      const changedWords = Object.values(res.diff.inlineSegments)
+        .flat()
+        .filter((s) => s.changed)
+        .map((s) => s.text)
+        .join('');
+      expect(changedWords).toContain('AGENT-EDIT');
     });
 
     test('successful redo carries the re-application diff the same way', async () => {

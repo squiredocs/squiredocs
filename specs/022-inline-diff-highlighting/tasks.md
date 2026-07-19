@@ -112,9 +112,9 @@ on both surfaces (strong highlight distinguishable, text readable).
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Add/extend a test asserting the undo/redo card path (`server/undo-service.js` → `computeChatDiff`) carries `inlineSegments` by construction, so undo/redo cards get word emphasis with no undo-specific code (spec US1 scenario 4, Dependencies).
-- [ ] T022 [P] [US3] Add a backward-compat test (extend `AiChatMessages.test.jsx`): a persisted tool part WITHOUT `inlineSegments` renders its diff byte-identically to the pre-feature output and logs no error (SC-004, FR-006).
-- [ ] T023 [P] [US3] Add a guard test that the two new marks have no input-rule / keyboard-shortcut / editing path — a normal edit round-trips through save/load without producing `diffInsertWord`/`diffDeleteWord` (SC-009, FR-009). Prefer asserting via the schema/extension config (no `addInputRules`/`addKeyboardShortcuts` on these marks) plus a round-trip of a plain edited doc.
+- [X] T021 [P] [US3] Add/extend a test asserting the undo/redo card path (`server/undo-service.js` → `computeChatDiff`) carries `inlineSegments` by construction, so undo/redo cards get word emphasis with no undo-specific code (spec US1 scenario 4, Dependencies).
+- [X] T022 [P] [US3] Add a backward-compat test (extend `AiChatMessages.test.jsx`): a persisted tool part WITHOUT `inlineSegments` renders its diff byte-identically to the pre-feature output and logs no error (SC-004, FR-006).
+- [X] T023 [P] [US3] Add a guard test that the two new marks have no input-rule / keyboard-shortcut / editing path — a normal edit round-trips through save/load without producing `diffInsertWord`/`diffDeleteWord` (SC-009, FR-009). Prefer asserting via the schema/extension config (no `addInputRules`/`addKeyboardShortcuts` on these marks) plus a round-trip of a plain edited doc.
 
 ### Manual verification for User Story 3 (real app, per quickstart.md)
 
