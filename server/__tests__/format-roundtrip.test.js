@@ -453,6 +453,62 @@ describe('canonical equivalence (tolerant === strict on serializer output)', () 
 });
 
 // ---------------------------------------------------------------------------
+// Feature 022 — word-level diff marks (schema serialization round-trip).
+// These marks are stamped by server/diff/apply-word-marks.js post-processing,
+// never produced by the parser — so coverage is a schema toJSON/fromJSON
+// round-trip plus the markdown-export drop, mirroring diffInsert/diffDelete
+// (constitution II).
+// ---------------------------------------------------------------------------
+
+describe('word-level diff marks — schema round-trip (feature 022, constitution II)', () => {
+  for (const markName of ['diffInsertWord', 'diffDeleteWord']) {
+    test(`${markName}: fromJSON/toJSON accepted, formatting preserved alongside`, () => {
+      const pmDoc = {
+        type: 'doc',
+        content: [{
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'the ' },
+            { type: 'text', text: 'changed', marks: [{ type: 'bold' }, { type: markName }] },
+            { type: 'text', text: ' word' },
+          ],
+        }],
+      };
+      const node = schema.nodeFromJSON(pmDoc);
+      expect(() => node.check()).not.toThrow();
+      const json = node.toJSON();
+      const jsonStr = JSON.stringify(json);
+      expect(jsonStr).toContain(`"type":"${markName}"`);
+      expect(jsonStr).toContain('"type":"bold"'); // existing formatting survives the split
+      // Re-parse is idempotent (stable serialization).
+      expect(schema.nodeFromJSON(json).toJSON()).toEqual(json);
+    });
+
+    test(`${markName}: markdown export drops it (mirrors diffInsert/diffDelete)`, () => {
+      const ydoc = docFromPm({
+        type: 'doc',
+        content: [{
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'the ' },
+            { type: 'text', text: 'changed', marks: [{ type: markName }] },
+            { type: 'text', text: ' word' },
+          ],
+        }],
+      });
+      const md = toMarkdown(ydoc.getXmlFragment('default'));
+      ydoc.destroy();
+      // The service-only diff mark is not in the export registry → dropped,
+      // leaving plain text (no <ins>/<del>/diff-word artifacts).
+      expect(md).toBe('the changed word');
+      expect(md).not.toContain('diff-word');
+      expect(md).not.toContain('<ins');
+      expect(md).not.toContain('<del');
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Feature 003 — Portable Export
 // ---------------------------------------------------------------------------
 

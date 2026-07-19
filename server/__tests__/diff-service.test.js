@@ -335,6 +335,153 @@ describe('DiffService', () => {
     });
   });
 
+  describe('computeMarkdownDiff — word-level marks (feature 022, US2)', () => {
+    // Helper: build a Y.Doc from an array of paragraph strings (with optional
+    // per-paragraph inline attrs applied to the whole paragraph text).
+    function docFrom(paras) {
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const els = paras.map(({ text, attrs }) => {
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, text, attrs || {});
+          p.insert(0, [t]);
+          return p;
+        });
+        fragment.insert(0, els);
+      });
+      return doc;
+    }
+
+    test('a single-word change marks ONLY the changed word strong; the rest stays subtle', () => {
+      const prev = docFrom([{ text: 'The quick brown fox' }]);
+      const curr = docFrom([{ text: 'The slow brown fox' }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+      const json = JSON.stringify(result);
+
+      // Strong marks present on the changed word only
+      expect(json).toContain('diffDeleteWord');
+      expect(json).toContain('diffInsertWord');
+
+      // Find the removed paragraph and inspect its runs
+      const removed = result.content.find((b) => JSON.stringify(b).includes('diffDeleteWord'));
+      const runs = removed.content;
+      const strong = runs.filter((r) => r.marks.some((m) => m.type === 'diffDeleteWord'));
+      expect(strong.map((r) => r.text)).toEqual(['quick']);
+      // Every other run carries the subtle diffDelete mark (two-tier, never both)
+      const subtle = runs.filter((r) => r.marks.some((m) => m.type === 'diffDelete'));
+      expect(subtle.map((r) => r.text).join('')).toBe('The  brown fox');
+      for (const r of runs) {
+        const hasStrong = r.marks.some((m) => m.type === 'diffDeleteWord');
+        const hasSubtle = r.marks.some((m) => m.type === 'diffDelete');
+        expect(hasStrong && hasSubtle).toBe(false); // tiers never nest (FR-010)
+      }
+
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('a changed word carrying inline formatting keeps the formatting mark alongside the diff mark (FR-010)', () => {
+      const prev = docFrom([{ text: 'The quick fox', attrs: { bold: true } }]);
+      const curr = docFrom([{ text: 'The slow fox', attrs: { bold: true } }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+      const removed = result.content.find((b) => JSON.stringify(b).includes('diffDeleteWord'));
+      const changed = removed.content.find((r) => r.marks.some((m) => m.type === 'diffDeleteWord'));
+      expect(changed.text).toBe('quick');
+      const markTypes = changed.marks.map((m) => m.type);
+      expect(markTypes).toContain('bold');
+      expect(markTypes).toContain('diffDeleteWord');
+      // diff mark is applied LAST
+      expect(markTypes[markTypes.length - 1]).toBe('diffDeleteWord');
+
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('lone-added paragraph (clean insert between unchanged blocks) stays subtle diffInsert only', () => {
+      // A pure `added` diffLines part (no adjacent `removed`) — not a replace
+      // region — so no word marks, exactly as before feature 022.
+      const prev = docFrom([{ text: 'Alpha' }, { text: 'Gamma' }]);
+      const curr = docFrom([{ text: 'Alpha' }, { text: 'Beta' }, { text: 'Gamma' }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffInsert');
+      expect(json).not.toContain('diffInsertWord');
+      expect(json).not.toContain('diffDeleteWord');
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('lone-removed paragraph (clean delete between unchanged blocks) stays subtle diffDelete only', () => {
+      const prev = docFrom([{ text: 'Alpha' }, { text: 'Beta' }, { text: 'Gamma' }]);
+      const curr = docFrom([{ text: 'Alpha' }, { text: 'Gamma' }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffDelete');
+      expect(json).not.toContain('diffDeleteWord');
+      expect(json).not.toContain('diffInsertWord');
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('unchanged text yields a plain doc with no diff marks at all', () => {
+      const prev = docFrom([{ text: 'Nothing changes here' }]);
+      const curr = docFrom([{ text: 'Nothing changes here' }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, true);
+      const json = JSON.stringify(result);
+      expect(json).not.toContain('diffInsert');
+      expect(json).not.toContain('diffDelete');
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('format-only-at-region-level (same words, different formatting) yields subtle marks only', () => {
+      // bold → italic on the SAME words: a replace region whose plain text is
+      // identical, so no word is "changed" → all subtle, no strong marks.
+      const prev = docFrom([{ text: 'same words', attrs: { bold: true } }]);
+      const curr = docFrom([{ text: 'same words', attrs: { italic: true } }]);
+      const result = diffService.computeMarkdownDiff(prev, curr, false);
+      const json = JSON.stringify(result);
+      expect(json).toContain('diffInsert');
+      expect(json).toContain('diffDelete');
+      expect(json).not.toContain('diffInsertWord');
+      expect(json).not.toContain('diffDeleteWord');
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('fault injection: refinement error degrades to line-level marks; no throw, no word marks (RBD-3/FR-012)', () => {
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      // Inject a failure into the region refinement via the shared helper the
+      // same module instance apply-word-marks calls (namespace spy — no module
+      // isolation, so the Y.Doc constructor identity is preserved).
+      const wordDiff = require('../../shared/diff/word-diff');
+      const segSpy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation(() => {
+        throw new Error('injected refinement failure');
+      });
+
+      const prev = docFrom([{ text: 'The quick brown fox' }]);
+      const curr = docFrom([{ text: 'The slow brown fox' }]);
+      let result;
+      expect(() => {
+        result = diffService.computeMarkdownDiff(prev, curr, false);
+      }).not.toThrow();
+
+      const json = JSON.stringify(result);
+      // Degraded to today's line-level presentation (subtle marks, no word marks)
+      expect(json).toContain('diffDelete');
+      expect(json).toContain('diffInsert');
+      expect(json).not.toContain('diffDeleteWord');
+      expect(json).not.toContain('diffInsertWord');
+
+      segSpy.mockRestore();
+      consoleError.mockRestore();
+      prev.destroy();
+      curr.destroy();
+    });
+  });
+
   describe('computeDiff', () => {
     test('computes diff for document with changes', async () => {
       // Create initial document

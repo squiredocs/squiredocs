@@ -428,8 +428,9 @@ export default function edit(doc) {
     expect(typeof undo.message).toBe('string');
     expect(typeof undo.clock).toBe('number');
     expect(undo.cursor).toBeUndefined(); // RBD-5 stays retired
-    // Additive diff in modify's exact payload shape (C1/C2).
-    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer'];
+    // Additive diff in modify's exact payload shape (C1/C2). `inlineSegments`
+    // is the feature-022 additive word-level field, part of the shape now.
+    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer', 'inlineSegments'];
     expect(Object.keys(undo.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
     expect(undo.diff.lines.length).toBeGreaterThan(0);
     expect(Array.isArray(undo.diff.hunkStarts)).toBe(true);

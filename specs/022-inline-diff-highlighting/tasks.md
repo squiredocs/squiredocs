@@ -31,7 +31,7 @@ round-trip coverage for new marks.
 **Purpose**: Directory scaffolding for the two new files. No new dependencies (`diff`
 ^8.0.4 already installed); no migrations.
 
-- [ ] T001 [P] Create the `shared/diff/` and `server/diff/` directories (new files land here in later phases). No other setup — verify `diff` ^8.0.4 is present in `package.json` (it is).
+- [X] T001 [P] Create the `shared/diff/` and `server/diff/` directories (new files land here in later phases). No other setup — verify `diff` ^8.0.4 is present in `package.json` (it is).
 
 ---
 
@@ -42,8 +42,8 @@ in US1 or US2 can be built until this exists and is correct (FR-001, SC-003).
 
 **⚠️ CRITICAL**: Blocks US1 and US2.
 
-- [ ] T002 [US-shared] Write the failing unit test `shared/diff/__tests__/word-diff.test.js` (or the nearest existing shared test location) per [contracts/word-diff-helper.md](./contracts/word-diff-helper.md): faithfulness (segments rejoin to input), one-word change isolates the changed word on both sides, identical inputs yield no `changed:true` segments, whitespace-only change yields a `changed:true` whitespace segment, adjacent same-flag coalescing.
-- [ ] T003 Implement `shared/diff/word-diff.js` exporting `computeWordSegments(before, after)` using `diffWordsWithSpace` from `diff`: `.removed`→before/`changed:true`, `.added`→after/`changed:true`, neither→both/`changed:false`; coalesce adjacent same-flag segments per side. Make T002 pass.
+- [X] T002 [US-shared] Write the failing unit test `shared/diff/__tests__/word-diff.test.js` (or the nearest existing shared test location) per [contracts/word-diff-helper.md](./contracts/word-diff-helper.md): faithfulness (segments rejoin to input), one-word change isolates the changed word on both sides, identical inputs yield no `changed:true` segments, whitespace-only change yields a `changed:true` whitespace segment, adjacent same-flag coalescing.
+- [X] T003 Implement `shared/diff/word-diff.js` exporting `computeWordSegments(before, after)` using `diffWordsWithSpace` from `diff`: `.removed`→before/`changed:true`, `.added`→after/`changed:true`, neither→both/`changed:false`; coalesce adjacent same-flag segments per side. Make T002 pass.
 
 **Checkpoint**: Shared helper green — US1 and US2 can proceed in parallel.
 
@@ -59,16 +59,16 @@ card's diff shows row tint + a strong highlight on exactly the replaced word on 
 
 ### Tests for User Story 1
 
-- [ ] T004 [P] [US1] Extend `server/mcp/__tests__/diff-postprocess.test.js`: a word-changed `-`/`+` pair yields `inlineSegments` keyed by output line index with the correct before/after segments (prefix-stripped); format-only annotated pairs yield NO segments; pure add-only / remove-only blocks yield NO segments; unequal `-`/`+` counts pair up to `min(del,add)` and leave surplus lines segment-free (FR-002/FR-003, edge cases).
-- [ ] T005 [P] [US1] Extend `server/mcp/__tests__/diff-postprocess.test.js` (or `diff-utils` coverage): on the `truncatedByServer` branch, `inlineSegments` keys are filtered to `< MAX_DIFF_LINES` (200), mirroring `formatAnnotations`; no key references a truncated-away line (FR-005).
-- [ ] T006 [P] [US1] Extend `client/src/components/__tests__/AiChatMessages.test.jsx` (reuse/extend the `diffOutput` fixture ~L609): `DiffView` given `inlineSegments` renders `.ai-diff-word` spans on exactly the changed words with the prefix char preserved; a payload WITHOUT `inlineSegments` renders the plain `{entry.line}` identically (FR-006, SC-004).
+- [X] T004 [P] [US1] Extend `server/mcp/__tests__/diff-postprocess.test.js`: a word-changed `-`/`+` pair yields `inlineSegments` keyed by output line index with the correct before/after segments (prefix-stripped); format-only annotated pairs yield NO segments; pure add-only / remove-only blocks yield NO segments; unequal `-`/`+` counts pair up to `min(del,add)` and leave surplus lines segment-free (FR-002/FR-003, edge cases).
+- [X] T005 [P] [US1] Extend `server/mcp/__tests__/diff-postprocess.test.js` (or `diff-utils` coverage): on the `truncatedByServer` branch, `inlineSegments` keys are filtered to `< MAX_DIFF_LINES` (200), mirroring `formatAnnotations`; no key references a truncated-away line (FR-005).
+- [X] T006 [P] [US1] Extend `client/src/components/__tests__/AiChatMessages.test.jsx` (reuse/extend the `diffOutput` fixture ~L609): `DiffView` given `inlineSegments` renders `.ai-diff-word` spans on exactly the changed words with the prefix char preserved; a payload WITHOUT `inlineSegments` renders the plain `{entry.line}` identically (FR-006, SC-004).
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] In `server/mcp/diff-postprocess.js` (`postProcessDiffLines`, non-format-only paired branch ~L161-169): pair del/add lines by index up to `min(delCount, addCount)`, call `computeWordSegments` on each pair's prefix-stripped text, and record `inlineSegments[delOutIdx]=segments.before` / `inlineSegments[addOutIdx]=segments.after` keyed by the `result`/`lines` output index. Return `inlineSegments` (an object, or `undefined` when empty) alongside `lines`/`hunkStarts`/`formatAnnotations`.
-- [ ] T008 [US1] In `server/mcp/diff-utils.js` (`computeChatDiff` ~L40-52): thread `processed.inlineSegments` into the return value on the normal branch, and on the `truncatedByServer` branch filter its keys to `Number(k) < MAX_DIFF_LINES` (mirroring the `formatAnnotations` filter). Depends on T007.
-- [ ] T009 [US1] In `client/src/components/AiChatMessages.jsx` (`DiffView` ~L271-345): read `const inlineSegments = diff.inlineSegments || {}`; when `inlineSegments[String(i)]` exists, render the prefix char (`entry.line[0]`) then the segments — unchanged as plain text, `changed` wrapped in `<span className="ai-diff-word">`; otherwise render `{entry.line}` unchanged. Leave row tint, gutter, hunk separators, `formatAnnotation`, expand/collapse, and truncation notice untouched (FR-006). Depends on T008.
-- [ ] T010 [US1] In `client/src/components/AiPanel.css`: add `.ai-diff-row--added .ai-diff-word` / `.ai-diff-row--removed .ai-diff-word` strong-highlight rules off the existing `--success`/`--danger` families (non-subtle token at moderate alpha, `border-radius: 2px`) so the word reads stronger than the row tint; light + dark both work because the tokens are theme-aware (FR-013).
+- [X] T007 [US1] In `server/mcp/diff-postprocess.js` (`postProcessDiffLines`, non-format-only paired branch ~L161-169): pair del/add lines by index up to `min(delCount, addCount)`, call `computeWordSegments` on each pair's prefix-stripped text, and record `inlineSegments[delOutIdx]=segments.before` / `inlineSegments[addOutIdx]=segments.after` keyed by the `result`/`lines` output index. Return `inlineSegments` (an object, or `undefined` when empty) alongside `lines`/`hunkStarts`/`formatAnnotations`.
+- [X] T008 [US1] In `server/mcp/diff-utils.js` (`computeChatDiff` ~L40-52): thread `processed.inlineSegments` into the return value on the normal branch, and on the `truncatedByServer` branch filter its keys to `Number(k) < MAX_DIFF_LINES` (mirroring the `formatAnnotations` filter). Depends on T007.
+- [X] T009 [US1] In `client/src/components/AiChatMessages.jsx` (`DiffView` ~L271-345): read `const inlineSegments = diff.inlineSegments || {}`; when `inlineSegments[String(i)]` exists, render the prefix char (`entry.line[0]`) then the segments — unchanged as plain text, `changed` wrapped in `<span className="ai-diff-word">`; otherwise render `{entry.line}` unchanged. Leave row tint, gutter, hunk separators, `formatAnnotation`, expand/collapse, and truncation notice untouched (FR-006). Depends on T008.
+- [X] T010 [US1] In `client/src/components/AiPanel.css`: add `.ai-diff-row--added .ai-diff-word` / `.ai-diff-row--removed .ai-diff-word` strong-highlight rules off the existing `--success`/`--danger` families (non-subtle token at moderate alpha, `border-radius: 2px`) so the word reads stronger than the row tint; light + dark both work because the tokens are theme-aware (FR-013).
 
 **Checkpoint**: US1 fully functional and testable — MVP deployable without touching version history. Undo/redo cards inherit the treatment for free (020 shares the renderer — verified in US3-T021).
 
@@ -84,19 +84,19 @@ changes" on shows subtle line-level marks + strong emphasis on only the changed 
 
 ### Tests for User Story 2
 
-- [ ] T011 [P] [US2] Extend `server/__tests__/diff-service.test.js`: a single-word change in a line produces `diffDeleteWord`/`diffInsertWord` on ONLY the changed word and subtle `diffDelete`/`diffInsert` on the rest; lone-added / lone-removed / unchanged / format-only-at-region-level paths still hold (FR-007). Include a case where a changed word carries inline formatting (bold) and confirm the formatting mark survives the split alongside the diff mark (FR-010).
-- [ ] T012 [P] [US2] Extend `server/__tests__/diff-service.test.js` with a fault-injection case: when refinement throws for a region, the region degrades to today's line-level marks and `computeMarkdownDiff` does NOT throw and does NOT cache an error result (FR-012 / RBD-3).
-- [ ] T013 [P] [US2] Extend `server/__tests__/format-roundtrip.test.js` so `diffInsertWord`/`diffDeleteWord` get bidirectional round-trip coverage (constitution II — registry-driven suite).
-- [ ] T014 [P] [US2] Update the assertion in `server/__tests__/markdown-strict-characterization.test.js` (~L69) from `'v7'` to `'v8'` (FR-011).
+- [X] T011 [P] [US2] Extend `server/__tests__/diff-service.test.js`: a single-word change in a line produces `diffDeleteWord`/`diffInsertWord` on ONLY the changed word and subtle `diffDelete`/`diffInsert` on the rest; lone-added / lone-removed / unchanged / format-only-at-region-level paths still hold (FR-007). Include a case where a changed word carries inline formatting (bold) and confirm the formatting mark survives the split alongside the diff mark (FR-010).
+- [X] T012 [P] [US2] Extend `server/__tests__/diff-service.test.js` with a fault-injection case: when refinement throws for a region, the region degrades to today's line-level marks and `computeMarkdownDiff` does NOT throw and does NOT cache an error result (FR-012 / RBD-3).
+- [X] T013 [P] [US2] Extend `server/__tests__/format-roundtrip.test.js` so `diffInsertWord`/`diffDeleteWord` get bidirectional round-trip coverage (constitution II — registry-driven suite).
+- [X] T014 [P] [US2] Update the assertion in `server/__tests__/markdown-strict-characterization.test.js` (~L69) from `'v7'` to `'v8'` (FR-011).
 
 ### Implementation for User Story 2
 
-- [ ] T015 [P] [US2] Register `diffInsertWord`/`diffDeleteWord` marks in `shared/prosemirror-schema.js` (~L412-424, next to `diffInsert`/`diffDelete`), rendered/parsed as `<ins class="diff-word">` / `<del class="diff-word">` (schema validation + round-trip). No input rules/shortcuts (FR-009). See [contracts/version-diff-marks.md](./contracts/version-diff-marks.md).
-- [ ] T016 [P] [US2] Define `DiffInsertWord`/`DiffDeleteWord` TipTap marks in `client/src/extensions/editorExtensions.js` (~L80-90, alongside `DiffInsert`/`DiffDelete`) rendering `ins.diff-word`/`del.diff-word`, and add both to the `getBaseExtensions` list (~L120-121) so `VersionPreview` renders them. Diff-service provenance only — no input rules/shortcuts (FR-009).
-- [ ] T017 [US2] Implement `server/diff/apply-word-marks.js` per [contracts/version-diff-marks.md](./contracts/version-diff-marks.md): parse both region sides UNMARKED, concatenate text-node text (blocks joined by `'\n'`), `computeWordSegments` on the plain text, walk PM text nodes tracking char offset, split at segment boundaries, stamp strong marks on changed ranges / subtle marks elsewhere, preserving existing formatting marks; skip the inter-block `'\n'` offset. Wrap the whole region in try/catch → fall back to line-level `markdownToPm(removedMd,'diffDelete')`+`markdownToPm(addedMd,'diffInsert')`, log at most once (FR-012). Depends on T003. Does NOT modify `shared/markdown/strict-parser.js` (CN-2 / FR-008).
-- [ ] T018 [US2] In `server/diff-service.js` `computeMarkdownDiff` (~L194-212): detect a replace region (a `removed` part immediately followed by an `added` part) and route it through `apply-word-marks`; lone-added→`diffInsert`, lone-removed→`diffDelete`, unchanged→`null` stay exactly as today. Depends on T017.
-- [ ] T019 [US2] In `server/diff-service.js` bump `CACHE_VERSION` `'v7'`→`'v8'` (L22) so stale line-level diffs aren't served from Redis (FR-011). Pairs with T014.
-- [ ] T020 [P] [US2] Add strong CSS tokens `--canvas-diff-add-bg-strong`/`--canvas-diff-del-bg-strong` in `client/src/index.css` in the light `:root` block (~L130-131) AND every dark block (~L209-210, ~L272-273, ~L295-296); add `.version-preview ins.diff-word`/`del.diff-word` rules in `client/src/components/VersionPreview.css` (after the base `ins`/`del` rules ~L55-66) using those tokens, keeping the base `text-decoration` behavior (FR-013, SC-007).
+- [X] T015 [P] [US2] Register `diffInsertWord`/`diffDeleteWord` marks in `shared/prosemirror-schema.js` (~L412-424, next to `diffInsert`/`diffDelete`), rendered/parsed as `<ins class="diff-word">` / `<del class="diff-word">` (schema validation + round-trip). No input rules/shortcuts (FR-009). See [contracts/version-diff-marks.md](./contracts/version-diff-marks.md).
+- [X] T016 [P] [US2] Define `DiffInsertWord`/`DiffDeleteWord` TipTap marks in `client/src/extensions/editorExtensions.js` (~L80-90, alongside `DiffInsert`/`DiffDelete`) rendering `ins.diff-word`/`del.diff-word`, and add both to the `getBaseExtensions` list (~L120-121) so `VersionPreview` renders them. Diff-service provenance only — no input rules/shortcuts (FR-009).
+- [X] T017 [US2] Implement `server/diff/apply-word-marks.js` per [contracts/version-diff-marks.md](./contracts/version-diff-marks.md): parse both region sides UNMARKED, concatenate text-node text (blocks joined by `'\n'`), `computeWordSegments` on the plain text, walk PM text nodes tracking char offset, split at segment boundaries, stamp strong marks on changed ranges / subtle marks elsewhere, preserving existing formatting marks; skip the inter-block `'\n'` offset. Wrap the whole region in try/catch → fall back to line-level `markdownToPm(removedMd,'diffDelete')`+`markdownToPm(addedMd,'diffInsert')`, log at most once (FR-012). Depends on T003. Does NOT modify `shared/markdown/strict-parser.js` (CN-2 / FR-008).
+- [X] T018 [US2] In `server/diff-service.js` `computeMarkdownDiff` (~L194-212): detect a replace region (a `removed` part immediately followed by an `added` part) and route it through `apply-word-marks`; lone-added→`diffInsert`, lone-removed→`diffDelete`, unchanged→`null` stay exactly as today. Depends on T017.
+- [X] T019 [US2] In `server/diff-service.js` bump `CACHE_VERSION` `'v7'`→`'v8'` (L22) so stale line-level diffs aren't served from Redis (FR-011). Pairs with T014.
+- [X] T020 [P] [US2] Add strong CSS tokens `--canvas-diff-add-bg-strong`/`--canvas-diff-del-bg-strong` in `client/src/index.css` in the light `:root` block (~L130-131) AND every dark block (~L209-210, ~L272-273, ~L295-296); add `.version-preview ins.diff-word`/`del.diff-word` rules in `client/src/components/VersionPreview.css` (after the base `ins`/`del` rules ~L55-66) using those tokens, keeping the base `text-decoration` behavior (FR-013, SC-007).
 
 **Checkpoint**: US1 and US2 both work independently; both surfaces emphasize the same words (SC-003, shared helper).
 
@@ -112,9 +112,9 @@ on both surfaces (strong highlight distinguishable, text readable).
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Add/extend a test asserting the undo/redo card path (`server/undo-service.js` → `computeChatDiff`) carries `inlineSegments` by construction, so undo/redo cards get word emphasis with no undo-specific code (spec US1 scenario 4, Dependencies).
-- [ ] T022 [P] [US3] Add a backward-compat test (extend `AiChatMessages.test.jsx`): a persisted tool part WITHOUT `inlineSegments` renders its diff byte-identically to the pre-feature output and logs no error (SC-004, FR-006).
-- [ ] T023 [P] [US3] Add a guard test that the two new marks have no input-rule / keyboard-shortcut / editing path — a normal edit round-trips through save/load without producing `diffInsertWord`/`diffDeleteWord` (SC-009, FR-009). Prefer asserting via the schema/extension config (no `addInputRules`/`addKeyboardShortcuts` on these marks) plus a round-trip of a plain edited doc.
+- [X] T021 [P] [US3] Add/extend a test asserting the undo/redo card path (`server/undo-service.js` → `computeChatDiff`) carries `inlineSegments` by construction, so undo/redo cards get word emphasis with no undo-specific code (spec US1 scenario 4, Dependencies).
+- [X] T022 [P] [US3] Add a backward-compat test (extend `AiChatMessages.test.jsx`): a persisted tool part WITHOUT `inlineSegments` renders its diff byte-identically to the pre-feature output and logs no error (SC-004, FR-006).
+- [X] T023 [P] [US3] Add a guard test that the two new marks have no input-rule / keyboard-shortcut / editing path — a normal edit round-trips through save/load without producing `diffInsertWord`/`diffDeleteWord` (SC-009, FR-009). Prefer asserting via the schema/extension config (no `addInputRules`/`addKeyboardShortcuts` on these marks) plus a round-trip of a plain edited doc.
 
 ### Manual verification for User Story 3 (real app, per quickstart.md)
 
@@ -127,8 +127,8 @@ on both surfaces (strong highlight distinguishable, text readable).
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T026 Run the full targeted suite serially and confirm green: `npx jest server/mcp/__tests__/diff-postprocess.test.js server/__tests__/diff-service.test.js server/__tests__/markdown-strict-characterization.test.js server/__tests__/format-roundtrip.test.js --runInBand` and `cd client && npx vitest run src/components/__tests__/AiChatMessages.test.jsx` (+ the shared word-diff test) — quickstart.md automated section (SC-008).
-- [ ] T027 [P] Sanity-check no unrelated diff/format suites regressed (broader `npx jest server/__tests__ server/mcp/__tests__ --runInBand`); confirm the cache bump did not break any other CACHE_VERSION-coupled assertion.
+- [X] T026 Run the full targeted suite serially and confirm green: `npx jest server/mcp/__tests__/diff-postprocess.test.js server/__tests__/diff-service.test.js server/__tests__/markdown-strict-characterization.test.js server/__tests__/format-roundtrip.test.js --runInBand` and `cd client && npx vitest run src/components/__tests__/AiChatMessages.test.jsx` (+ the shared word-diff test) — quickstart.md automated section (SC-008).
+- [X] T027 [P] Sanity-check no unrelated diff/format suites regressed (broader `npx jest server/__tests__ server/mcp/__tests__ --runInBand`); confirm the cache bump did not break any other CACHE_VERSION-coupled assertion.
 - [ ] T028 Run the quickstart.md manual validation end to end (chat one-word edit, undo/redo card, version-history one-word edit, format-only + pure-add sanity) — SC-001/SC-002/SC-006. (Owner: Sam / deploy-time.)
 
 ---

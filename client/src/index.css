@@ -129,6 +129,8 @@
   --canvas-mermaid-filter: none;                   /* display-only mermaid inversion (D19) */
   --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);  /* version-diff insert mark */
   --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);  /* version-diff delete mark */
+  --canvas-diff-add-bg-strong: rgba(46, 160, 67, 0.55);  /* word-level insert (feature 022) */
+  --canvas-diff-del-bg-strong: rgba(215, 58, 73, 0.40);  /* word-level delete (feature 022) */
   /* Presence identity chips (avatar/cursor labels): text/backing render on the
      user's identity color, so these stay CONSTANT in both themes (not
      redefined under dark). Legibility on dark comes from the outline affordance
@@ -208,6 +210,8 @@
   --canvas-mermaid-filter: invert(0.92) hue-rotate(180deg);
   --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
   --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
+  --canvas-diff-add-bg-strong: rgba(74, 222, 128, 0.45);  /* word-level insert (feature 022) */
+  --canvas-diff-del-bg-strong: rgba(248, 113, 113, 0.45); /* word-level delete (feature 022) */
   --presence-ring: rgba(255, 255, 255, 0.55);
 }
 
@@ -271,6 +275,8 @@
     --canvas-mermaid-filter: invert(0.92) hue-rotate(180deg);
     --canvas-diff-add-bg: rgba(74, 222, 128, 0.22);
     --canvas-diff-del-bg: rgba(248, 113, 113, 0.22);
+    --canvas-diff-add-bg-strong: rgba(74, 222, 128, 0.45);  /* word-level insert (feature 022) */
+    --canvas-diff-del-bg-strong: rgba(248, 113, 113, 0.45); /* word-level delete (feature 022) */
     --presence-ring: rgba(255, 255, 255, 0.55);
   }
 }
@@ -294,6 +300,8 @@
     --canvas-mermaid-filter: none;
     --canvas-diff-add-bg: rgba(46, 160, 67, 0.30);
     --canvas-diff-del-bg: rgba(215, 58, 73, 0.15);
+    --canvas-diff-add-bg-strong: rgba(46, 160, 67, 0.55);  /* word-level insert (feature 022) */
+    --canvas-diff-del-bg-strong: rgba(215, 58, 73, 0.40);  /* word-level delete (feature 022) */
   }
 }
 
