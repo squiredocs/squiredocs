@@ -116,6 +116,29 @@ export function createBindingHarness({ withView = true } = {}) {
     view,
     binding,
     transactions,
+    /**
+     * Temporarily stop relaying updates between the docs — lets a test build
+     * remote content and capture its pristine encoded state BEFORE the local
+     * binding gets a chance to render (and, pre-patch, to damage) it.
+     */
+    detachRelay() {
+      localDoc.off('update', relayLocalToRemote);
+      remoteDoc.off('update', relayRemoteToLocal);
+    },
+    /**
+     * Re-attach the relay and exchange any missed state both ways. The
+     * remote->local catch-up applies first (triggering the local render);
+     * any writes the binding performs against the local doc then relay back
+     * to remote through the re-attached live relay.
+     */
+    attachRelay() {
+      localDoc.on('update', relayLocalToRemote);
+      remoteDoc.on('update', relayRemoteToLocal);
+      const missedRemote = Y.encodeStateAsUpdate(remoteDoc, Y.encodeStateVector(localDoc));
+      if (missedRemote.length > 0) Y.applyUpdate(localDoc, missedRemote, RELAY_ORIGIN);
+      const missedLocal = Y.encodeStateAsUpdate(localDoc, Y.encodeStateVector(remoteDoc));
+      if (missedLocal.length > 0) Y.applyUpdate(remoteDoc, missedLocal, RELAY_ORIGIN);
+    },
     destroy() {
       try {
         view.destroy();
