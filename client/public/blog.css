@@ -145,19 +145,6 @@
   max-width: 100%;
 }
 
-/* Comparison tables: tint the first data column (column 2, after the row-label
-   column) so our own product reads as the reference point. Kept subtle to match
-   the honest-but-confident marketing tone, not a garish highlight. Purely
-   positional, so it depends on our product being the first data column. */
-.blog-post .documentation-content table th:nth-child(2),
-.blog-post .documentation-content table td:nth-child(2) {
-  background: #f5f0ff;
-}
-
-.blog-post .documentation-content table th:nth-child(2) {
-  color: #6d28d9;
-}
-
 /* Responsive --------------------------------------------------------------- */
 
 @media (max-width: 768px) {
