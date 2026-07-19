@@ -7,6 +7,7 @@
 
 const sanitizeHtml = require('sanitize-html');
 const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./search-indexer');
+const { getSearchConfig } = require('./search/config');
 
 // Max cosine distance for vector search results (0 = identical, 1 = orthogonal).
 // 0.5 ≈ cosine similarity ≥ 0.5. Agents can override via the distanceThreshold option.
@@ -115,6 +116,10 @@ async function searchDocuments(userId, query, options = {}) {
   if (!query || !query.trim()) return { rows: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
 
   const mode = options.mode || 'hybrid';
+  // Resolved search config (feature 018). `configOverrides` is an INTERNAL
+  // option (eval harness variants only) — never surfaced as an API/MCP
+  // parameter; the wire contract is frozen (FR-019).
+  const searchConfig = getSearchConfig(options.configOverrides);
   const filter = options.filter || 'all';
   const sortBy = options.sortBy || 'relevance';
   const sortOrder = options.sortOrder || 'desc';
@@ -136,12 +141,56 @@ async function searchDocuments(userId, query, options = {}) {
     }
   }
 
+  let results;
   if (effectiveMode === 'fulltext') {
-    return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
+    results = await fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
   } else if (effectiveMode === 'semantic') {
-    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
   } else {
-    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+  }
+
+  // Optional LLM rerank stage (feature 018 D10 — FR-030: OFF by default,
+  // reachable only via the SEARCH_RERANK flag or an eval-variant override).
+  // Reorders the returned page in place; fields, pagination, and scores are
+  // untouched, so the frozen response shape cannot drift.
+  if (searchConfig.rerank && results.rows.length > 1 && sortBy === 'relevance') {
+    results = { ...results, rows: await rerankRows(query, results.rows) };
+  }
+
+  return results;
+}
+
+/**
+ * Rerank a page of doc-level results via the flagged LLM reranker (fail-soft:
+ * any error keeps the first-stage order). Candidates are scored on
+ * document-authored text (title + sanitized snippet); the original row
+ * objects are returned untouched, only reordered.
+ */
+async function rerankRows(query, rows) {
+  try {
+    const { rerank } = require('./search/reranker');
+    const candidates = rows.map((row, i) => ({
+      text: `${row.title || ''}\n${sanitizeHtml(row.snippet || '', { allowedTags: [], allowedAttributes: {} })}`,
+      index: i,
+    }));
+    const reranked = await rerank({ query, candidates, keep: rows.length });
+    if (!Array.isArray(reranked) || reranked.length === 0) return rows;
+    const seen = new Set();
+    const ordered = [];
+    for (const c of reranked) {
+      if (typeof c.index === 'number' && !seen.has(c.index) && rows[c.index]) {
+        seen.add(c.index);
+        ordered.push(rows[c.index]);
+      }
+    }
+    for (let i = 0; i < rows.length; i++) {
+      if (!seen.has(i)) ordered.push(rows[i]);
+    }
+    return ordered;
+  } catch (err) {
+    console.warn(`[Search] rerank stage failed, keeping first-stage order: ${err.message}`);
+    return rows;
   }
 }
 

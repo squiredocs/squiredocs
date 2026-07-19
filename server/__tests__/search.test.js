@@ -8,12 +8,20 @@ const { createPool, createTestUser, cleanupTestUser } = require('./helpers/db');
 // tests never reach these (fulltext mode, or hybrid fallback with no key).
 const mockEmbed = jest.fn();
 const mockEmbedMany = jest.fn();
+const mockGenerateObject = jest.fn();
 jest.mock('ai', () => ({
   embed: (...args) => mockEmbed(...args),
   embedMany: (...args) => mockEmbedMany(...args),
+  generateObject: (...args) => mockGenerateObject(...args),
+  jsonSchema: (s) => s,
 }));
 jest.mock('@ai-sdk/google', () => ({
   google: { textEmbeddingModel: jest.fn(() => 'mock-embedding-model') },
+}));
+// The flagged reranker (018 D10) reaches its model through the chat-models
+// registry — mock it so the rerank path never builds a real provider client.
+jest.mock('../api/chat-models', () => ({
+  getProvider: jest.fn(() => jest.fn(() => 'mock-rerank-model')),
 }));
 
 const search = require('../search');
@@ -552,6 +560,73 @@ describe('search module', () => {
       const hits = results.rows.filter((r) => r.doc_id === docId);
       expect(hits.length).toBe(1);
       expect(hits[0].score).toBeGreaterThan(0);
+    });
+  });
+
+  // ————————————————————————————————————————————————————————————————————————
+  // Feature 018 D10/FR-030 (T029): the LLM reranker is OFF by default and
+  // reachable only through the flag / eval override.
+  // ————————————————————————————————————————————————————————————————————————
+  describe('reranker flag (018 T029, FR-030)', () => {
+    let savedApiKey;
+    let savedRerank;
+
+    beforeAll(() => {
+      savedApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      savedRerank = process.env.SEARCH_RERANK;
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-rerank';
+      delete process.env.SEARCH_RERANK;
+    });
+
+    afterAll(() => {
+      if (savedApiKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedApiKey;
+      if (savedRerank === undefined) delete process.env.SEARCH_RERANK;
+      else process.env.SEARCH_RERANK = savedRerank;
+    });
+
+    beforeEach(() => {
+      mockGenerateObject.mockReset();
+    });
+
+    test('default-config search performs ZERO reranker calls', async () => {
+      const results = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext' });
+      expect(results.rows.length).toBe(2); // multi-row page: rerank would have run if enabled
+      expect(mockGenerateObject).not.toHaveBeenCalled();
+    });
+
+    test('flagged variant (configOverrides.rerank) invokes the reranker and only reorders rows', async () => {
+      // Score by prompt position: last passage wins → order must flip
+      mockGenerateObject.mockImplementation(async ({ prompt }) => {
+        const count = (prompt.match(/\[\d+\]/g) || []).length;
+        return { object: { scores: Array.from({ length: count }, (_, i) => i) } };
+      });
+
+      const plain = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext' });
+      const reranked = await search.searchDocuments(userId1, 'authentication', {
+        mode: 'fulltext',
+        configOverrides: { rerank: true },
+      });
+
+      expect(mockGenerateObject).toHaveBeenCalledTimes(1);
+      expect(reranked.rows.length).toBe(plain.rows.length);
+      // Same documents, reversed order (ascending index scores)
+      expect(reranked.rows.map((r) => r.doc_id)).toEqual([...plain.rows.map((r) => r.doc_id)].reverse());
+      // Frozen shape: rows keep the exact field set, no rerankScore leakage
+      for (const row of reranked.rows) {
+        expect(Object.keys(row)).toEqual(['doc_id', 'title', 'updated_at', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count']);
+      }
+      expect(reranked.pagination).toEqual(plain.pagination);
+    });
+
+    test('reranker failure keeps first-stage order (fail-soft)', async () => {
+      mockGenerateObject.mockRejectedValue(new Error('rerank model down'));
+      const plain = await search.searchDocuments(userId1, 'authentication', { mode: 'fulltext' });
+      const attempted = await search.searchDocuments(userId1, 'authentication', {
+        mode: 'fulltext',
+        configOverrides: { rerank: true },
+      });
+      expect(attempted.rows.map((r) => r.doc_id)).toEqual(plain.rows.map((r) => r.doc_id));
     });
   });
 });

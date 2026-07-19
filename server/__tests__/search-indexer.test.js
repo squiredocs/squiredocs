@@ -506,6 +506,35 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
   });
 
   // ——————————————————————————————————————————————————————————————————————
+  // Feature 018 US3 (T027/D12) — the eval-only fixed-chunking baseline
+  // faithfully reproduces the pre-018 pipeline through the new writer.
+  // ——————————————————————————————————————————————————————————————————————
+  test('T027/D12: reindexAllForEval with chunking:fixed writes legacy-faithful baseline rows', async () => {
+    const docGuid = await createDoc('Fixed Baseline Doc', [
+      { h: 1, text: 'Heading Ignored By Fixed' },
+      'baseline body text for the fixed-window variant.',
+    ]);
+    const summary = await searchIndexer.reindexAllForEval({ chunking: 'fixed', preambles: false });
+    expect(summary.total).toBeGreaterThan(0);
+    expect(summary.done).toBeGreaterThan(0);
+
+    const chunks = await getChunks(docGuid);
+    expect(chunks.length).toBe(1); // short doc → one fixed window
+    const chunk = chunks[0];
+    expect(chunk.heading_path).toEqual([]); // '{}' — no trails in the old pipeline
+    expect(chunk.preamble_text).toBeNull();
+    // The old pipeline embedded bare chunk text: no title header
+    expect(chunk.embedded_text).toBe(chunk.chunk_text);
+    expect(chunk.embedded_text.startsWith('Fixed Baseline Doc')).toBe(false);
+    expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
+
+    // Restore the structure scheme for any later tests
+    await searchIndexer.reindexAllForEval({ preambles: false });
+    const restored = await getChunks(docGuid);
+    expect(restored[0].embedded_text.startsWith('Fixed Baseline Doc')).toBe(true);
+  });
+
+  // ——————————————————————————————————————————————————————————————————————
   // Feature 018 US2 — preamble gating in the indexer (T019).
   // Preambles ON here (inner beforeAll flips the env the outer block set off).
   // ——————————————————————————————————————————————————————————————————————

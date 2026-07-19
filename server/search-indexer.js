@@ -421,6 +421,47 @@ async function reindexStale() {
 }
 
 /**
+ * EVAL-ONLY entry point (FR-025) — never called by the server. Re-index every
+ * document through the normal per-doc pipeline under a variant configuration
+ * (`getSearchConfig(overrides)`): `chunking: 'fixed'` reproduces the pre-018
+ * pipeline faithfully (legacy chunkText windows, empty trails, bare
+ * embedded_text — plan D12); `preambles` toggles the contextualizer. Runs
+ * sequentially at the existing concurrency cap, best-effort per document.
+ *
+ * @param {object} overrides - getSearchConfig overrides describing the variant
+ * @returns {Promise<{ total: number, done: number, failed: number }>}
+ */
+async function reindexAllForEval(overrides = {}) {
+  if (!persistenceProvider || !pool) throw new Error('Search indexer not initialized');
+
+  const result = await pool.query('SELECT id FROM documents ORDER BY updated_at DESC');
+  const docs = result.rows;
+  let done = 0;
+  let failed = 0;
+
+  for (let i = 0; i < docs.length; i += EMBEDDING_CONCURRENCY) {
+    const batch = docs.slice(i, i + EMBEDDING_CONCURRENCY);
+    const settled = await Promise.allSettled(batch.map(async (doc) => {
+      const ydoc = await persistenceProvider.getYDoc(doc.id);
+      const xmlFragment = ydoc.getXmlFragment('default');
+      const contentText = toPlainText(xmlFragment);
+      const nodes = toStructured(xmlFragment);
+      const title = ydoc.getMap('meta').get('title') || '';
+      // Bypass the hash gate deliberately: a variant re-index must rebuild
+      // rows even when content is unchanged. The stored hash still advances
+      // through the seam, so the next normal pass stays gated.
+      await generateAndStoreEmbeddings(doc.id, { title, contentText, nodes, overrides });
+    }));
+    for (const s of settled) {
+      if (s.status === 'fulfilled') done++;
+      else failed++;
+    }
+  }
+
+  return { total: docs.length, done, failed };
+}
+
+/**
  * Immediately process all pending dirty documents. For testing only.
  */
 async function flushDirty() {
@@ -432,4 +473,4 @@ async function flushDirty() {
   await Promise.allSettled(pending.map((docGuid) => indexDocument(docGuid)));
 }
 
-module.exports = { init, markDirty, indexDocument, reindexStale, flushDirty, chunkText, buildChunkRecords, generateAndStoreEmbeddings, buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS };
+module.exports = { init, markDirty, indexDocument, reindexStale, reindexAllForEval, flushDirty, chunkText, buildChunkRecords, generateAndStoreEmbeddings, buildEmbedHashInput, computeContentHash, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS };
