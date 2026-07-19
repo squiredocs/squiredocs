@@ -207,7 +207,16 @@ function createExportRouter(persistence) {
         }
       }
 
-      const ydoc = await persistence.getYDoc(docId);
+      // Capture the export clock FIRST, then reconstruct the body at exactly
+      // that clock (the same atomicity contract reExport uses via
+      // getYDocAtClock). Reading the body and MAX(clock) as two independent
+      // "latest" reads let an interleaved edit land between them, so the
+      // frontmatter could claim a clock/state the serialized body did not have —
+      // and the next sync push, baselined on that mismatched clock, would
+      // silently revert the interleaved edit. Building at meta.clock excludes
+      // any later-arriving update, keeping frontmatter and body consistent.
+      const meta = await getExportMeta(persistence.pool, docId);
+      const ydoc = await persistence.getYDocAtClock(docId, meta.clock);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
       const title = ydoc.getMap('meta').get('title') || 'Untitled';
 
@@ -224,7 +233,6 @@ function createExportRouter(persistence) {
       }
 
       if (withFrontmatter) {
-        const meta = await getExportMeta(persistence.pool, docId);
         const fm = buildFrontmatter({
           docGuid: docId,
           title,

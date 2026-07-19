@@ -367,6 +367,60 @@ describe('API: GET /api/docs/:docId/export', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/frontmatter/i);
     });
+
+    // F3: the export must capture MAX(clock) first and reconstruct the body at
+    // exactly that clock (getYDocAtClock), so an edit interleaving between the
+    // clock read and the body read cannot make the frontmatter claim a clock the
+    // body lacks (which the next sync push would silently revert).
+    test('F3: an edit interleaving after the clock read stays out of the exported body', async () => {
+      await seedRichDoc('Race Doc');
+
+      const realGetYDocAtClock = persistence.getYDocAtClock.bind(persistence);
+      let interleaved = false;
+      const spy = jest
+        .spyOn(persistence, 'getYDocAtClock')
+        .mockImplementation(async (guid, clock) => {
+          // Simulate an edit landing AFTER the export clock was captured but
+          // before/at the body reconstruction. It gets a higher clock than the
+          // captured one, so building at `clock` must exclude it.
+          if (!interleaved && guid === docId) {
+            interleaved = true;
+            const cur = await realGetYDocAtClock(docId, clock);
+            const sv = Y.encodeStateVector(cur);
+            const next = new Y.Doc();
+            Y.applyUpdate(next, Y.encodeStateAsUpdate(cur));
+            next.transact(() => {
+              const frag = next.get('default', Y.XmlFragment);
+              const para = new Y.XmlElement('paragraph');
+              const t = new Y.XmlText();
+              t.insert(0, 'INTERLEAVED_EDIT_MARKER');
+              para.insert(frag.length, [t]);
+              frag.insert(frag.length, [para]);
+            });
+            await persistence.storeUpdate(docId, Y.encodeStateAsUpdate(next, sv), testUserId);
+          }
+          return realGetYDocAtClock(guid, clock);
+        });
+
+      let res;
+      let callArgs;
+      try {
+        res = await request(app)
+          .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
+          .set('Authorization', `Bearer ${authToken}`);
+        // Capture call history BEFORE mockRestore() (which clears it).
+        callArgs = spy.mock.calls.map((c) => [...c]);
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(res.status).toBe(200);
+      const { squire, body } = parseFrontmatter(res.text);
+      // The body was reconstructed at exactly the frontmatter clock…
+      expect(callArgs).toContainEqual([docId, squire.clock]);
+      // …so the later-arriving edit is NOT present in the exported body.
+      expect(body).not.toContain('INTERLEAVED_EDIT_MARKER');
+    });
   });
 
   describe('sqd_ API tokens (personal access tokens)', () => {
