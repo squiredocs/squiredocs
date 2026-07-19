@@ -137,6 +137,17 @@ npm start
 
 The server will serve the built frontend from `client/dist` and handle WebSocket connections.
 
+`npm run build` also renders two static markdown-driven sites into `client/dist`:
+
+- **Documentation** (`/documentation`): sources in `documentation/*.md`, rendered by
+  `client/scripts/build-documentation.mjs`, served by `server/documentation-routes.js`.
+- **Blog** (`/blog`): sources in `blog/*.md`, rendered by `client/scripts/build-blog.mjs`,
+  served by `server/blog-routes.js`. Each post is a markdown file with `slug`, `title`,
+  `description`, `date`, and `author` frontmatter; the index lists posts newest-first.
+
+Both reuse the shared marketing header/footer chrome (`marketing.css`) and are served in dev
+by Vite middleware (`client/vite.config.js`), so a content edit shows on refresh with no build.
+
 ## Kubernetes Deployment
 
 Production runs on AWS k3s in the `collab` namespace, served through CloudFront

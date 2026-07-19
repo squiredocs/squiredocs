@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/build-documentation.mjs",
+    "build": "vite build && node scripts/build-documentation.mjs && node scripts/build-blog.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest --ui",

@@ -50,6 +50,7 @@ const undoService = require('./undo/undo-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
+const { mountBlogRoutes } = require('./blog-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -1631,6 +1632,12 @@ if (fs.existsSync(clientBuildPath)) {
   // Reads the generated files once at mount time; a missing directory is
   // handled without crashing (Edge Cases).
   mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
+
+  // Serve the static blog. Mounted BEFORE express.static (same reasoning as the
+  // documentation routes: the static middleware would 301 the canonical /blog to
+  // /blog/ and invert the redirects) and before the app-shell catch-all so an
+  // unknown slug returns a styled 404 instead of falling through to the app.
+  mountBlogRoutes(app, path.join(clientBuildPath, 'blog'));
 
   app.use(express.static(clientBuildPath, {
     setHeaders: (res, filePath) => {

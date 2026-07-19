@@ -276,6 +276,7 @@ const HEADER = `    <header class="landing-header">
           <a href="/pricing" class="landing-nav-link">Pricing</a>
           <a href="/about" class="landing-nav-link">About</a>
           <a href="/documentation" class="landing-nav-link">Documentation</a>
+          <a href="/blog" class="landing-nav-link">Blog</a>
           <a href="/login" class="landing-nav-btn">Sign In</a>
           <a href="/signup" class="landing-nav-btn primary">Sign Up</a>
         </nav>
@@ -307,6 +308,7 @@ const FOOTER = `    <footer class="landing-footer">
                 <li><a href="/pricing">Pricing</a></li>
                 <li><a href="/about">About</a></li>
                 <li><a href="/documentation">Documentation</a></li>
+                <li><a href="/blog">Blog</a></li>
                 <li><a href="/agents.md">Agents</a></li>
                 <li><a href="/signup">Sign Up</a></li>
                 <li><a href="/login">Sign In</a></li>

@@ -8,6 +8,13 @@ import {
   renderPage,
   render404,
 } from './scripts/render-documentation.mjs';
+import {
+  parseFrontmatter as parseBlogFrontmatter,
+  renderBody as renderBlogBody,
+  renderPostPage as renderBlogPostPage,
+  renderIndexPage as renderBlogIndexPage,
+  render404 as renderBlog404,
+} from './scripts/render-blog.mjs';
 
 // Serve static marketing pages in dev mode (matches Express production behavior)
 const STATIC_PAGES = {
@@ -155,8 +162,116 @@ function documentationPagesPlugin() {
   };
 }
 
+// Serve the static blog in dev by rendering blog/*.md on request. Mirrors
+// production routing (index, trailing-slash redirect, unknown-slug and
+// nested-path 404) and reuses the exact render module the build uses, so a
+// content edit shows on browser refresh with no build and dev cannot diverge
+// from production.
+function blogPagesPlugin() {
+  const BLOG_SRC_DIR = path.resolve(__dirname, '../blog');
+
+  function loadPosts() {
+    const files = fs
+      .readdirSync(BLOG_SRC_DIR)
+      .filter((f) => f.endsWith('.md'))
+      .sort();
+    return files.map((name) => {
+      const text = fs.readFileSync(path.join(BLOG_SRC_DIR, name), 'utf-8');
+      const { frontmatter, body, error } = parseBlogFrontmatter(text);
+      return { name, frontmatter, body, error };
+    });
+  }
+
+  return {
+    name: 'serve-blog-pages',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = req.url.split('?')[0];
+        if (pathname !== '/blog' && !pathname.startsWith('/blog/')) {
+          return next();
+        }
+
+        const redirect = (location) => {
+          res.statusCode = 301;
+          res.setHeader('Location', location);
+          res.end();
+        };
+
+        let posts;
+        try {
+          posts = loadPosts();
+        } catch (err) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/plain');
+          res.end(`Blog source error: ${err.message}`);
+          return;
+        }
+        const valid = posts.filter((p) => !p.error && p.frontmatter && p.frontmatter.slug);
+        const summaries = valid.map((p) => ({
+          slug: p.frontmatter.slug,
+          title: p.frontmatter.title,
+          description: p.frontmatter.description,
+          date: p.frontmatter.date,
+          author: p.frontmatter.author,
+        }));
+        const bySlug = new Map(valid.map((p) => [p.frontmatter.slug, p]));
+
+        const send404 = () => {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'text/html');
+          res.end(renderBlog404({}));
+        };
+
+        const servePost = (post) => {
+          res.setHeader('Content-Type', 'text/html');
+          res.end(
+            renderBlogPostPage({
+              post: {
+                slug: post.frontmatter.slug,
+                title: post.frontmatter.title,
+                description: post.frontmatter.description,
+                date: post.frontmatter.date,
+                author: post.frontmatter.author,
+                bodyHtml: renderBlogBody(post.body),
+              },
+            })
+          );
+        };
+
+        // GET /blog -> the index page.
+        if (pathname === '/blog') {
+          res.setHeader('Content-Type', 'text/html');
+          res.end(renderBlogIndexPage({ posts: summaries }));
+          return;
+        }
+
+        // pathname starts with '/blog/'.
+        const rest = pathname.slice('/blog/'.length);
+        if (rest === '') {
+          return redirect('/blog');
+        }
+        if (rest.includes('/')) {
+          const parts = rest.split('/');
+          if (parts.length === 2 && parts[1] === '') {
+            return parts[0] === 'index'
+              ? redirect('/blog')
+              : redirect(`/blog/${parts[0]}`);
+          }
+          return send404();
+        }
+        if (rest === 'index') {
+          return redirect('/blog');
+        }
+        const post = bySlug.get(rest);
+        if (!post) return send404();
+        return servePost(post);
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [staticPagesPlugin(), documentationPagesPlugin(), react()],
+  plugins: [staticPagesPlugin(), documentationPagesPlugin(), blogPagesPlugin(), react()],
   server: {
     host: process.env.VITE_HOST || '0.0.0.0',
     port: 5173,
