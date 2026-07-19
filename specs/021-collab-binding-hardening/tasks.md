@@ -166,7 +166,7 @@ green. MVP deliverable.
 
 ### Tests for User Story 2 (write FIRST — must FAIL before T016)
 
-- [ ] T015 [P] [US2] Guardrail tests in `server/__tests__/collab-guardrail.test.js`
+- [X] T015 [P] [US2] Guardrail tests in `server/__tests__/collab-guardrail.test.js`
       (jest, serial; build updates with real `Y.Doc`s so delete sets are genuine):
       (a) signature — agent-attributed row creates content, human-attributed update whose
       delete set covers it arrives within the window ⇒ exactly one `notifyException` with
@@ -179,7 +179,7 @@ green. MVP deliverable.
       doc/user alerts independently (FR-012, RBD-1, `GUARDRAIL_SUPPRESSION_MS`);
       (d) never-blocks — evaluation stubbed to throw ⇒ storeUpdate/broadcast unaffected,
       error logged and swallowed (FR-011, RBD-4).
-- [ ] T016 [US2] Implement `server/collab-guardrail.js` per contracts/guardrail-alert.md
+- [X] T016 [US2] Implement `server/collab-guardrail.js` per contracts/guardrail-alert.md
       (Y.decodeUpdate delete-set × fresh-agent-row insert-range intersection in Yjs-ID
       space, DB-clock range in the alert, in-memory (doc,user) suppression map, env
       tunables) and wire it fire-and-forget into the bindState persistence listener in

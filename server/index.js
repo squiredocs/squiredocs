@@ -31,6 +31,7 @@ const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
 const admin = require('./api/admin');
 const appSettings = require('./api/app-settings');
+const collabGuardrail = require('./collab-guardrail');
 const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const documentImages = require('./document-images');
@@ -279,6 +280,18 @@ setPersistence({
         .then(async () => {
           logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
 
+          // Feature 021 US2: guardrail evaluation — strictly post-persist,
+          // asynchronous, fire-and-forget (RBD-4). evaluateUpdate never
+          // rejects, but nothing here may propagate into the persistence
+          // chain regardless.
+          try {
+            Promise.resolve(
+              collabGuardrail.evaluateUpdate({ docGuid, update, userId, agentName })
+            ).catch(() => {});
+          } catch (guardrailErr) {
+            console.error('[CollabGuardrail] invocation failed (swallowed):', guardrailErr);
+          }
+
           // Sync the title to the documents table for fast list queries
           // Extract current title from Yjs meta map
           const meta = ydoc.getMap('meta');
@@ -348,6 +361,11 @@ chatStore.init(persistenceProvider.getPool());
 
 // Initialize AI usage metering with shared database pool
 aiUsage.init(persistenceProvider.getPool());
+
+// Feature 021 US2: guardrail reads recent agent-attributed rows through the
+// shared pool (detection-only; wired fire-and-forget in the bindState
+// persistence listener above).
+collabGuardrail.init(persistenceProvider.getPool());
 
 // Initialize chat module with the persistence provider (BYOK lookups + the
 // document update log used for concurrent-edit awareness)
