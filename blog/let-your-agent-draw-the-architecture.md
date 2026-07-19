@@ -12,7 +12,11 @@ Your coding agent can draw that diagram for you. Point it at a codebase, or ask 
 
 ## Ask it to research a system and draw it
 
-I picked a system this audience knows from the inside: Claude Code itself. Its client-side harness became public earlier in 2026 — an npm release (version 2.1.88) shipped a source map with the whole thing, around 513,000 lines of TypeScript, and researchers wrote up how it works. I pointed an agent at those analyses and asked it to draw the architecture. It came back with four views.
+I picked a system this audience knows from the inside: Claude Code itself. Its client-side harness became public earlier in 2026 — an npm release (version 2.1.88) shipped a source map with the whole thing, around 513,000 lines of TypeScript, and researchers wrote up how it works. I pointed an agent at those analyses and asked it to draw the architecture.
+
+## A Claude Code architecture analysis
+
+It came back with four views, each a diagram and a short explanation of what it shows.
 
 ### The harness and the model
 
