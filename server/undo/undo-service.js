@@ -21,12 +21,18 @@
  *
  * Results ({ success, undone|redone, message, clock }, RBD-5): clock is the
  * inverse's new log clock on success, the current max clock on the honest
- * empty path — so agents' observed-clock tracking stays coherent.
+ * empty path — so agents' observed-clock tracking stays coherent. Since
+ * feature 020, success results additively carry `diff` (modify's exact chat
+ * diff shape) computed from the markdown pair bracketing the applied inverse
+ * — best-effort, never on honest-empty results, never empty.
  */
 const Y = require('yjs');
 const { ORIGIN_INVERSE_APPLY } = require('../origin');
 const editRecords = require('./edit-records');
 const { computeInverse } = require('./inverse');
+// Namespace import (feature 020, analyze A1): the call site must stay
+// diffUtils.computeChatDiff so tests can inject failures via jest.spyOn.
+const diffUtils = require('../mcp/diff-utils');
 const { deriveLegacyRange } = require('./legacy');
 const documentService = require('../document-service');
 const defaultRedisPubSub = require('../redis-pubsub');
@@ -53,6 +59,26 @@ function resolveDeps(deps = {}) {
   });
   const redisPubSub = deps.redisPubSub || defaultRedisPubSub;
   return { persistence, getSharedDoc, redisPubSub };
+}
+
+/**
+ * Feature 020 (plan D2/D3): the chat diff of what the inverse actually did,
+ * from the markdown pair bracketing the pop inside computeInverse. Computed
+ * only after the claim succeeds (both surfaces share this ONE attach point).
+ * Best-effort (FR-006): any failure logs and returns null — the revert
+ * stands sans diff. Never attached empty (FR-003: no empty-diff cards).
+ *
+ * @returns {object|null} modify-shape diff, or null to omit the field
+ */
+function computeRevertDiff(inverse, docGuid) {
+  if (inverse.preMarkdown == null || inverse.postMarkdown == null) return null;
+  try {
+    const diff = diffUtils.computeChatDiff(inverse.preMarkdown, inverse.postMarkdown);
+    return diff && diff.lines.length > 0 ? diff : null;
+  } catch (err) {
+    console.error(`[undo-service] revert diff computation failed for ${docGuid}:`, err.message);
+    return null;
+  }
 }
 
 async function currentMaxClock(persistence, docGuid) {
@@ -204,12 +230,14 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     };
   }
 
+  const diff = computeRevertDiff(inverse, docGuid);
   applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
   return {
     success: true,
     undone: true,
     message: 'Edit undone. Later edits by you and other collaborators were preserved.',
     clock,
+    ...(diff ? { diff } : {}),
   };
 }
 
@@ -266,12 +294,14 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
     };
   }
 
+  const diff = computeRevertDiff(inverse, docGuid);
   applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
   return {
     success: true,
     redone: true,
     message: 'Edit reapplied.',
     clock,
+    ...(diff ? { diff } : {}),
   };
 }
 

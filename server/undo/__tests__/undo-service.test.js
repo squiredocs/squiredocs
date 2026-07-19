@@ -18,6 +18,10 @@ const Y = require('yjs');
 const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('../../__tests__/helpers/db');
 const editRecords = require('../edit-records');
 const undoService = require('../undo-service');
+const { toMarkdown } = require('../../mcp/yjs/serialization');
+// Namespace import on purpose: the service calls diffUtils.computeChatDiff via
+// the module namespace, so spyOn-based failure injection (T005) works.
+const diffUtils = require('../../mcp/diff-utils');
 
 const AGENT = 'Squire Docs Assistant';
 
@@ -306,6 +310,240 @@ describe('undo-service (post-merge review pins)', () => {
       });
       expect(res.undone).toBe(true); // undoes A; the orphan is invisible to undo
       expect(await dbText(docGuid)).toBe('<paragraph>Original text. B-ORPHANED</paragraph>');
+    });
+  });
+
+  // ----------------------------------------------------------- feature 020 ----
+
+  describe('020: diff attach on success results', () => {
+    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer'];
+
+    /** toMarkdown of a one-paragraph doc with the given text. */
+    function mdOfPara(text) {
+      const doc = new Y.Doc();
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => frag.insert(0, [para(text)]));
+      const md = toMarkdown(frag);
+      doc.destroy();
+      return md;
+    }
+
+    /** Aged, recorded FORMAT-ONLY agent edit (bold over existing human text). */
+    async function seedDocWithFormatOnlyEdit(docGuid) {
+      const doc = new Y.Doc();
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => frag.insert(0, [para('Original text.')]));
+      doc.transact(() => frag.get(0).get(0).format(0, 8, { bold: true }));
+      doc.destroy();
+      expect(payloads.length).toBe(2);
+      await pool.query(
+        `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, created_at)
+         VALUES ($1, 0, $2, NULL, NULL, now() - interval '1 hour'),
+                ($1, 1, $3, $4, $5, now() - interval '30 minutes')`,
+        [docGuid, Buffer.from(payloads[0]), Buffer.from(payloads[1]), userId, AGENT]
+      );
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 1, clockEnd: 1, clocks: [1],
+      });
+    }
+
+    /** Aged, recorded agent edit inserting enough content to blow MAX_DIFF_CHARS. */
+    async function seedDocWithHugeAgentEdit(docGuid) {
+      const doc = new Y.Doc();
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => frag.insert(0, [para('Base paragraph.')]));
+      doc.transact(() => {
+        const paras = [];
+        for (let i = 0; i < 300; i++) {
+          paras.push(para(`Huge agent paragraph ${i} ` + 'x'.repeat(180)));
+        }
+        frag.insert(1, paras);
+      });
+      doc.destroy();
+      expect(payloads.length).toBe(2);
+      await pool.query(
+        `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, created_at)
+         VALUES ($1, 0, $2, NULL, NULL, now() - interval '1 hour'),
+                ($1, 1, $3, $4, $5, now() - interval '30 minutes')`,
+        [docGuid, Buffer.from(payloads[0]), Buffer.from(payloads[1]), userId, AGENT]
+      );
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 1, clockEnd: 1, clocks: [1],
+      });
+    }
+
+    /** A fresh unrecorded identity row on top of the log (M2 pending seed). */
+    async function appendPendingRow(docGuid) {
+      const doc = await persistence.getYDoc(docGuid);
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      const frag = doc.get('default', Y.XmlFragment);
+      doc.transact(() => {
+        const t = frag.get(0).get(0);
+        t.insert(t.length, ' PENDING');
+      });
+      doc.destroy();
+      const { rows } = await pool.query(
+        'SELECT COALESCE(MAX(clock), -1) + 1 AS next FROM yjs_updates WHERE doc_guid = $1',
+        [docGuid]
+      );
+      await pool.query(
+        `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, created_at)
+         VALUES ($1, $2, $3, $4, $5, now())`,
+        [docGuid, Number(rows[0].next), Buffer.from(payloads[0]), userId, AGENT]
+      );
+    }
+
+    test('successful undo carries diff deep-equal to computeChatDiff over the revert bracket (C1/C2/C5)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.undone).toBe(true);
+      expect(res.success).toBe(true);
+      expect(typeof res.message).toBe('string');
+      expect(typeof res.clock).toBe('number');
+
+      const expected = diffUtils.computeChatDiff(
+        mdOfPara('Original text. AGENT-EDIT'),
+        mdOfPara('Original text.')
+      );
+      expect(res.diff).toEqual(expected);
+      // Modify parity shape: only the contract's members, non-empty lines.
+      expect(Object.keys(res.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
+      expect(res.diff.lines.length).toBeGreaterThan(0);
+    });
+
+    test('successful redo carries the re-application diff the same way', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+      const deps = { persistence, getSharedDoc: () => null };
+
+      const undoRes = await undoService.performUndo(identity(docGuid), deps);
+      expect(undoRes.undone).toBe(true);
+
+      const res = await undoService.performRedo(identity(docGuid), deps);
+      expect(res.redone).toBe(true);
+
+      const expected = diffUtils.computeChatDiff(
+        mdOfPara('Original text.'),
+        mdOfPara('Original text. AGENT-EDIT')
+      );
+      expect(res.diff).toEqual(expected);
+      expect(Object.keys(res.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
+      expect(res.diff.lines.length).toBeGreaterThan(0);
+    });
+
+    test('honest-empty family carries NO diff key and keeps exact 016 result values (FR-003/FR-004)', async () => {
+      // Variant 1: nothing recorded (empty doc, no legacy rows either).
+      const emptyGuid = randomUUID();
+      const nothing = await undoService.performUndo(identity(emptyGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect('diff' in nothing).toBe(false);
+      expect(nothing).toEqual({
+        success: true,
+        undone: false,
+        message: 'Nothing to undo: no recorded edit by you in this document.',
+        clock: 0,
+      });
+
+      // Variant 2: pending-recording refusal (M2 seed — fresh unrecorded row).
+      const pendingGuid = randomUUID();
+      await seedDocWithAgentEdit(pendingGuid);
+      await appendPendingRow(pendingGuid);
+      const pending = await undoService.performUndo(identity(pendingGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect('diff' in pending).toBe(false);
+      expect(pending).toEqual({
+        success: true,
+        undone: false,
+        message: 'Nothing undone: your latest edit is still being recorded — retry shortly.',
+        clock: 2,
+      });
+
+      // Variant 3: concurrent loser (M3/H1 pattern — the claim CAS loses).
+      const loserGuid = randomUUID();
+      await seedDocWithAgentEdit(loserGuid);
+      const claimSpy = jest.spyOn(editRecords, 'finalizeClaim')
+        .mockResolvedValue({ claimed: false, clock: null });
+      try {
+        const loser = await undoService.performUndo(identity(loserGuid), {
+          persistence, getSharedDoc: () => null,
+        });
+        expect('diff' in loser).toBe(false);
+        expect(loser).toEqual({
+          success: true,
+          undone: false,
+          message: 'This edit was already undone by a concurrent request.',
+          clock: 1,
+        });
+      } finally {
+        claimSpy.mockRestore();
+      }
+    });
+
+    test('formatting-only revert yields a diff with formatAnnotations — not dropped by the non-empty guard (RBD-4)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithFormatOnlyEdit(docGuid);
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.undone).toBe(true);
+      expect(res.diff).toBeDefined();
+      expect(res.diff.lines.length).toBeGreaterThan(0);
+      // The shared post-processing annotates the -/+ pair as format-only.
+      expect(res.diff.formatAnnotations).toBeDefined();
+      expect(Object.keys(res.diff.formatAnnotations).length).toBeGreaterThan(0);
+      expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+    });
+
+    test('best-effort: computeChatDiff failure leaves the revert standing sans diff (FR-006, RBD-3)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+
+      const diffSpy = jest.spyOn(diffUtils, 'computeChatDiff').mockImplementation(() => {
+        throw new Error('diff computation boom');
+      });
+      try {
+        const res = await undoService.performUndo(identity(docGuid), {
+          persistence, getSharedDoc: () => null,
+        });
+        expect(res.undone).toBe(true);
+        expect('diff' in res).toBe(false);
+        // The inverse was actually applied AND stored durably.
+        expect(await dbText(docGuid)).toBe('<paragraph>Original text.</paragraph>');
+        const { rows } = await pool.query(
+          'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock = $2',
+          [docGuid, res.clock]
+        );
+        expect(rows).toHaveLength(1);
+      } finally {
+        diffSpy.mockRestore();
+      }
+    });
+
+    test('truncation: an over-limit revert diff is bounded and flagged; the revert completes (FR-005, SC-006)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithHugeAgentEdit(docGuid);
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+      expect(res.undone).toBe(true);
+      expect(res.diff).toBeDefined();
+      expect(res.diff.truncatedByServer).toBe(true);
+      expect(res.diff.lines.length).toBeLessThanOrEqual(200);
+      // The document state is actually reverted regardless of diff size.
+      expect(await dbText(docGuid)).toBe('<paragraph>Base paragraph.</paragraph>');
     });
   });
 });

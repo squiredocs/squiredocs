@@ -335,6 +335,8 @@ export default function edit(doc) {
       );
       expect(result.undone).toBe(false);
       expect(result.success).toBe(true);
+      // 020 (FR-003, spec US2 acceptance 2): the honest empty carries no diff.
+      expect('diff' in result).toBe(false);
       expect((await logDump(docGuid)).length).toBe(preCount); // zero log growth (SC-004)
 
       // The edit was NOT marked reverted — still active for a later undo.
@@ -345,6 +347,101 @@ export default function edit(doc) {
     } finally {
       liveDoc.destroy();
     }
+  });
+
+  // ------------------------------------------------------- 020 diff carry ----
+
+  test('020: partial supersession — the undo diff shows ONLY the surviving revert (FR-002, SC-002)', async () => {
+    const docGuid = await createDoc('020 partial supersession');
+
+    // Filler paragraphs (foreign) BEFORE the agent's edit, so the doomed
+    // paragraph's replacement sits far outside the diff's 2-line context
+    // window around the surviving revert.
+    await humanEdit(docGuid, (d, f) => {
+      const mk = (text) => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        p.insert(0, [t]);
+        return p;
+      };
+      f.insert(1, [mk('Filler one.'), mk('Filler two.'), mk('Filler three.')]);
+    });
+
+    // Agent edit A: TWO distinct paragraphs — one right after the base
+    // paragraph, one at the end of the document.
+    const modify = toolRegistry.getTool('modify');
+    const script = `
+export default function edit(doc) {
+  const mk = (text) => {
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, text);
+    p.insert(0, [t]);
+    return p;
+  };
+  doc.insert(1, [mk('SURVIVOR paragraph from the agent.')]);
+  doc.insert(doc.length, [mk('DOOMED paragraph from the agent.')]);
+}`;
+    const editA = await modify.handler({ docGuid, script }, mockAgentToken);
+    expect(editA.changed).toBe(true);
+    killSessions();
+
+    // Edit B, by a DIFFERENT identity, replaces the doomed paragraph.
+    await humanEdit(docGuid, (d, f) => {
+      f.delete(f.length - 1, 1);
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'REPLACEMENT paragraph from the human.');
+      p.insert(0, [t]);
+      f.insert(f.length, [p]);
+    });
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+    expect(undo.diff).toBeDefined();
+
+    // The diff shows exactly what the inverse did: the surviving paragraph
+    // removed — and NOTHING about the superseded half or its replacement.
+    const removed = undo.diff.lines.filter((l) => l.startsWith('-'));
+    expect(removed.some((l) => l.includes('SURVIVOR paragraph from the agent.'))).toBe(true);
+    for (const line of undo.diff.lines) {
+      expect(line).not.toContain('DOOMED');
+      expect(line).not.toContain('REPLACEMENT');
+    }
+
+    // And the document reality matches: survivor gone, replacement intact.
+    const text = await dbText(docGuid);
+    expect(text).not.toContain('SURVIVOR');
+    expect(text).toContain('REPLACEMENT');
+  });
+
+  test('020: MCP tool results carry diff additively with unchanged 016 fields on undo AND redo (FR-004, SC-005)', async () => {
+    const docGuid = await createDoc('020 additive contract');
+    await modifyAppend(docGuid, 'DIFFED');
+    killSessions();
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    // 016 contract values, unchanged (C7).
+    expect(undo.success).toBe(true);
+    expect(undo.undone).toBe(true);
+    expect(typeof undo.message).toBe('string');
+    expect(typeof undo.clock).toBe('number');
+    expect(undo.cursor).toBeUndefined(); // RBD-5 stays retired
+    // Additive diff in modify's exact payload shape (C1/C2).
+    const DIFF_KEYS = ['lines', 'hunkStarts', 'formatAnnotations', 'truncatedByServer'];
+    expect(Object.keys(undo.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
+    expect(undo.diff.lines.length).toBeGreaterThan(0);
+    expect(Array.isArray(undo.diff.hunkStarts)).toBe(true);
+    expect(undo.diff.lines.some((l) => l.startsWith('-') && l.includes('DIFFED'))).toBe(true);
+
+    const redo = await toolRegistry.executeTool('redo', { docGuid }, mockAgentToken);
+    expect(redo.success).toBe(true);
+    expect(redo.redone).toBe(true);
+    expect(typeof redo.message).toBe('string');
+    expect(typeof redo.clock).toBe('number');
+    expect(Object.keys(redo.diff).every((k) => DIFF_KEYS.includes(k))).toBe(true);
+    expect(redo.diff.lines.some((l) => l.startsWith('+') && l.includes('DIFFED'))).toBe(true);
   });
 
   // ---------------------------------------------------------------- US3 ----
@@ -461,6 +558,7 @@ export default function edit(doc) {
     expect(redo.success).toBe(true);
     expect(redo.redone).toBe(false);
     expect(typeof redo.message).toBe('string');
+    expect('diff' in redo).toBe(false); // 020 (FR-003): honest empty, no diff
     expect((await logDump(docGuid)).length).toBe(preCount); // nothing appended
   });
 
@@ -567,6 +665,13 @@ export default function edit(doc) {
     expect(undoRes.status).toBe(200);
     expect(undoRes.body.undone).toBe(true);
     expect(typeof undoRes.body.clock).toBe('number');
+    // 020 (FR-009, C8): the button-path HTTP response carries `diff` in
+    // modify's shape — carried, not rendered; everything else is 016's shape.
+    expect(undoRes.body.success).toBe(true);
+    expect(typeof undoRes.body.message).toBe('string');
+    expect(Array.isArray(undoRes.body.diff.lines)).toBe(true);
+    expect(undoRes.body.diff.lines.length).toBeGreaterThan(0);
+    expect(Array.isArray(undoRes.body.diff.hunkStarts)).toBe(true);
     let messages = await chatStore.loadChat(chatId, testUserId);
     expect(messages[0].parts[0].reverted).toBe(true);
 
@@ -575,6 +680,7 @@ export default function edit(doc) {
       .post(`/api/docs/${docGuid}/redo`).send({ chatId, toolCallId });
     expect(redoRes.status).toBe(200);
     expect(redoRes.body.redone).toBe(true);
+    expect(Array.isArray(redoRes.body.diff.lines)).toBe(true); // 020 (FR-009)
     messages = await chatStore.loadChat(chatId, testUserId);
     expect(messages[0].parts[0].reverted).toBeUndefined();
 

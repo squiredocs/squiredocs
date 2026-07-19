@@ -11,6 +11,7 @@
  */
 const Y = require('yjs');
 const { computeInverse } = require('../inverse');
+const { toMarkdown } = require('../../mcp/yjs/serialization');
 
 const AGENT = { userId: 'user-1', agentName: 'Squire Docs Assistant' };
 const HUMAN = { userId: 'user-2', agentName: null };
@@ -496,5 +497,95 @@ describe('popStackItem-parity matrix (US2)', () => {
     const { logDerived, inverse } = bothWays(log, range);
     expect(inverse).toBeNull();
     expect(logDerived).toBe('<paragraph>Stable.</paragraph>');
+  });
+});
+
+/**
+ * Markdown bracket capture (feature 020, plan D1/RBD-3): a successful
+ * computeInverse also returns { preMarkdown, postMarkdown } — the scratch
+ * doc's markdown immediately before and after the pop — so the service can
+ * compute an honest chat diff of exactly what the inverse did. Best-effort:
+ * a serialization failure nulls the pair but never loses the inverse.
+ */
+describe('markdown bracket capture (020)', () => {
+  /** toMarkdown of a doc rebuilt from the log (optionally with an inverse applied). */
+  function mdOfLog(log, inverseUpdate = null) {
+    const doc = log.buildDoc();
+    if (inverseUpdate) Y.applyUpdate(doc, inverseUpdate);
+    const md = toMarkdown(doc.get('default', Y.XmlFragment));
+    doc.destroy();
+    return md;
+  }
+
+  test('successful inverse returns pre/post markdown strings bracketing the pop', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Original text.')]));
+    const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Agent paragraph.')]));
+
+    const res = computeInverse(log.rows, range, AGENT);
+    expect(res).not.toBeNull();
+    expect(typeof res.preMarkdown).toBe('string');
+    expect(typeof res.postMarkdown).toBe('string');
+    // pre = the full-log state; post = pre with the inverse applied.
+    expect(res.preMarkdown).toBe(mdOfLog(log));
+    expect(res.postMarkdown).toBe(mdOfLog(log, res.inverseUpdate));
+    expect(res.preMarkdown).toContain('Agent paragraph.');
+    expect(res.postMarkdown).not.toContain('Agent paragraph.');
+  });
+
+  test('preMarkdown includes the live-doc merge (in-flight edits are part of the pre state)', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+    const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Agent paragraph.')]));
+
+    // A live doc holds an in-flight, NOT-yet-logged human edit.
+    const liveDoc = log.buildDoc();
+    liveDoc.get('default', Y.XmlFragment).insert(2, [para('In-flight live edit.')]);
+
+    const res = computeInverse(log.rows, range, AGENT, liveDoc);
+    expect(res).not.toBeNull();
+    expect(res.preMarkdown).toContain('In-flight live edit.');
+    expect(res.postMarkdown).toContain('In-flight live edit.');
+    expect(res.preMarkdown).toContain('Agent paragraph.');
+    expect(res.postMarkdown).not.toContain('Agent paragraph.');
+    liveDoc.destroy();
+  });
+
+  test('fully-superseded target still returns null overall (unchanged 016 semantics)', () => {
+    const log = new LogBuilder();
+    log.edit(HUMAN, (d, f) => f.insert(0, [para('Stable.')]));
+    const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Doomed.')]));
+    log.edit(HUMAN, (d, f) => f.delete(1, 1));
+
+    expect(computeInverse(log.rows, range, AGENT)).toBeNull();
+  });
+
+  test('serialization failure: inverse survives with a null markdown pair (best-effort)', () => {
+    jest.resetModules();
+    jest.doMock('../../mcp/yjs/serialization', () => {
+      const actual = jest.requireActual('../../mcp/yjs/serialization');
+      return {
+        ...actual,
+        toMarkdown: () => { throw new Error('serialization boom'); },
+      };
+    });
+    try {
+      const { computeInverse: mockedComputeInverse } = require('../inverse');
+
+      const log = new LogBuilder();
+      log.edit(HUMAN, (d, f) => f.insert(0, [para('Original text.')]));
+      const range = log.edit(AGENT, (d, f) => f.insert(1, [para('Agent paragraph.')]));
+
+      const res = mockedComputeInverse(log.rows, range, AGENT);
+      expect(res).not.toBeNull();
+      expect(res.inverseUpdate).toBeTruthy();
+      expect(res.preMarkdown).toBeNull();
+      expect(res.postMarkdown).toBeNull();
+      // The inverse itself is never lost to serialization failure.
+      expect(applyInverse(log, res.inverseUpdate)).toBe('<paragraph>Original text.</paragraph>');
+    } finally {
+      jest.dontMock('../../mcp/yjs/serialization');
+      jest.resetModules();
+    }
   });
 });
