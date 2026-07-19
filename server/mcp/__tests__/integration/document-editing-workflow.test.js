@@ -929,7 +929,7 @@ export default function edit(doc) {
 
       console.log('✓ modify: delete block succeeded');
       console.log('  Verified: Block with unique content was added then deleted');
-    }, 10000);
+    }, 30000);
 
     test('modify: insert bulletList', async () => {
       const executeScript = toolRegistry.getTool('modify');

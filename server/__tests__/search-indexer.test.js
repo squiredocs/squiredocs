@@ -463,6 +463,18 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
       // reindexStale-eligible via the rollout predicate — remove them so only
       // this block's docLegacy is re-chunked. Safe: those suites are done.
       await pool.query('DELETE FROM document_embeddings WHERE embedded_text IS NULL');
+      // Docs leaked by earlier suites that were NEVER indexed have no
+      // search-index row at all, so reindexStale's `si.doc_id IS NULL` branch
+      // still selects them (the UPDATE above only heals docs that HAVE a row —
+      // this was the residual pollution that made T012b's count non-hermetic
+      // on CI). Give every such doc a fresh, non-stale index row so only this
+      // block's docLegacy stays repair-eligible. indexDocument upserts
+      // (ON CONFLICT), so a later suite re-indexing one of these is unaffected.
+      await pool.query(
+        `INSERT INTO document_search_index (doc_id, indexed_at)
+         SELECT id, now() FROM documents d
+         WHERE NOT EXISTS (SELECT 1 FROM document_search_index si WHERE si.doc_id = d.id)`
+      );
 
       docLegacy = await createDoc('Legacy Rollout Doc', [
         { h: 1, text: 'Legacy Heading' },
