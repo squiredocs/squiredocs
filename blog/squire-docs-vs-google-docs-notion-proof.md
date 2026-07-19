@@ -1,7 +1,7 @@
 ---
 slug: squire-docs-vs-google-docs-notion-proof
-title: Squire Docs vs. Google Docs, Notion, and Proof
-description: An honest comparison of four ways people and AI edit the same document, and the one question that separates them: does the document live in your repository?
+title: Squire Docs vs. Google Docs vs. Notion vs. Proof
+description: A direct comparison of four ways people and AI edit the same document, and the one question that separates them: does the document live in your repository?
 date: 2026-07-19
 author: Sam Goldstein
 ---
@@ -27,7 +27,7 @@ The four tools were built for different jobs, and that origin explains most of w
 | Two-way sync to repo markdown | Yes | No | No | No |
 | Agent edits inside the document | Agent-first, node-level | Prompt-based, coarse | Via MCP, page-level | Agent-first, precise |
 | Real-time human editing | Yes | Best in class | Yes | Yes |
-| Open source and self-hostable | No, hosted | No | No | Yes |
+| Open source and self-hostable | Paid self-host; not open source | No | No | Yes |
 | Human vs. agent attribution | Per edit, human or agent | Version history, built for humans | Page-level, last edited by | Character-level provenance |
 | Connect any MCP coding agent | Yes, MCP and REST | No | Yes, official MCP | Via its own HTTP bridge |
 
@@ -43,25 +43,19 @@ Its gap is agents. The AI help is prompt-based: you ask for a change and it rewr
 
 Notion added an official MCP server, so a coding agent can now read and edit Notion pages, including markdown edits. If your team already runs on Notion, that is real and useful.
 
-The honest limits are granularity and location. Notion's hosted MCP edits at the page level: to change part of a page it loads the whole page, modifies it, and writes it back. That is coarser than changing one node and leaving the rest untouched. Attribution is page-level, last edited by, not a fine record of which agent changed which sentence. And like Google Docs, a Notion page is not a markdown file in your repository. It lives in the Notion workspace.
+The real limits are granularity and location. Notion's hosted MCP edits at the page level: to change part of a page it loads the whole page, modifies it, and writes it back. That is coarser than changing one node and leaving the rest untouched. Attribution is page-level, last edited by, not a fine record of which agent changed which sentence. And like Google Docs, a Notion page is not a markdown file in your repository. It lives in the Notion workspace.
 
 ## Proof
 
-Proof is the closest tool to Squire in spirit, and it deserves credit. It is agent-first, it tracks provenance down to the character with a colored gutter for human and AI authorship, it offers track-changes suggestions you accept or reject, and it is open source under a permissive license. It is built for the same documents we care about: bug reports, product requirements, implementation plans, and memos. If you want a free, open-source, agent-first editor to draft in, Proof is a strong choice.
+Proof is the closest tool to Squire Docs in spirit, and it deserves credit. It is agent-first, it tracks provenance down to the character with a colored gutter for human and AI authorship, it offers track-changes suggestions you accept or reject, and it is open source under a permissive license. It is built for the same documents we care about: bug reports, product requirements, implementation plans, and memos. If you want a free, open-source, agent-first editor to draft in, Proof is a strong choice.
 
-The difference is the repository. Proof is a standalone editor: you write in it and share a link. It does not sync the document to a markdown file in your codebase, and agents connect through its own HTTP bridge. Proof makes the document a great place for agents to write. Squire makes the document the same file your agents already build from.
+The difference is the repository. Proof is a standalone editor: you write in it and share a link. It does not sync the document to a markdown file in your codebase, and agents connect through its own HTTP bridge. Proof makes the document a great place for agents to write. Squire Docs makes the document the same file your agents already build from.
 
-## What Squire adds
+## Squire Docs
 
-Squire Docs starts from the repository and works outward.
+Squire Docs is built for spec-driven development, where the document that drives the work belongs in the repository. Two-way markdown sync keeps a Squire Docs document and a file in your repo as the same content: edit either side and the other follows, so your spec is both the file your coding agent implements against and a document your product manager can open in a browser. Agents edit it surgically over the Model Context Protocol or a REST API, changing the specific node they mean to change the way they edit a line of code, and every edit is attributed to a person or an agent.
 
-**The document is a file in your repo.** Two-way markdown sync keeps a Squire document and a markdown file in your repository as the same content. Edit either side and the other follows. Your spec is both the file your coding agent implements against and a document your product manager can open in a browser.
-
-**Agents edit surgically.** A Squire agent changes the specific node it means to change and leaves the rest alone, the same way it edits a line of code, rather than rewriting the whole page.
-
-**It speaks standard protocols.** Agents connect over the Model Context Protocol and a REST API with scoped tokens, so the same agents you already use can read and write your documents.
-
-**Every edit is attributed.** You can see which changes came from a person and which came from an agent, at the level of each edit.
+Its trade-offs are licensing and focus. Squire Docs is not open source, and although you can run it on your own infrastructure, self-hosting is a paid option for teams rather than the free download Proof offers ([pricing](/pricing)). It is also opinionated about the repository: two-way sync is the whole point, so if your documents do not belong in a codebase, most of what sets it apart does not apply, and one of the other three is the better fit.
 
 ## Which one to pick
 
