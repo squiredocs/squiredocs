@@ -14,9 +14,8 @@ require('dotenv').config();
 
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../postgres-persistence');
-const { toPlainText } = require('../mcp/yjs/serialization');
+const { toPlainText, toStructured } = require('../mcp/yjs/serialization');
 const searchIndexer = require('../search-indexer');
-const { chunkText } = searchIndexer;
 
 const DELAY_MS = 200;
 
@@ -74,20 +73,25 @@ async function main() {
       const progress = `[${i + 1}/${docs.length}]`;
 
       try {
-        // Load document and extract text
+        // Load document and extract text + structure. The title comes from
+        // the ydoc meta (the same extraction-time source indexDocument uses),
+        // so the seam-derived default hash matches the live pipeline's
+        // (017 review finding F3 — a mismatched hash would silently re-embed
+        // every backfilled doc once more).
         const ydoc = await persistence.getYDoc(doc.doc_id);
         const xmlFragment = ydoc.getXmlFragment('default');
         const contentText = toPlainText(xmlFragment);
+        const nodes = toStructured(xmlFragment);
+        const title = ydoc.getMap('meta').get('title') || '';
 
         if (!contentText || contentText.trim().length === 0) {
           console.log(`${progress} ⊘ ${doc.doc_id} (title ${(doc.title || '').length} chars) — empty content, skipping`);
           continue;
         }
 
-        const chunks = chunkText(contentText);
-        await searchIndexer.generateAndStoreEmbeddings(doc.doc_id, contentText);
+        const written = await searchIndexer.generateAndStoreEmbeddings(doc.doc_id, { title, contentText, nodes });
         successCount++;
-        console.log(`${progress} ✓ ${doc.doc_id} (title ${(doc.title || '').length} chars) — ${chunks.length} chunk(s), ${contentText.length} chars`);
+        console.log(`${progress} ✓ ${doc.doc_id} (title ${(doc.title || '').length} chars) — ${written} chunk(s), ${contentText.length} chars`);
 
         // Rate limit between documents
         await sleep(DELAY_MS);

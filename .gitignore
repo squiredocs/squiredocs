@@ -45,3 +45,6 @@ infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
 infra/terraform/*.tfvars
 k8s/secrets/k3s-squiredocs.kubeconfig
+
+# Search eval harness output (feature 018) — operator artifacts, never committed
+server/search/eval/eval-results.*.json

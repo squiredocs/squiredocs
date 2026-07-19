@@ -7,6 +7,7 @@
 
 const sanitizeHtml = require('sanitize-html');
 const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./search-indexer');
+const { getSearchConfig } = require('./search/config');
 
 // Max cosine distance for vector search results (0 = identical, 1 = orthogonal).
 // 0.5 ≈ cosine similarity ≥ 0.5. Agents can override via the distanceThreshold option.
@@ -125,6 +126,10 @@ async function searchDocuments(userId, query, options = {}) {
   if (!query || !query.trim()) return { rows: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
 
   const mode = options.mode || 'hybrid';
+  // Resolved search config (feature 018). `configOverrides` is an INTERNAL
+  // option (eval harness variants only) — never surfaced as an API/MCP
+  // parameter; the wire contract is frozen (FR-019).
+  const searchConfig = getSearchConfig(options.configOverrides);
   const filter = options.filter || 'all';
   const sortBy = options.sortBy || 'relevance';
   const sortOrder = options.sortOrder || 'desc';
@@ -146,12 +151,56 @@ async function searchDocuments(userId, query, options = {}) {
     }
   }
 
+  let results;
   if (effectiveMode === 'fulltext') {
-    return fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
+    results = await fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
   } else if (effectiveMode === 'semantic') {
-    return semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
   } else {
-    return hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+  }
+
+  // Optional LLM rerank stage (feature 018 D10 — FR-030: OFF by default,
+  // reachable only via the SEARCH_RERANK flag or an eval-variant override).
+  // Reorders the returned page in place; fields, pagination, and scores are
+  // untouched, so the frozen response shape cannot drift.
+  if (searchConfig.rerank && results.rows.length > 1 && sortBy === 'relevance') {
+    results = { ...results, rows: await rerankRows(query, results.rows) };
+  }
+
+  return results;
+}
+
+/**
+ * Rerank a page of doc-level results via the flagged LLM reranker (fail-soft:
+ * any error keeps the first-stage order). Candidates are scored on
+ * document-authored text (title + sanitized snippet); the original row
+ * objects are returned untouched, only reordered.
+ */
+async function rerankRows(query, rows) {
+  try {
+    const { rerank } = require('./search/reranker');
+    const candidates = rows.map((row, i) => ({
+      text: `${row.title || ''}\n${sanitizeHtml(row.snippet || '', { allowedTags: [], allowedAttributes: {} })}`,
+      index: i,
+    }));
+    const reranked = await rerank({ query, candidates, keep: rows.length });
+    if (!Array.isArray(reranked) || reranked.length === 0) return rows;
+    const seen = new Set();
+    const ordered = [];
+    for (const c of reranked) {
+      if (typeof c.index === 'number' && !seen.has(c.index) && rows[c.index]) {
+        seen.add(c.index);
+        ordered.push(rows[c.index]);
+      }
+    }
+    for (let i = 0; i < rows.length; i++) {
+      if (!seen.has(i)) ordered.push(rows[i]);
+    }
+    return ordered;
+  } catch (err) {
+    console.warn(`[Search] rerank stage failed, keeping first-stage order: ${err.message}`);
+    return rows;
   }
 }
 
@@ -183,6 +232,50 @@ async function getQueryEmbedding(query) {
     providerOptions: { google: { outputDimensionality: EMBEDDING_DIMENSIONS } },
   });
   return embedding;
+}
+
+/**
+ * Build the keyword-match CTEs (feature 018, D4/RBD-8): the FTS leg is the
+ * UNION of (a) the doc-level document_search_index match and (b) a per-chunk
+ * match over document_embeddings.search_vector (which indexes embedded_text —
+ * title header + preamble + chunk text), collapsed to one row per doc with
+ * score GREATEST(doc_rank, best_chunk_rank). Preamble/title-header terms
+ * become keyword-retrievable (SC-005) while the doc-level row keeps producing
+ * every snippet (ts_headline over content_text — FR-018/FR-020) and its
+ * title-weight-A ranking.
+ *
+ * BOTH sub-selects carry the document_shares join + role condition (FR-021)
+ * and, when active, the updatedAfter recency join (017). Legacy rows have
+ * search_vector IS NULL and never match the chunk sub-select.
+ *
+ * Emits CTEs `..., kw_matches` where kw_matches outputs (doc_id, rank).
+ *
+ * @param {number} queryParam - 1-based param index of the query text
+ * @param {string} roleCondition - buildRoleCondition fragment (alias 'ds')
+ * @param {number|null} updatedAfterParam - param index of the recency cutoff, or null
+ */
+function buildKeywordMatchCTEs(queryParam, roleCondition, updatedAfterParam = null) {
+  return `kw_doc AS (
+       SELECT si.doc_id,
+              ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $${queryParam})) AS rank
+       FROM document_search_index si
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
+       WHERE si.search_vector @@ websearch_to_tsquery('english', $${queryParam})
+     ),
+     kw_chunk AS (
+       SELECT de.doc_id,
+              MAX(ts_rank_cd(de.search_vector, websearch_to_tsquery('english', $${queryParam}))) AS rank
+       FROM document_embeddings de
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('de.doc_id', updatedAfterParam)}
+       WHERE de.search_vector @@ websearch_to_tsquery('english', $${queryParam})
+       GROUP BY de.doc_id
+     ),
+     kw_matches AS (
+       SELECT COALESCE(kd.doc_id, kc.doc_id) AS doc_id,
+              GREATEST(COALESCE(kd.rank, 0), COALESCE(kc.rank, 0)) AS rank
+       FROM kw_doc kd
+       FULL OUTER JOIN kw_chunk kc ON kc.doc_id = kd.doc_id
+     )`;
 }
 
 /**
@@ -246,15 +339,15 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
   const updatedAfterParam = updatedAfter ? 3 : null;
 
   return runSearchQuery(
-    `WITH cte AS (
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+     cte AS (
        SELECT
-         si.doc_id,
+         m.doc_id,
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet,
-         ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) AS score
-       FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
-       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
+         m.rank AS score
+       FROM kw_matches m
+       JOIN document_search_index si ON si.doc_id = m.doc_id
      )`,
     updatedAfter ? [userId, query, updatedAfter, limit, offset] : [userId, query, limit, offset],
     { filter, sortBy, sortOrder }
@@ -295,15 +388,15 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
   const updatedAfterParam = updatedAfter ? 5 : null;
 
   return runSearchQuery(
-    `WITH fts AS (
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+     fts AS (
        SELECT
-         si.doc_id,
-         ROW_NUMBER() OVER (ORDER BY ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) DESC) AS rank,
+         m.doc_id,
+         ROW_NUMBER() OVER (ORDER BY m.rank DESC) AS rank,
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
-       FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
-       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
+       FROM kw_matches m
+       JOIN document_search_index si ON si.doc_id = m.doc_id
      ),
      ${buildVectorCTE(3, 4, roleCondition, updatedAfterParam)},
      vec AS (
