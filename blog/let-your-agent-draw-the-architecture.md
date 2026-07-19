@@ -1,7 +1,7 @@
 ---
 slug: let-your-agent-draw-the-architecture
 title: Let your coding agent draw the architecture
-description: Point a coding agent at a system — your own codebase or one it researches, like Kubernetes — and it draws the architecture as live diagrams right in the document.
+description: Point a coding agent at a system — even one it has to research, like Claude Code's own internals — and it draws the architecture as live diagrams right in the document.
 date: 2026-07-19
 author: Sam Goldstein
 ---
@@ -12,136 +12,121 @@ Your coding agent can draw that diagram for you. Point it at a codebase, or ask 
 
 ## Ask it to research a system and draw it
 
-I gave an agent a prompt with none of my own code in scope: "Can you research k8s and draw me a set of technical diagrams that illustrate how it works." It came back with a small reference — four views of Kubernetes, each a diagram and a short explanation.
+I picked a system this audience knows from the inside: Claude Code itself. Its client-side harness became public earlier in 2026 — an npm release (version 2.1.88) shipped a source map with the whole thing, around 513,000 lines of TypeScript, and researchers wrote up how it works. I pointed an agent at those analyses and asked it to draw the architecture. It came back with four views.
 
-### The cluster, end to end
+### The harness and the model
 
 ```mermaid
 graph TB
-    subgraph CP["Control Plane (usually 3+ nodes for HA)"]
-        API["kube-apiserver"]
-        ETCD[("etcd\n(cluster state store)")]
-        SCHED["kube-scheduler"]
-        CM["kube-controller-manager"]
-        CCM["cloud-controller-manager\n(optional)"]
+    subgraph LOCAL["Your machine (the npm package — what leaked)"]
+        TUI["Terminal UI\n(React + custom reconciler,\nYoga layout, frame diffing)"]
+        LOOP["Main agent loop\n(async-generator pipeline)"]
+        CTX["Context assembly\n(system prompt, CLAUDE.md,\nhistory, compaction)"]
+        PERM["Permission pipeline\n(rules, modes, bash parser,\nhooks, user prompts)"]
+        EXEC["Tool executor\n(~40 built-in tools)"]
+        FS["Filesystem / shell / git"]
     end
 
-    subgraph N1["Worker Node"]
-        KUBELET1["kubelet"]
-        PROXY1["kube-proxy"]
-        CRI1["container runtime\n(containerd/CRI-O)"]
-        PODS1["Pods"]
-    end
+    API["Anthropic Messages API\n(or Bedrock / Vertex)"]
+    MCP["MCP servers\n(external tools,\nmultiple transports)"]
 
-    subgraph N2["Worker Node"]
-        KUBELET2["kubelet"]
-        PROXY2["kube-proxy"]
-        CRI2["container runtime"]
-        PODS2["Pods"]
-    end
-
-    CLOUD["Cloud provider API\n(AWS/GCP/Azure...)"]
-
-    USER["User / CI/CD\n(kubectl, API clients)"] -->|"REST/HTTPS"| API
-    API <--> ETCD
-    SCHED -->|"watch/assign"| API
-    CM -->|"watch/reconcile"| API
-    CCM -->|"watch/reconcile"| API
-    CCM -->|"cloud API calls"| CLOUD
-    API <-->|"watch/report status"| KUBELET1
-    API <-->|"watch/report status"| KUBELET2
-    PROXY1 -->|"watch Services/\nEndpointSlices"| API
-    PROXY2 -->|"watch Services/\nEndpointSlices"| API
-    KUBELET1 --> CRI1
-    CRI1 --> PODS1
-    KUBELET2 --> CRI2
-    CRI2 --> PODS2
-    PROXY1 -.->|"programs node kernel rules\n(iptables/IPVS) routing to"| PODS1
-    PROXY2 -.->|"programs node kernel rules\n(iptables/IPVS)"| PODS2
+    TUI -->|"user prompt"| LOOP
+    LOOP --> CTX
+    CTX -->|"streaming request"| API
+    API -->|"text + tool_use blocks"| LOOP
+    LOOP -->|"each tool call"| PERM
+    PERM -->|"approved"| EXEC
+    EXEC --> FS
+    EXEC -.->|"MCP protocol"| MCP
+    EXEC -->|"tool_result"| LOOP
+    LOOP -->|"streamed output"| TUI
 ```
 
-A cluster splits into two halves. The control plane makes the decisions — it stores state, schedules pods, and runs the controllers that reconcile actual state toward what you asked for. The worker nodes run the workloads. Everything in and out of the control plane goes through the API server; nothing else, not even the scheduler or the controller manager, talks to etcd directly.
+The system splits into two halves. The model, running remotely behind the Messages API, makes the decisions — it reads the conversation and emits either text or `tool_use` blocks. The harness on your machine does everything else: it renders the terminal UI, assembles context, gates every tool call, and runs tools against your filesystem and shell. All model interaction goes through the API client; tools never talk to the model directly, and the model never touches your machine except by asking the harness to run a tool.
 
-### What happens when you run `kubectl apply`
+### What happens when you send a prompt
 
 ```mermaid
 sequenceDiagram
-    participant U as User (kubectl apply)
-    participant API as kube-apiserver
-    participant ETCD as etcd
-    participant SCHED as kube-scheduler
-    participant CM as controller-manager
-    participant KUBELET as kubelet (chosen node)
-    participant CRI as container runtime
+    participant U as User (terminal)
+    participant TUI as Terminal UI
+    participant AGENT as Agent loop
+    participant API as Claude API (streaming)
+    participant PERM as Permission pipeline
+    participant EXEC as Tool executor
 
-    U->>API: POST Pod spec
-    API->>API: authenticate, authorize, admission checks
-    API->>ETCD: write Pod object (unscheduled)
-    API-->>U: 201 Created
+    U->>TUI: type a prompt
+    TUI->>AGENT: user message
+    AGENT->>AGENT: assemble context (system prompt, CLAUDE.md, history)
+    AGENT->>API: POST /v1/messages (stream)
+    API-->>AGENT: text deltas + tool_use blocks
+    AGENT-->>TUI: render text as it streams
 
-    SCHED->>API: watch for unscheduled Pods
-    SCHED->>SCHED: filter + score nodes
-    SCHED->>API: bind Pod to Node X
-    API->>ETCD: update Pod (nodeName set)
+    AGENT->>PERM: check each requested tool call
+    PERM->>PERM: rules, mode, command analysis
+    PERM-->>U: permission prompt (only if rules do not decide)
+    U-->>PERM: allow
+    PERM->>EXEC: approved calls
+    EXEC->>EXEC: reads in parallel, writes serially
+    EXEC-->>AGENT: tool_result blocks
 
-    KUBELET->>API: watch for Pods assigned to this node
-    KUBELET->>CRI: create containers per PodSpec
-    CRI-->>KUBELET: containers running
-    KUBELET->>API: report Pod status = Running
-    API->>ETCD: update Pod status
-
-    CM->>API: watch (e.g. Deployment controller)
-    CM->>CM: reconcile: actual replicas == desired?
+    AGENT->>API: continue, results appended to history
+    API-->>AGENT: more tool calls, or plain text
+    AGENT-->>TUI: final response (no tool calls left)
 ```
 
-The API server validates the object and writes it to etcd immediately, before anything runs — it does not schedule the pod itself. The scheduler is a separate watcher that notices unscheduled pods, picks a node, and writes the assignment back. The kubelet on that node is what actually tells the container runtime to start containers, then reports status. Controllers run this same watch-and-correct loop continuously.
+When you submit a prompt, the harness does not hand control to the model — it makes an API request and gets back a description of what the model wants to do. The model itself executes nothing. Each `tool_use` block passes through the permission pipeline, the approved ones run, and their results are appended to the message history for the next call. The loop repeats until a response arrives with no tool calls. Two touches from the source make it feel fast: the pipeline is built from async generators, so output streams end to end, and read-only tools can start while the response is still streaming in.
 
-### How traffic reaches a pod
+### The permission gate
 
 ```mermaid
-graph LR
-    CLIENT["External client"] -->|"1. request"| LB["Cloud Load Balancer\n(Service type: LoadBalancer)"]
-    LB -->|"2. forwards to\na NodePort"| KERNA["Node A kernel\n(iptables/IPVS rules)"]
-    LB -->|"2. forwards to\na NodePort"| KERNB["Node B kernel\n(iptables/IPVS rules)"]
-    KERNA -->|"3. DNAT to a\nready pod IP"| PODA["Pod (app container)\nNode A"]
-    KERNA -->|"3. DNAT to a\nready pod IP"| PODC["Pod (app container)\nNode C"]
-    KERNB -->|"3. DNAT to a\nready pod IP"| PODB["Pod (app container)\nNode B"]
+graph TB
+    CALL["tool_use block\nfrom the model"] --> RULES["Rule cascade\n(deny / allow / ask rules\nfrom settings files)"]
+    RULES -->|"deny rule"| BLOCKED["Blocked — error\nreturned to the model"]
+    RULES -->|"allow rule"| SCHED["Scheduler"]
+    RULES -->|"no rule matches"| MODE["Permission mode\n(default / acceptEdits / plan /\nbypassPermissions / auto)"]
+    MODE -->|"auto-approve"| SCHED
+    MODE -->|"still undecided"| ANALYZE["Command analysis\n(bash AST parser,\ninjection + builtin checks)"]
+    ANALYZE -->|"dangerous pattern"| BLOCKED
+    ANALYZE -->|"still undecided"| ASK["Permission prompt\n(ask the user)"]
+    ASK -->|"user allows"| SCHED
+    ASK -->|"user denies"| BLOCKED
 
-    API["kube-apiserver\nService (ClusterIP) +\nEndpointSlice (ready pod IPs)"]
-    KP["kube-proxy\n(one per node — programs rules,\nnever touches packets)"]
-    KP -->|"watch Services +\nEndpointSlices"| API
-    KP -.->|"programs\nkernel rules"| KERNA
-    KP -.->|"programs\nkernel rules"| KERNB
+    HOOKS["User-configured hooks\n(PreToolUse / PostToolUse)"] -.->|"can intercept\nor veto"| SCHED
 
-    PODA -.->|"in-cluster clients resolve\nmy-svc.ns.svc via CoreDNS\nto the ClusterIP (virtual —\nexists only in kernel rules)"| DNS["CoreDNS"]
+    SCHED -->|"read-only tools:\nrun concurrently"| READS["Read / Grep / Glob / ..."]
+    SCHED -->|"mutating tools:\nrun serially"| WRITES["Edit / Write / Bash / ..."]
 ```
 
-A Service is a stable virtual IP and DNS name for a set of pods that come and go as they scale or restart. kube-proxy on every node watches the live list of healthy pods and programs the node's iptables or IPVS rules — but it never touches packets itself; once the rules are in place, the kernel does the redirection. CoreDNS resolves the friendly Service name to that virtual IP.
+Every tool call the model requests passes through this gate — there is no path from a `tool_use` block to your shell that skips it. Decisions are layered cheapest-first: explicit deny/allow rules from your settings resolve most calls instantly, the session permission mode handles the next tranche, and only the remainder reaches deeper analysis or an interactive prompt. That analysis stage is substantial in the leaked source — a recursive-descent bash parser of roughly 4,400 lines builds an AST of every shell command and rejects dozens of dangerous constructs before execution. Approved calls then partition by safety: read-only tools run concurrently, while anything that mutates state serializes.
 
-### Why controllers all work the same way
+### The loop that makes it feel autonomous
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Observe
-    Observe: Watch API server for object changes
-    Compare: Compare desired state (spec) vs actual observed cluster state
-    Act: Issue API calls to close the gap\n(create/delete/update objects)
-    Wait: Sleep or block on next watch event
+    [*] --> Assemble
+    Assemble: Assemble context (history, CLAUDE.md, reminders)
+    Compact: Summarize older history\n(multi-tier, near the context limit)
+    Call: Stream a Messages API request
+    Execute: Run requested tools through the permission gate
 
-    Observe --> Compare
-    Compare --> Act: states differ
-    Compare --> Wait: states match
-    Act --> Observe
-    Wait --> Observe
+    Assemble --> Compact: context near limit
+    Compact --> Call
+    Assemble --> Call: context fits
+    Call --> Execute: response contains tool calls
+    Call --> [*]: plain text only — turn ends
+    Execute --> Assemble
 ```
 
-This loop is the single pattern behind every controller in Kubernetes, from the built-in Deployment controller to custom operators: watch the objects you manage, compare desired state to what actually exists, issue API calls to close the gap, repeat forever. It is what makes the system self-healing — if a pod dies, the gap reappears on the next pass and the controller acts again, with no separate recovery code.
+This loop is the single pattern behind everything Claude Code does — the leaked source confirmed there is no planner, no task graph, no hidden orchestrator, just a while-there-are-tool-calls loop over one flat message history. Autonomy is emergent: the model choosing tools well, not harness machinery. The same loop is also the unit of composition — a subagent is a fresh instance of this exact loop with its own isolated history, whose final answer returns to the parent as an ordinary `tool_result`. Long sessions stay inside the context window through tiered compaction.
 
 ## The part worth noticing
 
-None of that is my code. The agent researched Kubernetes and drew it, and it got the details right: only the API server talks to etcd, the scheduler and kubelet are separate watchers rather than one pipeline, kube-proxy programs rules instead of forwarding packets. It also reached for the right kind of diagram for each idea — a flowchart for structure, a sequence diagram for the scheduling flow, a state diagram for the loop.
+None of this came from inside Anthropic — the agent read the public write-ups of the source-map leak and reconstructed the architecture, and it got the shape right: every tool call gated, one flat loop instead of a hidden planner, the clean split between the local harness and the remote model. It also reached for the right kind of diagram for each idea — a flowchart for structure, a sequence diagram for the request path, a state diagram for the loop.
 
 The diagrams are Mermaid: a few lines of code the agent writes, so they render live in the document as it works, sit next to the prose that explains them, and stay editable. The next time you open the document the agent can read the diagram it drew and change it, and the same fenced block renders on GitHub when the doc syncs to your repo. (For the times you need exact control over a drawing, an SVG block takes raw SVG, sanitized on render.)
+
+Sources for the reconstruction: [InfoQ's report on the leak](https://www.infoq.com/news/2026/04/claude-code-source-leak/), [Karan Prasad's reverse-engineering write-up](https://karanprasad.com/blog/how-claude-code-actually-works-reverse-engineering-512k-lines), and the [claude-code-from-source](https://github.com/alejandrobalderas/claude-code-from-source) project.
 
 ## Try it on your own project
 
