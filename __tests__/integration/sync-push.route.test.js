@@ -588,4 +588,49 @@ describe('sync-push route (mode=sync)', () => {
     expect(res.status).toBe(200);
     expect(await currentBody(docId)).toContain('unclosed');
   });
+
+  // Feature 019, US4 (T022/FR-022/SC-008): the highest-intent failure —
+  // a first-ever sync push with no baseline — must explain the way in, and
+  // following that remedy verbatim must yield an accepted push.
+  describe('first-sync remedy (sync_baseline_missing)', () => {
+    const REMEDY =
+      'First sync of this file? Do an initial import with frontmatter=true and '
+      + 'write the returned markdown receipt back over the file — it is then a '
+      + 'valid sync baseline.';
+
+    test('the 400 body message includes the verbatim remedy sentence', async () => {
+      const { docId } = await seedDoc('# Doc\n\nremedy test');
+      const res = await put(docId, '# Doc\n\nno frontmatter, no baseline');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('sync_baseline_missing');
+      expect(res.body.message).toContain(REMEDY);
+    });
+
+    test('following the remedy verbatim yields an accepted sync push (SC-008)', async () => {
+      const source = '# Remedy Doc\n\nfirst-ever sync attempt\n';
+
+      // Step 1 (remedy): initial import with frontmatter=true.
+      const imported = await request(app)
+        .post('/api/docs/import?frontmatter=true')
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('Content-Type', 'text/markdown')
+        .send(source);
+      expect(imported.status).toBe(201);
+      const docId = imported.body.docId;
+      createdDocIds.push(docId);
+      await drain();
+
+      // Step 2 (remedy): "write the returned markdown receipt back over the
+      // file" — the receipt is the file now.
+      const file = imported.body.markdown;
+      expect(file).toContain('squire:');
+
+      // Step 3: an edited copy of that file passes mode=sync.
+      const edited = file.replace('first-ever sync attempt', 'first sync now works');
+      const res = await put(docId, edited);
+      await drain();
+      expect(res.status).toBe(200);
+      expect(res.body.markdown).toContain('first sync now works');
+    });
+  });
 });

@@ -73,3 +73,30 @@ describe('validateSyncBaseline (T026, R6)', () => {
     expect(v.baselineClock).toBe(3);
   });
 });
+
+describe('rejection messages (feature 019, US4/FR-022/SC-008)', () => {
+  const { REJECTION_MESSAGES } = require('../api/docs-import');
+
+  test('sync_baseline_missing carries the verbatim first-time remedy', () => {
+    expect(REJECTION_MESSAGES.sync_baseline_missing).toContain(
+      'First sync of this file? Do an initial import with frontmatter=true and '
+      + 'write the returned markdown receipt back over the file — it is then a '
+      + 'valid sync baseline.'
+    );
+    // The what-is-missing half is still there for repeat offenders.
+    expect(REJECTION_MESSAGES.sync_baseline_missing).toContain('squire.clock');
+    expect(REJECTION_MESSAGES.sync_baseline_missing).toContain('baselineClock');
+  });
+
+  test('the other three rejection messages are byte-for-byte unchanged', () => {
+    expect(REJECTION_MESSAGES.sync_doc_mismatch).toBe(
+      'The file\'s frontmatter names a different document than the request target.'
+    );
+    expect(REJECTION_MESSAGES.sync_baseline_invalid).toBe(
+      'The baseline clock is malformed, negative, or beyond the document\'s current clock.'
+    );
+    expect(REJECTION_MESSAGES.sync_baseline_unavailable).toBe(
+      'The document can no longer be reconstructed at that baseline clock.'
+    );
+  });
+});
