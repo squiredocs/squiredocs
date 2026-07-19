@@ -49,7 +49,7 @@ The honest limits are granularity and location. Notion's hosted MCP edits at the
 
 Proof is the closest tool to Squire in spirit, and it deserves credit. It is agent-first, it tracks provenance down to the character with a colored gutter for human and AI authorship, it offers track-changes suggestions you accept or reject, and it is open source under a permissive license. It is built for the same documents we care about: bug reports, product requirements, implementation plans, and memos. If you want a free, open-source, agent-first editor to draft in, Proof is a strong choice.
 
-The difference is the repository. Proof is a standalone editor: you write in it and share a link. It does not sync the document to a markdown file in your codebase, and agents connect through its own HTTP bridge rather than the document being a repo file that any tool can read. Proof makes the document a great place for agents to write. Squire makes the document the same file your agents already build from.
+The difference is the repository. Proof is a standalone editor: you write in it and share a link. It does not sync the document to a markdown file in your codebase, and agents connect through its own HTTP bridge. Proof makes the document a great place for agents to write. Squire makes the document the same file your agents already build from.
 
 ## What Squire adds
 
