@@ -310,17 +310,52 @@ ${seoTags}
 </head>`;
 }
 
+// Client-side Mermaid rendering for ```mermaid code blocks. Self-hosted UMD
+// bundle (CSP script-src 'self'); rendered inline (securityLevel:'strict'). The
+// early class-add hides raw fences before paint (see blog.css) so there is no
+// flash of source; on JS/render failure the source stays visible as a fallback.
+const MERMAID_EARLY = `  <script>document.documentElement.classList.add('mermaid-js');</script>\n`;
+const MERMAID_SCRIPT = `  <script src="/vendor/mermaid.min.js"></script>
+  <script>
+    (function () {
+      if (!window.mermaid) return;
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'neutral',
+        securityLevel: 'strict',
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+        flowchart: { htmlLabels: false },
+      });
+      document.querySelectorAll('pre > code.language-mermaid').forEach(function (code, i) {
+        var pre = code.parentElement;
+        var container = document.createElement('div');
+        container.className = 'blog-mermaid';
+        pre.parentNode.insertBefore(container, pre);
+        mermaid.render('blog-mermaid-' + i, code.textContent).then(function (out) {
+          container.innerHTML = out.svg;
+          pre.remove();
+        }).catch(function (err) {
+          container.remove();
+          pre.style.display = 'block';
+          if (window.console) console.error('mermaid render failed', err);
+        });
+      });
+    })();
+  </script>
+`;
+
 /**
  * Render a complete HTML document for one post.
  * `post` is { slug, title, description, date, author, bodyHtml }.
  */
 export function renderPostPage({ post, canonicalOrigin = CANONICAL_ORIGIN }) {
   const canonical = canonicalUrl(post.slug, canonicalOrigin);
+  const hasMermaid = post.bodyHtml.includes('language-mermaid');
   return `<!DOCTYPE html>
 <html lang="en">
 ${pageHead({ title: `${post.title} | Squire Docs Blog`, description: post.description, canonical })}
 <body>
-  <div class="blog-page">
+${hasMermaid ? MERMAID_EARLY : ''}  <div class="blog-page">
 ${HEADER}
     <main class="blog-main">
       <article class="blog-post">
@@ -335,7 +370,7 @@ ${post.bodyHtml}
 ${CTA}
 ${FOOTER}
   </div>
-</body>
+${hasMermaid ? MERMAID_SCRIPT : ''}</body>
 </html>
 `;
 }

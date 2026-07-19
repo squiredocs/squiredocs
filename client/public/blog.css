@@ -145,6 +145,22 @@
   max-width: 100%;
 }
 
+/* Mermaid diagrams: rendered client-side from ```mermaid code blocks. When JS
+   is on (html.mermaid-js) the raw source is hidden before paint so there is no
+   flash; if rendering fails the script reveals the <pre> again as a fallback. */
+.mermaid-js .blog-post pre:has(> code.language-mermaid) {
+  display: none;
+}
+.blog-post .blog-mermaid {
+  margin: 1.75rem 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.blog-post .blog-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Responsive --------------------------------------------------------------- */
 
 @media (max-width: 768px) {

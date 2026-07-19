@@ -1,66 +1,20 @@
 ---
 slug: let-your-agent-draw-the-architecture
 title: Let your coding agent draw the architecture
-description: A story about pointing a coding agent at a system — one you are designing, or one like Kubernetes it researches — having it render Mermaid diagrams live in the doc, and iterating until the design is clear.
+description: Point a coding agent at a system — your own codebase or one it researches, like Kubernetes — and it draws the architecture as live diagrams right in the document.
 date: 2026-07-19
 author: Sam Goldstein
 ---
 
-The fastest way to understand a system is to see it. A paragraph describing how data flows through four subsystems takes a minute to read and a while longer to hold in your head. The same thing as a diagram lands in a second. A picture says a thousand words, and now your coding agent can draw the picture for you and redraw it while you talk.
+The fastest way to understand a system is to see it. A paragraph describing how requests move through four subsystems takes a minute to read and a while longer to hold in your head. The same thing as a diagram lands in a second.
 
-This is a story about doing exactly that: pointing an agent at a system I was designing, having it render an architecture diagram live in the document, and iterating on the picture until the design was right.
+Your coding agent can draw that diagram for you. Point it at a codebase, or ask it to research something it has never seen, and it renders the architecture as diagrams — live, in the document, redrawing them as you talk. Here is what that looks like.
 
-## The setup
+## Ask it to research a system and draw it
 
-I was designing a data layer. It had a lot of moving parts: several external systems mirrored into a local store, a separate store for metadata the agent produced, and a stable anchor tying the two together so everything could be queried as one thing. I had written it all down in prose. The prose was accurate and it was hard to follow. Nobody reviewing it could hold the whole shape in their head, and neither could I.
+I gave an agent a prompt with none of my own code in scope: "Can you research k8s and draw me a set of technical diagrams that illustrate how it works." It came back with a small reference — four views of Kubernetes, each a diagram and a short explanation.
 
-## Asking for the picture
-
-The coding agent I was working with already had the context: it had read the codebase and the design notes. So I asked it to do one more thing. Read the current architecture and draw it as a Mermaid diagram in the document.
-
-It wrote a diagram block. In Squire Docs a Mermaid block renders live as the code is written, so a few seconds later the picture was sitting in the document under the prose it described. Here is roughly what the agent produced:
-
-```mermaid
-graph TD
-    External["External systems (Jira · GitHub · Linear · Zoom)"]
-    Agent["Coding agent"]
-    subgraph DataLayer["Data layer"]
-        Source["Source store (mirrors of external records)"]
-        Entity["Entity (stable anchor)"]
-        Claims["Claims store (agent-authored metadata)"]
-        Source --- Entity
-        Entity --- Claims
-    end
-    External -->|mirror| Source
-    Agent -->|reads and writes| DataLayer
-```
-
-Which renders as:
-
-![Architecture diagram: external systems are mirrored into a source store, an agent-managed claims store holds metadata, both connect through a central Entity anchor, and a coding agent reads and writes the data layer.](/blog-data-layer-diagram.svg)
-
-## The part where the design got sharp
-
-Seeing the first draft is where it got useful. The picture showed things the prose had let me gloss over.
-
-The two stores had been one blurry box in my head. On the diagram they were clearly separate, with different jobs and different write paths, and the moment I saw them apart I knew that was the real structure. So I told the agent: those are two stores, not one, and the anchor sits between them. It redrew. A few seconds later the corrected picture was there.
-
-That became the loop. Look at the diagram, find the thing that was wrong or vague, say it in a sentence, watch the agent redraw. Move the anchor to the center. Show the mirror path as one direction, external systems in, never out. Split the metadata store into the two record types it actually held. Each turn was a sentence from me and a fresh picture from the agent, and each picture made the next problem obvious. The design got sharp because I could see it changing.
-
-None of this was a special mode. The agent and I were editing the same document at the same time, the way two people would, except one of us could draw a clean diagram in seconds. The document's history shows both of us as authors on those edits.
-
-## It works for a system you didn't build
-
-That data layer was my own design, and the agent had read my code and my notes before it drew anything. But it does not need either. The same move works on a system the agent has never seen in your repository, because it can go research one first.
-
-To see how far that goes, I gave an agent a prompt with nothing of mine in scope: "Can you research k8s and draw me a set of technical diagrams that illustrate how it works." It came back with a small reference — not one picture but four, each a different view of Kubernetes:
-
-- a **cluster overview** that splits the control plane from the worker nodes and shows every path in and out of the API server;
-- a **sequence diagram** tracing a `kubectl apply` as the API server persists it to etcd, the scheduler assigns a node, and the kubelet finally starts the containers;
-- the **service traffic path**, from an external request through kube-proxy and a stable virtual IP to a healthy pod;
-- and the **reconciliation loop** every controller runs — observe, compare desired state to actual, act, repeat — which is what makes the system self-healing.
-
-Here is the cluster overview it wrote:
+### The cluster, end to end
 
 ```mermaid
 graph TB
@@ -86,45 +40,111 @@ graph TB
         PODS2["Pods"]
     end
 
+    CLOUD["Cloud provider API\n(AWS/GCP/Azure...)"]
+
     USER["User / CI/CD\n(kubectl, API clients)"] -->|"REST/HTTPS"| API
     API <--> ETCD
     SCHED -->|"watch/assign"| API
     CM -->|"watch/reconcile"| API
-    CCM -->|"cloud API calls"| API
+    CCM -->|"watch/reconcile"| API
+    CCM -->|"cloud API calls"| CLOUD
     API <-->|"watch/report status"| KUBELET1
     API <-->|"watch/report status"| KUBELET2
+    PROXY1 -->|"watch Services/\nEndpointSlices"| API
+    PROXY2 -->|"watch Services/\nEndpointSlices"| API
     KUBELET1 --> CRI1
     CRI1 --> PODS1
     KUBELET2 --> CRI2
     CRI2 --> PODS2
-    PROXY1 -.->|"network rules"| PODS1
-    PROXY2 -.->|"network rules"| PODS2
+    PROXY1 -.->|"programs node kernel rules\n(iptables/IPVS) routing to"| PODS1
+    PROXY2 -.->|"programs node kernel rules\n(iptables/IPVS)"| PODS2
 ```
 
-None of that is my system, and the agent got the details right: that only the API server talks to etcd, that the scheduler and kubelet are separate watchers rather than one pipeline, that the controllers reconcile in a loop. It researched Kubernetes and drew it, the same way it drew my data layer.
+A cluster splits into two halves. The control plane makes the decisions — it stores state, schedules pods, and runs the controllers that reconcile actual state toward what you asked for. The worker nodes run the workloads. Everything in and out of the control plane goes through the API server; nothing else, not even the scheduler or the controller manager, talks to etcd directly.
 
-That is the general form of the idea. Point an agent at whatever you are working on — an unfamiliar codebase you are onboarding to, a dependency you are integrating, or a system like Kubernetes you just need to understand — and ask it to research the thing and draw it. You get a picture to think with, in the document, in seconds.
+### What happens when you run `kubectl apply`
 
-## Why live and in the document matters
+```mermaid
+sequenceDiagram
+    participant U as User (kubectl apply)
+    participant API as kube-apiserver
+    participant ETCD as etcd
+    participant SCHED as kube-scheduler
+    participant CM as controller-manager
+    participant KUBELET as kubelet (chosen node)
+    participant CRI as container runtime
 
-The diagram was worth drawing because of where it lived and how it behaved.
+    U->>API: POST Pod spec
+    API->>API: authenticate, authorize, admission checks
+    API->>ETCD: write Pod object (unscheduled)
+    API-->>U: 201 Created
 
-**It rendered as I iterated.** There was no export step, no switching to a diagram tool and pasting a picture back. The change and the redraw happened in the same place, so iterating was cheap enough to do a dozen times.
+    SCHED->>API: watch for unscheduled Pods
+    SCHED->>SCHED: filter + score nodes
+    SCHED->>API: bind Pod to Node X
+    API->>ETCD: update Pod (nodeName set)
 
-**It sat next to the prose it explained.** The picture and the paragraph describing it were in one document, so they could not drift apart. When the design changed, both changed together.
+    KUBELET->>API: watch for Pods assigned to this node
+    KUBELET->>CRI: create containers per PodSpec
+    CRI-->>KUBELET: containers running
+    KUBELET->>API: report Pod status = Running
+    API->>ETCD: update Pod status
 
-**It stayed editable by the agent.** A Mermaid block exports to markdown as a fenced code block, so the next time I opened the document the agent could read the diagram it drew last week and change it, rather than starting over. The same fenced block renders as a diagram on GitHub, so the picture survives the trip into the repository.
+    CM->>API: watch (e.g. Deployment controller)
+    CM->>CM: reconcile: actual replicas == desired?
+```
 
-## Mermaid and SVG
+The API server validates the object and writes it to etcd immediately, before anything runs — it does not schedule the pod itself. The scheduler is a separate watcher that notices unscheduled pods, picks a node, and writes the assignment back. The kubelet on that node is what actually tells the container runtime to start containers, then reports status. Controllers run this same watch-and-correct loop continuously.
 
-Squire Docs has two diagram blocks, and they cover two needs.
+### How traffic reaches a pod
 
-**Mermaid** is for structure: architecture, flows, sequences, state. You describe the shape in a few lines of code and the layout is handled for you, which is exactly what makes it cheap for an agent to write and rewrite. Most of the iterating above was Mermaid.
+```mermaid
+graph LR
+    CLIENT["External client"] -->|"1. request"| LB["Cloud Load Balancer\n(Service type: LoadBalancer)"]
+    LB -->|"2. forwards to\na NodePort"| KERNA["Node A kernel\n(iptables/IPVS rules)"]
+    LB -->|"2. forwards to\na NodePort"| KERNB["Node B kernel\n(iptables/IPVS rules)"]
+    KERNA -->|"3. DNAT to a\nready pod IP"| PODA["Pod (app container)\nNode A"]
+    KERNA -->|"3. DNAT to a\nready pod IP"| PODC["Pod (app container)\nNode C"]
+    KERNB -->|"3. DNAT to a\nready pod IP"| PODB["Pod (app container)\nNode B"]
 
-**SVG** is for when you need exact control over the drawing. An agent can write raw SVG into an SVG block, and Squire Docs sanitizes it on render, stripping scripts, event handlers, and references to outside resources, so a diagram written by an agent or a collaborator cannot do anything but draw.
+    API["kube-apiserver\nService (ClusterIP) +\nEndpointSlice (ready pod IPs)"]
+    KP["kube-proxy\n(one per node — programs rules,\nnever touches packets)"]
+    KP -->|"watch Services +\nEndpointSlices"| API
+    KP -.->|"programs\nkernel rules"| KERNA
+    KP -.->|"programs\nkernel rules"| KERNB
 
-## The payoff
+    PODA -.->|"in-cluster clients resolve\nmy-svc.ns.svc via CoreDNS\nto the ClusterIP (virtual —\nexists only in kernel rules)"| DNS["CoreDNS"]
+```
 
-Over a couple of weeks that data layer grew into a set of documents, and the diagrams did most of the work of keeping everyone aligned. The design went through many revisions, and most of the time the thing that moved a conversation forward was not a paragraph. It was a redrawn picture that made the new shape obvious at a glance.
+A Service is a stable virtual IP and DNS name for a set of pods that come and go as they scale or restart. kube-proxy on every node watches the live list of healthy pods and programs the node's iptables or IPVS rules — but it never touches packets itself; once the rules are in place, the kernel does the redirection. CoreDNS resolves the friendly Service name to that virtual IP.
 
-Whether you are designing a system or trying to understand one, point your coding agent at it and ask for the picture. Then talk to the agent until the picture is right. You will understand the architecture faster, and so will everyone you show it to.
+### Why controllers all work the same way
+
+```mermaid
+stateDiagram-v2
+    [*] --> Observe
+    Observe: Watch API server for object changes
+    Compare: Compare desired state (spec) vs actual observed cluster state
+    Act: Issue API calls to close the gap\n(create/delete/update objects)
+    Wait: Sleep or block on next watch event
+
+    Observe --> Compare
+    Compare --> Act: states differ
+    Compare --> Wait: states match
+    Act --> Observe
+    Wait --> Observe
+```
+
+This loop is the single pattern behind every controller in Kubernetes, from the built-in Deployment controller to custom operators: watch the objects you manage, compare desired state to what actually exists, issue API calls to close the gap, repeat forever. It is what makes the system self-healing — if a pod dies, the gap reappears on the next pass and the controller acts again, with no separate recovery code.
+
+## The part worth noticing
+
+None of that is my code. The agent researched Kubernetes and drew it, and it got the details right: only the API server talks to etcd, the scheduler and kubelet are separate watchers rather than one pipeline, kube-proxy programs rules instead of forwarding packets. It also reached for the right kind of diagram for each idea — a flowchart for structure, a sequence diagram for the scheduling flow, a state diagram for the loop.
+
+The diagrams are Mermaid: a few lines of code the agent writes, so they render live in the document as it works, sit next to the prose that explains them, and stay editable. The next time you open the document the agent can read the diagram it drew and change it, and the same fenced block renders on GitHub when the doc syncs to your repo. (For the times you need exact control over a drawing, an SVG block takes raw SVG, sanitized on render.)
+
+## Try it on your own project
+
+I do this all the time when I am exploring or building something — reading my way into an unfamiliar codebase, sketching a design before I write it, or explaining a subsystem to someone about to work in it. The picture is faster to produce than a paragraph and faster to understand.
+
+You can ask Claude Code to do the same thing in your repo: point it at the code and ask for the picture, then talk to it until the picture is right. You will understand your own architecture faster, and so will everyone you show it to.
