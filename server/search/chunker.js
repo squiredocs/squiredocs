@@ -207,9 +207,13 @@ function chunkDocument(xmlFragment, opts = {}) {
  * Pure and deterministic given fixed inputs (D13).
  */
 function buildEmbeddedText({ title, headingPath, preamble, chunkText }) {
-  const header = [title || '', ...(headingPath || [])].join(' > ');
+  // Drop empty segments (review F5): an untitled doc otherwise embeds a
+  // junk " > "-prefixed header line into every chunk's vector and tsvector.
+  const header = [title || '', ...(headingPath || [])]
+    .filter((s) => s && s.trim())
+    .join(' > ');
   const preambleBlock = preamble && preamble.trim() ? `${preamble.trim()}\n\n` : '';
-  return `${header}\n${preambleBlock}${chunkText}`;
+  return header ? `${header}\n${preambleBlock}${chunkText}` : `${preambleBlock}${chunkText}`;
 }
 
 module.exports = {

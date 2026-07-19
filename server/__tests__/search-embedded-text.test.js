@@ -39,9 +39,13 @@ describe('buildEmbeddedText composition (T009, DR-1)', () => {
       chunkText: 'milk and eggs',
     });
     expect(out).toBe('Shopping List\nmilk and eggs');
-    // Empty title still yields a leading header line (title slot present)
+    // Empty title drops out of the header (review F5): no junk " > " prefix
+    // in untitled docs' embedded text.
     const untitled = buildEmbeddedText({ title: '', headingPath: ['H1'], preamble: '', chunkText: 'body' });
-    expect(untitled).toBe(' > H1\nbody');
+    expect(untitled).toBe('H1\nbody');
+    // Fully headerless (untitled, no trail): body only, no leading newline.
+    const bare = buildEmbeddedText({ title: '', headingPath: [], preamble: '', chunkText: 'body' });
+    expect(bare).toBe('body');
   });
 
   test('composition is pure and deterministic given fixed inputs (D13)', () => {

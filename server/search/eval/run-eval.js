@@ -243,11 +243,20 @@ async function main() {
       if (flag('rerank')) plan.push(RERANK_VARIANT);
     }
 
+    // Post-merge review F1: if the sweep dies after a non-shipped re-index
+    // (Ctrl-C, crash, usage-limit kill), the corpus must not stay on a
+    // degraded variant. Fixed-baseline rows are now written as legacy-marker
+    // rows (self-healing via reindexStale), but restore the shipped config
+    // immediately anyway rather than waiting for the next boot/edit.
+    let corpusOnNonShippedVariant = false;
+    try {
     for (const variant of plan) {
       if (variant.reindex) {
         process.stdout.write(`Re-indexing corpus for variant '${variant.name}'... `);
         const summary = await searchIndexer.reindexAllForEval(variant.overrides);
         console.log(`${summary.done}/${summary.total} docs (${summary.failed} failed)`);
+        corpusOnNonShippedVariant =
+          variant.overrides.chunking !== 'structure' || variant.overrides.preambles !== true;
       }
       // Fail fast if semantic search is unavailable (spec edge case): with no
       // embedding rows the engine would silently fall back to fulltext and
@@ -262,6 +271,17 @@ async function main() {
         config: variant.overrides,
         metrics: await evaluateVariant(pool, variant.name, userId, kept, variant.overrides, budget),
       });
+    }
+    } finally {
+      // Restore the shipped config no matter how the sweep ended (F1).
+      if (corpusOnNonShippedVariant) {
+        process.stdout.write('Restoring shipped index config... ');
+        const summary = await searchIndexer.reindexAllForEval(undefined).catch((e) => {
+          console.error(`RESTORE FAILED (${e.message}) — corpus rows carry the legacy marker and self-heal via reindexStale on next boot.`);
+          return null;
+        });
+        if (summary) console.log(`${summary.done}/${summary.total} docs restored`);
+      }
     }
 
     printTable(results);

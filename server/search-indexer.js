@@ -304,17 +304,26 @@ async function generateAndStoreEmbeddings(docGuid, extraction, contentHash) {
 
   // Compose the exact text to embed + chunk-keyword-index (DR-1/D2). The
   // 'fixed' eval baseline embeds bare chunk text — a faithful reproduction of
-  // the pre-018 pipeline (plan D12).
+  // the pre-018 pipeline (plan D12). Post-merge review F1/F2: fixed-variant
+  // rows are STORED as byte-faithful legacy rows (all 018 columns NULL) so
+  // (a) the baseline never matches the chunk-keyword leg — pre-018 rows have
+  // no search_vector, so measuring the baseline with one inflated its FTS
+  // rank on a different density scale; and (b) an interrupted eval sweep
+  // cannot strand the corpus: NULL embedded_text is exactly the legacy-repair
+  // discriminator, so reindexStale/the in-pass probe re-chunk them like any
+  // legacy row.
+  const isFixedBaseline = config.chunking === 'fixed';
   const rows = chunkRecords.map((c, i) => {
-    const embeddedText = config.chunking === 'fixed'
+    const embeddedText = isFixedBaseline
       ? c.text
       : buildEmbeddedText({ title, headingPath: c.headingPath, preamble: preambles[i], chunkText: c.text });
     return {
       chunkText: c.text,
-      headingPath: c.headingPath || [],
-      preamble: preambles[i] && config.chunking !== 'fixed' ? preambles[i] : null,
+      headingPath: isFixedBaseline ? null : (c.headingPath || []),
+      preamble: preambles[i] && !isFixedBaseline ? preambles[i] : null,
       embeddedText,
-      tokenEstimate: estimateTokens(embeddedText),
+      storedEmbeddedText: isFixedBaseline ? null : embeddedText,
+      tokenEstimate: isFixedBaseline ? null : estimateTokens(embeddedText),
     };
   });
 
@@ -347,7 +356,8 @@ async function generateAndStoreEmbeddings(docGuid, extraction, contentHash) {
         `INSERT INTO document_embeddings
            (doc_id, chunk_index, chunk_text, embedding, embedding_model,
             heading_path, preamble_text, embedded_text, token_estimate, search_vector)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_tsvector('english', $8))`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                 CASE WHEN $8::text IS NULL THEN NULL ELSE to_tsvector('english', $8) END)`,
         [
           docGuid,
           i,
@@ -356,7 +366,7 @@ async function generateAndStoreEmbeddings(docGuid, extraction, contentHash) {
           EMBEDDING_MODEL,
           row.headingPath,
           row.preamble,
-          row.embeddedText,
+          row.storedEmbeddedText,
           row.tokenEstimate,
         ]
       );

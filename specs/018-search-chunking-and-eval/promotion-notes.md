@@ -152,3 +152,29 @@ no Squire-doc amendment required.
   T019/T020 tests plus the corpus inspection; §4 run for real (tables above);
   §5 covered by the T012 rollout tests (legacy rows serving + reindexStale
   migration + idempotent second pass).
+
+## Post-merge review dispositions (2026-07-18, Fable review of 8b60416)
+
+Verdict: MERGE STANDS — no security/authorization/data-integrity defect in
+the serving path; ACL on both union legs, preamble provenance, wire-frozen
+configOverrides, seam parity, swap atomicity, fail-soft, and eval honesty
+all survived scrutiny.
+
+- **F1 (MEDIUM) FIXED**: an interrupted eval sweep stranded the corpus on the
+  degraded fixed baseline with no repair path. Two-part fix: fixed-variant
+  rows are now written as byte-faithful LEGACY rows (all 018 columns NULL →
+  the legacy-repair predicate self-heals them), and run-eval restores the
+  shipped config in a finally block.
+- **F2 (LOW) FIXED**: same change — fixed-baseline rows no longer carry a
+  search_vector, so the baseline never matches the chunk-keyword leg it
+  didn't have pre-018 (leg-faithful measurement).
+- **F3 (LOW) FIXED**: the saturation guard now excludes rerank variants —
+  a deliberately-bad variant can no longer manufacture spread.
+- **F4 (LOW) NOTED**: FR-017's "document sent once" is per ≤25-chunk BATCH
+  (ceil(chunks/25) sends); bounded and disclosed in code; spec wording to be
+  tightened on the next spec touch.
+- **F5 (LOW) FIXED**: untitled docs no longer embed a junk " > " header
+  prefix (empty segments dropped); existing embedded-text rows self-correct
+  on next re-embed.
+- NOTE: the canonical before/after numbers should be RE-MEASURED after F2/F5
+  (baseline fidelity changed) as part of Sam's owed re-curation sweep.

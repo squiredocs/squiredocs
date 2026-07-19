@@ -94,9 +94,14 @@ function auditComposition(evalSet) {
  */
 function checkSaturationGuard(results) {
   const problems = [];
-  const variants = (results && results.variants) || [];
+  // Post-merge review F3: the guard evaluates ONLY the minimum sweep. A
+  // deliberately-bad variant (e.g. the reranker, known to hurt) would
+  // manufacture spread and let a saturated set "pass" artificially.
+  const variants = ((results && results.variants) || []).filter(
+    (v) => !(v.config && v.config.rerank) && !/rerank/i.test(v.name || '')
+  );
   if (variants.length < 2) {
-    return { ok: false, problems: ['need at least two variants to evaluate discrimination — run the minimum sweep'] };
+    return { ok: false, problems: ['need at least two minimum-sweep variants (rerank variants are excluded from the guard) — run the minimum sweep'] };
   }
 
   // (a) the documented failure mode: every variant perfect on all Recall@k
