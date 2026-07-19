@@ -41,6 +41,20 @@ const ORIGIN_SYNC_PUSH = 'sync-push';
 const ORIGIN_INVERSE_APPLY = 'inverse-apply';
 
 /**
+ * Sentinel: a version restore (version-history restoreVersion) broadcast onto
+ * the live shared doc AFTER restoreVersion has already stored the one
+ * attributed restore-delta row via storeUpdate (store-then-apply). parseOrigin
+ * returns null so the bindState persistence listener does NOT re-store a
+ * second, differently-clocked copy of the same delta — storeUpdate allocates a
+ * fresh max+1 clock on every call and never dedupes by content, so the old
+ * "ON CONFLICT DO NOTHING prevents duplicates" reasoning was false. Like
+ * ORIGIN_SYNC_PUSH / ORIGIN_INVERSE_APPLY it is deliberately NOT on the Redis
+ * publish skip-list, so other instances holding the doc receive the restore
+ * through the normal cross-instance fan-out.
+ */
+const ORIGIN_RESTORE = 'restore';
+
+/**
  * Build a canonical origin object for a Yjs transaction.
  * Always returns { userId, agentName } — never a bare string.
  *
@@ -65,6 +79,7 @@ function parseOrigin(origin) {
     || origin === ORIGIN_REDIS
     || origin === ORIGIN_SYNC_PUSH
     || origin === ORIGIN_INVERSE_APPLY
+    || origin === ORIGIN_RESTORE
   ) {
     return null;
   }
@@ -88,6 +103,7 @@ module.exports = {
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
   ORIGIN_INVERSE_APPLY,
+  ORIGIN_RESTORE,
   createOrigin,
   parseOrigin,
 };

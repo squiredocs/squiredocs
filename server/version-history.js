@@ -4,7 +4,7 @@
  */
 
 const Y = require('yjs');
-const { createOrigin } = require('./origin');
+const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml } = require('./yjs-utils');
 
 // Default inactivity threshold for grouping updates into versions (5 minutes)
@@ -742,10 +742,15 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
     try {
       const sharedDoc = getSharedDocFn(docGuid);
       if (sharedDoc) {
-        // Apply the update with proper origin so it's attributed correctly
-        // The update event will try to persist it again, but ON CONFLICT DO NOTHING
-        // in storeUpdate will prevent duplicates
-        Y.applyUpdate(sharedDoc, restoreUpdate, createOrigin(userId, agentName));
+        // Broadcast the restore delta to connected clients WITHOUT re-persisting.
+        // The row was already stored above via storeUpdate with correct
+        // userId/agentName attribution. We use the ORIGIN_RESTORE sentinel so the
+        // bindState persistence listener (parseOrigin -> null) skips it: storeUpdate
+        // allocates a FRESH max+1 clock on every call and never dedupes by content,
+        // so a parseable origin here would persist the same delta a SECOND time at a
+        // new clock (the previous "ON CONFLICT DO NOTHING prevents duplicates"
+        // comment was false — that clause only guards a lost race for the same clock).
+        Y.applyUpdate(sharedDoc, restoreUpdate, ORIGIN_RESTORE);
         console.log(`[Restore] Applied restore update to in-memory document`);
       } else {
         console.warn(`[Restore] Could not get shared document for ${docGuid} - update not broadcast`);

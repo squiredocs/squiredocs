@@ -976,6 +976,99 @@ describe('version-history module', () => {
       expect(getText(restoredDoc)).toBe('Original content');
     });
 
+    test('restoring a loaded doc persists exactly ONE new update row (F2 no double-persist)', async () => {
+      // Simulates the real path: the shared doc has the bindState persistence
+      // listener attached, which calls storeUpdate for any parseable origin.
+      // restoreVersion stores the delta explicitly and then applies it to the
+      // live doc; the ORIGIN_RESTORE sentinel must make the listener SKIP it, so
+      // the restore contributes exactly one row (not two at different clocks).
+      const { parseOrigin } = require('../origin');
+
+      const updates = [];
+      let clock = 0;
+
+      const mockPersistence = {
+        storeUpdate: jest.fn(async (docGuid, update, userId, agentName) => {
+          clock++;
+          updates.push({ clock, update: new Uint8Array(update), userId, agentName });
+          return clock;
+        }),
+        getYDoc: jest.fn(async () => {
+          const doc = new Y.Doc();
+          for (const { update } of updates) Y.applyUpdate(doc, update);
+          return doc;
+        }),
+        getUpdatesWithUsers: jest.fn(async () => updates.map(u => ({
+          clock: u.clock, createdAt: new Date().toISOString(), userId: u.userId, userName: 'Test User',
+        }))),
+        getVersionById: jest.fn(),
+        getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+          const doc = new Y.Doc();
+          for (const { update, clock: c } of updates) if (c <= targetClock) Y.applyUpdate(doc, update);
+          return doc;
+        }),
+      };
+
+      const setText = (doc, text) => {
+        const fragment = doc.getXmlFragment('default');
+        doc.transact(() => {
+          while (fragment.length > 0) fragment.delete(0, fragment.length);
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, text);
+          p.insert(0, [t]);
+          fragment.insert(0, [p]);
+        });
+      };
+      const getText = (doc) => {
+        const fragment = doc.getXmlFragment('default');
+        let text = '';
+        for (let i = 0; i < fragment.length; i++) {
+          const el = fragment.get(i);
+          for (let j = 0; j < el.length; j++) {
+            const c = el.get(j);
+            if (c instanceof Y.XmlText) text += c.toString();
+          }
+        }
+        return text;
+      };
+
+      // Two stored versions.
+      const doc1 = new Y.Doc();
+      setText(doc1, 'Original content');
+      const update1 = Y.encodeStateAsUpdate(doc1);
+      await mockPersistence.storeUpdate('test-doc', update1, 'user-1', null);
+
+      const doc2 = new Y.Doc();
+      Y.applyUpdate(doc2, update1);
+      setText(doc2, 'Modified content');
+      const update2 = Y.encodeStateAsUpdate(doc2, Y.encodeStateVector(doc1));
+      await mockPersistence.storeUpdate('test-doc', update2, 'user-1', null);
+
+      // In-memory shared doc with the bindState-style persistence listener.
+      const inMemoryDoc = new Y.Doc();
+      Y.applyUpdate(inMemoryDoc, update1);
+      Y.applyUpdate(inMemoryDoc, update2);
+      inMemoryDoc.on('update', (update, origin) => {
+        const parsed = parseOrigin(origin);
+        if (!parsed) return; // sentinel origins (incl. ORIGIN_RESTORE) skip persistence
+        mockPersistence.storeUpdate('test-doc', update, parsed.userId, parsed.agentName);
+      });
+
+      const storeCallsBefore = mockPersistence.storeUpdate.mock.calls.length; // 2 seed writes
+
+      const getSharedDocFn = (g) => (g === 'test-doc' ? inMemoryDoc : null);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
+
+      // Exactly ONE additional storeUpdate for the restore (the explicit store),
+      // not two (would be the listener re-persisting the live-doc apply).
+      const restoreStoreCalls = mockPersistence.storeUpdate.mock.calls.length - storeCallsBefore;
+      expect(restoreStoreCalls).toBe(1);
+
+      // And the live doc actually reflects the restore.
+      expect(getText(inMemoryDoc)).toBe('Original content');
+    });
+
     test('preserves text marks (bold, italic, strike) when restoring', async () => {
       // Test that marks like strikethrough, bold, italic are preserved
       const updates = [];

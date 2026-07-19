@@ -11,6 +11,7 @@ const {
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
   ORIGIN_INVERSE_APPLY,
+  ORIGIN_RESTORE,
   createOrigin,
   parseOrigin,
 } = require('../origin');
@@ -22,9 +23,11 @@ function shouldPublishToRedis(origin) {
 }
 
 describe('origin sentinels', () => {
-  test('the four sentinels are distinct string values', () => {
-    const set = new Set([ORIGIN_DB_LOAD, ORIGIN_REDIS, ORIGIN_SYNC_PUSH, ORIGIN_INVERSE_APPLY]);
-    expect(set.size).toBe(4);
+  test('the five sentinels are distinct string values', () => {
+    const set = new Set([
+      ORIGIN_DB_LOAD, ORIGIN_REDIS, ORIGIN_SYNC_PUSH, ORIGIN_INVERSE_APPLY, ORIGIN_RESTORE,
+    ]);
+    expect(set.size).toBe(5);
   });
 });
 
@@ -76,5 +79,25 @@ describe('ORIGIN_INVERSE_APPLY — feature 016 log-derived undo (research R3)', 
   test('suppressed from persistence AND published to Redis, together', () => {
     expect(parseOrigin(ORIGIN_INVERSE_APPLY)).toBeNull();
     expect(shouldPublishToRedis(ORIGIN_INVERSE_APPLY)).toBe(true);
+  });
+});
+
+describe('ORIGIN_RESTORE — F2 version restore (store-then-apply)', () => {
+  // restoreVersion stores the one attributed restore-delta row via storeUpdate
+  // FIRST, then applies it to the live shared doc with this sentinel. Same
+  // treatment as sync-push/inverse: bindState listener must skip it (storeUpdate
+  // allocates a fresh clock every call and never content-dedupes, so a parseable
+  // origin would persist the delta a SECOND time), yet it must fan out to Redis.
+  test('parseOrigin returns null (bindState listener never double-stores a restore)', () => {
+    expect(parseOrigin(ORIGIN_RESTORE)).toBeNull();
+  });
+
+  test('NOT on the Redis publish skip-list (restore fans out cross-instance)', () => {
+    expect(shouldPublishToRedis(ORIGIN_RESTORE)).toBe(true);
+  });
+
+  test('suppressed from persistence AND published to Redis, together', () => {
+    expect(parseOrigin(ORIGIN_RESTORE)).toBeNull();
+    expect(shouldPublishToRedis(ORIGIN_RESTORE)).toBe(true);
   });
 });
