@@ -438,6 +438,9 @@ function ToolCard({ part, citations }) {
   const hasInput = input && typeof input === 'object' && Object.keys(input).length > 0;
   const isDocTool = DOC_TOOLS.has(toolName);
   const isModify = toolName === 'modify';
+  // 020: undo/redo results carry a revert diff; the render gate is presence
+  // of output.diff ONLY (RBD-4) — no format-only branch, no UndoEditButton.
+  const isUndoRedo = toolName === 'undo' || toolName === 'redo';
   // import_markdown behaves like create_document for the card: the document
   // (guid + title) exists only in the tool's output.
   const isCreate = toolName === 'create_document' || toolName === 'import_markdown';
@@ -473,7 +476,7 @@ function ToolCard({ part, citations }) {
   const webSearchSources = (isWebSearch && isComplete
     && (part.output?.citations?.sources || citations?.sources)) || null;
 
-  const diff = (isModify && isComplete && part.output?.diff) || null;
+  const diff = ((isModify || isUndoRedo) && isComplete && part.output?.diff) || null;
   const isFormatOnly = isModify && isComplete && part.output?.changed && !diff;
 
   const verb = getToolLabel(toolName);
