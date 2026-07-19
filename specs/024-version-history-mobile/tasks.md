@@ -26,7 +26,7 @@ Web-app client: components in `client/src/components/`, tests in
 
 **Purpose**: Confirm the working baseline before touching code.
 
-- [ ] T001 Run the frontend Vitest suite from `client/` (`npx vitest run`) and confirm it is green on current `main` (post-2026-07-19 hotfix bundle), establishing the regression baseline for SC-006. No new npm dependency is required; `createPortal` comes from the existing `react-dom`.
+- [X] T001 Run the frontend Vitest suite from `client/` (`npx vitest run`) and confirm it is green on current `main` (post-2026-07-19 hotfix bundle), establishing the regression baseline for SC-006. No new npm dependency is required; `createPortal` comes from the existing `react-dom`.
 
 ---
 
@@ -55,14 +55,14 @@ visible near the bottom edge, and closes on an outside tap.
 
 ### Tests for User Story 1
 
-- [ ] T002 [US1] Extend `client/src/components/__tests__/HierarchicalVersionList.test.jsx`: assert the menu button renders on a drill-down (sub-version) row; clicking it opens the dropdown; opening the menu does NOT trigger row selection (`onSelectVersion`/`onSelectUpdate` not called); an outside `pointerdown` closes the open menu.
+- [X] T002 [US1] Extend `client/src/components/__tests__/HierarchicalVersionList.test.jsx`: assert the menu button renders on a drill-down (sub-version) row; clicking it opens the dropdown; opening the menu does NOT trigger row selection (`onSelectVersion`/`onSelectUpdate` not called); an outside `pointerdown` closes the open menu.
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] In `client/src/components/HierarchicalVersionList.css`: add an `@media (hover: none)` block setting `.hierarchy-menu-btn` to `opacity: 1` for both `.hierarchy-version` and `.hierarchy-update` rows; add a `.hierarchy-update:hover .hierarchy-menu-btn` reveal rule (the missing sub-row desktop reveal, Breakage #1); keep the existing `.hierarchy-version:hover` and `:focus` reveals (FR-001, FR-002).
-- [ ] T004 [US1] In `client/src/components/HierarchicalVersionList.jsx`: portal the open dropdown (`.hierarchy-menu-dropdown`) to `document.body` via `createPortal` with `position: fixed` coordinates computed from the trigger button's `getBoundingClientRect()` on open, flipping above the button when space below is insufficient and right-aligning clamped into the viewport; close the menu on `scroll` (capture) and `resize` (FR-003, research R2).
-- [ ] T005 [US1] In `client/src/components/HierarchicalVersionList.jsx`: change the outside-dismiss listener from `mousedown` to `pointerdown` and make the "inside" test also count the portaled dropdown (ref on the portaled node, or `stopPropagation` from the dropdown) so a single tap/click outside closes on both touch and pointer; preserve `stopPropagation` on the menu button so opening never selects the row (FR-003).
-- [ ] T006 [US1] In `client/src/components/HierarchicalVersionList.css`: add the fixed-position dropdown variant class used by the portaled menu (viewport-anchored positioning, retaining existing surface/shadow/z-index tokens), keeping the non-portaled styling intact for tests/fallback.
+- [X] T003 [US1] In `client/src/components/HierarchicalVersionList.css`: add an `@media (hover: none)` block setting `.hierarchy-menu-btn` to `opacity: 1` for both `.hierarchy-version` and `.hierarchy-update` rows; add a `.hierarchy-update:hover .hierarchy-menu-btn` reveal rule (the missing sub-row desktop reveal, Breakage #1); keep the existing `.hierarchy-version:hover` and `:focus` reveals (FR-001, FR-002).
+- [X] T004 [US1] In `client/src/components/HierarchicalVersionList.jsx`: portal the open dropdown (`.hierarchy-menu-dropdown`) to `document.body` via `createPortal` with `position: fixed` coordinates computed from the trigger button's `getBoundingClientRect()` on open, flipping above the button when space below is insufficient and right-aligning clamped into the viewport; close the menu on `scroll` (capture) and `resize` (FR-003, research R2).
+- [X] T005 [US1] In `client/src/components/HierarchicalVersionList.jsx`: change the outside-dismiss listener from `mousedown` to `pointerdown` and make the "inside" test also count the portaled dropdown (ref on the portaled node, or `stopPropagation` from the dropdown) so a single tap/click outside closes on both touch and pointer; preserve `stopPropagation` on the menu button so opening never selects the row (FR-003).
+- [X] T006 [US1] In `client/src/components/HierarchicalVersionList.css`: add the fixed-position dropdown variant class used by the portaled menu (viewport-anchored positioning, retaining existing surface/shadow/z-index tokens), keeping the non-portaled styling intact for tests/fallback.
 
 **Checkpoint**: US1 delivers a reachable, unclipped, dismissible menu on all rows; actions
 still run via the existing prompts (US2 replaces those).

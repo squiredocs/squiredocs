@@ -184,9 +184,21 @@
   justify-content: center;
 }
 
+/* Hover reveal for BOTH top-level version rows and drill-down edit rows
+   (024/Breakage #1: the sub-row reveal was missing) plus keyboard focus. */
 .hierarchy-version:hover .hierarchy-menu-btn,
+.hierarchy-update:hover .hierarchy-menu-btn,
 .hierarchy-menu-btn:focus {
   opacity: 1;
+}
+
+/* Touch devices have no hover — keep the menu button persistently visible so
+   every action is reachable by tap on both row types (024/FR-001). */
+@media (hover: none) {
+  .hierarchy-version .hierarchy-menu-btn,
+  .hierarchy-update .hierarchy-menu-btn {
+    opacity: 1;
+  }
 }
 
 .hierarchy-menu-btn:hover {
@@ -204,6 +216,18 @@
   z-index: 10;
   overflow: hidden;
   margin-top: 4px;
+}
+
+/* Portaled variant: positioned relative to the viewport (fixed) via inline
+   top/left/bottom, so an ancestor's overflow can never clip it (024/FR-003/R2).
+   Inherits the surface/shadow/radius from the base class above; z-index is raised
+   over the panel chrome since it now lives on document.body. */
+.hierarchy-menu-dropdown--fixed {
+  position: fixed;
+  top: auto;
+  right: auto;
+  margin-top: 0;
+  z-index: 250;
 }
 
 .hierarchy-menu-dropdown button {

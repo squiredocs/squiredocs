@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { generateColorFromId } from '../utils/colorUtils';
 import './HierarchicalVersionList.css';
 
@@ -123,9 +124,35 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, on
 }
 
 /**
- * Item menu dropdown component - shared between versions and sub-versions
+ * Compute a fixed-position anchor for the portaled menu dropdown from the trigger
+ * button's viewport rect (024/R2). Right-aligns to the button, clamps into the
+ * viewport, and flips above the button when there is not enough room below.
  */
-function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
+function computeMenuPosition(rect, itemCount) {
+  const GAP = 4;
+  const MENU_WIDTH = 200; // min-width 180 + inner padding
+  const MENU_HEIGHT = Math.max(itemCount, 1) * 44 + 8; // per-item ~44px + padding
+  const vw = window.innerWidth || 0;
+  const vh = window.innerHeight || 0;
+
+  const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, vw - MENU_WIDTH - 8));
+  const spaceBelow = vh - rect.bottom;
+  const openAbove = spaceBelow < MENU_HEIGHT && rect.top > spaceBelow;
+
+  return openAbove
+    ? { left, bottom: Math.max(8, vh - rect.top + GAP), placement: 'above' }
+    : { left, top: rect.bottom + GAP, placement: 'below' };
+}
+
+/**
+ * Item menu dropdown component - shared between versions and sub-versions.
+ *
+ * The dropdown is portaled to document.body with fixed positioning so it is never
+ * clipped by the version list's `overflow-y:auto` scroll container (024/FR-003/R2).
+ * `dropdownRef` is attached to the portaled node so the parent's outside-tap
+ * dismissal counts the (out-of-tree) dropdown as "inside".
+ */
+function ItemMenu({ item, menuOpen, menuRef, dropdownRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
   const canRestore = !item.isCurrent && userRole !== 'viewer';
   // Naming a version is permitted for viewer+ (Sam-ratified 2026-07-19, F9):
   // matches the REST/MCP server behavior, which allows any role with access.
@@ -134,9 +161,33 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
   const canRename = item.isNamed;
   const canRemoveName = item.isNamed && !item.isSubVersion;
 
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const itemCount = (canName ? 1 : 0) + (canRestore ? 1 : 0) + (canRemoveName ? 1 : 0);
+
+  useLayoutEffect(() => {
+    if (menuOpen && btnRef.current) {
+      setPos(computeMenuPosition(btnRef.current.getBoundingClientRect(), itemCount));
+    } else {
+      setPos(null);
+    }
+    // itemCount is stable for a given item/role; recompute only on open toggle.
+  }, [menuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dropdownStyle = pos
+    ? {
+        position: 'fixed',
+        left: `${pos.left}px`,
+        ...(pos.placement === 'above'
+          ? { bottom: `${pos.bottom}px` }
+          : { top: `${pos.top}px` }),
+      }
+    : { position: 'fixed', visibility: 'hidden' };
+
   return (
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
       <button
+        ref={btnRef}
         className="hierarchy-menu-btn"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
@@ -151,8 +202,13 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
           <circle cx="12" cy="19" r="2"/>
         </svg>
       </button>
-      {menuOpen && (
-        <div className="hierarchy-menu-dropdown">
+      {menuOpen && createPortal(
+        <div
+          className="hierarchy-menu-dropdown hierarchy-menu-dropdown--fixed"
+          ref={dropdownRef}
+          style={dropdownStyle}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           {canName && (
             <button onClick={onNameVersion}>
               {canRename ? 'Rename' : 'Name this version'}
@@ -168,7 +224,8 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
               Remove name
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -209,6 +266,7 @@ function HistoryItem({
   // Menu props
   menuOpen,
   menuRef,
+  dropdownRef,
   onMenuOpen,
   onNameVersion,
   onRestoreVersion,
@@ -249,6 +307,7 @@ function HistoryItem({
           item={item}
           menuOpen={menuOpen}
           menuRef={menuRef}
+          dropdownRef={dropdownRef}
           onMenuOpen={onMenuOpen}
           onNameVersion={onNameVersion}
           onRestoreVersion={onRestoreVersion}
@@ -299,19 +358,33 @@ function HierarchicalVersionList({
   const [expandedVersions, setExpandedVersions] = useState({});
   const [menuOpen, setMenuOpen] = useState(null);
   const menuRef = React.useRef(null);
+  // The dropdown is portaled out of the row's DOM subtree, so the outside-tap test
+  // must treat the portaled node as "inside" too (024/R3).
+  const dropdownRef = React.useRef(null);
 
-  // Close menu when clicking outside
+  // Close menu when tapping/clicking outside, or when the viewport scrolls/resizes
+  // (a fixed-positioned portal would otherwise linger at a stale anchor — 024/R2/R3).
   React.useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+    if (!menuOpen) return;
+
+    const handlePointerOutside = (event) => {
+      const inButton = menuRef.current && menuRef.current.contains(event.target);
+      const inDropdown = dropdownRef.current && dropdownRef.current.contains(event.target);
+      if (!inButton && !inDropdown) {
         setMenuOpen(null);
       }
     };
+    const closeMenu = () => setMenuOpen(null);
 
-    if (menuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    // pointerdown covers mouse + touch + pen in one path (fixes touch dismissal).
+    document.addEventListener('pointerdown', handlePointerOutside);
+    document.addEventListener('scroll', closeMenu, true); // capture: catches inner scrollers
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerOutside);
+      document.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
   }, [menuOpen]);
 
   const toggleMonth = (label) => {
@@ -414,6 +487,7 @@ function HierarchicalVersionList({
                     onToggle={() => toggleVersion(version)}
                     menuOpen={menuOpen === version.id}
                     menuRef={menuRef}
+                    dropdownRef={dropdownRef}
                     onMenuOpen={() => setMenuOpen(prev => prev === version.id ? null : version.id)}
                     onNameVersion={() => handleNameItem(version)}
                     onRestoreVersion={() => handleRestoreItem(version)}
@@ -437,6 +511,7 @@ function HierarchicalVersionList({
                                   onClick={() => onSelectUpdate(subVersion)}
                                   menuOpen={menuOpen === menuKey}
                                   menuRef={menuRef}
+                                  dropdownRef={dropdownRef}
                                   onMenuOpen={() => setMenuOpen(prev => prev === menuKey ? null : menuKey)}
                                   onNameVersion={() => handleNameItem(subVersionItem)}
                                   onRestoreVersion={() => handleRestoreItem(subVersionItem)}

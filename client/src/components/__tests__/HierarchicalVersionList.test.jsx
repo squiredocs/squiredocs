@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import HierarchicalVersionList from '../HierarchicalVersionList';
 
@@ -219,5 +219,74 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
     const selected = container.querySelectorAll('.hierarchy-item.selected');
     expect(selected).toHaveLength(1);
     expect(selected[0].classList.contains('hierarchy-version')).toBe(true);
+  });
+});
+
+/**
+ * US1 (024) — the row options menu must be reachable on every row (top-level AND
+ * drill-down), open without selecting the row, render (portaled) fully, and close on
+ * an outside pointer tap (touch-safe, not just mouse).
+ */
+describe('HierarchicalVersionList — US1 menu reachability & dismissal (024)', () => {
+  const version = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+  const subVersion = {
+    id: '5', clockStart: 5, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], updateCount: 1,
+  };
+
+  function renderExpanded(extra = {}) {
+    const utils = render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={extra.onSelectVersion || (() => {})}
+        onSelectUpdate={extra.onSelectUpdate || (() => {})}
+        versionUpdates={{ '5': [subVersion] }}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+    // Expand the parent version so the drill-down (sub-version) row renders.
+    fireEvent.click(screen.getByLabelText('Expand'));
+    return utils;
+  }
+
+  it('renders an options menu button on a drill-down (sub-version) row', () => {
+    renderExpanded();
+    // Parent row + sub-version row each expose an Options button.
+    expect(screen.getAllByTitle('Options').length).toBe(2);
+  });
+
+  it('opens the dropdown when a sub-version row menu is clicked', () => {
+    renderExpanded();
+    const menuButtons = screen.getAllByTitle('Options');
+    // Second button belongs to the drill-down row.
+    fireEvent.click(menuButtons[1]);
+    // Sub-versions expose name + restore (no remove-name).
+    expect(screen.getByText('Name this version')).toBeInTheDocument();
+    expect(screen.getByText('Restore this version')).toBeInTheDocument();
+  });
+
+  it('opening the menu does not select the row', () => {
+    const onSelectVersion = vi.fn();
+    const onSelectUpdate = vi.fn();
+    renderExpanded({ onSelectVersion, onSelectUpdate });
+    const menuButtons = screen.getAllByTitle('Options');
+    fireEvent.click(menuButtons[0]);
+    fireEvent.click(menuButtons[1]);
+    expect(onSelectVersion).not.toHaveBeenCalled();
+    expect(onSelectUpdate).not.toHaveBeenCalled();
+  });
+
+  it('closes the open menu on an outside pointerdown (touch-safe dismissal)', () => {
+    renderExpanded();
+    fireEvent.click(screen.getAllByTitle('Options')[0]);
+    expect(screen.getByText('Restore this version')).toBeInTheDocument();
+    // A pointerdown outside the menu (touch tap) must close it.
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByText('Restore this version')).toBeNull();
   });
 });
