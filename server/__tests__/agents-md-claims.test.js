@@ -126,4 +126,65 @@ describe('agents.md drift-guard', () => {
   test('(o) no example passes a literal token in a header', () => {
     expect(content).not.toMatch(/Bearer sk_sqd_\.\.\./);
   });
+
+  // Feature 019 (US5/T024, FR-023/SC-005, research R8): the task-named
+  // sync recipe and the post-019 tool surface.
+  describe('(p) "Sync a repo file" recipe (feature 019)', () => {
+    /** Text of the recipe section: heading → next ## heading. */
+    const section = () => {
+      const start = content.indexOf('## Sync a repo file');
+      expect(start).toBeGreaterThan(-1);
+      const rest = content.slice(start + 1);
+      const end = rest.search(/\n## /);
+      return end === -1 ? rest : rest.slice(0, end);
+    };
+
+    test('a heading named "Sync a repo file" exists', () => {
+      expect(content).toMatch(/^## Sync a repo file/m);
+    });
+
+    test('the section names both entry points: import_markdown_file and the write-scoped mint', () => {
+      const s = section();
+      expect(s).toContain('import_markdown_file');
+      expect(s).toMatch(/create_access_token|write-scoped token|documents:write/i);
+    });
+
+    test('the section covers the initial import with frontmatter=true', () => {
+      expect(section()).toMatch(/frontmatter=true/);
+      expect(section()).toMatch(/initial import|first import|POST \/api\/docs\/import/i);
+    });
+
+    test('the section covers the receipt write-back over the source file', () => {
+      expect(section()).toMatch(/receipt/i);
+      expect(section()).toMatch(/back over (the|your) (source )?file/i);
+    });
+
+    test('the section covers ongoing mode=sync pushes', () => {
+      expect(section()).toContain('mode=sync');
+      expect(section()).toMatch(/push/i);
+    });
+  });
+
+  describe('(q) post-019 tool surface (DR-1)', () => {
+    test('import_markdown_file is listed among the tools', () => {
+      // Present in the Core tools area, not just the recipe section.
+      const coreToolsStart = content.indexOf('## Core tools');
+      expect(coreToolsStart).toBeGreaterThan(-1);
+      const coreTools = content.slice(coreToolsStart, content.indexOf('##', coreToolsStart + 2));
+      expect(coreTools).toContain('import_markdown_file');
+    });
+
+    test('no standalone read_document_version listing remains', () => {
+      // The name may appear in prose explaining the merge, but not as a
+      // standalone `read_document_version` tool-list entry.
+      expect(content).not.toMatch(/`read_document_version`/);
+    });
+
+    test('the read_document claim mentions versionId or versions', () => {
+      // The whole bullet (which may wrap across lines), up to the next bullet.
+      const bullet = content.match(/- `read_document` — [\s\S]{0,300}?(?=\n- )/);
+      expect(bullet).not.toBeNull();
+      expect(bullet[0]).toMatch(/versionId|version/i);
+    });
+  });
 });
