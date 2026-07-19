@@ -29,12 +29,20 @@ The review flow becomes direct:
 - **Share a link.** The PM opens the spec in their browser. No repository access, no local setup, no export.
 - **They edit the actual spec.** Comments and edits land on the real document, not a copy. When the PM rewrites an acceptance criterion, they have rewritten the spec, not left a note asking someone else to.
 - **Every change is attributed.** You can see which requirements the PM shaped and which the engineer wrote, so review is a record, not a guess.
-- **It syncs back on its own.** The reconciled spec flows to the repository as markdown. There is no hand-merge, because there was never a second copy to merge.
+- **It syncs back through your coding agent.** The reconciled spec returns to the repository as markdown with no hand-merge — a job your coding agent does in one step, as the next section shows.
+
+## How the sync actually works
+
+Under the flow is a pair of plain HTTP calls against a scoped API token, and the natural thing to run them is the coding agent already working in your repo.
+
+- **Push the spec up.** The first time, send the repo file to Squire Docs to create the shared document: `POST /api/docs/import` with the markdown as the body. You get back a document link to share with your PM.
+- **Pull the review down.** After the PM edits, write the current document back to the spec's path: `GET /api/docs/:docId/export?format=markdown&frontmatter=true` into `specs/checkout-redesign/spec.md`. The `squire:` frontmatter it writes records the exact version you pulled, so the next push knows precisely what changed.
+- **Push repo edits back up.** If the engineer keeps editing the file, `PUT /api/docs/:docId/import?mode=sync` replays those edits as attributed changes anchored to the version you pulled, so they merge with the PM's browser edits instead of overwriting them.
+
+This is the kind of chore coding agents are made for. An agent like Claude Code or Kiro already lives in the repo, can hold a scoped token, and treats "pull the spec doc before you start" or "push my spec edits up for review" as a one-line request — no context switch, no reconciliation by hand. You keep writing specs as files; the agent keeps the file and the document pointed at the same content, so the version your PM reviews and the version your build reads never drift.
 
 ## Why this changes the review, not just the tooling
 
-Removing the copy step does more than save effort. It changes who owns the spec.
-
 When the spec has to leave the repository to be reviewed, the engineer owns it and the PM visits. The PM's role shrinks to leaving comments that someone else decides whether to apply. When the spec is a shared document both people edit, the PM is a co-author. They can fix the requirement themselves, and the fix is real the moment they make it.
 
-That is the friction point worth removing. Not the minutes spent copying and pasting, though those add up, but the way the copy step quietly pushes the people who understand the product out of the document where the product is defined. Keep the spec in one place both sides can edit, and review stops being a handoff and becomes the work.
+This was never really about copy-paste time. It is about who can change the spec. When it lives only in the repo, the PM can suggest, and someone else decides what to keep. When it is a shared document, what the PM edits is the spec itself, already sitting in the file your agents build from.
