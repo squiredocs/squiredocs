@@ -61,10 +61,14 @@
   gap: 8px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--border-subtle);
+  /* Let the filter + highlight toggle wrap instead of overflowing at 360px
+     (024/FR-008, US3 AC5). */
+  flex-wrap: wrap;
 }
 
 .version-history-filter {
   flex: 1;
+  min-width: 0;
 }
 
 .version-history-filter select {
@@ -99,6 +103,24 @@
   height: 14px;
   cursor: pointer;
   accent-color: var(--accent);
+}
+
+/* Touch layouts: 44px effective targets for the panel controls (024/FR-008,
+   SC-003). The checkbox stays 14px; the wrapping <label> becomes the tap target
+   rather than inflating the box. */
+@media (hover: none) {
+  .version-history-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .version-history-filter select {
+    min-height: 44px;
+  }
+
+  .version-history-highlight-toggle {
+    min-height: 44px;
+  }
 }
 
 /* View toggle buttons */

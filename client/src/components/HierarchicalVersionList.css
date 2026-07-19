@@ -103,6 +103,9 @@
   font-weight: var(--font-semibold);
   color: var(--text-link);
   margin-bottom: 2px;
+  /* Long names wrap instead of forcing horizontal page scroll at 360px
+     (024/FR-011). */
+  overflow-wrap: anywhere;
 }
 
 .hierarchy-version-time {
@@ -156,6 +159,7 @@
 .hierarchy-author-name {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .hierarchy-author-more {
@@ -355,4 +359,26 @@
   font-size: 11px;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
+}
+
+/* Touch layouts: 44px effective targets for the row controls and tappable
+   headers/menu items (024/FR-008, SC-003), reusing the app's 44px precedent. */
+@media (hover: none) {
+  .hierarchy-menu-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .hierarchy-expand-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .hierarchy-month-header {
+    min-height: 44px;
+  }
+
+  .hierarchy-menu-dropdown button {
+    min-height: 44px;
+  }
 }
