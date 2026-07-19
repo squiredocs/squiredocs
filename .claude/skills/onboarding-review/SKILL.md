@@ -41,9 +41,9 @@ cluster — that's the tell, not a data-loss incident.
 kubectl config current-context
 ```
 
-- Prod is **`k3s-wft-aws`**. Local dev is **`minikube`**.
-- If not on `k3s-wft-aws`, switch deliberately (confirm with the user first since
-  it's prod): `kubectl config use-context k3s-wft-aws`
+- Prod is **`k3s-squiredocs`** (the hardened cluster). Local dev is **`minikube`**.
+- If not on `k3s-squiredocs`, switch deliberately (confirm with the user first
+  since it's prod): `kubectl config use-context k3s-squiredocs`
 
 ## Step 2 — Resolve the Postgres pod (its name changes on recycle)
 
