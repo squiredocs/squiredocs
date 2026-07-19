@@ -23,6 +23,9 @@ COPY shared/ ../shared/
 # The client build's documentation step (scripts/build-documentation.mjs) reads
 # the markdown page sources from ../documentation at the repo root.
 COPY documentation/ ../documentation/
+# The client build's blog step (scripts/build-blog.mjs) reads the markdown post
+# sources from ../blog at the repo root.
+COPY blog/ ../blog/
 RUN npm run build
 
 # Production stage
