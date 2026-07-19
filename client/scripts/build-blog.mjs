@@ -92,15 +92,6 @@ export function build({ srcDir = BLOG_SRC_DIR, outDir = OUT_DIR } = {}) {
   fs.writeFileSync(path.join(outDir, 'index.html'), renderIndexPage({ posts: summaries }), 'utf8');
   fs.writeFileSync(path.join(outDir, '404.html'), render404({}), 'utf8');
 
-  // Self-host the Mermaid UMD bundle for client-side diagram rendering (served
-  // at /vendor/mermaid.min.js; see MERMAID_SCRIPT in render-blog.mjs). Copied
-  // from node_modules at build time so the repo never carries the ~3 MB blob and
-  // the version always matches the installed mermaid.
-  const mermaidSrc = path.resolve(__dirname, '../node_modules/mermaid/dist/mermaid.min.js');
-  const vendorDir = path.resolve(outDir, '../vendor');
-  fs.mkdirSync(vendorDir, { recursive: true });
-  fs.copyFileSync(mermaidSrc, path.join(vendorDir, 'mermaid.min.js'));
-
   console.log(
     `build-blog — OK: wrote ${posts.length} post(s) + index.html + 404.html to ${path.relative(process.cwd(), outDir)}`
   );
