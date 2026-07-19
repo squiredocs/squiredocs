@@ -114,12 +114,12 @@
 
 ### Tests first
 
-- [ ] T030 [P] [US4] Checker unit tests in `server/__tests__/search-eval-metrics.test.js` (separate describe): composition audit logic (passes at ≥40/≥12/≥6/≥6; fails when any minimum, multi-doc ≥2-refs rule, or no-answer empty-refs rule is violated) and saturation-guard rule (RBD-5: fails on all-1.0 Recall@5/10/20 across variants; fails when no primary-metric pair differs by ≥0.03; passes otherwise) — pure functions over fixture JSON.
+- [X] T030 [P] [US4] Checker unit tests in `server/__tests__/search-eval-metrics.test.js` (separate describe): composition audit logic (passes at ≥40/≥12/≥6/≥6; fails when any minimum, multi-doc ≥2-refs rule, or no-answer empty-refs rule is violated) and saturation-guard rule (RBD-5: fails on all-1.0 Recall@5/10/20 across variants; fails when no primary-metric pair differs by ≥0.03; passes otherwise) — pure functions over fixture JSON.
 
 ### Implementation
 
-- [ ] T031 [US4] Create `server/search/eval/check-eval-set.js`: no args ⇒ composition audit of `eval-set.json` (exit 1 + reasons on violation); with a results-JSON arg ⇒ saturation-guard verdict, phrased per FR-028 ("set defect — add harder queries", never "variants equal"). Export the pure check functions for T030.
-- [ ] T032 [US4] Author `server/search/eval/eval-set.json` against the operator dev corpus: ≥40 queries (≥12 paraphrase/conceptual — no distinctive keyword overlap with target text; ≥6 multi-doc with ≥2 relevant refs; ≥6 no-answer with empty refs; keyword fillers), `version: "1"`, date, corpus tag, per data-model.md schema. LLM drafting may assist; the committed set is operator-curated (spec assumption) — flag Sam's curation sign-off in the promotion notes. Must pass `npm run search:eval:check`.
+- [X] T031 [US4] Create `server/search/eval/check-eval-set.js`: no args ⇒ composition audit of `eval-set.json` (exit 1 + reasons on violation); with a results-JSON arg ⇒ saturation-guard verdict, phrased per FR-028 ("set defect — add harder queries", never "variants equal"). Export the pure check functions for T030.
+- [X] T032 [US4] Author `server/search/eval/eval-set.json` against the operator dev corpus: ≥40 queries (≥12 paraphrase/conceptual — no distinctive keyword overlap with target text; ≥6 multi-doc with ≥2 relevant refs; ≥6 no-answer with empty refs; keyword fillers), `version: "1"`, date, corpus tag, per data-model.md schema. LLM drafting may assist; the committed set is operator-curated (spec assumption) — flag Sam's curation sign-off in the promotion notes. Must pass `npm run search:eval:check`.
 
 **Checkpoint**: set committed and audited; SC-009 verifiable once the sweep runs.
 

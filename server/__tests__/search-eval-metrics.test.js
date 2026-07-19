@@ -102,3 +102,117 @@ describe('metrics (T025)', () => {
     });
   });
 });
+
+// ————————————————————————————————————————————————————————————————————————
+// Feature 018 US4 (T030): eval-set composition audit + saturation guard
+// (RBD-5) — pure functions over fixture JSON, exercised offline.
+// ————————————————————————————————————————————————————————————————————————
+describe('check-eval-set (T030, RBD-5)', () => {
+  const { auditComposition, checkSaturationGuard } = require('../search/eval/check-eval-set');
+
+  function makeSet({ paraphrase = 12, multiDoc = 6, noAnswer = 6, keyword = 16, mutate } = {}) {
+    const queries = [];
+    let n = 0;
+    const push = (type, refs) => queries.push({ id: `q${String(++n).padStart(3, '0')}`, query: `query ${n}`, type, relevantDocIds: refs });
+    for (let i = 0; i < paraphrase; i++) push('paraphrase', [`doc-${i}`]);
+    for (let i = 0; i < multiDoc; i++) push('multi-doc', [`doc-a${i}`, `doc-b${i}`]);
+    for (let i = 0; i < noAnswer; i++) push('no-answer', []);
+    for (let i = 0; i < keyword; i++) push('keyword', [`doc-k${i}`]);
+    const set = { version: '1', date: '2026-07-19', corpus: 'test', queries };
+    if (mutate) mutate(set);
+    return set;
+  }
+
+  describe('auditComposition', () => {
+    test('passes at the RBD-5 minimums (≥40 / ≥12 / ≥6 / ≥6)', () => {
+      const verdict = auditComposition(makeSet());
+      expect(verdict.ok).toBe(true);
+      expect(verdict.problems).toEqual([]);
+    });
+
+    test('fails below any minimum, with reasons', () => {
+      expect(auditComposition(makeSet({ keyword: 10 })).ok).toBe(false); // 34 total
+      const fewParaphrase = auditComposition(makeSet({ paraphrase: 11, keyword: 17 }));
+      expect(fewParaphrase.ok).toBe(false);
+      expect(fewParaphrase.problems.join(' ')).toMatch(/paraphrase/);
+      expect(auditComposition(makeSet({ multiDoc: 5, keyword: 17 })).ok).toBe(false);
+      expect(auditComposition(makeSet({ noAnswer: 5, keyword: 17 })).ok).toBe(false);
+    });
+
+    test('fails when a multi-doc query has fewer than 2 refs', () => {
+      const verdict = auditComposition(makeSet({
+        mutate: (set) => {
+          const md = set.queries.find((q) => q.type === 'multi-doc');
+          md.relevantDocIds = ['only-one'];
+        },
+      }));
+      expect(verdict.ok).toBe(false);
+      expect(verdict.problems.join(' ')).toMatch(/multi-doc/);
+    });
+
+    test('fails when a no-answer query carries refs, or a record is malformed', () => {
+      const withRefs = auditComposition(makeSet({
+        mutate: (set) => {
+          const na = set.queries.find((q) => q.type === 'no-answer');
+          na.relevantDocIds = ['sneaky-doc'];
+        },
+      }));
+      expect(withRefs.ok).toBe(false);
+      expect(withRefs.problems.join(' ')).toMatch(/no-answer/);
+
+      const malformed = auditComposition(makeSet({
+        mutate: (set) => { delete set.queries[0].type; },
+      }));
+      expect(malformed.ok).toBe(false);
+    });
+  });
+
+  describe('checkSaturationGuard', () => {
+    const mk = (r5, r10, r20, mrr, ndcg) => ({
+      recallAt5: r5, recallAt10: r10, recallAt20: r20, mrr, ndcgAt10: ndcg,
+    });
+    const wrap = (metricsList) => ({
+      variants: metricsList.map((m, i) => ({ name: `v${i}`, metrics: m })),
+    });
+
+    test('fails on the documented saturation failure mode: all variants 1.0 on R@5/10/20', () => {
+      // Even with MRR spread — the prior draft set's exact failure signature
+      const verdict = checkSaturationGuard(wrap([
+        mk(1, 1, 1, 0.9, 0.95),
+        mk(1, 1, 1, 0.8, 0.9),
+        mk(1, 1, 1, 0.7, 0.85),
+      ]));
+      expect(verdict.ok).toBe(false);
+      expect(verdict.problems.join(' ')).toMatch(/harder queries/);
+      expect(verdict.problems.join(' ')).not.toMatch(/variants are equal/);
+    });
+
+    test('fails when no primary-metric pair differs by ≥ 0.03 (set cannot discriminate)', () => {
+      const verdict = checkSaturationGuard(wrap([
+        mk(0.8, 0.85, 0.9, 0.7, 0.75),
+        mk(0.8, 0.86, 0.9, 0.71, 0.76),
+        mk(0.8, 0.87, 0.9, 0.72, 0.77),
+      ]));
+      expect(verdict.ok).toBe(false);
+      expect(verdict.problems.join(' ')).toMatch(/set defect|harder queries/);
+    });
+
+    test('passes when not saturated AND a primary metric spreads ≥ 0.03', () => {
+      const verdict = checkSaturationGuard(wrap([
+        mk(0.7, 0.75, 0.85, 0.6, 0.65),
+        mk(0.8, 0.85, 0.9, 0.72, 0.78),
+        mk(0.85, 0.9, 0.95, 0.8, 0.84),
+      ]));
+      expect(verdict.ok).toBe(true);
+      expect(verdict.problems).toEqual([]);
+    });
+
+    test('boundary: spread of exactly 0.03 on one primary metric passes', () => {
+      const verdict = checkSaturationGuard(wrap([
+        mk(0.9, 0.9, 0.9, 0.7, 0.8),
+        mk(0.9, 0.93, 0.9, 0.7, 0.8),
+      ]));
+      expect(verdict.ok).toBe(true);
+    });
+  });
+});
