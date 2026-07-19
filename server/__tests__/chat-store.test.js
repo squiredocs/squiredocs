@@ -86,6 +86,41 @@ describe('Chat Store', () => {
       expect(loaded).toEqual([]);
     });
 
+    test('persists a tool-undo part with output.diff verbatim (020, FR-007)', async () => {
+      const id = await chatStore.createChat(testUserId);
+      // Representative diff payload: lines + hunkStarts + formatAnnotations +
+      // truncatedByServer — modify's exact shape riding an undo tool part.
+      const diff = {
+        lines: ['-Removed by the undo', '+Restored **bold** line', ' context line', '~~~', ' second hunk context'],
+        hunkStarts: [
+          { index: 0, oldStart: 3, newStart: 3 },
+          { index: 4, oldStart: 20, newStart: 20 },
+        ],
+        formatAnnotations: { 1: { kind: 'format-only', description: 'bold added' } },
+        truncatedByServer: true,
+      };
+      const messages = [
+        {
+          id: 'msg-undo',
+          role: 'assistant',
+          parts: [{
+            type: 'tool-undo',
+            toolCallId: 'call-undo-1',
+            state: 'output-available',
+            input: { docGuid: 'doc-guid-1' },
+            output: { success: true, undone: true, message: 'Edit undone.', clock: 7, diff },
+          }],
+        },
+      ];
+
+      await chatStore.saveChat(id, testUserId, messages);
+
+      const loaded = await chatStore.loadChat(id, testUserId);
+      expect(loaded).toEqual(messages);
+      // The diff round-trips deep-equal on the part's output (verbatim persistence).
+      expect(loaded[0].parts[0].output.diff).toEqual(diff);
+    });
+
     test('updates updated_at timestamp', async () => {
       const id = await chatStore.createChat(testUserId);
       const before = await pool.query('SELECT updated_at FROM chats WHERE id = $1', [id]);

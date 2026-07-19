@@ -859,6 +859,61 @@ describe('AiChatMessages', () => {
       expect(container.querySelector('.ai-diff-wrap')).toBeNull();
     });
 
+    it('re-renders the persisted diff identically after reload (020, FR-007/SC-004)', () => {
+      // The exact persisted-and-reloaded shape: plain JSON parts, no toolName
+      // property, no transient streaming state — what chat-store returns.
+      const persistedDiff = {
+        lines: ['-Removed by the undo', '+Restored by the undo', ' context'],
+        hunkStarts: [{ index: 0, oldStart: 2, newStart: 2 }],
+      };
+      const reloadedMessages = [
+        {
+          id: 'stored-1',
+          role: 'assistant',
+          parts: [{
+            type: 'tool-undo',
+            toolCallId: 'call-u9',
+            state: 'output-available',
+            input: { docGuid: 'doc-123' },
+            output: { success: true, undone: true, message: 'Edit undone.', clock: 9, diff: persistedDiff },
+          }],
+        },
+        {
+          id: 'stored-2',
+          role: 'assistant',
+          parts: [{
+            type: 'tool-redo',
+            toolCallId: 'call-r9',
+            state: 'output-available',
+            input: { docGuid: 'doc-123' },
+            output: { success: true, redone: true, message: 'Edit reapplied.', clock: 10, diff: persistedDiff },
+          }],
+        },
+      ];
+
+      const reloaded = render(
+        <AiChatMessages messages={reloadedMessages} status="ready" />,
+      );
+      const cards = reloaded.container.querySelectorAll('.ai-tool-card');
+      expect(cards).toHaveLength(2);
+      for (const card of cards) {
+        expect(card.querySelector('.ai-diff-wrap')).toBeInTheDocument();
+        expect(card.querySelector('.ai-diff-table')).toBeInTheDocument();
+      }
+      const reloadedUndoTable = cards[0].querySelector('.ai-diff-table').innerHTML;
+      reloaded.unmount();
+
+      // The live-stream case (toolName present on the part, as during
+      // streaming) renders the identical diff table.
+      const live = render(
+        <AiChatMessages
+          messages={[makeUndoRedoMsg('undo', { success: true, undone: true, message: 'Edit undone.', clock: 9, diff: persistedDiff })]}
+          status="ready"
+        />,
+      );
+      expect(live.container.querySelector('.ai-diff-table').innerHTML).toBe(reloadedUndoTable);
+    });
+
     it('modify cards are untouched: diff render, format-only branch, and UndoEditButton still work (FR-010)', async () => {
       mockGet.mockReset();
       mockGet.mockResolvedValue(undoAvailable);

@@ -211,6 +211,11 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
     const identity = { docGuid, userId, agentName: AGENT };
     const result = await undoService.performUndo(identity, { persistence, getSharedDoc: () => null });
     expect(result.undone).toBe(true);
+    // 020 (spec edge case: no special case for legacy): the legacy-derived
+    // range flows through the same inverse application, so its success result
+    // carries a diff by the same mechanism.
+    expect(result.diff).toBeDefined();
+    expect(result.diff.lines.some((l) => l.startsWith('-') && l.includes('LEGACY-EDIT'))).toBe(true);
 
     const rebuilt = await persistence.getYDoc(docGuid);
     expect(rebuilt.get('default', Y.XmlFragment).toString()).toBe('<paragraph>Original text.</paragraph>');
