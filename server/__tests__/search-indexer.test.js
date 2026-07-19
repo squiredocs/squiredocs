@@ -9,14 +9,20 @@ const { createPool, createPersistence, createTestUser, cleanupTestUser } = requi
 // so pipeline tests prove provider-call counts without any provider.
 const mockEmbedMany = jest.fn();
 const mockEmbed = jest.fn();
+const mockGenerateObject = jest.fn();
 jest.mock('ai', () => ({
   embedMany: (...args) => mockEmbedMany(...args),
   embed: (...args) => mockEmbed(...args),
-  generateObject: jest.fn(),
+  generateObject: (...args) => mockGenerateObject(...args),
   jsonSchema: (s) => s,
 }));
 jest.mock('@ai-sdk/google', () => ({
   google: { textEmbeddingModel: jest.fn(() => 'mock-embedding-model') },
+}));
+// The contextualizer reaches its model through the chat-models registry; mock
+// the registry so preamble-path tests never construct a real provider client.
+jest.mock('../api/chat-models', () => ({
+  getContextualizerModel: jest.fn(() => 'mock-contextualizer-model'),
 }));
 
 const searchIndexer = require('../search-indexer');
@@ -496,6 +502,119 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
       mockEmbedMany.mockClear();
       await searchIndexer.reindexStale();
       expect(mockEmbedMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ——————————————————————————————————————————————————————————————————————
+  // Feature 018 US2 — preamble gating in the indexer (T019).
+  // Preambles ON here (inner beforeAll flips the env the outer block set off).
+  // ——————————————————————————————————————————————————————————————————————
+  describe('preamble gating (T019, FR-012/RBD-7)', () => {
+    beforeAll(() => {
+      process.env.SEARCH_PREAMBLES = 'on';
+    });
+
+    afterAll(() => {
+      process.env.SEARCH_PREAMBLES = 'off'; // outer block's setting
+    });
+
+    beforeEach(() => {
+      mockGenerateObject.mockReset();
+      mockGenerateObject.mockImplementation(async ({ prompt }) => {
+        const count = (prompt.match(/\[\d+\] section:/g) || []).length;
+        return {
+          object: { contexts: Array.from({ length: count }, (_, i) => `Situating sentence for chunk ${i}.`) },
+        };
+      });
+    });
+
+    const multiBlocks = () => [
+      { h: 1, text: 'Part One' },
+      longSection('first part material'),
+      { h: 1, text: 'Part Two' },
+      longSection('second part material'),
+    ];
+
+    test('(a) multi-chunk doc ⇒ every row stores a preamble, composed into embedded_text (SC-003)', async () => {
+      const docGuid = await createDoc('Preamble Multi Doc', multiBlocks());
+      await searchIndexer.indexDocument(docGuid);
+
+      const chunks = await getChunks(docGuid);
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+      expect(mockGenerateObject).toHaveBeenCalledTimes(1); // ≤25 chunks → one batch
+      for (const chunk of chunks) {
+        expect(chunk.preamble_text).toMatch(/^Situating sentence for chunk \d+\.$/);
+        // Contract composition: header \n preamble \n\n chunk text
+        const headerLine = ['Preamble Multi Doc', ...chunk.heading_path].join(' > ');
+        expect(chunk.embedded_text).toBe(`${headerLine}\n${chunk.preamble_text}\n\n${chunk.chunk_text}`);
+      }
+    });
+
+    test('(b) single-chunk doc ⇒ NULL preamble AND the contextualizer is never called (FR-012)', async () => {
+      const docGuid = await createDoc('Preamble Single Doc', [{ h: 1, text: 'Solo' }, 'a short self-situating body.']);
+      await searchIndexer.indexDocument(docGuid);
+
+      const chunks = await getChunks(docGuid);
+      expect(chunks.length).toBe(1);
+      expect(chunks[0].preamble_text).toBeNull();
+      expect(mockGenerateObject).not.toHaveBeenCalled(); // zero-call assertion
+      // embedded_text still title-headed (DR-1 applies to single-chunk docs too)
+      expect(chunks[0].embedded_text.startsWith('Preamble Single Doc')).toBe(true);
+    });
+
+    test('(c) preamble generation failure ⇒ chunks index and search without preambles (SC-006)', async () => {
+      mockGenerateObject.mockRejectedValue(new Error('contextualizer down'));
+      const docGuid = await createDoc('Preamble Failure Doc', multiBlocks());
+      await searchIndexer.indexDocument(docGuid);
+
+      const chunks = await getChunks(docGuid);
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+      for (const chunk of chunks) {
+        expect(chunk.preamble_text).toBeNull();
+        expect(chunk.embedded_text.startsWith('Preamble Failure Doc')).toBe(true);
+        expect(chunk.has_vector).toBe(true);
+      }
+      // Keyword-searchable via the doc-level FTS row regardless
+      const fts = await pool.query(
+        `SELECT search_vector @@ websearch_to_tsquery('english', 'material') AS m
+         FROM document_search_index WHERE doc_id = $1`,
+        [docGuid]
+      );
+      expect(fts.rows[0].m).toBe(true);
+    });
+
+    test('(d) RBD-7 transitions: multi→single drops the preamble; single→multi gains them, same pass', async () => {
+      const docGuid = await createDoc('Transition Doc', multiBlocks());
+      await searchIndexer.indexDocument(docGuid);
+      expect((await getChunks(docGuid)).every((c) => c.preamble_text)).toBe(true);
+
+      // Shrink to a single chunk: the very next pass stores ONE row, NULL preamble
+      mockGenerateObject.mockClear();
+      await setBlocks(docGuid, [{ h: 1, text: 'Tiny Now' }, 'just one small paragraph left.']);
+      await searchIndexer.indexDocument(docGuid);
+      const shrunk = await getChunks(docGuid);
+      expect(shrunk.length).toBe(1);
+      expect(shrunk[0].preamble_text).toBeNull(); // no stale preamble survives
+      expect(mockGenerateObject).not.toHaveBeenCalled();
+
+      // Grow back to multi: preambles appear on the same pass
+      await setBlocks(docGuid, multiBlocks());
+      await searchIndexer.indexDocument(docGuid);
+      const grown = await getChunks(docGuid);
+      expect(grown.length).toBeGreaterThanOrEqual(2);
+      expect(grown.every((c) => c.preamble_text)).toBe(true);
+    });
+
+    test('(e) 017-gate ride-along: unchanged re-persist ⇒ zero contextualizer calls (SC-007)', async () => {
+      const docGuid = await createDoc('Preamble Gate Doc', multiBlocks());
+      await searchIndexer.indexDocument(docGuid);
+      mockGenerateObject.mockClear();
+      mockEmbedMany.mockClear();
+
+      await searchIndexer.indexDocument(docGuid); // nothing changed
+
+      expect(mockEmbedMany).not.toHaveBeenCalled();
+      expect(mockGenerateObject).not.toHaveBeenCalled();
     });
   });
 });

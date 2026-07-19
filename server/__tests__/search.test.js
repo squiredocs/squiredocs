@@ -382,6 +382,29 @@ describe('search module', () => {
       expect(filtered.pagination.total).toBe(1);
     });
 
+    test('hybrid: chunk-keyword leg also carries the recency filter (018 D4 + 017)', async () => {
+      // Seed a chunk-level keyword row on docOld: term appears ONLY in the
+      // chunk's embedded_text. Unfiltered fulltext finds it via the chunk leg;
+      // with a cutoff after docOld's update, it must vanish (updatedAfter on
+      // the chunk sub-select too).
+      await pool.query(
+        `INSERT INTO document_embeddings
+           (doc_id, chunk_index, chunk_text, embedding, embedded_text, search_vector)
+         VALUES ($1, 7, $2, $3, $4, to_tsvector('english', $4))`,
+        [docOld, 'plain chunk body', JSON.stringify(vecExact),
+          'Quokka Field Notes Old\nchronotrigger expedition notes\n\nplain chunk body']
+      );
+      try {
+        const unfiltered = await search.searchDocuments(uaUser1, 'chronotrigger', { mode: 'fulltext' });
+        expect(unfiltered.rows.map((r) => r.doc_id)).toEqual([docOld]);
+        const filtered = await search.searchDocuments(uaUser1, 'chronotrigger', { mode: 'fulltext', updatedAfter: CUTOFF });
+        expect(filtered.rows).toEqual([]);
+        expect(filtered.pagination.total).toBe(0);
+      } finally {
+        await pool.query('DELETE FROM document_embeddings WHERE doc_id = $1 AND chunk_index = 7', [docOld]);
+      }
+    });
+
     test('hybrid: both legs filter before fusion — totals reflect the filtered set (FR-016, SC-003)', async () => {
       const unfiltered = await search.searchDocuments(uaUser1, 'quokka', { mode: 'hybrid' });
       expect(unfiltered.rows.map((r) => r.doc_id)).toContain(docOld);
@@ -394,6 +417,141 @@ describe('search module', () => {
       expect(ids).toContain(docNew2);
       expect(ids).toContain(docShared);
       expect(filtered.pagination.total).toBe(3);
+    });
+  });
+
+  // ————————————————————————————————————————————————————————————————————————
+  // Feature 018 US2 (T020): chunk-keyword leg, snippet provenance, auth
+  // probe, and the response-shape freeze. Own fixtures; DIMS vectors seeded
+  // directly (embeddings are storage here, provider mocked).
+  // ————————————————————————————————————————————————————————————————————————
+  describe('preamble retrieval + contract freeze (018 T020)', () => {
+    const DIMS = 1536;
+    const vecQuery = [1, ...Array(DIMS - 1).fill(0)];
+    const vecExact = [1, ...Array(DIMS - 1).fill(0)];
+
+    // The sentinel term appears ONLY in the preamble / embedded_text —
+    // never in chunk_text, never in document_search_index.content_text.
+    const SENTINEL = 'xylotherium';
+    const CONTENT_TEXT = 'The relocation playbook describes moving colonies between reserves with careful staging.';
+    const CHUNK_TEXT = 'moving colonies between reserves requires staging pens and transport crates.';
+    const PREAMBLE = `This chunk situates the ${SENTINEL} relocation project within the playbook.`;
+
+    let ownerUser;
+    let strangerUser;
+    let docId;
+    let savedApiKey;
+
+    beforeAll(async () => {
+      savedApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-t020';
+
+      ownerUser = await createTestUser(pool, 'preamble-owner@example.com');
+      strangerUser = await createTestUser(pool, 'preamble-stranger@example.com');
+
+      const doc = await pool.query(
+        `INSERT INTO documents (id, title, creator_id) VALUES (uuid_generate_v4(), 'Relocation Playbook', $1) RETURNING id`,
+        [ownerUser]
+      );
+      docId = doc.rows[0].id;
+      await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId, ownerUser]);
+
+      await pool.query(
+        `INSERT INTO document_search_index (doc_id, content_text, search_vector)
+         VALUES ($1, $2,
+           setweight(to_tsvector('english', 'Relocation Playbook'), 'A') ||
+           setweight(to_tsvector('english', $2), 'B'))`,
+        [docId, CONTENT_TEXT]
+      );
+      const embeddedText = `Relocation Playbook > Staging\n${PREAMBLE}\n\n${CHUNK_TEXT}`;
+      await pool.query(
+        `INSERT INTO document_embeddings
+           (doc_id, chunk_index, chunk_text, embedding, embedding_model,
+            heading_path, preamble_text, embedded_text, token_estimate, search_vector)
+         VALUES ($1, 0, $2, $3, 'gemini-embedding-001', $4, $5, $6, $7, to_tsvector('english', $6))`,
+        [docId, CHUNK_TEXT, JSON.stringify(vecExact), ['Staging'], PREAMBLE, embeddedText,
+          Math.ceil(embeddedText.length / 4)]
+      );
+      search._resetCache();
+    });
+
+    afterAll(async () => {
+      if (savedApiKey === undefined) delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      else process.env.GOOGLE_GENERATIVE_AI_API_KEY = savedApiKey;
+      await pool.query('DELETE FROM document_embeddings WHERE doc_id = $1', [docId]);
+      await pool.query('DELETE FROM document_search_index WHERE doc_id = $1', [docId]);
+      await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
+      await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
+      await cleanupTestUser(pool, ownerUser);
+      await cleanupTestUser(pool, strangerUser);
+      search._resetCache();
+    });
+
+    beforeEach(() => {
+      mockEmbed.mockReset();
+      mockEmbed.mockImplementation(async () => ({ embedding: vecQuery }));
+    });
+
+    test('SC-005a: a preamble-only term retrieves the document via KEYWORD matching (chunk leg)', async () => {
+      // Sanity: the term is truly absent from doc-level text and chunk text
+      expect(CONTENT_TEXT).not.toContain(SENTINEL);
+      expect(CHUNK_TEXT).not.toContain(SENTINEL);
+
+      const results = await search.searchDocuments(ownerUser, SENTINEL, { mode: 'fulltext' });
+      expect(results.rows.map((r) => r.doc_id)).toContain(docId);
+    });
+
+    test('SC-005b: the same term retrieves the document via SEMANTIC matching', async () => {
+      const results = await search.searchDocuments(ownerUser, `${SENTINEL} relocation`, { mode: 'semantic' });
+      expect(results.rows.map((r) => r.doc_id)).toContain(docId);
+    });
+
+    test('SC-005c: hybrid mode fuses the chunk-keyword hit into doc-level RRF results', async () => {
+      const results = await search.searchDocuments(ownerUser, SENTINEL, { mode: 'hybrid' });
+      expect(results.rows.map((r) => r.doc_id)).toContain(docId);
+    });
+
+    test('FR-018: snippets NEVER contain preamble text — document-authored text only', async () => {
+      for (const mode of ['fulltext', 'semantic', 'hybrid']) {
+        const results = await search.searchDocuments(ownerUser, SENTINEL, { mode });
+        const row = results.rows.find((r) => r.doc_id === docId);
+        expect(row).toBeDefined();
+        expect(row.snippet || '').not.toContain(SENTINEL);
+        expect(row.snippet || '').not.toContain('situates');
+      }
+      // Keyword-path snippet comes from content_text (headline leading text)
+      const ft = await search.searchDocuments(ownerUser, SENTINEL, { mode: 'fulltext' });
+      const ftRow = ft.rows.find((r) => r.doc_id === docId);
+      expect(ftRow.snippet).toContain('playbook');
+    });
+
+    test('SC-011: unshared user gets ZERO rows for the preamble-only term in every mode', async () => {
+      for (const mode of ['fulltext', 'semantic', 'hybrid']) {
+        const results = await search.searchDocuments(strangerUser, SENTINEL, { mode });
+        expect(results.rows.map((r) => r.doc_id)).not.toContain(docId);
+        expect(results.rows).toEqual([]);
+      }
+    });
+
+    test('SC-004: response field set and pagination shape are frozen', async () => {
+      const FROZEN_ROW_KEYS = ['doc_id', 'title', 'updated_at', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count'];
+      const FROZEN_PAGINATION_KEYS = ['total', 'limit', 'offset', 'hasMore'];
+      for (const mode of ['fulltext', 'hybrid']) {
+        const results = await search.searchDocuments(ownerUser, 'relocation playbook', { mode });
+        expect(results.rows.length).toBeGreaterThan(0);
+        for (const row of results.rows) {
+          expect(Object.keys(row)).toEqual(FROZEN_ROW_KEYS);
+        }
+        expect(Object.keys(results.pagination)).toEqual(FROZEN_PAGINATION_KEYS);
+      }
+    });
+
+    test('keyword rank is GREATEST(doc, chunk): doc-level matches keep working with chunk rows present', async () => {
+      const results = await search.searchDocuments(ownerUser, 'staging', { mode: 'fulltext' });
+      // 'staging' appears in BOTH content_text and the chunk vector — one row per doc
+      const hits = results.rows.filter((r) => r.doc_id === docId);
+      expect(hits.length).toBe(1);
+      expect(hits[0].score).toBeGreaterThan(0);
     });
   });
 });

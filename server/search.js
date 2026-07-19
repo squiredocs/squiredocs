@@ -176,6 +176,50 @@ async function getQueryEmbedding(query) {
 }
 
 /**
+ * Build the keyword-match CTEs (feature 018, D4/RBD-8): the FTS leg is the
+ * UNION of (a) the doc-level document_search_index match and (b) a per-chunk
+ * match over document_embeddings.search_vector (which indexes embedded_text —
+ * title header + preamble + chunk text), collapsed to one row per doc with
+ * score GREATEST(doc_rank, best_chunk_rank). Preamble/title-header terms
+ * become keyword-retrievable (SC-005) while the doc-level row keeps producing
+ * every snippet (ts_headline over content_text — FR-018/FR-020) and its
+ * title-weight-A ranking.
+ *
+ * BOTH sub-selects carry the document_shares join + role condition (FR-021)
+ * and, when active, the updatedAfter recency join (017). Legacy rows have
+ * search_vector IS NULL and never match the chunk sub-select.
+ *
+ * Emits CTEs `..., kw_matches` where kw_matches outputs (doc_id, rank).
+ *
+ * @param {number} queryParam - 1-based param index of the query text
+ * @param {string} roleCondition - buildRoleCondition fragment (alias 'ds')
+ * @param {number|null} updatedAfterParam - param index of the recency cutoff, or null
+ */
+function buildKeywordMatchCTEs(queryParam, roleCondition, updatedAfterParam = null) {
+  return `kw_doc AS (
+       SELECT si.doc_id,
+              ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $${queryParam})) AS rank
+       FROM document_search_index si
+       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
+       WHERE si.search_vector @@ websearch_to_tsquery('english', $${queryParam})
+     ),
+     kw_chunk AS (
+       SELECT de.doc_id,
+              MAX(ts_rank_cd(de.search_vector, websearch_to_tsquery('english', $${queryParam}))) AS rank
+       FROM document_embeddings de
+       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('de.doc_id', updatedAfterParam)}
+       WHERE de.search_vector @@ websearch_to_tsquery('english', $${queryParam})
+       GROUP BY de.doc_id
+     ),
+     kw_matches AS (
+       SELECT COALESCE(kd.doc_id, kc.doc_id) AS doc_id,
+              GREATEST(COALESCE(kd.rank, 0), COALESCE(kc.rank, 0)) AS rank
+       FROM kw_doc kd
+       FULL OUTER JOIN kw_chunk kc ON kc.doc_id = kd.doc_id
+     )`;
+}
+
+/**
  * Build the top_chunks CTE for HNSW-accelerated vector search.
  * Returns the nearest chunks filtered by distance threshold, capped at VECTOR_CANDIDATE_LIMIT.
  */
@@ -236,15 +280,15 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
   const updatedAfterParam = updatedAfter ? 3 : null;
 
   return runSearchQuery(
-    `WITH cte AS (
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+     cte AS (
        SELECT
-         si.doc_id,
+         m.doc_id,
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet,
-         ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) AS score
-       FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
-       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
+         m.rank AS score
+       FROM kw_matches m
+       JOIN document_search_index si ON si.doc_id = m.doc_id
      )`,
     updatedAfter ? [userId, query, updatedAfter, limit, offset] : [userId, query, limit, offset],
     { filter, sortBy, sortOrder }
@@ -285,15 +329,15 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
   const updatedAfterParam = updatedAfter ? 5 : null;
 
   return runSearchQuery(
-    `WITH fts AS (
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+     fts AS (
        SELECT
-         si.doc_id,
-         ROW_NUMBER() OVER (ORDER BY ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $2)) DESC) AS rank,
+         m.doc_id,
+         ROW_NUMBER() OVER (ORDER BY m.rank DESC) AS rank,
          ts_headline('english', si.content_text, websearch_to_tsquery('english', $2),
            'StartSel=<mark>, StopSel=</mark>, MaxWords=60, MinWords=20, MaxFragments=2') AS snippet
-       FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
-       WHERE si.search_vector @@ websearch_to_tsquery('english', $2)
+       FROM kw_matches m
+       JOIN document_search_index si ON si.doc_id = m.doc_id
      ),
      ${buildVectorCTE(3, 4, roleCondition, updatedAfterParam)},
      vec AS (

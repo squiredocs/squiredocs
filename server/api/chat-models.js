@@ -259,6 +259,15 @@ function getCompactionModel() {
 }
 
 /**
+ * Model for search-chunk contextual preambles (feature 018, plan D6): an
+ * inexpensive large-context model for batched "situate this chunk in its
+ * document" generation. Same lazy provider path as compaction.
+ */
+function getContextualizerModel() {
+  return getProvider('google')('gemini-2.5-flash');
+}
+
+/**
  * Model for live summaries of an in-progress "thinking" block (the chat UI
  * polls for these while a model reasons). Claude Haiku — fast and cheap, and
  * called without thinking config so it answers immediately.
@@ -330,4 +339,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getThinkingSummaryModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
