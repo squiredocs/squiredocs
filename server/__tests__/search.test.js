@@ -153,7 +153,12 @@ describe('search module', () => {
   });
 
   test('hybrid mode falls back to fulltext when no embeddings exist', async () => {
-    // No embeddings inserted — hybrid should auto-fall back to fulltext
+    // "No embeddings exist" is a GLOBAL condition (checkEmbeddingsExist scans
+    // the whole table), so rows leaked by a killed earlier run break this test
+    // forever until healed — observed 2026-07-18 after mid-run terminations.
+    // Make the precondition explicit: clear the table (safe serially — every
+    // suite seeds its own data in beforeAll; later tests here re-insert).
+    await pool.query('DELETE FROM document_embeddings');
     search._resetCache();
     const results = await search.searchDocuments(userId1, 'authentication', { mode: 'hybrid' });
     expect(results.rows.length).toBe(2);
