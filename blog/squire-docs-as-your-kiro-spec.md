@@ -34,7 +34,7 @@ If the requirements already exist as a file — Kiro scaffolds a `requirements.m
 
 > "Import `.kiro/specs/bulk-export/requirements.md` into Squire Docs and give me the share link."
 
-Kiro has your API token, hits the import endpoint (`POST /api/docs/import`), and hands back a document you can share.
+Kiro has your API token, uploads the file, and hands back a document you can share.
 
 ## Step 2: Share it with your team for input
 
@@ -44,13 +44,12 @@ Because every edit is attributed, you can see which requirements came from whom 
 
 ## Step 3: Keep the document and the repo in sync
 
-The Squire Docs document and `.kiro/specs/bulk-export/requirements.md` are two views of the same content, kept together by two HTTP calls — and the point is that your agent runs them, not you. One time, create an API token under **Settings → API Tokens** and give it to Kiro. After that you ask in plain language and the agent takes care of the sync.
+The Squire Docs document and `.kiro/specs/bulk-export/requirements.md` are two views of the same content. Keeping them together is a job you hand to Kiro, not one you do by hand. Set it up once by creating an API token under **Settings → API Tokens** and giving it to Kiro; after that the sync is just prompts:
 
-**Pull the team's edits down to the repo.** When your PM revises the document, write the current version back to the path Kiro reads: `GET /api/docs/:docId/export?format=markdown&frontmatter=true` straight into `.kiro/specs/bulk-export/requirements.md`. The frontmatter records the exact version you pulled, so a later push knows precisely what changed.
+- **Pull the team's edits down:** "Sync the requirements doc down before you start." Kiro reads the current document and updates `.kiro/specs/bulk-export/requirements.md`, so it builds against what your team last agreed on.
+- **Push your own edits up:** "Push my requirements changes up to Squire Docs." Kiro sends the file up as attributed changes that merge with whatever your team edited in the browser, instead of overwriting it.
 
-**Push repo edits back up to Squire Docs.** If you or Kiro change the file directly, send it up with `PUT /api/docs/:docId/import?mode=sync`. Sync mode replays your file's edits as attributed changes anchored to the version you pulled, so they merge cleanly with whatever your team edited in the browser meanwhile — no clobbering, no manual reconciliation.
-
-You do not have to remember any of this. Tell Kiro "sync the requirements doc down before you start" or "push my requirements edits up to Squire Docs," and the agent makes the call. The file and the document hold the same content, so Kiro always builds against what your team last agreed on.
+Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents — but you never have to think about it. Kiro lives in the repo, so keeping the file and the document in sync is a one-line request.
 
 ## Step 4: Let Kiro take it from requirements to design and tasks
 
