@@ -31,7 +31,7 @@ round-trip coverage for new marks.
 **Purpose**: Directory scaffolding for the two new files. No new dependencies (`diff`
 ^8.0.4 already installed); no migrations.
 
-- [ ] T001 [P] Create the `shared/diff/` and `server/diff/` directories (new files land here in later phases). No other setup — verify `diff` ^8.0.4 is present in `package.json` (it is).
+- [X] T001 [P] Create the `shared/diff/` and `server/diff/` directories (new files land here in later phases). No other setup — verify `diff` ^8.0.4 is present in `package.json` (it is).
 
 ---
 
@@ -42,8 +42,8 @@ in US1 or US2 can be built until this exists and is correct (FR-001, SC-003).
 
 **⚠️ CRITICAL**: Blocks US1 and US2.
 
-- [ ] T002 [US-shared] Write the failing unit test `shared/diff/__tests__/word-diff.test.js` (or the nearest existing shared test location) per [contracts/word-diff-helper.md](./contracts/word-diff-helper.md): faithfulness (segments rejoin to input), one-word change isolates the changed word on both sides, identical inputs yield no `changed:true` segments, whitespace-only change yields a `changed:true` whitespace segment, adjacent same-flag coalescing.
-- [ ] T003 Implement `shared/diff/word-diff.js` exporting `computeWordSegments(before, after)` using `diffWordsWithSpace` from `diff`: `.removed`→before/`changed:true`, `.added`→after/`changed:true`, neither→both/`changed:false`; coalesce adjacent same-flag segments per side. Make T002 pass.
+- [X] T002 [US-shared] Write the failing unit test `shared/diff/__tests__/word-diff.test.js` (or the nearest existing shared test location) per [contracts/word-diff-helper.md](./contracts/word-diff-helper.md): faithfulness (segments rejoin to input), one-word change isolates the changed word on both sides, identical inputs yield no `changed:true` segments, whitespace-only change yields a `changed:true` whitespace segment, adjacent same-flag coalescing.
+- [X] T003 Implement `shared/diff/word-diff.js` exporting `computeWordSegments(before, after)` using `diffWordsWithSpace` from `diff`: `.removed`→before/`changed:true`, `.added`→after/`changed:true`, neither→both/`changed:false`; coalesce adjacent same-flag segments per side. Make T002 pass.
 
 **Checkpoint**: Shared helper green — US1 and US2 can proceed in parallel.
 
