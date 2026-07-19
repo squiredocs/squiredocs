@@ -129,21 +129,21 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
 - [X] T011 [US1] Verify patch survival: rm -rf `client/node_modules`, `npm ci`, re-run
       T004/T007/T008/T009 suites green (proves postinstall re-application; SC-007's
       install-path half).
-- [ ] T012 [P] [US1] Skip reporter client: `client/src/utils/skipReporter.js`
+- [X] T012 [P] [US1] Skip reporter client: `client/src/utils/skipReporter.js`
       (once-per-element dedupe per RBD-6, 2 s debounce, batched per doc, fire-and-forget
       via AuthContext axios, swallowed failures), registered as
       `globalThis.__SQUIRE_SKIP_REPORTER__` at app bootstrap alongside T006. Test
       `client/src/__tests__/skip-reporter.test.js`: a forced skip produces **exactly one**
       report per element per instance (mocked transport); transport failure never throws
       into the render path (DR-3).
-- [ ] T013 [US1] Skip-report server endpoint: `POST /api/collab/render-skip-report` in
+- [X] T013 [US1] Skip-report server endpoint: `POST /api/collab/render-skip-report` in
       `server/index.js` per contracts/runtime-config-and-skip-report.md (requireAuth, ≤8 KB,
       shape-validated, max 20 events, rate-limited via `server/rate-limit.js`; 204;
       structured log line + OTel counter `collab.render_skip.reports` via
       `server/telemetry/metrics.js`). Backend test
       `server/__tests__/render-skip-report.test.js`: valid report logs+counts, malformed
       400s without side effects, unauthenticated 401s.
-- [ ] T014 [US1] Quarantine second layer: `enableContentCheck: true` + `onContentError`
+- [X] T014 [US1] Quarantine second layer: `enableContentCheck: true` + `onContentError`
       in `client/src/components/Editor.jsx` `useEditor` options (survives the
       `[isMobile, provider]` recreation at :124 by living in the options object) —
       quarantine = event's `disableCollaboration()` + `editor.setEditable(false)` + a

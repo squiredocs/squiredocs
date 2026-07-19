@@ -14,9 +14,20 @@
  */
 import { useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { registerSkipReporter } from '../utils/skipReporter';
 
 export default function useClientConfig() {
   const { api, isAuthenticated } = useAuth();
+
+  // Feature 021 (DR-3): install the render-skip beacon as the patch's global
+  // hook. Independent of the kill-switch — the channel stays live even when
+  // the hardened behaviors are reverted (stock then produces no skip events).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (typeof globalThis.__SQUIRE_SKIP_REPORTER__ !== 'function') {
+      registerSkipReporter(api);
+    }
+  }, [api, isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;

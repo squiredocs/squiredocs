@@ -31,6 +31,10 @@ const CLASSES = {
   export:            { keyPrefix: 'rl:export:user',     points: num('RL_EXPORT_PER_MIN', 20),          duration: MIN },
   chat:              { keyPrefix: 'rl:chat:user',       points: num('RL_CHAT_PER_MIN', 30),            duration: MIN },
   upload:            { keyPrefix: 'rl:upload:user',     points: num('RL_UPLOAD_PER_MIN', 20),          duration: MIN },
+  // Feature 021 render-skip beacon: client-side reports are debounced/batched,
+  // so a healthy client sends at most a few per minute; 30/min absorbs bursts
+  // from a badly broken document without letting a hostile client log-flood.
+  collabSkip:        { keyPrefix: 'rl:collabskip:user', points: num('RL_COLLAB_SKIP_PER_MIN', 30),     duration: MIN },
 };
 
 function num(envVar, def) {

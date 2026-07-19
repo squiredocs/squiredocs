@@ -184,6 +184,8 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/chat')) return next();
   if (req.method === 'POST' && /^\/api\/docs\/[^/]+\/images$/.test(req.path)) return next();
+  // The 021 render-skip beacon sets its own SMALLER limit (8kb) at the route.
+  if (req.path === '/api/collab/render-skip-report') return next();
   express.json()(req, res, next);
 });
 
@@ -404,6 +406,56 @@ app.use('/api/support', express.json(), support.router);
 app.get('/api/client-config', requireAuth, (req, res) => {
   res.json({ collabBindingHardening: appSettings.getCollabBindingHardening() });
 });
+
+/**
+ * Render-skip beacon (feature 021, DR-3): the patched editor binding reports
+ * skip/stand-in events so divergence classes (invalid composites,
+ * mixed-version clients) are observable server-side within minutes instead of
+ * anecdote-discovered. Trust boundary (Constitution V): untrusted client
+ * input — auth required, 8 KB body cap, shape-validated, content-free by
+ * construction (node type names / error class names / counts — never document
+ * text or attributes), rate-limited per user. Emits one structured log line
+ * per report and increments the collab.render_skip.reports OTel counter on
+ * the feature-014 metrics spine. Never mutates document state.
+ */
+app.post(
+  '/api/collab/render-skip-report',
+  requireAuth,
+  rateLimit.perUser('collabSkip'),
+  express.json({ limit: '8kb' }),
+  (req, res) => {
+    const bad = (msg) => res.status(400).json({ error: msg });
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return bad('Malformed report');
+    const { docId, bindingVersion, events } = body;
+    if (Object.keys(body).length !== 3) return bad('Unexpected report fields');
+    if (typeof docId !== 'string' || docId.length === 0 || docId.length > 64) return bad('Invalid docId');
+    if (typeof bindingVersion !== 'string' || bindingVersion.length === 0 || bindingVersion.length > 64) {
+      return bad('Invalid bindingVersion');
+    }
+    if (!Array.isArray(events) || events.length === 0 || events.length > 20) return bad('Invalid events');
+    for (const ev of events) {
+      if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return bad('Invalid event');
+      if (Object.keys(ev).length !== 3) return bad('Unexpected event fields');
+      if (typeof ev.nodeType !== 'string' || ev.nodeType.length === 0 || ev.nodeType.length > 64) {
+        return bad('Invalid event nodeType');
+      }
+      if (typeof ev.errorName !== 'string' || ev.errorName.length === 0 || ev.errorName.length > 64) {
+        return bad('Invalid event errorName');
+      }
+      if (!Number.isInteger(ev.count) || ev.count < 1 || ev.count > 1000000) {
+        return bad('Invalid event count');
+      }
+    }
+    console.log(
+      `[CollabSkipReport] doc=${docId} user=${req.user.userId} bindingVersion=${bindingVersion} events=${JSON.stringify(events)}`
+    );
+    for (const ev of events) {
+      telemetryMetrics.recordCollabRenderSkip(ev.nodeType, ev.errorName, ev.count);
+    }
+    res.sendStatus(204);
+  }
+);
 
 // OAuth 2.0 Authorization Server Metadata (RFC 8414)
 // Required for MCP client discovery of OAuth capabilities
