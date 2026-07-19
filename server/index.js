@@ -1272,6 +1272,9 @@ app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) =
     res.json(content);
   } catch (error) {
     console.error('Error getting content at clock:', error);
+    if (error instanceof versionHistory.VersionNotFoundError) {
+      return res.status(404).json({ error: error.message });
+    }
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to get content at clock' });
   }
@@ -1287,10 +1290,22 @@ app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
 
     // Validate parameters
     const current = parseInt(currentClock, 10);
-    const previous = previousClock ? parseInt(previousClock, 10) : -1;
-
     if (isNaN(current)) {
       return res.status(400).json({ error: 'currentClock parameter must be a number' });
+    }
+
+    // previousClock is optional (absent => -1, "diff against empty"). When
+    // present it must be numeric — otherwise a NaN would be baked into the Redis
+    // diff cache key — and cannot exceed currentClock (that inverts the diff).
+    let previous = -1;
+    if (previousClock !== undefined && previousClock !== '') {
+      previous = parseInt(previousClock, 10);
+      if (isNaN(previous)) {
+        return res.status(400).json({ error: 'previousClock parameter must be a number' });
+      }
+      if (previous > current) {
+        return res.status(400).json({ error: 'previousClock must not be greater than currentClock' });
+      }
     }
 
     // Check if user has at least view access
@@ -1337,7 +1352,7 @@ app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
     res.json(versionData);
   } catch (error) {
     console.error('Error getting version content:', error);
-    if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
+    if (error instanceof versionHistory.VersionNotFoundError) {
       return res.status(404).json({ error: error.message });
     }
     notifyException(error, { req, source: 'api' });
@@ -1377,7 +1392,7 @@ app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error restoring version:', error);
-    if (error.message === 'Version not found' || error.message === 'Invalid version ID') {
+    if (error instanceof versionHistory.VersionNotFoundError) {
       return res.status(404).json({ error: error.message });
     }
     notifyException(error, { req, source: 'api' });
@@ -1489,6 +1504,23 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
     const { name, clockEnd } = req.body;
     const userId = req.user.userId;
 
+    // Validate name: required, non-empty (after trim), ≤255 chars.
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'name is required and must be a non-empty string' });
+    }
+    const trimmedName = name.trim();
+    if (trimmedName.length > 255) {
+      return res.status(400).json({ error: 'name must be 255 characters or fewer' });
+    }
+
+    // Validate clockEnd when present: a positive integer. Guard the request BEFORE
+    // the old `clockEnd || latest` fallback, which treated clockEnd:0 (and any
+    // non-numeric value coercing falsy) as "name the latest version" silently.
+    const hasClockEnd = clockEnd !== undefined && clockEnd !== null;
+    if (hasClockEnd && (!Number.isInteger(clockEnd) || clockEnd <= 0)) {
+      return res.status(400).json({ error: 'clockEnd must be a positive integer' });
+    }
+
     // Check if user has at least view access (anyone can name a version)
     const role = await documents.getRole(docId, userId);
     if (!role) {
@@ -1501,8 +1533,8 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'No updates found for this document' });
     }
 
-    // If clockEnd is provided, use it; otherwise use current (latest) clock
-    const targetClock = clockEnd || updates[updates.length - 1].clock;
+    // If clockEnd is provided, use it; otherwise use current (latest) clock.
+    const targetClock = hasClockEnd ? clockEnd : updates[updates.length - 1].clock;
 
     // Find the version boundaries using time-based grouping
     const versions = versionHistory.groupUpdatesIntoVersions(updates);
@@ -1515,10 +1547,17 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
     // Determine the clock range for the named version
     let versionClockStart, versionClockEnd;
 
-    if (clockEnd !== undefined && clockEnd !== null && containingVersion) {
-      // Naming a specific clock - the named version includes everything
-      // from the start of the containing auto version up to the named clock
-      // This "breaks" the auto version, with the named clock as the end point
+    if (hasClockEnd) {
+      // Naming a specific clock — it must fall inside a real version range.
+      // An explicit clockEnd that is out of range (or lands in a gap between
+      // versions) is a client error, not a silent "name the latest" fallback.
+      if (!containingVersion) {
+        return res.status(400).json({
+          error: `clockEnd ${targetClock} is out of range for this document`,
+        });
+      }
+      // The named version includes everything from the start of the containing
+      // auto version up to the named clock, "breaking" the auto version.
       versionClockStart = containingVersion.clockStart;
       versionClockEnd = targetClock;
     } else if (containingVersion) {
@@ -1526,7 +1565,8 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
       versionClockStart = containingVersion.clockStart;
       versionClockEnd = containingVersion.clockEnd;
     } else {
-      // Fallback - just use the target clock
+      // No explicit clockEnd and no containing version for the latest clock
+      // (degenerate) — fall back to the target clock.
       versionClockStart = targetClock;
       versionClockEnd = targetClock;
     }
@@ -1535,7 +1575,7 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
       docId,
       versionClockStart,
       versionClockEnd,
-      name,
+      trimmedName,
       userId
     );
 

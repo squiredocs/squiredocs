@@ -9,8 +9,10 @@ const {
   formatTimestamp,
   restoreVersion,
   getVersionContent,
+  getContentAtClock,
   getUpdatesForVersion,
   getCurrentSessionAuthors,
+  VersionNotFoundError,
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
@@ -1498,6 +1500,69 @@ describe('version-history module', () => {
       });
       const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
       expect(result).toHaveProperty('content');
+    });
+
+    // F6: not-found/out-of-range/invalid-format all throw the TYPED
+    // VersionNotFoundError, so the routes map them to 404 via instanceof (the
+    // old error.message === 'Version not found' equality never matched the
+    // descriptive out-of-range message and produced 500s).
+    describe('typed VersionNotFoundError (F6)', () => {
+      test('out-of-range clock throws VersionNotFoundError', async () => {
+        await expect(getVersionContent(mockPersistence, 'test-doc', '999'))
+          .rejects.toBeInstanceOf(VersionNotFoundError);
+      });
+
+      test('unparseable version id throws VersionNotFoundError', async () => {
+        await expect(getVersionContent(mockPersistence, 'test-doc', 'not-a-clock'))
+          .rejects.toBeInstanceOf(VersionNotFoundError);
+      });
+
+      test('foreign named version throws VersionNotFoundError', async () => {
+        const victimVersionId = '11111111-2222-3333-4444-555555555555';
+        mockPersistence.getVersionById = async (id) => ({
+          id, doc_id: 'other-doc', name: 'x', clock_start: 1, clock_end: 5,
+          created_at: new Date(), snapshot_data: null,
+        });
+        await expect(getVersionContent(mockPersistence, 'test-doc', victimVersionId))
+          .rejects.toBeInstanceOf(VersionNotFoundError);
+      });
+    });
+  });
+
+  // F6: getContentAtClock now range-checks (like getVersionContent) so an
+  // out-of-range clock 404s instead of returning current content mislabeled.
+  describe('getContentAtClock range validation (F6)', () => {
+    const mockPersistence = {
+      getUpdatesWithUsers: async () => [
+        { clock: 5, userId: 'u', userName: 'U', createdAt: new Date('2024-01-01T10:00:00Z') },
+        { clock: 10, userId: 'u', userName: 'U', createdAt: new Date('2024-01-01T10:01:00Z') },
+      ],
+      getUpdatesInRange: async (docGuid, from) => [
+        { clock: from, userId: 'u', userName: 'U', createdAt: new Date('2024-01-01T10:00:30Z') },
+      ],
+      getYDocAtClock: async () => new Y.Doc(),
+    };
+
+    test('clock above max throws VersionNotFoundError (not mislabeled current content)', async () => {
+      await expect(getContentAtClock(mockPersistence, 'doc', 999))
+        .rejects.toBeInstanceOf(VersionNotFoundError);
+    });
+
+    test('clock below min throws VersionNotFoundError', async () => {
+      await expect(getContentAtClock(mockPersistence, 'doc', 1))
+        .rejects.toBeInstanceOf(VersionNotFoundError);
+    });
+
+    test('document with no history throws VersionNotFoundError', async () => {
+      const empty = { ...mockPersistence, getUpdatesWithUsers: async () => [] };
+      await expect(getContentAtClock(empty, 'doc', 5))
+        .rejects.toBeInstanceOf(VersionNotFoundError);
+    });
+
+    test('in-range clock resolves content', async () => {
+      const result = await getContentAtClock(mockPersistence, 'doc', 10);
+      expect(result).toHaveProperty('content');
+      expect(result.clock).toBe(10);
     });
   });
 });

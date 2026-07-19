@@ -7,6 +7,21 @@ const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml } = require('./yjs-utils');
 
+/**
+ * Thrown when a requested version cannot be resolved: an unknown/foreign named
+ * version id, an unparseable version id, or a clock outside the document's
+ * range. Callers map `instanceof VersionNotFoundError` to HTTP 404 (F6) — the
+ * previous `error.message === 'Version not found'` string checks never matched
+ * the descriptive out-of-range message, so those turned into 500s. The message
+ * stays descriptive for MCP callers that surface it to the model.
+ */
+class VersionNotFoundError extends Error {
+  constructor(message = 'Version not found') {
+    super(message);
+    this.name = 'VersionNotFoundError';
+  }
+}
+
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 
@@ -561,7 +576,7 @@ async function getVersionContent(persistence, docGuid, versionId) {
     // guard set-document-version-name already applies. Indistinguishable
     // "not found" wording so a foreign id leaks nothing.
     if (!namedVersion || namedVersion.doc_id !== docGuid) {
-      throw new Error('Version not found');
+      throw new VersionNotFoundError('Version not found');
     }
     clockEnd = namedVersion.clock_end;
     versionMeta = {
@@ -585,7 +600,7 @@ async function getVersionContent(persistence, docGuid, versionId) {
     // Parse as clock number
     clockEnd = parseInt(versionId, 10);
     if (isNaN(clockEnd)) {
-      throw new Error('Invalid version ID format');
+      throw new VersionNotFoundError('Invalid version ID format');
     }
   }
 
@@ -604,7 +619,7 @@ async function getVersionContent(persistence, docGuid, versionId) {
 
   // Check if requested clock is out of range
   if (clockEnd < minClock || clockEnd > maxClock) {
-    throw new Error(`Version not found: ${versionId} (clock ${clockEnd} out of range ${minClock}-${maxClock})`);
+    throw new VersionNotFoundError(`Version not found: ${versionId} (clock ${clockEnd} out of range ${minClock}-${maxClock})`);
   }
 
   // Reconstruct document at the specified clock
@@ -858,6 +873,21 @@ function getCurrentSessionAuthors(updates) {
  * @returns {Promise<Object>} Document content and metadata
  */
 async function getContentAtClock(persistence, docGuid, clock) {
+  // Range-check FIRST (same contract as getVersionContent): getYDocAtClock is a
+  // clock <= N read, so an out-of-range clock silently returns current content
+  // (clock > max) or an empty doc (clock < min) mislabeled as that clock. Reject
+  // so the route can 404 instead of serving a mislabeled snapshot.
+  const allUpdates = await persistence.getUpdatesWithUsers(docGuid);
+  if (allUpdates.length === 0) {
+    throw new VersionNotFoundError('Document has no version history');
+  }
+  const clocks = allUpdates.map(u => u.clock);
+  const minClock = Math.min(...clocks);
+  const maxClock = Math.max(...clocks);
+  if (clock < minClock || clock > maxClock) {
+    throw new VersionNotFoundError(`Version not found: clock ${clock} out of range ${minClock}-${maxClock}`);
+  }
+
   const ydoc = await persistence.getYDocAtClock(docGuid, clock);
   const content = Y.encodeStateAsUpdate(ydoc);
 
@@ -886,6 +916,7 @@ module.exports = {
   getContentAtClock,
   getCurrentSessionAuthors,
   restoreVersion,
+  VersionNotFoundError,
   DEFAULT_INACTIVITY_THRESHOLD,
   UPDATE_GROUPING_THRESHOLD,
 };
