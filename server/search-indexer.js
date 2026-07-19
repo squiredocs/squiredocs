@@ -447,6 +447,22 @@ async function reindexAllForEval(overrides = {}) {
       const contentText = toPlainText(xmlFragment);
       const nodes = toStructured(xmlFragment);
       const title = ydoc.getMap('meta').get('title') || '';
+      // Maintain the doc-level FTS row exactly as indexDocument does (title
+      // weight A, body weight B) — a variant sweep must measure the REAL
+      // hybrid pipeline, doc-level keyword leg included, even for docs that
+      // have never been through the live indexer.
+      await pool.query(
+        `INSERT INTO document_search_index (doc_id, content_text, search_vector, indexed_at)
+         VALUES ($1, $2,
+           setweight(to_tsvector('english', COALESCE($3, '')), 'A') ||
+           setweight(to_tsvector('english', COALESCE($2, '')), 'B'),
+           now())
+         ON CONFLICT (doc_id) DO UPDATE SET
+           content_text = EXCLUDED.content_text,
+           search_vector = EXCLUDED.search_vector,
+           indexed_at = EXCLUDED.indexed_at`,
+        [doc.id, contentText, title]
+      );
       // Bypass the hash gate deliberately: a variant re-index must rebuild
       // rows even when content is unchanged. The stored hash still advances
       // through the seam, so the next normal pass stays gated.

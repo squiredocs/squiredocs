@@ -281,6 +281,180 @@ const CORPUS = [
       'Production hosts accept keys only through the bastion; direct SSH is refused everywhere. Your key ships to the bastion via the access repo — open a pull request adding your public key and an expiry date, and access appears within the hour of merge. Sessions are recorded. For the hardened cluster, use the operator kubeconfig flow in the deployment docs instead; SSH there is emergency-only.',
     ],
   },
+
+  // ——— v2 additions: distractors sharing vocabulary with the targets, and
+  // two long documents with deeply buried sections. Added after the v1 sweep
+  // saturated (every variant 1.0 on Recall@k) — the corpus needed confusable
+  // neighbours before ranking could matter. ———
+  {
+    id: D(25),
+    title: 'Postgres Upgrade Runbook',
+    blocks: [
+      h(1, 'Postgres Upgrade Runbook'),
+      h(2, 'Preflight'),
+      'Moving the database to a newer major version starts with a full logical export and a restore of that export into a scratch instance running the target version. Run the extension compatibility report — pgvector and the crypto extension both pin minimum versions. Announce a maintenance window; unlike minor updates, a major jump cannot run with zero downtime on our single-primary layout.',
+      h(2, 'Upgrade'),
+      'Stop the application pods, take a final snapshot, and run pg_upgrade with hard links against the new binary directory. Re-run ANALYZE on every database before letting traffic back — the planner statistics do not survive the jump and query plans without them are catastrophically bad. Bring the application back one deployment at a time, watching the slow query log.',
+      h(2, 'Rollback'),
+      'Rollback before traffic resumes is a matter of restarting the old binaries against the untouched old data directory. After traffic has resumed there is no in-place path back; recovery means restoring the preflight export into a fresh instance and replaying the write-ahead archive from the window start.',
+    ],
+  },
+  {
+    id: D(26),
+    title: 'TLS Certificate Renewal Runbook',
+    blocks: [
+      h(1, 'TLS Certificate Renewal Runbook'),
+      'Every public endpoint terminates TLS with certificates issued through the automated ACME flow; renewal fires thirty days before expiry with alerts at seven days if renewal has not completed. Internal service certificates come from the private CA with a ninety day lifetime. The renewal automation covers everything registered in the certificate inventory — the inventory review, not the renewal itself, is the step humans own. When adding any new endpoint, register its certificate in the inventory the same day; the May authentication incident is what happens when one lives outside it.',
+    ],
+  },
+  {
+    id: D(27),
+    title: 'Authentication Architecture Notes',
+    blocks: [
+      h(1, 'Authentication Architecture Notes'),
+      'Login is Google OAuth only; there are no passwords anywhere in the system. A successful OAuth exchange mints a short-lived access token and a rotating refresh token, both signed JWTs. The signing keys live in the secret store and rotate on the standard credential cycle. Agent access uses the same session machinery via MCP OAuth or minted API tokens with the sk prefix. The trust bundle keeps the previous public key during rotation so validation never has a gap.',
+    ],
+  },
+  {
+    id: D(28),
+    title: 'Session Management Design',
+    blocks: [
+      h(1, 'Session Management Design'),
+      'Browser sessions are capped per user; opening a session beyond the cap evicts the oldest. Access tokens live fifteen minutes, refresh tokens a week, and refresh rotation invalidates the predecessor immediately — a replayed refresh token kills the whole chain as a theft signal. Signing out everywhere revokes the chain server-side. The session limit error on shared machines is a known sore spot from the spring feedback and has a copy rewrite queued.',
+    ],
+  },
+  {
+    id: D(29),
+    title: 'Storage Capacity Planning',
+    blocks: [
+      h(1, 'Storage Capacity Planning'),
+      'Volumes are sized for a year of projected growth and reviewed quarterly against actuals. The planning sheet tracks bytes per active editor per week, which has held remarkably steady, and applies a growth-rate projection with a three day alerting horizon — the lesson of the March incident, where absolute-threshold alerts fired only after the situation was unrecoverable without an emergency expansion. Every new durable data producer needs a row in the sheet before it ships.',
+    ],
+  },
+  {
+    id: D(30),
+    title: 'Log Management Standards',
+    blocks: [
+      h(1, 'Log Management Standards'),
+      'All services log structured JSON to stdout; the node agent ships lines to the aggregator and nothing writes log files to local disks. Debug verbosity levels require a time-to-live and revert automatically. Application logs, database logs, and audit logs are three distinct streams with three distinct retention clocks, and the pruning job covers all three — the split coverage that let database logs pile up unnoticed in March is exactly what this standard exists to prevent. Document content, titles, and search queries never appear in any log line.',
+    ],
+  },
+  {
+    id: D(31),
+    title: 'Alerting Guidelines',
+    blocks: [
+      h(1, 'Alerting Guidelines'),
+      'An alert page means a human must act now; anything else belongs on a dashboard or a daily digest. Every alert carries a runbook link and an owner. Prefer rate-of-change and burn-rate conditions over absolute thresholds — they fire while there is still time to act. Review the alert log monthly: anything that fired without prompting action gets demoted, because a rotation that learns to ignore pages has no alerting at all.',
+    ],
+  },
+  {
+    id: D(32),
+    title: 'On-call Handbook',
+    blocks: [
+      h(1, 'On-call Handbook'),
+      'The rotation is weekly, hands off on Tuesday mornings, and covers everything in the paging service. Acknowledge within five minutes, mitigate before you diagnose, and write down timestamps as you go — the postmortem thanks you later. Escalate to the second on-call freely; a page you cannot progress within twenty minutes is theirs too. During a customer-visible incident, the on-call engineer owns the status page and posts an update at least every thirty minutes.',
+    ],
+  },
+  {
+    id: D(33),
+    title: 'Export Performance Investigation',
+    blocks: [
+      h(1, 'Export Performance Investigation'),
+      'Profiling of the workspace export path shows the time going to per-document serialization, done sequentially, with each document loaded fully into memory before any bytes stream out. For large workspaces this crawls — minutes, not seconds, matching the spring complaints. The proposed fix streams documents as they serialize with a small parallelism budget, and moves bundle compression off the request thread. Prototype numbers show a five-fold improvement on the reference workspace.',
+    ],
+  },
+  {
+    id: D(34),
+    title: 'Sharing Model Redesign Proposal',
+    blocks: [
+      h(1, 'Sharing Model Redesign Proposal'),
+      'First-time users conflate sharing a single document with inviting someone to the whole workspace, and the spring feedback shows real accounts duplicated over the confusion. The proposal separates the two verbs everywhere: document sharing becomes "give access to this doc" with the recipient chip inline, workspace invitation moves to settings entirely, and the share dialog explains in one sentence who will see what. A migration note covers existing mixed-intent shares.',
+    ],
+  },
+  {
+    id: D(35),
+    title: 'Frontend Interview Rubric',
+    blocks: [
+      h(1, 'Frontend Interview Rubric'),
+      'Four sessions scored against written anchors: a component-building exercise with accessibility requirements, a state management design conversation, a debugging session in an unfamiliar React codebase, and the shared values conversation. The bar mirrors the backend loop: nothing below two, at least two threes. We deliberately reuse the debugging-session format across loops so scores are comparable when someone straddles the stack.',
+    ],
+  },
+  {
+    id: D(36),
+    title: 'Designer Hiring Loop',
+    blocks: [
+      h(1, 'Designer Hiring Loop'),
+      'Decided in the April sync as the next hire. The loop: a portfolio walkthrough focused on decisions rather than pixels, a working session redesigning one real screen of ours with real constraints, and the values conversation. References are called before the offer, asking specifically about collaboration with engineers. The working session uses the sharing dialog — a screen we know needs the help.',
+    ],
+  },
+  {
+    id: D(37),
+    title: 'Vendor Security Questionnaire Answers',
+    blocks: [
+      h(1, 'Vendor Security Questionnaire Answers'),
+      'Canonical answers for the security questionnaires enterprise prospects send: where data lives, encryption at rest and in transit, backup immutability, access review cadence, incident disclosure timelines, and subprocessor list. Copy answers verbatim — wording has been reviewed. Anything a questionnaire asks that this document does not answer goes to the founders before any reply is sent.',
+    ],
+  },
+  {
+    id: D(38),
+    title: 'Billing Integration Exploration (archived)',
+    blocks: [
+      h(1, 'Billing Integration Exploration (archived)'),
+      'Archived when the May sync postponed all payments work until after the public beta. Findings kept for the eventual revival: the metered-seats model fits the collaboration pattern better than flat tiers, the tax handling wants a merchant-of-record provider rather than direct integration, and the free tier boundary should be measured in active editors, not documents. Nothing here is committed; re-evaluate everything against the post-beta shape.',
+    ],
+  },
+  {
+    id: D(39),
+    title: 'Template Gallery Sketch',
+    blocks: [
+      h(1, 'Template Gallery Sketch'),
+      'Second-most requested capability from the spring digest. The sketch: a gallery of workspace-owned templates, seeded with meeting notes, design doc, and postmortem shapes; creating from a template stamps structure and placeholder guidance, not content. Templates are ordinary documents flagged as templates, so the editor, history, and sharing all just work. Usage instrumented from day one per the Q3 draft objectives.',
+    ],
+  },
+  {
+    id: D(40),
+    title: 'Operations Handbook - Compiled',
+    blocks: [
+      h(1, 'Operations Handbook - Compiled'),
+      'The long-form reference for how we run production, compiled from the practices that used to live in heads. Each section stands alone; read the one you need.',
+      h(2, 'Paging etiquette'),
+      'A page is a request for action, not a conversation opener. The pager owns the incident until explicitly handed off, and handoffs are stated, never assumed — "you have the incident" requires an acknowledgement before the giver stands down. Out-of-hours pages for things a dashboard could have said erode the rotation faster than any outage; file them in the monthly alert review without exception.',
+      h(2, 'Alert fatigue'),
+      'The failure mode of every rotation is not a missed page, it is a rotation trained by noise to shrug. Alert volume is a budget: each service earns a small number of paging conditions and every addition retires another or argues its case in review. Rate-of-change conditions catch trouble earlier and quieter than absolute thresholds. A page that fired and required no action is a defect in the alert, never diligence to be proud of.',
+      h(2, 'Maintenance windows'),
+      'Standing windows are Tuesday and Thursday mornings after the traffic trough. Work inside a window still announces itself in the operations channel with a start and end message. Anything touching the database schema or the ingress path books the window a day ahead so support can brief active customers. Windows are for planned work; an incident never waits for one.',
+      h(2, 'Change freeze policy'),
+      'Production deploys stop from December twentieth through January second, and for forty-eight hours around any marketing launch. During a freeze, only fixes for active severity 1 or 2 incidents ship, each with founder sign-off recorded in the change log. The freeze exists because holiday-period response times are honest fictions; the calendar should reflect the coverage we actually have, not the coverage we wish we had.',
+      h(2, 'Vendor escalation'),
+      'Every critical vendor has a support tier, a contract-backed response time, and a named escalation path recorded in the vendor sheet. Open vendor tickets from the shared operations account so continuity survives the rotation. If a vendor incident affects customers, our status page speaks first — we never wait for the vendor page to admit what our dashboards already show.',
+      h(2, 'Incident communications'),
+      'While something is broken, the status page carries a plain-language update at least every thirty minutes, written for users rather than engineers: what is affected, what still works, and when the next update comes. Never promise a fix time — promise the next update time. Support answers individual tickets with a link to the status page plus anything account-specific. The postmortem, not the incident channel, is where causes get discussed.',
+    ],
+  },
+  {
+    id: D(41),
+    title: 'Architecture Decision Records - 2026',
+    blocks: [
+      h(1, 'Architecture Decision Records - 2026'),
+      'Significant technical decisions, one record per decision, with the context that made each the right call at the time. Reversing a decision means writing a superseding record, not editing history.',
+      h(2, 'ADR-1: Relational store on Postgres'),
+      'All durable state lives in a single Postgres instance: relational rows, the search index, and vector embeddings via the pgvector extension. The alternative — a separate dedicated vector database and a search appliance — was rejected as three systems to operate, back up, and secure for a corpus measured in thousands of documents. One store means one snapshot cadence, one restore drill, and transactional writes across every kind of state.',
+      h(2, 'ADR-2: Conflict-free replicated document state'),
+      'Simultaneous edits from multiple collaborators merge deterministically because document state is a conflict-free replicated data type (Yjs), not a locked record. Every client applies every operation in any order and converges to the same result, so nobody waits for a lock and nobody\'s typing overwrites anybody else\'s. The costs are real — state is an operation log, deletions tombstone rather than vanish, and document size must be watched — and accepted; the alternative of operational transforms against a central authority makes offline and multi-server futures much harder.',
+      h(2, 'ADR-3: Single-region deployment'),
+      'Everything runs in one geographic region, with backups copied to a second region for disaster recovery only. Multi-region active service was rejected for the beta: the collaboration protocol is latency-tolerant enough for cross-continent editing, the operational surface of running the CRDT relay in two places doubles, and the user base does not yet justify it. The record notes the revisit trigger: sustained user growth in a second continent or a contractual data-residency requirement.',
+      h(2, 'ADR-4: Rate limiting at the edge'),
+      'Abuse controls live at the edge proxy, not in application code: per-IP request budgets, connection caps, and the web application firewall run before a request reaches Node. Application-level limits exist only where identity matters — per-user session caps and per-account API quotas — because the application is the only layer that knows who a request is. The split keeps volumetric abuse away from the interesting code and keeps identity-aware policy where identity lives.',
+    ],
+  },
+  {
+    id: D(42),
+    title: 'Incident Response Process',
+    blocks: [
+      h(1, 'Incident Response Process'),
+      'Declare early: a suspected severity 1 or 2 is an incident until proven otherwise, and declaring costs nothing. The declarer becomes incident commander until handoff; the commander coordinates and communicates but does not debug. Every incident gets a channel, a timestamped log, and a blameless postmortem within a week — the postmortem template lives beside this document. Severity definitions: 1 is customer data at risk or the product down; 2 is a major capability broken for many; 3 is everything else worth tracking.',
+    ],
+  },
 ];
 
 function buildYDoc(title, blocks) {

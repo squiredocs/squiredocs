@@ -514,9 +514,23 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
       { h: 1, text: 'Heading Ignored By Fixed' },
       'baseline body text for the fixed-window variant.',
     ]);
+    // A doc that has NEVER been through indexDocument: the eval re-index must
+    // still give it a doc-level FTS row, or the sweep would measure hybrid
+    // with a dead fulltext leg (found the hard way — the first real sweep ran
+    // with document_search_index empty).
     const summary = await searchIndexer.reindexAllForEval({ chunking: 'fixed', preambles: false });
     expect(summary.total).toBeGreaterThan(0);
     expect(summary.done).toBeGreaterThan(0);
+
+    const fts = await pool.query(
+      `SELECT content_text, search_vector @@ websearch_to_tsquery('english', 'baseline') AS body_match,
+              search_vector @@ websearch_to_tsquery('english', 'fixed') AS title_match
+       FROM document_search_index WHERE doc_id = $1`,
+      [docGuid]
+    );
+    expect(fts.rows.length).toBe(1); // FTS row created by the eval re-index
+    expect(fts.rows[0].body_match).toBe(true);
+    expect(fts.rows[0].title_match).toBe(true); // title weighted in, as production does
 
     const chunks = await getChunks(docGuid);
     expect(chunks.length).toBe(1); // short doc → one fixed window
