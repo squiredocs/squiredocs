@@ -6,7 +6,7 @@ date: 2026-07-19
 author: Sam Goldstein
 ---
 
-Four tools now let a person and an AI edit the same document: Google Docs, Notion, Proof, and Squire Docs. They look similar from a distance. The differences that matter show up on two questions: how precisely can an agent edit the document, and does that document live in your repository. This post compares the four honestly, including where each one is the better choice.
+Four tools now let a person and an AI edit the same document: Google Docs, Notion, Proof, and Squire Docs. They look similar from a distance. The differences that matter show up on two questions: how precisely can an agent edit the document, and does that document live in your repository. This post compares the four, including where each one is the better choice.
 
 ## Where each tool comes from
 
@@ -18,7 +18,7 @@ The four tools were built for different jobs, and that origin explains most of w
 
 **Proof** is a new editor from Every, built on the assumption that agents do most of the writing and humans collaborate around them. It is open source and agent-first.
 
-**Squire Docs** is built for spec-driven development. The document is a markdown file in your repository that your team and your coding agents edit together.
+**Squire Docs** is built for spec-driven development. The document syncs both directions with a markdown file in your repository that your team and your coding agents edit together.
 
 ## The comparison
 
