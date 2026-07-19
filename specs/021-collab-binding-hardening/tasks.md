@@ -222,7 +222,7 @@ covered via the single choke point.
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T019 [P] SC-006 regression sweep: run the existing collaboration suites UNMODIFIED —
+- [X] T019 [P] SC-006 regression sweep: run the existing collaboration suites UNMODIFIED —
       `server/__tests__/attribution-bug.test.js`, `server/__tests__/origin.test.js`,
       `__tests__/integration/collaboration.test.js` (serial), full `client` vitest suite —
       all green with zero test-file edits (green-path behavior bit-identical).
@@ -231,7 +231,7 @@ covered via the single choke point.
       alert, gap-tolerant reads; note the new env vars (data-model.md table) in the
       relevant config docs; verify `docs/dev.md` needs no change (no new local-dev steps
       beyond `npm ci`).
-- [ ] T021 Run `specs/021-collab-binding-hardening/quickstart.md` §1–§4 end-to-end in the
+- [X] T021 Run `specs/021-collab-binding-hardening/quickstart.md` §1–§4 end-to-end in the
       dev pod (incl. the drift-guard install-failure drill and the manual kill-switch
       flip + quarantine checks) and record results in the feature worklog. Promotion notes
       (plan.md): upstream filing (y-tiptap issue + y-prosemirror #39/#258) and the
