@@ -25,7 +25,7 @@ land. NO database migrations anywhere. Do not touch specs/016-*, 017-*, 018-*.
 **Purpose**: Make the two shared assertion targets reachable by tests. No
 behavior change.
 
-- [ ] T001 Export `SERVER_INSTRUCTIONS` from `server/mcp/index.js` (add it to
+- [X] T001 Export `SERVER_INSTRUCTIONS` from `server/mcp/index.js` (add it to
       `module.exports`; the constant itself is unchanged in this task) so tests
       can measure and assert its content and byte size.
 
@@ -39,14 +39,14 @@ later story asserts against.
 **⚠️ CRITICAL**: T002 blocks US1; T003 defines the RED gate that US6 + US2 turn
 green.
 
-- [ ] T002 Extract `prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name })`
+- [X] T002 Extract `prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name })`
       in `server/mcp/tools/create-access-token.js` per research R1: move the
       no-chaining guard, the delegation-liveness re-check, and the
       `pendingMints.createPendingMint(...)` call into the exported helper; the
       existing `handler` calls it. Pure refactor — the full existing suites
       `server/mcp/__tests__/tools/create-access-token.test.js` and
       `server/__tests__/token-claim.test.js` MUST pass unmodified (SC-009 guard).
-- [ ] T003 Convert the description cap in
+- [X] T003 Convert the description cap in
       `server/mcp/__tests__/tools/tool-modules.test.js` from characters to UTF-8
       bytes per research R4: assert
       `Buffer.byteLength(tool.description, 'utf8') <= 2048` for every tool in
@@ -73,7 +73,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
 
 ### Tests for User Story 1 (write FIRST, must fail)
 
-- [ ] T004 [P] [US1] Contract test
+- [X] T004 [P] [US1] Contract test
       `server/mcp/__tests__/tools/import-markdown-file.test.js` per
       contracts/import-markdown-file.md: module exports (name/description/
       inputSchema/handler/init); first description line contains "sync" and names
@@ -91,7 +91,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
       `create_access_token({ inline: true })`, `rest_api`, and the in-context
       path (RBD-5/FR-007); statelessness: a bogus docGuid still returns a recipe
       (FR-008).
-- [ ] T005 [P] [US1] Registry/scope + claim-security regression tests: in
+- [X] T005 [P] [US1] Registry/scope + claim-security regression tests: in
       `server/mcp/__tests__/tools/import-markdown-file.test.js` (registry
       section) assert `getToolList()` contains `import_markdown_file`,
       `TOOL_SCOPES` gating via `executeTool` — a `['documents:read']`-only
@@ -106,7 +106,7 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Implement `server/mcp/tools/import-markdown-file.js` per
+- [X] T006 [US1] Implement `server/mcp/tools/import-markdown-file.js` per
       contracts/import-markdown-file.md and research R2: intent resolution +
       instructive parameter errors; call `prepareClaimDelivery` (T002) with
       scopes `["documents:read","documents:write"]`, default TTL, name
@@ -117,13 +117,13 @@ write-back + subsequent mode=sync push; result payload carries no content/token.
       `GET .../export?format=markdown&frontmatter=true -o "$FILE"`; result
       fields `{ command, intent, docGuid?, claimExpiresInSeconds, message,
       guidance }`; description first line contains "sync", ≤ 2,048 UTF-8 bytes.
-- [ ] T007 [US1] Register the tool in `server/mcp/tools/index.js`: require +
+- [X] T007 [US1] Register the tool in `server/mcp/tools/index.js`: require +
       add `import_markdown_file` to the `tools` map and
       `TOOL_SCOPES.import_markdown_file = 'documents:write'`; update the
       expected-tools list in `server/mcp/__tests__/tools/tool-modules.test.js`
       (temporarily 17 advertised — US6/T010 brings it to 16; if US6 lands first
       in a re-ordering, go straight to 16).
-- [ ] T008 [US1] End-to-end integration test
+- [X] T008 [US1] End-to-end integration test
       `__tests__/integration/import-recipe-e2e.test.js` per research R6 (SC-002):
       bootstrap like `__tests__/integration/docs-import-api.test.js` + mount
       `server/api/token-claim.js`, `app.listen(0)`; call the tool handler with

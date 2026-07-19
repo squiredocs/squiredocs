@@ -141,6 +141,65 @@ describe('GET /api/tokens/claim', () => {
     expect(res.body.error).toMatch(/Maximum of \d+ active tokens/);
   });
 
+  // Feature 019 (US1/T005, RBD-6/SC-009): import_markdown_file prepares its
+  // pending mint through the SAME prepareClaimDelivery path — the claim
+  // endpoint must treat a recipe-created mint identically: one-shot, 300 s
+  // window, write-capable scopes, default TTL.
+  describe('recipe-created pending mints (import_markdown_file)', () => {
+    const recipe = (args = {}) =>
+      toolRegistry.executeTool('import_markdown_file', args, {
+        delegationId: testDelegation.id,
+        userId: testUserId,
+        agentId: 'claim-test-agent',
+        agentName: 'Claim Test Agent',
+        scopes: ['documents:read', 'documents:write'],
+        isAgent: true,
+        baseUrl: 'https://test.example.com',
+      });
+
+    const secretFromCommand = (result) => {
+      const match = result.command.match(/Bearer (one_time_use_[A-Za-z0-9_-]+)/);
+      expect(match).not.toBeNull();
+      return match[1];
+    };
+
+    test('claim mints a token with scopes [documents:read, documents:write] and default TTL (RBD-6)', async () => {
+      const result = await recipe();
+      expect(result.claimExpiresInSeconds).toBe(300); // claim window unchanged
+      const before = Date.now();
+      const res = await claim(secretFromCommand(result));
+
+      expect(res.status).toBe(200);
+      expect(res.text).toMatch(/^sk_sqd_[A-Za-z0-9_-]+$/);
+
+      const record = await apiTokens.verifyToken(res.text);
+      expect(record).not.toBeNull();
+      expect(record.user_id).toBe(testUserId);
+      expect(record.scopes).toEqual(['documents:read', 'documents:write']);
+      expect(record.name).toBe('Minted by Claim Test Agent via import_markdown_file');
+
+      // Default minted-token TTL (1 h), counted from the claim.
+      const expiresAt = new Date(record.expires_at).getTime();
+      expect(expiresAt).toBeGreaterThanOrEqual(before + 3600_000);
+      expect(expiresAt).toBeLessThanOrEqual(Date.now() + 3600_000);
+    });
+
+    test('a recipe claim is one-shot: the second redemption 401s and mints nothing new', async () => {
+      const secret = secretFromCommand(await recipe());
+      expect((await claim(secret)).status).toBe(200);
+
+      const second = await claim(secret);
+      expect(second.status).toBe(401);
+      expect(second.body).toEqual({ error: 'Invalid or expired claim' });
+      expect(await apiTokens.listUserTokens(testUserId)).toHaveLength(1);
+    });
+
+    test('no token row exists until the recipe claim is redeemed', async () => {
+      await recipe({ });
+      expect(await apiTokens.listUserTokens(testUserId)).toHaveLength(0);
+    });
+  });
+
   test('nothing secret is console-logged across mint and claim', async () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

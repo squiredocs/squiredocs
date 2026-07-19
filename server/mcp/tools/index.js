@@ -22,6 +22,10 @@ const modify = require('./modify');
 // Temporary REST API token minting (scoped <= caller, auto-expiring)
 const createAccessToken = require('./create-access-token');
 
+// Sync/import recipe for existing markdown files (no content — returns a
+// one-shot claim + curl + receipt-write-back shell command; feature 019)
+const importMarkdownFile = require('./import-markdown-file');
+
 // Documentation for the script-based tools (modify, compare_document_versions)
 const getToolDocumentation = require('./get-tool-documentation');
 
@@ -57,6 +61,9 @@ const tools = {
 
   // Temporary API token minting for shell/REST access (e.g. export API)
   create_access_token: createAccessToken,
+
+  // Byte-channel recipe: sync/import an existing markdown file (feature 019)
+  import_markdown_file: importMarkdownFile,
 
   // Version history tools
   list_document_versions: listDocumentVersions,
@@ -113,6 +120,9 @@ const TOOL_SCOPES = {
   redo: 'documents:write',
   set_document_version_name: 'documents:write',
   restore_document_version: 'documents:write',
+  // The recipe mints a write-capable token — a read-only principal must be
+  // refused at the tool boundary, not minutes later at claim time (019 FR-001)
+  import_markdown_file: 'documents:write',
   // Read operations
   list_documents: 'documents:read',
   read_document: 'documents:read',
