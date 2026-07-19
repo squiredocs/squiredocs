@@ -77,10 +77,15 @@ describe('021 quarantine second layer (enableContentCheck)', () => {
     );
   }
 
-  it('enables TipTap content checking on every editor instance', () => {
+  it('content checking is DISABLED (false-positives under Collaboration) but the handler is retained dormant', () => {
+    // 021 follow-up (2026-07-19): enableContentCheck false-positives under the
+    // Yjs Collaboration extension (quarantined schema-valid docs), so the
+    // second-defense layer is off until it has a reliable trigger. The
+    // onContentError handler stays wired (still quarantines correctly if ever
+    // invoked — see the next test) so re-enabling is a one-line change.
     renderEditor();
     const options = mockUseEditor.mock.calls[0][0];
-    expect(options.enableContentCheck).toBe(true);
+    expect(options.enableContentCheck).toBe(false);
     expect(typeof options.onContentError).toBe('function');
   });
 
@@ -133,7 +138,7 @@ describe('021 quarantine second layer (enableContentCheck)', () => {
       />
     );
     const lastOptions = mockUseEditor.mock.calls.at(-1)[0];
-    expect(lastOptions.enableContentCheck).toBe(true);
+    expect(lastOptions.enableContentCheck).toBe(false); // dormant (021 follow-up)
     expect(typeof lastOptions.onContentError).toBe('function');
   });
 
@@ -143,7 +148,7 @@ describe('021 quarantine second layer (enableContentCheck)', () => {
       const onQuarantine = vi.fn();
       renderEditor({ onQuarantine });
       const options = mockUseEditor.mock.calls[0][0];
-      expect(options.enableContentCheck).toBe(true);
+      expect(options.enableContentCheck).toBe(false); // dormant (021 follow-up)
       const disableCollaboration = vi.fn();
       options.onContentError({
         editor: { setEditable: vi.fn() },

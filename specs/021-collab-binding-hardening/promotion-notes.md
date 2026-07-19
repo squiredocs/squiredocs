@@ -36,3 +36,23 @@ prod images. All four actionable findings fixed:
   browser two-tab sync drill; quarantine on a real unknown-node doc.
 - Track the y-prosemirror v2 rewrite (no catch-delete, docChanged-gated diff)
   as the eventual exit ramp from the fork.
+
+## Follow-up (2026-07-19): quarantine layer disabled — false-positive on valid docs
+
+Observed locally right after 021 shipped: the enableContentCheck quarantine
+banner ("This document uses features this page version can't display — Editing
+is paused") fired on a fully schema-valid README (paragraphs/lists/tables,
+bold/code/italic/link marks — every type registered), and a refresh did NOT
+clear it. Root cause: enableContentCheck is built for the setContent path;
+under the Yjs Collaboration extension content arrives via the y-prosemirror
+binding instead, so the check false-positives and quarantines valid
+collaborative documents. Breaking editing on good docs is worse than the
+mixed-version case this OPTIONAL second layer defends.
+
+Fix: `enableContentCheck: false` in Editor.jsx (onContentError kept but
+dormant; re-enable is one line). The CORE binding patch — the actual data-loss
+fix — is independent and stays fully active. The quarantine needs a reliable,
+Collaboration-compatible trigger (e.g. compare the doc's used node/mark types
+against the registered schema at load, ourselves) before re-enabling — a 022
+candidate. The TipTap enableContentCheck + Collaboration interaction should be
+part of the upstream filing.

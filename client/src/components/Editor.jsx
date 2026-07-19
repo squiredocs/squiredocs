@@ -133,7 +133,18 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
     // Independent of the binding-hardening kill-switch. The options object is
     // recreated with every editor instance ([isMobile, provider] deps), so
     // recreation carries the check.
-    enableContentCheck: true,
+    //
+    // DISABLED 2026-07-19 (021 follow-up): enableContentCheck FALSE-POSITIVES
+    // under the Collaboration (Yjs) extension — content arrives through the
+    // y-prosemirror binding, not the setContent path this check was built for,
+    // so it quarantines fully schema-valid collaborative documents (observed
+    // locally: a plain README of paragraphs/lists/tables with bold/link marks
+    // tripped it and refresh did not clear it). Breaking editing on valid docs
+    // is worse than the mixed-version case this layer defends. The CORE binding
+    // patch (the real data-loss fix) is independent and stays active; only this
+    // over-aggressive quarantine is disabled until it has a reliable,
+    // false-positive-free trigger. onContentError is kept but dormant.
+    enableContentCheck: false,
     onContentError({ editor: erroredEditor, error, disableCollaboration }) {
       // Quarantine, never repair: no further local transactions may reach the
       // shared doc (the doc itself is untouched — refresh with a newer bundle
