@@ -31,15 +31,15 @@ The review flow becomes direct:
 - **Every change is attributed.** You can see which requirements the PM shaped and which the engineer wrote, so review is a record, not a guess.
 - **It syncs back through your coding agent.** The reconciled spec returns to the repository as markdown with no hand-merge — a job your coding agent does in one step, as the next section shows.
 
-## How the sync actually works
+## What you tell the agent
 
-Under the flow is a pair of plain HTTP calls against a scoped API token, and the natural thing to run them is the coding agent already working in your repo.
+You do not run the sync yourself. You tell the coding agent already working in your repo, in plain language, and it does it. Set it up once by giving the agent a scoped API token; after that the workflow is just prompts:
 
-- **Push the spec up.** The first time, send the repo file to Squire Docs to create the shared document: `POST /api/docs/import` with the markdown as the body. You get back a document link to share with your PM.
-- **Pull the review down.** After the PM edits, write the current document back to the spec's path: `GET /api/docs/:docId/export?format=markdown&frontmatter=true` into `specs/checkout-redesign/spec.md`. The `squire:` frontmatter it writes records the exact version you pulled, so the next push knows precisely what changed.
-- **Push repo edits back up.** If the engineer keeps editing the file, `PUT /api/docs/:docId/import?mode=sync` replays those edits as attributed changes anchored to the version you pulled, so they merge with the PM's browser edits instead of overwriting them.
+- **Create the shared doc:** "Push `specs/checkout-redesign/spec.md` up to Squire Docs and give me the share link." The agent uploads the file and hands back a link to send your PM.
+- **Pull the PM's review back:** "Sync the checkout spec down before you start." The agent reads the current document and updates the repo file, so your build sees exactly what the PM last edited.
+- **Send your own edits up:** "Push my spec changes up to Squire Docs." The agent's edits land as attributed changes that merge with whatever the PM did in the browser, instead of overwriting it.
 
-This is the kind of chore coding agents are made for. An agent like Claude Code or Kiro already lives in the repo, can hold a scoped token, and treats "pull the spec doc before you start" or "push my spec edits up for review" as a one-line request — no context switch, no reconciliation by hand. You keep writing specs as files; the agent keeps the file and the document pointed at the same content, so the version your PM reviews and the version your build reads never drift.
+Under the hood that is a GET to read the document and a PUT to push edits back, against a token scoped to your documents — but you never have to think about it. The agent lives in the repo, so keeping the file and the document in sync is a one-line request, and the version your PM reviews and the version your build reads never drift.
 
 ## Why this changes the review, not just the tooling
 
