@@ -14,7 +14,7 @@ We call the workflow "the pipeline." Here is what it does at a high level.
 
 **Claude** is the coding agent. It writes the spec, drafts the plan, implements the tasks, and reviews the result. Different stages run at different model sizes, matched to how much judgment each stage needs.
 
-**Squire Docs** holds the design. Every feature traces back to a design document, and those documents live in Squire, not in a static file that goes stale. The design is the ground truth the whole pipeline answers to. When we change a design, we change it in Squire first, then bring the code to match.
+**Squire Docs** holds the design. Every feature traces back to a design document, and those documents live in Squire Docs, not in a static file that goes stale. The design is the ground truth the whole pipeline answers to. When we change a design, we change it in Squire Docs first, then bring the code to match.
 
 **Spec Kit** provides the scaffolding. It is an open framework that breaks a feature into a repeatable sequence: specify, plan, tasks, then implement. Each step has a template, so the same rough idea becomes a clear spec, a technical plan, and a concrete task list in a predictable shape.
 
@@ -35,11 +35,11 @@ A human stays in the loop between stages. The agents do the work; a person decid
 
 ## Why the spec being a living document matters
 
-The part that makes this hold together is that the spec is not a file someone wrote once and forgot. It is a Squire document that syncs to the repository as markdown.
+The part that makes this hold together is that the spec is not a file someone wrote once and forgot. It is a Squire Docs document that syncs to the repository as markdown.
 
 That means the same spec a coding agent implements against is a document a product manager can open and edit in a browser. When the PM changes an acceptance criterion, the change is attributed and it flows back to the repository. The agent picks up the current spec, not a copy that drifted out of date three commits ago.
 
-Spec-driven development is only as good as the spec. Keeping the spec somewhere both your team and your agents can edit it, without copying it back and forth, is what keeps the whole loop honest.
+Spec-driven development is only as good as the spec. Keeping the spec somewhere both your team and your agents can edit it, without copying it back and forth, is what keeps the whole loop synchronized.
 
 ## Getting started
 

@@ -24,9 +24,9 @@ Keep the spec in a shared document tool instead. Now everyone can edit it, but t
 
 You are forced to choose between a spec your agents can work with and a spec your team can work with. I did not want to choose.
 
-## What Squire does differently
+## What Squire Docs does differently
 
-Squire holds one document that serves both sides.
+Squire Docs holds one document that serves both sides.
 
 **Agents make surgical edits.** An agent changes the specific part of the document it means to change and leaves the rest alone, the same way it edits a line of code. It does not replace the document to fix a sentence.
 
@@ -34,12 +34,12 @@ Squire holds one document that serves both sides.
 
 **Every edit is attributed.** You can see who changed what, whether the author was a person or an agent. Nothing lands anonymously.
 
-**The document syncs both ways to your repository.** The spec is a Squire document your PM can open in a browser and a markdown file that lives in your repo. Edit either side and the other follows. The repository copy and the working copy stay the same file.
+**The document syncs both ways to your repository.** The spec is a Squire Docs document your PM can open in a browser and a markdown file that lives in your repo. Edit either side and the other follows. The repository copy and the working copy stay the same file.
 
 ## Why it matters now
 
 Spec-driven development has become a mainstream way to build software. The idea is simple: write down what you want clearly enough that a coding agent can execute against it, then let it. The written spec is the interface between what a person intends and what an agent builds.
 
-That makes the document the most important artifact in the workflow, and it deserves a tool built for the job. It should be precise enough for an agent and open enough for the whole team. Squire Docs is my attempt at that tool, and we build Squire itself this way, with the design docs living in Squire and agents editing them alongside us.
+That makes the document the most important artifact in the workflow, and it deserves a tool built for the job. It should be precise enough for an agent and open enough for the whole team. Squire Docs is my attempt at that tool, and we build Squire Docs itself this way, with the design docs living in Squire Docs and agents editing them alongside us.
 
 If your specs live in the repo and the people who should edit them do not, that is the gap I built this to close.

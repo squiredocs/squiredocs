@@ -20,9 +20,9 @@ Say an engineer writes a spec as `specs/checkout-redesign/spec.md` and needs the
 
 In every version the same thing goes wrong. The spec and the review live in different places, and a person has to carry changes between them by hand. That person forgets things, and the copies drift.
 
-## How Squire removes it
+## How Squire Docs removes it
 
-In Squire the spec is a single document with two-way markdown sync to your repository. It is the file in your repo and the document your PM opens in a browser. They are the same thing, not two copies.
+In Squire Docs the spec is a single document with two-way markdown sync to your repository. It is the file in your repo and the document your PM opens in a browser. They are the same thing, not two copies.
 
 The review flow becomes direct:
 

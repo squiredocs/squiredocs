@@ -18,7 +18,7 @@ I was designing a data layer. It had a lot of moving parts: several external sys
 
 The coding agent I was working with already had the context: it had read the codebase and the design notes. So I asked it to do one more thing. Read the current architecture and draw it as a Mermaid diagram in the document.
 
-It wrote a diagram block. In Squire a Mermaid block renders live as the code is written, so a few seconds later the picture was sitting in the document under the prose it described. Here is roughly what the agent produced:
+It wrote a diagram block. In Squire Docs a Mermaid block renders live as the code is written, so a few seconds later the picture was sitting in the document under the prose it described. Here is roughly what the agent produced:
 
 ```mermaid
 graph TD
@@ -61,11 +61,11 @@ The diagram was worth drawing because of where it lived and how it behaved.
 
 ## Mermaid and SVG
 
-Squire has two diagram blocks, and they cover two needs.
+Squire Docs has two diagram blocks, and they cover two needs.
 
 **Mermaid** is for structure: architecture, flows, sequences, state. You describe the shape in a few lines of code and the layout is handled for you, which is exactly what makes it cheap for an agent to write and rewrite. Most of the iterating above was Mermaid.
 
-**SVG** is for when you need exact control over the drawing. An agent can write raw SVG into an SVG block, and Squire sanitizes it on render, stripping scripts, event handlers, and references to outside resources, so a diagram written by an agent or a collaborator cannot do anything but draw.
+**SVG** is for when you need exact control over the drawing. An agent can write raw SVG into an SVG block, and Squire Docs sanitizes it on render, stripping scripts, event handlers, and references to outside resources, so a diagram written by an agent or a collaborator cannot do anything but draw.
 
 ## The payoff
 
