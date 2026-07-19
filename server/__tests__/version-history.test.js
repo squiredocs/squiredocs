@@ -1290,5 +1290,30 @@ describe('version-history module', () => {
         getVersionContent(mockPersistence, 'test-doc', '999')
       ).rejects.toThrow(/out of range 1-15/);
     });
+
+    // SECURITY regression (review F1): a named version UUID must be scoped to
+    // docGuid. Without the guard, read_document({docGuid: A, versionId: <B's>})
+    // (and restore/compare, which call this) leak another user's doc content.
+    test('named version whose doc_id differs from docGuid is rejected (F1 cross-doc leak)', async () => {
+      const victimVersionId = '11111111-2222-3333-4444-555555555555';
+      mockPersistence.getVersionById = async (id) => ({
+        id, doc_id: 'victim-doc-B', // belongs to a DIFFERENT document
+        name: 'B secret', clock_start: 1, clock_end: 5,
+        created_at: new Date(), snapshot_data: Buffer.from('secret B content'),
+      });
+      await expect(
+        getVersionContent(mockPersistence, 'attacker-doc-A', victimVersionId)
+      ).rejects.toThrow('Version not found');
+    });
+
+    test('named version whose doc_id matches docGuid resolves (F1 positive control)', async () => {
+      const ownVersionId = '11111111-2222-3333-4444-555555555555';
+      mockPersistence.getVersionById = async (id) => ({
+        id, doc_id: 'test-doc', name: 'v1', clock_start: 1, clock_end: 10,
+        created_at: new Date(), snapshot_data: null, // fall through to clock rebuild
+      });
+      const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
+      expect(result).toHaveProperty('content');
+    });
   });
 });

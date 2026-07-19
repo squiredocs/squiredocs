@@ -563,7 +563,13 @@ async function getVersionContent(persistence, docGuid, versionId) {
   // Check if it's a named version (UUID format)
   if (versionId.match(/^[0-9a-f-]{36}$/i)) {
     const namedVersion = await persistence.getVersionById(versionId);
-    if (!namedVersion) {
+    // SECURITY: scope the version to docGuid. getVersionById looks up by
+    // version id alone, and access is checked only on the passed docGuid — so
+    // without this, read_document({docGuid: A, versionId: <B's version>}) (and
+    // restore/compare) would return another user's document B content. Same
+    // guard set-document-version-name already applies. Indistinguishable
+    // "not found" wording so a foreign id leaks nothing.
+    if (!namedVersion || namedVersion.doc_id !== docGuid) {
       throw new Error('Version not found');
     }
     clockEnd = namedVersion.clock_end;

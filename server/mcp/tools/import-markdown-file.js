@@ -142,7 +142,33 @@ function buildCommand({ intent, docGuid, claimSecret, claimUrl, baseUrl }) {
  * @param {object} agentToken - Authenticated principal (agent JWT or API token)
  * @returns {Promise<object>} { command, intent, docGuid?, claimExpiresInSeconds, message, guidance }
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function handler(args, agentToken) {
+  // SECURITY (review F3): docGuid is interpolated into the server-blessed shell
+  // command (the whole point of the tool is "run this as-is"), and
+  // validateToolArgs does not enforce the schema's uuid format. A non-UUID
+  // value could inject shell. Validate here before any interpolation.
+  if (args.docGuid !== undefined && !(typeof args.docGuid === 'string' && UUID_RE.test(args.docGuid))) {
+    throw new Error(
+      `Invalid parameters for tool '${name}': 'docGuid' must be a document UUID.`
+    );
+  }
+
+  // SECURITY (review F2): the recipe mints [read,write]; cap it at the caller's
+  // own scopes so a write-only principal (e.g. an ingest-only token) can't
+  // escalate to read and export every doc. create_access_token enforces the
+  // same invariant.
+  const granted = agentToken.scopes || [];
+  const exceeding = MINT_SCOPES.filter((s) => !granted.includes(s));
+  if (exceeding.length > 0) {
+    throw new Error(
+      `Insufficient scope: import_markdown_file mints a token with ${MINT_SCOPES.map((s) => `'${s}'`).join(' + ')}, `
+      + `but your credential grants only ${granted.length ? granted.map((s) => `'${s}'`).join(', ') : '(none)'}. `
+      + `Use a credential with both documents:read and documents:write.`
+    );
+  }
+
   const intent = resolveIntent(args.intent, args.docGuid);
 
   const tokenName =
