@@ -30,23 +30,33 @@ Write the requirements the way Kiro expects them. Kiro uses user stories with ac
 
 Keep one document per feature, matching one `.kiro/specs/<feature>/` folder.
 
+If the requirements already exist as a file — Kiro scaffolds a `requirements.md`, or you drafted one in the repo — don't retype it into the editor. Squire imports markdown over a single HTTP call, so an existing file goes straight up into a new, shareable document. And you don't have to make that call yourself: ask Kiro.
+
+> "Import `.kiro/specs/bulk-export/requirements.md` into Squire and give me the share link."
+
+Kiro has your API token, hits the import endpoint (`POST /api/docs/import`), and hands back a document you can share.
+
 ## Step 2: Share it with your team for input
 
 Share the document with the people who should shape the requirements: your PM, a designer, whoever owns the outcome. They can read, comment, and edit directly in the browser. You do not have to translate their feedback out of a comment thread and back into the spec by hand, because they are editing the spec.
 
 Because every edit is attributed, you can see which requirements came from whom when you review.
 
-## Step 3: Sync the document to your repo
+## Step 3: Keep the document and the repo in sync
 
-Export the document to the path Kiro reads. Squire syncs documents to markdown over a simple HTTP call with an API token, so you can write the current version straight to `.kiro/specs/bulk-export/requirements.md`.
+The Squire document and `.kiro/specs/bulk-export/requirements.md` are two views of the same content, kept together by two HTTP calls — and the point is that your agent runs them, not you. One time, create an API token under **Settings → API Tokens** and give it to Kiro. After that you ask in plain language and the agent takes care of the sync.
 
-Do this whenever the requirements change. The markdown file and the Squire document hold the same content, so Kiro always sees what your team last agreed on.
+**Pull the team's edits down to the repo.** When your PM revises the document, write the current version back to the path Kiro reads: `GET /api/docs/:docId/export?format=markdown&frontmatter=true` straight into `.kiro/specs/bulk-export/requirements.md`. The frontmatter records the exact version you pulled, so a later push knows precisely what changed.
+
+**Push repo edits back up to Squire.** If you or Kiro change the file directly, send it up with `PUT /api/docs/:docId/import?mode=sync`. Sync mode replays your file's edits as attributed changes anchored to the version you pulled, so they merge cleanly with whatever your team edited in the browser meanwhile — no clobbering, no manual reconciliation.
+
+You do not have to remember any of this. Tell Kiro "sync the requirements doc down before you start" or "push my requirements edits up to Squire," and the agent makes the call. The file and the document hold the same content, so Kiro always builds against what your team last agreed on.
 
 ## Step 4: Let Kiro take it from requirements to design and tasks
 
 Point Kiro at the feature and let it work. It reads `requirements.md` and generates the design and the task list, then implements against them.
 
-When Kiro or a review turns up a requirement that needs to change, change it back in the Squire document, re-sync, and let the team see the update. The document stays the single place the requirements live, and the repository copy follows it.
+When Kiro or a review turns up a requirement that needs to change, change it in the Squire document and ask Kiro to sync it down before the next run. The team sees the update in the document, the repository copy follows, and the requirements stay in one place instead of drifting between a file and a doc.
 
 ## The result
 
