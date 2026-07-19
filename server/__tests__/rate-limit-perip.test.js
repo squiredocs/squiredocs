@@ -10,6 +10,7 @@ process.env.RL_TEST_ENABLE = '1';
 process.env.RL_FORCE_MEMORY = '1';
 process.env.RL_AUTH_PER_MIN = '3';
 process.env.RL_CHAT_PER_MIN = '2';
+process.env.RL_VERSION_HISTORY_PER_MIN = '3';
 
 const request = require('supertest');
 const express = require('express');
@@ -29,6 +30,9 @@ function buildApp() {
   // Per-user limited route (fake auth sets req.user).
   const fakeAuth = (req, res, next) => { req.user = { userId: req.get('x-user') || 'user-a' }; next(); };
   app.post('/api/chat', fakeAuth, rateLimit.perUser('chat'), (req, res) => res.json({ ok: true }));
+
+  // Version-history class (F8): the /history* and /versions* routes mount this.
+  app.get('/api/docs/:docId/history', fakeAuth, rateLimit.perUser('versionHistory'), (req, res) => res.json({ ok: true }));
 
   return app;
 }
@@ -62,6 +66,21 @@ describe('rate limit — per-IP & per-user (FR-005/006/009)', () => {
 
     // A different user is unaffected.
     const other = await request(app).post('/api/chat').set('x-user', 'user-b');
+    expect(other.status).toBe(200);
+  });
+
+  it('version-history class: over-budget per user → 429; a different user is unaffected (F8)', async () => {
+    // Budget is 3/min per user.
+    for (let i = 0; i < 3; i++) {
+      const ok = await request(app).get('/api/docs/doc-1/history').set('x-user', 'vh-user');
+      expect(ok.status).toBe(200);
+    }
+    const limited = await request(app).get('/api/docs/doc-1/history').set('x-user', 'vh-user');
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({ error: 'Rate limit exceeded. Retry later.' });
+
+    // A different user still has full budget.
+    const other = await request(app).get('/api/docs/doc-1/history').set('x-user', 'vh-user-2');
     expect(other.status).toBe(200);
   });
 

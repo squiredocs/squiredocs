@@ -1200,7 +1200,7 @@ app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
 // ==================== Version History API ====================
 
 // API: Get version history timeline for a document
-app.get('/api/docs/:docId/history', requireAuth, async (req, res) => {
+app.get('/api/docs/:docId/history', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId } = req.params;
     const userId = req.user.userId;
@@ -1221,7 +1221,7 @@ app.get('/api/docs/:docId/history', requireAuth, async (req, res) => {
 });
 
 // API: Get individual updates within a clock range (for drill-down)
-app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
+app.get('/api/docs/:docId/history/updates', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId } = req.params;
     const { from, to } = req.query;
@@ -1252,7 +1252,7 @@ app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
 });
 
 // API: Get document content at a specific clock value
-app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) => {
+app.get('/api/docs/:docId/history/clock/:clock', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId, clock } = req.params;
     const userId = req.user.userId;
@@ -1282,7 +1282,7 @@ app.get('/api/docs/:docId/history/clock/:clock', requireAuth, async (req, res) =
 
 // API: Get full document with history for version diff comparison
 // Returns the full document (gc:false) and snapshots at specified clock positions
-app.get('/api/docs/:docId/history/diff', requireAuth, async (req, res) => {
+app.get('/api/docs/:docId/history/diff', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId } = req.params;
     const { currentClock, previousClock } = req.query;
@@ -1337,7 +1337,7 @@ app.use(createImportRouter(persistenceProvider));
 app.use(createTokenClaimRouter());
 
 // API: Get document content at a specific version
-app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+app.get('/api/docs/:docId/versions/:versionId', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId, versionId } = req.params;
     const userId = req.user.userId;
@@ -1361,7 +1361,7 @@ app.get('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
 });
 
 // API: Restore document to a previous version (creates new version)
-app.post('/api/docs/:docId/restore', requireAuth, async (req, res) => {
+app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId } = req.params;
     const { versionId } = req.body;
@@ -1498,7 +1498,7 @@ app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
 });
 
 // API: Create a named version
-app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
+app.post('/api/docs/:docId/versions', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId } = req.params;
     const { name, clockEnd } = req.body;
@@ -1588,7 +1588,7 @@ app.post('/api/docs/:docId/versions', requireAuth, async (req, res) => {
 });
 
 // API: Rename a version
-app.put('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+app.put('/api/docs/:docId/versions/:versionId', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId, versionId } = req.params;
     const { name } = req.body;
@@ -1616,7 +1616,7 @@ app.put('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) =>
 });
 
 // API: Delete a named version (returns to auto-grouping)
-app.delete('/api/docs/:docId/versions/:versionId', requireAuth, async (req, res) => {
+app.delete('/api/docs/:docId/versions/:versionId', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
   try {
     const { docId, versionId } = req.params;
     const userId = req.user.userId;

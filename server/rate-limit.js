@@ -35,6 +35,11 @@ const CLASSES = {
   // so a healthy client sends at most a few per minute; 30/min absorbs bursts
   // from a badly broken document without letting a hostile client log-flood.
   collabSkip:        { keyPrefix: 'rl:collabskip:user', points: num('RL_COLLAB_SKIP_PER_MIN', 30),     duration: MIN },
+  // Version-history read/write endpoints (/history*, /versions*, /restore).
+  // Timeline + drill-down + diff loads fan out several requests per panel open,
+  // so 60/min per user absorbs normal interactive browsing while capping a
+  // client that hammers the (doc-reconstruction-heavy) diff/clock endpoints.
+  versionHistory:    { keyPrefix: 'rl:versionhistory:user', points: num('RL_VERSION_HISTORY_PER_MIN', 60), duration: MIN },
 };
 
 function num(envVar, def) {
