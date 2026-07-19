@@ -24,17 +24,18 @@ function init() {}
  */
 const name = 'create_document';
 
-const description = `Create a new document, optionally seeded from markdown.
+const description = `Create a new document from content you are authoring — NOT for syncing/importing an existing markdown file (use import_markdown_file for that).
 
 IF THE MARKDOWN ALREADY EXISTS AS A FILE (or any bytes outside your context):
-do NOT retype it through this tool's markdown parameter — prefer the REST
-import route (POST /api/docs/import; PUT /api/docs/:docId/import for
-updates). It moves the bytes over HTTP without transiting model context,
+do NOT retype it through this tool's markdown parameter. Even if you have
+already read the file, the file remains the source of truth — use the byte
+channel: call import_markdown_file for a ready-to-run one-shot recipe, or
+mint with create_access_token({ scopes: ["documents:read",
+"documents:write"] }) and POST /api/docs/import (PUT /api/docs/:docId/import
+for updates). It moves the bytes over HTTP without transiting model context,
 returns a canonical-markdown receipt for exact verification, and with
 frontmatter=true the receipt written back over your file makes the new doc
-sync-ready from birth. Mint a token with create_access_token({ scopes:
-["documents:read", "documents:write"] }), then see
-get_tool_documentation({ tool: "rest_api" }).
+sync-ready from birth. See get_tool_documentation({ tool: "rest_api" }).
 
 ONE-CALL CREATION FROM MARKDOWN (preferred when you are authoring the
 content in-context):
@@ -53,13 +54,8 @@ modify or read_document):
 1. create_document({ title: "My Doc" })     → Creates empty document
 2. modify({ script: "add heading..." })     → Add title/heading first
 3. modify({ script: "add section 1..." })   → Add first section
-
-WHY INCREMENTAL (for authoring new content):
-- User sees content appear progressively (better UX)
-- Each change syncs immediately to all viewers
-- Smaller scripts are more reliable
-- Easier to recover from errors (partial content preserved)
-- Natural undo boundaries (each modify = one undo step)`;
+Why incremental: progressive display, live sync to viewers, more reliable
+small scripts, and natural undo boundaries (each modify = one undo step).`;
 
 
 const inputSchema = {
@@ -74,7 +70,9 @@ const inputSchema = {
       type: 'string',
       description: 'Optional markdown to seed the document with. Imported as '
         + 'rich blocks via the shared import pipeline; the first heading stays '
-        + 'in the body.',
+        + 'in the body. Do NOT retype markdown that already exists as a file — '
+        + 'import the file over the REST byte channel instead '
+        + '(import_markdown_file / POST /api/docs/import).',
     },
   },
   required: [],

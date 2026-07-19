@@ -65,13 +65,15 @@ const name = 'modify';
 const description = `Modify the document using a TypeScript script.
 
 REQUIRED READING: This is a summary. The full scripting API reference
-(helpers, XPath targeting, Yjs API, examples, pitfalls) is too large for MCP
-tool descriptions — call get_tool_documentation({ tool: "modify" }) BEFORE
-writing your first script.
+(helpers, XPath targeting, Yjs API, examples, pitfalls, and the
+non-negotiable scripting rules) is too large for MCP tool descriptions —
+call get_tool_documentation({ tool: "modify" }) BEFORE writing your first
+script.
 
-Replacing content from an EXISTING markdown file? Don't retype it in a
-script — PUT /api/docs/:docId/import is byte-faithful; see
-get_tool_documentation({ tool: "rest_api" }).
+Replacing or syncing content from an EXISTING markdown file? Don't retype it
+in a script — PUT /api/docs/:docId/import (mode=replace / mode=sync) is
+byte-faithful; import_markdown_file returns a ready-to-run recipe, and
+get_tool_documentation({ tool: "rest_api" }) has the full REST reference.
 
 SCRIPT CONTRACT: the script must export a default function that receives the
 document root:
@@ -79,18 +81,10 @@ document root:
 It runs sandboxed with the Yjs API plus built-in helpers (appendBlocks,
 createFormattedText, xpath, findByText, ...). All changes are atomic (entire
 script = one undo step) and sync to viewers in real time; on error everything
-rolls back.
-
-NON-NEGOTIABLE RULES:
-- Target elements with XPath, e.g. xpath('//heading[@level=2]') — NEVER
-  positional indexing (doc.get(n)); positions shift in collaborative docs.
-- Prefer helpers: appendBlocks() to add blocks, createFormattedText() for
-  mixed formatting, extractText() to read text (not toString()).
-- Build documents incrementally across MULTIPLE small modify calls (one
-  section per call). Never delete everything and recreate — it breaks
-  collaboration and undo history; transform existing blocks in place.
-- Unsure of the document structure? read_document with format:"structured"
-  first.
+rolls back. Target elements with XPath, never positional indexing (positions
+shift in collaborative docs); build documents incrementally across MULTIPLE
+small modify calls; unsure of the structure? read_document with
+format:"structured" first.
 
 PARAMETERS:
 - docGuid: Document UUID (required)

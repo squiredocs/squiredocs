@@ -178,13 +178,14 @@ const SERVER_INSTRUCTIONS =
   + '{ tool: "compare_document_versions" }) before writing your first script. '
   + 'Read documents with read_document (optionally XPath-filtered); build '
   + 'documents incrementally with multiple small modify calls. CHANNEL RULE: '
-  + 'markdown that already exists as bytes outside the model (a file on '
-  + 'disk, another tool\'s output) should move over the REST byte channel — '
-  + 'import AND export over HTTP via curl + an sk_sqd_ API token, '
-  + 'byte-faithful, zero model involvement — never retyped through tool '
-  + 'parameters like create_document({ markdown }). Model context should '
-  + 'only carry content you are creating or transforming. Mint a token '
-  + 'yourself with create_access_token, then see '
+  + 'to sync/import an existing file — markdown that already exists as bytes '
+  + 'outside the model (a file on disk, another tool\'s output) — move it '
+  + 'over the REST byte channel: import AND export over HTTP via curl + an '
+  + 'sk_sqd_ API token, byte-faithful, zero model involvement — never '
+  + 'retyped through tool parameters like create_document({ markdown }). '
+  + 'Model context should only carry content you are creating or '
+  + 'transforming. The import_markdown_file tool returns a ready-to-run '
+  + 'recipe; or mint a token yourself with create_access_token, then see '
   + 'get_tool_documentation({ tool: "rest_api" }).';
 
 /**
