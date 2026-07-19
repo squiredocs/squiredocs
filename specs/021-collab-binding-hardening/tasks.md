@@ -226,7 +226,7 @@ covered via the single choke point.
       `server/__tests__/attribution-bug.test.js`, `server/__tests__/origin.test.js`,
       `__tests__/integration/collaboration.test.js` (serial), full `client` vitest suite —
       all green with zero test-file edits (green-path behavior bit-identical).
-- [ ] T020 [P] Documentation (constitution I): update `ReadMe.md` collaboration section —
+- [X] T020 [P] Documentation (constitution I): update `ReadMe.md` collaboration section —
       binding patch (what/why, patch-package + guard, kill-switch admin flip), guardrail
       alert, gap-tolerant reads; note the new env vars (data-model.md table) in the
       relevant config docs; verify `docs/dev.md` needs no change (no new local-dev steps

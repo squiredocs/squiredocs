@@ -268,6 +268,11 @@ for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
 - `SES_SMTP_USER`: SES SMTP username
 - `SES_SMTP_PASS`: SES SMTP password
 - `S3_IMAGE_BUCKET` / `S3_IMAGE_REGION`: Dedicated S3 bucket + region for document image storage (optional; image uploads are disabled if unset). Use a separate bucket from DB backups.
+- `GUARDRAIL_FRESHNESS_SECONDS`: Collaboration guardrail freshness window in seconds (default: `10`) — a human-attributed update deleting agent content created within this window raises the `collab-guardrail` alert (feature 021)
+- `GUARDRAIL_SUPPRESSION_MS`: Guardrail alert suppression window per (doc, user) pair in ms (default: `300000`); suppressed matches are counted and carried on the next alert
+- `COLLAB_READ_GAP_RETRIES`: Max full re-fetches when `getYDoc` detects a clock gap in the update log (default: `2`; feature 021)
+- `COLLAB_READ_GAP_RETRY_DELAYS_MS`: Comma-separated waits between gap-read retries in ms (default: `100,300`)
+- `RL_COLLAB_SKIP_PER_MIN`: Per-user rate limit for the render-skip beacon `POST /api/collab/render-skip-report` (default: `30`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: IAM credentials for the document image bucket (`s3:PutObject`/`GetObject`/`DeleteObject`)
 
 Example using connection string:
@@ -350,6 +355,61 @@ The server is instrumented with vendor-neutral **OpenTelemetry** (feature 014):
 The Collector, monitoring node (OpenObserve), dashboards, and alarms are the
 observability platform (feature 013) — see `design/observability-and-telemetry.md`
 and `docs/operations.md`.
+
+### Collaboration Binding Hardening (feature 021)
+
+The collaborative editor binding must never destroy remote content. Stock
+`@tiptap/y-tiptap` has two self-repair paths that can delete *shared* content
+from a merely-watching viewer's browser and attribute the deletion to that
+viewer (confirmed incident, 2026-07-18): the render catch-blocks delete the
+shared element/text on a render failure, and an unguarded selection-restore
+abort plus an ungated editor→Yjs diff can "correct" the shared doc back to a
+stale view. Three defenses (design ground truth:
+`design/collaboration-core.md`, 021 amendments + Addition):
+
+- **Binding patch (client)** — `@tiptap/y-tiptap` is exact-pinned to `3.0.7`
+  and patched via **patch-package**: `client/patches/@tiptap+y-tiptap+3.0.7.patch`
+  is applied by the client `postinstall` (`patch-package --error-on-fail`, so a
+  bump without a rebased patch fails the install loudly). Five `SQUIRE-021:`
+  sentinel sites: render failures attempt a `createAndFill` stand-in then
+  log-and-skip (never mutate the shared doc; bounded once-per-element logging +
+  a server-side skip report); selection restore is exception-guarded with a
+  clamped near-fallback; the editor→Yjs write-back only runs when the
+  transaction actually changed the doc; detected divergence re-renders FROM
+  Yjs; and a tracked-skip registry makes skipped nodes invisible to the PM→Y
+  diff so a later legitimate edit can't delete them "through the front door".
+  A drift-guard test (`client/src/__tests__/binding-patch-guard.test.js`) pins
+  the version, the sentinels, and the patch file (SC-007).
+- **Runtime kill-switch** — all four patched behaviors revert to verbatim
+  stock via one flag, no rebuild: `app_settings.collab_binding_hardening`
+  (absent = ON), flipped with `PUT /api/admin/settings/collab-binding-hardening
+  {"enabled":false}` and delivered to browsers by `GET /api/client-config` →
+  `globalThis.__SQUIRE_COLLAB_HARDENING__` (read live; at most a page refresh
+  to take effect; fetch failure fails safe to hardened). The guardrail and the
+  quarantine layer are independent of this flag.
+- **Quarantine second layer** — TipTap `enableContentCheck`/`onContentError`
+  on the editor: a whole-doc schema mismatch (doc uses node types this bundle
+  lacks) disables collaboration, makes the editor read-only, and shows a
+  refresh banner instead of letting anything "repair" shared content.
+- **Skip observability** — skip/stand-in events are batched to the
+  authenticated beacon `POST /api/collab/render-skip-report` (content-free:
+  node type + error class + count only), which logs a `[CollabSkipReport]`
+  line and increments the `collab.render_skip.reports` OTel counter.
+- **Server guardrail (detection, never prevention)** — after each
+  human-attributed update persists, `server/collab-guardrail.js` intersects
+  its Yjs delete set with item ranges inserted by agent-attributed rows
+  younger than ~10 s; a match raises an exception-notifier alert (doc, human,
+  agent, DB clock range — feature-016 invertible) with per-(doc,user)
+  suppression. It never blocks, delays, or modifies updates.
+- **Gap-tolerant reads** — `getYDoc` detects clock gaps within the fetched
+  rows (a read racing a mid-commit row), retries the full fetch briefly
+  (≤2 retries, ~100/300 ms), then serves as-is with a
+  `served with clock gap` log line; gap-free reads are unchanged.
+
+Env knobs (all optional): `GUARDRAIL_FRESHNESS_SECONDS` (default `10`),
+`GUARDRAIL_SUPPRESSION_MS` (default `300000`), `COLLAB_READ_GAP_RETRIES`
+(default `2`), `COLLAB_READ_GAP_RETRY_DELAYS_MS` (default `100,300`),
+`RL_COLLAB_SKIP_PER_MIN` (skip-beacon rate limit, default `30`).
 
 ## Usage
 
