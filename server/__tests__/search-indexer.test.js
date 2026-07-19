@@ -450,6 +450,20 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
     }
 
     beforeAll(async () => {
+      // reindexStale() scans the WHOLE shared test DB, so legacy/stale docs
+      // leaked by an earlier suite in the same serial run break T012b's exact
+      // "embedded once" count. Heal so ONLY this block's fixtures are
+      // repair-eligible (same guard the gating suite already uses; the leaked
+      // rows here are from other suites whose own assertions have finished).
+      await pool.query(
+        `UPDATE document_search_index SET indexed_at = now() WHERE doc_id IN (SELECT id FROM documents)`
+      );
+      await pool.query('UPDATE document_embeddings SET embedding_model = $1', [EMBEDDING_MODEL]);
+      // Leaked legacy rows (embedded_text IS NULL) from finished suites are
+      // reindexStale-eligible via the rollout predicate — remove them so only
+      // this block's docLegacy is re-chunked. Safe: those suites are done.
+      await pool.query('DELETE FROM document_embeddings WHERE embedded_text IS NULL');
+
       docLegacy = await createDoc('Legacy Rollout Doc', [
         { h: 1, text: 'Legacy Heading' },
         'legacy walrus content that was indexed under the fixed-window scheme.',
@@ -535,11 +549,15 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
     const chunks = await getChunks(docGuid);
     expect(chunks.length).toBe(1); // short doc → one fixed window
     const chunk = chunks[0];
-    expect(chunk.heading_path).toEqual([]); // '{}' — no trails in the old pipeline
+    // Post-018-review (F1/F2): fixed-baseline rows are written as byte-faithful
+    // LEGACY-MARKER rows — all 018 columns NULL — so the baseline never matches
+    // the chunk-keyword leg it didn't have pre-018, and an interrupted sweep
+    // self-heals them via the legacy-repair predicate. The embedding still
+    // covers the bare chunk text (title-free), as the old pipeline did.
+    expect(chunk.heading_path).toBeNull();
     expect(chunk.preamble_text).toBeNull();
-    // The old pipeline embedded bare chunk text: no title header
-    expect(chunk.embedded_text).toBe(chunk.chunk_text);
-    expect(chunk.embedded_text.startsWith('Fixed Baseline Doc')).toBe(false);
+    expect(chunk.embedded_text).toBeNull();   // legacy marker — no title header embedded
+    expect(chunk.has_vector).toBe(false);     // no chunk-keyword search_vector on the baseline
     expect(chunk.embedding_model).toBe(EMBEDDING_MODEL);
 
     // Restore the structure scheme for any later tests

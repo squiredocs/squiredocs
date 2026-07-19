@@ -379,6 +379,10 @@ describe('search indexer content-hash gating (017)', () => {
          WHERE doc_id IN (SELECT id FROM documents)`
       );
       await pool.query('UPDATE document_embeddings SET embedding_model = $1', [EMBEDDING_MODEL]);
+      // 018 added the legacy predicate (embedded_text IS NULL) to reindexStale,
+      // so leaked NULL-embedded rows from other suites also trigger repair —
+      // remove them or the exact embed-count assertions inflate.
+      await pool.query('DELETE FROM document_embeddings WHERE embedded_text IS NULL');
     }
 
     test('watermark 3: reindexStale selects missing-row, edit-stale, and model-stale docs — fresh docs cost zero calls (FR-010/011, SC-002)', async () => {
