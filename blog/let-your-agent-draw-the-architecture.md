@@ -136,4 +136,4 @@ Sources for the reconstruction: [InfoQ's report on the leak](https://www.infoq.c
 
 I do this all the time when I am exploring or building something — reading my way into an unfamiliar codebase, sketching a design before I write it, or explaining a subsystem to someone about to work in it. The picture is faster to produce than a paragraph and faster to understand.
 
-You can ask Claude Code to do the same thing in your repo: point it at the code and ask for the picture, then talk to it until the picture is right. You will understand your own architecture faster, and so will everyone you show it to.
+The diagrams above began as a Squire document an agent wrote. Connect Claude Code to Squire Docs and you can do the same in your own repo: point it at the code and ask it to draw the architecture into a document. The Mermaid renders live as the agent writes it, sits right next to the explanation, and iterating is just a conversation — tell it what is off and watch it redraw. You will understand your own architecture faster, and so will everyone you share the document with.
