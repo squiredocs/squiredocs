@@ -2,9 +2,6 @@ import React, { useState } from 'react';
 import { generateColorFromId } from '../utils/colorUtils';
 import './HierarchicalVersionList.css';
 
-// Maximum number of individual clock updates to show before combining
-const MAX_VISIBLE_UPDATES = 20;
-
 /**
  * Format date and time for version/update display
  * @param {string|Date} timestamp - ISO timestamp string or Date
@@ -195,46 +192,6 @@ function subVersionToItem(subVersion) {
 }
 
 /**
- * Combined sub-versions item - represents multiple older sub-versions collapsed into one
- */
-function CombinedSubVersionsItem({ subVersions, isSelected, onClick }) {
-  // Collect unique authors from all combined sub-versions
-  const authorsMap = new Map();
-  for (const sv of subVersions) {
-    for (const author of (sv.authors || [])) {
-      const key = `${author.id}-${author.isAgent ? 'agent' : 'user'}`;
-      if (!authorsMap.has(key)) {
-        authorsMap.set(key, author);
-      }
-    }
-  }
-  const authors = Array.from(authorsMap.values());
-
-  const oldestSv = subVersions[subVersions.length - 1];
-  const newestSv = subVersions[0];
-
-  return (
-    <div
-      className={`hierarchy-item hierarchy-update hierarchy-combined ${isSelected ? 'selected' : ''}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-    >
-      <div className="hierarchy-item-content">
-        <div className="hierarchy-version-time">
-          {subVersions.length} earlier edits
-        </div>
-        <div className="hierarchy-item-subtitle">
-          Clocks {oldestSv.clockStart}–{newestSv.clockEnd}
-        </div>
-        <AuthorList authors={authors} maxDisplay={3} />
-      </div>
-    </div>
-  );
-}
-
-/**
  * Unified history item component - renders both versions and clock updates
  */
 function HistoryItem({
@@ -313,6 +270,7 @@ function HierarchicalVersionList({
   onSelectUpdate,
   onLoadUpdates,
   versionUpdates = {},
+  versionUpdatesMeta = {},
   loadingVersionUpdates = {},
   onCreateNamedVersion,
   onRenameVersion,
@@ -465,7 +423,7 @@ function HierarchicalVersionList({
                           <div className="hierarchy-loading">Loading updates...</div>
                         ) : updates && updates.length > 0 ? (
                           <>
-                            {updates.slice(0, MAX_VISIBLE_UPDATES).map((subVersion) => {
+                            {updates.map((subVersion) => {
                               const subVersionItem = subVersionToItem(subVersion);
                               const menuKey = `sub-${subVersion.id}`;
                               return (
@@ -483,12 +441,10 @@ function HierarchicalVersionList({
                                 />
                               );
                             })}
-                            {updates.length > MAX_VISIBLE_UPDATES && (
-                              <CombinedSubVersionsItem
-                                subVersions={updates.slice(MAX_VISIBLE_UPDATES)}
-                                isSelected={selection?.isSubVersion && updates.slice(MAX_VISIBLE_UPDATES).some(sv => sv.id === selection?.id)}
-                                onClick={() => onSelectUpdate(updates[MAX_VISIBLE_UPDATES])}
-                              />
+                            {versionUpdatesMeta[version.id]?.hasMore && (
+                              <div className="hierarchy-updates-more">
+                                Showing {updates.length} of {versionUpdatesMeta[version.id].total} edits
+                              </div>
                             )}
                           </>
                         ) : (

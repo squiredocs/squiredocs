@@ -21,6 +21,7 @@ function VersionHistoryPanel({
   onSelectUpdate,
   onLoadUpdates,
   versionUpdates = {},
+  versionUpdatesMeta = {},
   loadingVersionUpdates = {},
   // Diff highlighting toggle
   showDiffHighlights = true,
@@ -93,6 +94,7 @@ function VersionHistoryPanel({
           onSelectUpdate={onSelectUpdate}
           onLoadUpdates={onLoadUpdates}
           versionUpdates={versionUpdates}
+          versionUpdatesMeta={versionUpdatesMeta}
           loadingVersionUpdates={loadingVersionUpdates}
           onCreateNamedVersion={onCreateNamedVersion}
           onRenameVersion={onRenameVersion}

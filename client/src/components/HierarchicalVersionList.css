@@ -270,6 +270,14 @@
   font-size: var(--text-base);
 }
 
+.hierarchy-updates-more {
+  padding: 6px 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm, var(--text-base));
+  font-style: italic;
+}
+
 .hierarchy-empty-state {
   padding: 40px 20px;
   text-align: center;

@@ -1241,7 +1241,9 @@ app.get('/api/docs/:docId/history/updates', requireAuth, async (req, res) => {
     }
 
     const result = await versionHistory.getUpdatesForVersion(persistenceProvider, docId, clockStart, clockEnd);
-    res.json({ updates: result.subversions });
+    // Pass hasMore/total through so the client can honestly indicate when a
+    // version has more edits than were returned (server limit defaults to 10).
+    res.json({ updates: result.subversions, total: result.total, hasMore: result.hasMore });
   } catch (error) {
     console.error('Error getting version updates:', error);
     notifyException(error, { req, source: 'api' });

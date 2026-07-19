@@ -1379,6 +1379,19 @@ describe('version-history module', () => {
       }
     });
 
+    test('returns total and hasMore so the drill-down route can forward them (F5)', async () => {
+      // Three sub-groups, limit 2 => two returned, total 3, hasMore true.
+      const { subversions, total, hasMore } = await getUpdatesForVersion(mockPersistence, 'doc', 1, 9, 2);
+      expect(subversions).toHaveLength(2);
+      expect(total).toBe(3);
+      expect(hasMore).toBe(true);
+
+      // Default limit (10) comfortably fits three groups => hasMore false.
+      const all = await getUpdatesForVersion(mockPersistence, 'doc', 1, 9);
+      expect(all.total).toBe(3);
+      expect(all.hasMore).toBe(false);
+    });
+
     test('oldest sub-version reports previousClock -1 when the range starts at clock 0', async () => {
       const zeroStart = {
         getUpdatesInRange: async () => [

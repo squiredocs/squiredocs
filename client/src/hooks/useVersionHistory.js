@@ -59,6 +59,7 @@ export function useVersionHistory(docGuid) {
 
   // Hierarchical drill-down state
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
+  const [versionUpdatesMeta, setVersionUpdatesMeta] = useState({}); // { versionId: { total, hasMore } }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
 
   // Monotonic request sequence for diff loads. selectVersion/selectUpdate fire
@@ -87,6 +88,7 @@ export function useVersionHistory(docGuid) {
       // Clear cached version updates since version structure may have changed
       // (e.g., after naming a clock, auto versions get split and clock ranges change)
       setVersionUpdates({});
+      setVersionUpdatesMeta({});
     } catch (err) {
       console.error('Error fetching version history:', err);
       setError(err.response?.data?.error || 'Failed to load version history');
@@ -210,6 +212,16 @@ export function useVersionHistory(docGuid) {
       });
       const updates = response.data.updates || [];
       setVersionUpdates(prev => ({ ...prev, [versionId]: updates }));
+      // total/hasMore let the UI honestly show "N of M edits" when the server
+      // capped the returned subversions (default limit 10). Fall back to the
+      // returned length when the server omits them.
+      setVersionUpdatesMeta(prev => ({
+        ...prev,
+        [versionId]: {
+          total: typeof response.data.total === 'number' ? response.data.total : updates.length,
+          hasMore: response.data.hasMore === true,
+        },
+      }));
       return updates;
     } catch (err) {
       console.error('Error loading version updates:', err);
@@ -410,6 +422,7 @@ export function useVersionHistory(docGuid) {
 
     // Hierarchical drill-down state
     versionUpdates,
+    versionUpdatesMeta,
     loadingVersionUpdates,
 
     // Actions

@@ -122,6 +122,59 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
     expect(selected[0].classList.contains('hierarchy-version')).toBe(false);
   });
 
+  it('shows a "Showing N of M edits" indicator when the version has more edits (F5)', () => {
+    const version = {
+      id: '5', name: null, clockStart: 1, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+    };
+    const updates = [
+      { id: '5', clockStart: 5, clockEnd: 5, timestamp: '2024-01-05T16:30:00Z', authors: [], updateCount: 1 },
+      { id: '4', clockStart: 4, clockEnd: 4, timestamp: '2024-01-05T16:29:00Z', authors: [], updateCount: 1 },
+    ];
+
+    render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        versionUpdates={{ '5': updates }}
+        versionUpdatesMeta={{ '5': { total: 12, hasMore: true } }}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Expand'));
+    expect(screen.getByText('Showing 2 of 12 edits')).toBeInTheDocument();
+  });
+
+  it('shows no indicator when the version has no further edits (F5)', () => {
+    const version = {
+      id: '5', name: null, clockStart: 1, clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+    };
+    const updates = [
+      { id: '5', clockStart: 5, clockEnd: 5, timestamp: '2024-01-05T16:30:00Z', authors: [], updateCount: 1 },
+    ];
+
+    const { container } = render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        versionUpdates={{ '5': updates }}
+        versionUpdatesMeta={{ '5': { total: 1, hasMore: false } }}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Expand'));
+    expect(container.querySelector('.hierarchy-updates-more')).toBeNull();
+  });
+
   it('highlights the parent version (only) when a top-level version is selected', () => {
     const version = {
       id: '5', name: null, clockStart: 1, clockEnd: 5,

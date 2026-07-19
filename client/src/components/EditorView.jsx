@@ -169,6 +169,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     clearSelection,
     // Hierarchical drill-down
     versionUpdates,
+    versionUpdatesMeta,
     loadingVersionUpdates,
     loadUpdatesForVersion,
     selectUpdate,
@@ -401,6 +402,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             onSelectUpdate={selectUpdate}
             onLoadUpdates={loadUpdatesForVersion}
             versionUpdates={versionUpdates}
+            versionUpdatesMeta={versionUpdatesMeta}
             loadingVersionUpdates={loadingVersionUpdates}
             // Diff highlighting toggle
             showDiffHighlights={showDiffHighlights}
