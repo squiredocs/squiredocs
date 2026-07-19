@@ -42,6 +42,12 @@ function computeChatDiff(mdBefore, mdAfter) {
       formatAnnotations: processed.formatAnnotations
         ? Object.fromEntries(Object.entries(processed.formatAnnotations).filter(([k]) => Number(k) < MAX_DIFF_LINES))
         : undefined,
+      // inlineSegments keys are OUTPUT line indices, exactly like
+      // formatAnnotations — filter to survivors so no key references a
+      // truncated-away line (feature 022, FR-005).
+      inlineSegments: processed.inlineSegments
+        ? Object.fromEntries(Object.entries(processed.inlineSegments).filter(([k]) => Number(k) < MAX_DIFF_LINES))
+        : undefined,
       truncatedByServer: true,
     };
   }
@@ -50,6 +56,7 @@ function computeChatDiff(mdBefore, mdAfter) {
     lines: processed.lines,
     hunkStarts: processed.hunkStarts,
     formatAnnotations: processed.formatAnnotations,
+    inlineSegments: processed.inlineSegments,
   };
 }
 

@@ -281,6 +281,9 @@ function DiffView({ diff }) {
   // Compute line numbers using hunk start offsets from the server
   const hunkStarts = diff.hunkStarts || [];
   const formatAnnotations = diff.formatAnnotations || {};
+  // Word-level inline segments (feature 022). Additive: absent ⇒ render as
+  // before (every pre-feature payload takes the plain-string fallback).
+  const inlineSegments = diff.inlineSegments || {};
   let oldLine = 0;
   let newLine = 0;
   let hunkIdx = 0;
@@ -311,6 +314,10 @@ function DiffView({ diff }) {
     if (formatAnnotations[String(i)]) {
       entry.formatAnnotation = formatAnnotations[String(i)];
     }
+    // Word-level segments for this row, if the server produced any (feature 022)
+    if (inlineSegments[String(i)]) {
+      entry.segments = inlineSegments[String(i)];
+    }
     return entry;
   });
 
@@ -336,7 +343,20 @@ function DiffView({ diff }) {
                   <tr key={i} className={`ai-diff-row ai-diff-row--${entry.type}`}>
                     <td className="ai-diff-gutter">{entry.num ?? ''}</td>
                     <td className="ai-diff-cell">
-                      {entry.line}
+                      {entry.segments ? (
+                        <>
+                          {entry.line[0]}
+                          {entry.segments.map((seg, si) =>
+                            seg.changed ? (
+                              <span key={si} className="ai-diff-word">{seg.text}</span>
+                            ) : (
+                              <React.Fragment key={si}>{seg.text}</React.Fragment>
+                            )
+                          )}
+                        </>
+                      ) : (
+                        entry.line
+                      )}
                       {entry.formatAnnotation && (
                         <span className="ai-diff-format-annotation"> ({entry.formatAnnotation})</span>
                       )}

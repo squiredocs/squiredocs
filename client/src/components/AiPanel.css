@@ -450,6 +450,22 @@
   color: var(--text-secondary);
 }
 
+/* Word-level inline diff (feature 022): Tier 2 strong highlight on the changed
+   words, layered over the row's subtle tint. Derived from the theme-aware
+   --success/--danger families (no new hue) at moderate alpha, so it reads
+   stronger than the row tint in light and every dark variant. */
+.ai-diff-word {
+  border-radius: 2px;
+}
+
+.ai-diff-row--added .ai-diff-word {
+  background: color-mix(in srgb, var(--success) 38%, transparent);
+}
+
+.ai-diff-row--removed .ai-diff-word {
+  background: color-mix(in srgb, var(--danger) 38%, transparent);
+}
+
 .ai-diff-separator-row td {
   padding: 2px 0;
 }

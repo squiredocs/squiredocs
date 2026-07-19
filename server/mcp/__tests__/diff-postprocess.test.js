@@ -1,4 +1,5 @@
 const { postProcessDiffLines, stripSpanTags, extractPlainText, describeMarks } = require('../diff-postprocess');
+const { computeChatDiff } = require('../diff-utils');
 
 // ---------------------------------------------------------------------------
 // stripSpanTags
@@ -285,5 +286,109 @@ describe('postProcessDiffLines', () => {
     // Annotations on the + lines (indices 2 and 4)
     expect(result.formatAnnotations[2]).toBeDefined();
     expect(result.formatAnnotations[4]).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inlineSegments — word-level inline diff (feature 022, T004)
+// ---------------------------------------------------------------------------
+
+describe('postProcessDiffLines — inlineSegments (word-level)', () => {
+  test('a word-changed -/+ pair yields segments keyed by output index (prefix-stripped)', () => {
+    const lines = ['-the quick fox', '+the slow fox'];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.inlineSegments).toBeDefined();
+    // del row is output index 0, add row is output index 1
+    const before = result.inlineSegments[0];
+    const after = result.inlineSegments[1];
+    // Segment text is prefix-stripped: rejoins to the row content without prefix
+    expect(before.map((s) => s.text).join('')).toBe('the quick fox');
+    expect(after.map((s) => s.text).join('')).toBe('the slow fox');
+    // Only the changed word is flagged on each side
+    expect(before.filter((s) => s.changed).map((s) => s.text)).toEqual(['quick']);
+    expect(after.filter((s) => s.changed).map((s) => s.text)).toEqual(['slow']);
+  });
+
+  test('segments strip span wrappers so they match the rendered row', () => {
+    const lines = [
+      '-<span style="color:red">the quick fox</span>',
+      '+<span style="color:blue">the slow fox</span>',
+    ];
+    const result = postProcessDiffLines(lines, []);
+    // result rows are span-stripped; segments must rejoin to the same content
+    expect(result.lines).toEqual(['-the quick fox', '+the slow fox']);
+    expect(result.inlineSegments[0].map((s) => s.text).join('')).toBe('the quick fox');
+    expect(result.inlineSegments[1].map((s) => s.text).join('')).toBe('the slow fox');
+  });
+
+  test('format-only annotated pairs yield NO segments', () => {
+    const lines = ['-**hello**', '+_hello_'];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.formatAnnotations).toBeDefined();
+    expect(result.inlineSegments).toBeUndefined();
+  });
+
+  test('pure add-only block yields NO segments', () => {
+    const lines = ['+added line one', '+added line two'];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.inlineSegments).toBeUndefined();
+  });
+
+  test('pure remove-only block yields NO segments', () => {
+    const lines = ['-removed line one', '-removed line two'];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.inlineSegments).toBeUndefined();
+  });
+
+  test('unequal -/+ counts pair up to min(del,add); surplus rows are segment-free', () => {
+    // 3 del, 1 add — a text change so it is NOT format-only.
+    const lines = ['-alpha one', '-beta two', '-gamma three', '+alpha ONE'];
+    const result = postProcessDiffLines(lines, []);
+    // del rows: output idx 0,1,2 ; add row: output idx 3
+    expect(result.inlineSegments).toBeDefined();
+    const keys = Object.keys(result.inlineSegments).map(Number).sort((a, b) => a - b);
+    // min(3,1)=1 pair → del row 0 + add row 3 only
+    expect(keys).toEqual([0, 3]);
+    expect(result.inlineSegments[1]).toBeUndefined();
+    expect(result.inlineSegments[2]).toBeUndefined();
+  });
+
+  test('context lines get no segments', () => {
+    const lines = [' unchanged context', '-a x', '+a y'];
+    const result = postProcessDiffLines(lines, []);
+    expect(result.inlineSegments[0]).toBeUndefined(); // context row
+    expect(result.inlineSegments[1]).toBeDefined();   // del row
+    expect(result.inlineSegments[2]).toBeDefined();   // add row
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeChatDiff — inlineSegments threading + truncation filter (T005)
+// ---------------------------------------------------------------------------
+
+describe('computeChatDiff — inlineSegments', () => {
+  test('threads inlineSegments through on the normal branch', () => {
+    const diff = computeChatDiff('the quick fox', 'the slow fox');
+    expect(diff.truncatedByServer).toBeUndefined();
+    expect(diff.inlineSegments).toBeDefined();
+    // some row has a changed segment for the replaced word
+    const allSegs = Object.values(diff.inlineSegments).flat();
+    expect(allSegs.some((s) => s.changed && (s.text === 'quick' || s.text === 'slow'))).toBe(true);
+  });
+
+  test('on truncatedByServer, inlineSegments keys are filtered to < MAX_DIFF_LINES (200)', () => {
+    // Build a large diff: 260 lines, each changed by one word, long enough to
+    // exceed the 50,000-char cap and the 200-line cap.
+    const pad = 'x'.repeat(180);
+    const before = Array.from({ length: 260 }, (_, n) => `${pad} alpha ${n}`).join('\n');
+    const after = Array.from({ length: 260 }, (_, n) => `${pad} beta ${n}`).join('\n');
+    const diff = computeChatDiff(before, after);
+    expect(diff.truncatedByServer).toBe(true);
+    expect(diff.inlineSegments).toBeDefined();
+    const keys = Object.keys(diff.inlineSegments).map(Number);
+    expect(keys.length).toBeGreaterThan(0);
+    // No key references a truncated-away line
+    for (const k of keys) expect(k).toBeLessThan(200);
+    expect(Math.max(...keys)).toBeLessThan(200);
   });
 });

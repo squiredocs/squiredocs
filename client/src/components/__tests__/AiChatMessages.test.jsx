@@ -935,6 +935,57 @@ describe('AiChatMessages', () => {
       expect(formatOnly.container.querySelector('.ai-diff-wrap')).toBeNull();
     });
   });
+
+  // --------------- Word-level inline diff highlighting (feature 022) ---------------
+
+  describe('DiffView word-level inline segments (US1, FR-006/SC-004)', () => {
+    const wordDiffOutput = {
+      changed: true,
+      diff: {
+        lines: ['-the quick fox', '+the slow fox'],
+        hunkStarts: [{ index: 0, oldStart: 1, newStart: 1 }],
+        inlineSegments: {
+          '0': [
+            { text: 'the ', changed: false },
+            { text: 'quick', changed: true },
+            { text: ' fox', changed: false },
+          ],
+          '1': [
+            { text: 'the ', changed: false },
+            { text: 'slow', changed: true },
+            { text: ' fox', changed: false },
+          ],
+        },
+      },
+    };
+
+    it('wraps exactly the changed words in .ai-diff-word and preserves the prefix + full text', () => {
+      mockGet.mockReset();
+      mockGet.mockResolvedValue(undoAvailable);
+      const { container } = render(
+        <AiChatMessages messages={[makeModifyMsg(wordDiffOutput)]} status="ready" />,
+      );
+      // Exactly the changed words are wrapped, in order.
+      const words = [...container.querySelectorAll('.ai-diff-word')].map((e) => e.textContent);
+      expect(words).toEqual(['quick', 'slow']);
+      // The rendered cell text is byte-identical to the plain row (prefix + content).
+      const cells = container.querySelectorAll('.ai-diff-cell');
+      expect(cells[0].textContent).toBe('-the quick fox');
+      expect(cells[1].textContent).toBe('+the slow fox');
+    });
+
+    it('a payload WITHOUT inlineSegments renders the plain row and no .ai-diff-word (backward compat)', () => {
+      mockGet.mockReset();
+      mockGet.mockResolvedValue(undoAvailable);
+      const { container } = render(
+        <AiChatMessages messages={[makeModifyMsg(diffOutput)]} status="ready" />,
+      );
+      expect(container.querySelector('.ai-diff-word')).toBeNull();
+      const cells = container.querySelectorAll('.ai-diff-cell');
+      expect(cells[0].textContent).toBe('-old');
+      expect(cells[1].textContent).toBe('+new');
+    });
+  });
 });
 
 describe('ThinkingBlock live summary', () => {

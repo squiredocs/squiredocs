@@ -7,6 +7,8 @@
  * a single annotated line instead of an unreadable -/+ pair.
  */
 
+const { computeWordSegments } = require('../../shared/diff/word-diff');
+
 // ---------------------------------------------------------------------------
 // Stripping helpers
 // ---------------------------------------------------------------------------
@@ -108,6 +110,7 @@ function describeFormattingDiff(oldRaw, newRaw) {
 function postProcessDiffLines(lines, hunkStarts) {
   const result = [];
   const formatAnnotations = {};
+  const inlineSegments = {}; // inlineSegments[outputLineIdx] = Segment[] (feature 022)
   const indexMap = []; // indexMap[oldIdx] = newIdx
 
   let i = 0;
@@ -158,14 +161,32 @@ function postProcessDiffLines(lines, hunkStarts) {
         }
       }
 
-      // Not format-only — emit all lines normally
+      // Not format-only — emit all lines normally, tracking each row's OUTPUT
+      // index so we can attach word-level segments to the paired rows.
+      const delOutIdx = [];
       for (let j = delStart; j < addStart; j++) {
         indexMap[j] = result.length;
+        delOutIdx.push(result.length);
         result.push(lines[j][0] + stripSpanTags(lines[j].slice(1)));
       }
+      const addOutIdx = [];
       for (let j = addStart; j < i; j++) {
         indexMap[j] = result.length;
+        addOutIdx.push(result.length);
         result.push(lines[j][0] + stripSpanTags(lines[j].slice(1)));
+      }
+
+      // Word-level inline diff (feature 022): pair del/add rows by index up to
+      // min(delCount, addCount); surplus rows on the longer side get no
+      // segments. Segment each pair's prefix- and span-stripped text (the same
+      // text the row renders) so segments rejoin byte-identically to the row.
+      const pairCount = Math.min(delOutIdx.length, addOutIdx.length);
+      for (let k = 0; k < pairCount; k++) {
+        const beforeText = stripSpanTags(lines[delStart + k].slice(1));
+        const afterText = stripSpanTags(lines[addStart + k].slice(1));
+        const segs = computeWordSegments(beforeText, afterText);
+        inlineSegments[delOutIdx[k]] = segs.before;
+        inlineSegments[addOutIdx[k]] = segs.after;
       }
       continue;
     }
@@ -186,6 +207,7 @@ function postProcessDiffLines(lines, hunkStarts) {
     lines: result,
     hunkStarts: remappedHunkStarts,
     formatAnnotations: Object.keys(formatAnnotations).length > 0 ? formatAnnotations : undefined,
+    inlineSegments: Object.keys(inlineSegments).length > 0 ? inlineSegments : undefined,
   };
 }
 
