@@ -223,16 +223,29 @@ function toMarkdownNodes(nodes, options = {}) {
       // Render children into a temporary capture by splicing the shared
       // `parts` array so the closure-based processNode writes into it.
       const saved = parts.splice(0);    // save & clear accumulated output
+      // Render each CHILD BLOCK separately and join with a blank line, mirroring
+      // the top-level block join. A blockquote with multiple block children
+      // (e.g. two paragraphs) must stay multiple blocks — otherwise the blank
+      // `>` separator is dropped and the exported markdown re-parses as one
+      // merged paragraph. (A list child produces several `parts` entries that
+      // must NOT be blank-line-separated, so we split per child node, not per
+      // `parts` element.)
+      const childBlocks = [];
       for (const child of node.toArray()) {
         processNode(child, indent);
+        const rendered = parts.splice(0).join('').replace(/\n+$/, '');
+        if (rendered !== '') childBlocks.push(rendered);
       }
-      const innerLines = parts.splice(0); // capture child output
       parts.push(...saved);              // restore previous output
-      for (const line of innerLines) {
-        // Hard-break continuation lines need their own '> ' prefix to stay
-        // inside the blockquote (FR-007).
-        parts.push('> ' + line.replace(/\\\n/g, '\\\n> '));
-      }
+      // Prefix every line with '> '; a blank separator line becomes a bare '>'.
+      // Hard-break continuation lines (a trailing '\' then newline, FR-007) are
+      // individual lines here, so they each get their own '> ' prefix.
+      const quoted = childBlocks
+        .join('\n\n')
+        .split('\n')
+        .map((l) => (l === '' ? '>' : '> ' + l))
+        .join('\n');
+      parts.push(quoted + '\n');
     } else if (tag === 'bulletList') {
       for (const child of node.toArray()) {
         if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
@@ -514,6 +527,25 @@ function cIndentLines(c, indent) {
   }
   return cConcat(out);
 }
+/**
+ * Mirror `s.split('\n').map(l => l===''?'>':'> '+l).join('\n')` on a chunk:
+ * blockquote line prefixing where a blank separator line becomes a bare '>'.
+ * The '> '/'>' prefixes and the joining newlines are syntax (null map); the
+ * quoted content keeps its own map.
+ */
+function cQuoteLines(c) {
+  const out = [];
+  let lineStart = 0;
+  for (let p = 0; p <= c.text.length; p++) {
+    if (p === c.text.length || c.text[p] === '\n') {
+      const line = cSlice(c, lineStart, p);
+      out.push(line.text === '' ? cText('>') : cConcat([cText('> '), line]));
+      if (p < c.text.length) out.push(cText('\n'));
+      lineStart = p + 1;
+    }
+  }
+  return cConcat(out);
+}
 
 /**
  * Serialize nodes to markdown AND a source map. Byte-identical markdown to
@@ -589,12 +621,22 @@ function toMarkdownWithSourceMap(nodes, options = {}) {
       parts.push(cConcat([cText('```' + FENCE_LABEL_BY_NODE[tag] + '\n'), getChildTextC(node), cText('\n```\n')]));
     } else if (tag === 'blockquote') {
       const saved = parts.splice(0);
-      for (const child of node.toArray()) processNodeC(child, indent);
-      const innerLines = parts.splice(0);
-      parts.push(...saved);
-      for (const line of innerLines) {
-        parts.push(cConcat([cText('> '), cReplaceLiteral(line, '\\\n', '\\\n> ')]));
+      // Render each child block separately and join with a blank line, mirroring
+      // the fast path (byte-identical): a blockquote with multiple block
+      // children stays multiple blocks instead of merging into one paragraph.
+      const childBlocks = [];
+      for (const child of node.toArray()) {
+        processNodeC(child, indent);
+        const rendered = cTrimTrailingNewlines(cConcat(parts.splice(0)));
+        if (rendered.text !== '') childBlocks.push(rendered);
       }
+      parts.push(...saved);
+      const joined = [];
+      for (let i = 0; i < childBlocks.length; i++) {
+        if (i > 0) joined.push(cText('\n\n'));
+        joined.push(childBlocks[i]);
+      }
+      parts.push(cConcat([cQuoteLines(cConcat(joined)), cText('\n')]));
     } else if (tag === 'bulletList') {
       for (const child of node.toArray()) {
         if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {

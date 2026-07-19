@@ -658,6 +658,59 @@ describe('hardBreak round-trip (FR-007/FR-008, SC-007)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Blockquote with multiple block children — export must keep the blank `>`
+// separator between child blocks (regression). Without it, two quoted
+// paragraphs merge into one run-on paragraph when the export is re-parsed.
+// ---------------------------------------------------------------------------
+
+describe('blockquote multi-block export separator (regression)', () => {
+  const md = [
+    '> **User story:** As an account owner, I want to export all my documents at once, so that I can keep an offline backup.',
+    '>',
+    '> **Acceptance criteria:**',
+    '> - When the owner requests an export, the system shall produce a single archive of every document they own.',
+    '> - When an export is in progress, the system shall show its status until it completes.',
+  ].join('\n');
+
+  test('serialized markdown keeps a bare `>` separator between the two paragraphs', () => {
+    // import (build doc) → serialize back
+    const ydoc = docFromPm(markdownToPm(md));
+    const out = toMarkdown(ydoc.getXmlFragment('default'));
+    ydoc.destroy();
+
+    const lines = out.split('\n');
+    const userIdx = lines.findIndex((l) => l.includes('**User story:**'));
+    expect(userIdx).toBeGreaterThanOrEqual(0);
+    // The line immediately after the user-story paragraph is a bare '>' (the
+    // dropped separator this regression is about), and the acceptance-criteria
+    // block still follows.
+    expect(lines[userIdx + 1]).toBe('>');
+    expect(lines[userIdx + 2]).toBe('> **Acceptance criteria:**');
+    // A run-on merge would put both sentences on one '> ' line — assert not.
+    expect(out).not.toMatch(/offline backup\.\s*\n> \*\*Acceptance criteria/);
+  });
+
+  test('round-trip preserves two distinct paragraphs inside the blockquote', () => {
+    const out = reserialize(md);
+    const pm = markdownToPm(out);
+    const bq = pm.content.find((n) => n.type === 'blockquote');
+    expect(bq).toBeDefined();
+    const paras = bq.content.filter((n) => n.type === 'paragraph');
+    expect(paras).toHaveLength(2); // two blocks, not one merged paragraph
+    // and further round-trips are byte-stable
+    expect(reserialize(out)).toBe(out);
+  });
+
+  test('fast path and source-map path stay byte-identical for this doc', () => {
+    const ydoc = docFromPm(markdownToPm(md));
+    const nodes = ydoc.getXmlFragment('default').toArray();
+    const { toMarkdownNodes, toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
+    expect(toMarkdownWithSourceMap(nodes).markdown).toBe(toMarkdownNodes(nodes));
+    ydoc.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Portable flavor — coverage DERIVED from registry declarations (FR-011,
 // FR-023, SC-006): a future mark with a `portable` declaration gains these
 // cases with zero test-file edits.
