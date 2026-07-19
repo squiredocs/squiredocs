@@ -400,7 +400,7 @@ steps present.
       `node -e` using `Buffer.byteLength`, confirm against implement-time
       `main` (spec Assumptions), and note the numbers in the feature's
       clarifications-needed.md DR-1/RBD-4 entries if they moved.
-- [ ] T028 Run the FULL backend suite serially (`npm test -- --runInBand`) plus
+- [X] T028 Run the FULL backend suite serially (`npm test -- --runInBand`) plus
       the quickstart.md automated block; fix any fallout. Verify
       `server/mcp/__tests__/tools/read-document-version.test.js`,
       `create-access-token.test.js`, `token-claim.test.js`, and all
