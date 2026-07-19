@@ -63,6 +63,21 @@ describe('blog routes', () => {
     expect(res.text).toContain('WHY POST');
   });
 
+  test('served pages carry a long shared-cache header for the CloudFront edge', async () => {
+    const index = await request(app).get('/blog');
+    expect(index.headers['cache-control']).toBe('public, max-age=3600, s-maxage=31536000');
+    const post = await request(app).get('/blog/why-i-built-squire-docs');
+    expect(post.headers['cache-control']).toBe('public, max-age=3600, s-maxage=31536000');
+  });
+
+  test('a 404 is not given the long shared-cache header', async () => {
+    const res = await request(app).get('/blog/no-such-post');
+    expect(res.status).toBe(404);
+    // 404.html is served without the long s-maxage (Express's sendFile default
+    // applies instead) so stale error pages never pin at the edge.
+    expect(res.headers['cache-control']).not.toContain('s-maxage');
+  });
+
   test('/blog/index permanently redirects to /blog (301)', async () => {
     const res = await request(app).get('/blog/index');
     expect(res.status).toBe(301);

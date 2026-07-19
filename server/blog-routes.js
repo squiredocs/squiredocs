@@ -53,6 +53,15 @@ function mountBlogRoutes(app, blogDistDir) {
       res.status(404).type('html').send('<h1>Not found</h1>');
       return;
     }
+    if (status === 200) {
+      // Blog pages are static, identical for every visitor, and rebuilt on every
+      // deploy (which invalidates /blog* at the edge — script/deploy-aws.sh). Cache
+      // hard at the shared CloudFront edge via a long s-maxage (honored by the
+      // Managed-CachingOptimized behavior in edge.tf), while keeping the browser
+      // max-age short so a deploy's edge invalidation actually reaches readers —
+      // invalidation clears the edge, not already-cached browsers.
+      res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=31536000');
+    }
     res.status(status).sendFile(filePath);
   };
 
