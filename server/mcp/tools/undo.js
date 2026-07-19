@@ -25,7 +25,10 @@ Repeated calls step back through your prior edits.
 
 RETURNS: success; undone (false with an explanatory message when there is
 nothing left to undo — never an error); message; clock (the post-operation
-log clock).`;
+log clock); diff (what the revert changed — same shape as modify's diff).`;
+// FR-011/RBD-2 byte gate (measured 2026-07-19 against 019's dieted baseline):
+// 634 bytes before the diff RETURNS mention, 698 with it — well under the
+// 2048-byte MCP-client truncation boundary, so the mention is ADDED.
 
 const inputSchema = {
   type: 'object',

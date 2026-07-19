@@ -90,8 +90,8 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T015 [P] FR-011/RBD-2 decision (post-019 baseline): measure `Buffer.byteLength(description, 'utf8')` for the merged, dieted `server/mcp/tools/undo.js` and `server/mcp/tools/redo.js` with one short RETURNS line added (e.g. "diff: what the revert changed — same shape as modify's diff"); add the line only where the total stays ≤ 2048 bytes, otherwise omit entirely; record the measured byte counts and the add/omit outcome as a comment beside the description and in the implementation notes.
-- [ ] T016 [P] Documentation (Principle I): update `README.md` where it describes the chat's undo/redo cards or the undo/redo tool results (add the diff-carrying behavior); confirm `docs/dev.md` needs no change; do NOT touch `design/` exports (amendment already landed via sync).
+- [X] T015 [P] FR-011/RBD-2 decision (post-019 baseline): measure `Buffer.byteLength(description, 'utf8')` for the merged, dieted `server/mcp/tools/undo.js` and `server/mcp/tools/redo.js` with one short RETURNS line added (e.g. "diff: what the revert changed — same shape as modify's diff"); add the line only where the total stays ≤ 2048 bytes, otherwise omit entirely; record the measured byte counts and the add/omit outcome as a comment beside the description and in the implementation notes.
+- [X] T016 [P] Documentation (Principle I): update `README.md` where it describes the chat's undo/redo cards or the undo/redo tool results (add the diff-carrying behavior); confirm `docs/dev.md` needs no change; do NOT touch `design/` exports (amendment already landed via sync).
 - [ ] T017 Full verification per `specs/020-undo-redo-diffs/quickstart.md`: run all backend suites SERIALLY (`--runInBand`, one suite at a time per the shared-DB rule), the modify/diff guard suites (SC-007 — zero edits to modify path files: `server/mcp/tools/modify.js`, `server/mcp/diff-utils.js` must show no diff in `git status`), and the client suite; then the Manual E2E checklist #1–#6 in the dev pod.
 
 ---
