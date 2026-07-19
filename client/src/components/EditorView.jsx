@@ -39,6 +39,12 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
 
   const { ydoc, provider, awareness, connected, connectionState, synced, users, docTitle, setDocTitle, forceReconnect, reconnectCount, authError } = useYjs(docGuid, accessToken, collaborationUser);
 
+  // Feature 021: content-check quarantine (research R5). Set when the editor
+  // hits a whole-doc schema mismatch — collaboration is disabled, the editor
+  // is read-only, and this banner prompts a refresh. The shared doc itself is
+  // untouched; a newer bundle renders it fine.
+  const [quarantined, setQuarantined] = useState(false);
+
   // Debounce banner visibility to prevent flashing during quick state transitions
   const [debouncedBanner, setDebouncedBanner] = useState(null);
   useEffect(() => {
@@ -407,6 +413,17 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   // Normal editor mode
   return (
     <>
+      {quarantined && (
+        <div className="sync-banner sync-banner--error" role="alert" data-testid="quarantine-banner">
+          This document uses features this page version can&apos;t display — refresh to update. Editing is paused.
+          <button
+            onClick={() => window.location.reload()}
+            style={{ marginLeft: '12px', padding: '4px 12px', cursor: 'pointer', fontSize: '13px' }}
+          >
+            Refresh
+          </button>
+        </div>
+      )}
       {debouncedBanner === 'authError' && (
         <div className="sync-banner sync-banner--error" style={{ backgroundColor: '#dc2626', color: 'white' }}>
           {isAuthenticated ? (
@@ -774,6 +791,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           docId={docGuid}
           docTitle={docTitle}
           onRequestOpenChat={aiPanel?.open}
+          onQuarantine={() => setQuarantined(true)}
         />
       </main>
 

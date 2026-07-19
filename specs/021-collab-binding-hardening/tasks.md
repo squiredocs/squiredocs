@@ -25,16 +25,16 @@ in-flight 018 (`server/search/**`, `server/search.js`, `server/search-indexer.js
 **Purpose**: Land the 3.0.7 baseline and the patch-application machinery every US1 task
 builds on.
 
-- [ ] T001 Pin `@tiptap/y-tiptap` to exact `3.0.7` as a direct dependency in
+- [X] T001 Pin `@tiptap/y-tiptap` to exact `3.0.7` as a direct dependency in
       `client/package.json`, run `npm install` to update `client/package-lock.json`, and
       confirm the hoisted `client/node_modules/@tiptap/y-tiptap` is 3.0.7 (research R1:
       `@tiptap/extension-collaboration`'s `^3.0.0` is satisfied; the patched functions were
       diff-verified byte-identical 3.0.1→3.0.7 except upstream's own hardening of
       `restoreRelativeSelection`/`_typeChanged`).
-- [ ] T002 Add `patch-package` to `client/package.json` devDependencies with
+- [X] T002 Add `patch-package` to `client/package.json` devDependencies with
       `"postinstall": "patch-package --error-on-fail"`, create empty `client/patches/`
       directory, and verify `npm ci` in `client/` succeeds end-to-end (research R3).
-- [ ] T003 [P] Create the headless binding test harness in
+- [X] T003 [P] Create the headless binding test harness in
       `client/src/test/bindingHarness.js` (research R8): two relayed `Y.Doc`s, app schema
       derived from `getBaseExtensions()` in `client/src/extensions/editorExtensions.js`,
       real `ySyncPlugin` + jsdom `EditorView` (minimal view-shim fallback documented in the
@@ -50,14 +50,14 @@ builds on.
 **Purpose**: The FR-008 guard (must exist before the patch so patch work is test-driven)
 and the runtime-config channel the patch reads (DR-2).
 
-- [ ] T004 [P] Write the dependency-drift guard test
+- [X] T004 [P] Write the dependency-drift guard test
       `client/src/__tests__/binding-patch-guard.test.js` per contracts/binding-patch.md
       "Survival guard": asserts installed version `=== '3.0.7'`, all five
       `SQUIRE-021:<site-id>` sentinels present in
       `client/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js`, and
       `client/patches/@tiptap+y-tiptap+3.0.7.patch` exists. MUST FAIL now (no patch yet) —
       it goes green only when T010 lands (FR-008, SC-007).
-- [ ] T005 [P] Server kill-switch storage + endpoints: add `collab_binding_hardening`
+- [X] T005 [P] Server kill-switch storage + endpoints: add `collab_binding_hardening`
       accessors to `server/api/app-settings.js`, `GET`/`PUT
       /settings/collab-binding-hardening` to `server/api/admin.js` (existing shared-model
       pattern; PUT `{enabled}` writes `null`/`'false'` per
@@ -65,7 +65,7 @@ and the runtime-config channel the patch reads (DR-2).
       (requireAuth) to `server/index.js` returning `{ collabBindingHardening }` with
       absent-key ⇒ `true`. Backend test in `server/__tests__/client-config.test.js`
       (default-ON, flip round-trip, auth required).
-- [ ] T006 [P] Client kill-switch plumbing: `client/src/hooks/useClientConfig.js` fetches
+- [X] T006 [P] Client kill-switch plumbing: `client/src/hooks/useClientConfig.js` fetches
       `/api/client-config` once at app bootstrap (AuthContext axios instance), sets
       `globalThis.__SQUIRE_COLLAB_HARDENING__`; failure leaves it unset (fail-safe ON).
       Wire into `client/src/App.jsx` bootstrap. Vitest coverage in
@@ -87,7 +87,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
 
 ### Tests for User Story 1 (write FIRST — all must FAIL against stock 3.0.7)
 
-- [ ] T007 [P] [US1] Render-failure repro tests in
+- [X] T007 [P] [US1] Render-failure repro tests in
       `client/src/__tests__/binding-render-failure.test.js` (harness): (a) forced throwing
       node (remote inserts unknown nodeName) ⇒ remote/shared Y.Doc **byte-identical**,
       remainder renders, one bounded log with node type + doc identity + error (RBD-6),
@@ -98,7 +98,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       legitimate local edit elsewhere commits ⇒ the skipped node SURVIVES in Y and the edit
       lands (DR-1/Addition-1; contract site 5 incl. the index-translation
       neighbors case: skipped node between two edited siblings).
-- [ ] T008 [P] [US1] Selection + write-back repro tests in
+- [X] T008 [P] [US1] Selection + write-back repro tests in
       `client/src/__tests__/binding-selection-writeback.test.js` (harness): (a) selection
       throw via the `binding._restoreRelativeSelection` seam ⇒ render still commits with
       all remote content, selection at a clamped near position incl. empty-doc case
@@ -106,7 +106,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       doc-unchanged transaction (selection-only, then metadata-only) ⇒ zero editor→Yjs
       write-back, nothing deleted from Y (SC-003, FR-006); (c) divergence resolution
       re-renders FROM Yjs: view converges, Y byte-unchanged (FR-007, RBD-3).
-- [ ] T009 [P] [US1] Kill-switch revert test in
+- [X] T009 [P] [US1] Kill-switch revert test in
       `client/src/__tests__/binding-killswitch.test.js`: with
       `globalThis.__SQUIRE_COLLAB_HARDENING__ = false` the forced-throw repro **deletes
       from Y again** (stock 3.0.7 behavior — proving genuine revert, DR-2); restoring the
@@ -115,7 +115,7 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Author the patch (contracts/binding-patch.md sites 1–5) by editing
+- [X] T010 [US1] Author the patch (contracts/binding-patch.md sites 1–5) by editing
       `client/node_modules/@tiptap/y-tiptap/dist/y-tiptap.js` (+ mirrored `dist/y-tiptap.cjs`):
       render-catch element+text (createAndFill → tracked-skip → bounded log/report; NO Y
       mutation), `_restoreRelativeSelection` seam + guard + clamped fallback on the 3.0.7
@@ -126,24 +126,24 @@ byte-for-byte unchanged across every forced failure path (SC-001..003, SC-007).
       sentinels. Then `npx patch-package @tiptap/y-tiptap --error-on-fail` to emit
       `client/patches/@tiptap+y-tiptap+3.0.7.patch`; commit the patch file. Turns T004,
       T007, T008, T009 green.
-- [ ] T011 [US1] Verify patch survival: rm -rf `client/node_modules`, `npm ci`, re-run
+- [X] T011 [US1] Verify patch survival: rm -rf `client/node_modules`, `npm ci`, re-run
       T004/T007/T008/T009 suites green (proves postinstall re-application; SC-007's
       install-path half).
-- [ ] T012 [P] [US1] Skip reporter client: `client/src/utils/skipReporter.js`
+- [X] T012 [P] [US1] Skip reporter client: `client/src/utils/skipReporter.js`
       (once-per-element dedupe per RBD-6, 2 s debounce, batched per doc, fire-and-forget
       via AuthContext axios, swallowed failures), registered as
       `globalThis.__SQUIRE_SKIP_REPORTER__` at app bootstrap alongside T006. Test
       `client/src/__tests__/skip-reporter.test.js`: a forced skip produces **exactly one**
       report per element per instance (mocked transport); transport failure never throws
       into the render path (DR-3).
-- [ ] T013 [US1] Skip-report server endpoint: `POST /api/collab/render-skip-report` in
+- [X] T013 [US1] Skip-report server endpoint: `POST /api/collab/render-skip-report` in
       `server/index.js` per contracts/runtime-config-and-skip-report.md (requireAuth, ≤8 KB,
       shape-validated, max 20 events, rate-limited via `server/rate-limit.js`; 204;
       structured log line + OTel counter `collab.render_skip.reports` via
       `server/telemetry/metrics.js`). Backend test
       `server/__tests__/render-skip-report.test.js`: valid report logs+counts, malformed
       400s without side effects, unauthenticated 401s.
-- [ ] T014 [US1] Quarantine second layer: `enableContentCheck: true` + `onContentError`
+- [X] T014 [US1] Quarantine second layer: `enableContentCheck: true` + `onContentError`
       in `client/src/components/Editor.jsx` `useEditor` options (survives the
       `[isMobile, provider]` recreation at :124 by living in the options object) —
       quarantine = event's `disableCollaboration()` + `editor.setEditable(false)` + a
@@ -166,7 +166,7 @@ green. MVP deliverable.
 
 ### Tests for User Story 2 (write FIRST — must FAIL before T016)
 
-- [ ] T015 [P] [US2] Guardrail tests in `server/__tests__/collab-guardrail.test.js`
+- [X] T015 [P] [US2] Guardrail tests in `server/__tests__/collab-guardrail.test.js`
       (jest, serial; build updates with real `Y.Doc`s so delete sets are genuine):
       (a) signature — agent-attributed row creates content, human-attributed update whose
       delete set covers it arrives within the window ⇒ exactly one `notifyException` with
@@ -179,7 +179,7 @@ green. MVP deliverable.
       doc/user alerts independently (FR-012, RBD-1, `GUARDRAIL_SUPPRESSION_MS`);
       (d) never-blocks — evaluation stubbed to throw ⇒ storeUpdate/broadcast unaffected,
       error logged and swallowed (FR-011, RBD-4).
-- [ ] T016 [US2] Implement `server/collab-guardrail.js` per contracts/guardrail-alert.md
+- [X] T016 [US2] Implement `server/collab-guardrail.js` per contracts/guardrail-alert.md
       (Y.decodeUpdate delete-set × fresh-agent-row insert-range intersection in Yjs-ID
       space, DB-clock range in the alert, in-memory (doc,user) suppression map, env
       tunables) and wire it fire-and-forget into the bindState persistence listener in
@@ -199,7 +199,7 @@ alert-path failures swallowed).
 
 ### Tests for User Story 3 (write FIRST — must FAIL before T018)
 
-- [ ] T017 [P] [US3] Gap-read tests in `server/__tests__/postgres-gap-read.test.js`
+- [X] T017 [P] [US3] Gap-read tests in `server/__tests__/postgres-gap-read.test.js`
       (jest, serial; drive retry timing via `COLLAB_READ_GAP_RETRIES` /
       `COLLAB_READ_GAP_RETRY_DELAYS_MS` set to small values, not wall-clock defaults):
       (a) store clocks `…k, k+2…`, read, release `k+1` during the retry window ⇒ complete
@@ -209,7 +209,7 @@ alert-path failures swallowed).
       (FR-016); (d) head-of-history: contiguous rows starting at clock 5 ⇒ no gap;
       (e) multiple gaps ⇒ single (non-compounding) retry budget; (f) empty and single-row
       reads unchanged (edge cases).
-- [ ] T018 [US3] Implement gap tolerance in `server/postgres-persistence.js` `getYDoc`
+- [X] T018 [US3] Implement gap tolerance in `server/postgres-persistence.js` `getYDoc`
       (:211-235) per contracts/gap-read.md: add `clock` to the SELECT, single-pass
       contiguity check, ≤`COLLAB_READ_GAP_RETRIES` full re-fetches with
       `COLLAB_READ_GAP_RETRY_DELAYS_MS` waits, serve-as-is + structured log after the
@@ -222,16 +222,16 @@ covered via the single choke point.
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T019 [P] SC-006 regression sweep: run the existing collaboration suites UNMODIFIED —
+- [X] T019 [P] SC-006 regression sweep: run the existing collaboration suites UNMODIFIED —
       `server/__tests__/attribution-bug.test.js`, `server/__tests__/origin.test.js`,
       `__tests__/integration/collaboration.test.js` (serial), full `client` vitest suite —
       all green with zero test-file edits (green-path behavior bit-identical).
-- [ ] T020 [P] Documentation (constitution I): update `ReadMe.md` collaboration section —
+- [X] T020 [P] Documentation (constitution I): update `ReadMe.md` collaboration section —
       binding patch (what/why, patch-package + guard, kill-switch admin flip), guardrail
       alert, gap-tolerant reads; note the new env vars (data-model.md table) in the
       relevant config docs; verify `docs/dev.md` needs no change (no new local-dev steps
       beyond `npm ci`).
-- [ ] T021 Run `specs/021-collab-binding-hardening/quickstart.md` §1–§4 end-to-end in the
+- [X] T021 Run `specs/021-collab-binding-hardening/quickstart.md` §1–§4 end-to-end in the
       dev pod (incl. the drift-guard install-failure drill and the manual kill-switch
       flip + quarantine checks) and record results in the feature worklog. Promotion notes
       (plan.md): upstream filing (y-tiptap issue + y-prosemirror #39/#258) and the

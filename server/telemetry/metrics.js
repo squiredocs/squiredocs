@@ -32,6 +32,10 @@ function getInstruments() {
     rateLimitRejections: meter.createCounter('ratelimit.rejections', {
       description: 'Count of requests rejected with 429 by limiter category.',
     }),
+    collabRenderSkips: meter.createCounter('collab.render_skip.reports', {
+      description:
+        'Client-reported collaborative-editor render skips (feature 021, DR-3) by node type and error class.',
+    }),
   };
   return instruments;
 }
@@ -109,6 +113,22 @@ function recordRateLimitRejection(category) {
 }
 
 /**
+ * Count one client-reported render-skip event (feature 021, DR-3). Attributes
+ * are content-free by construction: node type name and error class name only.
+ * Never throws — reporting must not break the beacon response.
+ */
+function recordCollabRenderSkip(nodeType, errorName, count = 1) {
+  try {
+    getInstruments().collabRenderSkips.add(Number.isFinite(count) && count > 0 ? count : 1, {
+      'collab.node_type': typeof nodeType === 'string' && nodeType ? nodeType : 'unknown',
+      'collab.error_name': typeof errorName === 'string' && errorName ? errorName : 'unknown',
+    });
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
  * Register observable PG pool gauges (total/idle/waiting). Reads the live pool
  * counts on each metric collection interval. Safe to call once at startup.
  * @param {object} opts
@@ -158,6 +178,7 @@ function init({ getPool } = {}) {
 module.exports = {
   httpMetricsMiddleware,
   recordRateLimitRejection,
+  recordCollabRenderSkip,
   init,
   // Exposed for tests
   statusClass,

@@ -38,8 +38,13 @@ function renderSelection(user) {
   };
 }
 
-export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null, docTitle = null, onRequestOpenChat }) {
+export default function Editor({ ydoc, awareness, provider, onEditorReady, onShowLabelsReady, editable = true, synced = false, docId = null, docTitle = null, onRequestOpenChat, onQuarantine = null }) {
   const { api } = useAuth();
+  // Feature 021: keep the quarantine callback in a ref so the useEditor deps
+  // stay [isMobile, provider] — every recreated editor instance still carries
+  // the content check (no stock window across recreation).
+  const onQuarantineRef = useRef(onQuarantine);
+  onQuarantineRef.current = onQuarantine;
   const hideTimeoutRef = useRef(null);
   const lastLocalLabelShowRef = useRef(0); // Track when labels were last shown due to local cursor movement
   const containerRef = useRef(null);
@@ -120,6 +125,36 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
       // Keep cursor visible above the mobile format bar when scrolling into view
       scrollMargin: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
       scrollThreshold: isMobile ? { top: 20, bottom: 100, left: 0, right: 0 } : 20,
+    },
+    // Feature 021 second defense layer (research R5, DR-1/Addition-4):
+    // whole-doc schema mismatch (a doc using node types this bundle lacks)
+    // quarantines the editor instead of letting TipTap/the binding "repair"
+    // shared content: stop collaborating, freeze editing, prompt a refresh.
+    // Independent of the binding-hardening kill-switch. The options object is
+    // recreated with every editor instance ([isMobile, provider] deps), so
+    // recreation carries the check.
+    enableContentCheck: true,
+    onContentError({ editor: erroredEditor, error, disableCollaboration }) {
+      // Quarantine, never repair: no further local transactions may reach the
+      // shared doc (the doc itself is untouched — refresh with a newer bundle
+      // renders it fine).
+      try {
+        disableCollaboration();
+      } catch (e) {
+        console.error('[SquireCollab] disableCollaboration failed during quarantine:', e);
+      }
+      try {
+        erroredEditor.setEditable(false);
+      } catch (e) {
+        console.error('[SquireCollab] setEditable(false) failed during quarantine:', e);
+      }
+      console.error(
+        '[SquireCollab] content check failed — editor quarantined (refresh to update)',
+        error
+      );
+      if (typeof onQuarantineRef.current === 'function') {
+        onQuarantineRef.current(error);
+      }
     },
   }, [isMobile, provider]); // Include provider so editor reinitializes with new CollaborationCursor after token refresh
 

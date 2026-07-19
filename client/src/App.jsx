@@ -5,6 +5,7 @@ import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
 import { ByokProvider } from './contexts/ByokContext';
 import { useMobile } from './hooks/useMobile';
+import useClientConfig from './hooks/useClientConfig';
 import DocList from './components/DocList';
 import EditorView from './components/EditorView';
 import AiPanel from './components/AiPanel';
@@ -100,6 +101,9 @@ function parseRoute() {
  */
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
+  // Feature 021: fetch the binding-hardening kill-switch once at bootstrap
+  // (sets globalThis.__SQUIRE_COLLAB_HARDENING__; fail-safe default ON).
+  useClientConfig();
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
   const isMobile = useMobile();
