@@ -14,6 +14,7 @@ const {
   getUpdatesForVersion,
   getCurrentSessionAuthors,
   VersionNotFoundError,
+  DocumentSyncingError,
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
@@ -1593,7 +1594,9 @@ describe('version-history module', () => {
       Y.applyUpdate(doc, new Uint8Array(result.content));
       expect(doc.get('default', Y.XmlFragment).toString()).toContain('Content at clock 10');
       doc.destroy();
-      expect(replaySpy).toHaveBeenCalledWith('test-doc', 10);
+      // getVersionContent now reads the target WITH the gap indicator (F3/FR-009)
+      // so a stored-artifact caller can fail closed on a torn read.
+      expect(replaySpy).toHaveBeenCalledWith('test-doc', 10, { withGap: true });
       replaySpy.mockRestore();
     });
 
@@ -1761,6 +1764,55 @@ describe('version-history module', () => {
       } finally {
         spy.mockRestore();
         errSpy.mockRestore();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    // Post-merge review F3 (FR-009, D-2): restore is the one stored-artifact path
+    // that must fail CLOSED on a torn read — it must not persist the restore row +
+    // agent_edits record from content derived from a gapped log.
+    test('F3: a torn log makes restore refuse fail-closed — no update row, no agent_edits row', async () => {
+      const docGuid = require('crypto').randomUUID();
+      const prevRetries = process.env.COLLAB_READ_GAP_RETRIES;
+      const prevDelays = process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS;
+      process.env.COLLAB_READ_GAP_RETRIES = '1';
+      process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '10,10';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // Build a causally-chained set of real updates, then insert them with a
+        // gap (clocks 0,1,3 — clock 2 withheld) so the CURRENT-state read is torn.
+        const doc = new Y.Doc();
+        const frag = doc.getXmlFragment('default');
+        const updates = [];
+        for (let i = 0; i < 4; i++) {
+          const sv = Y.encodeStateVector(doc);
+          doc.transact(() => frag.insert(frag.length, [para(`seg-${i}`)]));
+          updates.push(Y.encodeStateAsUpdate(doc, sv));
+        }
+        doc.destroy();
+        for (const [clock, u] of [[0, updates[0]], [1, updates[1]], [3, updates[3]]]) {
+          await pool.query(
+            'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id) VALUES ($1, $2, $3, $4)',
+            [docGuid, clock, Buffer.from(u), userId]
+          );
+        }
+
+        // Restore to clock 1 (in range 0..3): the target read (<=1) is contiguous,
+        // but the current-state read spans the gap → still gapped after the retry
+        // budget → restore fails closed rather than persist a torn artifact.
+        await expect(
+          restoreVersion(persistence, docGuid, '1', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null })
+        ).rejects.toBeInstanceOf(DocumentSyncingError);
+
+        // Ground truth: nothing was written.
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        expect(rows.rows.map((r) => Number(r.clock))).toEqual([0, 1, 3]); // no restore row appended
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0); // no agent_edits record
+      } finally {
+        warnSpy.mockRestore();
+        if (prevRetries === undefined) delete process.env.COLLAB_READ_GAP_RETRIES; else process.env.COLLAB_READ_GAP_RETRIES = prevRetries;
+        if (prevDelays === undefined) delete process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS; else process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = prevDelays;
         await cleanupDoc(docGuid);
       }
     });

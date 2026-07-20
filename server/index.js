@@ -52,7 +52,7 @@ const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
-const { classifyByXml, extractXml } = require('./update-classifier');
+const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
@@ -259,10 +259,22 @@ setPersistence({
       // update that happens to match the STALE baseline is misclassified as noise
       // — the one path that can hide a real edit. Any extractXml failure degrades
       // to unknown and never touches persistence (FR-018).
+      //
+      // Feature 023 F5: a cheap O(1) running-size guard runs FIRST — accumulating
+      // this update's byte length on the ydoc (incl. the db-load snapshot). Once
+      // the doc crosses MAX_CLASSIFY_DOC_BYTES, classification AND the extractXml
+      // baseline it needs are permanently disabled for this doc, so no O(doc size)
+      // serialization happens per keystroke on a large document. A disabled update
+      // persists with meaningful=null (unknown ⇒ meaningful — fail-visible, D-3).
+      const classifyDisabled = classificationDisabled(ydoc, update.byteLength);
+
+      let prevXml;
       let nextXml;
-      try { nextXml = extractXml(ydoc); } catch { nextXml = undefined; }
-      const prevXml = ydoc._lastClassifiedXml;
-      if (nextXml !== undefined) ydoc._lastClassifiedXml = nextXml;
+      if (!classifyDisabled) {
+        try { nextXml = extractXml(ydoc); } catch { nextXml = undefined; }
+        prevXml = ydoc._lastClassifiedXml;
+        if (nextXml !== undefined) ydoc._lastClassifiedXml = nextXml;
+      }
 
       // Skip sentinel origins (db-load, redis, restore, inverse, sync-push) —
       // already persisted (or loaded); only classify parseable-origin updates.
@@ -270,16 +282,19 @@ setPersistence({
       if (!parsed) return;
       const { userId, agentName } = parsed;
 
-      // Classify vs the previous baseline. Unknown (no baseline yet, or an
-      // extractXml failure) ⇒ null ⇒ meaningful at read (fail-visible, D-3).
+      // Classify vs the previous baseline. Unknown (no baseline yet, an extractXml
+      // failure, or classification disabled for an oversized doc) ⇒ null ⇒
+      // meaningful at read (fail-visible, D-3).
       let meaningful = null;
-      try {
-        if (typeof prevXml === 'string' && nextXml !== undefined) {
-          meaningful = classifyByXml(prevXml, nextXml);
+      if (!classifyDisabled) {
+        try {
+          if (typeof prevXml === 'string' && nextXml !== undefined) {
+            meaningful = classifyByXml(prevXml, nextXml);
+          }
+        } catch (classifyErr) {
+          meaningful = null;
+          console.warn(`[bindState] meaningful classification failed for ${docGuid} (persisting as unknown):`, classifyErr.message);
         }
-      } catch (classifyErr) {
-        meaningful = null;
-        console.warn(`[bindState] meaningful classification failed for ${docGuid} (persisting as unknown):`, classifyErr.message);
       }
 
       const persistStart = Date.now();
@@ -366,8 +381,12 @@ setPersistence({
       // Initialize the meaningful-classification baseline to the loaded state
       // (feature 023 T023). The db-load update's listener firing already refreshes
       // it; this makes initialization explicit and robust to an empty-state load
-      // that produces no update event.
-      try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
+      // that produces no update event. F5: skip even this one-time serialization
+      // once the doc-load snapshot has already disabled classification for an
+      // oversized doc (the baseline exists only for classification).
+      if (!ydoc._classifyDisabled) {
+        try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
+      }
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
@@ -1430,6 +1449,11 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
     console.error('Error restoring version:', error);
     if (error instanceof versionHistory.VersionNotFoundError) {
       return res.status(404).json({ error: error.message });
+    }
+    // F3 (023 FR-009/D-2): a still-gapped log is a transient sync condition, not
+    // a server fault — fail closed with 503 so the client retries in a moment.
+    if (error instanceof versionHistory.DocumentSyncingError) {
+      return res.status(503).json({ error: error.message });
     }
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to restore version' });

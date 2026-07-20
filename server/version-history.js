@@ -24,6 +24,22 @@ class VersionNotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown when a restore would build its stored artifacts (the restore update row
+ * + the agent_edits record) from a read that is still gapped after the shared
+ * retry budget (feature 023 FR-009, D-2). Restore is the one stored-artifact path
+ * that must fail CLOSED on a torn log — the same fail-closed posture undo uses —
+ * rather than persist content derived from a non-contiguous read. REST maps this
+ * to HTTP 503; the MCP surface surfaces the message as a teaching error so the
+ * model retries. Never raised on serving-only reads (previews/diffs serve as-is).
+ */
+class DocumentSyncingError extends Error {
+  constructor(message = 'The document is still syncing — retry in a moment.') {
+    super(message);
+    this.name = 'DocumentSyncingError';
+  }
+}
+
 // Default inactivity threshold for grouping updates into versions (5 minutes)
 const DEFAULT_INACTIVITY_THRESHOLD = 5 * 60 * 1000;
 
@@ -407,9 +423,14 @@ async function getVersionTimeline(persistence, docGuid) {
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {string} versionId - Version ID (UUID for named versions, or clock number as string)
+ * @param {object} [opts]
+ * @param {boolean} [opts.withGap=false] - when true, additively return `gapped`
+ *   (from the gap-tolerant content read) so a stored-artifact caller (restore,
+ *   023 FR-009/D-2) can fail closed on a torn log. Serving-only callers (version
+ *   preview, compare) omit it and keep serving as-is.
  * @returns {Promise<Object>} Version content and metadata
  */
-async function getVersionContent(persistence, docGuid, versionId) {
+async function getVersionContent(persistence, docGuid, versionId, { withGap = false } = {}) {
   let clockEnd;
   let versionMeta = null;
 
@@ -463,8 +484,12 @@ async function getVersionContent(persistence, docGuid, versionId) {
     throw new VersionNotFoundError(`Version not found: ${versionId} (clock ${clockEnd} out of range ${minClock}-${maxClock})`);
   }
 
-  // Reconstruct document at the specified clock
-  const ydoc = await persistence.getYDocAtClock(docGuid, clockEnd);
+  // Reconstruct document at the specified clock. Read WITH the gap indicator so
+  // a stored-artifact caller (restore) can refuse a torn read (023 FR-009/D-2);
+  // a plain Y.Doc from a mock/serving path unwraps to gapped=false.
+  const atClockRead = await persistence.getYDocAtClock(docGuid, clockEnd, { withGap: true });
+  const ydoc = atClockRead instanceof Y.Doc ? atClockRead : atClockRead.ydoc;
+  const contentGapped = atClockRead instanceof Y.Doc ? false : !!atClockRead.gapped;
   const content = Y.encodeStateAsUpdate(ydoc);
 
   // Get version metadata if not already set
@@ -488,10 +513,12 @@ async function getVersionContent(persistence, docGuid, versionId) {
     }
   }
 
-  return {
+  const result = {
     content: Array.from(content),
     version: versionMeta,
   };
+  if (withGap) result.gapped = contentGapped;
+  return result;
 }
 
 /**
@@ -516,12 +543,25 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
 } = {}) {
   console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
 
-  // Get the target version content
-  const { content } = await getVersionContent(persistence, docGuid, versionId);
+  // Get the target version content, WITH the gap indicator (023 FR-009/D-2).
+  const { content, gapped: targetGapped } = await getVersionContent(persistence, docGuid, versionId, { withGap: true });
   console.log(`[Restore] Target version content size: ${content.length} bytes`);
 
-  // Get current document state
-  const currentYdoc = await persistence.getYDoc(docGuid);
+  // Get current document state, WITH the gap indicator (a plain Y.Doc from a
+  // mock/serving path unwraps to gapped=false).
+  const currentRead = await persistence.getYDoc(docGuid, { withGap: true });
+  const currentYdoc = currentRead instanceof Y.Doc ? currentRead : currentRead.ydoc;
+  const currentGapped = currentRead instanceof Y.Doc ? false : !!currentRead.gapped;
+
+  // F3 (FR-009, D-2): restore is the one stored-artifact path (the restore update
+  // row + its agent_edits record). If EITHER read is still gapped after the shared
+  // retry budget, refuse — the same fail-closed posture undo uses — rather than
+  // persist content derived from a torn log. No row is stored, no record written.
+  if (targetGapped || currentGapped) {
+    console.warn(`[Restore] aborting restore of ${docGuid}: update log still gapped after retry budget`);
+    throw new DocumentSyncingError('Restore aborted: the document is still syncing — retry in a moment.');
+  }
+
   const currentFragment = currentYdoc.getXmlFragment('default');
   console.log(`[Restore] Current document has ${currentFragment.length} elements`);
 
@@ -768,6 +808,7 @@ module.exports = {
   getCurrentSessionAuthors,
   restoreVersion,
   VersionNotFoundError,
+  DocumentSyncingError,
   DEFAULT_INACTIVITY_THRESHOLD,
   UPDATE_GROUPING_THRESHOLD,
 };
