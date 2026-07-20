@@ -104,11 +104,16 @@ commit series), each with a regression test. Backend suite serial-only.
 
 ## Operator-run after deploy
 
-- **Backfill:** `node server/scripts/backfill-meaningful-classification.js`
-  (idempotent, resumable, gap-aware). Classifies historical rows; rerun until
-  `SELECT COUNT(*) FROM yjs_updates WHERE meaningful IS NULL` is 0 except docs it
-  reports as gapped (a later run heals those). Verified locally: run 1 classified
-  286 docs / 883 rows, run 2 wrote 0 (no-op).
+- **Backfill: AUTOMATED (2026-07-19).** `script/deploy-aws.sh` now runs
+  `node server/scripts/backfill-meaningful-classification.js` in the app pod
+  after the rollout gate, non-fatally (idempotent + NULL-only, so every deploy
+  is safe and post-first-run it's a no-op). No manual step remains; if a run is
+  interrupted, the next deploy — or the manual kubectl exec the script prints —
+  finishes it. Health-check through the edge added to the same post-deploy
+  block. Verified locally: run 1 classified 286 docs / 883 rows, run 2 wrote 0.
+  Rerun-until-zero check if ever needed:
+  `SELECT COUNT(*) FROM yjs_updates WHERE meaningful IS NULL` (excluding docs
+  reported gapped — a later run heals those).
 
 ## Behavioral heads-up
 
