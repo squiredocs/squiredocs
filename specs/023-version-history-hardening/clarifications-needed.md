@@ -164,3 +164,31 @@ per the amendments — the spec fixes the invariants (FR-001..003, FR-007), not 
   would convert one lost update into losing every subsequent edit silently.
 - **Rationale**: Fail-loud-and-continue preserves both the alarm semantics operators
   already rely on and the append-only log's self-healing posture.
+
+## D-10: One-shot migrate drain window (post-merge review F4)
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-19) — **flagged for
+  explicit ratification** (see promotion-notes "Post-merge review dispositions").
+- **Question**: `npm run migrate` applies ALL pending migrations in one shot BEFORE
+  the pods are replaced. The promotion notes previously staged the two DROP migrations
+  ("run only after US3/US6 code is fully rolled out"), which one-shot migrate cannot
+  honor. During the old-pod drain window (after the DROPs have applied, before the old
+  pod stops), the still-running OLD image's write path can touch the now-dropped
+  tables: its `storeUpdate` first-update branch INSERTs into `yjs_state_vectors`, and
+  `createNamedVersion` INSERTs `snapshot_data`. Those statements now fail; the
+  first update of a NEWLY CREATED doc on the draining old pod (and old-pod version
+  naming) is lost for the seconds the old pod is still serving. Require staging the
+  drops into a second, later deploy?
+- **Decision**: **ACCEPT** the drain window on the current single-replica cluster. It
+  is seconds long and affects ONLY doc-creation / version-naming on the draining old
+  pod (existing docs — whose first row already exists — and all reads are unaffected;
+  new-doc creation is rare relative to the window). Staging two deploys doubles the
+  operational surface (two migrate/rollout cycles, a longer mixed-window) to protect a
+  beta-scale, seconds-wide risk. The real mitigation is deploy-time, not schema
+  staging: **drain the old pod quickly** (short terminationGracePeriod / prompt
+  rollout) so the exposure window is minimized. The already-deployed old code cannot be
+  softened; there is no code change that closes this — only faster draining.
+- **Rationale**: Consistent with D-8 (accept the rollout window rather than add
+  ceremony) and constitution III (no new operational ceremony for a risk we can bound
+  by draining fast). Single replica means there is no "other new pod already serving"
+  to shed load to, so a two-stage deploy buys little here.

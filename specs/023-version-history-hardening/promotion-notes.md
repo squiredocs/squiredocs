@@ -27,15 +27,80 @@ deliberately not done here:
   meaningful and are swept by the next backfill). Left unchecked in tasks.md;
   record the outcome in the feature ledger.
 
-## Deploy ordering for the three migrations (rolling, no freeze — D-8)
+## Deploy ordering for the three migrations — reality of one-shot migrate (D-8, D-10)
 
-1. **1799000000000_add-meaningful** — deploy before/with the US4 code. Old pods
-   write NULL (legal); NULL reads as meaningful.
-2. **1799100000000_drop-version-snapshot-data** — run ONLY after the US3 code is
-   fully rolled out (old pods still INSERT snapshot_data until then; the column
-   is nullable so their inserts stay legal right up to the drop).
-3. **1799200000000_drop-yjs-state-vectors** — run ONLY after the US6 code is
-   fully rolled out (old pods still write state vectors until then).
+**What actually happens:** `npm run migrate` applies ALL pending migrations in a
+single shot BEFORE the pods are replaced. It cannot stage individual migrations
+around code rollout. So all three 023 migrations land together, up front:
+
+1. **1799000000000_add-meaningful** — additive; old and new pods both write legal
+   rows (old pods write NULL, which reads as meaningful — D-3).
+2. **1799100000000_drop-version-snapshot-data** — drops the (nullable) snapshot column.
+3. **1799200000000_drop-yjs-state-vectors** — drops the write-once state-vectors table.
+
+**Accepted drain-window risk (D-10 — flagged for Sam's ratification below).** Between
+migrate finishing and the OLD-image pod actually stopping, the old pod is still
+serving on a schema where those two tables/columns are gone. The old code paths that
+touch them then fail:
+
+- old-pod `storeUpdate` first-update branch INSERTs into the dropped
+  `yjs_state_vectors` → its retries all fail → **the first update of a NEWLY CREATED
+  doc on the draining old pod is lost** for the window;
+- old-pod `createNamedVersion` INSERTs `snapshot_data` → **version naming on the
+  draining old pod fails** for the window.
+
+This is ACCEPTED on the current single-replica cluster (seconds-long window; affects
+only doc-creation / version-naming on the draining old pod; existing docs and all
+reads are unaffected). The already-deployed old code cannot be softened — there is no
+code fix that closes this. **The only real mitigation is deploy-time: drain the old
+pod quickly** (short terminationGracePeriod / prompt rollout) to minimize the window.
+Full reasoning and the rejected two-stage-deploy alternative are in
+`clarifications-needed.md` D-10.
+
+## Post-merge review dispositions (adversarial review — NEEDS FIXES verdict)
+
+The architecture stands; the write-path defects below were fixed same-day (this
+commit series), each with a regression test. Backend suite serial-only.
+
+- **F1 (HIGH) — FIXED (5d2fdb0).** The `documents.updated_at` stamp no longer runs
+  swallowed INSIDE the write transaction (a swallowed error there aborted the txn →
+  the COMMIT silently ran as ROLLBACK → storeUpdate returned success while the
+  yjs_updates row never committed = silent edit loss). Pool path: COMMIT the durable
+  insert first, then stamp updated_at post-commit as advisory metadata (a post-commit
+  stamp failure is logged, never undoes the committed row). External-client (016 claim)
+  path: the stamp stays inside the caller's txn but its error now PROPAGATES (no
+  swallow), so a failing stamp rolls the claim back cleanly. Regression: an injected
+  server-side stamp failure → storeUpdate still reports success AND exactly one
+  yjs_updates row exists (ground-truth row count).
+- **F2 (HIGH) — FIXED (5d2fdb0).** `_runStoreSlot` now acquires AND releases a FRESH
+  pool client per attempt (was: one client for all 3 attempts, so a connection that
+  died mid-INSERT made every retry fail instantly). Regression: a first-attempt
+  connection-death client → the retry acquires a fresh working client → success, one row.
+- **F3 (MEDIUM) — FIXED (637e25c).** `restoreVersion` now threads the gap indicator
+  out of BOTH its reads (`getVersionContent`→`getYDocAtClock`, and `getYDoc`, via a new
+  `{ withGap }` option) and REFUSES fail-closed on a still-gapped read — the same posture
+  undo uses — via a typed `DocumentSyncingError` (REST → HTTP 503; MCP → teaching-error
+  string). No restore row and no agent_edits record are written on refusal. Regression:
+  a torn log (clocks 0,1,3) → restore refuses; ground-truth zero new rows.
+- **F5 (MEDIUM) — FIXED (05dda64 guard + 637e25c bindState wiring).** Write-path classification no longer serializes the
+  ENTIRE doc via `extractXml` on every update unconditionally. A cheap O(1) running-size
+  guard (`classificationDisabled`, threshold `MAX_CLASSIFY_DOC_BYTES = 500KB`, exported
+  from `update-classifier.js`) accumulates applied-update byte sizes on the ydoc; once a
+  doc crosses the ceiling, classification AND its extractXml baseline are permanently
+  disabled for that doc's in-memory lifetime and updates persist `meaningful=null`
+  (unknown ⇒ meaningful, fail-visible D-3). Chosen mechanism: accumulated update-byte
+  proxy (monotone; the one big db-load snapshot trips an already-large doc on load) +
+  a `_classifyDisabled` stamp. Regression: an oversized doc → classifier skipped,
+  `meaningful` stays null, extractXml spy never called.
+- **F4 (MEDIUM) — DECISION D-10 recorded** (above + clarifications-needed.md), **flagged
+  for Sam's explicit ratification.** Accept the one-shot-migrate drain window; mitigate
+  by draining the old pod fast.
+- **LOW (live-apply unreachable branch) — ACCEPTED as cosmetic.** No behavioral change.
+- **Reviewer test-honesty notes.** (1) The pre-existing transient-retry test
+  deliberately keeps the client usable — that is intentional and left as-is; the NEW F2
+  test covers the connection-death class beside it. (2) The diff-service gap-skip test
+  mocks the gap — acceptable: the real gap choke point (`_fetchRowsWithGapRetry`) is
+  exercised against a real torn DB log by the postgres-gap-read suite.
 
 ## Operator-run after deploy
 
