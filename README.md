@@ -448,7 +448,9 @@ The editor maintains a complete version history of all document changes, enablin
 
 **Auto-Versioning**: Consecutive edits within a 5-minute window are automatically grouped into a single version. When editing pauses for more than 5 minutes, a new version begins. This prevents every keystroke from creating a separate version while preserving meaningful checkpoints.
 
-**Named Versions**: Users can explicitly name any version (e.g., "Final Draft", "Before Refactor"). Named versions store a cached snapshot for instant loading and appear prominently in the timeline.
+**Named Versions**: Users can explicitly name any version (e.g., "Final Draft", "Before Refactor"). A named version is a pure clock-range label — content is always rebuilt by replaying the update log (the single source of truth; no cached snapshots), so a named version can never diverge from the history it labels.
+
+**Write ordering & timeline cost**: Updates are persisted through a per-document ordered queue with a Postgres advisory-lock backstop, so clock order always matches the order edits were made (a version coordinate can never silently contain a later edit but miss an earlier one). Each update's "meaningful vs. noise" classification is computed once at write time and stored (`yjs_updates.meaningful`), so building the timeline reads rows instead of replaying the whole document per request; `server/scripts/backfill-meaningful-classification.js` backfills historical rows idempotently.
 
 **Author Tracking**: Each edit records the user (or AI agent) who made it. Versions display all contributors with deterministic avatar colors. Agent edits are tagged with the agent name for transparency.
 
@@ -461,7 +463,7 @@ The version history panel uses a three-level hierarchy:
 
 ### Restoring Versions
 
-Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time.
+Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time (delivered cross-instance, never silently skipped). A restore is recorded like any other tracked edit, so the chat assistant's Undo can invert it, and both surfaces (web UI and MCP `restore_document_version`) share identical attribution and broadcast semantics.
 
 ### Diff Highlighting
 
