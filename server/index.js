@@ -1417,18 +1417,14 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
       return res.status(403).json({ error: 'You do not have permission to restore this document' });
     }
 
-    // Get function to access shared document for broadcasting restore update
-    const getSharedDocFn = (docGuid) => {
-      try {
-        return documentService.getSharedDoc(docGuid);
-      } catch (error) {
-        // Document service might not be initialized or document not loaded yet
-        console.warn(`[Restore] Could not get shared document for ${docGuid}:`, error.message);
-        return null;
-      }
-    };
-
-    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, getSharedDocFn);
+    // Restore via the shared core (feature 023 US5): a human UI restore records
+    // under the '' agent sentinel and broadcasts on every instance via the shared
+    // live-apply path (loaded-doc apply or Redis fan-out — never a silent skip).
+    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, {
+      getSharedDoc: documentService.getSharedDoc,
+      redisPubSub,
+      agentName: null,
+    });
     res.json(result);
   } catch (error) {
     console.error('Error restoring version:', error);

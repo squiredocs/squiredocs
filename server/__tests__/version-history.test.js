@@ -17,6 +17,9 @@ const {
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
+const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+const editRecords = require('../undo/edit-records');
+const undoService = require('../undo/undo-service');
 
 describe('version-history module', () => {
   describe('generateColorFromId', () => {
@@ -1030,7 +1033,7 @@ describe('version-history module', () => {
       };
 
       // Restore to version 1 (clock 1) - this should update the in-memory document
-      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', { getSharedDoc: getSharedDocFn });
 
       // Verify that the in-memory document was actually updated with the restored content
       // This is the key assertion - before the fix, this would fail because
@@ -1124,7 +1127,7 @@ describe('version-history module', () => {
       const storeCallsBefore = mockPersistence.storeUpdate.mock.calls.length; // 2 seed writes
 
       const getSharedDocFn = (g) => (g === 'test-doc' ? inMemoryDoc : null);
-      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', { getSharedDoc: getSharedDocFn });
 
       // Exactly ONE additional storeUpdate for the restore (the explicit store),
       // not two (would be the listener re-persisting the live-doc apply).
@@ -1655,6 +1658,226 @@ describe('version-history module', () => {
       const result = await getContentAtClock(mockPersistence, 'doc', 10);
       expect(result).toHaveProperty('content');
       expect(result.clock).toBe(10);
+    });
+  });
+
+  // Feature 023 US5 — a restore is a first-class, undoable edit on every surface.
+  // DB-backed (real persistence + agent_edits + undo), serial only.
+  describe('023 restore integration (US5)', () => {
+    let pool, persistence, userId;
+    const AGENT = 'Squire Docs Assistant';
+    const para = (text) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, text);
+      p.insert(0, [t]);
+      return p;
+    };
+
+    beforeAll(async () => {
+      pool = createPool();
+      persistence = createPersistence();
+      undoService.init(persistence);
+      userId = await createTestUser(pool, `restore-023-${Date.now()}@test.com`);
+    });
+
+    afterAll(async () => {
+      await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
+      await cleanupTestUser(pool, userId);
+      await persistence.destroy();
+      await pool.end();
+    });
+
+    // Seed clock 0 = "Alpha", clock 1 = "Alpha"+"Beta". Restore to "0" removes Beta.
+    async function seedDoc(docGuid) {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      let sv = Y.encodeStateVector(doc);
+      doc.transact(() => frag.insert(0, [para('Alpha')]));
+      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
+      sv = Y.encodeStateVector(doc);
+      doc.transact(() => frag.insert(1, [para('Beta')]));
+      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
+      doc.destroy();
+    }
+
+    const cleanupDoc = async (docGuid) => {
+      await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+    };
+
+    test('T031: human restore records exactly one update row and one agent_edits row (identity = "")', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        expect(res.success).toBe(true);
+        expect(res.newClock).toBe(2); // exactly one new row (single-persist, FR-024)
+
+        const updates = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(updates.rows[0].n).toBe(3); // clocks 0,1 + the single restore row
+
+        const edits = await pool.query('SELECT * FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows).toHaveLength(1);
+        expect(edits.rows[0].agent_name).toBe(''); // human => '' sentinel (D-4)
+        expect(edits.rows[0].edit_clock_start).toBe(2);
+        expect(edits.rows[0].edit_clock_end).toBe(2);
+        expect(edits.rows[0].undo_target_clocks).toEqual([2]);
+
+        // The restore actually reverted content to "Alpha" only.
+        const replayed = await persistence.getYDoc(docGuid);
+        const xml = replayed.getXmlFragment('default').toString();
+        expect(xml).toContain('Alpha');
+        expect(xml).not.toContain('Beta');
+        replayed.destroy();
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T031: agent restore records under the acting agent name', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        const edits = await pool.query('SELECT agent_name FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows).toHaveLength(1);
+        expect(edits.rows[0].agent_name).toBe(AGENT);
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T031: a recordEdit failure logs but the restore still succeeds', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const spy = jest.spyOn(editRecords, 'recordEdit').mockRejectedValueOnce(new Error('boom'));
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        expect(res.success).toBe(true); // restore stands despite the recording failure
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0); // nothing recorded
+      } finally {
+        spy.mockRestore();
+        errSpy.mockRestore();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T032: chat Undo inverts a fresh AGENT restore surgically', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // Agent restore to "Alpha" (removes Beta), recorded under AGENT identity.
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        let xml = (await persistence.getYDoc(docGuid)).getXmlFragment('default').toString();
+        expect(xml).not.toContain('Beta');
+
+        // Undo the restore under the AGENT identity (LOW: inverted restore uses
+        // the acting agent's identity) — Beta comes back, surgically.
+        const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT }, { getSharedDoc: () => null });
+        expect(undo.undone).toBe(true);
+        xml = (await persistence.getYDoc(docGuid)).getXmlFragment('default').toString();
+        expect(xml).toContain('Alpha');
+        expect(xml).toContain('Beta'); // the restore was inverted
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T032: a human ("") restore is recorded but NOT targeted by an agent undo (D-4 scoping)', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        // The human restore IS recorded under '' ...
+        const edits = await pool.query("SELECT agent_name FROM agent_edits WHERE doc_guid = $1", [docGuid]);
+        expect(edits.rows.map((r) => r.agent_name)).toEqual(['']);
+        // ... but an AGENT-identity undo does not target it (016 identity scoping).
+        const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT }, { getSharedDoc: () => null });
+        expect(undo.undone).toBe(false);
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T033: broadcast — loaded doc applies ORIGIN_RESTORE and fans out without re-persist', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // A live doc reached via getSharedDoc, no attached redis handler.
+        const liveDoc = await persistence.getYDoc(docGuid);
+        const pubSub = { isEnabled: () => true, publishUpdate: jest.fn() };
+        const before = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: (g) => (g === docGuid ? liveDoc : null), redisPubSub: pubSub, agentName: null });
+
+        // Applied to the live doc (content reverted in memory).
+        expect(liveDoc.getXmlFragment('default').toString()).not.toContain('Beta');
+        // No attached handler => published explicitly, exactly once.
+        expect(pubSub.publishUpdate).toHaveBeenCalledTimes(1);
+        expect(pubSub.publishUpdate.mock.calls[0][0]).toBe(docGuid);
+        // No double-persist: only the single restore row was added.
+        const after = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(after.rows[0].n).toBe(before.rows[0].n + 1);
+        liveDoc.destroy();
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T033: broadcast — not loaded + Redis => publishUpdate; neither => observable warn', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // Not loaded here, Redis enabled => fan out via publishUpdate.
+        const pubSub = { isEnabled: () => true, publishUpdate: jest.fn() };
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: pubSub, agentName: null });
+        expect(pubSub.publishUpdate).toHaveBeenCalledTimes(1);
+
+        // Neither a live doc nor Redis => observable warn, never silent.
+        await seedDoc(docGuid); // add more edits so there is something to restore again
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: { isEnabled: () => false, publishUpdate: jest.fn() }, agentName: null });
+          expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('no delivery path'))).toBe(true);
+        } finally {
+          warnSpy.mockRestore();
+        }
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T034: both surfaces converge — equivalent inputs differ only in identity; bad version throws typed error', async () => {
+      const docA = require('crypto').randomUUID();
+      const docB = require('crypto').randomUUID();
+      await seedDoc(docA);
+      await seedDoc(docB);
+      try {
+        // REST-equivalent (agentName null) and MCP-equivalent (agentName AGENT)
+        // through the SAME core produce structurally identical rows/records.
+        const rest = await restoreVersion(persistence, docA, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        const mcp = await restoreVersion(persistence, docB, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        expect(Object.keys(rest).sort()).toEqual(Object.keys(mcp).sort());
+        expect(rest.newClock).toBe(mcp.newClock);
+
+        const eA = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docA]);
+        const eB = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docB]);
+        expect(eA.rows[0].agent_name).toBe('');       // only the identity differs
+        expect(eB.rows[0].agent_name).toBe(AGENT);
+        expect(eA.rows[0].undo_target_clocks).toEqual(eB.rows[0].undo_target_clocks);
+
+        // A foreign/unknown version id throws the typed VersionNotFoundError on
+        // both surfaces (routes/tools map it to 404 / a surfaced error).
+        await expect(restoreVersion(persistence, docA, '99999', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null }))
+          .rejects.toBeInstanceOf(VersionNotFoundError);
+      } finally {
+        await cleanupDoc(docA);
+        await cleanupDoc(docB);
+      }
     });
   });
 });

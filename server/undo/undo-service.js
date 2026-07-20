@@ -28,6 +28,7 @@
  */
 const Y = require('yjs');
 const { ORIGIN_INVERSE_APPLY } = require('../origin');
+const { applyLiveUpdate } = require('../live-apply');
 const editRecords = require('./edit-records');
 const { computeInverse } = require('./inverse');
 // Namespace import (feature 020, analyze A1): the call site must stay
@@ -98,37 +99,6 @@ async function currentMaxClock(persistence, docGuid) {
  */
 function loadLog(persistence, docGuid) {
   return persistence.getUpdatesInRange(docGuid, 0, MAX_CLOCK, { withGap: true });
-}
-
-/**
- * Apply a committed inverse to the live shared doc (non-fatal on failure: the
- * row is durable; any subsequent load replays it — the restore posture) and
- * fan it out cross-instance.
- *
- * Redis fan-out (H1 review fix): the per-doc redis update handler is attached
- * only by the WS connection handler (server/index.js). A doc reached via
- * getSharedDoc on the undo path — or absent entirely — has no handler, so the
- * applied inverse would never reach other pods and their editors (including
- * the clicking user's, on another pod) would go silently stale. Publish
- * explicitly in exactly that case. When the handler IS attached, the apply
- * under ORIGIN_INVERSE_APPLY already publishes (that origin is deliberately
- * not on the handler's skip-list), so publishing here would double-send.
- */
-function applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverseUpdate) {
-  let sharedDoc = null;
-  try {
-    sharedDoc = getSharedDoc(docGuid);
-    if (sharedDoc) Y.applyUpdate(sharedDoc, inverseUpdate, ORIGIN_INVERSE_APPLY);
-  } catch (err) {
-    console.error(`[undo-service] live apply failed for ${docGuid}:`, err.message);
-  }
-  try {
-    if (redisPubSub.isEnabled() && !(sharedDoc && sharedDoc._redisUpdateHandler)) {
-      redisPubSub.publishUpdate(docGuid, inverseUpdate);
-    }
-  } catch (err) {
-    console.error(`[undo-service] inverse redis fan-out failed for ${docGuid}:`, err.message);
-  }
 }
 
 /**
@@ -248,7 +218,7 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
   }
 
   const diff = computeRevertDiff(inverse, docGuid);
-  applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
+  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, inverse.inverseUpdate, ORIGIN_INVERSE_APPLY, 'undo-service');
   return {
     success: true,
     undone: true,
@@ -322,7 +292,7 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
   }
 
   const diff = computeRevertDiff(inverse, docGuid);
-  applyToLiveDoc(getSharedDoc, redisPubSub, docGuid, inverse.inverseUpdate);
+  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, inverse.inverseUpdate, ORIGIN_INVERSE_APPLY, 'undo-service');
   return {
     success: true,
     redone: true,

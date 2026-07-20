@@ -6,6 +6,8 @@
 const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml } = require('./yjs-utils');
+const editRecords = require('./undo/edit-records');
+const { applyLiveUpdate } = require('./live-apply');
 
 /**
  * Thrown when a requested version cannot be resolved: an unknown/foreign named
@@ -600,17 +602,25 @@ async function getVersionContent(persistence, docGuid, versionId) {
 }
 
 /**
- * Restore document to a previous version (non-destructive)
- * Creates the restore as a new update applied to the current document
+ * Restore document to a previous version (non-destructive) — the ONE shared core
+ * behind both restore surfaces (REST route and MCP tool), feature 023 US5.
+ * Creates the restore as a single new update, records an undo-invertible edit
+ * record for it, and broadcasts it live on every instance (no silent skip).
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {string} versionId - Version ID to restore
  * @param {string} userId - User performing the restore
- * @param {Function|null} getSharedDocFn - Optional function to get the in-memory shared document
- * @param {string|null} agentName - Agent name for attribution (e.g., 'Chat Assistant')
+ * @param {object} [deps]
+ * @param {Function|null} [deps.getSharedDoc] - docGuid -> Y.Doc|null (in-memory doc)
+ * @param {object|null} [deps.redisPubSub] - cross-instance fan-out when not loaded
+ * @param {string|null} [deps.agentName] - acting agent name; null for a human UI restore
  * @returns {Promise<Object>} Result with new version info
  */
-async function restoreVersion(persistence, docGuid, versionId, userId, getSharedDocFn = null, agentName = null) {
+async function restoreVersion(persistence, docGuid, versionId, userId, {
+  getSharedDoc = null,
+  redisPubSub = null,
+  agentName = null,
+} = {}) {
   console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
 
   // Get the target version content
@@ -698,36 +708,34 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
   const restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
   console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
 
-  // Store as a new update (this is the restore operation)
-  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName);
+  // Store as a single new update (the restore operation). Classified meaningful
+  // by construction (feature 023 US4) — a restore always changes visible content.
+  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName, null, null, { meaningful: true });
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
-  // Apply the restore update to the in-memory document so it broadcasts to clients
-  if (getSharedDocFn) {
-    try {
-      const sharedDoc = getSharedDocFn(docGuid);
-      if (sharedDoc) {
-        // Broadcast the restore delta to connected clients WITHOUT re-persisting.
-        // The row was already stored above via storeUpdate with correct
-        // userId/agentName attribution. We use the ORIGIN_RESTORE sentinel so the
-        // bindState persistence listener (parseOrigin -> null) skips it: storeUpdate
-        // allocates a FRESH max+1 clock on every call and never dedupes by content,
-        // so a parseable origin here would persist the same delta a SECOND time at a
-        // new clock (the previous "ON CONFLICT DO NOTHING prevents duplicates"
-        // comment was false — that clause only guards a lost race for the same clock).
-        Y.applyUpdate(sharedDoc, restoreUpdate, ORIGIN_RESTORE);
-        console.log(`[Restore] Applied restore update to in-memory document`);
-      } else {
-        console.warn(`[Restore] Could not get shared document for ${docGuid} - update not broadcast`);
-      }
-    } catch (error) {
-      console.error(`[Restore] Error applying restore update to in-memory document:`, error);
-      // Don't fail the restore if we can't update the in-memory doc
-      // The update is already persisted, so it will be loaded on next connection
-    }
-  } else {
-    console.warn(`[Restore] No getSharedDocFn provided - restore update not applied to in-memory document`);
+  // Record the restore as an edit record so log-derived undo can invert it
+  // (feature 023 FR-020, D-4). A human UI restore records under the '' agent
+  // sentinel (agent_edits.agent_name is NOT NULL); an agent restore records under
+  // the acting agent's name. Non-fatal (modify parity): a recording failure logs
+  // and the restore still succeeds — undo simply finds nothing to invert.
+  try {
+    await editRecords.recordEdit(persistence, {
+      docGuid,
+      userId,
+      agentName: agentName ?? '',
+      clockStart: newClock,
+      clockEnd: newClock,
+      clocks: [newClock],
+    });
+  } catch (recordErr) {
+    console.error(`[Restore] Failed to record edit for ${docGuid} (restore still succeeds):`, recordErr.message);
   }
+
+  // Broadcast the restore live on every instance without a silent skip
+  // (feature 023 FR-023, D-5). ORIGIN_RESTORE makes the bindState persistence
+  // listener skip re-storing (storeUpdate allocates a fresh clock per call and
+  // never dedupes by content, so a parseable origin here would double-persist).
+  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
 
   return {
     success: true,
