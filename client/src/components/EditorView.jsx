@@ -22,7 +22,7 @@ import { formatVersionTimestamp } from '../utils/datetime';
 import './EditorView.css';
 import './MenuCommon.css';
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, versionsReachedInAppRef, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -196,10 +196,13 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   };
 
   const handleCloseVersionHistory = () => {
-    // Deep link / fresh tab (never reached in-app): navigate in-app to the doc so
-    // close never exits the app. Otherwise preserve normal back semantics
-    // (024/US4, FR-013, R5).
-    if (versionsReachedInAppRef?.current) {
+    // Per-history-entry close semantics: navigateToVersions stamps
+    // { versionsInApp: true } onto the entry it pushes, so an entry reached
+    // in-app closes via history.back(), while a deep-link/fresh-tab entry
+    // (no stamp — including one returned to via browser Back) navigates
+    // in-app to the doc. Close never exits the app (024/US4, FR-013, R5;
+    // review MEDIUM-3 2026-07-19).
+    if (window.history.state?.versionsInApp) {
       window.history.back();
     } else if (onNavigateToDoc) {
       onNavigateToDoc(docGuid);

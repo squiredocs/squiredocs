@@ -36,3 +36,32 @@ jsdom cannot measure layout/geometry, so these SC criteria need the browser matr
 - A shared `Modal`/`ConfirmDialog` primitive: this feature intentionally kept the two dialogs
   local (D2). If more surfaces need styled confirms, promoting these into a shared component
   is a reasonable future extraction.
+
+## Post-merge review dispositions (2026-07-19, reviewer: Fable — MERGE STANDS)
+
+- **HIGH-1 (FIXED same-day, orchestrator):** name/rename/remove-name failures
+  closed the dialog as if they succeeded — the hook signals failure without
+  throwing (createNamedVersion → null, renameVersion/deleteNamedVersion →
+  false) and only the restore handler checked. All three handlers now treat
+  false/null as failure and keep the dialog open with the error (matching
+  restore); 3 wiring regression tests added.
+- **MEDIUM-2 (FIXED same-day):** VersionConfirmDialog never received focus, so
+  Escape was dead (the launching menu item unmounts → activeElement falls to
+  body) and the tests masked it by firing keyDown at the overlay node. The
+  Cancel button now takes rAF focus on open (same pattern as
+  VersionNameDialog's input) + aria-modal; test asserts Escape works from the
+  actually-focused element. Full focus trap NOT added (matches the
+  VersionNameDialog/ShareDialog level of rigor) — fold into any future a11y
+  pass.
+- **MEDIUM-3 (FIXED same-day):** versionsReachedInApp was a session-global
+  one-way ref, so a back-navigated deep-link entry could still exit the app on
+  close. The flag is now stamped per-entry into history.state by
+  navigateToVersions ({ versionsInApp: true }); close checks
+  window.history.state. The ref and its prop threading were removed.
+- **LOW-4 (FIXED):** stale "reload fallback if absent" comment corrected.
+- **LOW-5 (ACCEPTED):** portaled menu lacks aria-haspopup/aria-expanded and
+  body-end reading order — pre-existing pattern made slightly more visible;
+  fold into a future a11y pass.
+- **Reviewer addition to Sam's T026 manual matrix:** include a desktop keyboard
+  pass (Escape/Enter/Tab in both dialogs) — that's where MEDIUM-2 lived and
+  jsdom masked it.

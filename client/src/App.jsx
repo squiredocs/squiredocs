@@ -107,11 +107,6 @@ function AppContent() {
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
   const isMobile = useMobile();
-  // True once the versions view was reached via in-app navigation; stays false on
-  // a fresh page load / deep link that lands directly on /d/{guid}/versions. Drives
-  // the version-history close: history.back() when in-app, else in-app navigate to
-  // the doc so close never exits the app (024/US4, R5).
-  const versionsReachedInAppRef = useRef(false);
 
   // Track SPA page views in Google Analytics
   useEffect(() => {
@@ -167,11 +162,13 @@ function AppContent() {
     setRoute({ view: 'editor', docGuid });
   };
 
-  // Navigate to version history
+  // Navigate to version history. The in-app flag is stamped onto THIS history
+  // entry (not a session-global ref) so close semantics are per-entry: a
+  // back-navigated deep-link entry stays deep-link-shaped and close never exits
+  // the app (024/US4, R5; review MEDIUM-3 2026-07-19).
   const navigateToVersions = (docGuid) => {
     const newPath = `/d/${docGuid}/versions`;
-    window.history.pushState({}, '', newPath);
-    versionsReachedInAppRef.current = true;
+    window.history.pushState({ versionsInApp: true }, '', newPath);
     setRoute({ view: 'versions', docGuid });
   };
 
@@ -299,8 +296,7 @@ function AppContent() {
         navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
         navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings}
         navigateToSupport={navigateToSupport}
-        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat}
-        versionsReachedInAppRef={versionsReachedInAppRef} />
+        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat} />
     </ByokProvider>
   );
 }
@@ -309,7 +305,7 @@ function AppContent() {
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat, versionsReachedInAppRef }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
@@ -380,7 +376,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
         onNavigateToDoc={navigateToDoc}
-        versionsReachedInAppRef={versionsReachedInAppRef}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}

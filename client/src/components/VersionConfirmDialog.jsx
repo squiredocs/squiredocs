@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import './VersionHistoryPanel.css';
 
 /**
@@ -9,6 +9,20 @@ import './VersionHistoryPanel.css';
  * Props: { isOpen, title, message, confirmLabel, onConfirm, onCancel, busy, error }
  */
 function VersionConfirmDialog({ isOpen, title, message, confirmLabel = 'Confirm', onConfirm, onCancel, busy = false, error = null }) {
+  const cancelRef = useRef(null);
+
+  // Focus lands inside the dialog on open (the launching menu item unmounts,
+  // dropping focus to <body>, which would leave the overlay's Escape handler
+  // dead). Cancel is the safe default for a destructive confirm — same rAF
+  // pattern as VersionNameDialog's input focus.
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => {
+        if (cancelRef.current) cancelRef.current.focus();
+      });
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleKeyDown = (e) => {
@@ -28,13 +42,14 @@ function VersionConfirmDialog({ isOpen, title, message, confirmLabel = 'Confirm'
         className="version-dialog"
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"
+        aria-modal="true"
         aria-label={title}
       >
         {title && <h3>{title}</h3>}
         {message && <p className="version-dialog-message">{message}</p>}
         {error && <div className="version-dialog-error" role="alert">{error}</div>}
         <div className="version-dialog-actions">
-          <button type="button" onClick={onCancel} disabled={busy}>
+          <button type="button" ref={cancelRef} onClick={onCancel} disabled={busy}>
             Cancel
           </button>
           <button type="button" onClick={onConfirm} disabled={busy}>

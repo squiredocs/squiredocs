@@ -344,7 +344,7 @@ function HierarchicalVersionList({
   isLoading,
   filter = 'all', // 'all' or 'named'
   docGuid,
-  onNavigateToDoc, // post-restore in-app navigation (024/US4); reload fallback if absent
+  onNavigateToDoc, // post-restore in-app navigation (024/US4); always wired by App
 }) {
   // Filter versions based on filter prop
   const filteredVersions = filter === 'named'
@@ -449,7 +449,14 @@ function HierarchicalVersionList({
         : onCreateNamedVersion(trimmedName, item.clockEnd)),
       'Failed to save the version name.'
     );
-    if (result !== undefined) closeDialog();
+    if (result === undefined) return; // threw — error already surfaced, stay open
+    // The hook signals failure without throwing: createNamedVersion → null,
+    // renameVersion → false. Keep the dialog open with the error (FR-006).
+    if (result === false || result === null) {
+      setDialog(prev => (prev ? { ...prev, busy: false, error: 'Failed to save the version name.' } : prev));
+      return;
+    }
+    closeDialog();
   };
 
   const handleConfirmRemoveName = async () => {
@@ -459,7 +466,13 @@ function HierarchicalVersionList({
       () => onDeleteVersion(item.id),
       'Failed to remove the version name.'
     );
-    if (result !== undefined) closeDialog();
+    if (result === undefined) return; // threw — error already surfaced, stay open
+    // deleteNamedVersion signals failure as false, not a throw (FR-006).
+    if (result === false || result === null) {
+      setDialog(prev => (prev ? { ...prev, busy: false, error: 'Failed to remove the version name.' } : prev));
+      return;
+    }
+    closeDialog();
   };
 
   const handleConfirmRestore = async () => {

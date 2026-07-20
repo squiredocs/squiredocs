@@ -385,6 +385,44 @@ describe('HierarchicalVersionList — US2 in-app dialogs (024)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove name' }));
     expect(onDeleteVersion).toHaveBeenCalledWith('5');
   });
+
+  // Review HIGH-1 (2026-07-19): the hook signals failure WITHOUT throwing
+  // (createNamedVersion → null, renameVersion/deleteNamedVersion → false).
+  // The dialog must stay open with an error, exactly like the restore path.
+  it('keeps the name dialog open with an error when createNamedVersion resolves null', async () => {
+    const onCreateNamedVersion = vi.fn().mockResolvedValue(null);
+    renderList(baseVersion, { onCreateNamedVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Name this version'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Milestone' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save the version name.');
+    expect(screen.getByRole('textbox')).toBeInTheDocument(); // dialog still open
+  });
+
+  it('keeps the rename dialog open with an error when renameVersion resolves false', async () => {
+    const onRenameVersion = vi.fn().mockResolvedValue(false);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onRenameVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Rename'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New name' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to save the version name.');
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+  });
+
+  it('keeps the remove-name dialog open with an error when deleteNamedVersion resolves false', async () => {
+    const onDeleteVersion = vi.fn().mockResolvedValue(false);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onDeleteVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Remove name'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove name' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to remove the version name.');
+    // dialog still open — the confirm button is still rendered
+    expect(screen.getByRole('button', { name: 'Remove name' })).toBeInTheDocument();
+  });
 });
 
 /**
