@@ -729,27 +729,28 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       </svg>
                       <span>Share</span>
                     </button>
-                    {!isMobile && (
-                      <a
-                        href={`/d/${docGuid}/versions`}
-                        className="tools-menu-item"
-                        onClick={(e) => {
-                          // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
-                          if (shouldUseBrowserLinkBehavior(e)) {
-                            return; // Let the browser handle it
-                          }
+                    {/* Shown on ALL form factors: the mobile gate predated 024,
+                        which made the versions view touch-usable — hiding the
+                        entry point made that feature unreachable on mobile. */}
+                    <a
+                      href={`/d/${docGuid}/versions`}
+                      className="tools-menu-item"
+                      onClick={(e) => {
+                        // Allow standard browser behaviors (Cmd+Click, Ctrl+Click, middle-click, etc.)
+                        if (shouldUseBrowserLinkBehavior(e)) {
+                          return; // Let the browser handle it
+                        }
 
-                          // For normal clicks, use SPA navigation
-                          handleMenuItemClick(e, handleOpenVersionHistory);
-                        }}
-                        title="Version history"
-                      >
+                        // For normal clicks, use SPA navigation
+                        handleMenuItemClick(e, handleOpenVersionHistory);
+                      }}
+                      title="Version history"
+                    >
                         <svg viewBox="0 0 24 24" fill="currentColor">
                           <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
                         </svg>
-                        <span>History</span>
-                      </a>
-                    )}
+                      <span>History</span>
+                    </a>
                     <button
                       className="tools-menu-item"
                       onClick={(e) => handleMenuItemClick(e, () => window.print())}

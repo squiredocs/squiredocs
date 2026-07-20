@@ -157,6 +157,23 @@ describe('EditorView tools menu', () => {
     expect(screen.getByText('Print')).toBeInTheDocument();
   });
 
+  // Regression (2026-07-20): the History entry point was gated !isMobile, which
+  // made the touch-usable versions view (024) unreachable on the one platform it
+  // was built for. It must render on every form factor.
+  it('shows the History item on desktop', async () => {
+    vi.mocked(useMobile).mockReturnValue(false);
+    await renderEditorView();
+    openToolsMenu();
+    expect(screen.getByText('History').closest('a')).toHaveAttribute('href', `/d/${TEST_DOC_GUID}/versions`);
+  });
+
+  it('shows the History item on mobile too', async () => {
+    vi.mocked(useMobile).mockReturnValue(true);
+    await renderEditorView();
+    openToolsMenu();
+    expect(screen.getByText('History').closest('a')).toHaveAttribute('href', `/d/${TEST_DOC_GUID}/versions`);
+  });
+
   it('calls window.print() when Print is clicked', async () => {
     await renderEditorView();
     openToolsMenu();
