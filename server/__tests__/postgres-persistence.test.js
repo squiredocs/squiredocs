@@ -293,6 +293,84 @@ describe('PostgresPersistence', () => {
     });
   });
 
+  // Post-merge review F1/F2: write-transaction integrity on the pool path.
+  describe('023 post-merge write-path hardening (F1/F2)', () => {
+    const hardeningDocGuid = () => `f1f20000-${crypto.randomUUID().slice(9)}`;
+
+    test('F1: a failing updated_at stamp never turns a committed insert into silent loss', async () => {
+      // The updated_at stamp used to run inside the write transaction with a
+      // swallowed .catch(). If it errored, the txn aborted (25P02) and the
+      // subsequent COMMIT silently executed as ROLLBACK — storeUpdate returned a
+      // clock as SUCCESS while the yjs_updates row never committed. Inject a
+      // server-side failure for exactly that statement and assert ground truth:
+      // storeUpdate must NOT report success while the row is absent.
+      const docGuid = hardeningDocGuid();
+      const realConnect = persistence.pool.connect.bind(persistence.pool);
+      persistence.pool.connect = async () => {
+        const client = await realConnect();
+        const realQuery = client.query.bind(client);
+        client.query = (sql, params) => {
+          if (typeof sql === 'string' && sql.includes('UPDATE documents SET updated_at')) {
+            // Force a real server-side error for the stamp (a statement_timeout /
+            // deadlock stand-in). Pre-F1 this aborted the still-open txn.
+            return realQuery('SELECT 1/0');
+          }
+          return realQuery(sql, params);
+        };
+        return client;
+      };
+      try {
+        const seedDoc = new Y.Doc();
+        seedDoc.getText('content').insert(0, 'f1');
+        const clock = await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(seedDoc), humanUserId, null);
+
+        // Reported success...
+        expect(typeof clock).toBe('number');
+        // ...and the ground-truth row actually exists, exactly once (no silent loss).
+        const { rows } = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(rows).toHaveLength(1);
+        expect(Number(rows[0].clock)).toBe(clock);
+      } finally {
+        persistence.pool.connect = realConnect;
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+
+    test('F2: a connection-death on the first attempt retries on a FRESH client and stores exactly one row', async () => {
+      // Pre-F2 the slot took ONE pool client for all attempts, so a connection
+      // that dies mid-INSERT left every retry failing instantly ("Client has
+      // encountered a connection error and is not queryable"). The first
+      // pool.connect() here hands back a permanently-dead client; the retry must
+      // acquire a fresh, working one and succeed.
+      const docGuid = hardeningDocGuid();
+      const realConnect = persistence.pool.connect.bind(persistence.pool);
+      let connectCount = 0;
+      persistence.pool.connect = async (...args) => {
+        connectCount += 1;
+        if (connectCount === 1) {
+          return {
+            query: () => Promise.reject(new Error('Client has encountered a connection error and is not queryable')),
+            release: () => {},
+          };
+        }
+        return realConnect(...args);
+      };
+      try {
+        const seedDoc = new Y.Doc();
+        seedDoc.getText('content').insert(0, 'f2');
+        const clock = await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(seedDoc), humanUserId, null);
+
+        expect(typeof clock).toBe('number');
+        expect(connectCount).toBeGreaterThanOrEqual(2); // fresh client acquired for the retry
+        const { rows } = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(rows).toHaveLength(1); // exactly one row — no duplicate, no loss
+      } finally {
+        persistence.pool.connect = realConnect;
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+  });
+
   // F7: getVersionById / updateVersionName / deleteNamedVersion are doc-scoped
   // in SQL (AND doc_id = $n), so a versionId from another document can never be
   // read, renamed, or deleted through a different docGuid — the 019 cross-doc

@@ -206,19 +206,23 @@ class PostgresPersistence {
   async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful) {
     const MAX_ATTEMPTS = 3;
     const baseDelay = 100;
-    const client = await this.pool.connect();
-    try {
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-          return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, true);
-        } catch (err) {
-          if (attempt === MAX_ATTEMPTS) throw err;
-          const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // F2: acquire a FRESH client per attempt. A connection that dies mid-INSERT
+      // (DB failover/restart, network blip) leaves its pool client permanently
+      // unqueryable ("Client has encountered a connection error and is not
+      // queryable") — reusing it would make attempts 2-3 fail instantly, defeating
+      // the exact backoff meant to ride out a transient DB outage. A new client
+      // per attempt restores pre-023 retry semantics. Released on every path.
+      const client = await this.pool.connect();
+      try {
+        return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, true);
+      } catch (err) {
+        if (attempt === MAX_ATTEMPTS) throw err;
+        const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } finally {
+        client.release();
       }
-    } finally {
-      client.release();
     }
   }
 
@@ -234,12 +238,12 @@ class PostgresPersistence {
   async _storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, ownTxn) {
     const MAX_CONFLICT_RETRIES = 5;
     if (ownTxn) await client.query('BEGIN');
+    let nextClock;
     try {
       // Cross-instance atomic clock acquisition: serialize MAX+1 + INSERT for
       // this document across every instance (FR-002). Auto-released at COMMIT.
       await client.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [CLOCK_LOCK_NAMESPACE, docGuid]);
 
-      let nextClock;
       for (let attempt = 0; attempt < MAX_CONFLICT_RETRIES; attempt++) {
         const clock = await this._getCurrentUpdateClock(client, docGuid);
         nextClock = clock + 1;
@@ -262,22 +266,38 @@ class PostgresPersistence {
           throw new Error(`storeUpdate: failed to acquire a unique clock for ${docGuid} after ${MAX_CONFLICT_RETRIES} attempts`);
         }
       }
-
-      // Update document timestamp (best-effort; a missing documents row is not
-      // an error). Kept inside the transaction so it commits atomically.
-      await client.query(
-        'UPDATE documents SET updated_at = now() WHERE id = $1',
-        [docGuid]
-      ).catch(err => {
-        console.warn(`Could not update documents.updated_at for ${docGuid}:`, err.message);
-      });
-
-      if (ownTxn) await client.query('COMMIT');
-      return nextClock;
     } catch (err) {
       if (ownTxn) await client.query('ROLLBACK').catch(() => {});
       throw err;
     }
+
+    // F1: the documents.updated_at stamp is advisory metadata — its failure must
+    // NEVER be swallowed INSIDE the open transaction. A swallowed error there
+    // aborts the transaction (25P02); the subsequent COMMIT then silently
+    // executes as ROLLBACK (node-pg does not throw on that), so storeUpdate would
+    // return a clock as SUCCESS while the yjs_updates row never committed — silent
+    // edit loss. Two paths, both safe:
+    if (ownTxn) {
+      // Pool path: COMMIT the durable update FIRST, then stamp updated_at AFTER
+      // commit as pre-023 advisory metadata. The yjs_updates row is durable
+      // regardless of the stamp; a post-commit stamp failure is outside any
+      // transaction, so swallowing it here is correct (it can never undo the
+      // committed insert or corrupt this returned clock).
+      await client.query('COMMIT');
+      try {
+        await client.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
+      } catch (err) {
+        console.warn(`Could not update documents.updated_at for ${docGuid} (post-commit, non-fatal):`, err.message);
+      }
+    } else {
+      // External-client (016 claim) path: the caller owns COMMIT, so the stamp
+      // must run inside their transaction — but its error must PROPAGATE (never
+      // swallow), so a failing stamp rolls the whole claim back cleanly instead
+      // of leaving the txn aborted and the caller's next statement failing
+      // confusingly.
+      await client.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
+    }
+    return nextClock;
   }
 
   /**
@@ -383,15 +403,20 @@ class PostgresPersistence {
    * with the warn line the fetcher emits.
    *
    * @param {string} docGuid - Document GUID
-   * @returns {Promise<Y.Doc>} The reconstructed Yjs document
+   * @param {object} [opts]
+   * @param {boolean} [opts.withGap=false] - when true, return `{ ydoc, gapped }`
+   *   so a stored-artifact caller (restore — 023 FR-009/D-2) can fail closed on a
+   *   torn read instead of persisting content derived from a gapped log. Default
+   *   keeps the bare-Y.Doc shape every serving-only reader relies on.
+   * @returns {Promise<Y.Doc|{ydoc: Y.Doc, gapped: boolean}>} The reconstructed Yjs document
    */
-  async getYDoc(docGuid) {
+  async getYDoc(docGuid, { withGap = false } = {}) {
     await this._init();
 
     const client = await this.pool.connect();
     try {
       const queryStart = Date.now();
-      const { rows } = await this._fetchRowsWithGapRetry(
+      const { rows, gapped } = await this._fetchRowsWithGapRetry(
         client,
         'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
         [docGuid],
@@ -408,7 +433,7 @@ class PostgresPersistence {
         console.log(`[Postgres] getYDoc ${docGuid}: ${rows.length} updates, ${totalBytes} bytes, query=${queryTime}ms, apply=${applyTime}ms`);
       }
 
-      return ydoc;
+      return withGap ? { ydoc, gapped } : ydoc;
     } finally {
       client.release();
     }
@@ -681,19 +706,24 @@ class PostgresPersistence {
    * freezes an artifact — D-2).
    * @param {string} docGuid - Document GUID
    * @param {number} clock - Clock value to reconstruct up to
-   * @returns {Promise<Y.Doc>} Document state at that clock
+   * @param {object} [opts]
+   * @param {boolean} [opts.withGap=false] - when true, return `{ ydoc, gapped }`
+   *   so a stored-artifact caller (restore — 023 FR-009/D-2) can fail closed on a
+   *   torn read. Default keeps the bare-Y.Doc serving-only shape.
+   * @returns {Promise<Y.Doc|{ydoc: Y.Doc, gapped: boolean}>} Document state at that clock
    */
-  async getYDocAtClock(docGuid, clock) {
+  async getYDocAtClock(docGuid, clock, { withGap = false } = {}) {
     await this._init();
     const client = await this.pool.connect();
     try {
-      const { rows } = await this._fetchRowsWithGapRetry(
+      const { rows, gapped } = await this._fetchRowsWithGapRetry(
         client,
         'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
         [docGuid, clock],
         `getYDocAtClock ${docGuid}@${clock}`
       );
-      return this._buildYDocFromRows(rows);
+      const ydoc = this._buildYDocFromRows(rows);
+      return withGap ? { ydoc, gapped } : ydoc;
     } finally {
       client.release();
     }
