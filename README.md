@@ -1114,7 +1114,7 @@ paragraphs.forEach((node, index) => {
 ## Data Storage
 
 - **Server**: Documents are persisted to PostgreSQL database
-  - **Yjs data**: `yjs_updates` (stores document updates), `yjs_state_vectors` (stores document state)
+  - **Yjs data**: `yjs_updates` (the append-only update log — the sole source of truth; each row carries its clock, attribution, and write-time `meaningful` classification)
   - **Document metadata**: `documents` table (document info, creator)
   - **Permissions**: `document_shares` table (user-document access with roles)
   - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
