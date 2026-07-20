@@ -258,9 +258,11 @@ class PostgresPersistence {
 
         // Store the update. ON CONFLICT DO NOTHING => rowCount === 0 only if an
         // unserialized peer claimed this clock (mixed-window backstop, D-8).
+        // `meaningful` is persisted verbatim (null = unknown ⇒ meaningful at read,
+        // feature 023 US4); it never affects persistence success (FR-018).
         const result = await client.query(
-          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (doc_guid, clock) DO NOTHING',
-          [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf)]
+          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of, meaningful) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (doc_guid, clock) DO NOTHING',
+          [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf), meaningful]
         );
 
         if (result.rowCount > 0) break; // claimed this clock
@@ -574,6 +576,9 @@ class PostgresPersistence {
       agentName: row.agent_name,
       // on-behalf-of provenance for sync pushes (feature 004, D8); null otherwise
       onBehalfOf: row.on_behalf_of != null ? row.on_behalf_of : null,
+      // Write-time meaningful classification (feature 023 US4); null = unknown
+      // ⇒ every reader treats it as meaningful (D-3). undefined when unselected.
+      meaningful: row.meaningful ?? null,
     };
     if (includeData && row.update_data) {
       result.updateData = new Uint8Array(row.update_data);
@@ -623,7 +628,7 @@ class PostgresPersistence {
         params.push(limit);
       }
 
-      const sql = `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of,
+      const sql = `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of, u.meaningful,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id

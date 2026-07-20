@@ -231,9 +231,11 @@ async function finalizeClaim(persistence, opts) {
       return { claimed: false, clock: null };
     }
 
-    // The inverse row joins the claim transaction (T003 external client).
+    // The inverse row joins the claim transaction (external client). An undo/redo
+    // inverse is meaningful by construction (it changes visible content), so it is
+    // classified true at write time (feature 023 R3) rather than left unknown.
     const clock = await persistence.storeUpdate(
-      docGuid, inverseUpdate, userId, agentName, null, client
+      docGuid, inverseUpdate, userId, agentName, null, client, { meaningful: true }
     );
 
     // Record this application's own range as the next step's input (FR-014/016).

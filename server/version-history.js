@@ -444,58 +444,6 @@ async function enrichVersionsWithMetadata(persistence, docGuid, versions, update
 }
 
 /**
- * Filter out redundant updates that don't change the document text content
- * This filters out CRDT sync updates that add new client IDs but don't change visible text
- * @param {Object} persistence - PostgresPersistence instance
- * @param {string} docGuid - Document GUID
- * @param {Array} updates - Array of updates with clock values
- * @returns {Promise<Array>} Filtered updates that actually change text content
- */
-async function filterMeaningfulUpdates(persistence, docGuid, updates) {
-  if (updates.length === 0) return [];
-
-  // Get all update data for this document
-  const minClock = updates[0].clock;
-  const maxClock = updates[updates.length - 1].clock;
-  const updatesWithData = await persistence.getUpdatesInRange(docGuid, minClock, maxClock);
-
-  // Create a map of clock -> update data for quick lookup
-  const updateDataMap = new Map();
-  for (const u of updatesWithData) {
-    updateDataMap.set(u.clock, u.updateData);
-  }
-
-  // Build document state just before the first update
-  const baseDoc = minClock > 0
-    ? await persistence.getYDocAtClock(docGuid, minClock - 1)
-    : new Y.Doc();
-
-  // Filter to only include updates that actually change text content
-  // (not just CRDT state like new client IDs from sync)
-  const meaningfulUpdates = [];
-  let previousText = extractXml(baseDoc);
-
-  for (const update of updates) {
-    const updateData = updateDataMap.get(update.clock);
-    if (!updateData) continue;
-
-    // Apply the update
-    Y.applyUpdate(baseDoc, updateData);
-
-    // Get text after applying update
-    const currentText = extractXml(baseDoc);
-
-    // Only include if text content actually changed
-    if (currentText !== previousText) {
-      meaningfulUpdates.push(update);
-      previousText = currentText;
-    }
-  }
-
-  return meaningfulUpdates;
-}
-
-/**
  * Get version history timeline for a document
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -512,8 +460,12 @@ async function getVersionTimeline(persistence, docGuid) {
     };
   }
 
-  // Filter out redundant updates that don't change document state
-  const updates = await filterMeaningfulUpdates(persistence, docGuid, allUpdates);
+  // Feature 023 US4: filter on the persisted meaningful flag instead of
+  // replaying the whole log. O(rows), independent of document content size
+  // (FR-016). NULL (unknown — pre-023 rows, or written by an old pod during a
+  // deploy) is KEPT as meaningful (fail-visible, D-3); only an explicit `false`
+  // (classified noise) is dropped.
+  const updates = allUpdates.filter(u => u.meaningful !== false);
 
   if (updates.length === 0) {
     return {
@@ -627,7 +579,11 @@ async function getVersionContent(persistence, docGuid, versionId) {
 
   // Get version metadata if not already set
   if (!versionMeta) {
-    const autoVersions = groupUpdatesIntoVersions(updates);
+    // Group the meaningful-filtered set for parity with getVersionTimeline
+    // (feature 023 US4): NULL kept, explicit noise dropped — so a clock that is
+    // a version boundary in the timeline resolves to the same auto-version here.
+    const meaningfulUpdates = updates.filter(u => u.meaningful !== false);
+    const autoVersions = groupUpdatesIntoVersions(meaningfulUpdates);
     const version = autoVersions.find(v => v.clockEnd === clockEnd);
 
     if (version) {

@@ -14,6 +14,8 @@
 const crypto = require('crypto');
 const Y = require('yjs');
 const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+const { ORIGIN_DB_LOAD, ORIGIN_RESTORE, createOrigin, parseOrigin } = require('../origin');
+const { classifyByXml, extractXml } = require('../update-classifier');
 
 describe('PostgresPersistence', () => {
   let pool;
@@ -338,6 +340,103 @@ describe('PostgresPersistence', () => {
       // Owning doc deletes it.
       expect(await persistence.deleteNamedVersion(versionAId, docA)).toBe(true);
       expect(await persistence.getVersionById(versionAId, docA)).toBeNull();
+    });
+  });
+
+  // Feature 023 US4 (T017): write-time meaningful classification.
+  describe('023 write-time meaningful classification (US4)', () => {
+    const para = (text) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, text);
+      p.insert(0, [t]);
+      return p;
+    };
+
+    const makeUpdate = (fn) => {
+      const doc = new Y.Doc();
+      const payloads = [];
+      doc.on('update', (u) => payloads.push(u));
+      doc.transact(() => fn(doc.getXmlFragment('default')));
+      doc.destroy();
+      return payloads[0];
+    };
+
+    test('storeUpdate persists meaningful true / false / null verbatim', async () => {
+      const docGuid = crypto.randomUUID();
+      try {
+        const cTrue = await persistence.storeUpdate(docGuid, makeUpdate((f) => f.insert(0, [para('a')])), humanUserId, null, null, null, { meaningful: true });
+        const cFalse = await persistence.storeUpdate(docGuid, makeUpdate((f) => f.insert(0, [para('b')])), humanUserId, null, null, null, { meaningful: false });
+        const cNullExplicit = await persistence.storeUpdate(docGuid, makeUpdate((f) => f.insert(0, [para('c')])), humanUserId, null, null, null, { meaningful: null });
+        const cNullDefault = await persistence.storeUpdate(docGuid, makeUpdate((f) => f.insert(0, [para('d')])), humanUserId, null); // no options => null
+
+        const { rows } = await pool.query(
+          'SELECT clock, meaningful FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]
+        );
+        const byClock = Object.fromEntries(rows.map((r) => [Number(r.clock), r.meaningful]));
+        expect(byClock[cTrue]).toBe(true);
+        expect(byClock[cFalse]).toBe(false);
+        expect(byClock[cNullExplicit]).toBeNull();
+        expect(byClock[cNullDefault]).toBeNull();
+      } finally {
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+
+    // U1 (the one path that can hide a real edit): the classification baseline
+    // MUST refresh on EVERY origin (incl. the sentinel restore/redis/inverse
+    // updates that don't persist here), else an edit that returns the content to
+    // the stale baseline is misclassified as noise. This drives a Y.Doc listener
+    // that mirrors the bindState listener (index.js T023) exactly.
+    test('U1: a post-restore edit matching the pre-restore baseline is classified meaningful', async () => {
+      const docGuid = crypto.randomUUID();
+      const ydoc = new Y.Doc();
+      const frag = ydoc.getXmlFragment('default');
+      let lastClassifiedXml; // starts undefined, like a fresh ydoc
+      const writes = [];
+
+      ydoc.on('update', (update, origin) => {
+        // --- mirror of the bindState listener (T023 / U1) ---
+        let nextXml;
+        try { nextXml = extractXml(ydoc); } catch { nextXml = undefined; }
+        const prevXml = lastClassifiedXml;
+        if (nextXml !== undefined) lastClassifiedXml = nextXml; // refresh on EVERY origin
+        const parsed = parseOrigin(origin);
+        if (!parsed) return; // sentinel (db-load / restore): baseline refreshed, no persist
+        let meaningful = null;
+        if (typeof prevXml === 'string' && nextXml !== undefined) meaningful = classifyByXml(prevXml, nextXml);
+        writes.push(persistence.storeUpdate(docGuid, update, parsed.userId, parsed.agentName, null, null, { meaningful }));
+        // ----------------------------------------------------
+      });
+
+      try {
+        // 1. db-load establishes baseline '' (empty). Mirror bindState's explicit
+        // post-load init (index.js T023) — an empty-state applyUpdate fires no
+        // update event, so the baseline is set explicitly.
+        Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(new Y.Doc()), ORIGIN_DB_LOAD);
+        lastClassifiedXml = extractXml(ydoc);
+        // 2. user edit -> content "Alpha" (persisted, meaningful '' -> Alpha = true).
+        ydoc.transact(() => { frag.delete(0, frag.length); frag.insert(0, [para('Alpha')]); }, createOrigin(humanUserId));
+        // 3. RESTORE -> content "Beta" via the sentinel (refreshes baseline to Beta; no persist here).
+        ydoc.transact(() => { frag.delete(0, frag.length); frag.insert(0, [para('Beta')]); }, ORIGIN_RESTORE);
+        // 4. user edit -> content back to "Alpha" (equals the stale pre-restore baseline).
+        ydoc.transact(() => { frag.delete(0, frag.length); frag.insert(0, [para('Alpha')]); }, createOrigin(humanUserId));
+
+        const clocks = await Promise.all(writes);
+        expect(clocks).toHaveLength(2); // steps 2 and 4 persisted; step 3 (restore sentinel) did not
+
+        const { rows } = await pool.query(
+          'SELECT clock, meaningful FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]
+        );
+        // Both edits are meaningful; step 4 in particular is NOT hidden as noise
+        // despite returning content to the pre-restore baseline (the U1 fix).
+        expect(rows.map((r) => r.meaningful)).toEqual([true, true]);
+      } finally {
+        ydoc.destroy();
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
     });
   });
 });

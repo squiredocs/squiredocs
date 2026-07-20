@@ -8,6 +8,7 @@ const {
   mergeNamedVersions,
   formatTimestamp,
   restoreVersion,
+  getVersionTimeline,
   getVersionContent,
   getContentAtClock,
   getUpdatesForVersion,
@@ -728,6 +729,69 @@ describe('version-history module', () => {
       const agentAuthor = authors.find(a => a.isAgent);
       expect(humanAuthor.name).toBe('Sam');
       expect(agentAuthor.name).toBe('Claude (Sam)');
+    });
+  });
+
+  // Feature 023 US4 (T016): the timeline is O(rows) — it filters the persisted
+  // `meaningful` flag and never replays document content.
+  describe('getVersionTimeline is O(rows) (023 US4)', () => {
+    const baseTime = new Date('2026-07-19T12:00:00Z').getTime();
+    // Rows spaced 1s apart => one auto-version (well under the 5-min threshold).
+    const row = (clock, meaningful, minutesApart = 0) => ({
+      clock,
+      createdAt: new Date(baseTime + clock * 1000 + minutesApart * 60000).toISOString(),
+      userId: 'user-1',
+      userName: 'Sam',
+      userEmail: 'sam@test.com',
+      userPicture: null,
+      agentName: null,
+      onBehalfOf: null,
+      meaningful,
+    });
+
+    function mockPersistence(rows) {
+      return {
+        getUpdatesWithUsers: jest.fn(async () => rows),
+        getNamedVersions: jest.fn(async () => []),
+        // These would indicate a per-update content replay — they MUST NOT be called.
+        getYDocAtClock: jest.fn(async () => new Y.Doc()),
+        getUpdatesInRange: jest.fn(async () => []),
+      };
+    }
+
+    test('filters meaningful flags with ZERO content replay; totalEdits = filtered count', async () => {
+      const rows = [
+        row(0, true), row(1, false), row(2, true), row(3, false), row(4, true),
+      ];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+
+      // No per-update replay/serialization occurred.
+      expect(p.getYDocAtClock).not.toHaveBeenCalled();
+      expect(p.getUpdatesInRange).not.toHaveBeenCalled();
+
+      // Only the 3 meaningful updates count.
+      expect(timeline.totalEdits).toBe(3);
+      expect(timeline.versions.length).toBeGreaterThan(0);
+      // The version's end clock is the last meaningful clock (4), not 3 (noise).
+      expect(timeline.versions[0].clockEnd).toBe(4);
+    });
+
+    test('NULL (unknown) rows appear as meaningful (fail-visible, D-3)', async () => {
+      const rows = [row(0, true), row(1, null), row(2, false)];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+      // clocks 0 (true) and 1 (null=meaningful) count; 2 (false) does not.
+      expect(timeline.totalEdits).toBe(2);
+    });
+
+    test('an all-noise document produces no phantom version', async () => {
+      const rows = [row(0, false), row(1, false)];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+      expect(timeline.versions).toEqual([]);
+      expect(timeline.totalEdits).toBe(0);
+      expect(p.getYDocAtClock).not.toHaveBeenCalled();
     });
   });
 

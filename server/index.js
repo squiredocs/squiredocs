@@ -52,6 +52,7 @@ const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
+const { classifyByXml, extractXml } = require('./update-classifier');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
@@ -249,10 +250,37 @@ setPersistence({
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
     ydoc.on('update', (update, origin) => {
-      // Skip sentinel origins (db-load, redis) — already persisted
+      // Feature 023 US4 (T023, U1): refresh the meaningful-classification
+      // baseline on EVERY update, BEFORE the sentinel early-return. The listener
+      // fires after the update applies, so extractXml(ydoc) is the post-update
+      // state — this update's baseline for the NEXT persisted update. Refreshing
+      // on sentinel origins too (db-load, redis, restore, inverse, sync-push) is
+      // load-bearing: skip it and a real edit landing right after a restore/redis
+      // update that happens to match the STALE baseline is misclassified as noise
+      // — the one path that can hide a real edit. Any extractXml failure degrades
+      // to unknown and never touches persistence (FR-018).
+      let nextXml;
+      try { nextXml = extractXml(ydoc); } catch { nextXml = undefined; }
+      const prevXml = ydoc._lastClassifiedXml;
+      if (nextXml !== undefined) ydoc._lastClassifiedXml = nextXml;
+
+      // Skip sentinel origins (db-load, redis, restore, inverse, sync-push) —
+      // already persisted (or loaded); only classify parseable-origin updates.
       const parsed = parseOrigin(origin);
       if (!parsed) return;
       const { userId, agentName } = parsed;
+
+      // Classify vs the previous baseline. Unknown (no baseline yet, or an
+      // extractXml failure) ⇒ null ⇒ meaningful at read (fail-visible, D-3).
+      let meaningful = null;
+      try {
+        if (typeof prevXml === 'string' && nextXml !== undefined) {
+          meaningful = classifyByXml(prevXml, nextXml);
+        }
+      } catch (classifyErr) {
+        meaningful = null;
+        console.warn(`[bindState] meaningful classification failed for ${docGuid} (persisting as unknown):`, classifyErr.message);
+      }
 
       const persistStart = Date.now();
 
@@ -279,7 +307,7 @@ setPersistence({
       // after the queue slot completes, so registering it in pendingWrites keeps
       // the graceful-shutdown flush covering queued-but-not-yet-started writes
       // (FR-006). The entry is removed on settle regardless of outcome.
-      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName);
+      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful });
       pendingWrites.add(writePromise);
       writePromise.finally(() => pendingWrites.delete(writePromise));
       writePromise
@@ -334,6 +362,12 @@ setPersistence({
       // Use ORIGIN_DB_LOAD so the update listener knows to skip persisting this
       console.log(`[bindState] Applying state for ${docGuid}`);
       Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
+
+      // Initialize the meaningful-classification baseline to the loaded state
+      // (feature 023 T023). The db-load update's listener firing already refreshes
+      // it; this makes initialization explicit and robust to an empty-state load
+      // that produces no update event.
+      try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
