@@ -60,34 +60,15 @@ describe('PostgresPersistence', () => {
       docB.getText('content').insert(4, ' beta');
       const updateB = Y.encodeStateAsUpdate(docB, Y.encodeStateVector(seedDoc));
 
-      // Force the race: monkey-patch _getCurrentUpdateClock so both callers
-      // read MAX(clock) before either one inserts. We use a barrier that waits
-      // until both reads have completed before letting either call proceed.
-      const original = persistence._getCurrentUpdateClock.bind(persistence);
-      let readCount = 0;
-      let resolveBarrier;
-      const barrier = new Promise((r) => { resolveBarrier = r; });
-
-      persistence._getCurrentUpdateClock = async function (...args) {
-        const result = await original(...args);
-        readCount++;
-        if (readCount >= 2) {
-          // Both reads done — release the barrier
-          resolveBarrier();
-        }
-        // Both callers wait here until the second read finishes
-        await barrier;
-        return result;
-      };
-
-      // Fire both storeUpdate calls concurrently
+      // Feature 023: the per-doc FIFO queue + advisory lock serialize these two
+      // concurrent calls (the old barrier that forced a shared-MAX read would now
+      // deadlock — serialization makes that interleaving impossible). Fire both
+      // concurrently; the queue must still hand each a distinct clock with correct
+      // attribution and never drop a write.
       const [clockA, clockB] = await Promise.all([
         persistence.storeUpdate(testDocGuid, updateA, humanUserId, null),
         persistence.storeUpdate(testDocGuid, updateB, agentUserId, 'Claude'),
       ]);
-
-      // Restore the original method
-      persistence._getCurrentUpdateClock = original;
 
       // Both must get distinct clock values
       expect(clockA).not.toBe(clockB);
@@ -118,6 +99,200 @@ describe('PostgresPersistence', () => {
 
       // Clocks must be distinct
       expect(humanRow.clock).not.toBe(agentRow.clock);
+    });
+  });
+
+  // Feature 023 US1 (T004/T006, G1): clock order = causal order by construction.
+  describe('023 write serialization — clock order is causal order (US1)', () => {
+    const orderDocGuid = () => `20040000-${crypto.randomUUID().slice(9)}`;
+
+    test('T004: 50+ fire-and-forget updates persist in strict production order (zero inversions)', async () => {
+      const docGuid = orderDocGuid();
+      try {
+        // One editing stream: each update appends the next paragraph, so the
+        // rows must land in exactly the production order. Issue WITHOUT awaiting
+        // each (fire-and-forget, many in flight) — the queue must serialize them.
+        const doc = new Y.Doc();
+        const frag = doc.getXmlFragment('default');
+        const N = 60;
+        const promises = [];
+        for (let i = 0; i < N; i++) {
+          const sv = Y.encodeStateVector(doc);
+          doc.transact(() => {
+            const el = new Y.XmlElement('paragraph');
+            const t = new Y.XmlText();
+            t.insert(0, `p-${i}`);
+            el.insert(0, [t]);
+            frag.push([el]);
+          });
+          promises.push(persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), humanUserId, null));
+        }
+        const clocks = await Promise.all(promises);
+
+        // Assigned clocks strictly follow production order — zero inversions.
+        for (let i = 1; i < clocks.length; i++) {
+          expect(clocks[i]).toBeGreaterThan(clocks[i - 1]);
+        }
+
+        // Replaying the persisted log reproduces the full production content in order.
+        const replayed = await persistence.getYDoc(docGuid);
+        const xml = replayed.getXmlFragment('default').toString();
+        for (let i = 0; i < N; i++) expect(xml).toContain(`p-${i}`);
+        // The rows themselves are contiguous and ordered.
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        expect(rows.rows).toHaveLength(N);
+        for (let i = 1; i < rows.rows.length; i++) {
+          expect(Number(rows.rows[i].clock)).toBe(Number(rows.rows[i - 1].clock) + 1);
+        }
+      } finally {
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+
+    test('T004: a mid-stream transient failure retries in place without inverting clocks', async () => {
+      const docGuid = orderDocGuid();
+      const realCritical = persistence._storeUpdateCritical.bind(persistence);
+      let failed = false;
+      try {
+        const doc = new Y.Doc();
+        const frag = doc.getXmlFragment('default');
+        const updates = [];
+        for (let i = 0; i < 6; i++) {
+          const sv = Y.encodeStateVector(doc);
+          doc.transact(() => {
+            const el = new Y.XmlElement('paragraph');
+            const t = new Y.XmlText();
+            t.insert(0, `q-${i}`);
+            el.insert(0, [t]);
+            frag.push([el]);
+          });
+          updates.push(Y.encodeStateAsUpdate(doc, sv));
+        }
+
+        // Make the 3rd update's FIRST critical-section attempt throw once (a
+        // transient failure). The in-slot retry must succeed on the next attempt
+        // and keep the update in its production position — no later update slips ahead.
+        persistence._storeUpdateCritical = async function (client, guid, update, ...rest) {
+          if (guid === docGuid && !failed && Buffer.from(update).equals(Buffer.from(updates[2]))) {
+            failed = true;
+            // ownTxn path opens a transaction before this; simulate a transient
+            // error after BEGIN by rolling back so the client stays usable.
+            await client.query('ROLLBACK').catch(() => {});
+            throw new Error('transient boom');
+          }
+          return realCritical(client, guid, update, ...rest);
+        };
+
+        const clocks = await Promise.all(updates.map((u) => persistence.storeUpdate(docGuid, u, humanUserId, null)));
+        expect(failed).toBe(true);
+        for (let i = 1; i < clocks.length; i++) {
+          expect(clocks[i]).toBeGreaterThan(clocks[i - 1]);
+        }
+        const xml = (await persistence.getYDoc(docGuid)).getXmlFragment('default').toString();
+        for (let i = 0; i < 6; i++) expect(xml).toContain(`q-${i}`);
+      } finally {
+        persistence._storeUpdateCritical = realCritical;
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+
+    test('T006: a terminally poisoned slot rejects to the caller but later updates persist in order', async () => {
+      const docGuid = orderDocGuid();
+      const realCritical = persistence._storeUpdateCritical.bind(persistence);
+      try {
+        const doc = new Y.Doc();
+        const frag = doc.getXmlFragment('default');
+        const updates = [];
+        for (let i = 0; i < 4; i++) {
+          const sv = Y.encodeStateVector(doc);
+          doc.transact(() => {
+            const el = new Y.XmlElement('paragraph');
+            const t = new Y.XmlText();
+            t.insert(0, `r-${i}`);
+            el.insert(0, [t]);
+            frag.push([el]);
+          });
+          updates.push(Y.encodeStateAsUpdate(doc, sv));
+        }
+
+        // Update index 1 fails on EVERY attempt (terminal). Its caller promise
+        // must reject (bindState maps this to the CRITICAL notifier path); the
+        // updates queued behind it must still persist, in order (D-9/FR-004).
+        persistence._storeUpdateCritical = async function (client, guid, update, ...rest) {
+          if (guid === docGuid && Buffer.from(update).equals(Buffer.from(updates[1]))) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw new Error('poisoned update (terminal)');
+          }
+          return realCritical(client, guid, update, ...rest);
+        };
+
+        const results = await Promise.allSettled(updates.map((u) => persistence.storeUpdate(docGuid, u, humanUserId, null)));
+        expect(results[1].status).toBe('rejected'); // poisoned slot surfaced to caller
+        expect(results[0].status).toBe('fulfilled');
+        expect(results[2].status).toBe('fulfilled');
+        expect(results[3].status).toBe('fulfilled');
+        // Survivors keep strict production order among themselves.
+        expect(results[2].value).toBeGreaterThan(results[0].value);
+        expect(results[3].value).toBeGreaterThan(results[2].value);
+
+        // The poisoned update is simply absent — the queue is not wedged.
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        expect(rows.rows.length).toBe(3);
+      } finally {
+        persistence._storeUpdateCritical = realCritical;
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+
+    test('G1: two PostgresPersistence instances over one DB — reconnect ordering + unserialized-peer race', async () => {
+      const docGuid = orderDocGuid();
+      // A second "instance" is just a second PostgresPersistence over the same DB
+      // (the 016 test pattern). Each has its OWN in-process queue; the advisory
+      // lock is the only thing serializing them cross-instance.
+      const instanceB = createPersistence();
+      try {
+        // Reconnect case: a client produces updates on instance A, then (after A's
+        // writes settle) reconnects to instance B and continues the same stream.
+        const doc = new Y.Doc();
+        const frag = doc.getXmlFragment('default');
+        const mk = (label) => {
+          const sv = Y.encodeStateVector(doc);
+          doc.transact(() => {
+            const el = new Y.XmlElement('paragraph');
+            const t = new Y.XmlText();
+            t.insert(0, label);
+            el.insert(0, [t]);
+            frag.push([el]);
+          });
+          return Y.encodeStateAsUpdate(doc, sv);
+        };
+        const aClocks = await Promise.all([mk('a0'), mk('a1'), mk('a2')].map((u) => persistence.storeUpdate(docGuid, u, humanUserId, null)));
+        const bClocks = await Promise.all([mk('b0'), mk('b1')].map((u) => instanceB.storeUpdate(docGuid, u, humanUserId, null)));
+        // Reconnected (causally-later) writes on B get strictly higher clocks.
+        expect(Math.min(...bClocks)).toBeGreaterThan(Math.max(...aClocks));
+
+        // Unserialized-peer race (D-8 rollout window simulation): both instances
+        // write concurrently. The advisory lock + ON CONFLICT backstop must yield
+        // distinct clocks and lose no write.
+        const raceA = [mk('x0'), mk('x1'), mk('x2')].map((u) => persistence.storeUpdate(docGuid, u, humanUserId, null));
+        const raceB = [mk('y0'), mk('y1'), mk('y2')].map((u) => instanceB.storeUpdate(docGuid, u, agentUserId, 'Claude'));
+        const raced = await Promise.all([...raceA, ...raceB]);
+        expect(new Set(raced).size).toBe(raced.length); // all distinct — no dropped/duplicated clock
+
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        // 3 (A) + 2 (B) + 6 (race) = 11 rows, contiguous (no gaps, no collisions).
+        expect(rows.rows).toHaveLength(11);
+        for (let i = 1; i < rows.rows.length; i++) {
+          expect(Number(rows.rows[i].clock)).toBe(Number(rows.rows[i - 1].clock) + 1);
+        }
+      } finally {
+        await instanceB.destroy();
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
     });
   });
 

@@ -256,7 +256,10 @@ setPersistence({
 
       const persistStart = Date.now();
 
-      // Helper for retry logic on transient failures
+      // Helper for retry logic on transient failures (still wraps the title sync
+      // below; the storeUpdate transient retry now lives INSIDE the per-doc queue
+      // slot — feature 023 R1 — so a retrying persist keeps its queue position
+      // rather than re-entering behind later-produced updates and inverting clocks).
       const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 100) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
@@ -270,11 +273,13 @@ setPersistence({
         }
       };
 
-      // Persist to PostgreSQL (source of truth) with retry for transient failures.
-      // Register the promise in the pending-persistence tracker so the graceful
-      // shutdown routine can flush in-flight writes before exit (FR-004). The
-      // entry is removed on settle regardless of outcome.
-      const writePromise = retryWithBackoff(() => persistenceProvider.storeUpdate(docGuid, update, userId, agentName));
+      // Persist to PostgreSQL (source of truth). storeUpdate is called directly:
+      // it enqueues the write on the per-doc FIFO queue and runs the transient
+      // retry inside that slot (feature 023). The returned promise settles only
+      // after the queue slot completes, so registering it in pendingWrites keeps
+      // the graceful-shutdown flush covering queued-but-not-yet-started writes
+      // (FR-006). The entry is removed on settle regardless of outcome.
+      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName);
       pendingWrites.add(writePromise);
       writePromise.finally(() => pendingWrites.delete(writePromise));
       writePromise

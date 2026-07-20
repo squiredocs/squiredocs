@@ -2,6 +2,17 @@ const { Pool } = require('pg');
 const Y = require('yjs');
 
 /**
+ * Fixed int4 namespace for the per-document clock-acquisition advisory lock
+ * (feature 023 R1/FR-002). `pg_advisory_xact_lock(NS, hashtext(doc_guid))`
+ * serializes MAX+1 + INSERT for one document across every instance; a hash
+ * collision merely over-serializes two unrelated docs (never corrupts), and
+ * the transaction scope auto-releases the lock at COMMIT/ROLLBACK. The value
+ * is arbitrary but distinct so it never collides with any other advisory-lock
+ * user in this database.
+ */
+const CLOCK_LOCK_NAMESPACE = 0x02300023;
+
+/**
  * PostgreSQL persistence adapter for Yjs
  * Implements the same interface as LeveldbPersistence
  */
@@ -54,6 +65,14 @@ class PostgresPersistence {
 
     this.initialized = false;
     this.initPromise = null;
+
+    // Per-document FIFO write queue (feature 023 R1/FR-001): docGuid -> tail
+    // promise. Every pool-client storeUpdate enqueues its whole critical
+    // section (transient retry + clock acquisition + insert) as one slot so
+    // causally ordered updates on this process get strictly increasing clocks.
+    // The entry is deleted when its tail settles with no successor; a rejected
+    // slot does not break the chain (poisoned-update isolation, D-9).
+    this._writeQueues = new Map();
   }
 
   /**
@@ -108,7 +127,28 @@ class PostgresPersistence {
   }
 
   /**
-   * Store a Yjs document update
+   * Store a Yjs document update — serialized per document so clock order equals
+   * causal order by construction (feature 023 R1/FR-001..005).
+   *
+   * Two composed layers keep clocks causally ordered:
+   *  1. **Per-document in-process FIFO queue** (pool-client calls only): the
+   *     ENTIRE critical section (transient retry + clock acquisition + insert)
+   *     is one queue slot, so two updates issued in production order on this
+   *     process get strictly increasing clocks. The transient-failure backoff
+   *     that used to live in bindState now runs INSIDE the slot — a retrying
+   *     update keeps its queue position instead of re-entering behind later
+   *     updates and inverting clocks (the exact bug this kills).
+   *  2. **Postgres advisory transaction lock** as the cross-instance
+   *     clock-acquisition backstop: MAX+1 + INSERT run in a short transaction
+   *     holding `pg_advisory_xact_lock(NS, hashtext(doc_guid))`, so two
+   *     instances can never read the same MAX and race. The lock auto-releases
+   *     at COMMIT/ROLLBACK.
+   *
+   * The `ON CONFLICT (doc_guid, clock) DO NOTHING` + MAX+1 retry loop is
+   * retained as the mixed-window backstop: during a rolling deploy an old,
+   * unserialized pod may still race, and the loop absorbs it with today's exact
+   * failure semantics (D-8).
+   *
    * @param {string} docGuid - Document GUID
    * @param {Uint8Array} update - Yjs update binary data
    * @param {string|null} userId - User ID who made this update (for version history)
@@ -117,26 +157,94 @@ class PostgresPersistence {
    *   ({name?, email?, commit?, url?}); persisted to on_behalf_of JSONB (feature
    *   004, D8). Null for every non-sync caller.
    * @param {import('pg').PoolClient|null} externalClient - Optional caller-owned
-   *   client (feature 016, research R6): when provided, the insert (including
-   *   its max+1 / ON CONFLICT retry loop) runs on that client — inside whatever
-   *   transaction the caller has open — and the client is NOT released here.
-   *   The retry loop is transaction-safe: ON CONFLICT DO NOTHING never aborts
-   *   the enclosing transaction. Behavior without the parameter is unchanged.
+   *   client (feature 016 claim transaction). When provided, the insert runs on
+   *   that client INSIDE the caller's open transaction and the client is NOT
+   *   released here; this path BYPASSES the process queue and relies on the
+   *   advisory lock alone (taken on the caller's client, held to their COMMIT).
+   *   Composition is deadlock-free: the claim takes its agent_edits row lock
+   *   before the advisory lock, ordinary writers take only the advisory lock —
+   *   a unidirectional order with no cycle (FR-003).
+   * @param {object} [opts]
+   * @param {boolean|null} [opts.meaningful=null] - write-time meaningful-vs-noise
+   *   classification (feature 023 US4). Persisted verbatim in T022; null=unknown
+   *   ⇒ meaningful at read time. Never affects persistence success (FR-018).
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null, externalClient = null) {
+  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null, externalClient = null, { meaningful = null } = {}) {
     await this._init();
 
-    const MAX_RETRIES = 5;
-    const client = externalClient || await this.pool.connect();
-    try {
-      let nextClock;
+    // External-client (016 claim) path: bypass the process queue; the advisory
+    // lock is taken on the caller's open transaction inside _storeUpdateCritical.
+    if (externalClient) {
+      return this._storeUpdateCritical(externalClient, docGuid, update, userId, agentName, onBehalfOf, meaningful, false);
+    }
 
-      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Pool-client path: enqueue the whole critical section as one per-doc FIFO
+    // slot. `prev.then(run, run)` starts this slot only after the predecessor
+    // SETTLES (either outcome) — error isolation so a poisoned slot never wedges
+    // later updates (D-9). The caller gets `slot` (the real result/rejection);
+    // the map tail is a never-rejecting promise so the next enqueue chains cleanly.
+    const prev = this._writeQueues.get(docGuid) || Promise.resolve();
+    const run = () => this._runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful);
+    const slot = prev.then(run, run);
+    const tail = slot.catch(() => {});
+    this._writeQueues.set(docGuid, tail);
+    // Drop the map entry once this tail settles with no successor enqueued
+    // (prevents unbounded growth); a newer slot will have replaced the entry.
+    tail.finally(() => {
+      if (this._writeQueues.get(docGuid) === tail) this._writeQueues.delete(docGuid);
+    });
+    return slot;
+  }
+
+  /**
+   * Run one pool-client write slot: acquire a client, run the critical section
+   * with the in-slot transient-failure backoff (3 attempts, exponential +
+   * jitter — the constants bindState used before 023), release the client.
+   * @private
+   */
+  async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful) {
+    const MAX_ATTEMPTS = 3;
+    const baseDelay = 100;
+    const client = await this.pool.connect();
+    try {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, true);
+        } catch (err) {
+          if (attempt === MAX_ATTEMPTS) throw err;
+          const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * The clock-acquisition critical section: take the per-doc advisory lock,
+   * then MAX+1 + INSERT under the `ON CONFLICT DO NOTHING` mixed-window backstop.
+   * When `ownTxn` is true it wraps itself in BEGIN/COMMIT (pool path) and
+   * ROLLBACKs on error so the client is clean for the next transient retry; when
+   * false the caller owns the transaction (016 claim path) and the advisory lock
+   * releases at the caller's COMMIT.
+   * @private
+   */
+  async _storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, ownTxn) {
+    const MAX_CONFLICT_RETRIES = 5;
+    if (ownTxn) await client.query('BEGIN');
+    try {
+      // Cross-instance atomic clock acquisition: serialize MAX+1 + INSERT for
+      // this document across every instance (FR-002). Auto-released at COMMIT.
+      await client.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [CLOCK_LOCK_NAMESPACE, docGuid]);
+
+      let nextClock;
+      for (let attempt = 0; attempt < MAX_CONFLICT_RETRIES; attempt++) {
         const clock = await this._getCurrentUpdateClock(client, docGuid);
         nextClock = clock + 1;
 
-        // If this is the first update, create a state vector entry
+        // If this is the first update, create a state vector entry.
         if (clock === -1) {
           const ydoc = new Y.Doc();
           Y.applyUpdate(ydoc, update);
@@ -148,39 +256,34 @@ class PostgresPersistence {
           );
         }
 
-        // Store the update with user_id and agent_name for version history tracking.
-        // ON CONFLICT DO NOTHING means rowCount === 0 if another writer claimed this clock.
+        // Store the update. ON CONFLICT DO NOTHING => rowCount === 0 only if an
+        // unserialized peer claimed this clock (mixed-window backstop, D-8).
         const result = await client.query(
           'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (doc_guid, clock) DO NOTHING',
           [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf)]
         );
 
-        if (result.rowCount > 0) {
-          // INSERT succeeded — we claimed this clock value
-          break;
-        }
+        if (result.rowCount > 0) break; // claimed this clock
 
-        // Conflict: another concurrent writer took this clock. Retry with refreshed MAX(clock).
-        if (attempt === MAX_RETRIES - 1) {
-          throw new Error(`storeUpdate: failed to acquire a unique clock for ${docGuid} after ${MAX_RETRIES} attempts`);
+        if (attempt === MAX_CONFLICT_RETRIES - 1) {
+          throw new Error(`storeUpdate: failed to acquire a unique clock for ${docGuid} after ${MAX_CONFLICT_RETRIES} attempts`);
         }
       }
 
-      // Update document timestamp (unified behavior for both regular user updates and MCP tool updates)
-      // This ensures the "last opened" date is always updated when a document is edited
-      // Note: If document doesn't exist in documents table, this will affect 0 rows (no error)
+      // Update document timestamp (best-effort; a missing documents row is not
+      // an error). Kept inside the transaction so it commits atomically.
       await client.query(
         'UPDATE documents SET updated_at = now() WHERE id = $1',
         [docGuid]
       ).catch(err => {
-        // Log but don't fail the update if document record doesn't exist
-        // This can happen in edge cases where Yjs updates exist but document record doesn't
         console.warn(`Could not update documents.updated_at for ${docGuid}:`, err.message);
       });
 
+      if (ownTxn) await client.query('COMMIT');
       return nextClock;
-    } finally {
-      if (!externalClient) client.release();
+    } catch (err) {
+      if (ownTxn) await client.query('ROLLBACK').catch(() => {});
+      throw err;
     }
   }
 
