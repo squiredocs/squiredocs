@@ -1546,10 +1546,12 @@ describe('version-history module', () => {
     // (and restore/compare, which call this) leak another user's doc content.
     test('named version whose doc_id differs from docGuid is rejected (F1 cross-doc leak)', async () => {
       const victimVersionId = '11111111-2222-3333-4444-555555555555';
+      // Feature 023 US3: named versions are pure labels (no snapshot_data). The
+      // doc-scope guard rejects a foreign doc_id before ANY log replay.
       mockPersistence.getVersionById = async (id) => ({
         id, doc_id: 'victim-doc-B', // belongs to a DIFFERENT document
         name: 'B secret', clock_start: 1, clock_end: 5,
-        created_at: new Date(), snapshot_data: Buffer.from('secret B content'),
+        created_at: new Date(),
       });
       await expect(
         getVersionContent(mockPersistence, 'attacker-doc-A', victimVersionId)
@@ -1560,10 +1562,36 @@ describe('version-history module', () => {
       const ownVersionId = '11111111-2222-3333-4444-555555555555';
       mockPersistence.getVersionById = async (id) => ({
         id, doc_id: 'test-doc', name: 'v1', clock_start: 1, clock_end: 10,
-        created_at: new Date(), snapshot_data: null, // fall through to clock rebuild
+        created_at: new Date(), // label-only; content comes from log replay
       });
       const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
       expect(result).toHaveProperty('content');
+    });
+
+    // Feature 023 US3 T026 (FR-012, D-6, SC-005): a named version's content is
+    // ALWAYS the log replay to clock_end under the gap-tolerant path — never a
+    // stored blob. Even a (hypothetical, pre-023) row carrying a DIVERGED
+    // snapshot_data is ignored: replay wins.
+    test('named version replays to clock_end; a diverged blob is ignored (replay wins)', async () => {
+      const ownVersionId = '22222222-3333-4444-5555-666666666666';
+      const replaySpy = jest.spyOn(mockPersistence, 'getYDocAtClock');
+      mockPersistence.getVersionById = async (id) => ({
+        id, doc_id: 'test-doc', name: 'named-at-10', clock_start: 5, clock_end: 10,
+        created_at: new Date(),
+        // A leftover pre-023 blob whose content diverges from the log. The code
+        // must never read it — it is not even a real column after the migration.
+        snapshot_data: Buffer.from('STALE DIVERGED CONTENT'),
+      });
+
+      const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
+      // Content equals the REPLAYED state at clock_end (10), decoded from the
+      // update the mock's getYDocAtClock produces — not the diverged blob.
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, new Uint8Array(result.content));
+      expect(doc.get('default', Y.XmlFragment).toString()).toContain('Content at clock 10');
+      doc.destroy();
+      expect(replaySpy).toHaveBeenCalledWith('test-doc', 10);
+      replaySpy.mockRestore();
     });
 
     // F6: not-found/out-of-range/invalid-format all throw the TYPED
@@ -1585,7 +1613,7 @@ describe('version-history module', () => {
         const victimVersionId = '11111111-2222-3333-4444-555555555555';
         mockPersistence.getVersionById = async (id) => ({
           id, doc_id: 'other-doc', name: 'x', clock_start: 1, clock_end: 5,
-          created_at: new Date(), snapshot_data: null,
+          created_at: new Date(),
         });
         await expect(getVersionContent(mockPersistence, 'test-doc', victimVersionId))
           .rejects.toBeInstanceOf(VersionNotFoundError);

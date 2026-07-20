@@ -846,7 +846,10 @@ class PostgresPersistence {
   }
 
   /**
-   * Create a named version snapshot
+   * Create a named version — a PURE clock-range label (feature 023 US3, FR-011).
+   * No content snapshot is built or stored: version content is ALWAYS the replay
+   * of the update log to clock_end under the gap-tolerant read path, so named-
+   * version creation can no longer freeze a bad/gapped read as truth.
    * @param {string} docGuid - Document GUID
    * @param {number} clockStart - Starting clock
    * @param {number} clockEnd - Ending clock
@@ -858,15 +861,11 @@ class PostgresPersistence {
     await this._init();
     const client = await this.pool.connect();
     try {
-      // Generate snapshot data for fast loading
-      const ydoc = await this.getYDocAtClock(docGuid, clockEnd);
-      const snapshotData = Y.encodeStateAsUpdate(ydoc);
-
       const result = await client.query(
-        `INSERT INTO document_versions (doc_id, name, clock_start, clock_end, snapshot_data, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO document_versions (doc_id, name, clock_start, clock_end, created_by)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
-        [docGuid, name, clockStart, clockEnd, Buffer.from(snapshotData), userId]
+        [docGuid, name, clockStart, clockEnd, userId]
       );
       return result.rows[0];
     } finally {

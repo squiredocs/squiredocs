@@ -439,4 +439,37 @@ describe('PostgresPersistence', () => {
       }
     });
   });
+
+  // Feature 023 US3 (T026): named versions are pure labels — no snapshot, no replay.
+  describe('023 replay-only named versions (US3)', () => {
+    test('createNamedVersion stores a label only: no content snapshot, no log replay', async () => {
+      const docGuid = crypto.randomUUID();
+      // Seed one update so a log exists.
+      const seedDoc = new Y.Doc();
+      seedDoc.getText('content').insert(0, 'seed');
+      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(seedDoc), humanUserId, null);
+
+      const replaySpy = jest.spyOn(persistence, 'getYDocAtClock');
+      try {
+        const v = await persistence.createNamedVersion(docGuid, 0, 0, 'checkpoint', humanUserId);
+        expect(v.name).toBe('checkpoint');
+        expect(v.clock_start).toBe(0);
+        expect(v.clock_end).toBe(0);
+        // No content column (dropped by migration 1799100000000) and no replay
+        // performed to build a snapshot.
+        expect(v).not.toHaveProperty('snapshot_data');
+        expect(replaySpy).not.toHaveBeenCalled();
+
+        // The stored row carries only label fields.
+        const { rows } = await pool.query('SELECT * FROM document_versions WHERE id = $1', [v.id]);
+        expect(rows[0]).not.toHaveProperty('snapshot_data');
+        expect(rows[0].name).toBe('checkpoint');
+      } finally {
+        replaySpy.mockRestore();
+        await pool.query('DELETE FROM document_versions WHERE doc_id = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+  });
 });

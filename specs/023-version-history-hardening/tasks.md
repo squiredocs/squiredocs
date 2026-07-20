@@ -132,14 +132,14 @@ diff/restore of any named version (incl. pre-migration rows) equals replay at
 
 ### Tests for User Story 3
 
-- [ ] T026 [US3] Replay-only named-version tests in `/local-dev/server/__tests__/version-history.test.js` + `/local-dev/server/__tests__/postgres-persistence.test.js`: `createNamedVersion` stores labels only (no content, no replay call — spy on `getYDocAtClock`); `getVersionContent` for a named version replays to `clock_end` under the gap-tolerant path; a fixture emulating a pre-023 diverged snapshot serves the REPLAYED content (D-6); out-of-range clock / foreign id still throws `VersionNotFoundError` (FR-011/012, US3 AS1/AS2/AS4)
+- [X] T026 [US3] Replay-only named-version tests in `/local-dev/server/__tests__/version-history.test.js` + `/local-dev/server/__tests__/postgres-persistence.test.js`: `createNamedVersion` stores labels only (no content, no replay call — spy on `getYDocAtClock`); `getVersionContent` for a named version replays to `clock_end` under the gap-tolerant path; a fixture emulating a pre-023 diverged snapshot serves the REPLAYED content (D-6); out-of-range clock / foreign id still throws `VersionNotFoundError` (FR-011/012, US3 AS1/AS2/AS4)
 
 ### Implementation for User Story 3
 
-- [ ] T027 [US3] `/local-dev/server/postgres-persistence.js`: `createNamedVersion` becomes a pure INSERT of `(doc_id, name, clock_start, clock_end, created_by)` — remove the `getYDocAtClock` replay and `snapshot_data` from the statement (FR-011)
-- [ ] T028 [P] [US3] `/local-dev/server/version-history.js`: delete the `namedVersion.snapshot_data` fast-path branch in `getVersionContent` (lines ~589-597) so every read replays (FR-012)
-- [ ] T029 [US3] Create migration `/local-dev/migrations/1799100000000_drop-version-snapshot-data.js`: drop `document_versions.snapshot_data` preserving all label columns; down re-adds nullable `bytea` (content unrecoverable by ratified design) (R9-2, FR-013, US3 AS3) — lands only after T027/T028 merge
-- [ ] T030 [US3] Update snapshot-era fixtures/mocks in `/local-dev/server/__tests__/version-history.test.js` (rows at lines ~1488-1524 reference `snapshot_data`) to the label-only shape, keeping the cross-doc-leak (F7) assertions intact
+- [X] T027 [US3] `/local-dev/server/postgres-persistence.js`: `createNamedVersion` becomes a pure INSERT of `(doc_id, name, clock_start, clock_end, created_by)` — remove the `getYDocAtClock` replay and `snapshot_data` from the statement (FR-011)
+- [X] T028 [P] [US3] `/local-dev/server/version-history.js`: delete the `namedVersion.snapshot_data` fast-path branch in `getVersionContent` (lines ~589-597) so every read replays (FR-012)
+- [X] T029 [US3] Create migration `/local-dev/migrations/1799100000000_drop-version-snapshot-data.js`: drop `document_versions.snapshot_data` preserving all label columns; down re-adds nullable `bytea` (content unrecoverable by ratified design) (R9-2, FR-013, US3 AS3) — lands only after T027/T028 merge
+- [X] T030 [US3] Update snapshot-era fixtures/mocks in `/local-dev/server/__tests__/version-history.test.js` (rows at lines ~1488-1524 reference `snapshot_data`) to the label-only shape, keeping the cross-doc-leak (F7) assertions intact
 
 **Checkpoint**: SC-005 green before and after migration; `canReconstruct` import
 guard untouched (FR-014).

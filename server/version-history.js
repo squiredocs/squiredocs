@@ -538,15 +538,10 @@ async function getVersionContent(persistence, docGuid, versionId) {
       timestamp: namedVersion.created_at,
     };
 
-    // If we have cached snapshot data, use it
-    if (namedVersion.snapshot_data) {
-      const ydoc = new Y.Doc();
-      Y.applyUpdate(ydoc, new Uint8Array(namedVersion.snapshot_data));
-      return {
-        content: Array.from(Y.encodeStateAsUpdate(ydoc)),
-        version: versionMeta,
-      };
-    }
+    // Feature 023 US3 (FR-012): named-version content is ALWAYS produced by
+    // replaying the log to clock_end under the gap-tolerant read path — never
+    // from a stored blob. The old snapshot_data fast-path is removed; a pre-023
+    // diverged blob heals silently to the replayed truth (D-6).
   } else {
     // Parse as clock number
     clockEnd = parseInt(versionId, 10);
