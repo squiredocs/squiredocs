@@ -26,6 +26,8 @@ function VersionHistoryPanel({
   // Diff highlighting toggle
   showDiffHighlights = true,
   onToggleDiffHighlights,
+  // Post-restore in-app navigation (024/US4) — threaded down to the list.
+  onNavigateToDoc,
 }) {
   const [filter, setFilter] = useState('all');
 
@@ -103,6 +105,8 @@ function VersionHistoryPanel({
           userRole={userRole}
           isLoading={isLoading}
           filter={filter}
+          docGuid={docGuid}
+          onNavigateToDoc={onNavigateToDoc}
         />
       )}
 

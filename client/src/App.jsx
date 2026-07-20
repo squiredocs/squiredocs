@@ -107,6 +107,11 @@ function AppContent() {
   const [route, setRoute] = useState(parseRoute);
   const [listKey, setListKey] = useState(0);
   const isMobile = useMobile();
+  // True once the versions view was reached via in-app navigation; stays false on
+  // a fresh page load / deep link that lands directly on /d/{guid}/versions. Drives
+  // the version-history close: history.back() when in-app, else in-app navigate to
+  // the doc so close never exits the app (024/US4, R5).
+  const versionsReachedInAppRef = useRef(false);
 
   // Track SPA page views in Google Analytics
   useEffect(() => {
@@ -166,6 +171,7 @@ function AppContent() {
   const navigateToVersions = (docGuid) => {
     const newPath = `/d/${docGuid}/versions`;
     window.history.pushState({}, '', newPath);
+    versionsReachedInAppRef.current = true;
     setRoute({ view: 'versions', docGuid });
   };
 
@@ -293,7 +299,8 @@ function AppContent() {
         navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
         navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings}
         navigateToSupport={navigateToSupport}
-        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat} />
+        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat}
+        versionsReachedInAppRef={versionsReachedInAppRef} />
     </ByokProvider>
   );
 }
@@ -302,7 +309,7 @@ function AppContent() {
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat, versionsReachedInAppRef }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
@@ -372,6 +379,8 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToSupport={navigateToSupport}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
+        onNavigateToDoc={navigateToDoc}
+        versionsReachedInAppRef={versionsReachedInAppRef}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}

@@ -22,7 +22,7 @@ import { formatVersionTimestamp } from '../utils/datetime';
 import './EditorView.css';
 import './MenuCommon.css';
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, versionsReachedInAppRef, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -196,7 +196,16 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   };
 
   const handleCloseVersionHistory = () => {
-    window.history.back();
+    // Deep link / fresh tab (never reached in-app): navigate in-app to the doc so
+    // close never exits the app. Otherwise preserve normal back semantics
+    // (024/US4, FR-013, R5).
+    if (versionsReachedInAppRef?.current) {
+      window.history.back();
+    } else if (onNavigateToDoc) {
+      onNavigateToDoc(docGuid);
+    } else {
+      window.history.back();
+    }
   };
 
   const handleConfirmHeaderRestore = async () => {
@@ -206,8 +215,12 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       const success = await restoreVersion(selection.id);
       if (success) {
         setRestoreDialog(null);
-        // In-app navigation (no full reload) is wired in US4 (T021).
-        window.location.reload();
+        // In-app navigation to the live doc — no full page reload (024/US4, FR-012).
+        if (onNavigateToDoc) {
+          onNavigateToDoc(docGuid);
+        } else {
+          window.location.reload();
+        }
       } else {
         setRestoreDialog({ busy: false, error: 'Failed to restore this version.' });
       }
@@ -420,6 +433,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             // Diff highlighting toggle
             showDiffHighlights={showDiffHighlights}
             onToggleDiffHighlights={setShowDiffHighlights}
+            // Post-restore in-app navigation (no reload) for the row-menu restore.
+            onNavigateToDoc={onNavigateToDoc}
           />
         </div>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import HierarchicalVersionList from '../HierarchicalVersionList';
 
 /**
@@ -384,5 +384,44 @@ describe('HierarchicalVersionList — US2 in-app dialogs (024)', () => {
     fireEvent.click(screen.getByText('Remove name'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove name' }));
     expect(onDeleteVersion).toHaveBeenCalledWith('5');
+  });
+});
+
+/**
+ * US4 (024) — a successful row-menu restore navigates in-app to the doc and never
+ * triggers a full-page reload (FR-012, C7).
+ */
+describe('HierarchicalVersionList — US4 restore navigation (024)', () => {
+  const version = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+
+  it('invokes onNavigateToDoc(docGuid) and does not reload on successful restore', async () => {
+    const onRestoreVersion = vi.fn().mockResolvedValue(true);
+    const onNavigateToDoc = vi.fn();
+
+    render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        onRestoreVersion={onRestoreVersion}
+        docGuid="doc-guid-123"
+        onNavigateToDoc={onNavigateToDoc}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+
+    // Let the awaited restore promise resolve. Because onNavigateToDoc is provided,
+    // the restore path navigates in-app and never reaches window.location.reload().
+    await waitFor(() => expect(onNavigateToDoc).toHaveBeenCalledWith('doc-guid-123'));
+    expect(onRestoreVersion).toHaveBeenCalledWith('5');
   });
 });

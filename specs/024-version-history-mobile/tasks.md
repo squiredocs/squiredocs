@@ -129,14 +129,14 @@ the doc → back returns to the doc.
 
 ### Tests for User Story 4
 
-- [ ] T019 [US4] Extend the version-history tests (`client/src/components/__tests__/HierarchicalVersionList.test.jsx`, and an EditorView-level test if needed): assert a successful restore invokes the in-app navigate callback (`onNavigateToDoc`) with the doc guid and does NOT call `window.location.reload` (spied) (FR-012, C7).
+- [X] T019 [US4] Extend the version-history tests (`client/src/components/__tests__/HierarchicalVersionList.test.jsx`, and an EditorView-level test if needed): assert a successful restore invokes the in-app navigate callback (`onNavigateToDoc`) with the doc guid and does NOT call `window.location.reload` (spied) (FR-012, C7).
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] In `client/src/App.jsx`: set a `versionsReachedInApp` ref/flag in `navigateToVersions` (unset on a fresh load landing directly on `/d/{guid}/versions`), and pass `navigateToDoc` into `EditorView` as `onNavigateToDoc` plus the close-behavior signal (the flag or a ready-made `onCloseVersions`) alongside the existing `onNavigateTo*` props (FR-013, research R5).
-- [ ] T021 [US4] In `client/src/components/EditorView.jsx`: change the header restore success path to call `onNavigateToDoc(docGuid)` instead of `window.location.reload()` (~line 364); rewrite `handleCloseVersionHistory` to `window.history.back()` when reached in-app and `onNavigateToDoc(docGuid)` on a deep link/fresh tab (FR-012, FR-013, US4 AC2/AC3). (Same file as T014 — sequence after.)
-- [ ] T022 [US4] In `client/src/components/VersionHistoryPanel.jsx`: thread the post-restore in-app navigation callback (`onNavigateToDoc`) from `EditorView` down to `HierarchicalVersionList` (FR-012).
-- [ ] T023 [US4] In `client/src/components/HierarchicalVersionList.jsx`: on a successful row-menu restore, call the passed post-restore navigation callback instead of `window.location.reload()` (remove the reload at ~line 356) (FR-012). (Same file as T013 — sequence after.)
+- [X] T020 [US4] In `client/src/App.jsx`: set a `versionsReachedInApp` ref/flag in `navigateToVersions` (unset on a fresh load landing directly on `/d/{guid}/versions`), and pass `navigateToDoc` into `EditorView` as `onNavigateToDoc` plus the close-behavior signal (the flag or a ready-made `onCloseVersions`) alongside the existing `onNavigateTo*` props (FR-013, research R5).
+- [X] T021 [US4] In `client/src/components/EditorView.jsx`: change the header restore success path to call `onNavigateToDoc(docGuid)` instead of `window.location.reload()` (~line 364); rewrite `handleCloseVersionHistory` to `window.history.back()` when reached in-app and `onNavigateToDoc(docGuid)` on a deep link/fresh tab (FR-012, FR-013, US4 AC2/AC3). (Same file as T014 — sequence after.)
+- [X] T022 [US4] In `client/src/components/VersionHistoryPanel.jsx`: thread the post-restore in-app navigation callback (`onNavigateToDoc`) from `EditorView` down to `HierarchicalVersionList` (FR-012).
+- [X] T023 [US4] In `client/src/components/HierarchicalVersionList.jsx`: on a successful row-menu restore, call the passed post-restore navigation callback instead of `window.location.reload()` (remove the reload at ~line 356) (FR-012). (Same file as T013 — sequence after.)
 
 **Checkpoint**: All stories complete — restore/close are jank-free and deep-link-safe (SC-005).
 
