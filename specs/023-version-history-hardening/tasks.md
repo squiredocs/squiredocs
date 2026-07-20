@@ -203,8 +203,8 @@ deleted.
 ## Phase 9: Polish & Cross-Cutting Concerns
 
 - [ ] T045 [P] Update README.md version-history section (serialized writes, replay-only named versions, persisted classification + backfill, restore-undo, dropped table) — **executed by the serial merge/implement stage, not by a parallel agent** (constitution I; parallel-agent override forbids README edits here)
-- [ ] T046 Run full quickstart validation (`specs/023-version-history-hardening/quickstart.md`): migrations up/down/up, full serial backend suite, client suite, backfill double-run, grep sweep
-- [ ] T047 Performance comparison against T001 baseline in `specs/023-version-history-hardening/baseline-notes.md`: single-writer DB_PERSIST within noise (FR-005/SC-007); 10k-update timeline fixture ≥10x faster with zero full-log replays (SC-003)
+- [X] T046 Run full quickstart validation (`specs/023-version-history-hardening/quickstart.md`): migrations up/down/up, full serial backend suite, client suite, backfill double-run, grep sweep
+- [X] T047 Performance comparison against T001 baseline in `specs/023-version-history-hardening/baseline-notes.md`: single-writer DB_PERSIST within noise (FR-005/SC-007); 10k-update timeline fixture ≥10x faster with zero full-log replays (SC-003)
 - [ ] T048 Staging multi-instance validation per quickstart §5 (restore visible <2s cross-instance, both surfaces; rolling-deploy mixed-window sanity) — maintainer-owed (Sam), record outcome in the feature ledger
 
 ---

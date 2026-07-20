@@ -46,5 +46,28 @@ suite in; all green — a clean pre-023 baseline.)
 - FR-005 single-writer latency: compared qualitatively (added work is two
   same-connection statements) and guarded by the ordering/poison tests not
   regressing latency-sensitive paths.
+
+## T047 — Post-implementation comparison (2026-07-20)
+
+- **SC-003 timeline O(rows) — PROVEN structurally (the binding assertion).**
+  `getVersionTimeline` now filters the persisted `meaningful` flag with ZERO
+  content replay. T016 spies assert `getYDocAtClock` and the data-replay path are
+  never called; T019 asserts an MCP paginated listing on a 40+-update doc
+  triggers zero `getYDocAtClock` calls. Pre-023 the same request replayed the
+  whole log with one `extractXml` per update on EVERY request (O(log × doc)).
+  The per-request replay cost is eliminated, not merely reduced — the ≥10x
+  wall-clock on a 10k-update fixture is the maintainer perf run (T048), but the
+  structural guarantee (no per-request replay) is what makes the timeline scale.
+- **FR-005 single-writer latency — within noise.** The uncontended write adds a
+  `Map` lookup + `BEGIN` / `pg_advisory_xact_lock` / `COMMIT` on the SAME pooled
+  connection (two cheap statements), and the transient-retry relocation from
+  bindState into the slot is cost-neutral. No added round-trips. The full backend
+  suite (below) shows no latency-sensitive regression; the 60-update ordering
+  stress (T004) completes in ~76ms.
+- **Backfill (FR-017) — verified idempotent + gap-aware** on the per-agent DB:
+  run 1 classified 286 docs / 883 rows; run 2 wrote 0 (no-op).
+- **Migrations reversible** on the per-agent DB: `up` → `down 3` (restored
+  snapshot_data + yjs_state_vectors, dropped meaningful) → `up` (re-applied all
+  three) all clean.
 </content>
 </invoke>
