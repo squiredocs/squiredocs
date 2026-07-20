@@ -472,11 +472,9 @@ function HierarchicalVersionList({
     if (success === undefined) return; // threw — error already surfaced, stay open
     if (success) {
       closeDialog();
-      // In-app navigation (no full reload) is wired in US4 (onNavigateToDoc).
+      // In-app navigation to the live doc — never a full page reload (024/FR-012).
       if (onNavigateToDoc && docGuid) {
         onNavigateToDoc(docGuid);
-      } else {
-        window.location.reload();
       }
     } else {
       // Server rejected the restore — keep the dialog open with an error.

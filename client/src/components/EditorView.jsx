@@ -215,12 +215,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       const success = await restoreVersion(selection.id);
       if (success) {
         setRestoreDialog(null);
-        // In-app navigation to the live doc — no full page reload (024/US4, FR-012).
-        if (onNavigateToDoc) {
-          onNavigateToDoc(docGuid);
-        } else {
-          window.location.reload();
-        }
+        // In-app navigation to the live doc — never a full page reload (024/FR-012).
+        onNavigateToDoc?.(docGuid);
       } else {
         setRestoreDialog({ busy: false, error: 'Failed to restore this version.' });
       }

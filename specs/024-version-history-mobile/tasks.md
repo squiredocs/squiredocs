@@ -144,7 +144,7 @@ the doc → back returns to the doc.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T024 [P] Guard the no-native-dialog invariant: grep the version-history files (`HierarchicalVersionList.jsx`, `VersionHistoryPanel.jsx`, and the version-history paths in `EditorView.jsx`) to confirm no remaining `window.prompt`/`window.confirm`/`window.alert` and no `window.location.reload` in the restore/close paths (SC-002, C9).
+- [X] T024 [P] Guard the no-native-dialog invariant: grep the version-history files (`HierarchicalVersionList.jsx`, `VersionHistoryPanel.jsx`, and the version-history paths in `EditorView.jsx`) to confirm no remaining `window.prompt`/`window.confirm`/`window.alert` and no `window.location.reload` in the restore/close paths (SC-002, C9).
 - [ ] T025 Run the full frontend Vitest suite from `client/` (`npx vitest run`) and confirm green — desktop regression-free per SC-006 (selection, drill-down, filter, diff toggle, "Showing N of M edits", on-behalf-of).
 - [ ] T026 Execute the manual device/width matrix in `quickstart.md` at 360/393/430px portrait plus one landscape height, verifying SC-001, SC-003, SC-004, and SC-005 (touch actions end-to-end, 44px targets, no horizontal scroll, no-reload restore, deep-link close). Owned by Sam (browser E2E).
 
