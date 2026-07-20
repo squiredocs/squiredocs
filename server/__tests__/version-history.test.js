@@ -1704,7 +1704,6 @@ describe('version-history module', () => {
     const cleanupDoc = async (docGuid) => {
       await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-      await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
     };
 
     test('T031: human restore records exactly one update row and one agent_edits row (identity = "")', async () => {

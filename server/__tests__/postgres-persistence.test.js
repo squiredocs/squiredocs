@@ -36,7 +36,6 @@ describe('PostgresPersistence', () => {
   afterAll(async () => {
     // Clean up test data
     await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [testDocGuid]);
-    await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [testDocGuid]);
     await cleanupTestUser(pool, humanUserId);
     await cleanupTestUser(pool, agentUserId);
     await pool.end();
@@ -148,7 +147,6 @@ describe('PostgresPersistence', () => {
         }
       } finally {
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
 
@@ -196,7 +194,6 @@ describe('PostgresPersistence', () => {
       } finally {
         persistence._storeUpdateCritical = realCritical;
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
 
@@ -245,7 +242,6 @@ describe('PostgresPersistence', () => {
       } finally {
         persistence._storeUpdateCritical = realCritical;
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
 
@@ -293,7 +289,6 @@ describe('PostgresPersistence', () => {
       } finally {
         await instanceB.destroy();
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
   });
@@ -380,7 +375,6 @@ describe('PostgresPersistence', () => {
         expect(byClock[cNullDefault]).toBeNull();
       } finally {
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
 
@@ -435,7 +429,6 @@ describe('PostgresPersistence', () => {
       } finally {
         ydoc.destroy();
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
       }
     });
   });
@@ -468,7 +461,35 @@ describe('PostgresPersistence', () => {
         replaySpy.mockRestore();
         await pool.query('DELETE FROM document_versions WHERE doc_id = $1', [docGuid]);
         await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-        await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
+      }
+    });
+  });
+
+  // Feature 023 US6 (T039): document birth works with the yjs_state_vectors
+  // table dropped — no writer references it anymore.
+  describe('023 document birth without yjs_state_vectors (US6)', () => {
+    test('the yjs_state_vectors table is gone (migration 1799200000000)', async () => {
+      const { rows } = await pool.query("SELECT to_regclass('public.yjs_state_vectors') AS t");
+      expect(rows[0].t).toBeNull();
+    });
+
+    test('first update of a new doc persists, and clearDocument works, with no state-vector write', async () => {
+      const docGuid = crypto.randomUUID();
+      try {
+        const seedDoc = new Y.Doc();
+        seedDoc.getText('content').insert(0, 'birth');
+        const clock = await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(seedDoc), humanUserId, null);
+        expect(clock).toBe(0); // first row, no state-vector side-write required
+
+        const count = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(count.rows[0].n).toBe(1);
+
+        // clearDocument no longer touches the dropped table.
+        await persistence.clearDocument(docGuid);
+        const after = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(after.rows[0].n).toBe(0);
+      } finally {
+        await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
       }
     });
   });

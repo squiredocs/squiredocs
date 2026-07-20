@@ -6,8 +6,8 @@
  * write-time and replay-time classification can never drift (FR-015).
  *
  * "Meaningful" == the update changed the document's `extractXml` output — the
- * EXACT test the pre-023 `filterMeaningfulUpdates` applied. Note it compares the
- * XML string, not plain text: a formatting-only edit (bold, link, heading level)
+ * EXACT test the pre-023 replay-based meaningful filter applied. Note it compares
+ * the XML string, not plain text: a formatting-only edit (bold, link, heading level)
  * changes the XML and counts as meaningful today, and must keep doing so. A
  * pure-CRDT update (new client id from a sync, a delete that resolves to a
  * no-op) leaves the XML identical and is noise.

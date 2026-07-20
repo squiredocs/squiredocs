@@ -185,15 +185,15 @@ frontend suites pass; first-update/document-birth paths behave identically.
 
 ### Tests for User Story 6
 
-- [ ] T039 [US6] Document-birth-without-state-vectors tests in `/local-dev/server/__tests__/postgres-persistence.test.js` + `/local-dev/server/__tests__/onboarding.test.js`: first update of a new doc persists (no `yjs_state_vectors` write), `clearDocument`/`clearAll` and the onboarding welcome-doc reset work with the table absent (FR-026, edge case "first update of a new document")
+- [X] T039 [US6] Document-birth-without-state-vectors tests in `/local-dev/server/__tests__/postgres-persistence.test.js` + `/local-dev/server/__tests__/onboarding.test.js`: first update of a new doc persists (no `yjs_state_vectors` write), `clearDocument`/`clearAll` and the onboarding welcome-doc reset work with the table absent (FR-026, edge case "first update of a new document")
 
 ### Implementation for User Story 6
 
-- [ ] T040 [US6] Remove `yjs_state_vectors` writers: first-update branch in `storeUpdate` and the DELETEs in `clearDocument`/`clearAll` in `/local-dev/server/postgres-persistence.js`; the reset DELETE in `/local-dev/server/onboarding.js` (~line 154) (FR-026)
-- [ ] T041 [US6] Delete dead server code with their tests' references: `enrichVersionsWithMetadata` + `extractMetadata` in `/local-dev/server/version-history.js` (~lines 340-444), `getYDocWithHistory` + `getStateVectorsAtClocks` in `/local-dev/server/postgres-persistence.js`, `DiffService.invalidateCache` in `/local-dev/server/diff-service.js` (FR-025)
-- [ ] T042 [P] [US6] Delete `/local-dev/client/src/extensions/YChangeExtension.js` (zero imports — verified 2026-07-19; feature 024's agent does not touch this file) and run `cd client && npx vitest run` (FR-025)
-- [ ] T043 [US6] Create migration `/local-dev/migrations/1799200000000_drop-yjs-state-vectors.js`: `DROP TABLE yjs_state_vectors`; down recreates the (empty) table shape (R9-3, FR-026/027) — lands after T040
-- [ ] T044 [US6] Zero-reference sweep: `grep -rn "getYDocWithHistory\|getStateVectorsAtClocks\|invalidateCache\|enrichVersionsWithMetadata\|extractMetadata\|YChangeExtension\|yjs_state_vectors\|filterMeaningfulUpdates\|snapshot_data" /local-dev/server /local-dev/client/src /local-dev/shared` — only migrations and specs/ may match; fix any stragglers (SC-007)
+- [X] T040 [US6] Remove `yjs_state_vectors` writers: first-update branch in `storeUpdate` and the DELETEs in `clearDocument`/`clearAll` in `/local-dev/server/postgres-persistence.js`; the reset DELETE in `/local-dev/server/onboarding.js` (~line 154) (FR-026)
+- [X] T041 [US6] Delete dead server code with their tests' references: `enrichVersionsWithMetadata` + `extractMetadata` in `/local-dev/server/version-history.js` (~lines 340-444), `getYDocWithHistory` + `getStateVectorsAtClocks` in `/local-dev/server/postgres-persistence.js`, `DiffService.invalidateCache` in `/local-dev/server/diff-service.js` (FR-025)
+- [X] T042 [P] [US6] Delete `/local-dev/client/src/extensions/YChangeExtension.js` (zero imports — verified 2026-07-19; feature 024's agent does not touch this file) and run `cd client && npx vitest run` (FR-025)
+- [X] T043 [US6] Create migration `/local-dev/migrations/1799200000000_drop-yjs-state-vectors.js`: `DROP TABLE yjs_state_vectors`; down recreates the (empty) table shape (R9-3, FR-026/027) — lands after T040
+- [X] T044 [US6] Zero-reference sweep: `grep -rn "getYDocWithHistory\|getStateVectorsAtClocks\|invalidateCache\|enrichVersionsWithMetadata\|extractMetadata\|YChangeExtension\|yjs_state_vectors\|filterMeaningfulUpdates\|snapshot_data" /local-dev/server /local-dev/client/src /local-dev/shared` — only migrations and specs/ may match; fix any stragglers (SC-007)
 
 **Checkpoint**: full backend suite (serial) + client suite green with everything
 deleted.

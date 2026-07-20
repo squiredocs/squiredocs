@@ -244,17 +244,8 @@ class PostgresPersistence {
         const clock = await this._getCurrentUpdateClock(client, docGuid);
         nextClock = clock + 1;
 
-        // If this is the first update, create a state vector entry.
-        if (clock === -1) {
-          const ydoc = new Y.Doc();
-          Y.applyUpdate(ydoc, update);
-          const stateVector = Y.encodeStateVector(ydoc);
-
-          await client.query(
-            'INSERT INTO yjs_state_vectors (doc_guid, state_vector, clock) VALUES ($1, $2, $3) ON CONFLICT (doc_guid) DO UPDATE SET state_vector = $2, clock = $3, updated_at = CURRENT_TIMESTAMP',
-            [docGuid, Buffer.from(stateVector), nextClock]
-          );
-        }
+        // (feature 023 US6) The write-once-never-read state-vectors table is
+        // gone — document birth is just the first yjs_updates row, nothing else.
 
         // Store the update. ON CONFLICT DO NOTHING => rowCount === 0 only if an
         // unserialized peer claimed this clock (mixed-window backstop, D-8).
@@ -445,7 +436,6 @@ class PostgresPersistence {
     const client = await this.pool.connect();
     try {
       await client.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-      await client.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
     } finally {
       client.release();
     }
@@ -470,7 +460,6 @@ class PostgresPersistence {
     const client = await this.pool.connect();
     try {
       await client.query('DELETE FROM yjs_updates');
-      await client.query('DELETE FROM yjs_state_vectors');
     } finally {
       client.release();
     }
@@ -730,71 +719,6 @@ class PostgresPersistence {
         `getUpdateRowsUpTo ${docGuid}@${clock}`
       );
       return { rows, gapped };
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
-   * Get the full Y.Doc with all history (gc disabled) for version diff comparison.
-   * This returns a document with ALL updates applied and gc:false so deleted items
-   * are preserved for snapshot comparison.
-   * @param {string} docGuid - Document GUID
-   * @returns {Promise<Y.Doc>} The full Yjs document with history
-   */
-  async getYDocWithHistory(docGuid) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
-        [docGuid]
-      );
-      return this._buildYDocFromRows(result.rows, { gc: false });
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
-   * Get state vectors at specific clock positions for snapshot creation.
-   * This builds the document incrementally and captures state vectors at each target clock.
-   * @param {string} docGuid - Document GUID
-   * @param {number[]} clocks - Array of clock values to get state vectors for
-   * @returns {Promise<Map<number, Uint8Array>>} Map of clock -> encoded state vector
-   */
-  async getStateVectorsAtClocks(docGuid, clocks) {
-    await this._init();
-    const client = await this.pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
-        [docGuid]
-      );
-
-      const sortedClocks = [...clocks].sort((a, b) => a - b);
-      const stateVectors = new Map();
-      const ydoc = new Y.Doc({ gc: false });
-      let clockIndex = 0;
-
-      for (const row of result.rows) {
-        Y.applyUpdate(ydoc, new Uint8Array(row.update_data));
-
-        // Check if we've reached any target clocks
-        while (clockIndex < sortedClocks.length && row.clock >= sortedClocks[clockIndex]) {
-          stateVectors.set(sortedClocks[clockIndex], Y.encodeStateVector(ydoc));
-          clockIndex++;
-        }
-      }
-
-      // If any clocks are beyond the last update, use the final state
-      while (clockIndex < sortedClocks.length) {
-        stateVectors.set(sortedClocks[clockIndex], Y.encodeStateVector(ydoc));
-        clockIndex++;
-      }
-
-      ydoc.destroy();
-      return stateVectors;
     } finally {
       client.release();
     }

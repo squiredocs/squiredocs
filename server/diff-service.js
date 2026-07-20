@@ -231,29 +231,6 @@ class DiffService {
 
     return { type: 'doc', content: allBlocks };
   }
-
-  /**
-   * Invalidate cached diffs for a document.
-   * Call this when new updates are added (though historical diffs remain valid).
-   *
-   * @param {string} docGuid - Document GUID
-   */
-  async invalidateCache(docGuid) {
-    if (!isRedisEnabled()) return;
-
-    try {
-      const redis = getRedisClient();
-      const pattern = `diff*:${docGuid}:*`;
-      let cursor = '0';
-      do {
-        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-        cursor = nextCursor;
-        if (keys.length > 0) await redis.del(...keys);
-      } while (cursor !== '0');
-    } catch (err) {
-      console.error('[DiffService] Cache invalidation error:', err.message);
-    }
-  }
 }
 
 module.exports = DiffService;

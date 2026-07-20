@@ -151,7 +151,6 @@ async function resetForDev(userId) {
   const prev = user?.welcome_doc_id;
   if (prev) {
     await ensurePool().query('DELETE FROM yjs_updates WHERE doc_guid = $1', [prev]).catch(() => {});
-    await ensurePool().query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [prev]).catch(() => {});
     await documents.deleteDocument(prev).catch(() => {});
   }
   await ensurePool().query(

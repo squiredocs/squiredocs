@@ -339,113 +339,6 @@ function formatTimestamp(timestamp) {
 
 
 /**
- * Extract metadata from a Y.Doc
- * @param {Y.Doc} doc - Current Yjs document
- * @param {string} previousText - Text content before this update (for delta calculation)
- * @returns {Object} Metadata object with character/word/block counts and delta
- */
-function extractMetadata(doc, previousText = '') {
-  const text = extractXml(doc);
-  const fragment = doc.get('default', Y.XmlFragment);
-
-  const characterCount = text.length;
-  const words = text.trim().split(/\s+/).filter(w => w.length > 0);
-  const wordCount = words.length;
-  const blockCount = fragment.length;
-  const charactersDelta = characterCount - previousText.length;
-
-  return {
-    characterCount,
-    wordCount,
-    blockCount,
-    charactersDelta,
-  };
-}
-
-/**
- * Enrich versions with metadata by reconstructing document state at each version
- * @param {Object} persistence - PostgresPersistence instance
- * @param {string} docGuid - Document GUID
- * @param {Array} versions - Array of version objects with clockStart/clockEnd (in any order)
- * @param {Array} updates - Array of meaningful updates for duration/editCount calculation
- * @param {boolean} includeDocumentMetadata - Whether to include character/word/block counts (expensive)
- * @returns {Promise<Array>} Versions enriched with metadata (in same order as input)
- */
-async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates, includeDocumentMetadata = true) {
-  if (versions.length === 0) return versions;
-
-  try {
-    // Build a map of clock -> timestamp for duration calculation
-    const updateMap = new Map(updates.map(u => [u.clock, new Date(u.createdAt).getTime()]));
-
-    // Create a map to preserve original order
-    const orderMap = new Map(versions.map((v, i) => [v, i]));
-
-    // Sort versions by clockEnd ascending for processing (oldest first)
-    const sortedVersions = [...versions].sort((a, b) => a.clockEnd - b.clockEnd);
-
-    let previousText = '';
-    const enrichedMap = new Map();
-
-    for (const version of sortedVersions) {
-      try {
-        const startTime = Date.now();
-        let metadata = {};
-        let reconstructTime = 0;
-        let metadataTime = 0;
-
-        // Only reconstruct document if we need document metadata (expensive)
-        if (includeDocumentMetadata) {
-          const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
-          reconstructTime = Date.now() - startTime;
-
-          const metadataStart = Date.now();
-          metadata = extractMetadata(doc, previousText);
-          metadataTime = Date.now() - metadataStart;
-
-          // Update previousText for next iteration's delta calculation
-          previousText = extractXml(doc);
-        }
-
-        // Calculate editCount - number of meaningful updates in this version's range
-        const editCount = updates.filter(
-          u => u.clock >= version.clockStart && u.clock <= version.clockEnd
-        ).length;
-
-        // Calculate duration - time span from first to last update in this version
-        const versionUpdates = Array.from(updateMap.entries())
-          .filter(([clock]) => clock >= version.clockStart && clock <= version.clockEnd)
-          .map(([, time]) => time);
-        const duration = versionUpdates.length > 1
-          ? Math.max(...versionUpdates) - Math.min(...versionUpdates)
-          : 0;
-
-        enrichedMap.set(version, {
-          ...version,
-          editCount,
-          duration,
-          ...metadata,
-        });
-
-        const totalTime = Date.now() - startTime;
-        if (totalTime > 100) {
-          console.log(`[enrichVersionsWithMetadata] Version ${version.id || version.clockEnd}: reconstruct=${reconstructTime}ms, metadata=${metadataTime}ms, total=${totalTime}ms`);
-        }
-      } catch (error) {
-        console.error(`[enrichVersionsWithMetadata] Error processing version ${version.id || version.clockEnd}:`, error);
-        throw error;
-      }
-    }
-
-    // Return enriched versions in original order
-    return versions.map(v => enrichedMap.get(v));
-  } catch (error) {
-    console.error('[enrichVersionsWithMetadata] Error enriching versions:', error);
-    throw new Error(`Failed to enrich versions with metadata: ${error.message}`);
-  }
-}
-
-/**
  * Get version history timeline for a document
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -542,7 +435,7 @@ async function getVersionContent(persistence, docGuid, versionId) {
 
     // Feature 023 US3 (FR-012): named-version content is ALWAYS produced by
     // replaying the log to clock_end under the gap-tolerant read path — never
-    // from a stored blob. The old snapshot_data fast-path is removed; a pre-023
+    // from a stored blob. The old cached-snapshot fast-path is removed; a pre-023
     // diverged blob heals silently to the replayed truth (D-6).
   } else {
     // Parse as clock number

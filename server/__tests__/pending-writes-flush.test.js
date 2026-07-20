@@ -85,7 +85,6 @@ describe('023 flush covers queued-but-not-started storeUpdate writes (FR-006)', 
 
   afterAll(async () => {
     await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
-    await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [docGuid]);
     await cleanupTestUser(pool, userId);
     await persistence.destroy();
     await pool.end();
