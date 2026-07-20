@@ -15,8 +15,7 @@ jest.mock('../redis', () => ({
 }));
 
 describe('DiffService', () => {
-  let mockPool;
-  let mockClient;
+  let mockPersistence;
   let diffService;
 
   // Helper to create a Y.Doc with text content
@@ -51,14 +50,13 @@ describe('DiffService', () => {
   }
 
   beforeEach(() => {
-    mockClient = {
-      query: jest.fn(),
-      release: jest.fn(),
+    // Feature 023 C1: DiffService now fetches diff rows through the persistence
+    // provider's gap-tolerant getUpdateRowsUpTo (returns { rows, gapped }) — not
+    // a raw pool. Default: gap-free empty result; individual tests override.
+    mockPersistence = {
+      getUpdateRowsUpTo: jest.fn().mockResolvedValue({ rows: [], gapped: false }),
     };
-    mockPool = {
-      connect: jest.fn().mockResolvedValue(mockClient),
-    };
-    diffService = new DiffService(mockPool);
+    diffService = new DiffService(mockPersistence);
   });
 
   describe('extractText (shared yjs-utils)', () => {
@@ -516,7 +514,7 @@ describe('DiffService', () => {
       const update2 = Y.encodeStateAsUpdate(doc2);
 
       // Mock database query to return updates
-      mockClient.query.mockResolvedValue({
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
         rows: [
           { clock: 0, update_data: Buffer.from(update1) },
           { clock: 1, update_data: Buffer.from(update2) },
@@ -542,7 +540,7 @@ describe('DiffService', () => {
       const update = Y.encodeStateAsUpdate(doc);
 
       // Mock database query - same update for both clocks
-      mockClient.query.mockResolvedValue({
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
         rows: [
           { clock: 0, update_data: Buffer.from(update) },
         ],
@@ -559,7 +557,7 @@ describe('DiffService', () => {
       const doc = createDocWithText('First content');
       const update = Y.encodeStateAsUpdate(doc);
 
-      mockClient.query.mockResolvedValue({
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
         rows: [{ clock: 0, update_data: Buffer.from(update) }],
       });
 
@@ -578,7 +576,7 @@ describe('DiffService', () => {
       const doc = createDocWithText('Test document');
       const update = Y.encodeStateAsUpdate(doc);
 
-      mockClient.query.mockResolvedValue({
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
         rows: [{ clock: 0, update_data: Buffer.from(update) }],
       });
 
@@ -616,7 +614,7 @@ describe('DiffService', () => {
 
       expect(result).toEqual(cachedResult);
       // Should not have queried database
-      expect(mockClient.query).not.toHaveBeenCalled();
+      expect(mockPersistence.getUpdateRowsUpTo).not.toHaveBeenCalled();
     });
 
     test('caches computed result', async () => {
@@ -632,7 +630,7 @@ describe('DiffService', () => {
       const doc = createDocWithText('Test');
       const update = Y.encodeStateAsUpdate(doc);
 
-      mockClient.query.mockResolvedValue({
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
         rows: [{ clock: 0, update_data: Buffer.from(update) }],
       });
 
@@ -643,6 +641,38 @@ describe('DiffService', () => {
         3600,
         expect.any(String)
       );
+
+      doc.destroy();
+    });
+
+    // Feature 023 T010 (FR-009, D-2, SC-002): a diff computed from a still-gapped
+    // row set is SERVED but never frozen into the cache — the next request
+    // recomputes from a healed log.
+    test('gapped row fetch: diff served but NOT cached', async () => {
+      const { isRedisEnabled, getRedisClient } = require('../redis');
+      isRedisEnabled.mockReturnValue(true);
+
+      const mockSetex = jest.fn().mockResolvedValue('OK');
+      getRedisClient.mockReturnValue({
+        get: jest.fn().mockResolvedValue(null),
+        setex: mockSetex,
+      });
+
+      const doc = createDocWithText('Gapped');
+      const update = Y.encodeStateAsUpdate(doc);
+
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
+        rows: [{ clock: 0, update_data: Buffer.from(update) }],
+        gapped: true, // torn read after the retry budget
+      });
+
+      const result = await diffService.computeDiff('test-doc', -1, 0);
+
+      // Served: a real diff result comes back.
+      expect(result).toHaveProperty('document');
+      expect(result.meta.currentClock).toBe(0);
+      // But the cache key is never written (assert setex absent).
+      expect(mockSetex).not.toHaveBeenCalled();
 
       doc.destroy();
     });

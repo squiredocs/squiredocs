@@ -89,9 +89,15 @@ async function currentMaxClock(persistence, docGuid) {
   return result.rows[0]?.clock ?? 0;
 }
 
-/** Load the full log with attribution + payloads, in clock order. */
+/**
+ * Load the full log with attribution + payloads, in clock order, WITH the gap
+ * indicator (023 FR-009/D-2). The inverse and its agent_edits transition are
+ * stored artifacts — they must never be computed from a torn read, so a still-
+ * gapped load aborts the undo before any claim.
+ * @returns {Promise<{updates: Array, gapped: boolean}>}
+ */
 function loadLog(persistence, docGuid) {
-  return persistence.getUpdatesInRange(docGuid, 0, MAX_CLOCK);
+  return persistence.getUpdatesInRange(docGuid, 0, MAX_CLOCK, { withGap: true });
 }
 
 /**
@@ -191,7 +197,18 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     }
   }
 
-  const rows = await loadLog(persistence, docGuid);
+  const { updates: rows, gapped } = await loadLog(persistence, docGuid);
+  if (gapped) {
+    // Torn read after the retry budget (023 FR-009/D-2): abort BEFORE any claim
+    // — never transition an agent_edits row or store an inverse from a gapped log.
+    console.warn(`[undo-service] aborting undo for ${docGuid}: update log still gapped after retry budget`);
+    return {
+      success: true,
+      undone: false,
+      message: 'Nothing undone: the document is still syncing — retry in a moment.',
+      clock: await currentMaxClock(persistence, docGuid),
+    };
+  }
   const liveDoc = (() => {
     try { return getSharedDoc(docGuid); } catch { return null; }
   })();
@@ -261,7 +278,17 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
   }
 
   const range = { clockStart: row.redoTargetStart, clockEnd: row.redoTargetEnd };
-  const rows = await loadLog(persistence, docGuid);
+  const { updates: rows, gapped } = await loadLog(persistence, docGuid);
+  if (gapped) {
+    // Torn read after the retry budget (023 FR-009/D-2): abort before any claim.
+    console.warn(`[undo-service] aborting redo for ${docGuid}: update log still gapped after retry budget`);
+    return {
+      success: true,
+      redone: false,
+      message: 'Nothing redone: the document is still syncing — retry in a moment.',
+      clock: await currentMaxClock(persistence, docGuid),
+    };
+  }
   const liveDoc = (() => {
     try { return getSharedDoc(docGuid); } catch { return null; }
   })();

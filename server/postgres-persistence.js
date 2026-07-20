@@ -591,7 +591,11 @@ class PostgresPersistence {
    * @param {number} [options.limit] - Maximum number of updates to return
    * @param {boolean} [options.includeData] - Include update_data in results
    * @param {boolean} [options.recentFirst] - Query DESC and reverse (for efficient "last N" queries)
-   * @returns {Promise<Array>} Updates with user metadata in ascending clock order
+   * @returns {Promise<{updates: Array, gapped: boolean}>} Updates with user
+   *   metadata in ascending clock order, plus the gap indicator from the
+   *   shared choke point. INTERNAL return shape: the public wrappers keep their
+   *   array shape (A1 — an array-attached `gapped` would die in callers' `.map`,
+   *   so gapped is surfaced only to the callers that produce artifacts).
    */
   async _queryUpdatesWithUsers(docGuid, options = {}) {
     const { clockStart, clockEnd, limit, includeData = false, recentFirst = false } = options;
@@ -610,41 +614,49 @@ class PostgresPersistence {
 
       let orderClause = 'ORDER BY u.clock ASC';
       let limitClause = '';
+      const descending = recentFirst && !!limit;
 
-      if (recentFirst && limit) {
-        // Query DESC with limit, then reverse for ascending order
+      if (descending) {
+        // Query DESC with limit, then reverse for ascending order.
         orderClause = 'ORDER BY u.clock DESC';
         limitClause = `LIMIT $${params.length + 1}`;
         params.push(limit);
       }
 
-      const result = await client.query(
-        `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of,
+      const sql = `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id
          ${whereClause}
          ${orderClause}
-         ${limitClause}`,
-        params
+         ${limitClause}`;
+
+      // Funnel through the shared gap-tolerant choke point (023 FR-007).
+      const { rows: rawRows, gapped } = await this._fetchRowsWithGapRetry(
+        client, sql, params, `_queryUpdatesWithUsers ${docGuid}`, { descending }
       );
 
-      const rows = recentFirst && limit ? result.rows.reverse() : result.rows;
-      return rows.map(row => this._mapUpdateRow(row, includeData));
+      const rows = descending ? [...rawRows].reverse() : rawRows;
+      return { updates: rows.map(row => this._mapUpdateRow(row, includeData)), gapped };
     } finally {
       client.release();
     }
   }
 
   /**
-   * Get updates in a clock range with user info
+   * Get updates in a clock range with user info.
    * @param {string} docGuid - Document GUID
    * @param {number} clockStart - Starting clock value (inclusive)
    * @param {number} clockEnd - Ending clock value (inclusive)
-   * @returns {Promise<Array>} Updates with metadata
+   * @param {object} [opts]
+   * @param {boolean} [opts.withGap=false] - when true, return
+   *   `{ updates, gapped }` so an artifact-producing caller (undo loadLog) can
+   *   refuse to freeze a torn read (D-2). Default keeps the array shape.
+   * @returns {Promise<Array|{updates: Array, gapped: boolean}>}
    */
-  async getUpdatesInRange(docGuid, clockStart, clockEnd) {
-    return this._queryUpdatesWithUsers(docGuid, { clockStart, clockEnd, includeData: true });
+  async getUpdatesInRange(docGuid, clockStart, clockEnd, { withGap = false } = {}) {
+    const { updates, gapped } = await this._queryUpdatesWithUsers(docGuid, { clockStart, clockEnd, includeData: true });
+    return withGap ? { updates, gapped } : updates;
   }
 
   /**
@@ -654,7 +666,8 @@ class PostgresPersistence {
    * @returns {Promise<Array>} Recent updates with user metadata in ascending clock order
    */
   async getRecentUpdatesWithUsers(docGuid, limit = 100) {
-    return this._queryUpdatesWithUsers(docGuid, { limit, recentFirst: true });
+    const { updates } = await this._queryUpdatesWithUsers(docGuid, { limit, recentFirst: true });
+    return updates;
   }
 
   /**
@@ -663,11 +676,15 @@ class PostgresPersistence {
    * @returns {Promise<Array>} All updates with user metadata
    */
   async getUpdatesWithUsers(docGuid) {
-    return this._queryUpdatesWithUsers(docGuid);
+    const { updates } = await this._queryUpdatesWithUsers(docGuid);
+    return updates;
   }
 
   /**
-   * Reconstruct Y.Doc at a specific clock value
+   * Reconstruct Y.Doc at a specific clock value. Gap-tolerant via the shared
+   * choke point (023 FR-007); serving-only path — a read still gapped after the
+   * budget is served as-is with the fetcher's warn line (version preview never
+   * freezes an artifact — D-2).
    * @param {string} docGuid - Document GUID
    * @param {number} clock - Clock value to reconstruct up to
    * @returns {Promise<Y.Doc>} Document state at that clock
@@ -676,11 +693,38 @@ class PostgresPersistence {
     await this._init();
     const client = await this.pool.connect();
     try {
-      const result = await client.query(
-        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
-        [docGuid, clock]
+      const { rows } = await this._fetchRowsWithGapRetry(
+        client,
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
+        [docGuid, clock],
+        `getYDocAtClock ${docGuid}@${clock}`
       );
-      return this._buildYDocFromRows(result.rows);
+      return this._buildYDocFromRows(rows);
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Fetch the raw clock-ordered update rows up to `clock` for the diff service,
+   * gap-tolerant via the shared choke point, surfacing the `gapped` indicator so
+   * the diff service can serve the computed diff but SKIP the cache write on a
+   * torn read (023 FR-009, D-2). Returns rows with `clock` + `update_data`.
+   * @param {string} docGuid - Document GUID
+   * @param {number} clock - Upper clock bound (inclusive)
+   * @returns {Promise<{rows: Array, gapped: boolean}>}
+   */
+  async getUpdateRowsUpTo(docGuid, clock) {
+    await this._init();
+    const client = await this.pool.connect();
+    try {
+      const { rows, gapped } = await this._fetchRowsWithGapRetry(
+        client,
+        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
+        [docGuid, clock],
+        `getUpdateRowsUpTo ${docGuid}@${clock}`
+      );
+      return { rows, gapped };
     } finally {
       client.release();
     }

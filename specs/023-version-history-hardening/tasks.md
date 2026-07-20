@@ -74,15 +74,15 @@ gapped result; gap-free behavior byte-identical.
 
 ### Tests for User Story 2
 
-- [ ] T009 [US2] Gap-injection tests for `getYDocAtClock` and `_queryUpdatesWithUsers` family (`getUpdatesWithUsers`/`getUpdatesInRange`/`getRecentUpdatesWithUsers`) in `/local-dev/server/__tests__/postgres-gap-read.test.js`: gap detected → retry within shared budget → healed read served; still-gapped → served + 021-format warn with per-reader label (FR-007/008/010)
-- [ ] T010 [P] [US2] Diff-cache gap test in `/local-dev/server/__tests__/diff-service.test.js`: still-gapped row fetch → diff computed and served but NO Redis cache write (assert key absent); gap-free → cached exactly as today (FR-009, US2 AS2, SC-002)
-- [ ] T011 [P] [US2] Undo gapped-log test in `/local-dev/server/undo/__tests__/undo-service.test.js`: still-gapped `loadLog` → undo aborts observably BEFORE any claim (no agent_edits transition, no inverse row) (FR-009/D-2)
+- [X] T009 [US2] Gap-injection tests for `getYDocAtClock` and `_queryUpdatesWithUsers` family (`getUpdatesWithUsers`/`getUpdatesInRange`/`getRecentUpdatesWithUsers`) in `/local-dev/server/__tests__/postgres-gap-read.test.js`: gap detected → retry within shared budget → healed read served; still-gapped → served + 021-format warn with per-reader label (FR-007/008/010)
+- [X] T010 [P] [US2] Diff-cache gap test in `/local-dev/server/__tests__/diff-service.test.js`: still-gapped row fetch → diff computed and served but NO Redis cache write (assert key absent); gap-free → cached exactly as today (FR-009, US2 AS2, SC-002)
+- [X] T011 [P] [US2] Undo gapped-log test in `/local-dev/server/undo/__tests__/undo-service.test.js`: still-gapped `loadLog` → undo aborts observably BEFORE any claim (no agent_edits transition, no inverse row) (FR-009/D-2)
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Funnel remaining readers in `/local-dev/server/postgres-persistence.js`: route `getYDocAtClock` and `_queryUpdatesWithUsers` through `_fetchRowsWithGapRetry`; surface a `gapped` indicator to callers that need it (attach to the returned array or secondary return per contract); add `getUpdateRowsUpTo(docGuid, clock) -> { rows, gapped }` for the diff service; rewrite the `getYDoc` "single choke point" comment to name the fetcher (FR-007)
-- [ ] T013 [P] [US2] Update `/local-dev/server/diff-service.js`: replace the inline SQL row fetch (lines ~53-63) with `persistence.getUpdateRowsUpTo` (constructor gains persistence access; keep pool for nothing else), and skip the `setex` cache write when `gapped` (FR-009); serve the computed result either way
-- [ ] T014 [P] [US2] Update `/local-dev/server/undo/undo-service.js`: `loadLog` checks the gapped indicator; still-gapped after budget → return the observable error result and never reach claim/inverse computation (D-2)
+- [X] T012 [US2] Funnel remaining readers in `/local-dev/server/postgres-persistence.js`: route `getYDocAtClock` and `_queryUpdatesWithUsers` through `_fetchRowsWithGapRetry`; surface a `gapped` indicator to callers that need it (attach to the returned array or secondary return per contract); add `getUpdateRowsUpTo(docGuid, clock) -> { rows, gapped }` for the diff service; rewrite the `getYDoc` "single choke point" comment to name the fetcher (FR-007)
+- [X] T013 [P] [US2] Update `/local-dev/server/diff-service.js`: replace the inline SQL row fetch (lines ~53-63) with `persistence.getUpdateRowsUpTo` (constructor gains persistence access; keep pool for nothing else), and skip the `setex` cache write when `gapped` (FR-009); serve the computed result either way
+- [X] T014 [P] [US2] Update `/local-dev/server/undo/undo-service.js`: `loadLog` checks the gapped indicator; still-gapped after budget → return the observable error result and never reach claim/inverse computation (D-2)
 
 **Checkpoint**: SC-002 matrix green; retry-storm non-interaction argued in R2 holds
 (budget bounded; no new knobs).

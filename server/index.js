@@ -399,8 +399,9 @@ search.init(persistenceProvider.getPool());
 searchIndexer.init(persistenceProvider);
 setTimeout(() => searchIndexer.reindexStale(), 10_000);
 
-// Initialize diff service for version history
-const diffService = new DiffService(persistenceProvider.getPool());
+// Initialize diff service for version history. It fetches diff rows through the
+// persistence provider's gap-tolerant choke point (023 C1/FR-009), not a raw pool.
+const diffService = new DiffService(persistenceProvider);
 
 // Mount auth routes — per-IP rate limit on the whole /auth surface (feature 010,
 // US2/FR-005). Keyed on the true client IP (numeric trust proxy above).

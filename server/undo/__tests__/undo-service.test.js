@@ -559,4 +559,49 @@ describe('undo-service (post-merge review pins)', () => {
       expect(await dbText(docGuid)).toBe('<paragraph>Base paragraph.</paragraph>');
     });
   });
+
+  // ---------------------------------------------------------------- T011 ----
+  // Feature 023 (FR-009, D-2): a still-gapped log load aborts the undo BEFORE
+  // any claim — no agent_edits transition, no inverse row derived from a torn read.
+  describe('T011: gapped loadLog aborts undo before any claim', () => {
+    test('still-gapped log => undone:false, row stays active, no inverse appended', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+
+      // A persistence whose loadLog (getUpdatesInRange withGap) reports a torn
+      // read. Everything else delegates to the real persistence so the record
+      // lookups (nextUndoTarget / hasPendingRecording / currentMaxClock) work.
+      const gappedPersistence = {
+        getPool: () => persistence.getPool(),
+        getUpdatesInRange: async (guid, s, e, opts = {}) =>
+          (opts.withGap ? { updates: [], gapped: true } : []),
+        getRecentUpdatesWithUsers: (...a) => persistence.getRecentUpdatesWithUsers(...a),
+        getUpdatesWithUsers: (...a) => persistence.getUpdatesWithUsers(...a),
+        storeUpdate: (...a) => persistence.storeUpdate(...a),
+      };
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const res = await undoService.performUndo(identity(docGuid), {
+          persistence: gappedPersistence, getSharedDoc: () => null,
+        });
+        expect(res.undone).toBe(false);
+        expect(res.message).toMatch(/syncing/i);
+        expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('still gapped'))).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      // The recorded edit is untouched (still active) and no inverse row landed.
+      const { rows: edits } = await pool.query(
+        "SELECT state FROM agent_edits WHERE doc_guid = $1 AND agent_name = $2", [docGuid, AGENT]
+      );
+      expect(edits).toHaveLength(1);
+      expect(edits[0].state).toBe('active');
+      const { rows: updates } = await pool.query(
+        'SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]
+      );
+      expect(updates[0].n).toBe(2); // only the two seeded rows — no inverse appended
+    });
+  });
 });

@@ -65,7 +65,7 @@ describe('--- and hunk-fragment disambiguation pins', () => {
     expect(strict.content[0]).toMatchObject({ type: 'codeBlock', attrs: { language: 'js' } });
   });
 
-  test('diff-service CACHE_VERSION is v8 — bumped for word-level diffs (feature 022)', () => {
-    expect(require('../diff-service').CACHE_VERSION).toBe('v8');
+  test('diff-service CACHE_VERSION is v9 — clean cut from possibly-gapped pre-023 cache entries', () => {
+    expect(require('../diff-service').CACHE_VERSION).toBe('v9');
   });
 });
