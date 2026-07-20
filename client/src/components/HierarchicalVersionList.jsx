@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { generateColorFromId } from '../utils/colorUtils';
+import VersionNameDialog from './VersionNameDialog';
+import VersionConfirmDialog from './VersionConfirmDialog';
 import './HierarchicalVersionList.css';
 
 /**
@@ -123,9 +126,35 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, on
 }
 
 /**
- * Item menu dropdown component - shared between versions and sub-versions
+ * Compute a fixed-position anchor for the portaled menu dropdown from the trigger
+ * button's viewport rect (024/R2). Right-aligns to the button, clamps into the
+ * viewport, and flips above the button when there is not enough room below.
  */
-function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
+function computeMenuPosition(rect, itemCount) {
+  const GAP = 4;
+  const MENU_WIDTH = 200; // min-width 180 + inner padding
+  const MENU_HEIGHT = Math.max(itemCount, 1) * 44 + 8; // per-item ~44px + padding
+  const vw = window.innerWidth || 0;
+  const vh = window.innerHeight || 0;
+
+  const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, vw - MENU_WIDTH - 8));
+  const spaceBelow = vh - rect.bottom;
+  const openAbove = spaceBelow < MENU_HEIGHT && rect.top > spaceBelow;
+
+  return openAbove
+    ? { left, bottom: Math.max(8, vh - rect.top + GAP), placement: 'above' }
+    : { left, top: rect.bottom + GAP, placement: 'below' };
+}
+
+/**
+ * Item menu dropdown component - shared between versions and sub-versions.
+ *
+ * The dropdown is portaled to document.body with fixed positioning so it is never
+ * clipped by the version list's `overflow-y:auto` scroll container (024/FR-003/R2).
+ * `dropdownRef` is attached to the portaled node so the parent's outside-tap
+ * dismissal counts the (out-of-tree) dropdown as "inside".
+ */
+function ItemMenu({ item, menuOpen, menuRef, dropdownRef, onMenuOpen, onNameVersion, onRestoreVersion, onDeleteVersion, userRole }) {
   const canRestore = !item.isCurrent && userRole !== 'viewer';
   // Naming a version is permitted for viewer+ (Sam-ratified 2026-07-19, F9):
   // matches the REST/MCP server behavior, which allows any role with access.
@@ -134,9 +163,33 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
   const canRename = item.isNamed;
   const canRemoveName = item.isNamed && !item.isSubVersion;
 
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const itemCount = (canName ? 1 : 0) + (canRestore ? 1 : 0) + (canRemoveName ? 1 : 0);
+
+  useLayoutEffect(() => {
+    if (menuOpen && btnRef.current) {
+      setPos(computeMenuPosition(btnRef.current.getBoundingClientRect(), itemCount));
+    } else {
+      setPos(null);
+    }
+    // itemCount is stable for a given item/role; recompute only on open toggle.
+  }, [menuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dropdownStyle = pos
+    ? {
+        position: 'fixed',
+        left: `${pos.left}px`,
+        ...(pos.placement === 'above'
+          ? { bottom: `${pos.bottom}px` }
+          : { top: `${pos.top}px` }),
+      }
+    : { position: 'fixed', visibility: 'hidden' };
+
   return (
     <div className="hierarchy-version-menu" ref={menuOpen ? menuRef : null}>
       <button
+        ref={btnRef}
         className="hierarchy-menu-btn"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
@@ -151,8 +204,13 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
           <circle cx="12" cy="19" r="2"/>
         </svg>
       </button>
-      {menuOpen && (
-        <div className="hierarchy-menu-dropdown">
+      {menuOpen && createPortal(
+        <div
+          className="hierarchy-menu-dropdown hierarchy-menu-dropdown--fixed"
+          ref={dropdownRef}
+          style={dropdownStyle}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           {canName && (
             <button onClick={onNameVersion}>
               {canRename ? 'Rename' : 'Name this version'}
@@ -168,7 +226,8 @@ function ItemMenu({ item, menuOpen, menuRef, onMenuOpen, onNameVersion, onRestor
               Remove name
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -209,6 +268,7 @@ function HistoryItem({
   // Menu props
   menuOpen,
   menuRef,
+  dropdownRef,
   onMenuOpen,
   onNameVersion,
   onRestoreVersion,
@@ -249,6 +309,7 @@ function HistoryItem({
           item={item}
           menuOpen={menuOpen}
           menuRef={menuRef}
+          dropdownRef={dropdownRef}
           onMenuOpen={onMenuOpen}
           onNameVersion={onNameVersion}
           onRestoreVersion={onRestoreVersion}
@@ -282,6 +343,8 @@ function HierarchicalVersionList({
   userRole,
   isLoading,
   filter = 'all', // 'all' or 'named'
+  docGuid,
+  onNavigateToDoc, // post-restore in-app navigation (024/US4); reload fallback if absent
 }) {
   // Filter versions based on filter prop
   const filteredVersions = filter === 'named'
@@ -299,19 +362,33 @@ function HierarchicalVersionList({
   const [expandedVersions, setExpandedVersions] = useState({});
   const [menuOpen, setMenuOpen] = useState(null);
   const menuRef = React.useRef(null);
+  // The dropdown is portaled out of the row's DOM subtree, so the outside-tap test
+  // must treat the portaled node as "inside" too (024/R3).
+  const dropdownRef = React.useRef(null);
 
-  // Close menu when clicking outside
+  // Close menu when tapping/clicking outside, or when the viewport scrolls/resizes
+  // (a fixed-positioned portal would otherwise linger at a stale anchor — 024/R2/R3).
   React.useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
+    if (!menuOpen) return;
+
+    const handlePointerOutside = (event) => {
+      const inButton = menuRef.current && menuRef.current.contains(event.target);
+      const inDropdown = dropdownRef.current && dropdownRef.current.contains(event.target);
+      if (!inButton && !inDropdown) {
         setMenuOpen(null);
       }
     };
+    const closeMenu = () => setMenuOpen(null);
 
-    if (menuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    // pointerdown covers mouse + touch + pen in one path (fixes touch dismissal).
+    document.addEventListener('pointerdown', handlePointerOutside);
+    document.addEventListener('scroll', closeMenu, true); // capture: catches inner scrollers
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerOutside);
+      document.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
   }, [menuOpen]);
 
   const toggleMonth = (label) => {
@@ -329,34 +406,80 @@ function HierarchicalVersionList({
     }
   };
 
-  const handleNameItem = async (item) => {
-    const name = prompt(item.name ? 'Rename version:' : 'Name this version:', item.name || '');
-    if (name && name.trim()) {
-      if (item.isNamed) {
-        await onRenameVersion(item.id, name.trim());
-      } else {
-        // Use clockEnd for both versions and sub-versions
-        await onCreateNamedVersion(name.trim(), item.clockEnd);
-      }
-    }
+  // In-app dialog state replacing the native prompt/confirm calls (024/US2).
+  // `item` is captured at open time so a mid-flight history refresh can't make the
+  // action target a stale row (Edge Case: "Dialog open during data refresh").
+  // Shape: { kind: 'name'|'rename'|'restore'|'removeName', item, busy, error } | null.
+  const [dialog, setDialog] = useState(null);
+
+  const openNameDialog = (item) => {
     setMenuOpen(null);
+    setDialog({ kind: item.isNamed ? 'rename' : 'name', item, busy: false, error: null });
   };
 
-  const handleDeleteVersion = async (version) => {
-    if (window.confirm(`Remove name "${version.name}" from this version?`)) {
-      await onDeleteVersion(version.id);
-    }
+  const openRestoreDialog = (item) => {
     setMenuOpen(null);
+    setDialog({ kind: 'restore', item, busy: false, error: null });
   };
 
-  const handleRestoreItem = async (item) => {
-    if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
-      const success = await onRestoreVersion(item.id);
-      if (success) {
-        window.location.reload();
-      }
-    }
+  const openRemoveNameDialog = (item) => {
     setMenuOpen(null);
+    setDialog({ kind: 'removeName', item, busy: false, error: null });
+  };
+
+  const closeDialog = () => setDialog(null);
+
+  const runDialogAction = async (fn, failureMessage) => {
+    setDialog(prev => (prev ? { ...prev, busy: true, error: null } : prev));
+    try {
+      return await fn();
+    } catch (err) {
+      setDialog(prev => (prev ? { ...prev, busy: false, error: err?.message || failureMessage } : prev));
+      return undefined;
+    }
+  };
+
+  const handleConfirmName = async (trimmedName) => {
+    const item = dialog?.item;
+    if (!item) return;
+    // Rename by id; name by clockEnd — semantics preserved exactly (024/C5, FR-005).
+    const result = await runDialogAction(
+      () => (item.isNamed
+        ? onRenameVersion(item.id, trimmedName)
+        : onCreateNamedVersion(trimmedName, item.clockEnd)),
+      'Failed to save the version name.'
+    );
+    if (result !== undefined) closeDialog();
+  };
+
+  const handleConfirmRemoveName = async () => {
+    const item = dialog?.item;
+    if (!item) return;
+    const result = await runDialogAction(
+      () => onDeleteVersion(item.id),
+      'Failed to remove the version name.'
+    );
+    if (result !== undefined) closeDialog();
+  };
+
+  const handleConfirmRestore = async () => {
+    const item = dialog?.item;
+    if (!item) return;
+    const success = await runDialogAction(
+      () => onRestoreVersion(item.id),
+      'Failed to restore this version.'
+    );
+    if (success === undefined) return; // threw — error already surfaced, stay open
+    if (success) {
+      closeDialog();
+      // In-app navigation to the live doc — never a full page reload (024/FR-012).
+      if (onNavigateToDoc && docGuid) {
+        onNavigateToDoc(docGuid);
+      }
+    } else {
+      // Server rejected the restore — keep the dialog open with an error.
+      setDialog(prev => (prev ? { ...prev, busy: false, error: 'Failed to restore this version.' } : prev));
+    }
   };
 
   if (isLoading) {
@@ -374,7 +497,13 @@ function HierarchicalVersionList({
     );
   }
 
+  const dialogItem = dialog?.item;
+  const removeNameMessage = dialogItem?.name
+    ? `Remove the name "${dialogItem.name}" from this version?`
+    : 'Remove the name from this version?';
+
   return (
+    <>
     <div className="hierarchy-list">
       {filteredVersions.map((month) => (
         <div key={month.label} className="hierarchy-month">
@@ -414,10 +543,11 @@ function HierarchicalVersionList({
                     onToggle={() => toggleVersion(version)}
                     menuOpen={menuOpen === version.id}
                     menuRef={menuRef}
+                    dropdownRef={dropdownRef}
                     onMenuOpen={() => setMenuOpen(prev => prev === version.id ? null : version.id)}
-                    onNameVersion={() => handleNameItem(version)}
-                    onRestoreVersion={() => handleRestoreItem(version)}
-                    onDeleteVersion={() => handleDeleteVersion(version)}
+                    onNameVersion={() => openNameDialog(version)}
+                    onRestoreVersion={() => openRestoreDialog(version)}
+                    onDeleteVersion={() => openRemoveNameDialog(version)}
                     userRole={userRole}
                   >
                     {isExpanded && (
@@ -437,9 +567,10 @@ function HierarchicalVersionList({
                                   onClick={() => onSelectUpdate(subVersion)}
                                   menuOpen={menuOpen === menuKey}
                                   menuRef={menuRef}
+                                  dropdownRef={dropdownRef}
                                   onMenuOpen={() => setMenuOpen(prev => prev === menuKey ? null : menuKey)}
-                                  onNameVersion={() => handleNameItem(subVersionItem)}
-                                  onRestoreVersion={() => handleRestoreItem(subVersionItem)}
+                                  onNameVersion={() => openNameDialog(subVersionItem)}
+                                  onRestoreVersion={() => openRestoreDialog(subVersionItem)}
                                   userRole={userRole}
                                 />
                               );
@@ -463,6 +594,39 @@ function HierarchicalVersionList({
         </div>
       ))}
     </div>
+
+    <VersionNameDialog
+      isOpen={dialog?.kind === 'name' || dialog?.kind === 'rename'}
+      mode={dialog?.kind === 'rename' ? 'rename' : 'name'}
+      initialValue={dialog?.kind === 'rename' ? (dialogItem?.name || '') : ''}
+      onConfirm={handleConfirmName}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+
+    <VersionConfirmDialog
+      isOpen={dialog?.kind === 'restore'}
+      title="Restore this version?"
+      message="A new version will be created with the restored content."
+      confirmLabel="Restore"
+      onConfirm={handleConfirmRestore}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+
+    <VersionConfirmDialog
+      isOpen={dialog?.kind === 'removeName'}
+      title="Remove name"
+      message={removeNameMessage}
+      confirmLabel="Remove name"
+      onConfirm={handleConfirmRemoveName}
+      onCancel={closeDialog}
+      busy={!!dialog?.busy}
+      error={dialog?.error || null}
+    />
+    </>
   );
 }
 

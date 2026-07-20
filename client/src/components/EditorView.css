@@ -303,6 +303,22 @@
   font-weight: var(--font-medium);
   color: var(--text-primary);
   text-align: left;
+  /* Truncate so a long name/timestamp never pushes Restore off-screen or forces
+     horizontal scroll at 360-430px (024/FR-009). */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Keep back + Restore intact while the title truncates between them. */
+.version-history-back-btn {
+  flex-shrink: 0;
+}
+
+.version-history-header .app-header-right {
+  flex-shrink: 0;
 }
 
 .restore-version-btn {
@@ -315,10 +331,36 @@
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: background-color 0.2s;
+  white-space: nowrap;
 }
 
 .restore-version-btn:hover {
   background: var(--accent-hover);
+}
+
+/* Touch layouts: back button gets a 44px effective target (024/FR-008, SC-003),
+   reusing the .tools-menu-btn 44px precedent. */
+@media (hover: none) {
+  .version-history-back-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .restore-version-btn {
+    min-height: 44px;
+  }
+}
+
+/* Compact the Restore action at narrow widths — still clearly identifiable
+   (024/FR-009). */
+@media (max-width: 480px) {
+  .version-history-header .app-header-content {
+    padding: 10px 14px;
+  }
+
+  .restore-version-btn {
+    padding: 10px 14px;
+  }
 }
 
 .version-history-inner {
@@ -346,17 +388,42 @@
 @media (max-width: 768px) {
   .version-history-inner {
     flex-direction: column-reverse;
+    /* Allow the flex children's internal scrollers to work (024/FR-010). */
+    min-height: 0;
   }
 
   .version-history-mode .version-history-panel {
     width: 100%;
     height: 40%;
+    min-height: 0;
     border-left: none;
     border-top: 1px solid var(--border-subtle);
   }
 
   .version-history-main {
     height: 60%;
+    min-height: 0;
+    /* Preview scrolls independently of the list panel below it. */
+    overflow-y: auto;
+  }
+}
+
+/* Landscape / very short viewports: keep the 60/40 intent (D4) but floor each
+   region and let both scroll internally so neither collapses to an unusable
+   strip (024/FR-010, US3 AC4). */
+@media (max-width: 768px) and (max-height: 520px) {
+  .version-history-mode .version-history-panel {
+    height: auto;
+    flex: 4 1 0;
+    min-height: 96px;
+    overflow-y: auto;
+  }
+
+  .version-history-main {
+    height: auto;
+    flex: 6 1 0;
+    min-height: 96px;
+    overflow-y: auto;
   }
 }
 

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import HierarchicalVersionList from '../HierarchicalVersionList';
 
 /**
@@ -219,5 +219,209 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
     const selected = container.querySelectorAll('.hierarchy-item.selected');
     expect(selected).toHaveLength(1);
     expect(selected[0].classList.contains('hierarchy-version')).toBe(true);
+  });
+});
+
+/**
+ * US1 (024) — the row options menu must be reachable on every row (top-level AND
+ * drill-down), open without selecting the row, render (portaled) fully, and close on
+ * an outside pointer tap (touch-safe, not just mouse).
+ */
+describe('HierarchicalVersionList — US1 menu reachability & dismissal (024)', () => {
+  const version = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+  const subVersion = {
+    id: '5', clockStart: 5, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], updateCount: 1,
+  };
+
+  function renderExpanded(extra = {}) {
+    const utils = render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={extra.onSelectVersion || (() => {})}
+        onSelectUpdate={extra.onSelectUpdate || (() => {})}
+        versionUpdates={{ '5': [subVersion] }}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+    // Expand the parent version so the drill-down (sub-version) row renders.
+    fireEvent.click(screen.getByLabelText('Expand'));
+    return utils;
+  }
+
+  it('renders an options menu button on a drill-down (sub-version) row', () => {
+    renderExpanded();
+    // Parent row + sub-version row each expose an Options button.
+    expect(screen.getAllByTitle('Options').length).toBe(2);
+  });
+
+  it('opens the dropdown when a sub-version row menu is clicked', () => {
+    renderExpanded();
+    const menuButtons = screen.getAllByTitle('Options');
+    // Second button belongs to the drill-down row.
+    fireEvent.click(menuButtons[1]);
+    // Sub-versions expose name + restore (no remove-name).
+    expect(screen.getByText('Name this version')).toBeInTheDocument();
+    expect(screen.getByText('Restore this version')).toBeInTheDocument();
+  });
+
+  it('opening the menu does not select the row', () => {
+    const onSelectVersion = vi.fn();
+    const onSelectUpdate = vi.fn();
+    renderExpanded({ onSelectVersion, onSelectUpdate });
+    const menuButtons = screen.getAllByTitle('Options');
+    fireEvent.click(menuButtons[0]);
+    fireEvent.click(menuButtons[1]);
+    expect(onSelectVersion).not.toHaveBeenCalled();
+    expect(onSelectUpdate).not.toHaveBeenCalled();
+  });
+
+  it('closes the open menu on an outside pointerdown (touch-safe dismissal)', () => {
+    renderExpanded();
+    fireEvent.click(screen.getAllByTitle('Options')[0]);
+    expect(screen.getByText('Restore this version')).toBeInTheDocument();
+    // A pointerdown outside the menu (touch tap) must close it.
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByText('Restore this version')).toBeNull();
+  });
+});
+
+/**
+ * US2 (024) — actions run through in-app dialogs, never window.prompt/confirm, and
+ * still invoke the same callbacks with the same arguments (024/C5, FR-004/005).
+ */
+describe('HierarchicalVersionList — US2 in-app dialogs (024)', () => {
+  function renderList(version, handlers = {}) {
+    return render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        onCreateNamedVersion={handlers.onCreateNamedVersion || vi.fn().mockResolvedValue(true)}
+        onRenameVersion={handlers.onRenameVersion || vi.fn().mockResolvedValue(true)}
+        onDeleteVersion={handlers.onDeleteVersion || vi.fn().mockResolvedValue(true)}
+        onRestoreVersion={handlers.onRestoreVersion || vi.fn().mockResolvedValue(false)}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+  }
+
+  const baseVersion = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+
+  it('never calls window.prompt or window.confirm for any action', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('X');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const named = { ...baseVersion, name: 'Old name', isNamed: true };
+    renderList(named);
+
+    // Rename
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Rename'));
+    expect(screen.getByRole('textbox').value).toBe('Old name');
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Restore
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Remove name
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Remove name'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+    confirmSpy.mockRestore();
+  });
+
+  it('name → onCreateNamedVersion(trimmedName, clockEnd)', async () => {
+    const onCreateNamedVersion = vi.fn().mockResolvedValue(true);
+    renderList(baseVersion, { onCreateNamedVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Name this version'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Milestone  ' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onCreateNamedVersion).toHaveBeenCalledWith('Milestone', 5);
+  });
+
+  it('rename → onRenameVersion(id, trimmedName)', async () => {
+    const onRenameVersion = vi.fn().mockResolvedValue(true);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onRenameVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Rename'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New name' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onRenameVersion).toHaveBeenCalledWith('5', 'New name');
+  });
+
+  it('restore → onRestoreVersion(id)', async () => {
+    const onRestoreVersion = vi.fn().mockResolvedValue(false);
+    renderList(baseVersion, { onRestoreVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(onRestoreVersion).toHaveBeenCalledWith('5');
+  });
+
+  it('remove name → onDeleteVersion(id)', async () => {
+    const onDeleteVersion = vi.fn().mockResolvedValue(true);
+    const named = { ...baseVersion, name: 'Old', isNamed: true };
+    renderList(named, { onDeleteVersion });
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Remove name'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove name' }));
+    expect(onDeleteVersion).toHaveBeenCalledWith('5');
+  });
+});
+
+/**
+ * US4 (024) — a successful row-menu restore navigates in-app to the doc and never
+ * triggers a full-page reload (FR-012, C7).
+ */
+describe('HierarchicalVersionList — US4 restore navigation (024)', () => {
+  const version = {
+    id: '5', name: null, clockStart: 1, clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z', authors: [], isNamed: false, isCurrent: false,
+  };
+
+  it('invokes onNavigateToDoc(docGuid) and does not reload on successful restore', async () => {
+    const onRestoreVersion = vi.fn().mockResolvedValue(true);
+    const onNavigateToDoc = vi.fn();
+
+    render(
+      <HierarchicalVersionList
+        hierarchicalVersions={[{ label: 'January 2024', versions: [version] }]}
+        selection={null}
+        onSelectVersion={() => {}}
+        onSelectUpdate={() => {}}
+        onRestoreVersion={onRestoreVersion}
+        docGuid="doc-guid-123"
+        onNavigateToDoc={onNavigateToDoc}
+        userRole="editor"
+        isLoading={false}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+
+    // Let the awaited restore promise resolve. Because onNavigateToDoc is provided,
+    // the restore path navigates in-app and never reaches window.location.reload().
+    await waitFor(() => expect(onNavigateToDoc).toHaveBeenCalledWith('doc-guid-123'));
+    expect(onRestoreVersion).toHaveBeenCalledWith('5');
   });
 });

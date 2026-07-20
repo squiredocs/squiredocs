@@ -7,6 +7,7 @@ import MobileActionBar from './MobileActionBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
+import VersionConfirmDialog from './VersionConfirmDialog';
 import VersionPreview from './VersionPreview';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
@@ -21,7 +22,7 @@ import { formatVersionTimestamp } from '../utils/datetime';
 import './EditorView.css';
 import './MenuCommon.css';
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, versionsReachedInAppRef, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -79,6 +80,9 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [openMenuId, setOpenMenuId] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [showDiffHighlights, setShowDiffHighlights] = useState(true);
+  // Header "Restore this version" confirmation dialog (024/US2). null = closed;
+  // { busy, error } while open, operating on the current `selection`.
+  const [restoreDialog, setRestoreDialog] = useState(null);
   const menuRef = useRef(null);
   const isMobile = useMobile();
 
@@ -192,7 +196,33 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   };
 
   const handleCloseVersionHistory = () => {
-    window.history.back();
+    // Deep link / fresh tab (never reached in-app): navigate in-app to the doc so
+    // close never exits the app. Otherwise preserve normal back semantics
+    // (024/US4, FR-013, R5).
+    if (versionsReachedInAppRef?.current) {
+      window.history.back();
+    } else if (onNavigateToDoc) {
+      onNavigateToDoc(docGuid);
+    } else {
+      window.history.back();
+    }
+  };
+
+  const handleConfirmHeaderRestore = async () => {
+    if (!selection) return;
+    setRestoreDialog({ busy: true, error: null });
+    try {
+      const success = await restoreVersion(selection.id);
+      if (success) {
+        setRestoreDialog(null);
+        // In-app navigation to the live doc — never a full page reload (024/FR-012).
+        onNavigateToDoc?.(docGuid);
+      } else {
+        setRestoreDialog({ busy: false, error: 'Failed to restore this version.' });
+      }
+    } catch (err) {
+      setRestoreDialog({ busy: false, error: err?.message || 'Failed to restore this version.' });
+    }
   };
 
   const handleMenuToggle = (e) => {
@@ -356,15 +386,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               {selection && !selection.isCurrent && userRole !== 'viewer' && (
                 <button
                   className="restore-version-btn"
-                  onClick={async () => {
-                    if (window.confirm('Restore this version? A new version will be created with the restored content.')) {
-                      const success = await restoreVersion(selection.id);
-                      if (success) {
-                        // Reload the page to see the restored content
-                        window.location.reload();
-                      }
-                    }
-                  }}
+                  onClick={() => setRestoreDialog({ busy: false, error: null })}
                 >
                   Restore this version
                 </button>
@@ -407,8 +429,21 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             // Diff highlighting toggle
             showDiffHighlights={showDiffHighlights}
             onToggleDiffHighlights={setShowDiffHighlights}
+            // Post-restore in-app navigation (no reload) for the row-menu restore.
+            onNavigateToDoc={onNavigateToDoc}
           />
         </div>
+
+        <VersionConfirmDialog
+          isOpen={!!restoreDialog}
+          title="Restore this version?"
+          message="A new version will be created with the restored content."
+          confirmLabel="Restore"
+          onConfirm={handleConfirmHeaderRestore}
+          onCancel={() => setRestoreDialog(null)}
+          busy={!!restoreDialog?.busy}
+          error={restoreDialog?.error || null}
+        />
       </>
     );
   }
