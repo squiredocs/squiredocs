@@ -212,3 +212,248 @@ describe('021 gap-tolerant getYDoc', () => {
     expect(gapLogs()).toHaveLength(0);
   });
 });
+
+/**
+ * Feature 023 T003 — the extracted `_fetchRowsWithGapRetry` choke point
+ * (FR-007/008/010). Every yjs_updates log-rebuild reader funnels through it;
+ * these lock its contract directly: return shape, per-reader label in the warn
+ * line, the SHARED (021) retry budget, and zero-overhead gap-free path.
+ */
+describe('023 _fetchRowsWithGapRetry choke point', () => {
+  let pool;
+  let persistence;
+  let client;
+  const docGuids = [];
+  let warnSpy;
+
+  const newDocGuid = () => {
+    const guid = `20030000-${String(docGuids.length).padStart(4, '0')}-4000-8000-${Date.now()
+      .toString(16)
+      .padStart(12, '0')
+      .slice(-12)}`;
+    docGuids.push(guid);
+    return guid;
+  };
+
+  const insertRow = (docGuid, clock) =>
+    pool.query(
+      'INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)',
+      [docGuid, clock, Buffer.from(new Uint8Array([clock & 0xff]))]
+    );
+
+  const SQL = 'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC';
+  const gapLogs = () =>
+    warnSpy.mock.calls.filter((c) => String(c[0]).includes('served with clock gap'));
+
+  beforeAll(async () => {
+    pool = createPool();
+    persistence = createPersistence();
+    client = await pool.connect();
+  });
+
+  afterAll(async () => {
+    client.release();
+    for (const guid of docGuids) {
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [guid]);
+    }
+    await pool.end();
+  });
+
+  beforeEach(() => {
+    process.env.COLLAB_READ_GAP_RETRIES = '2';
+    process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '40,80';
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.COLLAB_READ_GAP_RETRIES;
+    delete process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS;
+    warnSpy.mockRestore();
+  });
+
+  test('returns { rows, gapped, retries } — gap-free', async () => {
+    const docGuid = newDocGuid();
+    for (let i = 0; i < 3; i++) await insertRow(docGuid, i);
+
+    const out = await persistence._fetchRowsWithGapRetry(client, SQL, [docGuid], `probe ${docGuid}`);
+    expect(out).toEqual({ rows: expect.any(Array), gapped: false, retries: 0 });
+    expect(out.rows).toHaveLength(3);
+    expect(gapLogs()).toHaveLength(0);
+  });
+
+  test('gap-free hot path: zero retries, no wait', async () => {
+    const docGuid = newDocGuid();
+    for (let i = 0; i < 3; i++) await insertRow(docGuid, i);
+    process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
+
+    const start = Date.now();
+    const out = await persistence._fetchRowsWithGapRetry(client, SQL, [docGuid], `probe ${docGuid}`);
+    expect(Date.now() - start).toBeLessThan(300);
+    expect(out.gapped).toBe(false);
+    expect(out.retries).toBe(0);
+  });
+
+  test('still-gapped: returns gapped=true, exhausts the SHARED budget, warns with the label', async () => {
+    const docGuid = newDocGuid();
+    await insertRow(docGuid, 0);
+    await insertRow(docGuid, 1);
+    await insertRow(docGuid, 3); // clock 2 never arrives
+
+    const out = await persistence._fetchRowsWithGapRetry(client, SQL, [docGuid], `myReader ${docGuid}`);
+    expect(out.gapped).toBe(true);
+    expect(out.retries).toBe(2); // COLLAB_READ_GAP_RETRIES, shared 021 knob
+    expect(out.rows).toHaveLength(3);
+
+    const logs = gapLogs();
+    expect(logs).toHaveLength(1);
+    const line = String(logs[0][0]);
+    expect(line).toContain('myReader'); // per-reader label surfaces
+    expect(line).toContain(docGuid);
+    expect(line).toContain('retries=2');
+    expect(line).toContain('firstGapAfterClock=1');
+  });
+
+  test('descending option: contiguity judged on the ascending view', async () => {
+    const docGuid = newDocGuid();
+    for (let c = 5; c < 8; c++) await insertRow(docGuid, c); // contiguous 5,6,7
+    process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
+
+    const descSql = 'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock DESC';
+    const start = Date.now();
+    const out = await persistence._fetchRowsWithGapRetry(client, descSql, [docGuid], `desc ${docGuid}`, { descending: true });
+    expect(Date.now() - start).toBeLessThan(300); // no false gap => no retry wait
+    expect(out.gapped).toBe(false);
+    expect(gapLogs()).toHaveLength(0);
+  });
+});
+
+/**
+ * Feature 023 T009 (FR-007/008/010, SC-002): the OTHER log-rebuild readers now
+ * funnel through the choke point too — getYDocAtClock (serving-only) and the
+ * _queryUpdatesWithUsers family (getUpdatesWithUsers / getUpdatesInRange /
+ * getRecentUpdatesWithUsers). Each detects a gap, retries within the SHARED
+ * budget, serves the healed read, and surfaces the gap (warn line + `gapped`).
+ */
+describe('023 gap tolerance across every reader', () => {
+  let pool;
+  let persistence;
+  const docGuids = [];
+  let warnSpy;
+
+  const newDocGuid = () => {
+    const guid = `20090000-${String(docGuids.length).padStart(4, '0')}-4000-8000-${Date.now()
+      .toString(16)
+      .padStart(12, '0')
+      .slice(-12)}`;
+    docGuids.push(guid);
+    return guid;
+  };
+
+  function buildUpdateChain(count) {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    const updates = [];
+    for (let i = 0; i < count; i++) {
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, `seg-${i}`);
+        el.insert(0, [t]);
+        frag.push([el]);
+      });
+      updates.push(Y.encodeStateAsUpdate(doc, sv));
+    }
+    return updates;
+  }
+
+  const insertRow = (docGuid, clock, update) =>
+    pool.query('INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)', [docGuid, clock, Buffer.from(update)]);
+
+  const gapLogs = () => warnSpy.mock.calls.filter((c) => String(c[0]).includes('served with clock gap'));
+
+  beforeAll(() => {
+    pool = createPool();
+    persistence = createPersistence();
+  });
+
+  afterAll(async () => {
+    for (const guid of docGuids) await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [guid]);
+    await pool.end();
+  });
+
+  beforeEach(() => {
+    process.env.COLLAB_READ_GAP_RETRIES = '2';
+    process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '40,80';
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.COLLAB_READ_GAP_RETRIES;
+    delete process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS;
+    warnSpy.mockRestore();
+  });
+
+  test('getYDocAtClock: still-gapped serves as-is + warns with its label', async () => {
+    const docGuid = newDocGuid();
+    const u = buildUpdateChain(4);
+    await insertRow(docGuid, 0, u[0]);
+    await insertRow(docGuid, 1, u[1]);
+    await insertRow(docGuid, 3, u[3]); // clock 2 never arrives
+
+    const ydoc = await persistence.getYDocAtClock(docGuid, 3);
+    const text = ydoc.getXmlFragment('default').toString();
+    expect(text).toContain('seg-0');
+    expect(text).toContain('seg-1');
+    expect(text).not.toContain('seg-3'); // causally after the gap, not integrated
+    const logs = gapLogs();
+    expect(logs).toHaveLength(1);
+    expect(String(logs[0][0])).toContain('getYDocAtClock');
+  });
+
+  test('getYDocAtClock: gap healing within the window returns the complete slice', async () => {
+    const docGuid = newDocGuid();
+    const u = buildUpdateChain(4);
+    await insertRow(docGuid, 0, u[0]);
+    await insertRow(docGuid, 1, u[1]);
+    await insertRow(docGuid, 3, u[3]);
+    setTimeout(() => insertRow(docGuid, 2, u[2]).catch(() => {}), 20);
+
+    const ydoc = await persistence.getYDocAtClock(docGuid, 3);
+    const text = ydoc.getXmlFragment('default').toString();
+    expect(text).toContain('seg-2');
+    expect(text).toContain('seg-3');
+    expect(gapLogs()).toHaveLength(0);
+  });
+
+  test('getUpdatesInRange({ withGap }): surfaces gapped=true on a torn range', async () => {
+    const docGuid = newDocGuid();
+    const u = buildUpdateChain(4);
+    await insertRow(docGuid, 0, u[0]);
+    await insertRow(docGuid, 1, u[1]);
+    await insertRow(docGuid, 3, u[3]);
+
+    const gappedOut = await persistence.getUpdatesInRange(docGuid, 0, 100, { withGap: true });
+    expect(gappedOut.gapped).toBe(true);
+    expect(gappedOut.updates.length).toBe(3);
+    // Default (no withGap) keeps the plain array shape.
+    const plain = await persistence.getUpdatesInRange(docGuid, 0, 100);
+    expect(Array.isArray(plain)).toBe(true);
+    expect(plain.length).toBe(3);
+    expect(gapLogs().length).toBeGreaterThanOrEqual(1);
+    expect(String(gapLogs()[0][0])).toContain('_queryUpdatesWithUsers');
+  });
+
+  test('getUpdatesWithUsers / getRecentUpdatesWithUsers: gap-free returns an ordered array', async () => {
+    const docGuid = newDocGuid();
+    const u = buildUpdateChain(3);
+    for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+
+    const all = await persistence.getUpdatesWithUsers(docGuid);
+    expect(Array.isArray(all)).toBe(true);
+    expect(all.map((r) => r.clock)).toEqual([0, 1, 2]);
+    const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 2);
+    expect(recent.map((r) => r.clock)).toEqual([1, 2]); // ascending after reverse
+    expect(gapLogs()).toHaveLength(0);
+  });
+});

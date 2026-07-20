@@ -52,6 +52,7 @@ const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
+const { classifyByXml, extractXml } = require('./update-classifier');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
@@ -249,14 +250,44 @@ setPersistence({
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
     ydoc.on('update', (update, origin) => {
-      // Skip sentinel origins (db-load, redis) — already persisted
+      // Feature 023 US4 (T023, U1): refresh the meaningful-classification
+      // baseline on EVERY update, BEFORE the sentinel early-return. The listener
+      // fires after the update applies, so extractXml(ydoc) is the post-update
+      // state — this update's baseline for the NEXT persisted update. Refreshing
+      // on sentinel origins too (db-load, redis, restore, inverse, sync-push) is
+      // load-bearing: skip it and a real edit landing right after a restore/redis
+      // update that happens to match the STALE baseline is misclassified as noise
+      // — the one path that can hide a real edit. Any extractXml failure degrades
+      // to unknown and never touches persistence (FR-018).
+      let nextXml;
+      try { nextXml = extractXml(ydoc); } catch { nextXml = undefined; }
+      const prevXml = ydoc._lastClassifiedXml;
+      if (nextXml !== undefined) ydoc._lastClassifiedXml = nextXml;
+
+      // Skip sentinel origins (db-load, redis, restore, inverse, sync-push) —
+      // already persisted (or loaded); only classify parseable-origin updates.
       const parsed = parseOrigin(origin);
       if (!parsed) return;
       const { userId, agentName } = parsed;
 
+      // Classify vs the previous baseline. Unknown (no baseline yet, or an
+      // extractXml failure) ⇒ null ⇒ meaningful at read (fail-visible, D-3).
+      let meaningful = null;
+      try {
+        if (typeof prevXml === 'string' && nextXml !== undefined) {
+          meaningful = classifyByXml(prevXml, nextXml);
+        }
+      } catch (classifyErr) {
+        meaningful = null;
+        console.warn(`[bindState] meaningful classification failed for ${docGuid} (persisting as unknown):`, classifyErr.message);
+      }
+
       const persistStart = Date.now();
 
-      // Helper for retry logic on transient failures
+      // Helper for retry logic on transient failures (still wraps the title sync
+      // below; the storeUpdate transient retry now lives INSIDE the per-doc queue
+      // slot — feature 023 R1 — so a retrying persist keeps its queue position
+      // rather than re-entering behind later-produced updates and inverting clocks).
       const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 100) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
@@ -270,11 +301,13 @@ setPersistence({
         }
       };
 
-      // Persist to PostgreSQL (source of truth) with retry for transient failures.
-      // Register the promise in the pending-persistence tracker so the graceful
-      // shutdown routine can flush in-flight writes before exit (FR-004). The
-      // entry is removed on settle regardless of outcome.
-      const writePromise = retryWithBackoff(() => persistenceProvider.storeUpdate(docGuid, update, userId, agentName));
+      // Persist to PostgreSQL (source of truth). storeUpdate is called directly:
+      // it enqueues the write on the per-doc FIFO queue and runs the transient
+      // retry inside that slot (feature 023). The returned promise settles only
+      // after the queue slot completes, so registering it in pendingWrites keeps
+      // the graceful-shutdown flush covering queued-but-not-yet-started writes
+      // (FR-006). The entry is removed on settle regardless of outcome.
+      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful });
       pendingWrites.add(writePromise);
       writePromise.finally(() => pendingWrites.delete(writePromise));
       writePromise
@@ -329,6 +362,12 @@ setPersistence({
       // Use ORIGIN_DB_LOAD so the update listener knows to skip persisting this
       console.log(`[bindState] Applying state for ${docGuid}`);
       Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
+
+      // Initialize the meaningful-classification baseline to the loaded state
+      // (feature 023 T023). The db-load update's listener firing already refreshes
+      // it; this makes initialization explicit and robust to an empty-state load
+      // that produces no update event.
+      try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
@@ -394,8 +433,9 @@ search.init(persistenceProvider.getPool());
 searchIndexer.init(persistenceProvider);
 setTimeout(() => searchIndexer.reindexStale(), 10_000);
 
-// Initialize diff service for version history
-const diffService = new DiffService(persistenceProvider.getPool());
+// Initialize diff service for version history. It fetches diff rows through the
+// persistence provider's gap-tolerant choke point (023 C1/FR-009), not a raw pool.
+const diffService = new DiffService(persistenceProvider);
 
 // Mount auth routes — per-IP rate limit on the whole /auth surface (feature 010,
 // US2/FR-005). Keyed on the true client IP (numeric trust proxy above).
@@ -1377,18 +1417,14 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
       return res.status(403).json({ error: 'You do not have permission to restore this document' });
     }
 
-    // Get function to access shared document for broadcasting restore update
-    const getSharedDocFn = (docGuid) => {
-      try {
-        return documentService.getSharedDoc(docGuid);
-      } catch (error) {
-        // Document service might not be initialized or document not loaded yet
-        console.warn(`[Restore] Could not get shared document for ${docGuid}:`, error.message);
-        return null;
-      }
-    };
-
-    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, getSharedDocFn);
+    // Restore via the shared core (feature 023 US5): a human UI restore records
+    // under the '' agent sentinel and broadcasts on every instance via the shared
+    // live-apply path (loaded-doc apply or Redis fan-out — never a silent skip).
+    const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, {
+      getSharedDoc: documentService.getSharedDoc,
+      redisPubSub,
+      agentName: null,
+    });
     res.json(result);
   } catch (error) {
     console.error('Error restoring version:', error);

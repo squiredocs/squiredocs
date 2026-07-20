@@ -79,7 +79,6 @@ describe('021 collab guardrail', () => {
   afterAll(async () => {
     for (const guid of docGuids) {
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [guid]);
-      await pool.query('DELETE FROM yjs_state_vectors WHERE doc_guid = $1', [guid]);
     }
     await pool.query('DELETE FROM users WHERE email IN ($1, $2)', [
       'guardrail-human-021@example.com',

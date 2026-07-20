@@ -6,6 +6,8 @@
 const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml } = require('./yjs-utils');
+const editRecords = require('./undo/edit-records');
+const { applyLiveUpdate } = require('./live-apply');
 
 /**
  * Thrown when a requested version cannot be resolved: an unknown/foreign named
@@ -337,165 +339,6 @@ function formatTimestamp(timestamp) {
 
 
 /**
- * Extract metadata from a Y.Doc
- * @param {Y.Doc} doc - Current Yjs document
- * @param {string} previousText - Text content before this update (for delta calculation)
- * @returns {Object} Metadata object with character/word/block counts and delta
- */
-function extractMetadata(doc, previousText = '') {
-  const text = extractXml(doc);
-  const fragment = doc.get('default', Y.XmlFragment);
-
-  const characterCount = text.length;
-  const words = text.trim().split(/\s+/).filter(w => w.length > 0);
-  const wordCount = words.length;
-  const blockCount = fragment.length;
-  const charactersDelta = characterCount - previousText.length;
-
-  return {
-    characterCount,
-    wordCount,
-    blockCount,
-    charactersDelta,
-  };
-}
-
-/**
- * Enrich versions with metadata by reconstructing document state at each version
- * @param {Object} persistence - PostgresPersistence instance
- * @param {string} docGuid - Document GUID
- * @param {Array} versions - Array of version objects with clockStart/clockEnd (in any order)
- * @param {Array} updates - Array of meaningful updates for duration/editCount calculation
- * @param {boolean} includeDocumentMetadata - Whether to include character/word/block counts (expensive)
- * @returns {Promise<Array>} Versions enriched with metadata (in same order as input)
- */
-async function enrichVersionsWithMetadata(persistence, docGuid, versions, updates, includeDocumentMetadata = true) {
-  if (versions.length === 0) return versions;
-
-  try {
-    // Build a map of clock -> timestamp for duration calculation
-    const updateMap = new Map(updates.map(u => [u.clock, new Date(u.createdAt).getTime()]));
-
-    // Create a map to preserve original order
-    const orderMap = new Map(versions.map((v, i) => [v, i]));
-
-    // Sort versions by clockEnd ascending for processing (oldest first)
-    const sortedVersions = [...versions].sort((a, b) => a.clockEnd - b.clockEnd);
-
-    let previousText = '';
-    const enrichedMap = new Map();
-
-    for (const version of sortedVersions) {
-      try {
-        const startTime = Date.now();
-        let metadata = {};
-        let reconstructTime = 0;
-        let metadataTime = 0;
-
-        // Only reconstruct document if we need document metadata (expensive)
-        if (includeDocumentMetadata) {
-          const doc = await persistence.getYDocAtClock(docGuid, version.clockEnd);
-          reconstructTime = Date.now() - startTime;
-
-          const metadataStart = Date.now();
-          metadata = extractMetadata(doc, previousText);
-          metadataTime = Date.now() - metadataStart;
-
-          // Update previousText for next iteration's delta calculation
-          previousText = extractXml(doc);
-        }
-
-        // Calculate editCount - number of meaningful updates in this version's range
-        const editCount = updates.filter(
-          u => u.clock >= version.clockStart && u.clock <= version.clockEnd
-        ).length;
-
-        // Calculate duration - time span from first to last update in this version
-        const versionUpdates = Array.from(updateMap.entries())
-          .filter(([clock]) => clock >= version.clockStart && clock <= version.clockEnd)
-          .map(([, time]) => time);
-        const duration = versionUpdates.length > 1
-          ? Math.max(...versionUpdates) - Math.min(...versionUpdates)
-          : 0;
-
-        enrichedMap.set(version, {
-          ...version,
-          editCount,
-          duration,
-          ...metadata,
-        });
-
-        const totalTime = Date.now() - startTime;
-        if (totalTime > 100) {
-          console.log(`[enrichVersionsWithMetadata] Version ${version.id || version.clockEnd}: reconstruct=${reconstructTime}ms, metadata=${metadataTime}ms, total=${totalTime}ms`);
-        }
-      } catch (error) {
-        console.error(`[enrichVersionsWithMetadata] Error processing version ${version.id || version.clockEnd}:`, error);
-        throw error;
-      }
-    }
-
-    // Return enriched versions in original order
-    return versions.map(v => enrichedMap.get(v));
-  } catch (error) {
-    console.error('[enrichVersionsWithMetadata] Error enriching versions:', error);
-    throw new Error(`Failed to enrich versions with metadata: ${error.message}`);
-  }
-}
-
-/**
- * Filter out redundant updates that don't change the document text content
- * This filters out CRDT sync updates that add new client IDs but don't change visible text
- * @param {Object} persistence - PostgresPersistence instance
- * @param {string} docGuid - Document GUID
- * @param {Array} updates - Array of updates with clock values
- * @returns {Promise<Array>} Filtered updates that actually change text content
- */
-async function filterMeaningfulUpdates(persistence, docGuid, updates) {
-  if (updates.length === 0) return [];
-
-  // Get all update data for this document
-  const minClock = updates[0].clock;
-  const maxClock = updates[updates.length - 1].clock;
-  const updatesWithData = await persistence.getUpdatesInRange(docGuid, minClock, maxClock);
-
-  // Create a map of clock -> update data for quick lookup
-  const updateDataMap = new Map();
-  for (const u of updatesWithData) {
-    updateDataMap.set(u.clock, u.updateData);
-  }
-
-  // Build document state just before the first update
-  const baseDoc = minClock > 0
-    ? await persistence.getYDocAtClock(docGuid, minClock - 1)
-    : new Y.Doc();
-
-  // Filter to only include updates that actually change text content
-  // (not just CRDT state like new client IDs from sync)
-  const meaningfulUpdates = [];
-  let previousText = extractXml(baseDoc);
-
-  for (const update of updates) {
-    const updateData = updateDataMap.get(update.clock);
-    if (!updateData) continue;
-
-    // Apply the update
-    Y.applyUpdate(baseDoc, updateData);
-
-    // Get text after applying update
-    const currentText = extractXml(baseDoc);
-
-    // Only include if text content actually changed
-    if (currentText !== previousText) {
-      meaningfulUpdates.push(update);
-      previousText = currentText;
-    }
-  }
-
-  return meaningfulUpdates;
-}
-
-/**
  * Get version history timeline for a document
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -512,8 +355,12 @@ async function getVersionTimeline(persistence, docGuid) {
     };
   }
 
-  // Filter out redundant updates that don't change document state
-  const updates = await filterMeaningfulUpdates(persistence, docGuid, allUpdates);
+  // Feature 023 US4: filter on the persisted meaningful flag instead of
+  // replaying the whole log. O(rows), independent of document content size
+  // (FR-016). NULL (unknown — pre-023 rows, or written by an old pod during a
+  // deploy) is KEPT as meaningful (fail-visible, D-3); only an explicit `false`
+  // (classified noise) is dropped.
+  const updates = allUpdates.filter(u => u.meaningful !== false);
 
   if (updates.length === 0) {
     return {
@@ -586,15 +433,10 @@ async function getVersionContent(persistence, docGuid, versionId) {
       timestamp: namedVersion.created_at,
     };
 
-    // If we have cached snapshot data, use it
-    if (namedVersion.snapshot_data) {
-      const ydoc = new Y.Doc();
-      Y.applyUpdate(ydoc, new Uint8Array(namedVersion.snapshot_data));
-      return {
-        content: Array.from(Y.encodeStateAsUpdate(ydoc)),
-        version: versionMeta,
-      };
-    }
+    // Feature 023 US3 (FR-012): named-version content is ALWAYS produced by
+    // replaying the log to clock_end under the gap-tolerant read path — never
+    // from a stored blob. The old cached-snapshot fast-path is removed; a pre-023
+    // diverged blob heals silently to the replayed truth (D-6).
   } else {
     // Parse as clock number
     clockEnd = parseInt(versionId, 10);
@@ -627,7 +469,11 @@ async function getVersionContent(persistence, docGuid, versionId) {
 
   // Get version metadata if not already set
   if (!versionMeta) {
-    const autoVersions = groupUpdatesIntoVersions(updates);
+    // Group the meaningful-filtered set for parity with getVersionTimeline
+    // (feature 023 US4): NULL kept, explicit noise dropped — so a clock that is
+    // a version boundary in the timeline resolves to the same auto-version here.
+    const meaningfulUpdates = updates.filter(u => u.meaningful !== false);
+    const autoVersions = groupUpdatesIntoVersions(meaningfulUpdates);
     const version = autoVersions.find(v => v.clockEnd === clockEnd);
 
     if (version) {
@@ -649,17 +495,25 @@ async function getVersionContent(persistence, docGuid, versionId) {
 }
 
 /**
- * Restore document to a previous version (non-destructive)
- * Creates the restore as a new update applied to the current document
+ * Restore document to a previous version (non-destructive) — the ONE shared core
+ * behind both restore surfaces (REST route and MCP tool), feature 023 US5.
+ * Creates the restore as a single new update, records an undo-invertible edit
+ * record for it, and broadcasts it live on every instance (no silent skip).
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {string} versionId - Version ID to restore
  * @param {string} userId - User performing the restore
- * @param {Function|null} getSharedDocFn - Optional function to get the in-memory shared document
- * @param {string|null} agentName - Agent name for attribution (e.g., 'Chat Assistant')
+ * @param {object} [deps]
+ * @param {Function|null} [deps.getSharedDoc] - docGuid -> Y.Doc|null (in-memory doc)
+ * @param {object|null} [deps.redisPubSub] - cross-instance fan-out when not loaded
+ * @param {string|null} [deps.agentName] - acting agent name; null for a human UI restore
  * @returns {Promise<Object>} Result with new version info
  */
-async function restoreVersion(persistence, docGuid, versionId, userId, getSharedDocFn = null, agentName = null) {
+async function restoreVersion(persistence, docGuid, versionId, userId, {
+  getSharedDoc = null,
+  redisPubSub = null,
+  agentName = null,
+} = {}) {
   console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
 
   // Get the target version content
@@ -747,36 +601,34 @@ async function restoreVersion(persistence, docGuid, versionId, userId, getShared
   const restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
   console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
 
-  // Store as a new update (this is the restore operation)
-  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName);
+  // Store as a single new update (the restore operation). Classified meaningful
+  // by construction (feature 023 US4) — a restore always changes visible content.
+  const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName, null, null, { meaningful: true });
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
-  // Apply the restore update to the in-memory document so it broadcasts to clients
-  if (getSharedDocFn) {
-    try {
-      const sharedDoc = getSharedDocFn(docGuid);
-      if (sharedDoc) {
-        // Broadcast the restore delta to connected clients WITHOUT re-persisting.
-        // The row was already stored above via storeUpdate with correct
-        // userId/agentName attribution. We use the ORIGIN_RESTORE sentinel so the
-        // bindState persistence listener (parseOrigin -> null) skips it: storeUpdate
-        // allocates a FRESH max+1 clock on every call and never dedupes by content,
-        // so a parseable origin here would persist the same delta a SECOND time at a
-        // new clock (the previous "ON CONFLICT DO NOTHING prevents duplicates"
-        // comment was false — that clause only guards a lost race for the same clock).
-        Y.applyUpdate(sharedDoc, restoreUpdate, ORIGIN_RESTORE);
-        console.log(`[Restore] Applied restore update to in-memory document`);
-      } else {
-        console.warn(`[Restore] Could not get shared document for ${docGuid} - update not broadcast`);
-      }
-    } catch (error) {
-      console.error(`[Restore] Error applying restore update to in-memory document:`, error);
-      // Don't fail the restore if we can't update the in-memory doc
-      // The update is already persisted, so it will be loaded on next connection
-    }
-  } else {
-    console.warn(`[Restore] No getSharedDocFn provided - restore update not applied to in-memory document`);
+  // Record the restore as an edit record so log-derived undo can invert it
+  // (feature 023 FR-020, D-4). A human UI restore records under the '' agent
+  // sentinel (agent_edits.agent_name is NOT NULL); an agent restore records under
+  // the acting agent's name. Non-fatal (modify parity): a recording failure logs
+  // and the restore still succeeds — undo simply finds nothing to invert.
+  try {
+    await editRecords.recordEdit(persistence, {
+      docGuid,
+      userId,
+      agentName: agentName ?? '',
+      clockStart: newClock,
+      clockEnd: newClock,
+      clocks: [newClock],
+    });
+  } catch (recordErr) {
+    console.error(`[Restore] Failed to record edit for ${docGuid} (restore still succeeds):`, recordErr.message);
   }
+
+  // Broadcast the restore live on every instance without a silent skip
+  // (feature 023 FR-023, D-5). ORIGIN_RESTORE makes the bindState persistence
+  // listener skip re-storing (storeUpdate allocates a fresh clock per call and
+  // never dedupes by content, so a parseable origin here would double-persist).
+  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
 
   return {
     success: true,

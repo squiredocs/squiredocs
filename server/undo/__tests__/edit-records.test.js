@@ -147,6 +147,54 @@ describe('edit-records', () => {
     expect(upd.rows[0].agent_name).toBe(AGENT);
   });
 
+  test('T005: finalizeClaim composes with a burst of ordinary storeUpdate calls (no deadlock, ordering holds)', async () => {
+    const docGuid = randomUUID();
+    // Seed an ordinary update so the recorded edit inverts a real row.
+    const seedClock = await persistence.storeUpdate(docGuid, makeUpdate('seed'), userId, null);
+    const rec = await editRecords.recordEdit(persistence, {
+      docGuid, userId, agentName: AGENT, clockStart: seedClock, clockEnd: seedClock,
+    });
+
+    // Fire the claim (external-client storeUpdate inside BEGIN..COMMIT, holding
+    // the advisory lock to commit) CONCURRENTLY with a burst of ordinary
+    // fire-and-forget pool-client storeUpdate calls on the same doc. The advisory
+    // lock ordering must be deadlock-free (FR-003): the claim takes its
+    // agent_edits row lock before the advisory lock; ordinary writers take only
+    // the advisory lock — unidirectional, no cycle.
+    const ordinary = [];
+    for (let i = 0; i < 10; i++) {
+      ordinary.push(persistence.storeUpdate(docGuid, makeUpdate(`ord-${i}`), userId, null));
+    }
+    const claimP = editRecords.finalizeClaim(persistence, {
+      mode: 'undo', rowId: rec.id,
+      targetRange: { clockStart: seedClock, clockEnd: seedClock },
+      docGuid, userId, agentName: AGENT,
+      inverseUpdate: makeUpdate('the inverse'),
+    });
+
+    const [claim, ...ordClocks] = await Promise.all([claimP, ...ordinary]);
+    expect(claim.claimed).toBe(true);
+
+    // All writes completed and clocks are unique (no dropped/duplicated clock).
+    const allClocks = [seedClock, claim.clock, ...ordClocks];
+    expect(new Set(allClocks).size).toBe(allClocks.length);
+
+    // Ordinary updates keep their production order among themselves.
+    for (let i = 1; i < ordClocks.length; i++) {
+      expect(ordClocks[i]).toBeGreaterThan(ordClocks[i - 1]);
+    }
+
+    // The inverse row's clock is causally after everything it inverts (the seed).
+    expect(claim.clock).toBeGreaterThan(seedClock);
+
+    // Contiguous log: seed + 10 ordinary + 1 inverse = 12 rows, no gaps.
+    const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+    expect(rows.rows).toHaveLength(12);
+    for (let i = 1; i < rows.rows.length; i++) {
+      expect(Number(rows.rows[i].clock)).toBe(Number(rows.rows[i - 1].clock) + 1);
+    }
+  });
+
   test('at-most-once: two concurrent undo claims — exactly one wins, exactly one inverse row', async () => {
     const docGuid = randomUUID();
     const rec = await editRecords.recordEdit(persistence, {

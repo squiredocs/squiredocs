@@ -20,11 +20,20 @@ const { markdownToPm } = require('../shared/markdown');
 const { applyWordMarks } = require('./diff/apply-word-marks');
 const { extractXml, extractText } = require('./yjs-utils');
 
-const CACHE_VERSION = 'v8';
+// Bumped v8 -> v9 for feature 023: pre-023 entries could have been computed and
+// frozen from a gap-tolerant-but-still-gapped row set; a clean cut discards them
+// (post-023 entries are only ever written gap-free — see computeDiff).
+const CACHE_VERSION = 'v9';
 
 class DiffService {
-  constructor(pool) {
-    this.pool = pool;
+  /**
+   * @param {import('./postgres-persistence').PostgresPersistence} persistence -
+   *   the persistence provider; the diff row fetch funnels through its
+   *   gap-tolerant `getUpdateRowsUpTo` (023 FR-007/FR-009) rather than an inline
+   *   pool query, so a torn read is never frozen into the cache.
+   */
+  constructor(persistence) {
+    this.persistence = persistence;
   }
 
   /**
@@ -50,17 +59,10 @@ class DiffService {
     }
 
     // Fetch updates up to the later clock (no need to load future updates)
-    const client = await this.pool.connect();
-    let updates;
-    try {
-      const result = await client.query(
-        'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
-        [docGuid, currentClock]
-      );
-      updates = result.rows;
-    } finally {
-      client.release();
-    }
+    // through the gap-tolerant choke point. `gapped` tells us the row set was
+    // torn even after the retry budget — we still serve the diff, but must not
+    // freeze it into the cache (023 FR-009, D-2).
+    const { rows: updates, gapped } = await this.persistence.getUpdateRowsUpTo(docGuid, currentClock);
 
     // Build two Y.Docs from scratch
     const { prevDoc, currDoc, prevText, currText } = this.buildDocsAtClocks(
@@ -106,8 +108,11 @@ class DiffService {
       },
     };
 
-    // Cache result (historical versions are immutable)
-    if (isRedisEnabled()) {
+    // Cache result (historical versions are immutable) — UNLESS the row set was
+    // still gapped after the retry budget: a diff computed from a torn read must
+    // never be frozen as truth. The next request recomputes from a healed log
+    // (023 FR-009, D-2). Gap-free requests cache exactly as before.
+    if (isRedisEnabled() && !gapped) {
       try {
         await getRedisClient().setex(cacheKey, 3600, JSON.stringify(result));
       } catch (err) {
@@ -225,29 +230,6 @@ class DiffService {
     }
 
     return { type: 'doc', content: allBlocks };
-  }
-
-  /**
-   * Invalidate cached diffs for a document.
-   * Call this when new updates are added (though historical diffs remain valid).
-   *
-   * @param {string} docGuid - Document GUID
-   */
-  async invalidateCache(docGuid) {
-    if (!isRedisEnabled()) return;
-
-    try {
-      const redis = getRedisClient();
-      const pattern = `diff*:${docGuid}:*`;
-      let cursor = '0';
-      do {
-        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-        cursor = nextCursor;
-        if (keys.length > 0) await redis.del(...keys);
-      } while (cursor !== '0');
-    } catch (err) {
-      console.error('[DiffService] Cache invalidation error:', err.message);
-    }
   }
 }
 

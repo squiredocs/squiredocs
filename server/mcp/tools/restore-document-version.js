@@ -6,6 +6,8 @@
 
 const versionHistory = require('../../version-history');
 const agentPresence = require('../agent-presence');
+const documentService = require('../../document-service');
+const redisPubSub = require('../../redis-pubsub');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -71,16 +73,12 @@ async function handler(args, agentToken) {
   const { docGuid, versionId } = args;
   const userId = agentToken.userId;
 
-  // Get or create agent session (verifies access and editor role internally)
-  const session = await agentPresence.getOrCreateSession(docGuid, agentToken, 60, { requiredRole: 'editor' });
-
-  // Get function to access shared document for broadcasting
-  const getSharedDocFn = (guid) => {
-    if (guid === docGuid && session.provider && session.provider.doc) {
-      return session.provider.doc;
-    }
-    return null;
-  };
+  // Get or create agent session — kept for ACL (editor role) + presence only.
+  // The session's provider doc is NO LONGER the broadcast vehicle (feature 023
+  // US5): both surfaces converge on the shared restore core, which broadcasts via
+  // the shared live-apply path (documentService.getSharedDoc + Redis fan-out) so
+  // a restore is visible on every instance, not just where the session is held.
+  await agentPresence.getOrCreateSession(docGuid, agentToken, 60, { requiredRole: 'editor' });
 
   // Link-protocol allowlist (D-6) is NOT applied here by design: restore
   // re-applies content from a previously-stored version — it authors no new
@@ -92,8 +90,11 @@ async function handler(args, agentToken) {
     docGuid,
     versionId,
     userId,
-    getSharedDocFn,
-    agentToken.agentName
+    {
+      getSharedDoc: documentService.getSharedDoc,
+      redisPubSub,
+      agentName: agentToken.agentName,
+    }
   );
 
   return result;

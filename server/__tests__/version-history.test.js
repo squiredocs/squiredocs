@@ -8,6 +8,7 @@ const {
   mergeNamedVersions,
   formatTimestamp,
   restoreVersion,
+  getVersionTimeline,
   getVersionContent,
   getContentAtClock,
   getUpdatesForVersion,
@@ -16,6 +17,9 @@ const {
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
+const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+const editRecords = require('../undo/edit-records');
+const undoService = require('../undo/undo-service');
 
 describe('version-history module', () => {
   describe('generateColorFromId', () => {
@@ -731,6 +735,69 @@ describe('version-history module', () => {
     });
   });
 
+  // Feature 023 US4 (T016): the timeline is O(rows) — it filters the persisted
+  // `meaningful` flag and never replays document content.
+  describe('getVersionTimeline is O(rows) (023 US4)', () => {
+    const baseTime = new Date('2026-07-19T12:00:00Z').getTime();
+    // Rows spaced 1s apart => one auto-version (well under the 5-min threshold).
+    const row = (clock, meaningful, minutesApart = 0) => ({
+      clock,
+      createdAt: new Date(baseTime + clock * 1000 + minutesApart * 60000).toISOString(),
+      userId: 'user-1',
+      userName: 'Sam',
+      userEmail: 'sam@test.com',
+      userPicture: null,
+      agentName: null,
+      onBehalfOf: null,
+      meaningful,
+    });
+
+    function mockPersistence(rows) {
+      return {
+        getUpdatesWithUsers: jest.fn(async () => rows),
+        getNamedVersions: jest.fn(async () => []),
+        // These would indicate a per-update content replay — they MUST NOT be called.
+        getYDocAtClock: jest.fn(async () => new Y.Doc()),
+        getUpdatesInRange: jest.fn(async () => []),
+      };
+    }
+
+    test('filters meaningful flags with ZERO content replay; totalEdits = filtered count', async () => {
+      const rows = [
+        row(0, true), row(1, false), row(2, true), row(3, false), row(4, true),
+      ];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+
+      // No per-update replay/serialization occurred.
+      expect(p.getYDocAtClock).not.toHaveBeenCalled();
+      expect(p.getUpdatesInRange).not.toHaveBeenCalled();
+
+      // Only the 3 meaningful updates count.
+      expect(timeline.totalEdits).toBe(3);
+      expect(timeline.versions.length).toBeGreaterThan(0);
+      // The version's end clock is the last meaningful clock (4), not 3 (noise).
+      expect(timeline.versions[0].clockEnd).toBe(4);
+    });
+
+    test('NULL (unknown) rows appear as meaningful (fail-visible, D-3)', async () => {
+      const rows = [row(0, true), row(1, null), row(2, false)];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+      // clocks 0 (true) and 1 (null=meaningful) count; 2 (false) does not.
+      expect(timeline.totalEdits).toBe(2);
+    });
+
+    test('an all-noise document produces no phantom version', async () => {
+      const rows = [row(0, false), row(1, false)];
+      const p = mockPersistence(rows);
+      const timeline = await getVersionTimeline(p, 'doc-1');
+      expect(timeline.versions).toEqual([]);
+      expect(timeline.totalEdits).toBe(0);
+      expect(p.getYDocAtClock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('restoreVersion', () => {
     test('restores document to previous version content', async () => {
       // Create a mock persistence layer
@@ -966,7 +1033,7 @@ describe('version-history module', () => {
       };
 
       // Restore to version 1 (clock 1) - this should update the in-memory document
-      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', { getSharedDoc: getSharedDocFn });
 
       // Verify that the in-memory document was actually updated with the restored content
       // This is the key assertion - before the fix, this would fail because
@@ -1060,7 +1127,7 @@ describe('version-history module', () => {
       const storeCallsBefore = mockPersistence.storeUpdate.mock.calls.length; // 2 seed writes
 
       const getSharedDocFn = (g) => (g === 'test-doc' ? inMemoryDoc : null);
-      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', getSharedDocFn);
+      await restoreVersion(mockPersistence, 'test-doc', '1', 'user-1', { getSharedDoc: getSharedDocFn });
 
       // Exactly ONE additional storeUpdate for the restore (the explicit store),
       // not two (would be the listener re-persisting the live-doc apply).
@@ -1482,10 +1549,12 @@ describe('version-history module', () => {
     // (and restore/compare, which call this) leak another user's doc content.
     test('named version whose doc_id differs from docGuid is rejected (F1 cross-doc leak)', async () => {
       const victimVersionId = '11111111-2222-3333-4444-555555555555';
+      // Feature 023 US3: named versions are pure labels (no snapshot_data). The
+      // doc-scope guard rejects a foreign doc_id before ANY log replay.
       mockPersistence.getVersionById = async (id) => ({
         id, doc_id: 'victim-doc-B', // belongs to a DIFFERENT document
         name: 'B secret', clock_start: 1, clock_end: 5,
-        created_at: new Date(), snapshot_data: Buffer.from('secret B content'),
+        created_at: new Date(),
       });
       await expect(
         getVersionContent(mockPersistence, 'attacker-doc-A', victimVersionId)
@@ -1496,10 +1565,36 @@ describe('version-history module', () => {
       const ownVersionId = '11111111-2222-3333-4444-555555555555';
       mockPersistence.getVersionById = async (id) => ({
         id, doc_id: 'test-doc', name: 'v1', clock_start: 1, clock_end: 10,
-        created_at: new Date(), snapshot_data: null, // fall through to clock rebuild
+        created_at: new Date(), // label-only; content comes from log replay
       });
       const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
       expect(result).toHaveProperty('content');
+    });
+
+    // Feature 023 US3 T026 (FR-012, D-6, SC-005): a named version's content is
+    // ALWAYS the log replay to clock_end under the gap-tolerant path — never a
+    // stored blob. Even a (hypothetical, pre-023) row carrying a DIVERGED
+    // snapshot_data is ignored: replay wins.
+    test('named version replays to clock_end; a diverged blob is ignored (replay wins)', async () => {
+      const ownVersionId = '22222222-3333-4444-5555-666666666666';
+      const replaySpy = jest.spyOn(mockPersistence, 'getYDocAtClock');
+      mockPersistence.getVersionById = async (id) => ({
+        id, doc_id: 'test-doc', name: 'named-at-10', clock_start: 5, clock_end: 10,
+        created_at: new Date(),
+        // A leftover pre-023 blob whose content diverges from the log. The code
+        // must never read it — it is not even a real column after the migration.
+        snapshot_data: Buffer.from('STALE DIVERGED CONTENT'),
+      });
+
+      const result = await getVersionContent(mockPersistence, 'test-doc', ownVersionId);
+      // Content equals the REPLAYED state at clock_end (10), decoded from the
+      // update the mock's getYDocAtClock produces — not the diverged blob.
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, new Uint8Array(result.content));
+      expect(doc.get('default', Y.XmlFragment).toString()).toContain('Content at clock 10');
+      doc.destroy();
+      expect(replaySpy).toHaveBeenCalledWith('test-doc', 10);
+      replaySpy.mockRestore();
     });
 
     // F6: not-found/out-of-range/invalid-format all throw the TYPED
@@ -1521,7 +1616,7 @@ describe('version-history module', () => {
         const victimVersionId = '11111111-2222-3333-4444-555555555555';
         mockPersistence.getVersionById = async (id) => ({
           id, doc_id: 'other-doc', name: 'x', clock_start: 1, clock_end: 5,
-          created_at: new Date(), snapshot_data: null,
+          created_at: new Date(),
         });
         await expect(getVersionContent(mockPersistence, 'test-doc', victimVersionId))
           .rejects.toBeInstanceOf(VersionNotFoundError);
@@ -1563,6 +1658,225 @@ describe('version-history module', () => {
       const result = await getContentAtClock(mockPersistence, 'doc', 10);
       expect(result).toHaveProperty('content');
       expect(result.clock).toBe(10);
+    });
+  });
+
+  // Feature 023 US5 — a restore is a first-class, undoable edit on every surface.
+  // DB-backed (real persistence + agent_edits + undo), serial only.
+  describe('023 restore integration (US5)', () => {
+    let pool, persistence, userId;
+    const AGENT = 'Squire Docs Assistant';
+    const para = (text) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, text);
+      p.insert(0, [t]);
+      return p;
+    };
+
+    beforeAll(async () => {
+      pool = createPool();
+      persistence = createPersistence();
+      undoService.init(persistence);
+      userId = await createTestUser(pool, `restore-023-${Date.now()}@test.com`);
+    });
+
+    afterAll(async () => {
+      await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
+      await cleanupTestUser(pool, userId);
+      await persistence.destroy();
+      await pool.end();
+    });
+
+    // Seed clock 0 = "Alpha", clock 1 = "Alpha"+"Beta". Restore to "0" removes Beta.
+    async function seedDoc(docGuid) {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      let sv = Y.encodeStateVector(doc);
+      doc.transact(() => frag.insert(0, [para('Alpha')]));
+      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
+      sv = Y.encodeStateVector(doc);
+      doc.transact(() => frag.insert(1, [para('Beta')]));
+      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
+      doc.destroy();
+    }
+
+    const cleanupDoc = async (docGuid) => {
+      await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+    };
+
+    test('T031: human restore records exactly one update row and one agent_edits row (identity = "")', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        expect(res.success).toBe(true);
+        expect(res.newClock).toBe(2); // exactly one new row (single-persist, FR-024)
+
+        const updates = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(updates.rows[0].n).toBe(3); // clocks 0,1 + the single restore row
+
+        const edits = await pool.query('SELECT * FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows).toHaveLength(1);
+        expect(edits.rows[0].agent_name).toBe(''); // human => '' sentinel (D-4)
+        expect(edits.rows[0].edit_clock_start).toBe(2);
+        expect(edits.rows[0].edit_clock_end).toBe(2);
+        expect(edits.rows[0].undo_target_clocks).toEqual([2]);
+
+        // The restore actually reverted content to "Alpha" only.
+        const replayed = await persistence.getYDoc(docGuid);
+        const xml = replayed.getXmlFragment('default').toString();
+        expect(xml).toContain('Alpha');
+        expect(xml).not.toContain('Beta');
+        replayed.destroy();
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T031: agent restore records under the acting agent name', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        const edits = await pool.query('SELECT agent_name FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows).toHaveLength(1);
+        expect(edits.rows[0].agent_name).toBe(AGENT);
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T031: a recordEdit failure logs but the restore still succeeds', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const spy = jest.spyOn(editRecords, 'recordEdit').mockRejectedValueOnce(new Error('boom'));
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        expect(res.success).toBe(true); // restore stands despite the recording failure
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0); // nothing recorded
+      } finally {
+        spy.mockRestore();
+        errSpy.mockRestore();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T032: chat Undo inverts a fresh AGENT restore surgically', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // Agent restore to "Alpha" (removes Beta), recorded under AGENT identity.
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        let xml = (await persistence.getYDoc(docGuid)).getXmlFragment('default').toString();
+        expect(xml).not.toContain('Beta');
+
+        // Undo the restore under the AGENT identity (LOW: inverted restore uses
+        // the acting agent's identity) — Beta comes back, surgically.
+        const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT }, { getSharedDoc: () => null });
+        expect(undo.undone).toBe(true);
+        xml = (await persistence.getYDoc(docGuid)).getXmlFragment('default').toString();
+        expect(xml).toContain('Alpha');
+        expect(xml).toContain('Beta'); // the restore was inverted
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T032: a human ("") restore is recorded but NOT targeted by an agent undo (D-4 scoping)', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        // The human restore IS recorded under '' ...
+        const edits = await pool.query("SELECT agent_name FROM agent_edits WHERE doc_guid = $1", [docGuid]);
+        expect(edits.rows.map((r) => r.agent_name)).toEqual(['']);
+        // ... but an AGENT-identity undo does not target it (016 identity scoping).
+        const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT }, { getSharedDoc: () => null });
+        expect(undo.undone).toBe(false);
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T033: broadcast — loaded doc applies ORIGIN_RESTORE and fans out without re-persist', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // A live doc reached via getSharedDoc, no attached redis handler.
+        const liveDoc = await persistence.getYDoc(docGuid);
+        const pubSub = { isEnabled: () => true, publishUpdate: jest.fn() };
+        const before = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: (g) => (g === docGuid ? liveDoc : null), redisPubSub: pubSub, agentName: null });
+
+        // Applied to the live doc (content reverted in memory).
+        expect(liveDoc.getXmlFragment('default').toString()).not.toContain('Beta');
+        // No attached handler => published explicitly, exactly once.
+        expect(pubSub.publishUpdate).toHaveBeenCalledTimes(1);
+        expect(pubSub.publishUpdate.mock.calls[0][0]).toBe(docGuid);
+        // No double-persist: only the single restore row was added.
+        const after = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(after.rows[0].n).toBe(before.rows[0].n + 1);
+        liveDoc.destroy();
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T033: broadcast — not loaded + Redis => publishUpdate; neither => observable warn', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // Not loaded here, Redis enabled => fan out via publishUpdate.
+        const pubSub = { isEnabled: () => true, publishUpdate: jest.fn() };
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: pubSub, agentName: null });
+        expect(pubSub.publishUpdate).toHaveBeenCalledTimes(1);
+
+        // Neither a live doc nor Redis => observable warn, never silent.
+        await seedDoc(docGuid); // add more edits so there is something to restore again
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: { isEnabled: () => false, publishUpdate: jest.fn() }, agentName: null });
+          expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('no delivery path'))).toBe(true);
+        } finally {
+          warnSpy.mockRestore();
+        }
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('T034: both surfaces converge — equivalent inputs differ only in identity; bad version throws typed error', async () => {
+      const docA = require('crypto').randomUUID();
+      const docB = require('crypto').randomUUID();
+      await seedDoc(docA);
+      await seedDoc(docB);
+      try {
+        // REST-equivalent (agentName null) and MCP-equivalent (agentName AGENT)
+        // through the SAME core produce structurally identical rows/records.
+        const rest = await restoreVersion(persistence, docA, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        const mcp = await restoreVersion(persistence, docB, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
+        expect(Object.keys(rest).sort()).toEqual(Object.keys(mcp).sort());
+        expect(rest.newClock).toBe(mcp.newClock);
+
+        const eA = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docA]);
+        const eB = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docB]);
+        expect(eA.rows[0].agent_name).toBe('');       // only the identity differs
+        expect(eB.rows[0].agent_name).toBe(AGENT);
+        expect(eA.rows[0].undo_target_clocks).toEqual(eB.rows[0].undo_target_clocks);
+
+        // A foreign/unknown version id throws the typed VersionNotFoundError on
+        // both surfaces (routes/tools map it to 404 / a surfaced error).
+        await expect(restoreVersion(persistence, docA, '99999', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null }))
+          .rejects.toBeInstanceOf(VersionNotFoundError);
+      } finally {
+        await cleanupDoc(docA);
+        await cleanupDoc(docB);
+      }
     });
   });
 });

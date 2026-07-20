@@ -168,6 +168,45 @@ describe('list_document_versions tool', () => {
       expect(result.totalEdits).toBeGreaterThanOrEqual(0);
     });
 
+    // Feature 023 US4 T019 (AS4): a paginated listing on a large-log document
+    // performs NO full-log content replay — its cost is independent of the
+    // document's content size (the timeline reads the persisted meaningful flag).
+    test('pagination triggers no full-log content replay', async () => {
+      // Build a large update log on the document.
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(await persistenceProvider.getYDoc(testDocGuid)));
+      const frag = doc.getXmlFragment('default');
+      for (let i = 0; i < 40; i++) {
+        const sv = Y.encodeStateVector(doc);
+        doc.transact(() => {
+          const el = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, `edit-${i}`);
+          el.insert(0, [t]);
+          frag.push([el]);
+        });
+        await persistenceProvider.storeUpdate(testDocGuid, Y.encodeStateAsUpdate(doc, sv), testUserId, null);
+      }
+      doc.destroy();
+
+      const replaySpy = jest.spyOn(persistenceProvider, 'getYDocAtClock');
+      try {
+        const result = await listDocumentVersions.handler(
+          { docGuid: testDocGuid, limit: 5, offset: 0 },
+          { userId: testUserId, scopes: ['documents:read'] }
+        );
+        // Output shape unchanged.
+        expect(result).toHaveProperty('versions');
+        expect(result).toHaveProperty('pagination');
+        expect(result.pagination.limit).toBe(5);
+        expect(Array.isArray(result.versions)).toBe(true);
+        // The load-bearing assertion: zero per-update content replay.
+        expect(replaySpy).not.toHaveBeenCalled();
+      } finally {
+        replaySpy.mockRestore();
+      }
+    });
+
     test('enforces access control - unauthorized user', async () => {
       // Create another user
       const unauthorizedResult = await pool.query(
