@@ -88,3 +88,13 @@ confirmed a legitimate re-pin). Two LOW findings, both FIXED same day:
   shared-eligible.
 - STILL OWED: prod secret via the hardened cluster's SOPS flow + deploy;
   optional supportsImages flips after a live vision round-trip.
+
+## Go-live progress addendum (2026-07-21, later)
+
+Prod key propagation is now fully wired (6c9cffa): app-deployment.yaml maps
+OPENROUTER_API_KEY from auth-secret (optional — dormant-safe), the SOPS
+auth-secret seed was refreshed in-pod (age key verified), and both
+gitignored auth env files (k8s/auth.production.env, k8s/auth.env) carry the
+key, which script/deploy.sh reads to recreate auth-secret on every deploy.
+Remaining for 026 go-live: just the deploy itself (+ optional vision
+round-trip afterwards).
