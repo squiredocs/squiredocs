@@ -10,6 +10,33 @@ require('dotenv').config();
 const telemetry = require('./telemetry');
 telemetry.start();
 
+// --- Environment sanity check (security) -------------------------------------
+// NODE_ENV gates a family of production hardening guards spread across the code:
+// the dev-only auth-bypass routes (/auth/dev-login), Secure + SameSite=strict
+// auth cookies, the JWT/MCP weak-secret fail-fast, OAuth client-URL validation,
+// and MCP error-verbosity. A deployment that leaves NODE_ENV UNSET silently runs
+// every one of those in its INSECURE (non-production) mode — this exact
+// misconfiguration once exposed unauthenticated session forgery in prod. Assert
+// loudly at boot that NODE_ENV is a recognized value so it can never silently
+// recur. Deliberately WARN rather than fail-fast: the base collab-app pod can be
+// rendered without NODE_ENV in a dev cluster and must not crash-loop, and the
+// dev-endpoint gate is separately fail-closed (positive ENABLE_DEV_ENDPOINTS
+// opt-in), so a warning that names the exact risk is the correct floor here.
+(function assertNodeEnv() {
+  const env = process.env.NODE_ENV;
+  if (env === 'production' || env === 'development' || env === 'test') return;
+  console.error(
+    '\n**********************************************************************\n' +
+    `[SECURITY] NODE_ENV is ${env === undefined || env === '' ? 'UNSET' : `"${env}"`} ` +
+    '— not one of production/development/test.\n' +
+    'If this is a real deployment, production hardening is OFF: dev-only auth-\n' +
+    'bypass routes may be mounted, auth cookies are not Secure/SameSite=strict,\n' +
+    'and the JWT weak-secret fail-fast is disabled. Set NODE_ENV=production in\n' +
+    'the production overlay (k8s/overlays/aws-prod).\n' +
+    '**********************************************************************\n'
+  );
+})();
+
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');

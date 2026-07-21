@@ -401,9 +401,11 @@ describe('Auth routes', () => {
       expect(response2.body.user.email).toBe('dev@test.local');
     });
 
-    // Note: The dev-login route is only registered when NODE_ENV !== 'production'
-    // at module load time. There's no runtime check — if the route exists, it works.
-    // In production, the route simply doesn't exist (404).
+    // Note: The dev-login route is only registered when ENABLE_DEV_ENDPOINTS === '1'
+    // AND NODE_ENV !== 'production' at module load time (fail-closed positive opt-in;
+    // the test suite sets ENABLE_DEV_ENDPOINTS=1 in setup.js). There's no runtime
+    // check — if the route exists, it works. In production, the route simply doesn't
+    // exist (404).
 
     test('updates last_login_at on login', async () => {
       process.env.NODE_ENV = 'development';

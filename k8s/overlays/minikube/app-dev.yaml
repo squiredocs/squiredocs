@@ -40,6 +40,13 @@ spec:
           value: "3001"
         - name: NODE_ENV
           value: development
+        # Positive opt-in that mounts the dev-only auth-bypass routes
+        # (/auth/dev-login, /auth/dev-onboarding-reset). Fail-closed: the routes
+        # are OFF unless this is explicitly "1". Present ONLY in this dev overlay
+        # — never in aws-prod — so the endpoints can never leak into production
+        # even if NODE_ENV is somehow left unset again.
+        - name: ENABLE_DEV_ENDPOINTS
+          value: "1"
         - name: DB_HOST
           value: collab-postgres
         - name: DB_PORT

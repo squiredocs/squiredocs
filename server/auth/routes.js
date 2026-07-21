@@ -402,9 +402,18 @@ router.post('/logout', requireAuth, async (req, res) => {
 /**
  * POST /auth/dev-login
  * Development-only endpoint that bypasses OAuth and creates/logs in a test user
- * Only works when NODE_ENV=development
+ * as the fixed `dev-test-user`. This forges a real session, so it MUST NEVER be
+ * mounted in production.
+ *
+ * Fail-closed gating (two independent conditions, BOTH required):
+ *   1. ENABLE_DEV_ENDPOINTS === '1'  — an EXPLICIT positive opt-in that is set
+ *      only in the minikube dev overlay and the test setup. Defaulting to off
+ *      means that even if NODE_ENV is ever left unset in prod again (the bug
+ *      that first exposed this route), the endpoints stay off.
+ *   2. NODE_ENV !== 'production'      — belt-and-suspenders: even if the flag is
+ *      ever set by accident in a prod-like env, production still blocks it.
  */
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.ENABLE_DEV_ENDPOINTS === '1' && process.env.NODE_ENV !== 'production') {
   router.post('/dev-login', async (req, res) => {
     try {
       const testUserProfile = {
