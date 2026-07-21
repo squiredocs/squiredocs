@@ -39,7 +39,7 @@ Web-service backend (single point of change):
 **Purpose**: The single generation-point fix and its grammar spec. Every user story
 depends on this. **CRITICAL**: complete before any story-level task.
 
-- [ ] **T002** Write the `stripHardBreakMarkers` **unit** spec (expect FAIL until T003).
+- [X] **T002** Write the `stripHardBreakMarkers` **unit** spec (expect FAIL until T003).
   Add a `describe('stripHardBreakMarkers', ...)` block asserting input→output for every
   row of research.md R3's grammar table:
   (a) top-level poem stanza — internal `line\` markers stripped, block-final line preserved;
