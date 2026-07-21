@@ -57,36 +57,40 @@ A `server.json` under the reverse-DNS name `com.squiredocs/mcp` describing the r
 ### 2. Claude Code plugin — wave 1, flagship
 
 - **`plugin.json`** — manifest name `squire` (so commands namespace as `/squire:...`), display name and description say "Squire Docs" in the honest-confident marketing voice, semver version.
-- **`.mcp.json`** — the remote server entry. A plugin install places the config where the client reads it at next startup, which retires the in-session connect caveat for this path: no hand-run `claude mcp add`, no config-file-the-client-never-reads failure mode. OAuth consent still happens in the browser on the first tool call.
+- **`.mcp.json`** — the remote server entry. A plugin install writes the config where the client reads it at startup, which removes the `claude mcp add` failure mode (config landing in a file the client never reads). The client still loads the plugin at startup, so a restart after install may be needed — see the onboarding command-availability caveat. OAuth consent still happens in the browser on the first tool call.
 - **`skills/squire/SKILL.md`** — generated from `shared/skill.md`.
 - **`commands/onboard.md`** — generated from `shared/onboard.md`, invoked as `/squire:onboard`.
 - **Own marketplace, day one, no review:** `.claude-plugin/marketplace.json` in the same public repo; users run `/plugin marketplace add <org>/squire-plugin` then `/plugin install squire`. This one-liner goes on the site, the docs, and agents.md.
-- **Community directory, submitted same week:** `claude plugin validate` runs as a publish.mjs preflight; submission via the Console form (free individual account, no Team plan) is a Sam op. Approved plugins are pinned to a commit SHA in `anthropics/claude-plugins-community`, their CI bumps the pin on push, and the public catalog (claude.com/plugins) syncs nightly.
+- **Community directory, submitted same week:** the JSON-schema validation runs as a publish.mjs preflight; submission via the Console form (free individual account, no Team plan) is a Sam op. Approved plugins are pinned to a commit SHA in `anthropics/claude-plugins-community`, their CI bumps the pin on push, and the public catalog (claude.com/plugins) syncs nightly.
 - The `plugin-dev` plugin in the official directory ships scaffolding and validators — start from those rather than hand-rolling.
+- **Official Claude directory** (`claude-plugins-official`) is earned, not applied for — curated at Anthropic’s discretion, with community-directory traction the realistic route. Out of scope to build; noted as a downstream outcome, and if listed it unlocks in-product install prompts.
 
 ### First-run onboarding: the /squire:onboard flow
 
 This is the design answer to the strategy doc's open question "what does an agent-first first-run look like end to end" — where first-run means genuinely first: the flagship user has **no Squire account** when the command runs. The flow therefore owns the signup moment, not just the connect moment.
 
-**Entry states.** The command begins with a cheap probe (`list_documents` limit 1) and branches on the only two states it can observe:
+**Entry states — detect by tool presence, not a probe call.** For a remote OAuth MCP server, Claude Code does not surface the server's tools until browser consent completes, and it does so silently — there is no `list_documents` to call and no auth error to catch (anthropics/claude-code #11585, #26917). So the command branches on what the agent _can_ observe: whether Squire Docs MCP tools are present in the session at all.
 
-- **Authenticated** (OAuth consent done, or an `sk_sqd_` token in place) → skip straight to "Find the spec."
-- **Not authenticated** → run the auth walkthrough below. The agent cannot distinguish "has an account but never consented" from "no account at all" — and never needs to: Google sign-in on the consent page is find-or-create, so one script covers both. The copy just has to say so.
+- **Squire tools present** (consent already done, or an `sk_sqd_` token loaded) → skip straight to "Find the spec."
+- **No Squire tools present** → the user hasn't connected or authorized yet; run the auth walkthrough below. The agent never has to tell "has an account but never consented" apart from "no account at all" — Google sign-in on the consent page is find-or-create, so one path covers both; the copy just says so.
 
-**The auth walkthrough — the client owns the flow; the agent's job is coaching.** In Claude Code the OAuth exchange belongs to the MCP client, not the agent. The probe fails with an auth-required error, and the agent then coaches, in this order:
+**Command-availability caveat (M5).** `/squire:onboard` ships _inside_ the plugin, and a plugin's commands load separately from — and usually before — its MCP server connects. Two consequences: (1) right after install the client may need a restart before the command itself appears — the install one-liner and its docs say so; (2) even once the command runs, the MCP tools stay absent until consent, which is exactly the "no Squire tools present" branch above, not an error to catch. "No `claude mcp add`" is the win the plugin delivers; "no restart at all" was overstated.
+
+**The auth walkthrough — the client owns the flow; the agent coaches.** In Claude Code the OAuth exchange belongs to the MCP client, not the agent. Seeing no Squire tools, the agent coaches, in order:
 
 1. **Set expectations before anything opens:** "Your browser will open Squire Docs' connect page. Sign in with Google — if you've never used Squire Docs, that same click creates your account; there is no separate signup step. Then approve the connection so I can create and sync docs for you."
-2. **Point at the client's native flow:** run `/mcp`, pick `squire`, complete the browser flow. The plugin's `.mcp.json` is already registered, so there is no `claude mcp add` and no restart choreography.
+2. **Point at the client's native flow:** run `/mcp`, pick `squire`, complete the browser consent. The plugin's `.mcp.json` is already registered — no `claude mcp add`.
 3. **Remote/sandboxed sessions:** apply the Agent Surface doc's OAuth walkthrough guidance verbatim — authorization URL bare on its own line, the expected localhost-callback error, the copy-the-full-callback-URL paste-back instruction.
-4. **Re-probe and continue silently.** When the user says it's done, retry the probe and flow directly into "Find the spec" — success needs no ceremony; the next thing the user sees should be their spec syncing.
+4. **Reconnect, then re-check tool presence and continue silently.** After consent (and any restart the client needs to load the now-authorized server), the Squire tools appear; flow directly into "Find the spec" — success needs no ceremony, the next thing the user sees is their spec syncing.
 
 **What happens server-side today (verified against code 2026-07-21) and what this design changes:**
 
-- **Verified working already:** an account-less user completes the whole chain today — `/authorize` shows "Sign in with Google" carrying a validated same-origin `returnTo`, the login page forwards it, Google sign-in is `findOrCreateUser` (the account is created mid-flow), and the round-trip lands back on consent with all OAuth parameters intact. No new auth machinery is needed — the 008/009 lesson stands.
+- **Verified working already:** an account-less user completes the whole chain today — `/authorize` shows "Sign in with Google" carrying a validated same-origin `returnTo`, the login page forwards it, Google sign-in is `findOrCreateUser` (the account is created mid-flow), and the round-trip lands back on consent carrying the OAuth parameters (subject to the length budget below). No brand-new auth machinery is needed — the 008/009 lesson stands.
 - **Change — the consent page becomes a first-run surface.** Its unauthenticated state currently reads "Sign in required — please sign in to authorize this application": existing-account framing, zero product pitch. New framing: "Continue with Google" (sign-in and account creation are the same click, and the copy says so), plus one line each for what Squire Docs is (the durable, attributed spec layer for agentic development), what the agent is asking to do, and that every agent edit is attributed and revertible. For the beachhead ICP this page IS the first impression of the product.
 - **Change — agent-first accounts deliberately skip the browser welcome doc.** Verified: the consent `returnTo` branch returns before welcome-doc seeding, so accounts born through consent get no welcome doc — today by accident. This design keeps that behavior and makes it load-bearing: the first synced spec IS the welcome; a seeded browser welcome doc would be a competing terminal artifact of exactly the kind the strategy doc indicts. Verify at implement time that no client surface misbehaves for accounts with a null welcome doc.
 - **Change — record signup provenance.** Stamp accounts created during a consent round-trip (D5: `signup_source` = `agent_oauth` vs `browser`) so activation metrics can finally separate agent-first users from browser one-shots — the instrumentation the strategy doc's `onboarded_at` critique calls for. Redefining `onboarded_at` itself stays with the strategy doc; this design only guarantees the data exists from day one.
 - **Change — the Agent Surface doc's OAuth walkthrough guidance gains the signup line** ("signing in with Google creates the account if none exists") when this ships — that doc owns the front-door contract, so the amendment lands there, not as drift.
+- **Change — verify the returnTo length budget (M4).** The same-origin `returnTo` guard caps the value at 512 chars (`server/auth/routes.js`). A real Claude Code authorize URL carries the PKCE `code_challenge`, `state`, `redirect_uri`, and client id, and may exceed it — in which case the cookie is silently dropped and the post-login round-trip loses its OAuth params, so the agent never receives its code. Measure a real authorize URL at implement time; if it is near the cap, raise the limit (still same-origin-validated) or carry the OAuth params server-side rather than in `returnTo`.
 
 **Failure ladder** — coach, never improvise auth (the 008/009 lesson: agents route around bespoke flows, so every fallback is standard OAuth or an `sk_sqd_` token):
 
@@ -105,7 +109,7 @@ This is the design answer to the strategy doc's open question "what does an agen
 
 ### 3. Kiro Powers — wave 2
 
-A Power: MCP config + `POWER.md` steering in a public repo with an "Add to Kiro" button on our site. Steering content is generated from `shared/` but reframed Kiro-native — hosting the `.kiro/specs` files these users already generate, made collaborative with attribution and history, is the hero move. Kiro users are pre-qualified spec-driven ICP. The featured-partner track is a Sam op.
+A Power: MCP config + `POWER.md` steering in a public repo with an "Add to Kiro" button on our site. Steering content is generated from `shared/` but reframed Kiro-native — hosting the `.kiro/specs` files these users already generate, made collaborative with attribution and history, is the hero move. Kiro users are pre-qualified spec-driven ICP. The Powers registry submission (kiro.dev/powers/submit) and the featured-partner track are Sam ops.
 
 ### 4. Cursor Marketplace — wave 2
 
@@ -121,7 +125,7 @@ Plugin bundle (MCP + skills + rules) per the cursor.com/marketplace/publish temp
 
 ### 7. MCP aggregators — wave 3, one afternoon, ops-only
 
-Smithery CLI publish, PulseMCP form (it also auto-ingests the registry weekly), Glama `glama.json`, mcp.so submit button. No new artifacts beyond the registry entry — batch these in a single sitting.
+Smithery CLI publish, PulseMCP form (it also auto-ingests the registry weekly), Glama `glama.json`, mcp.so submit button. No new artifacts beyond the registry entry — batch these in a single sitting. The Docker MCP Catalog is a separate curated submission (not just a registry mirror) — it joins this batch.
 
 ## Website and docs surface
 
@@ -132,7 +136,7 @@ Smithery CLI publish, PulseMCP form (it also auto-ingests the registry weekly), 
 ## Publish and release process
 
 - **Versioning:** semver in `plugin.json` and mirrored manifests; bump on any change to shared content or manifests.
-- **`node distribution/publish.mjs`****:** regenerate bundles from `shared/`, run validations (`claude plugin validate` where the CLI is available; JSON-shape checks always), then commit-and-push each mirror repo with a generated message referencing the source commit.
+- **`node distribution/publish.mjs`**: regenerate bundles from `shared/`, validate each bundle against the manifest JSON schemas (the authoritative gate) and run the plugin-dev validator agent where available — there is no first-party `claude plugin validate` CLI verb to depend on — then commit-and-push each mirror repo with a generated message referencing the source commit.
 - **Updates propagate** via each ecosystem's own git-pull mechanism; the community directory's CI bumps its SHA pin on push.
 - **Channel status ledger:** the table at the bottom of this doc tracks each channel from Not started through Listed — update it as submissions land; this doc is the ground truth for distribution state.
 
@@ -141,19 +145,24 @@ Smithery CLI publish, PulseMCP form (it also auto-ingests the registry weekly), 
 The first-run flow has to be cheap to run dozens of times while the coaching is tuned — without burning real Google or Claude accounts. Two verified facts make that possible:
 
 - **A "new Squire user" is just a missing users row.** Account creation is `findOrCreateUser` at sign-in, so hard-deleting a user row (docs, delegations, tokens cascading with it) makes the next sign-in a genuine first-run — same Google identity, brand-new account. One real Google account yields unlimited prod-shaped first-runs; the only thing not re-exercised is Google's own first-consent screen, which is outside our control anyway.
-- **The client's auth state lives in its config dir, not the Claude account.** Claude Code with a scratch `CLAUDE_CONFIG_DIR` is a client that has never seen the plugin or the server: no cached MCP OAuth tokens, no marketplace, no plugin. Zero additional Claude accounts needed.
+- **The client's auth state lives in its config dir, not the Claude account.** Claude Code with a scratch `CLAUDE_CONFIG_DIR` is a client that has never seen the plugin or the server: no cached MCP OAuth tokens, no marketplace, no plugin. Zero additional Claude accounts needed. Caveat (M6): this holds on Linux, where credentials live under the config dir; on macOS Claude Code stores OAuth credentials in the system Keychain, which a scratch config dir does not clear — so fully-pristine rehearsals run in the Linux dev pod (or add a Keychain-purge step on a Mac).
 
 Three test tiers, cheapest first:
 
 1. **Backend integration tests** (no human, in the suite): the consent returnTo round-trip with account creation, `signup_source` stamping, the deliberate welcome-doc skip, and the null-welcome-doc client contract.
-2. **Headless OAuth-chain driver** (no human, scripted): walks the real chain against the dev server — 401 → protected-resource metadata → AS metadata → dynamic client registration → PKCE authorize → consent — with the "browser" leg authenticated via the dev user faucet below, cookies and all. Proves the machinery end-to-end on every change without opening a browser.
-3. **Rehearsal runs** (the tuning loop; HITL where it counts): a harness script creates a scratch `CLAUDE_CONFIG_DIR`, adds `distribution/claude-plugin` as a local path marketplace (no publishing needed), installs the plugin with `.mcp.json` pointed at the dev server, mints a fresh synthetic user, and launches Claude Code. A human plays the new user (a scripted user-simulator can take over later); the transcript is captured and graded against the coaching contract as a checklist — signup-creates-account line said before the browser opened, bare URL on its own line, silent re-probe, byte-channel sync, doc URL delivered, loop taught. Running inside the dev pod is a feature, not a limitation: the localhost callback naturally fails there, so the remote paste-back branch is exercised by default; a laptop run covers the happy browser path.
+2. **Headless OAuth-chain driver** (no human, scripted): walks the real chain against the dev server — 401 → protected-resource metadata → AS metadata → dynamic client registration → PKCE authorize → consent → token — with both browser legs (sign-in _and_ consent-approval) driven by the dev endpoints below. Proves the machinery end to end on every change without a browser.
+3. **Unattended in-pod rehearsal** (no human — the tuning loop): a harness creates a scratch `CLAUDE_CONFIG_DIR`, adds `distribution/claude-plugin` as a local-path marketplace (no publishing), installs the plugin with its MCP endpoint pointed at the dev server (M3 indirection below), mints a fresh synthetic user, and drives Claude Code non-interactively (`claude -p`, or a scripted user-simulator on an interactive session). A synthetic user has no real browser, so the harness completes consent through the dev **auto-approve** endpoint (option A) — which lets the _entire_ flow run unattended: connect coaching, find-spec, byte-channel sync, payoff, teach-loop. Each transcript is graded against the coaching contract as a checklist (signup-creates-account line before the browser step, bare URL on its own line, silent reconnect, byte-channel sync, doc URL delivered, loop taught). Running in the pod is a feature: the localhost callback naturally fails, exercising the remote paste-back branch by default.
 
-Dev-server support to build (all NODE_ENV-gated, extending the existing `/auth/dev-login` pattern):
+**Human self-test path (Sam, when a build feels solid).** The synthetic harness tunes the flow; a human running the real thing is the acceptance gate before any publish. One command resets Sam to a first-run — the user-wipe (below) hard-deletes his own account **against staging, never prod** — then he runs `/squire:onboard` in a real Claude Code on his laptop, signs in with his actual Google account through a real browser, and walks the flow as a genuine new user. This exercises the two things no synthetic path can: Google's real consent screen and a real browser round-trip (macOS Keychain and all). He can re-run it as often as he likes — each wipe makes his next sign-in first-run again. This is the human half of M2's exit.
 
-- **Fresh-user faucet.** Extend `POST /auth/dev-login`: `fresh: true` mints `test+<nonce>@test.local` instead of the fixed dev user, plus a browser mode that sets session cookies and honors a validated `returnTo` — so it can stand in for Google on the consent page's sign-in leg in dev. Google is never in the dev loop.
-- **User wipe.** A reset that hard-deletes a user and everything hanging off it (docs, delegations, registered clients, tokens) so any identity — synthetic, or the real staging Google account — becomes a first-run again. Dev: a script against the pod DB; staging: a gated endpoint.
+**Dev-server support to build — gating is fail-closed, positive-flag only.** All of these live behind an explicit positive `ENABLE_DEV_ENDPOINTS` flag, never a `NODE_ENV !== 'production'` negative. (The 2026-07-21 lesson: `NODE_ENV` is unset in prod, so negative-gated dev routes were reachable in production.) These endpoints are session-forgery and mass-delete primitives — they default OFF and exist only in the dev/staging overlay.
+
+- **Fresh-user faucet.** Extend `POST /auth/dev-login`: `fresh: true` mints `test+<nonce>@test.local` instead of the fixed dev user, plus a browser mode that sets session cookies and honors a validated `returnTo` — standing in for Google on the consent page's sign-in leg. Composing this with the React consent path (`AuthorizePage` → `/login` → `AuthContext.devLogin`, which today posts no body) needs a small client change to forward `fresh`/nonce and hit the browser-mode endpoint — that client change is scoped into M1, not assumed.
+- **Consent auto-approve (option A).** A dev-only endpoint that, for a synthetic session, completes the `/authorize` **Approve** step and mints the agent's authorization code without a browser click — the piece that lets tier-3 rehearsals finish OAuth in-pod. Same positive flag; synthetic-session-only.
+- **User wipe.** Hard-deletes a user and everything hanging off it (docs, delegations, registered clients, tokens) so any identity — synthetic, or Sam's real Google account on staging — becomes first-run again. Dev: a script against the pod DB. Staging: an endpoint behind the positive flag **plus** admin auth **plus** a hard target allowlist (synthetic `*@test.local`, or the single operator's own email) — never free-form user-id deletion, never reachable in prod. A wrong target is an irreversible beta-user wipe, so the allowlist is load-bearing.
 - The existing `dev-onboarding-reset` stays for the browser-first welcome flow; it is not sufficient here because first-run means no account at all.
+
+**MCP endpoint indirection (M3).** The shipped `.mcp.json` hardcodes `https://squiredocs.com/mcp` and the drift test asserts each bundle matches `shared/`. So the endpoint URL becomes an env-indirected field the harness overrides for dev, and that single field is exempt from the drift assertion. Verify at implement time that Claude Code's `.mcp.json` supports env interpolation; if it does not, the harness templates a throwaway copy rather than mutating the shipped bundle.
 
 **The sign-off test matrix:** fresh user (happy path) · existing account, never consented · already connected (straight to sync) · declined consent · abandoned tab · remote paste-back · headless token fallback · repo containing `.kiro/specs` / `specs/` / `CLAUDE.md` / nothing spec-shaped.
 
@@ -163,7 +172,7 @@ Milestone-gated per Sam (2026-07-21); each exits with HITL sign-off before the n
 
 1. **M1 — Test mechanism.** The faucet, the wipe, the headless chain driver, the rehearsal harness and its transcript checklist. Exit: one command produces a pristine first-run environment in a couple of minutes, demonstrated end to end; HITL remains only where a browser inherently is.
 2. **M2 — Plugin logic.** `shared/skill.md`, `shared/onboard.md`, and the first-run coaching, iterated against the M1 harness. Exit: clean rehearsal transcripts across the full test matrix, with Sam's sign-off on both mechanics and tone.
-3. **M3 — Packaging and distro wrappers.** Manifests, mirror repos, `publish.mjs` + drift tests, wave-1 submissions per D3. Exit: `claude plugin validate` green, mirrors pushed, submission checklist handed to Sam.
+3. **M3 — Packaging and distro wrappers.** Manifests, mirror repos, `publish.mjs` + drift tests, wave-1 submissions per D3. Exit: JSON-schema validation green (plugin-dev validator agent clean), mirrors pushed, submission checklist handed to Sam.
 
 The channel waves (D3) live inside M3. Nothing is published before M2's sign-off — the marketplaces' first impression should be the tuned flow, not the draft.
 
@@ -191,6 +200,7 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 - Confirm the community directory accepts plugins whose MCP server requires account signup on first use (expected yes — remote OAuth servers are the standard pattern — verify at submission).
 - Codex official directory timing — watch, submit when self-serve opens.
 - Marketplace naming: names impersonating Anthropic are blocked; `squire`/`squiredocs` are safe, but confirm any additional naming constraints at submission time.
+- **Human self-test environment.** The self-test needs real Google OAuth (a real domain callback), so it runs against prod or a dedicated staging deploy — confirm which. It decides the user-wipe endpoint’s blast radius: on staging the wipe is low-risk, but if the self-test is against prod the target allowlist is the only thing standing between a re-run and an irreversible beta-user deletion.
 
 ## Channel status
 
@@ -203,4 +213,4 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 | Cursor Marketplace | 2 | Not started |
 | Gemini CLI extensions | 3 | Not started |
 | OpenAI Codex | 3 | Not started |
-| MCP aggregators (Smithery, PulseMCP, Glama, mcp.so) | 3 | Not started |
+| MCP aggregators (Smithery, PulseMCP, Glama, mcp.so, Docker MCP Catalog) | 3 | Not started |
