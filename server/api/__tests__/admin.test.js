@@ -658,10 +658,16 @@ describe('Admin API', () => {
     const OR_GLM = ['or-glm-4.6', 'or-glm-4.7', 'or-glm-5', 'or-glm-5.2'];
     let savedAnthropicKey;
     let savedOpenRouterKey;
+    let savedAiChatModel;
 
     beforeEach(() => {
       savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
       savedOpenRouterKey = process.env.OPENROUTER_API_KEY;
+      // Neutralize ambient AI_CHAT_MODEL so fallback assertions are deterministic
+      // regardless of the developer's .env (an ineligible ambient value would
+      // degrade to DEFAULT_MODEL_KEY and diverge from the env-based expectation).
+      savedAiChatModel = process.env.AI_CHAT_MODEL;
+      delete process.env.AI_CHAT_MODEL;
       process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
     });
     afterEach(async () => {
@@ -669,6 +675,8 @@ describe('Admin API', () => {
       else process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
       if (savedOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = savedOpenRouterKey;
+      if (savedAiChatModel === undefined) delete process.env.AI_CHAT_MODEL;
+      else process.env.AI_CHAT_MODEL = savedAiChatModel;
       await pool.query('DELETE FROM app_settings');
       await appSettings.refresh();
     });
@@ -743,9 +751,9 @@ describe('Admin API', () => {
 
       expect(res.body.modelKey).toBe('or-kimi-k3'); // stored value is unchanged
       expect(res.body.effectiveModelKey).not.toBe('or-kimi-k3'); // but degraded
-      expect(res.body.effectiveModelKey).toBe(
-        process.env.AI_CHAT_MODEL || 'claude-opus'
-      );
+      // AI_CHAT_MODEL is neutralized in beforeEach, so the fallback is the
+      // DEFAULT_MODEL_KEY constant.
+      expect(res.body.effectiveModelKey).toBe('claude-opus');
       // The unrunnable gateway entry is also gone from the picker.
       expect(res.body.models.map((m) => m.provider)).not.toContain('openrouter');
     });

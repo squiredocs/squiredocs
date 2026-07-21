@@ -63,3 +63,18 @@ glm-5 60/192 & 202,752→95/255 & 204,800; glm-5.2 93/300→80.36/252.56 (contex
 Delete the `OPENROUTER_API_KEY` secret and restart. FR-005/D4 makes a stored gateway
 default degrade to the env/built-in default with a logged warning — no failed user
 turns, no migration to unwind. The admin UI shows the true fallback in effect.
+
+## Post-merge review dispositions (2026-07-21)
+
+Review of d062285 + bb39861 (Fable, read-only): lenses 1-4 and 6 CLEAN
+(access control, degradation guard, registry data vs the catalog snapshot,
+behavior invariants, test substance — the chat-models-byok.test.js edit
+confirmed a legitimate re-pin). Two LOW findings, both FIXED same day:
+
+- LOW-1 (AdminPage.jsx picker): a stored default whose provider key was
+  removed rendered as a blank select and the promotion-notes rollback claim
+  ("admin UI shows the true fallback") was unmet. Fixed: the picker now
+  renders a disabled option — "<key> (unavailable — using <effective>)".
+- LOW-2 (admin.test.js T014): fallback assertion depended on ambient
+  AI_CHAT_MODEL. Fixed: the 026 describe now saves/deletes/restores
+  AI_CHAT_MODEL and asserts the DEFAULT_MODEL_KEY constant directly.

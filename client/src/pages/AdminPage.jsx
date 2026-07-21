@@ -264,6 +264,15 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                 <option value="">
                   Deployment default{sharedModel.modelKey === null ? ` (${modelLabel(sharedModel, sharedModel.effectiveModelKey)})` : ''}
                 </option>
+                {/* A stored default can outlive its provider's server key (rollback
+                    path): keep the controlled value renderable and say what's
+                    actually in effect instead of showing a blank select. */}
+                {sharedModel.modelKey !== null
+                  && !sharedModel.models.some((m) => m.key === sharedModel.modelKey) && (
+                  <option value={sharedModel.modelKey} disabled>
+                    {sharedModel.modelKey} (unavailable — using {modelLabel(sharedModel, sharedModel.effectiveModelKey)})
+                  </option>
+                )}
                 {(sharedModel.providers ?? []).map((p) => (
                   <optgroup key={p.id} label={p.label}>
                     {sharedModel.models
