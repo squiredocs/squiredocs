@@ -14,6 +14,7 @@
  */
 const { pipeAsSSE } = require('../chat');
 const { DEFAULT_MESSAGES } = require('../chat-errors');
+const { convertToModelMessages, validateUIMessages } = require('ai');
 
 // A minimal ReadableStream of UI-message-stream chunks (objects), matching what
 // toUIMessageStream yields. tee() is used by pipeAsSSE.
@@ -127,6 +128,31 @@ describe('pipeAsSSE error transport (feature 012)', () => {
     expect(body).toContain(DEFAULT_MESSAGES.internal);
     // And the error part is still never buffered for reconnection replay.
     expect(entry.chunks.join('')).not.toContain('"type":"error"');
+  });
+
+  // Feature 025 R7 / FR-016: the durable failure record is additive metadata on a
+  // user message. It must survive a raw JSONB round-trip (the client's source of
+  // truth) yet never reach the provider via convertToModelMessages.
+  test('a failure stamp is additive-safe: survives a raw round-trip, never reaches the provider (FR-016/R7)', async () => {
+    const stamped = {
+      id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }],
+      metadata: { failure: { code: 'provider_overloaded', provider: 'anthropic', at: 'T' }, refs: [{ text: 'q' }] },
+    };
+    const messages = [stamped, { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: 'partial' }] }];
+
+    // Raw DB round-trip (loadChat returns JSONB verbatim) preserves the record + siblings.
+    const roundTripped = JSON.parse(JSON.stringify(messages));
+    expect(roundTripped[0].metadata.failure.code).toBe('provider_overloaded');
+    expect(roundTripped[0].metadata.refs).toEqual([{ text: 'q' }]);
+
+    // validateUIMessages tolerates the unknown metadata key (no throw).
+    const validated = await validateUIMessages({ messages });
+    expect(validated).toHaveLength(2);
+
+    // convertToModelMessages builds provider messages from parts only — the failure
+    // record (and any provider label) never reaches the model.
+    const model = await convertToModelMessages(validated);
+    expect(JSON.stringify(model)).not.toMatch(/failure|provider_overloaded|"at":"T"/);
   });
 
   test('token-limit error chunk is intercepted before classification (FR-004)', async () => {

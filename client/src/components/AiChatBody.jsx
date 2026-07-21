@@ -9,13 +9,16 @@ import './AiChatBody.css';
  * full page) render error copy from the same code→message map (feature 012), so
  * they're identical by construction (SC-002).
  *
- * `errorInfo` is the classified { code, provider, text } from the context;
- * `interruptionReason` is a session-scoped notice for a mid-stream fatal error
- * that left a partial reply (D5).
+ * Every banner renders from the DURABLE turn-error props only (feature 025,
+ * FR-008): `errorInfo` is the classified { code, provider, text }, `usageLimitReached`
+ * and `interruptionReason` are derivations of the same state, and the transient
+ * `reconnecting` flag is subordinate — it may show while a recovery attempt is in
+ * flight but can never suppress a durable failure banner once the attempt concludes
+ * (D7). SDK stream `status`/`error` are NEVER a render gate here.
  */
 function AiChatBody({
   messages, status, messagesLoading, messagesError, retryLoadMessages,
-  usageLimitReached, error, errorInfo, interruptionReason, onRetry, reconnecting,
+  usageLimitReached, errorInfo, interruptionReason, onRetry, reconnecting,
   greeting, accentColor, iconSize = 40, onDocLinkClick,
 }) {
   const isEmpty = messages.length === 0;
@@ -56,18 +59,31 @@ function AiChatBody({
         <div className="ai-chat-body-usage-limit">
           {MESSAGES.app_usage_limit.text} <a href="/settings">View Usage</a>
         </div>
-      ) : interruptionReason ? (
-        <div className="ai-chat-body-interrupted">Response interrupted: {interruptionReason}</div>
-      ) : reconnecting ? (
-        <div className="ai-chat-body-reconnecting">Reconnecting…</div>
-      ) : status === 'error' && error && (
-        <div className="ai-chat-body-error">
-          {errorInfo?.text || 'Something went wrong. Please try again.'}
-          {MESSAGES[errorInfo?.code]?.action === 'settings' ? (
-            <a className="ai-chat-body-error-link" href="/settings">Open Settings</a>
+      ) : (
+        <>
+          {/* Interrupted partial reply: the notice sits ABOVE the failure banner
+              (US5), both derived from the same durable record so they survive
+              reloads. */}
+          {interruptionReason && (
+            <div className="ai-chat-body-interrupted">Response interrupted: {interruptionReason}</div>
+          )}
+          {/* The durable failure banner: rendered whenever a classified turn error
+              exists, regardless of SDK stream status (FR-008). The reconnecting
+              indicator only shows while an attempt is genuinely in flight (no
+              durable error yet) and yields to the banner the moment it concludes
+              with a failure (D7/M3). */}
+          {errorInfo ? (
+            <div className="ai-chat-body-error">
+              {errorInfo.text || 'Something went wrong. Please try again.'}
+              {MESSAGES[errorInfo.code]?.action === 'settings' ? (
+                <a className="ai-chat-body-error-link" href="/settings">Open Settings</a>
+              ) : null}
+              {canRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}
+            </div>
+          ) : reconnecting ? (
+            <div className="ai-chat-body-reconnecting">Reconnecting…</div>
           ) : null}
-          {canRetry && <button className="ai-chat-body-retry-btn" onClick={onRetry}>Retry</button>}
-        </div>
+        </>
       )}
     </>
   );
