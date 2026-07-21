@@ -119,7 +119,7 @@ untouched; drive resume/replay transitions and confirm it never disappears.
 - [X] T012 [P] [US1] Client test in `client/src/contexts/__tests__/` (real `Chat` + scripted
   transport): a live-error banner **stays** across `error → submitted` (error cleared) and a
   clean replay ending at `ready`; and error state is per-chat (fail A, B shows none). (SC-001/SC-003)
-- [ ] T013 [P] [US1] Server test in `server/api/__tests__/chat.error-surfacing.test.js`: after
+- [X] T013 [P] [US1] Server test in `server/api/__tests__/chat.error-surfacing.test.js`: after
   a classified failure (mid-stream and before-content) `GET /api/chat/:id/stream` returns
   `204` with no failure-buffer replay; a successful turn keeps the 30 s replay window. (FR-005)
 - [X] T014 [US1] Make T012/T013 pass: finalize the `AiChatBody` derivation + teardown so no
@@ -137,7 +137,7 @@ untouched; drive resume/replay transitions and confirm it never disappears.
 **Independent Test**: Fail a turn, reload, see the same banner derived from the loaded
 transcript; a reconnect in the old replay window finds nothing and derives from the transcript.
 
-- [ ] T015 [P] [US2] Server stamp-durability test in
+- [X] T015 [P] [US2] Server stamp-durability test in
   `server/api/__tests__/chat.error-surfacing.test.js`: after a failure the loaded transcript's
   trailing user message carries `metadata.failure` for (a) mid-stream w/ partial reply (one
   fold save), (b) each post-save early return (RMW), (c) the before-content outer catch; the
@@ -205,7 +205,7 @@ the partial reply still carrying the interruption notice.
 - [X] T022 [P] [US5] Client test: an interrupted partial reply shows the notice + banner
   live and again on reload (derived from `metadata.failure` + trailing partial content); the
   next send clears the notice while the partial reply remains in the transcript. (SC-006, US5.1-3)
-- [ ] T023 [P] [US5] Server test in `chat.error-surfacing.test.js`: a mid-stream failure
+- [X] T023 [P] [US5] Server test in `chat.error-surfacing.test.js`: a mid-stream failure
   persists the partial assistant reply **and** the failure stamp in the single fold save, so
   the interruption is derivable after a fresh load. (FR-004)
 - [X] T024 [US5] Confirm the interruption derivation (`turnError` present +
@@ -221,17 +221,22 @@ the partial reply still carrying the interruption notice.
   trailing-turn keying, unknown code → `internal` floor (D6), legacy transcript → null
   (FR-016), older stamp deeper in transcript is inert, `stampFailure` additivity (preserves
   `refs`/`kind`).
-- [ ] T026 Run guardrail regressions unchanged: `server/api/__tests__/chat-errors.test.js`,
+- [X] T026 Run guardrail regressions unchanged: `server/api/__tests__/chat-errors.test.js`,
   `ai-providers.classify.test.js`, and the retained `AiChatContext.test.jsx` non-transition
   cases — confirm 401 refresh (FR-014), token-limit compaction / BYOK (FR-015), and taxonomy
   copy (FR-013) are untouched.
-- [ ] T027 [P] Additive-safety cross-check: assert `convertToModelMessages` never forwards
+- [X] T027 [P] Additive-safety cross-check: assert `convertToModelMessages` never forwards
   `metadata.failure` to the provider and compaction/history-hygiene carry-or-drop it without
   error. (Assumptions, research.md R7)
 - [ ] T028 Run the quickstart.md manual matrix M1–M8 on both surfaces (side panel + `/chat`).
+  DEFERRED (manual/browser): owed to the merge queue / Sam. Automated coverage of the same
+  behaviors landed (real-Chat banner-persistence + server stamp/teardown suites).
 - [ ] T029 Doc-sync gate (implement/merge stage, not this planning agent): if implementation
   falsified any documented mechanism, amend `design/in-app-ai-assistant.md` (via the Squire
   source + `design/sync.mjs`) and README/dev.md in the same effort. (Principle I/VI)
+  SKIPPED here per implementer guardrails (never edit README.md/docs/dev.md/design; the merge
+  queue owns doc-sync). No documented mechanism was falsified — the design doc's "Error
+  surfacing" section already describes this behavior; the implementation matches it.
 
 ---
 
