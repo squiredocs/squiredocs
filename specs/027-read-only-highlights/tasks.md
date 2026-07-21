@@ -108,9 +108,9 @@ content edits — no placeholder insertions — while sweep coverage is unchange
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T016 [P] Run the full existing presence/highlight suite unchanged: `server/mcp/__tests__/yjs/cursor-operations-hierarchy.test.js`, `server/mcp/__tests__/mutation-aggregator.test.js`, `server/mcp/__tests__/tools/read-document.test.js`, `server/__tests__/xpath-highlight.test.js`, `server/mcp/__tests__/agent-presence.test.js`. All pass unchanged except the re-pinned empty-blocks file (SC-006). Investigate any other failure as a real regression.
-- [ ] T017 Run the `quickstart.md` "Reproduce the bug" one-liner and confirm it now prints `bytes written: 0` / `child count: 0`, then run the full `quickstart.md` validation block.
-- [ ] T018 [P] Diff-guard (FR-007): confirm the change set touches no client code, no DB migration, and no MCP tool/API contract — `git diff --name-only` shows only `server/mcp/yjs/cursor-operations.js` plus test/fixture files under `server/mcp/__tests__` and `server/__tests__`; no `client/`, no `migrations/`, no tool descriptions.
+- [X] T016 [P] Run the full existing presence/highlight suite unchanged: `server/mcp/__tests__/yjs/cursor-operations-hierarchy.test.js`, `server/mcp/__tests__/mutation-aggregator.test.js`, `server/mcp/__tests__/tools/read-document.test.js`, `server/__tests__/xpath-highlight.test.js`, `server/mcp/__tests__/agent-presence.test.js`. All pass unchanged except the re-pinned empty-blocks file (SC-006). Investigate any other failure as a real regression.
+- [X] T017 Run the `quickstart.md` "Reproduce the bug" one-liner and confirm it now prints `bytes written: 0` / `child count: 0`, then run the full `quickstart.md` validation block.
+- [X] T018 [P] Diff-guard (FR-007): confirm the change set touches no client code, no DB migration, and no MCP tool/API contract — `git diff --name-only` shows only `server/mcp/yjs/cursor-operations.js` plus test/fixture files under `server/mcp/__tests__` and `server/__tests__`; no `client/`, no `migrations/`, no tool descriptions.
 
 ---
 
