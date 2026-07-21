@@ -37,6 +37,17 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     },
   }));
 
+  // "Add to Chat" should land the user typing immediately (Sam, 2026-07-21):
+  // focus when a selection ref is ADDED. Growth-only — removing a chip or a
+  // fresh mount with refs already pending must not steal focus (mount focus is
+  // autoFocus's job when the panel opens).
+  const prevRefCountRef = useRef(pendingRefs?.length || 0);
+  useEffect(() => {
+    const count = pendingRefs?.length || 0;
+    if (count > prevRefCountRef.current) textareaRef.current?.focus();
+    prevRefCountRef.current = count;
+  }, [pendingRefs]);
+
   // Restore draft text on error
   useEffect(() => {
     if (draftText) {

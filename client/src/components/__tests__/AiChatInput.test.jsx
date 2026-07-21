@@ -500,4 +500,37 @@ describe('AiChatInput', () => {
     // input just emits the (empty) typed text.
     expect(onSend).toHaveBeenCalledWith('', undefined);
   });
+
+  it('focuses the textarea when a selection ref is added (Add to Chat)', () => {
+    const ref1 = { id: 'sel-1', text: 'quoted passage' };
+    const { rerender } = render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={[]} />
+    );
+    const textarea = screen.getByRole('textbox');
+    expect(document.activeElement).not.toBe(textarea);
+
+    rerender(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={[ref1]} />
+    );
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it('does not steal focus when a ref is removed or on mount with refs pending', () => {
+    const ref1 = { id: 'sel-1', text: 'a' };
+    const ref2 = { id: 'sel-2', text: 'b' };
+
+    // Mount with refs already pending: no focus grab (autoFocus owns mounts).
+    const { rerender, unmount } = render(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={[ref1, ref2]} onRemoveRef={() => {}} />
+    );
+    const textarea = screen.getByRole('textbox');
+    expect(document.activeElement).not.toBe(textarea);
+
+    // Removal (shrink): still no focus grab.
+    rerender(
+      <AiChatInput onSend={onSend} onStop={onStop} isStreaming={false} pendingRefs={[ref1]} onRemoveRef={() => {}} />
+    );
+    expect(document.activeElement).not.toBe(textarea);
+    unmount();
+  });
 });
