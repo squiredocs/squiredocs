@@ -49,10 +49,21 @@ function stripHardBreakMarkers(markdown) {
     const line = lines[i];
     const content = stripContainerPrefix(line);
 
-    // Fence boundary (opening or closing). Fence lines never carry a marker, so
-    // toggle and move on, leaving the line unchanged.
-    if (content.startsWith('```')) {
-      inFence = !inFence;
+    // Fence boundary. Fence lines never carry a marker, so toggle and move on,
+    // leaving the line unchanged. Asymmetric on purpose (review 028-M1): the
+    // serializer OPENS with ```<label> but its ONLY closing form is a bare ```,
+    // so while inside a fence, content lines that merely start with ``` (e.g. a
+    // code block quoting "```js ..." verbatim) must not flip the state. Residual
+    // string-level ambiguity — a code BODY line that is exactly ``` is
+    // indistinguishable from the close, and a paragraph BEGINNING with ``` looks
+    // like an open — is accepted and pinned by tests; both are diff-display-only
+    // and such content already round-trips imperfectly.
+    if (!inFence && content.startsWith('```')) {
+      inFence = true;
+      continue;
+    }
+    if (inFence && content.trimEnd() === '```') {
+      inFence = false;
       continue;
     }
     // Inside a fenced block, a trailing backslash is verbatim content.

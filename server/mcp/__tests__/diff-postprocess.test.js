@@ -530,6 +530,57 @@ describe('stripHardBreakMarkers', () => {
     const expected = '> intro line\n> body line\n>\n> ```\n> x = 1 \\\n> ```';
     expect(stripHardBreakMarkers(input)).toBe(expected);
   });
+
+  // Review 028-M1: closing is asymmetric — inside a fence, only a bare ``` line
+  // closes (the serializer's sole closing form). A code body line that merely
+  // STARTS with ``` (e.g. a code block quoting fence syntax) must not flip the
+  // state and poison classification for the rest of the document.
+  test('M1 regression: ```-prefixed code content does not close the fence', () => {
+    const input = [
+      '```',
+      '```js is how you open a fence',
+      'path = base \\',
+      '```',
+      '',
+      'prose one\\',
+      'prose two',
+    ].join('\n');
+    const expected = [
+      '```',
+      '```js is how you open a fence',
+      'path = base \\', // fence content: preserved
+      '```',
+      '',
+      'prose one',      // real marker after the block: stripped
+      'prose two',
+    ].join('\n');
+    expect(stripHardBreakMarkers(input)).toBe(expected);
+  });
+
+  // Accepted string-level ambiguities (review 028-M1 residual): pinned so any
+  // behavior change is loud. Both fail SAFE (markers leak — cosmetic — rather
+  // than content being stripped).
+  test('accepted ambiguity: a bare ``` code-body line reads as a close (markers after it leak)', () => {
+    // Code block whose BODY is a bare ``` line: open(0) closes at body(1),
+    // reopens at real close(2) — leaving phantom fence state afterward.
+    const input = '```\n```\n```\n\nprose\\\ncontinues';
+    const out = stripHardBreakMarkers(input);
+    expect(out).toContain('prose\\'); // marker preserved (leak), never content-stripped
+  });
+  test('accepted ambiguity: a paragraph starting with ``` reads as an open (markers after it leak)', () => {
+    const input = '```js as literal paragraph text\n\nprose\\\ncontinues';
+    const out = stripHardBreakMarkers(input);
+    expect(out).toContain('prose\\'); // phantom fence → preserve-side failure only
+  });
+
+  // Review 028-L4: pin the serializer's actual emission for a trailing hard
+  // break in a list item — an indent-only continuation line before the sibling
+  // (serialization.js renderListItem). The whitespace-only continuation must
+  // read as block-final → marker preserved (RBD-1).
+  test('L4: trailing list-item hard break followed by indent-only line is preserved', () => {
+    const input = '- first\\\n  \n- second';
+    expect(stripHardBreakMarkers(input)).toBe(input);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -645,10 +696,11 @@ describe('computeChatDiff — US2 undo/redo shared generation point', () => {
     expect(undoDiff.lines).toContain('-stanza line TWO');
     expect(undoDiff.lines).toContain('+stanza line two');
 
-    // Byte-identical to the modify-direction call on the same argument pair —
-    // proving a single shared cleanup point, no divergent undo implementation.
-    const modifySameArgs = computeChatDiff(edited, original);
-    expect(undoDiff).toEqual(modifySameArgs);
+    // The single-shared-cleanup-point property is architectural, not assertable
+    // here: modify.js and undo-service.js both call diffUtils.computeChatDiff
+    // (the undo call site is pinned to the namespace import precisely so suites
+    // can spy on it — see undo-service.js's import comment). A duplicate call
+    // with identical args would only prove determinism (review 028-L3).
 
     // The forward modify direction is likewise clean.
     const modifyForward = computeChatDiff(original, edited);
