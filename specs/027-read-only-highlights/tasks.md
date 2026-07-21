@@ -99,8 +99,8 @@ content edits — no placeholder insertions — while sweep coverage is unchange
 
 **Independent Test**: Run the mutation-purity test alone against `collab_test_db_027`.
 
-- [ ] T014 [P] [US3] Write `server/mcp/__tests__/integration/mutation-sweep-purity.test.js`: run a modify that edits two paragraphs with an image between them (sweep crosses the image); assert the persisted update set equals exactly the two paragraph edits — no insertion into the image block — while the aggregated sweep spans still cover the image (SC-005, acceptance scenario 1). Exercises `createOperationSelection` via `server/mcp/sandbox/bridge.js` + `server/mcp/mutation-aggregator.js`.
-- [ ] T015 [US3] Add a focused assertion that `createOperationSelection(fragment, op)` for an operation whose path targets a text-less element writes zero bytes to the doc (acceptance scenario 2) — verifying the mutation path shares the pure helper with no write-allowed flag (D-3).
+- [X] T014 [P] [US3] Write `server/mcp/__tests__/integration/mutation-sweep-purity.test.js`: run a modify that edits two paragraphs with an image between them (sweep crosses the image); assert the persisted update set equals exactly the two paragraph edits — no insertion into the image block — while the aggregated sweep spans still cover the image (SC-005, acceptance scenario 1). Exercises `createOperationSelection` via `server/mcp/sandbox/bridge.js` + `server/mcp/mutation-aggregator.js`.
+- [X] T015 [US3] Add a focused assertion that `createOperationSelection(fragment, op)` for an operation whose path targets a text-less element writes zero bytes to the doc (acceptance scenario 2) — verifying the mutation path shares the pure helper with no write-allowed flag (D-3).
 
 **Checkpoint**: the invariant holds on the mutation path too — bug cannot resurface via mutations.
 

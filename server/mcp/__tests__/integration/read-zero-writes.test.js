@@ -187,4 +187,52 @@ describe('027 US1 — reads persist zero updates', () => {
 
     session.ydoc.destroy();
   });
+
+  // C1 (FR-009): if a highlight position genuinely cannot be produced (the
+  // presence step fails), the read must fail OBSERVATIONAL — a non-fatal
+  // warning, zero bytes written, and the read still returns successfully. Under
+  // no circumstance does a fallback path write to the document.
+  test('C1 — a failing highlight step warns non-fatally, writes nothing, and the read still succeeds', async () => {
+    const docGuid = await seedDoc('c1 fail-observational', (frag) => {
+      const emptyP = new Y.XmlElement('paragraph');
+      const img = new Y.XmlElement('image');
+      img.setAttribute('src', 'https://example.com/x.png');
+      frag.insert(0, [emptyP, img]);
+    });
+    const session = await installSession(docGuid);
+
+    const beforeCount = await persistence.getUpdateCount(docGuid);
+
+    // Force the presence step to blow up on the (validly computed) positions —
+    // simulating a genuinely uncomputable/undeliverable highlight downstream of
+    // the pure position math.
+    agentPresence.queueHighlightSequence.mockImplementationOnce(() => {
+      throw new Error('simulated unresolvable highlight target');
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    let result;
+    try {
+      // The read must NOT throw despite the highlight failure.
+      result = await readDocument.handler({ docGuid }, agentToken());
+      await session.flush();
+
+      // Non-fatal warning was emitted (fail-observational).
+      const warned = warnSpy.mock.calls.some(
+        (c) => String(c[0]).includes('[read-document]')
+      );
+      expect(warned).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    // The read succeeded and returned content...
+    expect(result).toBeDefined();
+    expect(result.blockCount).toBe(2);
+    // ...and NOTHING was written to the document.
+    const afterCount = await persistence.getUpdateCount(docGuid);
+    expect(afterCount).toBe(beforeCount);
+
+    session.ydoc.destroy();
+  });
 });
