@@ -85,8 +85,8 @@ boundary-anchored highlight that resolves non-null on a live replica; none are d
 
 **Independent Test**: Run the sweep-fidelity test alone.
 
-- [ ] T012 [P] [US2] Write `server/mcp/__tests__/yjs/cursor-operations-sweep-fidelity.test.js`: for a whole-document read over a doc mixing text blocks and text-less blocks, assert `createExpandingBlockHighlights(fragment, 0, n)` covers every block with no gaps/dropped steps and every emitted anchor/head resolves non-null under the client resolution semantics (reuse the T004 replica harness) — SC-003, acceptance scenario 2.
-- [ ] T013 [US2] In the same file, assert `createNodeSelection` and `createBlockRangeSelection` over an image, an hr, and an empty paragraph each return a non-null `{anchor, head}` (not null-dropped), with both endpoints resolvable — acceptance scenarios 1,3. Confirm the read path (`server/mcp/tools/read-document.js` xpath branch) therefore emits a highlight for a text-less node rather than skipping it.
+- [X] T012 [P] [US2] Write `server/mcp/__tests__/yjs/cursor-operations-sweep-fidelity.test.js`: for a whole-document read over a doc mixing text blocks and text-less blocks, assert `createExpandingBlockHighlights(fragment, 0, n)` covers every block with no gaps/dropped steps and every emitted anchor/head resolves non-null under the client resolution semantics (reuse the T004 replica harness) — SC-003, acceptance scenario 2.
+- [X] T013 [US2] In the same file, assert `createNodeSelection` and `createBlockRangeSelection` over an image, an hr, and an empty paragraph each return a non-null `{anchor, head}` (not null-dropped), with both endpoints resolvable — acceptance scenarios 1,3. Confirm the read path (`server/mcp/tools/read-document.js` xpath branch) therefore emits a highlight for a text-less node rather than skipping it.
 
 **Checkpoint**: text-less blocks get visible, resolvable highlights — no silent fidelity regression.
 
