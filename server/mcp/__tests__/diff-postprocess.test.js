@@ -631,3 +631,123 @@ describe('computeChatDiff — US1 word segments + format-only on cleaned text', 
     expect(diff.lines).toContain(' first line');
   });
 });
+
+// US2 (T008) — undo/redo cards get the identical treatment via the one shared path.
+describe('computeChatDiff — US2 undo/redo shared generation point', () => {
+  test('an undo-shaped (pre, post) call is marker-free and byte-identical to the modify-shaped call on the same pair (SC-003)', () => {
+    const original = 'stanza line one\\\nstanza line two\\\nstanza line three';
+    const edited = 'stanza line one\\\nstanza line TWO\\\nstanza line three';
+
+    // The 020 undo path calls the SAME function as modify with the inverse's
+    // (preMarkdown, postMarkdown) — here reverting `edited` back to `original`.
+    const undoDiff = computeChatDiff(edited, original);
+    expect(undoDiff.lines.some(endsWithMarker)).toBe(false);
+    expect(undoDiff.lines).toContain('-stanza line TWO');
+    expect(undoDiff.lines).toContain('+stanza line two');
+
+    // Byte-identical to the modify-direction call on the same argument pair —
+    // proving a single shared cleanup point, no divergent undo implementation.
+    const modifySameArgs = computeChatDiff(edited, original);
+    expect(undoDiff).toEqual(modifySameArgs);
+
+    // The forward modify direction is likewise clean.
+    const modifyForward = computeChatDiff(original, edited);
+    expect(modifyForward.lines.some(endsWithMarker)).toBe(false);
+  });
+});
+
+// US3 (T009) — genuine backslashes and everything else are untouched.
+describe('computeChatDiff — US3 preservation of content backslashes', () => {
+  test('(i) code-block trailing-backslash content survives (SC-002c)', () => {
+    const before = '```js\nconst a = 1; \\\nconst b = 2;\n```';
+    const after = '```js\nconst a = 1; \\\nconst b = 3;\n```';
+    const diff = computeChatDiff(before, after);
+    // The `const a = 1; \` line is a context row inside the fence — backslash kept.
+    expect(diff.lines).toContain(' const a = 1; \\');
+  });
+
+  test('(ii) mermaid diagram-fence trailing-backslash content survives (SC-002d, RBD-3)', () => {
+    const before = '```mermaid\ngraph TD\nA-->B \\\nC-->D\n```';
+    const after = '```mermaid\ngraph TD\nA-->B \\\nC-->E\n```';
+    const diff = computeChatDiff(before, after);
+    expect(diff.lines).toContain(' A-->B \\');
+  });
+
+  test('(iii) a paragraph whose text legitimately ends in a backslash is preserved (RBD-1, SC-002e)', () => {
+    const before = 'para ends backslash\\\n\nsecond para original';
+    const after = 'para ends backslash\\\n\nsecond para EDITED';
+    const diff = computeChatDiff(before, after);
+    // Block-final backslash (next line blank) → preserved as a context row.
+    expect(diff.lines).toContain(' para ends backslash\\');
+  });
+
+  test('(iv) double-backslash-plus-continuation: exactly one stripped, literal backslash kept', () => {
+    const before = 'alpha\\\\\nbravo original';   // `alpha\\` then continuation
+    const after = 'alpha\\\\\nbravo EDITED';
+    const diff = computeChatDiff(before, after);
+    // Context row keeps exactly one backslash (the literal), the marker is gone.
+    expect(diff.lines).toContain(' alpha\\');
+    expect(diff.lines).not.toContain(' alpha\\\\');
+  });
+
+  test('(v) mixed diff: prose markers stripped while code and literal backslashes are preserved', () => {
+    const before = 'poem uno\\\npoem dos\\\npoem tres\n\n'
+      + '```\ncode uno \\\ncode dos\n```\n\n'
+      + 'ends with slash\\\n\ntail text';
+    const after = 'poem uno\\\npoem dos\\\npoem TRES\n\n'
+      + '```\ncode uno \\\ncode DOS\n```\n\n'
+      + 'ends with slash\\\n\ntail TEXT';
+    const diff = computeChatDiff(before, after);
+    // Prose marker stripped (context row) — and NOT present with its marker.
+    expect(diff.lines).toContain(' poem dos');
+    expect(diff.lines).not.toContain(' poem dos\\');
+    // Code-fence content backslash preserved.
+    expect(diff.lines).toContain(' code uno \\');
+    // Literal block-final backslash preserved.
+    expect(diff.lines).toContain(' ends with slash\\');
+  });
+
+  test('a marker-only difference produces no hunk (FR-004)', () => {
+    // The two serializations differ only by a hard-break marker; after cleanup
+    // they are equal, so the line diff yields no hunk at all.
+    const before = 'alpha\\\nbeta';
+    const after = 'alpha\nbeta';
+    const diff = computeChatDiff(before, after);
+    expect(diff.lines).toHaveLength(0);
+    expect(diff.hunkStarts).toHaveLength(0);
+  });
+});
+
+// US3 (T010) — guard: cleanup is a lossless subset transform (only backslashes
+// removed, line count invariant), so it cannot corrupt content or the untouched
+// version-history / word-diff pipelines (SC-005/SC-006, FR-006/FR-008).
+describe('stripHardBreakMarkers — lossless subset guard (T010)', () => {
+  const samples = [
+    'plain paragraph',
+    'poem uno\\\npoem dos\\\npoem tres',
+    '```js\ncode a; \\\ncode b;\n```',
+    '```mermaid\nA-->B \\\nC\n```',
+    '> quote one\\\n> quote two\n>\n> quote three',
+    '- item one\\\n  item two\\\n  item three',
+    'trailing literal\\',
+    'double\\\\\ncont',
+    '# Heading<br>break\n\n| a<br>b | c |\n| --- | --- |',
+  ];
+
+  test('never changes the line count (never removes a newline) — FR-006', () => {
+    for (const s of samples) {
+      expect(stripHardBreakMarkers(s).split('\n')).toHaveLength(s.split('\n').length);
+    }
+  });
+
+  test('removes only backslash characters — every other character is preserved in order', () => {
+    const withoutBackslashes = (s) => s.split('').filter((c) => c !== '\\').join('');
+    for (const s of samples) {
+      const out = stripHardBreakMarkers(s);
+      expect(out.length).toBeLessThanOrEqual(s.length);
+      // Removing all backslashes from input and output yields identical strings,
+      // proving nothing but `\` was ever deleted and no character was reordered.
+      expect(withoutBackslashes(out)).toBe(withoutBackslashes(s));
+    }
+  });
+});

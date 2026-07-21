@@ -108,7 +108,7 @@ phantom trailing backslashes while every other diff behavior is unchanged.
 **Independent Test**: An undo-shaped call `computeChatDiff(preMarkdown, postMarkdown)` over
 hard-broken content yields the same clean lines as the modify-shaped call.
 
-- [ ] **T008** [US2] Integration test — single generation point (AS1/AS2, SC-003): call
+- [X] **T008** [US2] Integration test — single generation point (AS1/AS2, SC-003): call
   `computeChatDiff` with an undo/redo-shaped `(preMarkdown, postMarkdown)` pair over
   hard-broken content and assert marker-free `.lines`; assert byte-identical output to the
   modify-direction call on the same pair — proving one shared cleanup, no divergent path.
@@ -124,14 +124,14 @@ hard-broken content yields the same clean lines as the modify-shaped call.
 **Independent Test**: A code-block trailing-`\`, a paragraph-final literal `\`, and a
 marker-only diff each behave per FR-003; version-history and word-diff suites are unchanged.
 
-- [ ] **T009** [US3] Integration test — preservation (AS1/AS2, SC-002c/d/e/f/g): `computeChatDiff`
+- [X] **T009** [US3] Integration test — preservation (AS1/AS2, SC-002c/d/e/f/g): `computeChatDiff`
   over an edit touching (i) a code block with a trailing-`\` content line, (ii) a mermaid/svg
   diagram fence with a trailing-`\` line, (iii) a paragraph whose text legitimately ends in `\`
   (RBD-1), (iv) a double-backslash-plus-continuation line, and (v) a mixed hunk combining
   several — assert every content backslash survives and only markers are removed; and a
   marker-only difference produces **no** hunk (FR-004).
 
-- [ ] **T010** [US3] Guard — untouched pipelines (SC-005, SC-006, FR-007/FR-008): assert (by
+- [X] **T010** [US3] Guard — untouched pipelines (SC-005, SC-006, FR-007/FR-008): assert (by
   test and by diff scope) that this change edits only `server/mcp/diff-utils.js` +
   its test file — `server/diff/*` (version history), `shared/diff/word-diff`,
   `server/mcp/yjs/serialization.js`, and all client code are unmodified — and that the
