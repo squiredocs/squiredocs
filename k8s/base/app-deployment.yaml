@@ -114,6 +114,15 @@ spec:
                 secretKeyRef:
                   name: auth-secret
                   key: ANTHROPIC_API_KEY
+            # Shared OpenRouter gateway key (feature 026) — makes the or-* models
+            # (Kimi, Qwen, MiniMax, GLM) admin-selectable as the shared default.
+            # optional: the feature is dormant-safe; absent key = models hidden.
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: OPENROUTER_API_KEY
+                  optional: true
             # AI_CHAT_MODEL is intentionally not injected here: the default chat
             # model is a version-controlled code constant (DEFAULT_MODEL_KEY in
             # server/api/chat-models.js). Set AI_CHAT_MODEL in the env only to
