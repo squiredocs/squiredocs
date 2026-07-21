@@ -658,6 +658,15 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
   // stamp-aware onFinish save and the epilogue teardown decision. Its being set is
   // the "this turn failed" signal (T006).
   let pendingFailureStamp = null;
+  // Set true the instant THIS turn's user message is durably saved (below). Gates
+  // stampTurnFailure so a throw BEFORE that save (e.g. loadChat/saveChat failing)
+  // reaches the outer catch without stamping the PREVIOUS, already-answered turn's
+  // user message — which would surface a durable false-failure banner (F1/FR-006).
+  let userTurnPersisted = false;
+  // This turn's incoming user-message id, captured for the belt-and-braces guard in
+  // stampTurnFailure (only stamp when the transcript's trailing user message is
+  // still THIS turn's message).
+  let incomingUserMessageId = null;
 
   // Send a classified pre-stream error (HTTP JSON, honest status per D2) and fire
   // the operator notification when the code owns one (US5). Used by the early
@@ -691,13 +700,29 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
   // yet (FR-006 — there is no turn to stamp). Best-effort: a stamp failure is
   // logged, never surfaced (the live error event already reached the client).
   const stampTurnFailure = async (record) => {
+    // F1/FR-006: never stamp until THIS turn's user message is persisted. A pre-save
+    // throw (loadChat/saveChat failing before line ~750) reaches the outer catch with
+    // this flag still false — stamping then would land the record on the prior,
+    // already-answered turn, a durable false-failure banner + false interruption.
+    if (!userTurnPersisted) return;
     const uid = req.user.userId;
     try {
       const stored = await chatStore.loadChat(chatId, uid);
       const u = stored.map((m) => m.role).lastIndexOf('user');
       if (u < 0) return;
+      // Belt-and-braces: the trailing user message must still be THIS turn's message.
+      // If a concurrent write changed the tail, don't stamp a stranger's turn.
+      if (incomingUserMessageId != null && stored[u]?.id != null
+          && stored[u].id !== incomingUserMessageId) return;
       const target = stored[u];
-      stored[u] = { ...target, metadata: { ...(target.metadata || {}), failure: record } };
+      // F3: re-read-and-MERGE rather than assume convergence with the fire-and-forget
+      // onFinish save. Preserve whatever the latest save persisted — a partial reply
+      // already written, AND an existing stamp (keep it, add nothing) — while
+      // ensuring the record is present. Additive: never drops sibling metadata.
+      stored[u] = {
+        ...target,
+        metadata: { ...(target.metadata || {}), failure: target.metadata?.failure || record },
+      };
       await chatStore.saveChat(chatId, uid, stored);
     } catch (err) {
       console.error('[Chat API] Failed to stamp turn failure:', err);
@@ -710,6 +735,7 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (!message || !chatId) {
       return res.status(400).json({ error: 'message and id are required' });
     }
+    incomingUserMessageId = message?.id ?? null;
 
     // Enforce per-user stream limit to prevent memory exhaustion
     let userStreamCount = 0;
@@ -748,6 +774,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
 
     // Persist user message immediately so it survives interrupted streams
     await chatStore.saveChat(chatId, userId, allMessages);
+    // This turn's user message is now durable — any classified failure from here on
+    // stamps THIS turn (F1). A throw before this point never stamps the prior turn.
+    userTurnPersisted = true;
 
     // Load BYOK settings for the user. `byokEnabled` is the user's INTENT (BYOK
     // toggled on); `isByok` is fully-resolvable BYOK (the metering flag). They
@@ -1198,11 +1227,17 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // status per D2, structured payload, operator paged only when the code owns it.
     const signal = capturedStreamSignal || classify(error, { isByok, providerId });
     capturedStreamSignal = null;
-    // Persist the failure record on the (already-saved) user message via an
-    // awaited RMW (feature 025, FR-004). A before-content failure reaches here
-    // without a partial reply; onFinish may also fire for it, but both writers
-    // apply the SAME record so last-writer-wins still converges to a stamped
-    // transcript (research.md R1).
+    // Persist the failure record on the (already-saved) user message via an awaited
+    // read-modify-write (feature 025, FR-004). This does NOT assume the fire-and-
+    // forget onFinish save and this RMW converge on the same record: on a failed
+    // compaction / INVALID_ARGUMENT retry, a run's onFinish can save the turn with a
+    // partial reply and possibly no stamp. The RMW re-reads that latest state and
+    // MERGES — preserving any partial reply and any existing stamp while ensuring the
+    // record is present. Gated on userTurnPersisted so a pre-save throw never stamps
+    // the prior turn (F1). Residual (LOW/F3): a still-in-flight onFinish save that
+    // lands strictly AFTER this awaited RMW could clobber the stamp on that retry
+    // path; that narrow window is accepted (failures are rare) and documented here
+    // rather than papered over as guaranteed convergence.
     pendingFailureStamp = stampFromSignal(signal);
     await stampTurnFailure(pendingFailureStamp);
     sendClassifiedError(signal, error);

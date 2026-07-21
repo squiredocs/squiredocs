@@ -160,6 +160,47 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     expect(result.current.reconnecting).toBe(false); // attempt concluded…
   }, 10000);
 
+  it('a reply that lands LATE (past the establish window) clears the stale banner + untouched draft (F2)', async () => {
+    const { result } = renderAiChat();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    // The resumed stream opens immediately but its first CONTENT arrives only AFTER
+    // the establish window — a slow-TTFT reconnect. Model it with a delayed stream
+    // (the scripted transport streams synchronously, so patch reconnectToStream here).
+    const t = latestScriptedTransport();
+    t.reconnectToStream = () => Promise.resolve(new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: 'start' }); // opens with no content yet
+        setTimeout(() => {
+          controller.enqueue({ type: 'text-start', id: 't1' });
+          controller.enqueue({ type: 'text-delta', id: 't1', delta: 'late answer' });
+          controller.enqueue({ type: 'text-end', id: 't1' });
+          controller.enqueue({ type: 'finish' });
+          controller.close();
+        }, 6500); // past RECONNECT_ESTABLISH_MS (5s)
+      },
+    }));
+
+    // A non-fatal internal failure enters recovery; the DB refetch shows the turn
+    // still awaiting the assistant, so recovery reattaches to the (slow) stream.
+    mockNewChatFlow('chat-late');
+    mockApi.get.mockResolvedValueOnce({ data: { messages: [userText] } }); // recovery refetch
+    t.scriptSend(errorChunks('Bad Gateway'));
+    await act(async () => { await result.current.sendMessage('my draft'); await new Promise((r) => setTimeout(r, 30)); });
+
+    // waitForReply times out (no content within 5s) → fallback: banner + restored draft.
+    await act(async () => { await new Promise((r) => setTimeout(r, 5500)); });
+    expect(result.current.errorInfo).toMatchObject({ code: 'internal' });
+    expect(result.current.draftText).toBe('my draft');
+    expect(result.current.reconnecting).toBe(false); // attempt concluded
+
+    // The reply lands late on that same instance → the background late-reply watcher
+    // retires the now-stale banner and withdraws the untouched draft (no duplicate send).
+    await act(async () => { await new Promise((r) => setTimeout(r, 3200)); });
+    expect(result.current.errorInfo).toBeNull();
+    expect(result.current.draftText).toBe('');
+  }, 20000);
+
   it('a fatal code is not recovered — banner renders immediately, no reconnect', async () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());

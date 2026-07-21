@@ -171,7 +171,26 @@ describe('stamp durability (FR-004) + codes-only (FR-003)', () => {
   });
 });
 
-describe('no stamp before the user message persists (FR-006)', () => {
+describe('no stamp before the user message persists (FR-006 / F1)', () => {
+  it('a pre-save loadChat throw reaches the outer catch WITHOUT stamping the prior, answered turn', async () => {
+    const chatStore = require('../../chat-store');
+    // Seed an already-answered prior turn (trailing user message at index 0).
+    mockStore.set('chat-presave', [userMsg, { role: 'assistant', parts: [{ type: 'text', text: 'answered' }] }]);
+    // The pre-save history load (before the user-message save) throws a transient DB
+    // error → the outer catch classifies `internal`. Without the userTurnPersisted
+    // gate this stamped the PREVIOUS turn (a durable false-failure banner, F1).
+    chatStore.loadChat.mockImplementationOnce(async () => { throw new Error('transient DB error'); });
+
+    const res = await post('chat-presave');
+    await settle();
+
+    expect(res.status).toBe(500); // internal, surfaced from the outer catch
+    const stored = mockStore.get('chat-presave');
+    expect(stored).toHaveLength(2);            // prior turn untouched — no third message
+    expect(stored.some((m) => m?.metadata?.failure)).toBe(false); // and NO false stamp
+    expect(stored[0].metadata).toBeUndefined();
+  });
+
   it('a pre-save stream-cap rejection leaves no record and does not mutate a prior turn', async () => {
     // Seed an answered prior turn and saturate the per-user concurrent-stream cap.
     mockStore.set('chat-cap', [userMsg, { role: 'assistant', parts: [{ type: 'text', text: 'done' }] }]);

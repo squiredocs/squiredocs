@@ -15,13 +15,20 @@ const AiChatContext = createContext(null);
 const DRAFT_KEY = '__draft__';
 
 // Transient-error recovery tuning. RECOVERY_TIMEOUT_MS bounds the DB re-fetch;
-// RECONNECT_ESTABLISH_MS bounds how long we wait for a resumed stream to START
-// (NOT its full duration — a healthy stream then continues uncapped). A genuine
-// failure/204 falls through the establish window to the error fallback.
+// RECONNECT_ESTABLISH_MS bounds how long a resumed stream has to land the FIRST
+// assistant CONTENT (feature 025: recovery counts as success only when a reply with
+// content actually lands — waitForReply, not a bare status flip). A 204 or a stream
+// that yields no content inside the window falls through to the error fallback.
+// A reply that then lands LATE (slow TTFT, past the window) is caught by the
+// background late-reply watcher below (LATE_REPLY_WATCH_MS), which retires the
+// now-stale banner instead of leaving a successful answer beside it (F2).
 const RECOVERY_TIMEOUT_MS = 10_000;
 const RECONNECT_ESTABLISH_MS = 5_000;
 const RECONNECT_POLL_MS = 100;
 const MAX_RECOVERY_ATTEMPTS = 2;
+// How long, after a recovery fallback, to keep watching a resumed instance for a
+// late-landing reply before giving up (F2). Bounded so the poll can't run forever.
+const LATE_REPLY_WATCH_MS = 60_000;
 
 // Reject `promise` if it doesn't settle within `ms`.
 function withTimeout(promise, ms) {
@@ -379,6 +386,28 @@ export function AiChatProvider({ children }) {
     return landed;
   }, [fetchChatMessages, syncTurnError, clearChatError]);
 
+  // After a recovery fallback (waitForReply timed out → banner + restored draft),
+  // the resumed stream may still be in flight with a slow time-to-first-token. Watch
+  // the instance in the background for up to LATE_REPLY_WATCH_MS: if an assistant
+  // reply with content lands late, retire the now-stale turn-error banner so a
+  // successful answer never sits beside a "Something went wrong" notice, and withdraw
+  // the restored composer draft — but ONLY if the user hasn't typed over it, so we
+  // never discard something they wrote (feature 025, F2). No-op if nothing lands.
+  const watchForLateReply = useCallback((instance, id, restored) => {
+    if (!id) return;
+    waitForReply(instance, LATE_REPLY_WATCH_MS).then((landed) => {
+      if (!landed) return;
+      clearChatError(id);
+      // Withdraw the restored draft only if it's still exactly what we put back
+      // (untouched). Covers both the persisted per-chat draft store and the live
+      // composer state.
+      const persisted = chatDraftsRef.current.get(id);
+      if (persisted && persisted.text === restored.text) chatDraftsRef.current.delete(id);
+      setDraftText((cur) => (cur === restored.text ? '' : cur));
+      setDraftFiles((cur) => (cur === restored.files ? null : cur));
+    });
+  }, [clearChatError]);
+
   // Shared error handler for every chat instance. Bound to the instance that
   // erred so an auth-retry / recovery acts on the right chat. (refreshAccessToken
   // and recoverChat are stable useCallbacks, so the per-instance onError closures
@@ -466,13 +495,23 @@ export function AiChatProvider({ children }) {
     recoveringRef.current.add(instance);
     if (id) setReconnectingChatId(id);
     recoverChat(instance)
-      .then((ok) => { if (!ok) fallback(); })
+      .then((ok) => {
+        if (ok) return;
+        // Capture what we're about to restore BEFORE fallback mutates the draft, so
+        // the late-reply watcher can recognise (and only then withdraw) an untouched
+        // draft (F2).
+        const restored = { text: lastSentTextRef.current, files: lastSentFilesRef.current };
+        fallback();
+        // The resumed stream may still land a reply after the establish window —
+        // keep watching so a late success retires the stale banner + draft (F2).
+        watchForLateReply(instance, id, restored);
+      })
       .catch(fallback)
       .finally(() => {
         recoveringRef.current.delete(instance);
         setReconnectingChatId((cur) => (cur === id ? null : cur));
       });
-  }, [refreshAccessToken, recoverChat]);
+  }, [refreshAccessToken, recoverChat, watchForLateReply]);
 
   // One persistent Chat instance per chat id, cached and reused across switches.
   // This is what isolates streams (a stream started in chat A writes only to A's

@@ -3,9 +3,17 @@
  *
  * A failed chat turn is persisted as a `{ code, provider, at }` record stamped
  * onto the failed turn's TRAILING USER MESSAGE (the last `role === 'user'` entry)
- * inside the chat's messages JSONB — see data-model.md §1. These helpers read and
- * write that record. They are shared verbatim by the client context (banner
- * derivation) and the server stamp writer (parity), and unit-tested in isolation.
+ * inside the chat's messages JSONB — see data-model.md §1. `deriveTurnError` and
+ * `hasPartialReply` are the CLIENT's read-side derivations: imported by
+ * AiChatContext for banner rendering and unit-tested here in isolation.
+ *
+ * These are client-only ESM helpers; the server does NOT import them. The server
+ * is CJS and cannot require this module, so it re-implements the equivalent stamp
+ * write INLINE in `server/api/chat.js` (the `stampTurnFailure` RMW and the
+ * `onFinish` stamp-aware save). `stampFailure` below is therefore a client-side
+ * test/simulation helper only — it has no production consumer; it exists so the
+ * unit tests can build a stamped transcript and round-trip it through the same
+ * read-side derivations the client actually uses.
  *
  * The single discriminator everywhere is the `failure` stamp on the LAST
  * `role === 'user'` message — never message position. That one rule yields
@@ -69,6 +77,10 @@ export function hasPartialReply(messages) {
 }
 
 /**
+ * CLIENT-SIDE TEST/SIMULATION HELPER (no production consumer — see the module
+ * docstring). Mirrors the server's inline stamp write so the unit tests can build
+ * a stamped transcript to feed the read-side derivations above.
+ *
  * Apply a failure record to the LAST `role === 'user'` message's metadata
  * (additive — preserves sibling metadata such as `refs`/`kind`). Returns a NEW
  * array with a shallow-cloned target message; the rest are shared by reference.
