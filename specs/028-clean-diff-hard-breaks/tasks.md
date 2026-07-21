@@ -63,7 +63,7 @@ depends on this. **CRITICAL**: complete before any story-level task.
   whitespace for list/task indent), is non-empty (research.md R3 predicate); otherwise leave
   the line byte-for-byte unchanged. Never remove a `\n`. Makes T002 pass.
 
-- [ ] **T004** Wire cleanup into the single generation point: in `computeChatDiff`
+- [X] **T004** Wire cleanup into the single generation point: in `computeChatDiff`
   (`server/mcp/diff-utils.js`), pass both inputs through `stripHardBreakMarkers` before
   `structuredPatch` (`const cleanBefore = stripHardBreakMarkers(mdBefore); const cleanAfter =
   stripHardBreakMarkers(mdAfter);`). No other line of `computeChatDiff` changes — caps,

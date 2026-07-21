@@ -82,7 +82,14 @@ function stripHardBreakMarkers(markdown) {
  * @returns {{ lines: string[], hunkStarts: Array, formatAnnotations?: object, truncatedByServer?: boolean } | null}
  */
 function computeChatDiff(mdBefore, mdAfter) {
-  const patch = structuredPatch('', '', mdBefore, mdAfter, '', '', { context: 2 });
+  // Remove hard-break markers from BOTH full serializations before the line diff
+  // so fence state is derived from complete documents and every downstream
+  // consumer (context lines, format-only detection, 022 word segments) sees the
+  // cleaned text (feature 028, FR-004/FR-005, RBD-2). Cleanup only removes
+  // characters within lines, never a newline, so hunk numbering is unaffected.
+  const cleanBefore = stripHardBreakMarkers(mdBefore);
+  const cleanAfter = stripHardBreakMarkers(mdAfter);
+  const patch = structuredPatch('', '', cleanBefore, cleanAfter, '', '', { context: 2 });
   const lines = [];
   const hunkStarts = [];
   for (let h = 0; h < patch.hunks.length; h++) {
