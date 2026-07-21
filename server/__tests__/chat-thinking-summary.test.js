@@ -21,10 +21,13 @@ jest.mock('../auth/jwt', () => ({ extractBearerToken: jest.fn() }));
 jest.mock('../mcp/auth/agent-token-factory', () => ({ createAgentTokenPair: jest.fn() }));
 jest.mock('../url', () => ({ buildBaseUrl: jest.fn() }));
 jest.mock('../api/chat-tools', () => ({ buildTools: jest.fn(() => ({})) }));
+const mockGetThinkingSummaryModels = jest.fn(() => [
+  { id: 'primary', model: 'summary-model' },
+]);
 jest.mock('../api/chat-models', () => ({
   DEFAULT_MODEL_KEY: 'test',
   resolveModel: jest.fn(),
-  getThinkingSummaryModel: jest.fn(() => 'summary-model'),
+  getThinkingSummaryModels: (...args) => mockGetThinkingSummaryModels(...args),
 }));
 jest.mock('../documents', () => ({ getDocument: jest.fn() }));
 jest.mock('../chat-store', () => ({
@@ -44,7 +47,7 @@ jest.mock('../ai-usage', () => ({
 const mockGenerateText = jest.fn();
 jest.mock('ai', () => ({ generateText: (...args) => mockGenerateText(...args) }));
 
-const { router } = require('../api/chat');
+const { router, _resetThinkingSummaryCooldowns } = require('../api/chat');
 
 function buildApp() {
   const app = express();
@@ -58,6 +61,9 @@ describe('POST /thinking-summary', () => {
 
   beforeEach(() => {
     mockGenerateText.mockReset();
+    mockGetThinkingSummaryModels.mockReset()
+      .mockReturnValue([{ id: 'primary', model: 'summary-model' }]);
+    _resetThinkingSummaryCooldowns();
     app = buildApp();
   });
 
@@ -105,11 +111,66 @@ describe('POST /thinking-summary', () => {
     expect(res.body).toEqual({ summary: null });
   });
 
-  test('returns 500 when the model call fails', async () => {
+  test('fails over to the next candidate when the first model call fails', async () => {
+    mockGetThinkingSummaryModels.mockReturnValue([
+      { id: 'anthropic:haiku', model: 'haiku' },
+      { id: 'openrouter:glm', model: 'glm' },
+    ]);
+    mockGenerateText
+      .mockRejectedValueOnce(new Error('credit balance is too low'))
+      .mockResolvedValueOnce({ text: 'Reading the document' });
+
+    const res = await request(app).post('/thinking-summary').send({ text: 'thinking...' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: 'Reading the document' });
+    expect(mockGenerateText).toHaveBeenCalledTimes(2);
+    expect(mockGenerateText.mock.calls[0][0].model).toBe('haiku');
+    expect(mockGenerateText.mock.calls[1][0].model).toBe('glm');
+  });
+
+  test('a failed candidate cools down: the next poll skips straight to the fallback', async () => {
+    mockGetThinkingSummaryModels.mockReturnValue([
+      { id: 'anthropic:haiku', model: 'haiku' },
+      { id: 'openrouter:glm', model: 'glm' },
+    ]);
+    mockGenerateText
+      .mockRejectedValueOnce(new Error('credit balance is too low'))
+      .mockResolvedValue({ text: 'Summarizing' });
+
+    await request(app).post('/thinking-summary').send({ text: 'thinking...' });
+    mockGenerateText.mockClear();
+    mockGenerateText.mockResolvedValue({ text: 'Still summarizing' });
+
+    const res = await request(app).post('/thinking-summary').send({ text: 'more thinking...' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: 'Still summarizing' });
+    // The cooled-down primary is skipped entirely — one call, on the fallback.
+    expect(mockGenerateText).toHaveBeenCalledTimes(1);
+    expect(mockGenerateText.mock.calls[0][0].model).toBe('glm');
+  });
+
+  test('degrades to summary:null (200, never 500) when every candidate fails', async () => {
+    mockGetThinkingSummaryModels.mockReturnValue([
+      { id: 'anthropic:haiku', model: 'haiku' },
+      { id: 'openrouter:glm', model: 'glm' },
+    ]);
     mockGenerateText.mockRejectedValue(new Error('provider down'));
 
     const res = await request(app).post('/thinking-summary').send({ text: 'thinking...' });
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: null });
+  });
+
+  test('degrades to summary:null when no shared-key candidates exist at all', async () => {
+    mockGetThinkingSummaryModels.mockReturnValue([]);
+
+    const res = await request(app).post('/thinking-summary').send({ text: 'thinking...' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: null });
+    expect(mockGenerateText).not.toHaveBeenCalled();
   });
 });

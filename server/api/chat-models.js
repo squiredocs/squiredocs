@@ -290,8 +290,19 @@ function getContextualizerModel() {
  * polls for these while a model reasons). Claude Haiku — fast and cheap, and
  * called without thinking config so it answers immediately.
  */
-function getThinkingSummaryModel() {
-  return getProvider('anthropic')('claude-haiku-4-5-20251001');
+function getThinkingSummaryModels() {
+  // Ordered fallback chain, filtered to providers that actually hold a shared
+  // server key. Key presence isn't funding (an unfunded key still fails at the
+  // provider), so the endpoint additionally fails over at runtime — a broken
+  // first choice must never blank the label while another funded key exists.
+  const candidates = [
+    { id: 'anthropic:claude-haiku-4-5', provider: 'anthropic', make: () => getProvider('anthropic')('claude-haiku-4-5-20251001') },
+    { id: 'google:gemini-2.5-flash', provider: 'google', make: () => getProvider('google')('gemini-2.5-flash') },
+    { id: 'openrouter:z-ai/glm-4.7', provider: 'openrouter', make: () => getProvider('openrouter')('z-ai/glm-4.7') },
+  ];
+  return candidates
+    .filter((c) => hasServerKey(c.provider))
+    .map((c) => ({ id: c.id, model: c.make() }));
 }
 
 /**
@@ -397,4 +408,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModel, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

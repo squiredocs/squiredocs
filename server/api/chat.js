@@ -1303,6 +1303,12 @@ router.delete('/chats/:id', requireAuth, asyncRoute('delete chat', async (req, r
 // Only the tail of the reasoning matters for "what is it doing right now".
 const THINKING_SUMMARY_MAX_INPUT_CHARS = 8000;
 
+// A summarizer candidate that just failed (e.g. its provider account is out of
+// credit) sits out this long, so the 3s polling cadence goes straight to the
+// next funded provider instead of re-failing on every poll.
+const THINKING_SUMMARY_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+const thinkingSummaryFailedAt = new Map(); // candidate id → last failure epoch ms
+
 router.post('/thinking-summary', requireAuth, asyncRoute('summarize thinking', async (req, res) => {
   const { text } = req.body || {};
   if (typeof text !== 'string' || !text.trim()) {
@@ -1310,19 +1316,33 @@ router.post('/thinking-summary', requireAuth, asyncRoute('summarize thinking', a
   }
   const { generateText } = getAI();
   const tail = text.slice(-THINKING_SUMMARY_MAX_INPUT_CHARS);
-  const result = await generateText({
-    model: chatModels.getThinkingSummaryModel(),
-    maxTokens: 64,
-    prompt:
-      'Below is the in-progress reasoning of an AI assistant. Describe what it is '
-      + 'currently doing in ONE short present-tense phrase of at most 8 words '
-      + '(e.g. "Comparing document versions for formatting changes"). '
-      + 'Weight the end of the reasoning most heavily. '
-      + 'Reply with the phrase only — no quotes, no trailing punctuation.\n\n'
-      + `Reasoning:\n${tail}`,
-  });
-  const summary = (result.text || '').trim().replace(/^["']+|["']+$/g, '');
-  res.json({ summary: summary || null });
+  const prompt =
+    'Below is the in-progress reasoning of an AI assistant. Describe what it is '
+    + 'currently doing in ONE short present-tense phrase of at most 8 words '
+    + '(e.g. "Comparing document versions for formatting changes"). '
+    + 'Weight the end of the reasoning most heavily. '
+    + 'Reply with the phrase only — no quotes, no trailing punctuation.\n\n'
+    + `Reasoning:\n${tail}`;
+
+  // The label is cosmetic: a failure must never 500, page the operator, or
+  // block the chat — degrade to summary:null (the client keeps the static
+  // "Thinking" label). Fail over across shared-key providers at runtime,
+  // because a configured key can still be unfunded at the provider.
+  const now = Date.now();
+  for (const { id, model } of chatModels.getThinkingSummaryModels()) {
+    const failedAt = thinkingSummaryFailedAt.get(id);
+    if (failedAt && now - failedAt < THINKING_SUMMARY_FAILURE_COOLDOWN_MS) continue;
+    try {
+      const result = await generateText({ model, maxTokens: 64, prompt });
+      thinkingSummaryFailedAt.delete(id);
+      const summary = (result.text || '').trim().replace(/^["']+|["']+$/g, '');
+      return res.json({ summary: summary || null });
+    } catch (err) {
+      thinkingSummaryFailedAt.set(id, Date.now());
+      console.warn(`[Chat API] Thinking summary failed on ${id} (cooling down): ${err?.message || err}`);
+    }
+  }
+  res.json({ summary: null });
 }));
 
 // Update chat title
@@ -1349,4 +1369,6 @@ module.exports = {
   messageHasImage, replaceUnsupportedImageParts,
   // Exposed for the F7 key-hardening test.
   attachmentKeyForUser,
+  // Test seam: clear the thinking-summary failure cooldowns between cases.
+  _resetThinkingSummaryCooldowns: () => thinkingSummaryFailedAt.clear(),
 };
