@@ -144,7 +144,7 @@ marker-only diff each behave per FR-003; version-history and word-diff suites ar
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] **T011** Run the full serial backend suite in the worktree (`collab_test_db_028`,
+- [X] **T011** Run the full serial backend suite in the worktree (`collab_test_db_028`,
   `--runInBand --forceExit`): all pre-existing `diff-postprocess.test.js` blocks
   (`stripSpanTags`/`extractPlainText`/`describeMarks`/`postProcessDiffLines`) pass unchanged
   in meaning (SC-007), and the new blocks pass. Confirm no `console.error` from the modify/
