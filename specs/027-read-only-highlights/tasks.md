@@ -71,8 +71,8 @@ the clock, and never adds the agent as an author.
 **Independent Test**: Run `integration/read-zero-writes.test.js` alone against
 `collab_test_db_027`.
 
-- [ ] T010 [P] [US1] Write `server/mcp/__tests__/integration/read-zero-writes.test.js`: build a doc containing an empty paragraph + image + horizontal rule; record update-log row count (`getRecentUpdatesWithUsers`), doc clock, and version-history author set (`recentAuthors` / `getCurrentSessionAuthors`); perform (a) a whole-document `read_document` and (b) an xpath read targeting the empty paragraph, the image, and the hr individually; assert row count unchanged, clock unchanged, and no new agent author for each (SC-001/SC-002, acceptance scenarios 1,2,5).
-- [ ] T011 [US1] Add the empty-document edge to the same file: a completely empty doc (zero blocks) and a doc whose only block is text-less — a read succeeds, surfaces no error to the agent, emits no highlight where none is possible, and persists zero updates and does not throw (spec edge cases; acceptance scenario 3). Run the file green against `collab_test_db_027`.
+- [X] T010 [P] [US1] Write `server/mcp/__tests__/integration/read-zero-writes.test.js`: build a doc containing an empty paragraph + image + horizontal rule; record update-log row count (`getRecentUpdatesWithUsers`), doc clock, and version-history author set (`recentAuthors` / `getCurrentSessionAuthors`); perform (a) a whole-document `read_document` and (b) an xpath read targeting the empty paragraph, the image, and the hr individually; assert row count unchanged, clock unchanged, and no new agent author for each (SC-001/SC-002, acceptance scenarios 1,2,5).
+- [X] T011 [US1] Add the empty-document edge to the same file: a completely empty doc (zero blocks) and a doc whose only block is text-less — a read succeeds, surfaces no error to the agent, emits no highlight where none is possible, and persists zero updates and does not throw (spec edge cases; acceptance scenario 3). Run the file green against `collab_test_db_027`.
 
 **Checkpoint**: reads provably write nothing — MVP delivered.
 
