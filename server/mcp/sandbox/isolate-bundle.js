@@ -16775,6 +16775,22 @@ ${err.toString()}`);
             return ["del", 0];
           }
         },
+        // Word-level (Tier 2) diff marks — produced ONLY by the diff service
+        // (server/diff/apply-word-marks.js). No input rule or editing path creates
+        // them (feature 022, FR-009); their presence must not alter live-document
+        // behavior. Rendered/parsed as <ins class="diff-word"> / <del class="diff-word">.
+        diffInsertWord: {
+          parseDOM: [{ tag: "ins.diff-word" }],
+          toDOM() {
+            return ["ins", { class: "diff-word" }, 0];
+          }
+        },
+        diffDeleteWord: {
+          parseDOM: [{ tag: "del.diff-word" }],
+          toDOM() {
+            return ["del", { class: "diff-word" }, 0];
+          }
+        },
         textStyle: {
           attrs: {
             color: { default: null },
@@ -16855,6 +16871,7 @@ ${err.toString()}`);
       ];
       var TEXTSTYLE_PORTABLE = { drop: true };
       var EMPHASIS_DELIMITER_CHARS = /* @__PURE__ */ new Set(["*", "_", "~"]);
+      var DIAGRAM_FENCE_LABELS = { mermaid: "mermaid", svg: "svg" };
       var INLINE_HTML_TAGS = [
         "span",
         ...INLINE_MARKS.filter((m) => m.htmlTag).map((m) => m.htmlTag)
@@ -16961,6 +16978,7 @@ ${err.toString()}`);
         TEXTSTYLE_PORTABLE,
         INLINE_NEWLINE,
         INLINE_HTML_TAGS,
+        DIAGRAM_FENCE_LABELS,
         attrsToCSS,
         cssToAttrs,
         buildInlineRegex,
@@ -17787,7 +17805,7 @@ ${err.toString()}`);
   // shared/markdown/tolerant/block-parser.js
   var require_block_parser = __commonJS({
     "shared/markdown/tolerant/block-parser.js"(exports, module) {
-      var { INLINE_HTML_TAGS, INLINE_NEWLINE } = require_format_registry();
+      var { INLINE_HTML_TAGS, INLINE_NEWLINE, DIAGRAM_FENCE_LABELS } = require_format_registry();
       var { parseInlineTolerant } = require_inline_parser();
       var MAX_CONTAINER_DEPTH = 64;
       var continuationOpenRe = new RegExp(`<(?:${INLINE_HTML_TAGS.join("|")})\\b`, "g");
@@ -17995,7 +18013,7 @@ ${err.toString()}`);
       }
       function fencedCodeNode(info, code, diffMark) {
         const lang = info.trim();
-        const diagramType = { mermaid: "mermaid", svg: "svg" }[lang.toLowerCase()];
+        const diagramType = DIAGRAM_FENCE_LABELS[lang.toLowerCase()];
         if (diagramType) {
           return codeBlockNode(code, null, diffMark, diagramType);
         }
@@ -40243,9 +40261,7 @@ ${d}`);
           var getLastTextNode = getLastTextNode2;
           const lastTextNode = getLastTextNode2(block);
           if (!lastTextNode) {
-            const newTextNode = new Y2.XmlText();
-            block.insert(0, [newTextNode]);
-            const relPos3 = Y2.createRelativePositionFromTypeIndex(newTextNode, 0);
+            const relPos3 = Y2.createRelativePositionFromTypeIndex(block, 0);
             return Y2.relativePositionToJSON(relPos3);
           }
           const relPos2 = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
@@ -40604,9 +40620,7 @@ ${d}`);
           var getLastTextNode = getLastTextNode2;
           const lastTextNode = getLastTextNode2(currentElement);
           if (!lastTextNode) {
-            const newTextNode = new Y2.XmlText();
-            currentElement.insert(0, [newTextNode]);
-            const relPos3 = Y2.createRelativePositionFromTypeIndex(newTextNode, 0);
+            const relPos3 = Y2.createRelativePositionFromTypeIndex(currentElement, 0);
             return Y2.relativePositionToJSON(relPos3);
           }
           const relPos2 = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);

@@ -109,7 +109,11 @@ BARE empty container (`blockquote`/`listItem`/`tableCell` with zero children) is
 schema-invalid, is dropped on render by ProseMirror, and its boundary position
 resolves **null** under the client resolver — with the OLD placeholder-inserting
 code too (inserting a bare `Y.XmlText` into a blockquote is still
-schema-invalid). This shape cannot occur in a persisted document. For it the
+schema-invalid). CORRECTION (post-merge review F2, 2026-07-21): this shape CAN
+occur in a persisted document — the MCP sandbox exposes raw Y constructors with
+no schema validation, so a modify script can persist a childless container.
+The impossibility claim was overstated; the tested BEHAVIOR is what matters and
+is unchanged: for such a shape the
 invariant that holds is FR-009: the position math writes **zero bytes** and the
 highlight is simply skipped (viewer renders null as no-highlight) — never a
 write. Asserted in the resolver-parity test's fail-observational block. This is
