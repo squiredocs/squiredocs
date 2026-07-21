@@ -326,14 +326,21 @@ describe('AiPanel', () => {
 
   // --------------- Generic error ---------------
 
-  it('shows error banner on non-usage-limit error', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'error', error: new Error('Server error') })} />);
+  it('shows error banner from the durable errorInfo, not SDK status (FR-008)', () => {
+    // Feature 025: the banner renders from the durable classified turn-error, never
+    // from the SDK stream status/error. A durable errorInfo shows the banner even
+    // with status 'ready'; the old `status === 'error' && error` gate is gone.
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({
+      status: 'ready', errorInfo: { code: 'internal', text: 'Something went wrong. Please try again.' },
+    })} />);
 
     expect(screen.getByText('Something went wrong. Please try again.')).toBeInTheDocument();
   });
 
-  it('does not show generic error banner when status is ready', () => {
-    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'ready', error: null })} />);
+  it('does not show generic error banner when there is no durable errorInfo', () => {
+    // Even with the SDK reporting an error, no durable turn-error → no banner
+    // (status is not a render gate). This is the flash-then-clear bug's fix surface.
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat({ status: 'error', error: new Error('x'), errorInfo: null })} />);
 
     expect(screen.queryByText('Something went wrong. Please try again.')).not.toBeInTheDocument();
   });

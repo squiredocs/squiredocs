@@ -6,6 +6,7 @@ import { isTokenExpiringSoon } from '../utils/jwt';
 import { parseDocGuid } from '../utils/navigation';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 import { parseChatError, FATAL_CODES } from '../utils/chatErrorMessages';
+import { deriveTurnError, hasPartialReply } from '../utils/chatTurnError';
 
 const AiChatContext = createContext(null);
 
@@ -40,19 +41,24 @@ const isAwaitingAssistant = (msgs) => msgs?.[msgs.length - 1]?.role === 'user';
 // onError, so the promise is swallowed here.
 const reattachStream = (instance) => { instance.resumeStream?.().catch(() => {}); };
 
-// Resolve true once a resumed stream is established (status moved to
-// submitted/streaming, or an assistant message has landed); false if it never
-// establishes within `ms`. Polls the instance so it works regardless of the
-// SDK's internal subscription API.
-function waitForEstablish(instance, ms) {
+// True when a message carries visible content (any non-empty text part, or any
+// non-text part). An empty-part assistant placeholder from an interrupted stream
+// does NOT count as a landed reply.
+const msgHasVisibleContent = (msg) => Array.isArray(msg?.parts) && msg.parts.length > 0
+  && msg.parts.some((p) => (p?.type === 'text' ? !!(p.text && p.text.trim().length) : !!p?.type));
+
+// Resolve true only once an assistant reply with VISIBLE CONTENT has actually
+// landed (feature 025, FR-012) — recovery counts as success solely when a reply
+// lands, never on a bare status flip (submitted/streaming). Resolves false at the
+// deadline, leaving the durable banner in place. Polls the instance so it works
+// regardless of the SDK's internal subscription API.
+function waitForReply(instance, ms) {
   return new Promise((resolve) => {
     const deadline = Date.now() + ms;
     const tick = () => {
       const msgs = instance.messages;
-      const lastRole = msgs?.[msgs.length - 1]?.role;
-      if (instance.status === 'streaming' || instance.status === 'submitted' || lastRole === 'assistant') {
-        return resolve(true);
-      }
+      const last = msgs?.[msgs.length - 1];
+      if (last?.role === 'assistant' && msgHasVisibleContent(last)) return resolve(true);
       if (Date.now() >= deadline) return resolve(false);
       setTimeout(tick, RECONNECT_POLL_MS);
     };
@@ -239,26 +245,43 @@ export function AiChatProvider({ children }) {
     setLoadMessagesTick((t) => t + 1);
   }, []);
 
-  // Usage limit error state (derived, not latched — cleared on each send attempt).
-  const [usageLimitReached, setUsageLimitReached] = useState(false);
-
-  // Classified error info per chat instance (feature 012), keyed by chat id
-  // (DRAFT_KEY for the not-yet-created chat). { code, provider, text } drives the
-  // banner in both surfaces from the shared map; an error on one chat never bleeds
-  // into another. Session-scoped interruption notices (D5) are keyed the same way.
-  const [errorInfoByChat, setErrorInfoByChat] = useState({});
-  const [interruptedByChat, setInterruptedByChat] = useState({});
+  // ── One durable per-chat turn-error state (feature 025) ───────────────────
+  // The SINGLE durable classified-error state, keyed by chat id (DRAFT_KEY for the
+  // not-yet-created chat). Replaces the four parallel states (SDK status/error as a
+  // render gate, errorInfoByChat, usageLimitReached, interruptedByChat). Each entry
+  // is `{ code, provider }`; the usage-limit banner and the interruption notice are
+  // now DERIVATIONS of it (see the value memo). Fed by (a) live structured error
+  // events (handleChatError) and (b) the failure record on a loaded transcript's
+  // trailing turn (syncTurnError). Never explicitly cleared in storage —
+  // supersession/neutralization are read-side (deriveTurnError) plus clearing the
+  // live entry on send / on a landed reply (FR-007/FR-009/FR-011).
+  const [turnErrorByChat, setTurnErrorByChat] = useState({});
   // Structured code/provider captured from a mid-stream data-chat-error part
   // (delivered via onData before onError). Keyed by instance so handleChatError
   // can read the taxonomy code the bare error event can't carry.
   const midStreamErrorRef = useRef(new Map());
 
+  const setChatTurnError = useCallback((chatKey, record) => {
+    setTurnErrorByChat((m) => ({ ...m, [chatKey]: { code: record.code, provider: record.provider || null } }));
+  }, []);
+
   const clearChatError = useCallback((chatKey) => {
-    setErrorInfoByChat((m) => {
+    setTurnErrorByChat((m) => {
       if (!(chatKey in m)) return m;
       const next = { ...m }; delete next[chatKey]; return next;
     });
-    setInterruptedByChat((m) => {
+  }, []);
+
+  // Reconcile the live turn-error entry with a (re)loaded transcript (feature 025,
+  // FR-007): a trailing-turn failure record populates the banner; its absence (an
+  // answered/superseded turn, or a legacy transcript) clears any stale live entry.
+  // Only called on load / re-sync / recovery-refetch paths, where `msgs` came from
+  // the DB and therefore carries any stamp — never as a generic messages watcher
+  // (that would wrongly wipe a live interrupted-partial banner mid-session).
+  const syncTurnError = useCallback((chatKey, msgs) => {
+    const rec = deriveTurnError(msgs);
+    setTurnErrorByChat((m) => {
+      if (rec) return { ...m, [chatKey]: { code: rec.code, provider: rec.provider || null } };
       if (!(chatKey in m)) return m;
       const next = { ...m }; delete next[chatKey]; return next;
     });
@@ -335,19 +358,26 @@ export function AiChatProvider({ children }) {
     // Reset the instance to the persisted state, dropping any partial assistant
     // turn it's holding (raw `messages` setter — same idiom as createChat).
     instance.messages = dbMsgs;
+    // Reconcile the durable banner with the freshly-loaded transcript: if the
+    // server stamped this turn as failed, the banner derives from the record; if a
+    // complete reply is present, the stale live entry is cleared (FR-007/FR-011).
+    syncTurnError(id, dbMsgs);
     if (!isAwaitingAssistant(dbMsgs)) {
-      instance.clearError?.(); // complete response saved — clear the stale error
+      // A complete reply landed (server finished despite the client-side error).
+      instance.clearError?.(); // cosmetic-to-SDK; the durable banner is already cleared by syncTurnError
       return true;
     }
 
-    // Assistant not persisted yet: reconnect to the in-flight stream. Detect that
-    // it STARTED by polling (resumeStream only resolves when the whole stream
-    // ends). Leave status at 'error' so the fallback banner still shows if it
-    // never establishes; a re-error during the resumed replay surfaces via onError
-    // separately (caught by the re-entry guard).
+    // Assistant not persisted yet: reconnect to the in-flight stream. Recovery
+    // counts as success ONLY when a reply with content actually lands
+    // (waitForReply) — a bare status flip is not success (FR-012). If it lands,
+    // clear the durable banner; otherwise leave it visible. A re-error during the
+    // resumed replay surfaces via onError separately (caught by the re-entry guard).
     reattachStream(instance);
-    return waitForEstablish(instance, RECONNECT_ESTABLISH_MS);
-  }, [fetchChatMessages]);
+    const landed = await waitForReply(instance, RECONNECT_ESTABLISH_MS);
+    if (landed) clearChatError(id);
+    return landed;
+  }, [fetchChatMessages, syncTurnError, clearChatError]);
 
   // Shared error handler for every chat instance. Bound to the instance that
   // erred so an auth-retry / recovery acts on the right chat. (refreshAccessToken
@@ -365,10 +395,12 @@ export function AiChatProvider({ children }) {
       ? parseChatError({ code: midStream.code, provider: midStream.provider, error: error?.message })
       : parseChatError(error);
 
-    // Surface the classified banner (+ usage latch) without touching the composer.
+    // Surface the classified banner into the one durable turn-error state without
+    // touching the composer (feature 025). The usage-limit banner and interruption
+    // notice are derivations of this state (see the value memo) — no separate
+    // latches to set.
     const surfaceError = () => {
-      if (parsed.code === 'app_usage_limit') setUsageLimitReached(true);
-      setErrorInfoByChat((m) => ({ ...m, [chatKey]: parsed }));
+      setChatTurnError(chatKey, { code: parsed.code, provider: parsed.provider });
     };
 
     // Restore the composed message so nothing typed is lost, then surface the
@@ -402,19 +434,16 @@ export function AiChatProvider({ children }) {
     // that left a partial reply keeps a session-scoped "response interrupted" notice
     // beside it instead of silently swallowing the truncation (FR-016/D5).
     if (FATAL_CODES.has(parsed.code)) {
-      const msgs = instance?.messages;
-      const hasPartialReply = msgs?.[msgs.length - 1]?.role === 'assistant';
-      if (hasPartialReply) {
+      if (hasPartialReply(instance?.messages)) {
         // Mid-stream fatal error: the user turn (and this partial reply) is already
         // persisted server-side. Restoring the composer draft would duplicate the
-        // turn when the user resends (L5) — instead leave the composer as-is and
-        // show the interruption notice beside the partial reply. Still surface the
-        // banner + usage latch.
-        setInterruptedByChat((m) => ({ ...m, [chatKey]: parsed.text }));
+        // turn when the user resends (D4/M2) — instead leave the composer as-is.
+        // The interruption notice is DERIVED (turn error + partial content), so
+        // surfacing the banner is all that's needed here.
         surfaceError();
       } else {
         // Pre-stream rejection (empty wallet, bad key, rate limit before any
-        // content): nothing was persisted, so restore the draft (FR-018).
+        // content): nothing streamed, so restore the draft (D4/M2).
         fallback();
       }
       return;
@@ -494,8 +523,9 @@ export function AiChatProvider({ children }) {
     }
     instance.messages = msgs;       // raw setter — drops any partial assistant turn
     instance.clearError?.();
+    syncTurnError(id, msgs);         // re-derive the durable banner from the transcript (FR-007)
     if (isAwaitingAssistant(msgs)) reattachStream(instance); // server may still be streaming
-  }, [fetchChatMessages]);
+  }, [fetchChatMessages, syncTurnError]);
 
   // bfcache restore (Cmd+Shift+T, or back/forward) brings the page back from a
   // frozen snapshot WITHOUT re-mounting React, so the load-messages effect never
@@ -577,6 +607,10 @@ export function AiChatProvider({ children }) {
     fetchChatMessages(currentChatId).then((msgs) => {
       if (cancelled) return;
       chat.setMessages(msgs);
+      // Re-derive the durable banner from the loaded transcript (feature 025,
+      // FR-007): a trailing-turn failure record re-appears on reload; its absence
+      // clears any stale live entry. This is the root-cause fix (US2).
+      syncTurnError(currentChatId, msgs);
       // If the last message is from the user, the server may still be streaming
       // a response started before a refresh or in another tab. resumeStream()
       // calls GET /api/chat/:id/stream — 204 (no-op) if nothing is live, or
@@ -699,12 +733,11 @@ export function AiChatProvider({ children }) {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
 
-      // Usage-limit state is DERIVED, not latched (FR-017): clear it for every send
-      // attempt — a top-up / BYOK-enable / month rollover resumes chat with no
-      // reload, and it re-trips immediately if the limit is still in force. Also
-      // clear any prior classified error / interruption notice for this chat so a
-      // resend starts from a clean transcript.
-      setUsageLimitReached(false);
+      // Supersession (feature 025, FR-011a): clear the durable turn-error for this
+      // chat on every send attempt. The banner clears immediately and re-trips only
+      // if the new turn itself fails. This one clear covers the classified error,
+      // the derived usage-limit banner, and the derived interruption notice — a
+      // top-up / BYOK-enable / month rollover resumes chat with no reload.
       clearChatError(currentChatId || DRAFT_KEY);
 
       // Upload attachments first, replacing inline data: URLs with references so
@@ -809,6 +842,25 @@ export function AiChatProvider({ children }) {
     sendMessage(lastSentTextRef.current, lastSentFilesRef.current);
   }, [sendMessage]);
 
+  // ── Derived error rendering, from durable state ONLY (feature 025, FR-008) ──
+  // The transcript's trailing-turn failure record is authoritative and self-
+  // neutralizes (deriveTurnError → null once the last user turn is unstamped);
+  // the live per-chat entry covers the pre-persist (FR-006) and pre-load windows.
+  // SDK stream status is NEVER consulted here — no status transition can hide an
+  // unaddressed failure. The usage-limit banner and interruption notice are pure
+  // derivations of this one state (SC-005).
+  const activeKey = currentChatId || DRAFT_KEY;
+  const transcriptError = deriveTurnError(chat.messages);
+  const effectiveError = transcriptError || turnErrorByChat[activeKey] || null;
+  const errorInfo = effectiveError
+    ? parseChatError({ code: effectiveError.code, provider: effectiveError.provider })
+    : null;
+  const usageLimitReached = effectiveError?.code === 'app_usage_limit';
+  // Interruption = a failed turn whose stamped user message is followed by partial
+  // assistant content (US5). Derived, so it survives reloads (supersedes 012's
+  // session-only notice — D5). The stamp, not message position, is the discriminator.
+  const interruptionReason = (effectiveError && hasPartialReply(chat.messages)) ? errorInfo?.text : null;
+
   const value = useMemo(
     () => ({
       ...chat,
@@ -827,12 +879,12 @@ export function AiChatProvider({ children }) {
       messagesError,
       retryLoadMessages,
       retryLastMessage,
+      // Classified error banner + usage-limit banner + interruption notice, all
+      // derived from the ONE durable turn-error state (feature 025). Both surfaces
+      // render from the same errorInfo, so they're identical by construction (SC-002).
       usageLimitReached,
-      // Classified error banner + session-scoped interruption notice for the
-      // active chat (feature 012). Both surfaces render from the same errorInfo,
-      // so they're identical by construction (SC-002).
-      errorInfo: errorInfoByChat[currentChatId || DRAFT_KEY] || null,
-      interruptionReason: interruptedByChat[currentChatId || DRAFT_KEY] || null,
+      errorInfo,
+      interruptionReason,
       // Guard against null === null: a brand-new chat has currentChatId === null,
       // and the idle reconnecting state is also null — without this check every
       // new chat would falsely show the "Reconnecting…" banner.
@@ -849,7 +901,7 @@ export function AiChatProvider({ children }) {
       removeSelectionRef,
       clearSelectionRefs,
     }),
-    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, errorInfoByChat, interruptedByChat, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride, pendingRefs, addSelectionRef, removeSelectionRef, clearSelectionRefs],
+    [chat, sendMessage, sendWelcomeMessage, currentChatId, chatList, createChat, selectChat, deleteChat, renameChat, refreshChatList, loadMoreChats, hasMoreChats, messagesLoading, messagesError, retryLoadMessages, retryLastMessage, usageLimitReached, errorInfo, interruptionReason, reconnectingChatId, draftText, draftFiles, getChatDraft, saveChatDraft, setDocGuidOverride, pendingRefs, addSelectionRef, removeSelectionRef, clearSelectionRefs],
   );
 
   return (

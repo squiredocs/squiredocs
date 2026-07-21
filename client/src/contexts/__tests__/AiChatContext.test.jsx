@@ -456,14 +456,18 @@ describe('AiChatContext', () => {
       return capturedUseChatOptions.chat;
     }
 
-    it('resumes the in-flight stream when the assistant turn is not yet saved', async () => {
+    it('recovers when the resumed stream actually lands a reply (not on a bare status flip, FR-012)', async () => {
       const { result } = renderAiChat();
       await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
       const inst = await sendAndGetInstance(result, 'chat-resume');
 
-      // DB shows only the user turn; simulate the resumed stream having started.
+      // DB shows only the user turn (assistant not yet saved). Honest recovery
+      // (feature 025): a mere status flip to 'streaming' is NOT success — a reply
+      // with content must actually land. Simulate the reattached stream delivering
+      // that reply by having resumeStream populate the assistant message.
       mockApi.get.mockResolvedValueOnce({ data: { messages: [userMsg] } });
       mockStatus = 'streaming';
+      resumeStreamSpy.mockImplementation(() => { mockMessages = [userMsg, assistantMsg]; return Promise.resolve(); });
 
       await act(async () => {
         inst.onError(new Error('anthropic overloaded'));
@@ -473,7 +477,8 @@ describe('AiChatContext', () => {
       expect(messagesSetterSpy).toHaveBeenCalledWith([userMsg]);
       expect(resumeStreamSpy).toHaveBeenCalled();
       expect(result.current.draftText).toBe('');   // draft NOT restored — recovered
-      expect(result.current.reconnecting).toBe(false); // cleared after establishment
+      await waitFor(() => expect(result.current.reconnecting).toBe(false)); // cleared once the reply landed
+      expect(result.current.errorInfo).toBeNull(); // durable banner neutralized by the landed reply
     });
 
     it('shows the persisted assistant message without resuming when it is already saved', async () => {

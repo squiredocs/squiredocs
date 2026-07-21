@@ -630,6 +630,19 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     }, ms);
   };
 
+  // On a classified failure the resumable-stream entry is torn down IMMEDIATELY
+  // with its buffer emptied (feature 025, FR-005): a reconnecting client then gets
+  // 204 (nothing live) and derives the failed turn from the stamped transcript
+  // instead of replaying a failure-stripped buffer that looks like a clean success.
+  // `chunks.length = 0` (not reassignment) so any in-flight tail loop reading the
+  // array sees it emptied. The post-SUCCESS 30 s replay window is unchanged.
+  const teardownEntry = () => {
+    if (!entry) return;
+    entry.done = true;
+    entry.chunks.length = 0;
+    if (activeStreams.get(chatId) === entry) activeStreams.delete(chatId);
+  };
+
   // Classification context, hoisted so the outer catch can classify a failure
   // (feature 012). isByok drives BYOK-vs-shared code selection; providerId sources
   // the payload's `provider`; capturedStreamSignal holds a classified provider
@@ -637,6 +650,14 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
   let isByok = false;
   let providerId = null;
   let capturedStreamSignal = null;
+  // Turn-scoped durable failure record (feature 025). Set from the classified
+  // signal at the single classification point (classifyStreamError for mid-stream,
+  // and alongside each post-save early return / the outer catch). Captured
+  // INDEPENDENTLY of capturedStreamSignal (which the SSE onStreamError path nulls
+  // out), so after a mid-stream failure it still marks the turn as failed for the
+  // stamp-aware onFinish save and the epilogue teardown decision. Its being set is
+  // the "this turn failed" signal (T006).
+  let pendingFailureStamp = null;
 
   // Send a classified pre-stream error (HTTP JSON, honest status per D2) and fire
   // the operator notification when the code owns one (US5). Used by the early
@@ -650,6 +671,36 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (!res.headersSent) {
       if (signal.retryAfterSec) res.set('Retry-After', String(signal.retryAfterSec));
       res.status(signal.status).json(buildErrorPayload(signal));
+    }
+  };
+
+  // Build the durable failure record from a classified signal (feature 025).
+  // Codes only — no raw provider text ever enters durable storage (FR-003/D1).
+  const stampFromSignal = (signal) => ({
+    code: signal.code,
+    ...(signal.provider ? { provider: signal.provider } : {}),
+    at: new Date().toISOString(),
+  });
+
+  // Stamp the failure record onto the failed turn's TRAILING USER MESSAGE via an
+  // awaited read-modify-write (feature 025, FR-004). Used by the non-streaming
+  // paths — the post-save early returns and the outer catch — which never invoke
+  // streamText, so onFinish never runs for them (the mid-stream path folds the
+  // same record into its onFinish save instead; research.md R1). Additive: never
+  // replaces sibling metadata (refs/kind). No-op when no user message is persisted
+  // yet (FR-006 — there is no turn to stamp). Best-effort: a stamp failure is
+  // logged, never surfaced (the live error event already reached the client).
+  const stampTurnFailure = async (record) => {
+    const uid = req.user.userId;
+    try {
+      const stored = await chatStore.loadChat(chatId, uid);
+      const u = stored.map((m) => m.role).lastIndexOf('user');
+      if (u < 0) return;
+      const target = stored[u];
+      stored[u] = { ...target, metadata: { ...(target.metadata || {}), failure: record } };
+      await chatStore.saveChat(chatId, uid, stored);
+    } catch (err) {
+      console.error('[Chat API] Failed to stamp turn failure:', err);
     }
   };
 
@@ -721,8 +772,11 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
           creditCents: quota.creditCents,
           usedCents: quota.usedCents,
         });
-        cleanupEntry();
-        return sendClassifiedError(classify(null, { isUsageLimit: true }));
+        const usageSignal = classify(null, { isUsageLimit: true });
+        pendingFailureStamp = stampFromSignal(usageSignal);
+        await stampTurnFailure(pendingFailureStamp);
+        teardownEntry();
+        return sendClassifiedError(usageSignal);
       }
       // Reserve estimated credits upfront to prevent TOCTOU race
       try {
@@ -778,19 +832,23 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       // (FR-019). Not an operator fault, so no exception notification. (BYOK is on
       // here, so no reservation was taken; release is a defensive no-op.)
       releaseReservation();
-      cleanupEntry();
-      return sendClassifiedError(classify(null, { isByokMisconfigured: true, providerId: resolved.provider }));
+      const byokSignal = classify(null, { isByokMisconfigured: true, providerId: resolved.provider });
+      pendingFailureStamp = stampFromSignal(byokSignal);
+      await stampTurnFailure(pendingFailureStamp);
+      teardownEntry();
+      return sendClassifiedError(byokSignal);
     }
     if (!resolved) {
       // No shared model configured at all — a genuine server misconfiguration.
       // This is the shared-key path, so a reservation IS outstanding — release it
       // before returning or it leaks (L4).
       releaseReservation();
-      cleanupEntry();
-      return sendClassifiedError(
-        classify(new Error('No valid chat model configured'), {}),
-        new Error('No valid chat model configured'),
-      );
+      const noModelErr = new Error('No valid chat model configured');
+      const noModelSignal = classify(noModelErr, {});
+      pendingFailureStamp = stampFromSignal(noModelSignal);
+      await stampTurnFailure(pendingFailureStamp);
+      teardownEntry();
+      return sendClassifiedError(noModelSignal, noModelErr);
     }
     const { model, def, provider } = resolved;
     providerId = def.provider; // source of the payload's `provider` for later failures
@@ -808,8 +866,11 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // model's supportsImages flag; this is the server-side backstop.
     if (!def.supportsImages && messageHasImage(message)) {
       releaseReservation();
-      cleanupEntry();
-      return sendClassifiedError(classify(null, { isImageUnsupported: true, providerId }));
+      const imgSignal = classify(null, { isImageUnsupported: true, providerId });
+      pendingFailureStamp = stampFromSignal(imgSignal);
+      await stampTurnFailure(pendingFailureStamp);
+      teardownEntry();
+      return sendClassifiedError(imgSignal);
     }
 
     // Per-doc baseline clock the agent has observed, populated below once the
@@ -933,6 +994,10 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
         return rawErrorMessage(error);
       }
       capturedStreamSignal = classify(error, { isByok, providerId });
+      // Mark the turn failed durably (feature 025). Captured independently of
+      // capturedStreamSignal (which onStreamError nulls) so the stamp-aware
+      // onFinish save and the epilogue teardown still see it after the SSE path.
+      pendingFailureStamp = stampFromSignal(capturedStreamSignal);
       return capturedStreamSignal.error;
     };
     // Anthropic prompt caching: top-level cacheControl caches the large, static
@@ -1026,7 +1091,21 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
         // signal for the transport paths below.
         onError: classifyStreamError,
         onFinish: ({ messages: saved }) => {
-          chatStore.saveChat(chatId, userId, saved).catch((err) => {
+          // Stamp-aware full-replace save (feature 025, FR-004 / research.md R1):
+          // fold the pending failure record into the SAME save that persists the
+          // (possibly partial) reply, so this writer can never persist a failed
+          // turn WITHOUT its stamp — closing the documented clobber race. The
+          // stamp targets the last role==='user' message (on a mid-stream failure
+          // the trailing element is the assistant partial — M1), additively.
+          let toSave = saved;
+          if (pendingFailureStamp) {
+            const u = saved.map((m) => m.role).lastIndexOf('user');
+            if (u >= 0) {
+              toSave = saved.slice();
+              toSave[u] = { ...saved[u], metadata: { ...(saved[u].metadata || {}), failure: pendingFailureStamp } };
+            }
+          }
+          chatStore.saveChat(chatId, userId, toSave).catch((err) => {
             console.error('[Chat API] Failed to save chat:', err);
           });
         },
@@ -1096,11 +1175,16 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     }
     // Common epilogue for the initial run OR a successful retry. A retry that
     // itself throws (or an unhandled error type) propagates to the outer catch.
-    cleanupEntry(30_000);
+    // A mid-stream classified failure (after-content error, forwarded not thrown)
+    // reaches here with pendingFailureStamp set — tear the entry down immediately
+    // so a reconnect finds nothing to replay (FR-005). A success keeps the 30 s
+    // replay window unchanged.
+    if (pendingFailureStamp) teardownEntry();
+    else cleanupEntry(30_000);
     res.end();
   } catch (error) {
     console.error('[Chat API] Error:', error);
-    cleanupEntry();
+    teardownEntry();
     // A tagged client error (e.g. an attachment reference the user doesn't own,
     // feature 010/FR-016) is a request-validation 4xx outside the taxonomy —
     // surface its status + message and don't page.
@@ -1114,6 +1198,13 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // status per D2, structured payload, operator paged only when the code owns it.
     const signal = capturedStreamSignal || classify(error, { isByok, providerId });
     capturedStreamSignal = null;
+    // Persist the failure record on the (already-saved) user message via an
+    // awaited RMW (feature 025, FR-004). A before-content failure reaches here
+    // without a partial reply; onFinish may also fire for it, but both writers
+    // apply the SAME record so last-writer-wins still converges to a stamped
+    // transcript (research.md R1).
+    pendingFailureStamp = stampFromSignal(signal);
+    await stampTurnFailure(pendingFailureStamp);
     sendClassifiedError(signal, error);
   }
 });
