@@ -9,7 +9,7 @@
  * dependencies at startup.
  */
 
-const { PROVIDERS, getProviderConfig, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
+const { PROVIDERS, getProviderConfig, hasServerKey, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
 
 const DEFAULT_MODEL_KEY = 'claude-opus';
 
@@ -46,17 +46,29 @@ const MODEL_DEFS = [
   { key: 'glm-4.7',            provider: 'zai',       modelId: 'glm-4.7',                    label: 'GLM-4.7',                       pricing: { input:  60, output:  220 }, contextWindow:   200_000 },
   { key: 'glm-5',              provider: 'zai',       modelId: 'glm-5',                      label: 'GLM-5',                         pricing: { input: 100, output:  320 }, contextWindow:   200_000 },
   { key: 'glm-5.2',            provider: 'zai',       modelId: 'glm-5.2',                    label: 'GLM-5.2',                       pricing: { input: 140, output:  440 }, contextWindow: 1_000_000 },
-  // OpenRouter — an OpenAI-compatible gateway, BYOK-only. Model ids are namespaced
-  // (`z-ai/glm-*`); like z.ai it only implements chat-completions, so the provider's
-  // createModel hook forces the chat model. These reach the same GLM models as the
-  // direct `zai` provider but bill through the user's OpenRouter account, so they're
-  // separate model keys the user selects by which key they hold. pricing in cents per
-  // 1M tokens and context windows are read straight from OpenRouter's models API
-  // (openrouter.ai/api/v1/models, July 2026).
-  { key: 'or-glm-4.6',         provider: 'openrouter', modelId: 'z-ai/glm-4.6',              label: 'GLM-4.6',                       pricing: { input:  43, output:  174 }, contextWindow:   202_752 },
-  { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40, output:  175 }, contextWindow:   202_752 },
-  { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  60, output:  192 }, contextWindow:   202_752 },
-  { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  93, output:  300 }, contextWindow: 1_048_576 },
+  // OpenRouter — an OpenAI-compatible gateway. Model ids are namespaced
+  // (`z-ai/glm-*`, `moonshotai/*`, `qwen/*`, `minimax/*`); like z.ai it only
+  // implements chat-completions, so the provider's createModel hook forces the chat
+  // model. When OPENROUTER_API_KEY is set these become eligible as the shared
+  // assistant default (feature 026); a BYOK user can also select them, billed to
+  // their own OpenRouter account. pricing (cents per 1M tokens = catalog USD/token ×
+  // 10^8) and context windows are read straight from OpenRouter's models API
+  // (openrouter.ai/api/v1/models), authoring snapshot 2026-07-21. Refresh all
+  // gateway entries together off one snapshot so metering stays consistent.
+  //
+  // Vision: openrouter is not in VISION_PROVIDERS, so every entry below is text-only
+  // and rides the honest model_no_image_support gate. The catalog declares `image`
+  // input on kimi-k3 / qwen3.7-plus / minimax-m3, but with no funded shared key to
+  // verify a live image round-trip (feature 026 D5/C1, fail-closed), they ship
+  // text-only. Flip supportsImages:true per entry only after the go-live round-trip.
+  { key: 'or-kimi-k3',         provider: 'openrouter', modelId: 'moonshotai/kimi-k3',        label: 'Kimi K3',                       pricing: { input: 300,    output: 1500 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-qwen3.7-max',     provider: 'openrouter', modelId: 'qwen/qwen3.7-max',          label: 'Qwen3.7 Max',                   pricing: { input: 147.5,  output: 442.5 },  contextWindow: 1_000_000 }, // text-only per catalog
+  { key: 'or-qwen3.7-plus',    provider: 'openrouter', modelId: 'qwen/qwen3.7-plus',         label: 'Qwen3.7 Plus',                  pricing: { input:  32,    output:  128 },   contextWindow: 1_000_000 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-minimax-m3',      provider: 'openrouter', modelId: 'minimax/minimax-m3',        label: 'MiniMax M3',                    pricing: { input:  30,    output:  120 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-glm-4.6',         provider: 'openrouter', modelId: 'z-ai/glm-4.6',              label: 'GLM-4.6',                       pricing: { input:  50,    output:  200 },   contextWindow:   202_752 },
+  { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40,    output:  175 },   contextWindow:   202_752 },
+  { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  95,    output:  255 },   contextWindow:   204_800 },
+  { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  80.36, output:  252.56 }, contextWindow: 1_048_576 },
 ];
 
 // Vision support. Anthropic/Google/OpenAI models all accept image input; the
@@ -277,16 +289,56 @@ function getThinkingSummaryModel() {
 }
 
 /**
+ * Whether a model key can back the shared (non-BYOK) default: it must name a known
+ * registry entry whose provider has a configured shared server key. This is the
+ * same derived eligibility the admin picker and save-time validation use, applied
+ * at resolution time so a stored (or env-override) key whose provider lost its
+ * server key never instantiates an unauthenticated shared client (feature 026 FR-005).
+ * @param {string} [key]
+ * @returns {boolean}
+ */
+function isSharedEligible(key) {
+  if (!key) return false;
+  const def = MODEL_DEFS.find((d) => d.key === key);
+  return !!(def && hasServerKey(def.provider));
+}
+
+/**
  * Resolve the shared-assistant default model KEY (not a model instance), in
  * order of preference:
  *  1. The admin-selected default stored in app_settings (passed in by the caller).
  *  2. The AI_CHAT_MODEL env var (per-deployment override).
- *  3. DEFAULT_MODEL_KEY code constant.
+ *  3. DEFAULT_MODEL_KEY code constant (the always-load-bearing terminal fallback).
+ *
+ * Each candidate must be shared-eligible (known registry entry whose provider has a
+ * server key) to be used; an ineligible candidate — e.g. a stored gateway default
+ * after OPENROUTER_API_KEY is removed (the feature's rollback path), or an unknown
+ * key left by a later release — is skipped with a logged warning so the deployment
+ * degrades gracefully instead of failing every shared turn at the provider
+ * (feature 026 FR-005/D4). DEFAULT_MODEL_KEY (claude-opus) is the terminal fallback
+ * and is returned unconditionally; it is not re-validated (it is the load-bearing
+ * default for the whole deployment).
+ *
  * @param {string} [storedKey] The admin-selected key from app_settings (may be null).
  * @returns {string} The resolved model key.
  */
 function resolveSharedDefaultKey(storedKey) {
-  return storedKey || process.env.AI_CHAT_MODEL || DEFAULT_MODEL_KEY;
+  if (storedKey) {
+    if (isSharedEligible(storedKey)) return storedKey;
+    console.warn(
+      `[Chat] Stored shared default "${storedKey}" is ineligible (unknown model, or its `
+      + `provider has no shared server key); falling back to env/built-in default.`
+    );
+  }
+  const envKey = process.env.AI_CHAT_MODEL;
+  if (envKey) {
+    if (isSharedEligible(envKey)) return envKey;
+    console.warn(
+      `[Chat] AI_CHAT_MODEL override "${envKey}" is ineligible (unknown model, or its `
+      + `provider has no shared server key); falling back to built-in default.`
+    );
+  }
+  return DEFAULT_MODEL_KEY;
 }
 
 /**
