@@ -30,7 +30,8 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 
 ## Design Proposals
 
-- [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0) — generalize the markdown parser, expose import, and sync repo files as an offline CRDT collaborator (draft)
+- [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0) — generalize the markdown parser, expose import, and sync repo files as an offline CRDT collaborator
+- [Proposal: Plugin Packaging & Marketplace Publishing](https://squiredocs.com/d/b4b1673b-6847-4154-a099-3b5077ad4e2f) — package the agent connection as installable plugins and publish across the agent-ecosystem marketplaces (draft)
 
 ## Repo Sync Manifest
 
@@ -46,8 +47,9 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Squire Media and Diagram Blocks | `design/media-and-diagram-blocks.md` | Current implementation |
 | Squire UI Theming and Dark Mode | `design/ui-theming-dark-mode.md` | Ratified design |
 | Squire Infrastructure and Environments | `design/infrastructure-and-environments.md` | Current implementation |
-| Proposal: Markdown Import & Two-Way Repo Sync | `design/markdown-import-two-way-sync.md` | Draft for review |
+| Proposal: Markdown Import & Two-Way Repo Sync | `design/markdown-import-two-way-sync.md` | Current implementation |
 | Squire Product Documentation Site | `design/product-documentation-site.md` | Ratified design |
 | Squire Observability and Telemetry | `design/observability-and-telemetry.md` | Ratified design |
+| Proposal: Plugin Packaging & Marketplace Publishing | `design/plugin-marketplace-publishing.md` | Draft for review |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).
