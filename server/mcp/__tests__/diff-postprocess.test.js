@@ -531,3 +531,103 @@ describe('stripHardBreakMarkers', () => {
     expect(stripHardBreakMarkers(input)).toBe(expected);
   });
 });
+
+// ---------------------------------------------------------------------------
+// computeChatDiff — hard-break marker removal (feature 028). Integration cases
+// that assert the cleaned line diff. `endsWithMarker` treats any rendered row
+// (prefix + content) ending in a backslash as a would-be marker leak.
+// ---------------------------------------------------------------------------
+
+const endsWithMarker = (line) => line.endsWith('\\');
+
+// US1 (T005) — screenshot scenario: hard-broken prose renders clean.
+describe('computeChatDiff — US1 hard-broken prose (screenshot scenario)', () => {
+  test('poem-stanza edit: no removed/added/context row ends in a hard-break marker; structure intact', () => {
+    // A single paragraph, five lines separated by hard breaks (trailing `\`),
+    // the last line block-final (no marker). Edit only line three.
+    const before = 'Line one of the poem\\\nLine two of the poem\\\n'
+      + 'Line three original\\\nLine four of the poem\\\nLine five of the poem';
+    const after = 'Line one of the poem\\\nLine two of the poem\\\n'
+      + 'Line three EDITED\\\nLine four of the poem\\\nLine five of the poem';
+    const diff = computeChatDiff(before, after);
+
+    // No row of any kind (removed `-`, added `+`, context ` `) leaks a marker.
+    expect(diff.lines.some(endsWithMarker)).toBe(false);
+    // Context rows specifically are cleaned too (the amendment covers all rows).
+    const contextRows = diff.lines.filter((l) => l.startsWith(' '));
+    expect(contextRows.length).toBeGreaterThan(0);
+    expect(contextRows.some(endsWithMarker)).toBe(false);
+
+    // The change is present, marker-free, on both sides.
+    expect(diff.lines).toContain('-Line three original');
+    expect(diff.lines).toContain('+Line three EDITED');
+
+    // Line structure is unchanged by cleanup: a single hunk starting at 1/1
+    // (cleanup removes characters, never lines), so no `~~~` separator and
+    // gutter numbering indexes into the 5-line document as before.
+    expect(diff.lines).not.toContain('~~~');
+    expect(diff.hunkStarts).toHaveLength(1);
+    expect(diff.hunkStarts[0]).toMatchObject({ index: 0, oldStart: 1, newStart: 1 });
+  });
+});
+
+// US1 (T006) — container continuation: list-item and blockquote hard breaks.
+describe('computeChatDiff — US1 container continuation (list + blockquote)', () => {
+  test('markers removed on prefixed continuation forms; indent and `> ` preserved', () => {
+    // A bullet item whose paragraph has hard breaks (continuations at the
+    // 2-space content column) and a blockquote paragraph with hard breaks
+    // (continuations carry `> `). Edit the middle line of each.
+    const before = '- alpha one\\\n  alpha two\\\n  alpha three\n\n'
+      + '> quote one\\\n> quote two\\\n> quote three';
+    const after = '- alpha one\\\n  alpha TWO\\\n  alpha three\n\n'
+      + '> quote one\\\n> quote TWO\\\n> quote three';
+    const diff = computeChatDiff(before, after);
+
+    expect(diff.lines.some(endsWithMarker)).toBe(false);
+    // List continuation: content-column indent preserved, marker gone.
+    expect(diff.lines).toContain('-  alpha two');
+    expect(diff.lines).toContain('+  alpha TWO');
+    // Blockquote continuation: `> ` prefix preserved, marker gone.
+    expect(diff.lines).toContain('-> quote two');
+    expect(diff.lines).toContain('+> quote TWO');
+  });
+});
+
+// US1 (T007) — 022 inlineSegments and format-only detection on cleaned text.
+describe('computeChatDiff — US1 word segments + format-only on cleaned text', () => {
+  test('inlineSegments carry no marker and concatenate exactly to each row (AS3, SC-004)', () => {
+    const before = 'intro line\\\nthe quick brown fox\\\noutro line';
+    const after = 'intro line\\\nthe slow brown fox\\\noutro line';
+    const diff = computeChatDiff(before, after);
+
+    expect(diff.lines.some(endsWithMarker)).toBe(false);
+    expect(diff.inlineSegments).toBeDefined();
+
+    // No segment text contains a hard-break marker.
+    const allSegs = Object.values(diff.inlineSegments).flat();
+    expect(allSegs.some((s) => s.text.includes('\\'))).toBe(false);
+
+    // Each keyed row's segments concatenate byte-identically to that row's
+    // rendered text (the diff line with its one-char prefix removed).
+    for (const [k, segs] of Object.entries(diff.inlineSegments)) {
+      const rendered = diff.lines[Number(k)].slice(1);
+      expect(segs.map((s) => s.text).join('')).toBe(rendered);
+    }
+    // The changed word pair is present on the cleaned rows.
+    expect(diff.lines).toContain('-the quick brown fox');
+    expect(diff.lines).toContain('+the slow brown fox');
+  });
+
+  test('formatting-only change on a hard-broken line detects as format-only, not a -/+ change (AS4)', () => {
+    // Line two is block-final (no marker); only its formatting changes (bold),
+    // so plain text matches on both sides → format-only annotation, no segments.
+    const before = 'first line\\\nsecond line';
+    const after = 'first line\\\n**second line**';
+    const diff = computeChatDiff(before, after);
+
+    expect(diff.lines.some(endsWithMarker)).toBe(false);
+    expect(diff.formatAnnotations).toBeDefined();
+    // Context row for the hard-broken first line is cleaned.
+    expect(diff.lines).toContain(' first line');
+  });
+});

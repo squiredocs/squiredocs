@@ -82,16 +82,16 @@ phantom trailing backslashes while every other diff behavior is unchanged.
 **Independent Test**: `computeChatDiff(before, after)` over a hard-broken poem edit yields
 `.lines` with no marker on any `-`/`+`/context row; tints/gutter/segments behave as today.
 
-- [ ] **T005** [US1] Integration test — screenshot scenario (AS1, SC-001): `computeChatDiff`
+- [X] **T005** [US1] Integration test — screenshot scenario (AS1, SC-001): `computeChatDiff`
   over a poem-stanza edit → assert no `.lines` entry ends in a hard-break marker (removed,
   added, **and** context rows), and that `hunkStarts`/gutter numbering and hunk separators
   (`~~~`) are unchanged vs. the pre-cleanup line structure.
 
-- [ ] **T006** [US1] Integration test — container continuation (AS2, SC-002b): a hard break
+- [X] **T006** [US1] Integration test — container continuation (AS2, SC-002b): a hard break
   inside a list item and inside a blockquote → markers removed on the prefixed continuation
   forms (`- a\`/`␠␠b`, `> a\`/`> b`); container prefixes and indentation otherwise intact.
 
-- [ ] **T007** [US1] Integration test — 022 segments + format-only on cleaned text (AS3/AS4,
+- [X] **T007** [US1] Integration test — 022 segments + format-only on cleaned text (AS3/AS4,
   SC-004): for a changed hard-broken line pair, assert no `inlineSegments` entry contains a
   marker and each row's segments concatenate exactly to that row's rendered text; and a
   formatting-only change on a hard-broken line still detects as format-only (annotation on
