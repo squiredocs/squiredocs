@@ -78,3 +78,13 @@ confirmed a legitimate re-pin). Two LOW findings, both FIXED same day:
 - LOW-2 (admin.test.js T014): fallback assertion depended on ambient
   AI_CHAT_MODEL. Fixed: the 026 describe now saves/deletes/restores
   AI_CHAT_MODEL and asserts the DEFAULT_MODEL_KEY constant directly.
+
+## Go-live progress (2026-07-21)
+
+- OPENROUTER_API_KEY seeded into the local dev .env (gitignored) from the
+  key Sam provided; validated against openrouter.ai/api/v1/key — paid tier
+  (is_free_tier: false), no spend limit, usage 0. The /tmp copy was removed.
+- Verified locally: hasServerKey('openrouter') true; all 8 or-* entries
+  shared-eligible.
+- STILL OWED: prod secret via the hardened cluster's SOPS flow + deploy;
+  optional supportsImages flips after a live vision round-trip.
