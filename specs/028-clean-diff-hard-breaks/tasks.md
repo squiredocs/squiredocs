@@ -54,7 +54,7 @@ depends on this. **CRITICAL**: complete before any story-level task.
   (i) heading and table-cell lines (serializer already `<br>`) pass through unchanged;
   (j) marker-only difference input pair — after cleanup the two strings are equal.
 
-- [ ] **T003** Implement `stripHardBreakMarkers(markdown)` in `server/mcp/diff-utils.js`
+- [X] **T003** Implement `stripHardBreakMarkers(markdown)` in `server/mcp/diff-utils.js`
   and add it to `module.exports`. Line-scan the full string tracking fenced-block state
   (toggle on any line that, after stripping a leading blockquote `>`-run and indentation,
   begins with a triple-backtick fence — covers code + diagram fences, RBD-3). For a line
