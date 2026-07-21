@@ -14,6 +14,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 
 - [Squire Agent Surface (MCP)](https://squiredocs.com/d/697456a2-b42b-49b3-ae57-875d3e328809) — the MCP tool surface, the sandboxed modify pipeline, OAuth and API tokens, the REST export API, attribution
 - [Squire In-App AI Assistant](https://squiredocs.com/d/75b5055d-f4f8-4b3c-8955-f6c3f7841fc7) — the chat panel and chat-centric mode, multi-provider model dispatch, BYOK, credits, onboarding
+- [Squire Docs Plugin Packaging & Marketplace Publishing](https://squiredocs.com/d/b4b1673b-6847-4154-a099-3b5077ad4e2f) — packaging the agent connection as installable plugins across the MCP and agent-ecosystem marketplaces, plus the agent-first `/squire:onboard` first-run flow
 
 ## Platform
 
@@ -31,7 +32,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 ## Design Proposals
 
 - [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0) — generalize the markdown parser, expose import, and sync repo files as an offline CRDT collaborator
-- [Proposal: Plugin Packaging & Marketplace Publishing](https://squiredocs.com/d/b4b1673b-6847-4154-a099-3b5077ad4e2f) — package the agent connection as installable plugins and publish across the agent-ecosystem marketplaces (draft)
 
 ## Repo Sync Manifest
 
@@ -50,6 +50,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Proposal: Markdown Import & Two-Way Repo Sync | `design/markdown-import-two-way-sync.md` | Current implementation |
 | Squire Product Documentation Site | `design/product-documentation-site.md` | Ratified design |
 | Squire Observability and Telemetry | `design/observability-and-telemetry.md` | Ratified design |
-| Proposal: Plugin Packaging & Marketplace Publishing | `design/plugin-marketplace-publishing.md` | Draft for review |
+| Squire Docs Plugin Packaging & Marketplace Publishing | `design/plugin-marketplace-publishing.md` | Ratified design |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).
