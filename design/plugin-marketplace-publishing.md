@@ -136,6 +136,37 @@ Smithery CLI publish, PulseMCP form (it also auto-ingests the registry weekly), 
 - **Updates propagate** via each ecosystem's own git-pull mechanism; the community directory's CI bumps its SHA pin on push.
 - **Channel status ledger:** the table at the bottom of this doc tracks each channel from Not started through Listed — update it as submissions land; this doc is the ground truth for distribution state.
 
+## Repeatable first-run testing
+
+The first-run flow has to be cheap to run dozens of times while the coaching is tuned — without burning real Google or Claude accounts. Two verified facts make that possible:
+
+- **A "new Squire user" is just a missing users row.** Account creation is `findOrCreateUser` at sign-in, so hard-deleting a user row (docs, delegations, tokens cascading with it) makes the next sign-in a genuine first-run — same Google identity, brand-new account. One real Google account yields unlimited prod-shaped first-runs; the only thing not re-exercised is Google's own first-consent screen, which is outside our control anyway.
+- **The client's auth state lives in its config dir, not the Claude account.** Claude Code with a scratch `CLAUDE_CONFIG_DIR` is a client that has never seen the plugin or the server: no cached MCP OAuth tokens, no marketplace, no plugin. Zero additional Claude accounts needed.
+
+Three test tiers, cheapest first:
+
+1. **Backend integration tests** (no human, in the suite): the consent returnTo round-trip with account creation, `signup_source` stamping, the deliberate welcome-doc skip, and the null-welcome-doc client contract.
+2. **Headless OAuth-chain driver** (no human, scripted): walks the real chain against the dev server — 401 → protected-resource metadata → AS metadata → dynamic client registration → PKCE authorize → consent — with the "browser" leg authenticated via the dev user faucet below, cookies and all. Proves the machinery end-to-end on every change without opening a browser.
+3. **Rehearsal runs** (the tuning loop; HITL where it counts): a harness script creates a scratch `CLAUDE_CONFIG_DIR`, adds `distribution/claude-plugin` as a local path marketplace (no publishing needed), installs the plugin with `.mcp.json` pointed at the dev server, mints a fresh synthetic user, and launches Claude Code. A human plays the new user (a scripted user-simulator can take over later); the transcript is captured and graded against the coaching contract as a checklist — signup-creates-account line said before the browser opened, bare URL on its own line, silent re-probe, byte-channel sync, doc URL delivered, loop taught. Running inside the dev pod is a feature, not a limitation: the localhost callback naturally fails there, so the remote paste-back branch is exercised by default; a laptop run covers the happy browser path.
+
+Dev-server support to build (all NODE_ENV-gated, extending the existing `/auth/dev-login` pattern):
+
+- **Fresh-user faucet.** Extend `POST /auth/dev-login`: `fresh: true` mints `test+<nonce>@test.local` instead of the fixed dev user, plus a browser mode that sets session cookies and honors a validated `returnTo` — so it can stand in for Google on the consent page's sign-in leg in dev. Google is never in the dev loop.
+- **User wipe.** A reset that hard-deletes a user and everything hanging off it (docs, delegations, registered clients, tokens) so any identity — synthetic, or the real staging Google account — becomes a first-run again. Dev: a script against the pod DB; staging: a gated endpoint.
+- The existing `dev-onboarding-reset` stays for the browser-first welcome flow; it is not sufficient here because first-run means no account at all.
+
+**The sign-off test matrix:** fresh user (happy path) · existing account, never consented · already connected (straight to sync) · declined consent · abandoned tab · remote paste-back · headless token fallback · repo containing `.kiro/specs` / `specs/` / `CLAUDE.md` / nothing spec-shaped.
+
+## Build milestones
+
+Milestone-gated per Sam (2026-07-21); each exits with HITL sign-off before the next starts:
+
+1. **M1 — Test mechanism.** The faucet, the wipe, the headless chain driver, the rehearsal harness and its transcript checklist. Exit: one command produces a pristine first-run environment in a couple of minutes, demonstrated end to end; HITL remains only where a browser inherently is.
+2. **M2 — Plugin logic.** `shared/skill.md`, `shared/onboard.md`, and the first-run coaching, iterated against the M1 harness. Exit: clean rehearsal transcripts across the full test matrix, with Sam's sign-off on both mechanics and tone.
+3. **M3 — Packaging and distro wrappers.** Manifests, mirror repos, `publish.mjs` + drift tests, wave-1 submissions per D3. Exit: `claude plugin validate` green, mirrors pushed, submission checklist handed to Sam.
+
+The channel waves (D3) live inside M3. Nothing is published before M2's sign-off — the marketplaces' first impression should be the tuned flow, not the draft.
+
 ## Pipeline-buildable vs Sam-only ops
 
 **The pipeline builds:** the entire `distribution/` tree, the shared skill/onboard content, `publish.mjs` plus the drift tests, the consent-page first-run state and signup-provenance stamping (app changes in this repo), and the agents.md / documentation / landing-page updates — everything up to "ready to submit."
