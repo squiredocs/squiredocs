@@ -1,8 +1,16 @@
 /**
- * Tests for cursor operations with empty blocks
+ * Tests for cursor operations with empty blocks.
  *
- * This test suite specifically validates the fix for handling blocks
- * that contain no text nodes, which was causing "Block X contains no text nodes" errors.
+ * Feature 027 (read-only-highlights) RE-PIN: this suite previously asserted the
+ * BUGGY behavior — that positioning a cursor in a text-less block INSERTED a
+ * placeholder Y.XmlText (children.length === 1, children[0] instanceof
+ * Y.XmlText). That insertion was a persisted, agent-attributed write produced by
+ * a read-only operation. The invariant is now "position math never writes": a
+ * text-less block is anchored at its element boundary with NO child created.
+ *
+ * These tests are re-pinned honestly to the new invariant (SC-006, research
+ * R-5) — no child is created, and the returned position still resolves at the
+ * boundary — not deleted.
  */
 
 const Y = require('yjs');
@@ -19,30 +27,35 @@ describe('Cursor Operations - Empty Block Handling', () => {
     xmlFragment = ydoc.get('default', Y.XmlFragment);
   });
 
-  test('createCursorPosition should handle empty block by creating text node', () => {
+  test('createCursorPosition anchors an empty block at its boundary without creating a text node', () => {
     // Create a paragraph block with NO text nodes (empty block)
     const emptyParagraph = new Y.XmlElement('paragraph');
     xmlFragment.insert(0, [emptyParagraph]);
 
-    // Before the fix, this would throw: "Block 0 contains no text nodes"
-    // After the fix, it should create a text node and return a position
+    const before = Y.encodeStateAsUpdate(ydoc).length;
+    // Post-fix: returns a boundary-anchored position and writes nothing.
     const cursorPos = createCursorPosition(xmlFragment, 0, 0);
+    const after = Y.encodeStateAsUpdate(ydoc).length;
 
     expect(cursorPos).toBeDefined();
     expect(cursorPos).toHaveProperty('type');
     expect(cursorPos.type).toHaveProperty('client');
     expect(cursorPos.type).toHaveProperty('clock');
 
-    // Verify that a text node was created in the block
-    const blocks = xmlFragment.toArray();
-    const block = blocks[0];
-    const children = block.toArray();
+    // The position math wrote nothing.
+    expect(after - before).toBe(0);
 
-    expect(children.length).toBe(1);
-    expect(children[0]).toBeInstanceOf(Y.XmlText);
+    // No placeholder text node was created in the block.
+    const block = xmlFragment.toArray()[0];
+    expect(block.toArray().length).toBe(0);
+
+    // The boundary position still resolves.
+    const resolved = resolveCursorPosition(xmlFragment, cursorPos);
+    expect(resolved).toBeDefined();
+    expect(resolved.blockIndex).toBe(0);
   });
 
-  test('createCursorPosition should handle empty block at end position', () => {
+  test('createCursorPosition at an end/past-end offset in an empty block creates no text node', () => {
     // Create multiple blocks, some empty
     const paragraph1 = new Y.XmlElement('paragraph');
     const text1 = new Y.XmlText();
@@ -58,39 +71,38 @@ describe('Cursor Operations - Empty Block Handling', () => {
 
     xmlFragment.insert(0, [paragraph1, emptyParagraph, paragraph3]);
 
-    // Try to position cursor at the end of the empty block (block index 1)
-    const cursorPos = createCursorPosition(xmlFragment, 1, 999); // offset beyond block length
+    const before = Y.encodeStateAsUpdate(ydoc).length;
+    // Position at the end of the empty block (block index 1), offset beyond length.
+    const cursorPos = createCursorPosition(xmlFragment, 1, 999);
+    const after = Y.encodeStateAsUpdate(ydoc).length;
 
     expect(cursorPos).toBeDefined();
+    expect(after - before).toBe(0);
 
-    // Verify the empty block now has a text node
-    const blocks = xmlFragment.toArray();
-    const block = blocks[1];
-    const children = block.toArray();
-
-    expect(children.length).toBe(1);
-    expect(children[0]).toBeInstanceOf(Y.XmlText);
-    expect(children[0].length).toBe(0); // Empty text node
+    // The empty block still has NO children (no placeholder text node).
+    const block = xmlFragment.toArray()[1];
+    expect(block.toArray().length).toBe(0);
   });
 
-  test('cursor should work normally after empty block gets text node', () => {
+  test('cursor works normally after an empty block gains text via a real edit', () => {
     // Create empty block
     const emptyParagraph = new Y.XmlElement('paragraph');
     xmlFragment.insert(0, [emptyParagraph]);
 
-    // Create cursor position (this creates the text node)
+    // Create cursor position (pure — no text node created)
     const pos1 = createCursorPosition(xmlFragment, 0, 0);
     expect(pos1).toBeDefined();
+    expect(xmlFragment.toArray()[0].toArray().length).toBe(0);
 
-    // Resolve the position
+    // Resolve the boundary position
     const resolved1 = resolveCursorPosition(xmlFragment, pos1);
     expect(resolved1).toBeDefined();
     expect(resolved1.blockIndex).toBe(0);
     expect(resolved1.offset).toBe(0);
 
-    // Now insert some text into the block
-    const blocks = xmlFragment.toArray();
-    const textNode = blocks[0].toArray()[0];
+    // Now a REAL edit adds text to the block (this is a mutation, not position math).
+    const textNode = new Y.XmlText();
+    xmlFragment.toArray()[0].insert(0, [textNode]);
     textNode.insert(0, 'Hello world');
 
     // Create a new cursor position in the middle of the text
@@ -103,7 +115,7 @@ describe('Cursor Operations - Empty Block Handling', () => {
     expect(resolved2.offset).toBe(5);
   });
 
-  test('multiple empty blocks should all get text nodes', () => {
+  test('multiple empty blocks are each boundary-anchored with no text nodes created', () => {
     // Create document with multiple empty blocks
     const empty1 = new Y.XmlElement('paragraph');
     const empty2 = new Y.XmlElement('heading');
@@ -111,25 +123,26 @@ describe('Cursor Operations - Empty Block Handling', () => {
 
     xmlFragment.insert(0, [empty1, empty2, empty3]);
 
+    const before = Y.encodeStateAsUpdate(ydoc).length;
     // Create cursor positions in each empty block
     const pos1 = createCursorPosition(xmlFragment, 0, 0);
     const pos2 = createCursorPosition(xmlFragment, 1, 0);
     const pos3 = createCursorPosition(xmlFragment, 2, 0);
+    const after = Y.encodeStateAsUpdate(ydoc).length;
 
     expect(pos1).toBeDefined();
     expect(pos2).toBeDefined();
     expect(pos3).toBeDefined();
+    expect(after - before).toBe(0);
 
-    // Verify all blocks now have text nodes
+    // Verify NO block gained a text node.
     const blocks = xmlFragment.toArray();
     for (let i = 0; i < blocks.length; i++) {
-      const children = blocks[i].toArray();
-      expect(children.length).toBe(1);
-      expect(children[0]).toBeInstanceOf(Y.XmlText);
+      expect(blocks[i].toArray().length).toBe(0);
     }
   });
 
-  test('empty block at document end should be handled correctly', () => {
+  test('empty block at document end resolves at its boundary with no text node', () => {
     // Create document with text and then empty block
     const paragraph1 = new Y.XmlElement('paragraph');
     const text1 = new Y.XmlText();
@@ -140,10 +153,13 @@ describe('Cursor Operations - Empty Block Handling', () => {
 
     xmlFragment.insert(0, [paragraph1, emptyParagraph]);
 
-    // Try to position cursor at end of empty block
+    const before = Y.encodeStateAsUpdate(ydoc).length;
     const cursorPos = createCursorPosition(xmlFragment, 1, 0);
+    const after = Y.encodeStateAsUpdate(ydoc).length;
 
     expect(cursorPos).toBeDefined();
+    expect(after - before).toBe(0);
+    expect(xmlFragment.toArray()[1].toArray().length).toBe(0);
 
     // Verify resolution works
     const resolved = resolveCursorPosition(xmlFragment, cursorPos);
@@ -152,7 +168,7 @@ describe('Cursor Operations - Empty Block Handling', () => {
     expect(resolved.offset).toBe(0);
   });
 
-  test('real-world scenario: insert_block creating empty block then positioning cursor', () => {
+  test('positioning a cursor in a freshly-inserted empty block creates no text node', () => {
     // Simulate what insert_block does:
     // 1. Create existing content
     const paragraph1 = new Y.XmlElement('paragraph');
@@ -165,11 +181,14 @@ describe('Cursor Operations - Empty Block Handling', () => {
     const newParagraph = new Y.XmlElement('paragraph');
     xmlFragment.insert(1, [newParagraph]);
 
-    // 3. Try to position cursor at start of new empty block
-    // This was failing with "Block 1 contains no text nodes"
+    const before = Y.encodeStateAsUpdate(ydoc).length;
+    // 3. Position cursor at start of new empty block (this used to throw, then
+    //    used to insert a placeholder; now it is a pure boundary anchor).
     const cursorPos = createCursorPosition(xmlFragment, 1, 0);
+    const after = Y.encodeStateAsUpdate(ydoc).length;
 
     expect(cursorPos).toBeDefined();
+    expect(after - before).toBe(0);
 
     // 4. Verify it can be resolved
     const resolved = resolveCursorPosition(xmlFragment, cursorPos);
@@ -178,11 +197,8 @@ describe('Cursor Operations - Empty Block Handling', () => {
     expect(resolved.offset).toBe(0);
     expect(resolved.blockType).toBe('paragraph');
 
-    // 5. Verify the block now has a text node for future operations
-    const blocks = xmlFragment.toArray();
-    const newBlock = blocks[1];
-    const children = newBlock.toArray();
-    expect(children.length).toBe(1);
-    expect(children[0]).toBeInstanceOf(Y.XmlText);
+    // 5. Verify NO placeholder text node was created.
+    const newBlock = xmlFragment.toArray()[1];
+    expect(newBlock.toArray().length).toBe(0);
   });
 });

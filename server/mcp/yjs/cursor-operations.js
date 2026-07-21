@@ -65,10 +65,11 @@ function createCursorPosition(xmlFragment, blockIndex, charOffset) {
 
     const lastTextNode = getLastTextNode(block);
     if (!lastTextNode) {
-      // Block has no text nodes - create one
-      const newTextNode = new Y.XmlText();
-      block.insert(0, [newTextNode]);
-      const relPos = Y.createRelativePositionFromTypeIndex(newTextNode, 0);
+      // Block has no text run — anchor at the element's own boundary.
+      // Feature 027: position math never writes. Never insert a placeholder
+      // Y.XmlText; createRelativePositionFromTypeIndex accepts the element type
+      // itself and produces a boundary-anchored position with zero side effects.
+      const relPos = Y.createRelativePositionFromTypeIndex(block, 0);
       return Y.relativePositionToJSON(relPos);
     }
 
@@ -593,10 +594,11 @@ function createCursorPositionFromPath(xmlFragment, path, charOffset = 0) {
 
     const lastTextNode = getLastTextNode(currentElement);
     if (!lastTextNode) {
-      // Element has no text nodes - create one
-      const newTextNode = new Y.XmlText();
-      currentElement.insert(0, [newTextNode]);
-      const relPos = Y.createRelativePositionFromTypeIndex(newTextNode, 0);
+      // Element has no text run — anchor at the element's own boundary.
+      // Feature 027: position math never writes. Never insert a placeholder
+      // Y.XmlText; createRelativePositionFromTypeIndex accepts the element type
+      // itself and produces a boundary-anchored position with zero side effects.
+      const relPos = Y.createRelativePositionFromTypeIndex(currentElement, 0);
       return Y.relativePositionToJSON(relPos);
     }
 

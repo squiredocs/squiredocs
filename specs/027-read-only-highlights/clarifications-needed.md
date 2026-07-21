@@ -84,3 +84,34 @@ boundary anchor.
 **Rejected alternative**: throwing on nonzero offsets into text-less elements —
 turns a cosmetic presence computation into a read-breaking error and diverges from
 the established clamping behavior.
+
+---
+
+## D-5 — Resolver-parity GATE outcome (implementation finding, 2026-07-21)
+
+**Status**: RATIFIED-BY-DEFAULT (records the T004 gate result; no construction
+change).
+
+**Gate outcome**: GO for the element-boundary construction
+`Y.createRelativePositionFromTypeIndex(element, 0)`. Proven via the T004 gate
+(`cursor-operations-resolver-parity.test.js`): on a live replica, through the
+client's y-prosemirror `relativePositionToAbsolutePosition` over the app schema,
+element-boundary anchors resolve **non-null** for every text-less block that can
+appear in a VALID ProseMirror document — empty paragraph, image, horizontalRule,
+and the empty paragraph that a real empty blockquote / list item actually
+contains (the schema requires `block+`/paragraph content, so a rendered "empty
+container" is always `container > empty paragraph`, never a bare empty
+container). The research R-3 fragment-index fallback was therefore **not
+needed**.
+
+**Finding — bare schema-invalid containers (fail-observational, FR-009)**: a
+BARE empty container (`blockquote`/`listItem`/`tableCell` with zero children) is
+schema-invalid, is dropped on render by ProseMirror, and its boundary position
+resolves **null** under the client resolver — with the OLD placeholder-inserting
+code too (inserting a bare `Y.XmlText` into a blockquote is still
+schema-invalid). This shape cannot occur in a persisted document. For it the
+invariant that holds is FR-009: the position math writes **zero bytes** and the
+highlight is simply skipped (viewer renders null as no-highlight) — never a
+write. Asserted in the resolver-parity test's fail-observational block. This is
+an improvement over the old behavior (which wrote garbage and still failed to
+render), not a regression.
