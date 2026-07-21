@@ -1,5 +1,5 @@
 const { postProcessDiffLines, stripSpanTags, extractPlainText, describeMarks } = require('../diff-postprocess');
-const { computeChatDiff } = require('../diff-utils');
+const { computeChatDiff, stripHardBreakMarkers } = require('../diff-utils');
 
 // ---------------------------------------------------------------------------
 // stripSpanTags

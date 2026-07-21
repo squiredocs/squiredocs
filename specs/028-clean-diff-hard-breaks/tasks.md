@@ -25,7 +25,7 @@ Web-service backend (single point of change):
 
 ## Phase 1: Setup
 
-- [ ] **T001** Prepare the test harness: in `server/mcp/__tests__/diff-postprocess.test.js`,
+- [X] **T001** Prepare the test harness: in `server/mcp/__tests__/diff-postprocess.test.js`,
   extend the top-of-file require to also import `stripHardBreakMarkers` from
   `../diff-utils` (it already imports `computeChatDiff` from there and the
   `diff-postprocess` exports). Confirm the worktree backend suite runs serially
