@@ -649,4 +649,105 @@ describe('Admin API', () => {
         .expect(403);
     });
   });
+
+  // Feature 026: OpenRouter as a shared gateway. Eligibility is derived from
+  // OPENROUTER_API_KEY presence, so these toggle it per-case. Anthropic stays set
+  // (from the outer beforeEach) so the picker always has a load-bearing provider.
+  describe('shared assistant default model — OpenRouter gateway (026)', () => {
+    const CURATED = ['or-kimi-k3', 'or-qwen3.7-max', 'or-qwen3.7-plus', 'or-minimax-m3'];
+    const OR_GLM = ['or-glm-4.6', 'or-glm-4.7', 'or-glm-5', 'or-glm-5.2'];
+    let savedAnthropicKey;
+    let savedOpenRouterKey;
+
+    beforeEach(() => {
+      savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
+      savedOpenRouterKey = process.env.OPENROUTER_API_KEY;
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    });
+    afterEach(async () => {
+      if (savedAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
+      if (savedOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = savedOpenRouterKey;
+      await pool.query('DELETE FROM app_settings');
+      await appSettings.refresh();
+    });
+
+    test('T004: with OPENROUTER_API_KEY set, GET lists curated + or-glm-* entries and openrouter provider', async () => {
+      process.env.OPENROUTER_API_KEY = 'sk-or-test';
+      const token = generateAccessToken(adminUser);
+      const res = await request(app)
+        .get('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const keys = res.body.models.map((m) => m.key);
+      for (const k of [...CURATED, ...OR_GLM]) expect(keys).toContain(k);
+
+      const providerIds = res.body.providers.map((p) => p.id);
+      expect(providerIds).toContain('openrouter');
+      expect(res.body.providers).toContainEqual({ id: 'openrouter', label: 'OpenRouter' });
+
+      // Every model's provider is represented in providers (grouping is total).
+      for (const m of res.body.models) expect(providerIds).toContain(m.provider);
+    });
+
+    test('T004/SC-007: with OPENROUTER_API_KEY unset, no openrouter models or provider', async () => {
+      delete process.env.OPENROUTER_API_KEY;
+      const token = generateAccessToken(adminUser);
+      const res = await request(app)
+        .get('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const providers = res.body.models.map((m) => m.provider);
+      expect(providers).not.toContain('openrouter');
+      expect(res.body.providers.map((p) => p.id)).not.toContain('openrouter');
+    });
+
+    test('T005/US1-2: PUT a gateway modelKey with the key set → 200, stored + effective echo it', async () => {
+      process.env.OPENROUTER_API_KEY = 'sk-or-test';
+      const token = generateAccessToken(adminUser);
+      const res = await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'or-kimi-k3' })
+        .expect(200);
+      expect(res.body.modelKey).toBe('or-kimi-k3');
+      expect(res.body.effectiveModelKey).toBe('or-kimi-k3');
+      expect(appSettings.getSharedDefaultModel()).toBe('or-kimi-k3');
+    });
+
+    test('T005/US1-4: PUT a gateway modelKey without the key set → 400 no shared server key', async () => {
+      delete process.env.OPENROUTER_API_KEY;
+      const token = generateAccessToken(adminUser);
+      const res = await request(app)
+        .put('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ modelKey: 'or-kimi-k3' })
+        .expect(400);
+      expect(res.body.error).toMatch(/no shared server key/i);
+    });
+
+    test('T014/FR-005: stored gateway key but OPENROUTER_API_KEY absent → GET effectiveModelKey is the fallback, not the stored key', async () => {
+      // Persist a gateway default directly (bypassing PUT validation), then remove
+      // the key — the rollback path.
+      await appSettings.setSharedDefaultModel('or-kimi-k3');
+      delete process.env.OPENROUTER_API_KEY;
+
+      const token = generateAccessToken(adminUser);
+      const res = await request(app)
+        .get('/api/admin/settings/shared-model')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.modelKey).toBe('or-kimi-k3'); // stored value is unchanged
+      expect(res.body.effectiveModelKey).not.toBe('or-kimi-k3'); // but degraded
+      expect(res.body.effectiveModelKey).toBe(
+        process.env.AI_CHAT_MODEL || 'claude-opus'
+      );
+      // The unrunnable gateway entry is also gone from the picker.
+      expect(res.body.models.map((m) => m.provider)).not.toContain('openrouter');
+    });
+  });
 });

@@ -503,12 +503,17 @@ const PROVIDERS = {
     keyColumn: 'byok_openrouter_key',
     keyPlaceholder: 'sk-or-v1-...',
     keyMask: 'sk-or-••••••',
-    // No shared server OpenRouter key — models run only via BYOK (cost is on the
-    // user's OpenRouter account), so they can never be the shared-assistant default.
-    serverKeyEnv: null,
+    // Shared gateway key. When OPENROUTER_API_KEY is set, OpenRouter becomes
+    // eligible to back the shared-assistant default (its gateway models — Kimi,
+    // Qwen, MiniMax, GLM — surface in the admin picker via the derived hasServerKey
+    // check, exactly like Anthropic/Google). When the env var is absent the
+    // provider is BYOK-only and dormant: no gateway model can be selected as the
+    // shared default (feature 026). z.ai stays serverKeyEnv:null (BYOK-only).
+    serverKeyEnv: 'OPENROUTER_API_KEY',
     // openai-compatible client (see createOpenRouterClient): chat-completions by
     // default and parses OpenRouter's `reasoning` deltas into UI reasoning parts.
-    // The default (no-BYOK) client is never used to serve a shared default.
+    // The default client reads the shared OPENROUTER_API_KEY and serves shared
+    // (non-BYOK) turns when a gateway model is the admin-selected default.
     defaultClient: () => createOpenRouterClient(process.env.OPENROUTER_API_KEY),
     createClient: (apiKey) => createOpenRouterClient(apiKey),
     validateKey: validateOpenRouterKey,

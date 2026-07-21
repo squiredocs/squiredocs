@@ -74,6 +74,13 @@ describe('chat-models BYOK', () => {
   describe('resolveChatModel', () => {
     const decryptKey = (ciphertext) => `decrypted:${ciphertext}`;
 
+    // Feature 026 FR-005/D4: a shared default is only usable when its provider has
+    // a configured server key (else resolution degrades to the built-in default).
+    // The anthropic shared defaults exercised below need ANTHROPIC_API_KEY present.
+    let savedAnthropicKey;
+    beforeEach(() => { savedAnthropicKey = process.env.ANTHROPIC_API_KEY; process.env.ANTHROPIC_API_KEY = 'sk-ant-test'; });
+    afterEach(() => { if (savedAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = savedAnthropicKey; });
+
     // These tests exercise the DEFAULT_MODEL_KEY fallback, so neutralize any
     // ambient AI_CHAT_MODEL (e.g. from a developer .env) that would otherwise
     // take precedence in resolveChatModel.
@@ -170,14 +177,22 @@ describe('chat-models BYOK', () => {
   });
 
   describe('resolveSharedDefaultKey', () => {
-    let savedChatModel;
+    // Feature 026 FR-005/D4: each candidate (stored key, then AI_CHAT_MODEL) must be
+    // shared-eligible — a known entry whose provider has a server key — to be used.
+    // These precedence tests use anthropic models, so ANTHROPIC_API_KEY must be set;
+    // the ineligible-degradation behavior is covered in chat-models.test.js (026).
+    let savedChatModel, savedAnthropicKey;
     beforeEach(() => {
       savedChatModel = process.env.AI_CHAT_MODEL;
+      savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
       delete process.env.AI_CHAT_MODEL;
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
     });
     afterEach(() => {
       if (savedChatModel === undefined) delete process.env.AI_CHAT_MODEL;
       else process.env.AI_CHAT_MODEL = savedChatModel;
+      if (savedAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
     });
 
     test('prefers the stored key', () => {

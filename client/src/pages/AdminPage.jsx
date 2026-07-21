@@ -264,8 +264,14 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                 <option value="">
                   Deployment default{sharedModel.modelKey === null ? ` (${modelLabel(sharedModel, sharedModel.effectiveModelKey)})` : ''}
                 </option>
-                {sharedModel.models.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
+                {(sharedModel.providers ?? []).map((p) => (
+                  <optgroup key={p.id} label={p.label}>
+                    {sharedModel.models
+                      .filter((m) => m.provider === p.id)
+                      .map((m) => (
+                        <option key={m.key} value={m.key}>{m.label}</option>
+                      ))}
+                  </optgroup>
                 ))}
               </select>
               {savingSharedModel && <span className="admin-settings-status">Saving…</span>}

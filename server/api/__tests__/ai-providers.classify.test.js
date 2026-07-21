@@ -126,6 +126,32 @@ describe('classifyProviderError', () => {
     });
   });
 
+  // Feature 026 FR-006 / SC-005: now that OpenRouter can back the SHARED default,
+  // its credit exhaustion must be an operator incident, not a user "top up" prompt.
+  // Assert the full orchestration seam (chat-errors.classify) for a shared (non-BYOK)
+  // openrouter 402 — same contract already proven for anthropic. No taxonomy change.
+  describe('026 FR-006 — shared OpenRouter key exhaustion is an operator incident', () => {
+    const { classify, CODES, buildErrorPayload } = require('../chat-errors');
+    const or402 = sdkError({ statusCode: 402, message: 'This request requires more credits, or fewer max_tokens.' });
+
+    test('shared (non-BYOK) openrouter 402 → user sees provider_overloaded 429, operator notified', () => {
+      const s = classify(or402, { isByok: false, providerId: 'openrouter' });
+      expect(s).toMatchObject({
+        code: CODES.PROVIDER_OVERLOADED,
+        status: 429,
+        provider: 'openrouter',
+        notifyOperator: true,
+      });
+      // The user-facing payload never tells them to top up an account they don't own.
+      expect(buildErrorPayload(s).error).not.toMatch(/credit|top up|billing/i);
+    });
+
+    test('BYOK openrouter 402 stays the user\'s incident → byok_insufficient_credits, no operator page', () => {
+      const s = classify(or402, { isByok: true, providerId: 'openrouter' });
+      expect(s).toMatchObject({ code: CODES.BYOK_INSUFFICIENT_CREDITS, notifyOperator: false });
+    });
+  });
+
   test('an unrecognized error shape → null (→ internal upstream)', () => {
     expect(classifyProviderError('anthropic', new Error('socket hang up'))).toBeNull();
     expect(classifyProviderError('openai', {})).toBeNull();

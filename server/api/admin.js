@@ -8,7 +8,7 @@ const aiUsage = require('../ai-usage');
 const { sendWelcomeEmail } = require('../email');
 const appSettings = require('./app-settings');
 const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey } = require('./chat-models');
-const { hasServerKey } = require('./ai-providers');
+const { hasServerKey, listProviders } = require('./ai-providers');
 
 const router = express.Router();
 let pool = null;
@@ -27,6 +27,19 @@ function sharedDefaultModels() {
 }
 
 /**
+ * Providers eligible to back the shared-assistant default (those with a configured
+ * shared server key), as `{ id, label }`. Additive to the shared-model response so
+ * the admin picker can group models under provider <optgroup>s, mirroring the BYOK
+ * selector (feature 026 FR-004). Single-sourced from the provider registry so
+ * labels never drift. Every sharedDefaultModels() entry's provider appears here.
+ */
+function sharedDefaultProviders() {
+  return listProviders()
+    .filter((p) => hasServerKey(p.id))
+    .map((p) => ({ id: p.id, label: p.label }));
+}
+
+/**
  * GET /settings/shared-model — the shared-assistant default model.
  * Returns the admin-selected key (may be null), the effective key actually used
  * (after env/constant fallback), and the list of eligible models.
@@ -38,6 +51,7 @@ router.get('/settings/shared-model', async (req, res) => {
       modelKey: storedKey,
       effectiveModelKey: resolveSharedDefaultKey(storedKey),
       models: sharedDefaultModels(),
+      providers: sharedDefaultProviders(),
     });
   } catch (err) {
     console.error('[Admin] Error fetching shared model:', err);
@@ -72,6 +86,7 @@ router.put('/settings/shared-model', async (req, res) => {
       modelKey: storedKey,
       effectiveModelKey: resolveSharedDefaultKey(storedKey),
       models: sharedDefaultModels(),
+      providers: sharedDefaultProviders(),
     });
   } catch (err) {
     console.error('[Admin] Error updating shared model:', err);
