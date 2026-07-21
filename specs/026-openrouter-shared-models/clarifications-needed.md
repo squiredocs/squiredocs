@@ -64,3 +64,14 @@ amending the spec before planning/implementation.
 **Default (deviation, ratified)**: KEEP the additive `providers[]` field. It is backward-compatible (no existing field changed or removed; unknown-field-tolerant consumers unaffected) and single-sources provider labels on the server rather than duplicating an id→label map in the client. This is a deliberate, minor deviation from the "contract unchanged" wording — recorded here rather than silently shipped. The research artifact (R5) flagged it as a LOW-severity wording inconsistency; this addendum ratifies it.
 
 **Rationale**: Mirrors the BYOK selector exactly (`SettingsPage.jsx`), avoids a second source of truth for provider labels, and future-proofs against label collisions between eligible providers (the OpenRouter GLM entries reuse z.ai's bare "GLM-x" labels). The alternative — a hardcoded client-side provider map — was rejected as drift-prone and contrary to FR-004's "no hardcoded providers" spirit. Contract doc `contracts/admin-shared-model.md` already documents the field as `NEW (additive)`, so the two artifacts are consistent; only the spec Assumptions wording is superseded by this addendum.
+
+## D1 addendum — Kimi K2 series added (RATIFIED by Sam's direct request, 2026-07-21)
+
+Sam asked for "the Kimi 2 series as choices too" while testing the merged
+feature. Added the current-generation K2 line from the same live catalog
+source: or-kimi-k2.7-code (82/375), or-kimi-k2.6 (68.4/342), or-kimi-k2.5
+(57/285), or-kimi-k2-thinking (60/250), all 262,144 context, all shipped
+text-only per D5 (k2-thinking is text-only in the catalog; the rest carry
+the go-live vision TODO). Older superseded snapshots (kimi-k2, kimi-k2-0905)
+deliberately omitted — flag to Sam if he wants them as well. All four IDs
+smoke-tested live on the shared key (5-token completion, OK).
