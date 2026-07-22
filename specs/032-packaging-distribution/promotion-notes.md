@@ -45,3 +45,29 @@ impression must be the tuned flow). In order:
 - **Design channel-status-table updates.** `design/plugin-marketplace-publishing.md`
   bottom table (Not started → Ready to submit / Listed) — orchestrator/Sam as
   submissions land; via the Squire doc + `node design/sync.mjs`, never a hand-edit.
+
+## Post-merge review dispositions (2026-07-22, Fable — all FIXED, b321c56)
+
+Adversarial review verdict: core safety architecture sound (no default push,
+fail-closed remotes, non-vacuous byte-level drift guard, prod-pinned committed
+bundle, submission-ready manifests). Two reproduced HIGH leaks + fixes:
+
+- **HIGH — publish path could ship a dev endpoint.** `--endpoint <dev> --out d
+  --publish` staged a dev `.mcp.json` past all three validators (validateBundles
+  hardcodes PROD_ENDPOINT, so it validated bytes that were not what got pushed).
+  FIXED: `publishMirrors` no longer takes an `endpoint` — the push path is always
+  prod-pinned; the CLI refuses `--publish` combined with `--out` or a non-prod
+  `--endpoint` (exit 2). Regression test added.
+- **HIGH — test suite could push to a real remote.** publish-mechanism tests
+  inherited real `SQUIRE_MIRROR_*` env; a runner with those exported (one habit
+  away from the documented publish vars) would push server.json to the real
+  GitHub mirror while the test passed. FIXED: tests strip all `SQUIRE_MIRROR_*`
+  and assert configured-channel count == fixture count.
+- **MEDIUM — drift extra-file blind spot** → drift now walks both committed dirs
+  and fails on any file the generator does not emit.
+- **MEDIUM — mirror never pruned** → the mirror clone is cleared (except .git)
+  before staging, so a removed generated file does not linger live.
+- **LOW** — version-downgrade + unreadable-manifest guards; scratch clones
+  gitignored; robust CLI-entry check.
+
+All owed items unchanged (Sam-only publish ops + deploy sequencing below).
