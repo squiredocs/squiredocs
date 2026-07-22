@@ -48,3 +48,6 @@ k8s/secrets/k3s-squiredocs.kubeconfig
 
 # Search eval harness output (feature 018) — operator artifacts, never committed
 server/search/eval/eval-results.*.json
+
+# First-run matrix runner archives (feature 030) — transient rehearsal transcripts
+test/first-run/matrix-archive/

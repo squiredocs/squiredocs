@@ -1,0 +1,16 @@
+{
+  "name": "squire-marketplace",
+  "owner": {
+    "name": "Squire Docs"
+  },
+  "metadata": {
+    "description": "Rehearsal marketplace for the Squire Docs plugin, assembled from distribution/shared/ for the first-run harness. Real distribution is M3."
+  },
+  "plugins": [
+    {
+      "name": "squire",
+      "source": "./",
+      "description": "Squire Docs — connect your coding agent and land your first spec in the loop."
+    }
+  ]
+}

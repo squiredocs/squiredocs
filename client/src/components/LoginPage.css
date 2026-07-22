@@ -200,6 +200,45 @@
   }
 }
 
+/* Consent page — unauthenticated first-run framing (feature 030, US3).
+   Copy/presentation only; the authenticated consent card is untouched. */
+.authorize-firstrun-lead {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: -0.5rem 0 1rem;
+  text-align: left;
+}
+
+.authorize-firstrun-points {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  text-align: left;
+}
+
+.authorize-firstrun-points li {
+  position: relative;
+  padding-left: 1.25rem;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.authorize-firstrun-points li::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 0.5em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 /* Responsive adjustments */
 @media (max-width: 480px) {
   .login-container {
@@ -212,6 +251,17 @@
 
   .login-headline {
     font-size: 1.25rem;
+  }
+
+  /* Keep the three first-run lines compact so the Continue-with-Google action
+     stays above the fold on common mobile viewports (spec Edge Case). */
+  .authorize-firstrun-lead {
+    margin: -0.25rem 0 0.75rem;
+  }
+
+  .authorize-firstrun-points {
+    gap: 0.45rem;
+    margin-bottom: 1.1rem;
   }
 }
 

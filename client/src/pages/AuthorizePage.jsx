@@ -300,15 +300,33 @@ export default function AuthorizePage() {
   }
 
   if (!isAuthenticated) {
+    const agentAsk = agentInfo?.name
+      ? `${agentInfo.name} wants to create and sync documents in your Squire Docs account.`
+      : 'Your agent wants to create and sync documents in your Squire Docs account.';
     return (
       <AuthorizeShell>
-        <h2 className="login-headline">Sign in required</h2>
-        <p className="authorize-subtitle">Please sign in to authorize this application.</p>
+        <h2 className="login-headline">Connect to Squire Docs</h2>
+        <p className="authorize-firstrun-lead">
+          Continue with Google to authorize this connection. If you've never used
+          Squire Docs, that same click creates your account — there's no separate
+          signup step.
+        </p>
+        <ul className="authorize-firstrun-points">
+          <li>
+            Squire Docs is the durable, attributed spec layer for agentic
+            development — your spec, design, and status in one shared doc.
+          </li>
+          <li>{agentAsk}</li>
+          <li>
+            Every agent edit is attributed and revertible, so you always see who
+            changed what.
+          </li>
+        </ul>
         <a
           href={`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
           className="login-button google-button authorize-signin-link"
         >
-          Sign in with Google
+          Continue with Google
         </a>
       </AuthorizeShell>
     );

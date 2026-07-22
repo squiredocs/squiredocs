@@ -30,9 +30,9 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Purpose**: Create the new directory trees this feature adds. No app code yet.
 
-- [ ] T001 Create the canonical content directory `distribution/shared/` (empty, tracked) per plan Project Structure — nothing else under `distribution/` (FR-020)
-- [ ] T002 [P] Create the repo-shape fixture tree `test/first-run/repo-fixtures/{kiro-specs,specs,claude-md,bare}/` with placeholder `.gitkeep` files (content authored in US5)
-- [ ] T003 [P] Create the grader fixtures placeholder note in `test/first-run/fixtures/` documenting the three new JSONL fixtures to be authored in US4 (no logic)
+- [X] T001 Create the canonical content directory `distribution/shared/` (empty, tracked) per plan Project Structure — nothing else under `distribution/` (FR-020)
+- [X] T002 [P] Create the repo-shape fixture tree `test/first-run/repo-fixtures/{kiro-specs,specs,claude-md,bare}/` with placeholder `.gitkeep` files (content authored in US5)
+- [X] T003 [P] Create the grader fixtures placeholder note in `test/first-run/fixtures/` documenting the three new JSONL fixtures to be authored in US4 (no logic)
 
 ---
 
@@ -42,7 +42,7 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **⚠️ Blocks**: US2 (harness capture), US4 (event-based grading), US5 (cell grading). US1 and US3 do NOT depend on this phase and may proceed independently.
 
-- [ ] T004 Implement the structured-capture parser `test/first-run/capture.mjs`: parse `claude -p --output-format stream-json` JSONL into `{ prose, events }` where `events` is an ordered list of `{ tool, input, result }` tool-call records; export a helper to substring-scan the raw capture for a secret (used by the token-bytes assertion). Fail-closed contract: expose whether event data was present so callers can fail performable checks closed when it is absent (RBD-2).
+- [X] T004 Implement the structured-capture parser `test/first-run/capture.mjs`: parse `claude -p --output-format stream-json` JSONL into `{ prose, events }` where `events` is an ordered list of `{ tool, input, result }` tool-call records; export a helper to substring-scan the raw capture for a secret (used by the token-bytes assertion). Fail-closed contract: expose whether event data was present so callers can fail performable checks closed when it is absent (RBD-2).
 
 **Checkpoint**: Capture parsing available to grader, harness, and matrix runner.
 
@@ -56,9 +56,9 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Depends on**: nothing (independent of Phase 2).
 
-- [ ] T005 [US1] Author `distribution/shared/skill.md` — the when-to-use-Squire-Docs steering body: the standing loop (sync-before / read-at-start / write-back-after, FR-002), the byte-channel rule (bytes-outside-the-model over REST import/export, never retyped even after reading, FR-003), token handling (`~/.squire/token`, 0600, referenced not printed, never in transcript/echo/argv, FR-004). "Squire Docs" throughout, honest-confident voice (FR-006).
-- [ ] T006 [US1] Author `distribution/shared/onboard.md` — the `/squire:onboard` flow body: tool-presence-only entry detection (FR-007); the four walkthrough steps in order (expectation line before browser / `/mcp` native flow no `claude mcp add` / remote paste-back verbatim from Agent Surface / re-check-and-continue-silently, FR-008..011); command-availability caveat (FR-012); the four failure-ladder rungs and nothing else (FR-013); the five moves — connect / find-spec precedence `.kiro/specs`→`specs/`→`PLAN.md`|`docs/plan.md`→`CLAUDE.md` + starter-spec fallback / byte-faithful `import_markdown_file` sync with receipt / doc-URL payoff + editor framing / teach-the-loop (FR-014..017); re-run-prefers-update (FR-018). No invented auth path (008/009 lesson).
-- [ ] T007 [US1] Documented contract cross-check: verify `skill.md` and `onboard.md` agree with `design/agent-surface-mcp.md` on channel rule, token handling, connect guidance, and walkthrough steps — record the zero-contradiction result in the feature artifacts (FR-005, SC-006). Note the deferred signup-line as an M3 obligation, not a local divergence (ledger gap 5).
+- [X] T005 [US1] Author `distribution/shared/skill.md` — the when-to-use-Squire-Docs steering body: the standing loop (sync-before / read-at-start / write-back-after, FR-002), the byte-channel rule (bytes-outside-the-model over REST import/export, never retyped even after reading, FR-003), token handling (`~/.squire/token`, 0600, referenced not printed, never in transcript/echo/argv, FR-004). "Squire Docs" throughout, honest-confident voice (FR-006).
+- [X] T006 [US1] Author `distribution/shared/onboard.md` — the `/squire:onboard` flow body: tool-presence-only entry detection (FR-007); the four walkthrough steps in order (expectation line before browser / `/mcp` native flow no `claude mcp add` / remote paste-back verbatim from Agent Surface / re-check-and-continue-silently, FR-008..011); command-availability caveat (FR-012); the four failure-ladder rungs and nothing else (FR-013); the five moves — connect / find-spec precedence `.kiro/specs`→`specs/`→`PLAN.md`|`docs/plan.md`→`CLAUDE.md` + starter-spec fallback / byte-faithful `import_markdown_file` sync with receipt / doc-URL payoff + editor framing / teach-the-loop (FR-014..017); re-run-prefers-update (FR-018). No invented auth path (008/009 lesson).
+- [X] T007 [US1] Documented contract cross-check: verify `skill.md` and `onboard.md` agree with `design/agent-surface-mcp.md` on channel rule, token handling, connect guidance, and walkthrough steps — record the zero-contradiction result in the feature artifacts (FR-005, SC-006). Note the deferred signup-line as an M3 obligation, not a local divergence (ledger gap 5).
 
 **Checkpoint**: US1 content authored and contract-clean; ready to be assembled (US2) and rehearsed (US5).
 
@@ -72,10 +72,10 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Depends on**: US1 (content to assemble); Phase 2 (capture parser).
 
-- [ ] T008 [P] [US2] Implement `test/first-run/assemble-bundle.mjs` per `contracts/bundle-assembly.md`: read `distribution/shared/{skill.md,onboard.md}`, emit an installable bundle (plugin.json name `squire` + "Squire Docs" copy, marketplace.json, `.mcp.json` with the production endpoint, `skills/squire/SKILL.md` ← skill.md, `commands/onboard.md` ← onboard.md) with do-not-hand-edit headers pointing at the source (FR-019). Never mutate `distribution/shared/`. No mirrors/manifests/registry/publish.mjs (FR-020, RBD-1).
-- [ ] T009 [P] [US2] Implement `test/first-run/check-bundle-agreement.mjs`: re-derive generated content from `distribution/shared/` and exit non-zero on any divergence, excluding the `.mcp.json` endpoint field (FR-021). Runnable standalone (standard suite) and as a harness precondition.
-- [ ] T010 [US2] Extend `test/first-run/rehearsal-harness.mjs` capture: switch the model leg to `--output-format stream-json` and route the raw capture through `capture.mjs` (T004) so grading sees tool-call events, not flat text (RBD-2). Preserve the existing throwaway-copy endpoint indirection and the source-not-mutated invariant.
-- [ ] T011 [US2] Switch the harness `--bundle` default to the assembled bundle and assemble (or run the agreement check) per run, so a `shared/` edit mid-iteration can never exercise stale content (FR-019, spec Edge Case). `--bundle <path>` still overrides (029 RBD-9).
+- [X] T008 [P] [US2] Implement `test/first-run/assemble-bundle.mjs` per `contracts/bundle-assembly.md`: read `distribution/shared/{skill.md,onboard.md}`, emit an installable bundle (plugin.json name `squire` + "Squire Docs" copy, marketplace.json, `.mcp.json` with the production endpoint, `skills/squire/SKILL.md` ← skill.md, `commands/onboard.md` ← onboard.md) with do-not-hand-edit headers pointing at the source (FR-019). Never mutate `distribution/shared/`. No mirrors/manifests/registry/publish.mjs (FR-020, RBD-1).
+- [X] T009 [P] [US2] Implement `test/first-run/check-bundle-agreement.mjs`: re-derive generated content from `distribution/shared/` and exit non-zero on any divergence, excluding the `.mcp.json` endpoint field (FR-021). Runnable standalone (standard suite) and as a harness precondition.
+- [X] T010 [US2] Extend `test/first-run/rehearsal-harness.mjs` capture: switch the model leg to `--output-format stream-json` and route the raw capture through `capture.mjs` (T004) so grading sees tool-call events, not flat text (RBD-2). Preserve the existing throwaway-copy endpoint indirection and the source-not-mutated invariant.
+- [X] T011 [US2] Switch the harness `--bundle` default to the assembled bundle and assemble (or run the agreement check) per run, so a `shared/` edit mid-iteration can never exercise stale content (FR-019, spec Edge Case). `--bundle <path>` still overrides (029 RBD-9).
 
 **Checkpoint**: A rehearsal exercises the real content byte-identical to `distribution/shared/`, with structured capture — the bridge every grading/matrix story needs.
 
@@ -89,12 +89,12 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Depends on**: Phase 2 (capture parser). Independent of US1/US2/US3 (grades static fixtures). `--require-claude` wiring lands in US5's runner.
 
-- [ ] T012 [US4] Rework `test/first-run/grade-transcript.mjs` to accept `gradeTranscript(capture, { serverOrigin })` where `capture = { prose, events }`; grade performable items 5 (byte-channel sync) and 6 (doc-URL) from tool-call events, failing closed when event data is absent (FR-026, RBD-2). Keep prose items 1,2,3,7 on the prose stream. Update BOTH existing callers to the new signature: the harness (T010) and the module's own CLI entrypoint (parse the input file through `capture.mjs` and accept a `--server-origin` flag so quickstart step 3 works on JSONL fixtures). Retire or regenerate the two legacy plain-text fixtures (`fixtures/full-coaching-transcript.txt`, `fixtures/stub-transcript.txt`) so no caller passes a raw string.
-- [ ] T013 [US4] Anchor item 6 (doc-URL payoff): pass only when a delivered URL's origin equals `serverOrigin` AND a doc-creating/import tool-call event corroborates it; incidental `/d/…` paths and other-origin URLs FAIL (FR-025). Per `contracts/coaching-checklist.md`.
-- [ ] T014 [US4] Regrade item 4 (silent reconnect) behaviorally: after tool presence is (re-)established, require the flow proceed directly into find-the-spec with NO success-ceremony block; reconnection prose neither required nor penalized (FR-027, RBD-10, ledger gap 1).
-- [ ] T015 [US4] Re-check item 1's matcher against the authored expectation-line semantics; widen to a semantic match (fail-closed philosophy) if the authored wording drifts from the regex (ledger gap 7, FR-026).
-- [ ] T016 [P] [US4] Author grader regression fixtures in `test/first-run/fixtures/`: `quote-only-transcript.jsonl` (quotes contract text, performs nothing → items 5,6 FAIL), `incidental-docpath.jsonl` (an incidental `/d/…` path, no doc-creating event / wrong origin → item 6 FAIL), `genuine-performing.jsonl` (real sync + real doc URL on server origin → items 5,6 PASS). Include tool-call events in the stream-json shape (FR-028, SC-003).
-- [ ] T017 [US4] Wire the three fixtures into the standard suite as a deterministic grader test asserting FAIL/FAIL/PASS on the corresponding items (SC-003); ensure it runs with no model access.
+- [X] T012 [US4] Rework `test/first-run/grade-transcript.mjs` to accept `gradeTranscript(capture, { serverOrigin })` where `capture = { prose, events }`; grade performable items 5 (byte-channel sync) and 6 (doc-URL) from tool-call events, failing closed when event data is absent (FR-026, RBD-2). Keep prose items 1,2,3,7 on the prose stream. Update BOTH existing callers to the new signature: the harness (T010) and the module's own CLI entrypoint (parse the input file through `capture.mjs` and accept a `--server-origin` flag so quickstart step 3 works on JSONL fixtures). Retire or regenerate the two legacy plain-text fixtures (`fixtures/full-coaching-transcript.txt`, `fixtures/stub-transcript.txt`) so no caller passes a raw string.
+- [X] T013 [US4] Anchor item 6 (doc-URL payoff): pass only when a delivered URL's origin equals `serverOrigin` AND a doc-creating/import tool-call event corroborates it; incidental `/d/…` paths and other-origin URLs FAIL (FR-025). Per `contracts/coaching-checklist.md`.
+- [X] T014 [US4] Regrade item 4 (silent reconnect) behaviorally: after tool presence is (re-)established, require the flow proceed directly into find-the-spec with NO success-ceremony block; reconnection prose neither required nor penalized (FR-027, RBD-10, ledger gap 1).
+- [X] T015 [US4] Re-check item 1's matcher against the authored expectation-line semantics; widen to a semantic match (fail-closed philosophy) if the authored wording drifts from the regex (ledger gap 7, FR-026).
+- [X] T016 [P] [US4] Author grader regression fixtures in `test/first-run/fixtures/`: `quote-only-transcript.jsonl` (quotes contract text, performs nothing → items 5,6 FAIL), `incidental-docpath.jsonl` (an incidental `/d/…` path, no doc-creating event / wrong origin → item 6 FAIL), `genuine-performing.jsonl` (real sync + real doc URL on server origin → items 5,6 PASS). Include tool-call events in the stream-json shape (FR-028, SC-003).
+- [X] T017 [US4] Wire the three fixtures into the standard suite as a deterministic grader test asserting FAIL/FAIL/PASS on the corresponding items (SC-003); ensure it runs with no model access.
 
 **Checkpoint**: Zero known false-PASS vectors; the grader measures what the agent DID, and the silent-reconnect item matches the design's no-ceremony rule.
 
@@ -108,10 +108,10 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Depends on**: nothing (fully independent — the only production-app change).
 
-- [ ] T018 [US3] Edit `client/src/pages/AuthorizePage.jsx` unauthenticated branch (`!isAuthenticated`): replace "Sign in required / please sign in to authorize this application" with a "Continue with Google" primary action stating sign-in and account creation are the same click (FR-022), plus one line each for what Squire Docs is (the durable, attributed spec layer for agentic development), what the agent is asking to do, and that every agent edit is attributed and revertible (FR-023). Keep the existing `returnTo` link target and query carriage unchanged (FR-024). "Squire Docs" / honest-confident voice (FR-006).
-- [ ] T019 [P] [US3] Adjust the scoped styles (e.g. `client/src/components/LoginPage.css` or an AuthorizePage-scoped rule) so the three one-liners + primary action fit common mobile viewports without pushing the action below the fold (spec Edge Case). Authenticated consent card styling unchanged (FR-024).
-- [ ] T020 [P] [US3] Add `client/src/pages/__tests__/AuthorizePage.test.jsx` (Vitest) asserting the unauthenticated state renders all four first-run framing elements, and that the authenticated consent card path is unchanged (FR-024, SC-005).
-- [ ] T021 [US3] Verify the M1 tier-1 backend tests stay green — `server/__tests__/auth-return-to.test.js`, `server/__tests__/onboarding.test.js`, `server/__tests__/integration/first-run.test.js` (returnTo round-trip, `agent_oauth` provenance stamping, welcome-doc skip) — confirming the change is copy-only (FR-024).
+- [X] T018 [US3] Edit `client/src/pages/AuthorizePage.jsx` unauthenticated branch (`!isAuthenticated`): replace "Sign in required / please sign in to authorize this application" with a "Continue with Google" primary action stating sign-in and account creation are the same click (FR-022), plus one line each for what Squire Docs is (the durable, attributed spec layer for agentic development), what the agent is asking to do, and that every agent edit is attributed and revertible (FR-023). Keep the existing `returnTo` link target and query carriage unchanged (FR-024). "Squire Docs" / honest-confident voice (FR-006).
+- [X] T019 [P] [US3] Adjust the scoped styles (e.g. `client/src/components/LoginPage.css` or an AuthorizePage-scoped rule) so the three one-liners + primary action fit common mobile viewports without pushing the action below the fold (spec Edge Case). Authenticated consent card styling unchanged (FR-024).
+- [X] T020 [P] [US3] Add `client/src/pages/__tests__/AuthorizePage.test.jsx` (Vitest) asserting the unauthenticated state renders all four first-run framing elements, and that the authenticated consent card path is unchanged (FR-024, SC-005).
+- [X] T021 [US3] Verify the M1 tier-1 backend tests stay green — `server/__tests__/auth-return-to.test.js`, `server/__tests__/onboarding.test.js`, `server/__tests__/integration/first-run.test.js` (returnTo round-trip, `agent_oauth` provenance stamping, welcome-doc skip) — confirming the change is copy-only (FR-024).
 
 **Checkpoint**: A brand-new user's first impression is the tuned first-run framing; server mechanics proven unchanged.
 
@@ -127,19 +127,19 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 ### Harness cell-enabling extensions (FR-032)
 
-- [ ] T022 [US5] Add an **unauthenticated mode** to `test/first-run/rehearsal-harness.mjs`: configure the client's MCP server (endpoint via the throwaway copy) with NO Authorization header and NO completed consent, so Squire Docs tools are genuinely absent and the walkthrough branch runs (spec gap 2, R3). No new endpoint.
-- [ ] T023 [US5] Add a **token-fallback mode**: mint a real `sk_sqd_` token for the fresh synthetic user via existing token machinery, write it to the scratch `HOME`'s `~/.squire/token` (0600), configure client MCP auth from that file, no OAuth session (FR-032, RBD-6, R5).
-- [ ] T024 [US5] Add **scripted user-simulator turns**: drive the session with successive user turns reporting an event ("I clicked Deny" / "I closed the tab before approving" / pasting a synthesized full localhost callback URL) and capture the agent's coached response (FR-032, RBD-5, R4).
-- [ ] T025 [US5] Add **fixture-repo cwd**: copy the cell's `repo-fixtures/<shape>` to a temp dir and run the client with it as the working directory, keeping fixtures pristine (FR-032, RBD-7, R6).
-- [ ] T026 [P] [US5] Author the four repo-shape fixtures under `test/first-run/repo-fixtures/`: `kiro-specs/` (`.kiro/specs/**` + README), `specs/` (`specs/**` + README, the known file the sync cells assert), `claude-md/` (`CLAUDE.md` + README), `bare/` (README, nothing spec-shaped) per `contracts/matrix-cell-profile.md` (RBD-7).
+- [X] T022 [US5] Add an **unauthenticated mode** to `test/first-run/rehearsal-harness.mjs`: configure the client's MCP server (endpoint via the throwaway copy) with NO Authorization header and NO completed consent, so Squire Docs tools are genuinely absent and the walkthrough branch runs (spec gap 2, R3). No new endpoint.
+- [X] T023 [US5] Add a **token-fallback mode**: mint a real `sk_sqd_` token for the fresh synthetic user via existing token machinery, write it to the scratch `HOME`'s `~/.squire/token` (0600), configure client MCP auth from that file, no OAuth session (FR-032, RBD-6, R5).
+- [X] T024 [US5] Add **scripted user-simulator turns**: drive the session with successive user turns reporting an event ("I clicked Deny" / "I closed the tab before approving" / pasting a synthesized full localhost callback URL) and capture the agent's coached response (FR-032, RBD-5, R4).
+- [X] T025 [US5] Add **fixture-repo cwd**: copy the cell's `repo-fixtures/<shape>` to a temp dir and run the client with it as the working directory, keeping fixtures pristine (FR-032, RBD-7, R6).
+- [X] T026 [P] [US5] Author the four repo-shape fixtures under `test/first-run/repo-fixtures/`: `kiro-specs/` (`.kiro/specs/**` + README), `specs/` (`specs/**` + README, the known file the sync cells assert), `claude-md/` (`CLAUDE.md` + README), `bare/` (README, nothing spec-shaped) per `contracts/matrix-cell-profile.md` (RBD-7).
 
 ### Matrix runner + profiles (FR-030/031/033)
 
-- [ ] T027 [P] [US5] Author `test/first-run/matrix-cells.mjs` — the 11 cell definitions with expected-outcome profiles (required / exempt / assertions) per `contracts/matrix-cell-profile.md` (RBD-4/11/12).
-- [ ] T028 [US5] Implement `test/first-run/matrix-runner.mjs`: run the 11 cells **serially** (no concurrency — shared DB, constitution II), each invoking the harness in the cell's mode/fixture/turns, capturing a structured transcript, grading against the cell profile (passing `serverOrigin`), archiving transcript + grade; exit non-zero unless every cell matches its profile with its model leg completed (FR-030/031).
-- [ ] T029 [US5] Wire `--require-claude` **always on** in the matrix runner: a cell whose model leg failed/was skipped fails the gate; with `ANTHROPIC_API_KEY` absent the runner refuses to run rather than skipping legs (FR-029, RBD-3) — this is the gate 029's promotion note assigned to M2.
-- [ ] T030 [US5] Implement the existing-account-never-consented cell's server-side steps: faucet-premint the synthetic account before the client starts, and assert exactly one account exists for the identity after consent (find-or-create, no duplicate) (FR-033, RBD-12).
-- [ ] T031 [US5] Implement the token-fallback cell's security assertion: substring-scan the full captured transcript for the token bytes and fail the cell if present (RBD-6), using the `capture.mjs` scan helper (T004).
+- [X] T027 [P] [US5] Author `test/first-run/matrix-cells.mjs` — the 11 cell definitions with expected-outcome profiles (required / exempt / assertions) per `contracts/matrix-cell-profile.md` (RBD-4/11/12).
+- [X] T028 [US5] Implement `test/first-run/matrix-runner.mjs`: run the 11 cells **serially** (no concurrency — shared DB, constitution II), each invoking the harness in the cell's mode/fixture/turns, capturing a structured transcript, grading against the cell profile (passing `serverOrigin`), archiving transcript + grade; exit non-zero unless every cell matches its profile with its model leg completed (FR-030/031).
+- [X] T029 [US5] Wire `--require-claude` **always on** in the matrix runner: a cell whose model leg failed/was skipped fails the gate; with `ANTHROPIC_API_KEY` absent the runner refuses to run rather than skipping legs (FR-029, RBD-3) — this is the gate 029's promotion note assigned to M2.
+- [X] T030 [US5] Implement the existing-account-never-consented cell's server-side steps: faucet-premint the synthetic account before the client starts, and assert exactly one account exists for the identity after consent (find-or-create, no duplicate) (FR-033, RBD-12).
+- [X] T031 [US5] Implement the token-fallback cell's security assertion: substring-scan the full captured transcript for the token bytes and fail the cell if present (RBD-6), using the `capture.mjs` scan helper (T004).
 
 **Checkpoint**: One command produces a graded, profile-judged, archived result per cell with a trustworthy exit status — half of M2's exit.
 
@@ -149,9 +149,9 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Purpose**: Record the M3 hand-off and the twofold exit gate; validate the whole feature.
 
-- [ ] T032 [P] Author `specs/030-plugin-logic/promotion-notes.md` — the M3 obligations record (FR-035): Agent Surface signup-line amendment at ship time; agents.md / documentation-site / landing-page updates; real per-channel manifests + mirror repos + `publish.mjs` + full drift CI test replacing the rehearsal assembly; harness default `--bundle` → `distribution/claude-plugin` when it exists.
-- [ ] T033 Run `quickstart.md` steps 2–6 in the dev pod and confirm each expected outcome (assembler + agreement; grader FAIL/FAIL/PASS; single rehearsal on real content; full matrix; consent-page client test + tier-1 green).
-- [ ] T034 Produce the exit-gate record (FR-034, SC-007): capture a clean full-matrix run (archived transcripts + grades) as gate part (a); prepare the sign-off record scaffold (date, scope=mechanics+tone, transcript references) for Sam's production self-test as gate part (b). M3 stays blocked until both are recorded — HITL by definition; do not proceed to publish anything.
+- [X] T032 [P] Author `specs/030-plugin-logic/promotion-notes.md` — the M3 obligations record (FR-035): Agent Surface signup-line amendment at ship time; agents.md / documentation-site / landing-page updates; real per-channel manifests + mirror repos + `publish.mjs` + full drift CI test replacing the rehearsal assembly; harness default `--bundle` → `distribution/claude-plugin` when it exists.
+- [X] T033 Run `quickstart.md` steps 2–6 in the dev pod and confirm each expected outcome (assembler + agreement; grader FAIL/FAIL/PASS; single rehearsal on real content; full matrix; consent-page client test + tier-1 green).
+- [X] T034 Produce the exit-gate record (FR-034, SC-007): capture a clean full-matrix run (archived transcripts + grades) as gate part (a); prepare the sign-off record scaffold (date, scope=mechanics+tone, transcript references) for Sam's production self-test as gate part (b). M3 stays blocked until both are recorded — HITL by definition; do not proceed to publish anything.
 
 ---
 

@@ -12,6 +12,14 @@ Phase 0 for `030-plugin-logic`. Resolves the technical unknowns the spec/ledger 
 - *Claude Code hooks (PreToolUse/PostToolUse) writing an event log*: also viable and more decoupled from output format, but adds a hook-config surface to the scratch `CLAUDE_CONFIG_DIR` and a side-channel file to correlate; `stream-json` keeps capture in one stream the harness already owns. Kept as fallback if `stream-json` proves lossy for a needed event.
 - *Keep `--output-format text`, regex tool names from prose*: rejected — it is exactly the prose-inference the promotion note forbids; a quoted tool name is indistinguishable from a called one.
 
+**VERIFICATION (implement time, T004 / analyze LOW L1) — CONFIRMED, no pivot.** Probed the real client in the pod (claude v2.1.217) with `claude -p '<task using Bash>' --output-format stream-json --verbose --allowedTools Bash --dangerously-skip-permissions`. The JSONL stream carries tool-call events losslessly and structurally:
+- `{type:'system',subtype:'init'}` — session init.
+- `{type:'assistant',message:{content:[ {type:'thinking'} | {type:'tool_use',name,input,id} | {type:'text',text} ]}}` — the model's turns; `tool_use` blocks name the tool and carry its full `input` object.
+- `{type:'user',message:{content:[ {type:'tool_result',tool_use_id,content,is_error} ]}}` — tool results, correlated to their call by `tool_use_id`.
+- `{type:'result',subtype:'success'}` — terminal.
+
+So `capture.mjs` parses events by pairing each `tool_use` with the `tool_result` sharing its `tool_use_id`, and concatenates `text` blocks for the prose stream. **Required flag note:** `stream-json` with `-p` REQUIRES `--verbose` (the client errors otherwise); the harness/matrix model leg must pass `--verbose`. The R1 hooks-based fallback is NOT needed and is not built.
+
 ## R2 — Anchoring the doc-URL payoff item to the rehearsal-server origin + a real tool call (FR-025)
 
 **Decision**: The doc-URL item passes only when BOTH hold: (a) a delivered URL's origin equals the rehearsal server's origin (the harness already knows `SERVER`, e.g. `http://localhost:3001`, and passes it to the grader), AND (b) an observed tool-call event created/imported a doc (an `import_markdown_file` recipe run, a `create_document`, or the byte-channel `curl` import) — or equivalent server-side evidence (the doc exists for the synthetic user). A bare `/d/…` path with no matching origin and no corroborating event fails.
