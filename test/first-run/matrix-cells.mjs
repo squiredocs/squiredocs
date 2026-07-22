@@ -77,6 +77,12 @@ const offersRetryViaMcp = proseAssertion('offers retry via /mcp', /\/mcp\b/i);
 
 export const CELLS = [
   {
+    // Feature 031 screen count (SC-001): a genuine first-run connect is now ONE
+    // Squire screen — the first-run surface's Continue-with-Google goes straight
+    // to Google, and the new account's sign-in auto-issues the code inline (no
+    // /login hop, no separate consent card). The coaching-item profile is
+    // unchanged: phase A still coaches the walkthrough with tools absent (items
+    // 1,3); the harness completes consent (auto-approve) to reach sync/payoff.
     id: 'fresh-happy',
     name: 'fresh user — happy path',
     mode: 'unauthenticated',
@@ -97,6 +103,11 @@ export const CELLS = [
     },
   },
   {
+    // Feature 031 screen count (SC-002): a returning user (pre-existing account,
+    // faucet-preminted) reconnecting still passes through TWO Squire screens —
+    // the connect surface AND the explicit consent card — because auto-issue
+    // fires ONLY for an account created in this very round-trip (isNew). The
+    // consent card is retained exactly where the data it protects exists.
     id: 'existing-never-consented',
     name: 'existing account, never consented',
     mode: 'unauthenticated',
@@ -134,11 +145,18 @@ export const CELLS = [
     },
   },
   {
+    // Feature 031 (D6, gap-4): the first-run surface has NO Deny affordance —
+    // declining a genuine first-run connect is ABANDONING before Google sign-in
+    // (no account is created). The explicit Approve/Deny card, and thus an actual
+    // Deny click, now lives only on the existing-account flow. So the first-run
+    // "declined" turn is reframed as an abandon-before-sign-in; the graded
+    // coaching response (explain the access, offer /mcp retry, no improvised
+    // auth) is identical regardless of which way the user backed out.
     id: 'declined-consent',
-    name: 'declined consent',
+    name: 'declined connect (first-run abandon before sign-in)',
     mode: 'unauthenticated',
     fixture: 'specs',
-    userTurns: ['I clicked Deny on the consent screen.'],
+    userTurns: ["I decided not to connect — I closed the Squire Docs page without signing in."],
     profile: {
       required: [1],
       exempt: [2, 4, 5, 6, 7],
@@ -150,11 +168,14 @@ export const CELLS = [
     },
   },
   {
+    // Feature 031: for a first-run user there is no Approve step, so the abandon
+    // here is "started connecting, closed the tab before it finished" — the retry
+    // guidance (re-open the connect page / retry via /mcp) is unchanged.
     id: 'abandoned-tab',
     name: 'abandoned tab',
     mode: 'unauthenticated',
     fixture: 'specs',
-    userTurns: ['I signed in but closed the browser tab before approving.'],
+    userTurns: ['I started connecting but closed the browser tab before it finished.'],
     profile: {
       required: [1],
       exempt: [2, 4, 5, 6, 7],
