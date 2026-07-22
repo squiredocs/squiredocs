@@ -32,5 +32,8 @@ integrity, reset cascade, migration) verified clean under adversarial reading.
 - **returnTo cap**: measured 364–426 chars worst-case vs the 512 cap (research.md
   R7) — cap kept. If a future client inflates authorize URLs (longer state,
   extra params), re-measure before M3 publish.
-- **M1 exit gate (design)**: Sam's HITL sign-off on the demonstrated
-  one-command pristine first-run is required before M2 starts.
+- **M1 exit gate (design)**: SIGNED OFF — Sam, 2026-07-21 ~8:45pm PT. The
+  mechanism was demonstrated live against the local dev server (faucet + wipe,
+  tier-2 driver 10/10 steps, tier-3 rehearsal with real `claude -p` in 6.6s,
+  grade 1/7 as designed) and Sam said to continue, deploying the current stack
+  himself. M2 (feature 030) unblocked.
