@@ -10,12 +10,12 @@ import '../components/LoginPage.css';
 
 const SCOPE_DESCRIPTIONS = {
   'documents:read': {
-    label: 'Read your documents',
-    description: 'View document titles, content, and metadata',
+    label: 'Read your Squire Docs documents',
+    description: 'View titles, content, and metadata of documents in your Squire Docs account',
   },
   'documents:write': {
-    label: 'Edit your documents',
-    description: 'Create, modify, and delete documents on your behalf',
+    label: 'Edit your Squire Docs documents',
+    description: 'Create, modify, and delete documents in your Squire Docs account',
   },
 };
 
@@ -176,27 +176,17 @@ function ConsentCard({
  */
 export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = '#', bare = false }) {
   const grant = scopes.includes('documents:write')
-    ? 'read your documents, and create, edit, and delete documents'
-    : 'read your documents';
+    ? 'read, create, edit, and delete the documents in your Squire Docs account'
+    : 'read the documents in your Squire Docs account';
   return (
     <AuthorizeShell bare={bare}>
       <h2 className="login-headline">Connect to Squire Docs</h2>
+
       <p className="authorize-firstrun-lead">
-        Continue with Google to connect {agentName}. If you've never used Squire
-        Docs, that same click creates your account — there's no separate signup
-        step.
+        Sign in to Squire Docs with your Google Account to connect {agentName}.
       </p>
 
-      <div className="authorize-firstrun-grant">
-        <p className="authorize-firstrun-grant-lead">
-          Once connected, {agentName} will be able to {grant} in your Squire Docs
-          account.
-        </p>
-        <p className="authorize-firstrun-revoke">
-          You can revoke this access anytime in Settings &rarr; AI Agent Access.
-        </p>
-      </div>
-
+      {/* Value reminder (the hook). */}
       <ul className="authorize-firstrun-points">
         <li>One place where humans and coding agents write the same spec together.</li>
         <li>
@@ -205,6 +195,18 @@ export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = 
         </li>
         <li>Every edit is attributed to human or agent, and revertible.</li>
       </ul>
+
+      {/* Transparency: the grant + revocation sit immediately above the action,
+          so the user reads exactly what they are granting right before acting. */}
+      <div className="authorize-firstrun-grant">
+        <p className="authorize-firstrun-grant-lead">
+          This grants {agentName} access to your Squire Docs account — not your
+          Google account. Once connected, it will be able to {grant}.
+        </p>
+        <p className="authorize-firstrun-revoke">
+          You can revoke this access anytime in Settings &rarr; AI Agent Access.
+        </p>
+      </div>
 
       <a href={href} className="login-button google-button authorize-signin-link">
         Continue with Google
@@ -219,7 +221,6 @@ export function AuthorizePreview() {
   return (
     <div className="authorize-preview-stack">
       <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
-      <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read']} />
       <ConsentCard
         agentName="Claude Code"
         agentDescription="AI assistant for document editing"

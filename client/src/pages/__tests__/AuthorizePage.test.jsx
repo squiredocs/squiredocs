@@ -48,17 +48,26 @@ describe('AuthorizePage — unauthenticated first-run framing (SC-005)', () => {
     expect(decodeURIComponent(link.getAttribute('href'))).toContain('/authorize?agent_client_id=agent-xyz');
   });
 
-  it('states that the same click creates the account (no separate signup step)', async () => {
+  it('leads by signing in to Squire Docs with a Google Account to connect the agent', async () => {
     render(<AuthorizePage />);
-    expect(await screen.findByText(/that same click creates your account/i)).toBeInTheDocument();
-    expect(screen.getByText(/no separate\s+signup step/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/sign in to Squire Docs with your Google Account to connect/i),
+    ).toBeInTheDocument();
+  });
+
+  it('makes clear the grant is to the Squire Docs account, not the Google account', async () => {
+    render(<AuthorizePage />);
+    expect(
+      await screen.findByText(/access to your Squire Docs account — not your\s+Google account/i),
+    ).toBeInTheDocument();
   });
 
   it('states the full write grant matching the requested scopes (C2/FR-009)', async () => {
     render(<AuthorizePage />);
-    // write scope requested → names read + create/edit/delete, never narrower.
+    // write scope requested → names read + create/edit/delete over Squire Docs
+    // documents, never narrower.
     expect(
-      await screen.findByText(/read your documents, and create, edit, and delete documents/i),
+      await screen.findByText(/read, create, edit, and delete the documents in your Squire Docs account/i),
     ).toBeInTheDocument();
   });
 
@@ -73,8 +82,8 @@ describe('AuthorizePage — unauthenticated first-run framing (SC-005)', () => {
     setSearch('?agent_client_id=agent-xyz&scope=documents:read');
     render(<AuthorizePage />);
     // grant lead names only reading; must NOT overstate create/edit/delete.
-    expect(await screen.findByText(/will be able to read your documents in your Squire Docs/i)).toBeInTheDocument();
-    expect(screen.queryByText(/create, edit, and delete documents/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/read the documents in your Squire Docs account/i)).toBeInTheDocument();
+    expect(screen.queryByText(/create, edit, and delete/i)).not.toBeInTheDocument();
   });
 
   it('carries a subordinate value reminder drawn from the verified messaging (C3/FR-014)', async () => {
@@ -86,19 +95,20 @@ describe('AuthorizePage — unauthenticated first-run framing (SC-005)', () => {
     expect(screen.getByText(/attributed to human or agent, and revertible/i)).toBeInTheDocument();
   });
 
-  it('orders transparency (primary) before the value reminder before the primary action (C4 fold)', async () => {
+  it('places the transparency grant immediately before the primary action, action last (C4 fold)', async () => {
     const { container } = render(<AuthorizePage />);
     await screen.findByRole('link', { name: /continue with google/i });
-    // Structural fold proxy (jsdom has no layout): DOM order must place the
-    // grant/transparency block ahead of the value reminder, and the primary
-    // "Continue with Google" action last — so value copy can never push the
-    // action above transparency or displace it in source order.
-    const grant = container.querySelector('.authorize-firstrun-grant');
+    // The value reminder is the hook near the top; the transparency grant sits
+    // directly above the action so the user reads exactly what they are granting
+    // right before acting, and the "Continue with Google" action is LAST (never
+    // pushed above the grant). jsdom has no layout, so this is a DOM-order proxy.
     const value = container.querySelector('.authorize-firstrun-points');
+    const grant = container.querySelector('.authorize-firstrun-grant');
     const action = container.querySelector('.authorize-signin-link');
-    expect(grant && value && action).toBeTruthy();
+    expect(value && grant && action).toBeTruthy();
     const order = (el) => Array.prototype.indexOf.call(el.ownerDocument.querySelectorAll('*'), el);
-    expect(order(grant)).toBeLessThan(order(value));
+    // Grant is the last content block before the action (informed consent adjacency).
+    expect(order(grant)).toBeLessThan(order(action));
     expect(order(value)).toBeLessThan(order(action));
     // Value reminder stays tight (2–3 lines) so it cannot crowd the action off-screen.
     const valueLines = value.querySelectorAll('li').length;

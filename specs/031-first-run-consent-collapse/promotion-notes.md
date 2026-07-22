@@ -79,3 +79,27 @@ falls closed to the consent card; delegation parity holds). ONE material finding
   transparency copy primary, value reminder subordinate, "Continue with Google"
   above the fold on common mobile viewports.
 - Tone/marketing-copy sign-off on the first-run grant + value-reminder copy.
+
+## First-run copy finalized during Sam's tone sign-off (2026-07-22)
+
+Live copy/layout decisions made with Sam while reviewing /authorize-preview
+(these refine, and in two places adjust, the 030/031 spec copy intent — recorded
+here so the record is honest; finalizing copy at the tone-sign-off gate is
+expected):
+- **Lead simplified** to "Sign in to Squire Docs with your Google Account to
+  connect {agent}." The explicit account-creation reassurance ("that same click
+  creates your account — no separate signup step") was DROPPED from the web
+  screen. The agent still speaks it in the onboard coaching (grader item 1,
+  onboard.md), so first-run users still hear it.
+- **Data-scope clarity (Sam):** "your documents" read as possibly-Google-Docs.
+  Grant now says the access is "to your Squire Docs account — not your Google
+  account", and names "the documents in your Squire Docs account"; ConsentCard
+  scope labels are "Read/Edit your Squire Docs documents". Google is identity
+  only; the grant is Squire Docs data.
+- **Order (Sam):** heading → lead → value bullets → transparency grant → action.
+  Value moved above the grant (softens FR-009 "transparency-primary"), but the
+  grant + revoke still sit IMMEDIATELY above the "Continue with Google" action,
+  so informed-consent adjacency holds (action is last; C4 test updated to assert
+  grant-before-action rather than grant-before-value).
+- Preview shows one first-run card (write scope) + the ConsentCard; the duplicate
+  read-only first-run card was removed (read-only grant still covered by tests).
