@@ -210,13 +210,40 @@
   text-align: left;
 }
 
+/* Feature 031: transparency block — PRIMARY, visual precedence over the value
+   reminder below. Bordered + accent-tinted so the grant reads first. */
+.authorize-firstrun-grant {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin: 0 0 1.1rem;
+  background: var(--surface-sunken);
+  text-align: left;
+}
+
+.authorize-firstrun-grant-lead {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0 0 0.4rem;
+}
+
+.authorize-firstrun-revoke {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* Feature 031: value reminder — SECONDARY, subordinate to the grant above. */
 .authorize-firstrun-points {
   list-style: none;
   padding: 0;
   margin: 0 0 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.5rem;
   text-align: left;
 }
 
@@ -253,14 +280,20 @@
     font-size: 1.25rem;
   }
 
-  /* Keep the three first-run lines compact so the Continue-with-Google action
-     stays above the fold on common mobile viewports (spec Edge Case). */
+  /* Keep the first-run copy compact so the primary Continue-with-Google action
+     stays above the fold on common mobile viewports (C4/FR-014). Transparency
+     stays visually primary; the value reminder tightens most. */
   .authorize-firstrun-lead {
     margin: -0.25rem 0 0.75rem;
   }
 
+  .authorize-firstrun-grant {
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
   .authorize-firstrun-points {
-    gap: 0.45rem;
+    gap: 0.4rem;
     margin-bottom: 1.1rem;
   }
 }
