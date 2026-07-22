@@ -223,8 +223,8 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 
 | Channel | Wave | Status |
 | --- | --- | --- |
-| Official MCP Registry | 1 | Not started |
-| Claude Code plugin (own marketplace) | 1 | Not started |
+| Official MCP Registry | 1 | Mirror repo LIVE (squiredocs/squire-mcp-registry, server.json pushed 2026-07-22). **registry.modelcontextprotocol.io publish still pending** — mcp-publisher DNS challenge (Sam grants Route 53 for the TXT record). |
+| Claude Code plugin (own marketplace) | 1 | **LIVE 2026-07-22** — squiredocs/squire-plugin published (own marketplace). Install: /plugin marketplace add squiredocs/squire-plugin then /plugin install squire. v1.0.0. |
 | Claude community directory | 1 | Not started |
 | Kiro Powers | 2 | Not started |
 | Cursor Marketplace | 2 | Not started |
