@@ -1,0 +1,16 @@
+{
+  "name": "squire-marketplace",
+  "owner": {
+    "name": "Squire Docs"
+  },
+  "metadata": {
+    "description": "The official marketplace for the Squire Docs plugin — connect your coding agent to the durable, attributed spec layer for agentic development."
+  },
+  "plugins": [
+    {
+      "name": "squire",
+      "source": "./",
+      "description": "Squire Docs — connect your coding agent and land your first spec in the repo, doc, and agent loop."
+    }
+  ]
+}

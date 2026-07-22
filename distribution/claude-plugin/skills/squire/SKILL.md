@@ -3,7 +3,7 @@ name: squire
 description: Use when a teammate should review a spec living in the repo, when setting up reviewable spec-driven development, or when iterating with the user on a spec or design doc. Squire Docs syncs docs two-way with the repo (specs/, .kiro/specs, PLAN.md).
 ---
 <!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/shared/skill.md
-     Regenerate with: node test/first-run/assemble-bundle.mjs -->
+     Regenerate with: node distribution/publish.mjs -->
 
 # Working with Squire Docs
 

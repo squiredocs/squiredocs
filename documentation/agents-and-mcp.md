@@ -15,7 +15,20 @@ The MCP endpoint is:
 https://squiredocs.com/mcp
 ```
 
-For Claude Code and other Claude command-line clients, run this in a terminal, not from inside a running agent session:
+### Claude Code — install the plugin (recommended)
+
+The quickest path for Claude Code is the Squire Docs plugin. In a terminal, not from inside a running agent session, add the marketplace and install it:
+
+```
+/plugin marketplace add squiredocs/squire-plugin
+/plugin install squire
+```
+
+This registers the MCP server where Claude Code reads it at startup — no `claude mcp add` step — and adds the `/squire:onboard` command, which walks you from connecting through syncing your first spec. Claude Code loads plugins at startup, so after installing you may need to restart it before `/squire:onboard` appears. OAuth sign-in still happens in your browser on the first tool call, and signing in with Google creates your Squire Docs account if you do not have one yet.
+
+### Claude Code and other Claude command-line clients — raw one-liner
+
+If you would rather not use the plugin, add the server directly. Run this in a terminal, not from inside a running agent session:
 
 ```
 claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "com.squiredocs/mcp",
+  "description": "Squire Docs — the durable, attributed spec layer for agentic development.",
+  "version": "1.0.0",
+  "websiteUrl": "https://squiredocs.com",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://squiredocs.com/mcp"
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "authentication": "oauth2"
+    }
+  }
+}

@@ -2,7 +2,7 @@
 description: Onboard me to Squire Docs — connect, find a spec in this repo, sync it, and hand back the doc URL.
 ---
 <!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/shared/onboard.md
-     Regenerate with: node test/first-run/assemble-bundle.mjs -->
+     Regenerate with: node distribution/publish.mjs -->
 
 # /squire:onboard
 

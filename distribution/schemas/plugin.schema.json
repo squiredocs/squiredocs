@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://squiredocs.com/schemas/claude-plugin/plugin.schema.json",
+  "title": "Claude Code plugin manifest (.claude-plugin/plugin.json)",
+  "description": "Hand-authored pinned schema for the Claude Code plugin manifest. Anthropic publishes no standalone JSON Schema file for this manifest (see SOURCES.md); this captures the documented required shape so publish.mjs can validate offline.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["name", "version"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Plugin/manifest name — lowercase, digits, hyphens. Namespaces commands as /<name>:<command>.",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version (e.g. 1.0.0).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "homepage": { "type": "string", "format": "uri" }
+  }
+}

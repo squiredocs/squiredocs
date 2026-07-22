@@ -10,18 +10,36 @@ markdown that round-trips with the files in your repo.
 
 ## Connect
 
-For Claude Code and other Claude CLI clients, run this **in a terminal, not
-from inside a running agent session**:
+**Claude Code — install the Squire Docs plugin (recommended).** In a terminal,
+not from inside a running agent session, add our marketplace and install the
+plugin:
+
+```
+/plugin marketplace add squiredocs/squire-plugin
+/plugin install squire
+```
+
+This registers the MCP server where Claude Code reads it at startup — no
+`claude mcp add` — and adds the `/squire:onboard` command. Claude Code loads
+plugins at startup, so after installing you may need to restart it before
+`/squire:onboard` appears. OAuth sign-in happens in your browser on the first
+tool call; signing in with Google creates your Squire Docs account if you don't
+have one yet.
+
+**Other Claude CLI contexts and MCP-native clients.** If you are not installing
+the plugin, the raw one-liner still works — run it **in a terminal, not from
+inside a running agent session**:
 
 ```
 claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire
 ```
 
 **If you are an agent reading this from inside a running session:** do not run
-the command above yourself. MCP clients load server config at startup, so your
+either command above yourself. MCP clients load server config at startup, so your
 session will not see the server — `/mcp` will still report nothing, and the
 write may even land in a config file the client never reads. Instead, tell
-your user to exit this session and run this single command:
+your user to exit this session and install the plugin (then restart Claude Code),
+or run this single command:
 
 ```
 claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire && claude --continue

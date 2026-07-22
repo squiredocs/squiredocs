@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://squiredocs.com/schemas/claude-plugin/marketplace.schema.json",
+  "title": "Claude Code marketplace manifest (.claude-plugin/marketplace.json)",
+  "description": "Hand-authored pinned schema for a Claude Code plugin marketplace manifest. Anthropic publishes no standalone JSON Schema file for this manifest (see SOURCES.md); this captures the documented required shape so publish.mjs can validate offline.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["name", "owner", "plugins"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "owner": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9-]+$", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
