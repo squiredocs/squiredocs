@@ -74,15 +74,21 @@ export const CHECKLIST = [
     test({ prose }) {
       // Semantic match (ledger gap 7 / FR-026): a "sign in (with Google) creates
       // your account" / "no separate signup" line — tolerant of the model's
-      // paraphrase of the authored expectation line.
-      const signup =
-        prose.match(/sign(?:ing|s|ed)?[- ]?in[^.\n]{0,60}creat\w*[^.\n]{0,30}account/i) ||
-        prose.match(/creat\w*[^.\n]{0,30}account[^.\n]{0,60}sign(?:ing|s|ed)?[- ]?in/i) ||
-        prose.match(/no separate sign[- ]?up/i) ||
-        prose.match(/same click[^.\n]{0,40}account/i);
-      if (!signup) return false;
-      const signupIdx = signup.index;
-      const browser = prose.match(/\b(open (?:your |the )?browser|authoriz|consent page|\/mcp\b|https?:\/\/\S*\/mcp\/auth)/i);
+      // paraphrase of the authored expectation line. Take the EARLIEST occurrence
+      // across all phrasings (the expectation line), not the first pattern that
+      // happens to match (which can be a later restatement).
+      const idxs = [
+        /sign(?:ing|s|ed)?[- ]?in[^.\n]{0,60}creat\w*[^.\n]{0,30}account/i,
+        /creat\w*[^.\n]{0,30}account[^.\n]{0,60}sign(?:ing|s|ed)?[- ]?in/i,
+        /no separate sign[- ]?up/i,
+        /same click[^.\n]{0,40}account/i,
+      ].map((re) => { const m = prose.match(re); return m ? m.index : Infinity; });
+      const signupIdx = Math.min(...idxs);
+      if (!Number.isFinite(signupIdx)) return false;
+      // The "browser step" is the ACTIONABLE connect instruction (run /mcp, or a
+      // bare authorize URL to open) — NOT any incidental mention of "authorize".
+      // FR-008: the signup expectation must precede telling the user to go connect.
+      const browser = prose.match(/(run\s+`?\/mcp|\bpick (?:the )?`?squire|\/mcp\b|https?:\/\/\S*\/(?:mcp\/)?authorize|open (?:this|the)[^.\n]{0,30}url)/i);
       const browserIdx = browser ? browser.index : Infinity;
       return signupIdx < browserIdx;
     },
@@ -145,8 +151,10 @@ export const CHECKLIST = [
       if (!structured) return false; // fail closed (RBD-2)
       const origin = originOf(serverOrigin);
       if (!origin) return false;
-      // (a) a delivered URL on the server origin appears in the prose payoff.
-      const urlRe = new RegExp(escapeRegExp(origin) + '\\/d\\/[a-z0-9-]{6,}', 'i');
+      // (a) a delivered doc URL on the server origin appears in the prose payoff.
+      //     Accept both the short (`/d/<id>`) and full (`/documents/<id>`) doc
+      //     routes — the model uses either; both are real Squire Docs doc URLs.
+      const urlRe = new RegExp(escapeRegExp(origin) + '\\/(?:d|documents)\\/[a-z0-9-]{6,}', 'i');
       const deliveredInProse = urlRe.test(prose);
       // (b) corroborated by a doc-creating/import event, or a tool result that
       //     returned a doc URL on the server origin.

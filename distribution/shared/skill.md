@@ -1,6 +1,6 @@
 ---
 name: squire
-description: When to use Squire Docs in real work — sync the repo's spec into Squire Docs before a run, read it at the start of every run, and write status and design back after implementing. Also governs moving files over the byte channel and handling sk_sqd_ API tokens.
+description: Use Squire Docs to sync a repo spec into a shared doc, read it at the start of each run, and write status and design back after. Covers the byte channel for file sync and sk_sqd_ token handling. For any repo with a spec, design, or plan doc.
 ---
 
 # Working with Squire Docs

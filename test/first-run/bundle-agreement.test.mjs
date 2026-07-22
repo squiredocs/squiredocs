@@ -12,12 +12,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { checkBundleAgreement } from './check-bundle-agreement.mjs';
+import { checkBundleAgreement, checkContentBudgets, BUDGETS } from './check-bundle-agreement.mjs';
 import { assembleBundle, DEFAULT_BUNDLE_DIR } from './assemble-bundle.mjs';
 
 test('committed bundle agrees with distribution/shared/', () => {
   const { ok, problems } = checkBundleAgreement({ bundleDir: DEFAULT_BUNDLE_DIR });
   assert.equal(ok, true, `bundle drift: ${problems.join('; ')} (run: node test/first-run/assemble-bundle.mjs)`);
+});
+
+test('shared content is within the context budgets (RBD-13)', () => {
+  const problems = checkContentBudgets();
+  assert.deepEqual(problems, [], `budget overrun: ${problems.join('; ')}`);
+  assert.ok(BUDGETS.skillDescriptionChars === 250, 'skill description budget is the /skills UI cap');
 });
 
 test('a hand-edited generated file is detected as drift', () => {

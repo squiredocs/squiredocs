@@ -90,6 +90,14 @@ product decisions get the best default, recorded here — never decided silently
 - **Default chosen**: The cell pre-mints the synthetic account via the M1 faucet before the client starts, expects coaching identical to the fresh cell (same profile for the walkthrough items), and adds one server-side assertion: after consent, exactly one account exists for the identity (find-or-create, no duplicate). Account-creation semantics themselves remain covered by M1's tier-1 tests.
 - **Rationale**: Exercises the matrix cell the design names while asserting the only observable difference the design permits (no duplicate account).
 
+### RBD-13 — Content-length budgets for the shared skill/command content
+
+- **Source**: Sam asked (2026-07-21, mid-flight); numbers from official Claude Code skill-authoring best-practices docs + claude-code-guide; the /skills UI 250-char truncation is github.com/anthropics/claude-code issue #40121.
+- **Question**: The shared plugin content taxes context — the skill `description` is ALWAYS resident once installed, and both the SKILL.md body and the `/squire:onboard` command markdown load on use. What are the budgets, and how are they enforced?
+- **Why it matters**: An oversize `description` is truncated in the /skills UI (losing trigger words); an oversize body/command silently wastes context on every invocation. A budget that is only a hope drifts.
+- **Default chosen**: Budgets — skill `description` ≤ 250 chars (front-load trigger words); SKILL.md body ≤ 400 lines (target 150–250); `onboard.md` ≤ 300 lines (target ≤ 250). Enforced as FAILING checks folded into `check-bundle-agreement.mjs` (`checkContentBudgets`, run in the standard suite via `bundle-agreement.test.mjs`) so an overrun fails the deterministic tests. Trim by tightening prose, never by dropping required behaviors (the checklist/matrix stays the floor); if detail genuinely cannot fit, move it to an auxiliary reference file in the skill dir and note it. As authored, skill.md is 36 body lines / 241-char description and onboard.md is 71 lines — all comfortably within budget, no auxiliary file needed.
+- **Rationale**: Makes the context-tax discipline a test, not an aspiration; the caps match the official guidance and the real UI truncation point.
+
 ## Flagged gaps / discrepancies
 
 1. **M1 grader item 4 contradicts the design's no-ceremony rule** (see RBD-10). The 029 grader requires "reconnect + continue" prose; the design's walkthrough step 4 forbids success ceremony. Resolved in this feature under grader hardening (FR-027) — flagged here because it is a defect in an already-merged M1 artifact, not just an M2 authoring choice.

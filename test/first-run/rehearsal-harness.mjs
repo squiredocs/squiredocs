@@ -239,19 +239,26 @@ export async function runRehearsal(opts = {}) {
     turns.push({ prompt: firstPrompt, config: authed });
     for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true });
   } else if (mode === 'unauthenticated' && opts.connect) {
-    // Phase A: walkthrough with tools absent.
+    // Phase A: the walkthrough with tools ABSENT (unauth config) — the coaching
+    // is graded here (items 1,3 + the connect steps).
     turns.push({ prompt: firstPrompt, config: unauthConfig });
-    // Complete consent out-of-band (auto-approve) for this identity, then Phase B
-    // resumes with the now-authorized server so the tools appear (design step 4).
+    // The harness completes consent out-of-band (auto-approve) for this identity.
     const { email, agentToken } = await connectAgent(server, { withToken: true, nonce: identityNonce });
     cleanupState.email = email; result.email = email;
     const authed = writeMcpConfig({ Authorization: `Bearer ${agentToken}` });
-    log(`connect flow: consent completed for ${email}; resuming with authorized tools present`);
-    turns.push({
-      prompt: "I've completed the browser sign-in and approved the connection. Please continue.",
-      config: authed, continue: true,
-    });
-    for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true });
+    // Phase B: a FRESH authed session (NOT --continue). Verified: Claude Code
+    // binds MCP server state at session start; a --continue turn reuses the
+    // session's unauthorized server and never surfaces the now-authorized tools.
+    // So Phase B re-runs /squire:onboard with the authorized config — exactly the
+    // content's own "reconnect, then re-run onboard" instruction (design step 4) —
+    // and the tools ARE present, so find-spec + sync + payoff (items 4,5,6,7) run.
+    // Phase B runs in a FRESH config dir (a "restarted client"): a shared dir
+    // caches phase A's unauthorized OAuth state and the authed header is ignored.
+    const scratchConfigB = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-rehearsal-cfgB-'));
+    cleanupState.dirs.push(scratchConfigB);
+    log(`connect flow: consent completed for ${email}; phase B re-runs onboard in a fresh client with tools present`);
+    turns.push({ prompt: firstPrompt, config: authed, continue: false, configDir: scratchConfigB });
+    for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true, configDir: scratchConfigB });
   } else if (mode === 'unauthenticated') {
     // Walkthrough-only cells (declined / abandoned / paste-back / shape-*): tools
     // stay absent; the coaching is what's graded (R3, spec gap 4).
@@ -344,12 +351,15 @@ async function stageTokenFallback(server, scratchHome, log) {
  * where raw is the concatenated stream-json JSONL of every turn.
  */
 function driveClaude({ turns, throwaway, scratchConfig, scratchHome, cwd, apiKey, log }) {
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: scratchConfig, HOME: scratchHome, ANTHROPIC_API_KEY: apiKey };
   const chunks = [];
   let status = 'completed';
 
   turns.forEach((turn, i) => {
     if (status !== 'completed') return;
+    // A turn may use its own config dir (the connect flow's phase B is a fresh
+    // "restarted client" so the now-authorized server loads cleanly — a shared
+    // config dir caches phase A's unauthorized OAuth state).
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: turn.configDir || scratchConfig, HOME: scratchHome, ANTHROPIC_API_KEY: apiKey };
     const args = [
       '-p', turn.prompt,
       ...(turn.continue ? ['--continue'] : []),

@@ -24,9 +24,57 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expectedFiles, DEFAULT_BUNDLE_DIR, PROD_ENDPOINT } from './assemble-bundle.mjs';
+import { expectedFiles, DEFAULT_BUNDLE_DIR, PROD_ENDPOINT, SHARED_DIR } from './assemble-bundle.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// Content-length budgets (RBD-13; numbers from Claude Code skill-authoring best
+// practices). The skill `description` is ALWAYS resident once installed and the
+// /skills UI truncates at 250 chars; the SKILL.md body and the onboard command
+// markdown tax context on every use. Enforced here so a budget overrun is a
+// FAILING test, not a hope.
+export const BUDGETS = {
+  skillDescriptionChars: 250, // /skills UI truncation cap (issue #40121)
+  skillBodyLines: 400,        // hard ceiling; target 150–250
+  onboardLines: 300,          // command injected whole per invocation; target ≤250
+};
+
+function frontmatterDescription(src) {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!m) return null;
+  const d = m[1].match(/^description:\s*(.*)$/m);
+  return d ? d[1].trim() : null;
+}
+
+function bodyAfterFrontmatter(src) {
+  return src.replace(/^---\n[\s\S]*?\n---\n/, '');
+}
+
+/** Content-budget checks over distribution/shared/ (RBD-13). Returns problems[]. */
+export function checkContentBudgets() {
+  const problems = [];
+  const skill = fs.readFileSync(path.join(SHARED_DIR, 'skill.md'), 'utf8');
+  const onboard = fs.readFileSync(path.join(SHARED_DIR, 'onboard.md'), 'utf8');
+
+  const desc = frontmatterDescription(skill);
+  if (desc == null) {
+    problems.push('skill.md has no frontmatter description');
+  } else if (desc.length > BUDGETS.skillDescriptionChars) {
+    problems.push(`skill.md description is ${desc.length} chars (budget ${BUDGETS.skillDescriptionChars}; /skills UI truncates)`);
+  }
+
+  const skillBodyLines = bodyAfterFrontmatter(skill).split('\n').length;
+  if (skillBodyLines > BUDGETS.skillBodyLines) {
+    problems.push(`skill.md body is ${skillBodyLines} lines (budget ${BUDGETS.skillBodyLines})`);
+  }
+
+  const onboardLines = onboard.split('\n').length;
+  if (onboardLines > BUDGETS.onboardLines) {
+    problems.push(`onboard.md is ${onboardLines} lines (budget ${BUDGETS.onboardLines})`);
+  }
+
+  return problems;
+}
 
 /** Compare .mcp.json ignoring only the mcpServers['squire-docs'].url field. */
 function mcpMatchesIgnoringEndpoint(expected, actual) {
@@ -72,6 +120,7 @@ export function checkBundleAgreement({ bundleDir = DEFAULT_BUNDLE_DIR } = {}) {
     }
   }
 
+  problems.push(...checkContentBudgets());
   return { ok: problems.length === 0, problems, bundleDir };
 }
 
