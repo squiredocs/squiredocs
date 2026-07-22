@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "squire": {
+      "type": "http",
+      "url": "https://squiredocs.com/mcp"
+    }
+  }
+}

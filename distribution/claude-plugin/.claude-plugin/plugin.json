@@ -1,0 +1,8 @@
+{
+  "name": "squire",
+  "version": "1.0.0",
+  "description": "Squire Docs — the durable, attributed spec layer for agentic development. Sync your repo spec into a shared doc, then read it before every run and write status back after.",
+  "author": {
+    "name": "Squire Docs"
+  }
+}
