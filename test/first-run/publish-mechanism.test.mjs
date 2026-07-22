@@ -36,6 +36,25 @@ function git(args, cwd) {
   return r.stdout.trim();
 }
 
+/**
+ * Build a publish env from the process env with EVERY real SQUIRE_MIRROR_* var
+ * stripped, then layer the fixture URLs on top (032 review HIGH #1). Without this,
+ * a runner that has `export SQUIRE_MIRROR_MCP_REGISTRY=...` (the documented publish
+ * var) would make this suite push to the REAL GitHub mirror. Callers assert the
+ * configured-channel count equals the number of fixtures they supplied, so an
+ * inherited remote can never silently ride along.
+ */
+function fixtureEnv(overrides) {
+  const clean = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!k.startsWith('SQUIRE_MIRROR_')) clean[k] = v;
+  }
+  return { ...clean, ...overrides };
+}
+function configuredCount(env) {
+  return CHANNELS.filter((ch) => mirrorRemoteFor(ch, env)).length;
+}
+
 /** A seeded bare repo with one initial commit on branch `main`. Returns file:// URL. */
 function makeBareRepo(root, name) {
   const bare = path.join(root, `${name}.git`);
@@ -62,13 +81,14 @@ test('first publish pushes generated bundles to configured mirrors', () => {
   try {
     const cp = makeBareRepo(root, 'squire-plugin');
     const reg = makeBareRepo(root, 'squire-mcp-registry');
-    const env = {
-      ...process.env,
+    const env = fixtureEnv({
       SQUIRE_MIRROR_CLAUDE_PLUGIN: cp.url,
       SQUIRE_MIRROR_MCP_REGISTRY: reg.url,
-    };
+    });
+    // No inherited real remote can ride along: exactly the two fixtures.
+    assert.equal(configuredCount(env), 2, 'only the two fixture channels are configured');
 
-    const res = publishMirrors({ env, endpoint: PROD_ENDPOINT });
+    const res = publishMirrors({ env });
     assert.equal(res.ok, true, `publish should succeed: ${res.problems.join('; ')}`);
     assert.equal(res.pushed.filter((l) => l.includes('pushed')).length, 2, 'both channels pushed');
 
@@ -91,10 +111,12 @@ test('re-push with changed content but unchanged version is refused (FR-013)', (
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-publish-'));
   try {
     const cp = makeBareRepo(root, 'squire-plugin');
-    const env = { ...process.env, SQUIRE_MIRROR_CLAUDE_PLUGIN: cp.url };
+    const env = fixtureEnv({ SQUIRE_MIRROR_CLAUDE_PLUGIN: cp.url });
+    // Exactly one fixture channel configured — no inherited mcp-registry remote.
+    assert.equal(configuredCount(env), 1, 'only the one fixture channel is configured');
 
     // First publish lands v1.0.0.
-    const first = publishMirrors({ env, endpoint: PROD_ENDPOINT });
+    const first = publishMirrors({ env });
     assert.equal(first.ok, true, `first publish should succeed: ${first.problems.join('; ')}`);
 
     // Simulate the mirror carrying DIFFERENT content at the SAME version: hand-edit
@@ -106,7 +128,7 @@ test('re-push with changed content but unchanged version is refused (FR-013)', (
     git(['commit', '-m', 'stale content, same version'], wd);
     git(['push', 'origin', 'main'], wd);
 
-    const second = publishMirrors({ env, endpoint: PROD_ENDPOINT });
+    const second = publishMirrors({ env });
     assert.equal(second.ok, false, 'must refuse when content differs but version is unchanged');
     assert.ok(
       second.problems.some((p) => p.includes('version is unchanged')),
@@ -124,7 +146,7 @@ test('--publish with no configured remotes fails closed with zero side effects (
   for (const ch of CHANNELS) assert.equal(mirrorRemoteFor(ch, env), null, `${ch.id}: no committed default remote`);
 
   const before = fs.readdirSync(REPO_ROOT).filter((n) => n.startsWith('.publish-mirror-'));
-  const res = publishMirrors({ env, endpoint: PROD_ENDPOINT });
+  const res = publishMirrors({ env });
   assert.equal(res.ok, false, 'must fail closed');
   assert.equal(res.pushed.length, 0, 'nothing pushed');
   assert.ok(
@@ -140,5 +162,26 @@ test('mirrorRemoteFor never resolves a committed default (INV-1)', () => {
   const env = { PATH: process.env.PATH };
   for (const ch of CHANNELS) {
     assert.equal(mirrorRemoteFor(ch, env), null, `${ch.id}: remote must come only from configured env`);
+  }
+});
+
+test('CLI refuses --publish combined with a non-prod --endpoint or --out (032 review HIGH #2)', () => {
+  const script = path.join(REPO_ROOT, 'distribution', 'publish.mjs');
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-pub-guard-'));
+  try {
+    // A dev endpoint on the publish path must be refused BEFORE any push, even
+    // with a fixture remote configured — the push path can never stage dev bytes.
+    const env = fixtureEnv({ SQUIRE_MIRROR_CLAUDE_PLUGIN: `file://${outDir}/nope.git` });
+    for (const args of [
+      ['--publish', '--endpoint', 'http://localhost:3052/mcp', '--out', outDir],
+      ['--publish', '--endpoint', 'http://localhost:3052/mcp'],
+      ['--publish', '--out', outDir],
+    ]) {
+      const r = spawnSync('node', [script, ...args], { encoding: 'utf8', env });
+      assert.equal(r.status, 2, `must refuse ${args.join(' ')} (exit 2): ${r.stdout}${r.stderr}`);
+      assert.match(r.stderr, /--publish cannot be combined/i, `must explain the refusal for ${args.join(' ')}`);
+    }
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
   }
 });

@@ -48,7 +48,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -419,8 +419,10 @@ export function mirrorRemoteFor(channel, env = process.env) {
  * mirror working tree. Returns { changed, versionRel, mirrorVersion, freshVersion }.
  * The version is read from the channel's first manifest that carries a `version`.
  */
-function diffAgainstMirror(channel, mirrorDir, endpoint) {
-  const fresh = channel.files({ endpoint });
+function diffAgainstMirror(channel, mirrorDir) {
+  // The publish path is ALWAYS prod-pinned — a dev endpoint can never be staged
+  // for a mirror (032 review HIGH #2). There is no endpoint parameter here.
+  const fresh = channel.files({ endpoint: PROD_ENDPOINT });
   let changed = false;
   for (const [rel, content] of Object.entries(fresh)) {
     const onDisk = path.join(mirrorDir, rel);
@@ -429,10 +431,31 @@ function diffAgainstMirror(channel, mirrorDir, endpoint) {
   // Locate a manifest carrying a version, in both fresh + mirror, for the guard.
   const versionRel = channel.id === 'mcp-registry' ? 'server.json' : '.claude-plugin/plugin.json';
   const freshVersion = JSON.parse(fresh[versionRel]).version;
+  // Distinguish "no mirror manifest" (genuine first publish, ok) from "manifest
+  // present but unreadable" (refuse — never silently treat as first publish, 032
+  // review LOW #5).
   let mirrorVersion = null;
+  let mirrorVersionUnreadable = false;
   const mv = path.join(mirrorDir, versionRel);
-  if (fs.existsSync(mv)) { try { mirrorVersion = JSON.parse(fs.readFileSync(mv, 'utf8')).version; } catch { /* ignore */ } }
-  return { changed, versionRel, mirrorVersion, freshVersion };
+  if (fs.existsSync(mv)) {
+    try { mirrorVersion = JSON.parse(fs.readFileSync(mv, 'utf8')).version; }
+    catch { mirrorVersionUnreadable = true; }
+    if (mirrorVersion == null) mirrorVersionUnreadable = true;
+  }
+  return { changed, versionRel, mirrorVersion, freshVersion, mirrorVersionUnreadable };
+}
+
+/** Parse "a.b.c" → [a,b,c] ints; non-semver → null. */
+function semver(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v || ''));
+  return m ? [+m[1], +m[2], +m[3]] : null;
+}
+/** Returns true iff a is strictly greater than b (both semver-parseable). */
+function semverGt(a, b) {
+  const pa = semver(a); const pb = semver(b);
+  if (!pa || !pb) return false;
+  for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] > pb[i]; }
+  return false;
 }
 
 /**
@@ -441,12 +464,14 @@ function diffAgainstMirror(channel, mirrorDir, endpoint) {
  * The version-bump guard (FR-013): if regenerated content differs from the mirror
  * while the manifest version is unchanged → refuse, no push.
  *
- * @param {{ env?: object, endpoint?: string, cloneRoot?: string, dryClone?: (remote, dir)=>void }} [opts]
- *   `dryClone` is a test seam: fixtures pass a local-bare-repo cloner; production
- *   uses real `git clone`. Tests NEVER pass a real remote.
+ * The publish path is ALWAYS prod-pinned — there is deliberately NO endpoint
+ * parameter, so no dev/localhost endpoint can ever be staged for a real mirror
+ * (032 review HIGH #2). Tests point the mirror env vars at LOCAL bare repos only.
+ *
+ * @param {{ env?: object, cloneRoot?: string }} [opts]
  * @returns {{ ok: boolean, problems: string[], pushed: string[] }}
  */
-export function publishMirrors({ env = process.env, endpoint = PROD_ENDPOINT, cloneRoot = null } = {}) {
+export function publishMirrors({ env = process.env, cloneRoot = null } = {}) {
   const problems = [];
   const pushed = [];
 
@@ -480,9 +505,13 @@ export function publishMirrors({ env = process.env, endpoint = PROD_ENDPOINT, cl
         problems.push(`${ch.id}: mirror clone failed (${remote}): ${clone.stderr || clone.error?.message || 'unknown'}`);
         continue;
       }
-      // Version-bump guard (FR-013).
-      const { changed, versionRel, mirrorVersion, freshVersion } = diffAgainstMirror(ch, mirrorDir, endpoint);
+      // Version-bump guard (FR-013) + downgrade/unreadable guards (032 review LOW #5).
+      const { changed, versionRel, mirrorVersion, freshVersion, mirrorVersionUnreadable } = diffAgainstMirror(ch, mirrorDir);
       if (!changed) { pushed.push(`${ch.id}: no change (skipped)`); continue; }
+      if (mirrorVersionUnreadable) {
+        problems.push(`${ch.id}: mirror ${versionRel} is present but unreadable — refusing (cannot verify the version guard).`);
+        continue;
+      }
       if (mirrorVersion != null && mirrorVersion === freshVersion) {
         problems.push(
           `${ch.id}: content changed but ${versionRel} version is unchanged (${freshVersion}). `
@@ -490,8 +519,21 @@ export function publishMirrors({ env = process.env, endpoint = PROD_ENDPOINT, cl
         );
         continue;
       }
-      // Stage the regenerated files into the mirror clone and push.
-      for (const [rel, content] of Object.entries(ch.files({ endpoint }))) {
+      if (mirrorVersion != null && !semverGt(freshVersion, mirrorVersion)) {
+        problems.push(
+          `${ch.id}: refusing to publish ${freshVersion} over mirror ${mirrorVersion} — not a forward version bump.`,
+        );
+        continue;
+      }
+      // Prune the mirror working tree (keep .git) before staging, so a file the
+      // generator no longer emits does not linger live in the public mirror (032
+      // review MEDIUM #4). git add -A then records the deletions.
+      for (const entry of fs.readdirSync(mirrorDir)) {
+        if (entry === '.git') continue;
+        fs.rmSync(path.join(mirrorDir, entry), { recursive: true, force: true });
+      }
+      // Stage the regenerated (PROD-pinned) files into the mirror clone and push.
+      for (const [rel, content] of Object.entries(ch.files({ endpoint: PROD_ENDPOINT }))) {
         const dest = path.join(mirrorDir, rel);
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.writeFileSync(dest, content);
@@ -523,6 +565,15 @@ function runCli(argv) {
   const outRoot = arg(argv, '--out', null);
   const endpoint = arg(argv, '--endpoint', PROD_ENDPOINT);
 
+  // Publishing is prod-only and mutually exclusive with dev materialization: a
+  // non-prod --endpoint or an --out target can never be combined with --publish
+  // (032 review HIGH #2). Checked FIRST so any publish+dev combination is refused
+  // with this message. The push path itself ignores `endpoint` entirely; this is
+  // the belt-and-suspenders CLI guard.
+  if (doPublish && (outRoot || endpoint !== PROD_ENDPOINT)) {
+    console.error('✗ --publish cannot be combined with --out or a non-prod --endpoint. Publishing always ships the prod-pinned bundle.');
+    process.exit(2);
+  }
   if (endpoint !== PROD_ENDPOINT && !outRoot) {
     console.error('✗ --endpoint may only be used with --out (local materialization); the committed bundle is prod-pinned.');
     process.exit(2);
@@ -550,7 +601,7 @@ function runCli(argv) {
     process.exit(0);
   }
   console.log('\n--publish: attempting configured mirrors (fail-closed if none)...');
-  const res = publishMirrors({ endpoint });
+  const res = publishMirrors();
   for (const line of res.pushed) console.log(`  • ${line}`);
   if (!res.ok) {
     console.error('\n✗ publish refused / incomplete:');
@@ -561,6 +612,7 @@ function runCli(argv) {
   process.exit(0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Robust CLI-entry check (handles spaces/symlinks in the path — 032 review LOW #8).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runCli(process.argv.slice(2));
 }

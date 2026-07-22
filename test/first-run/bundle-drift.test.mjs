@@ -72,6 +72,30 @@ function driftProblems({ pluginDir, registryDir }) {
   else if (fs.readFileSync(srvPath, 'utf8') !== srvExpected) {
     problems.push(`server.json drifted from the expected registry content — run: ${REGEN}`);
   }
+  // EXTRA-FILE guard (032 review MEDIUM #3): a committed file the generator does
+  // NOT emit would pass the loops above, get installed by every rehearsal (the
+  // harness copies the whole dir), yet never be published. Walk both committed
+  // dirs and flag anything outside the expected set.
+  const listFiles = (dir) => {
+    const out = [];
+    const walk = (d, rel) => {
+      if (!fs.existsSync(d)) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) walk(path.join(d, e.name), r);
+        else out.push(r);
+      }
+    };
+    walk(dir, '');
+    return out;
+  };
+  const pluginExpected = new Set(Object.keys(expected));
+  for (const rel of listFiles(pluginDir)) {
+    if (!pluginExpected.has(rel)) problems.push(`unexpected committed file in claude-plugin: ${rel} — not emitted by the generator (remove it, or add it to expectedFiles)`);
+  }
+  for (const rel of listFiles(registryDir)) {
+    if (rel !== 'server.json') problems.push(`unexpected committed file in mcp-registry: ${rel} — not emitted by the generator`);
+  }
   return problems;
 }
 

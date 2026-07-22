@@ -51,3 +51,6 @@ server/search/eval/eval-results.*.json
 
 # First-run matrix runner archives (feature 030) — transient rehearsal transcripts
 test/first-run/matrix-archive/
+
+# feature 032: scratch mirror clones created by distribution/publish.mjs --publish
+.publish-mirror-*/
