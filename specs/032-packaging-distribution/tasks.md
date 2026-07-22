@@ -127,9 +127,9 @@ description: "Task list: Packaging & Distribution — M3 Wave 1"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] Carry the Sam-only handoff checklist (FR-028, contracts/drift-and-surfaces.md §Sam-only) and the owed orchestrator items into `specs/032-packaging-distribution/promotion-notes.md` at implement time: (1) mirror-repo creation + first `--publish`; (2) MCP Registry DNS challenge + first registry publish; (3) community-directory Console submission; (4) deploy sequencing (030+031 to prod → push mirrors → deploy surfaces).
-- [ ] T033 [P] Record the owed-but-barred items in promotion-notes for the merge queue (NOT done here): FR-030 Agent Surface (MCP) design-doc amendment (plugin one-liner + signup line — amend the Squire doc + `node design/sync.mjs`); the `docs/dev.md` first-run tooling refresh (promotion-note 6, staler after US4); the design channel-status-table updates as submissions land.
-- [ ] T034 Full acceptance (SC-007): run `npm run test:first-run` and the client build together; confirm both green, the retired M2 assembly path fully absent, and every quickstart.md scenario (1-6) passes.
+- [X] T032 [P] Carry the Sam-only handoff checklist (FR-028, contracts/drift-and-surfaces.md §Sam-only) and the owed orchestrator items into `specs/032-packaging-distribution/promotion-notes.md` at implement time: (1) mirror-repo creation + first `--publish`; (2) MCP Registry DNS challenge + first registry publish; (3) community-directory Console submission; (4) deploy sequencing (030+031 to prod → push mirrors → deploy surfaces).
+- [X] T033 [P] Record the owed-but-barred items in promotion-notes for the merge queue (NOT done here): FR-030 Agent Surface (MCP) design-doc amendment (plugin one-liner + signup line — amend the Squire doc + `node design/sync.mjs`); the `docs/dev.md` first-run tooling refresh (promotion-note 6, staler after US4); the design channel-status-table updates as submissions land.
+- [X] T034 Full acceptance (SC-007): run `npm run test:first-run` and the client build together; confirm both green, the retired M2 assembly path fully absent, and every quickstart.md scenario (1-6) passes.
 
 ---
 
