@@ -5,7 +5,26 @@ This feature adds an inline OAuth auto-issue that skips the explicit consent car
 for genuine first-run accounts, so the adversarial security review pass (per the
 design amendment) is a hard gate before this ships.
 
-## Owned by the adversarial security review pass (MUST NOT be applied without Sam's ratification)
+## RESOLVED — adversarial security review (2026-07-22, Fable)
+
+Verdict: the auto-issue gate is sound and fails closed everywhere (no pre-existing
+account can hit `isNew`; no `req`-controlled params reach the code; every miss
+falls closed to the consent card; delegation parity holds). ONE material finding:
+
+- **HIGH → FIXED + RATIFIED (Sam, 2026-07-22).** The redirect breadth below was
+  escalated from "accepted" to a real remote login-CSRF token-theft vector (an
+  attacker's HTTPS redirect on a first-run victim's account-creating sign-in would
+  auto-issue a code delivered server-side to the attacker). Fix applied: the
+  auto-issue path is now **localhost-only** — a non-localhost `redirect_uri` fails
+  closed to the explicit consent card. Lands the code on the victim's own machine
+  (remote blast radius ≈ 0); breaks no legitimate first-run client (localhost
+  loopback). Explicit-consent path unchanged (D5). Test updated:
+  first-run-auto-issue.test.js T010 now asserts an HTTPS attacker redirect fails
+  closed even for a fresh account, plus a localhost-still-issues case. Design
+  amendment + auth contract updated to record the ratified tightening.
+- **LOW** — value-copy/mobile-fold: owed human checks (below), not a code defect.
+
+## (Historical) originally owned by the review pass — now resolved above
 
 - **Redirect breadth on the auto-issue path (S1 / research R9 / spec Flagged gap 5 / D5)** —
   `checkRedirectUri` (server/mcp/auth/oauth-flow.js:13) accepts ANY localhost OR

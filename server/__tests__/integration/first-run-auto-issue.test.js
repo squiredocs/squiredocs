@@ -204,19 +204,32 @@ describe('Feature 031 — first-run auto-issue gate', () => {
       expect(await delegationCountFor(userId)).toBe(0);
     });
 
-    test('ceiling: a victimless fresh account yields at most a token on that just-created empty account', async () => {
+    test('even a fresh account never hands a code to a NON-LOCALHOST redirect (031 ratified tightening)', async () => {
+      // Adversarial-review fix (ratified 2026-07-22): the auto-issue path is
+      // localhost-only. An attacker-controlled HTTPS redirect — the remotely
+      // exfiltratable channel — now FAILS CLOSED to the explicit consent card
+      // even for a brand-new account, so no code is ever delivered off-box to a
+      // remote attacker. This is strictly tighter than the old FR-008 ceiling.
       const nonce = `fresh${rnd()}`;
       const returnTo = authorizeReturnTo({ agent_client_id: ATTACKER_CLIENT, redirect_uri: ATTACKER_REDIRECT });
       const res = await faucetBrowser(nonce, returnTo);
 
-      // Auto-issue DOES fire (new zero-document account) — this is the FR-008
-      // ceiling: a token bound to the account this flow itself just created,
-      // holding zero documents, never any existing user's data.
-      expect(res.status).toBe(302);
-      expect(new URL(res.headers.location).origin).toBe('https://evil.example.com');
+      expectConsentFallback(res, returnTo); // consent card, NOT the attacker's https origin
       const userId = await userIdFor(nonce);
-      const docs = await pool.query('SELECT COUNT(*)::int AS n FROM documents WHERE creator_id = $1', [userId]);
-      expect(docs.rows[0].n).toBe(0); // zero documents — nothing of value behind the token
+      expect(await codeCountFor(userId)).toBe(0);
+      expect(await delegationCountFor(userId)).toBe(0);
+    });
+
+    test('a fresh account WITH a localhost redirect still auto-issues (the legitimate first-run path)', async () => {
+      // The tightening must not break real first-run clients — Claude Code and
+      // every terminal agent use a localhost loopback callback.
+      const nonce = `freshlocal${rnd()}`;
+      const returnTo = authorizeReturnTo({ agent_client_id: `good_${rnd()}`, redirect_uri: 'http://localhost:8765/callback' });
+      const res = await faucetBrowser(nonce, returnTo);
+
+      expect(res.status).toBe(302);
+      expect(new URL(res.headers.location).origin).toBe('http://localhost:8765'); // straight to the agent callback
+      expect(new URL(res.headers.location).searchParams.get('code')).toBeTruthy();
     });
   });
 

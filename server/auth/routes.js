@@ -31,6 +31,9 @@ const mcpOauthFlow = require('../mcp/auth/oauth-flow');
 // approveAuthorization checks code_challenge PRESENCE but not FORMAT, so the
 // auto-issue gate re-runs the same validator handleAuthorize uses (INV-6).
 const { validateCodeChallenge } = require('../mcp/auth/pkce');
+// Auto-issue path is restricted to localhost redirect URIs (feature 031
+// adversarial-review fix, ratified by Sam 2026-07-22 — see the gate below).
+const { isLocalhostUri } = require('../mcp/auth/registered-agents');
 
 const router = express.Router();
 
@@ -346,20 +349,22 @@ async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
     // path (FR-006/INV-2).
     if (user.isNew === true) {
       const authorizeParams = tryParseAuthorizeReturnTo(rawReturnTo);
-      if (authorizeParams) {
+      // SECURITY (feature 031 adversarial-review fix, ratified by Sam 2026-07-22).
+      // The auto-issue path mints WITHOUT a human eyeball on the redirect_uri.
+      // checkRedirectUri would otherwise accept any localhost OR HTTPS redirect
+      // for an auto-registered client — which turns first-run auto-issue into a
+      // remote login-CSRF token-theft vector: an attacker links a victim to an
+      // /authorize URL for the attacker's client with an attacker-controlled
+      // HTTPS redirect, the victim's first sign-in creates the account (isNew),
+      // and the code is delivered server-side to the attacker. Restricting the
+      // auto-issue path to LOCALHOST redirects lands the code on the victim's own
+      // machine (unreadable to a remote attacker) and collapses the remote blast
+      // radius to near-zero. A non-localhost redirect FAILS CLOSED to the explicit
+      // consent card (a human then eyeballs the HTTPS URL) — no legitimate
+      // first-run client is broken (Claude Code and every terminal agent use a
+      // localhost loopback callback). The explicit-consent path is UNCHANGED (D5).
+      if (authorizeParams && isLocalhostUri(authorizeParams.redirect_uri)) {
         try {
-          // SECURITY NOTE (feature 031, T019 — carried to the adversarial review
-          // pass, research R9 / spec Flagged gap 5 / D5): approveAuthorization
-          // calls checkRedirectUri, which — for an AUTO-REGISTERED client (empty
-          // allow-list) — accepts ANY localhost OR HTTPS redirect_uri. On the
-          // explicit consent card a human sees and judges that redirect URL; on
-          // THIS auto-issue path no human eyeball reviews it. This does NOT widen
-          // the blast radius beyond FR-008's ceiling (a token bound to the
-          // just-created, zero-document account this flow itself created — never
-          // an existing account's data), and redirect validation is UNCHANGED per
-          // D5. Any tightening (e.g. restricting the auto-issue path to
-          // localhost-only redirects) is owned by the adversarial security review
-          // pass and MUST NOT be applied here without Sam's ratification.
           const result = await mcpOauthFlow.approveAuthorization({
             userId: user.id,
             agent_client_id: authorizeParams.agent_client_id,
@@ -382,7 +387,8 @@ async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
           console.error('Auto-issue (first-run consent collapse) failed; falling back to consent:', e);
         }
       }
-      // authorizeParams null OR !result.ok OR threw → fall through below.
+      // authorizeParams null OR non-localhost redirect OR !result.ok OR threw
+      // → fall through to the explicit consent redirect below (FAIL CLOSED).
     }
 
     return res.redirect(`${clientUrl}${rawReturnTo}`);

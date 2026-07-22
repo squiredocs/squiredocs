@@ -167,11 +167,60 @@ function ConsentCard({
   );
 }
 
-export function AuthorizePreview() {
+/**
+ * The first-run single-consent surface (feature 031). Rendered live for an
+ * unauthenticated /authorize visitor AND in the /authorize-preview route so the
+ * copy can be reviewed without a real OAuth request. Transparency (grant +
+ * revocation) is PRIMARY; the value reminder is SECONDARY.
+ */
+export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = '#' }) {
+  const grant = scopes.includes('documents:write')
+    ? 'read your documents, and create, edit, and delete documents'
+    : 'read your documents';
   return (
-    <div className="login-page">
+    <AuthorizeShell>
+      <h2 className="login-headline">Connect to Squire Docs</h2>
+      <p className="authorize-firstrun-lead">
+        Continue with Google to connect {agentName}. If you've never used Squire
+        Docs, that same click creates your account — there's no separate signup
+        step.
+      </p>
+
+      <div className="authorize-firstrun-grant">
+        <p className="authorize-firstrun-grant-lead">
+          Once connected, {agentName} will be able to {grant} in your Squire Docs
+          account.
+        </p>
+        <p className="authorize-firstrun-revoke">
+          You can revoke this access anytime in Settings &rarr; AI Agent Access.
+        </p>
+      </div>
+
+      <ul className="authorize-firstrun-points">
+        <li>One place where humans and coding agents write the same spec together.</li>
+        <li>
+          A spec your agents can work with and your team can review — with
+          two-way sync to the markdown in your repo.
+        </li>
+        <li>Every edit is attributed to human or agent, and revertible.</li>
+      </ul>
+
+      <a href={href} className="login-button google-button authorize-signin-link">
+        Continue with Google
+      </a>
+    </AuthorizeShell>
+  );
+}
+
+export function AuthorizePreview() {
+  // Preview both first-run surfaces (the new single-screen copy, write + read
+  // scope) and the returning-user ConsentCard. Visit /authorize-preview.
+  return (
+    <div className="login-page authorize-preview-stack">
+      <FirstRunConsent agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
+      <FirstRunConsent agentName="Claude Code" scopes={['documents:read']} />
       <ConsentCard
-        agentName="Claude Desktop"
+        agentName="Claude Code"
         agentDescription="AI assistant for document editing"
         iconUrl={null}
         scopes={['documents:read', 'documents:write']}
@@ -300,60 +349,13 @@ export default function AuthorizePage() {
   }
 
   if (!isAuthenticated) {
-    // Feature 031 — First-run consent collapse: this is now the SOLE consent
-    // surface a first-run user sees (no separate ConsentCard). Transparency is
-    // PRIMARY (the full grant + revocation, matching the scopes actually
-    // requested — a read-only agent must never be described as able to write,
-    // 030 review); the value reminder is a SECONDARY, subordinate reminder.
-    //
-    // Grant statement (C2/FR-009): write scope names create/edit/delete; a
-    // read-only request stays strictly narrower.
-    const grant = scopes.includes('documents:write')
-      ? 'read your documents, and create, edit, and delete documents'
-      : 'read your documents';
+    // Feature 031 — First-run consent collapse: the SOLE consent surface a
+    // first-run user sees (no separate ConsentCard). Rendered via the shared
+    // FirstRunConsent component (also used by /authorize-preview). "Continue
+    // with Google" goes STRAIGHT to Google (no /login hop, FR-001/C1).
     const who = agentInfo?.name || 'Your agent';
-    return (
-      <AuthorizeShell>
-        <h2 className="login-headline">Connect to Squire Docs</h2>
-        <p className="authorize-firstrun-lead">
-          Continue with Google to connect {who}. If you've never used Squire
-          Docs, that same click creates your account — there's no separate
-          signup step.
-        </p>
-
-        {/* Transparency (PRIMARY, visual precedence): the full grant this one
-            screen stands in for, plus the revocation path. */}
-        <div className="authorize-firstrun-grant">
-          <p className="authorize-firstrun-grant-lead">
-            Once connected, {who} will be able to {grant} in your Squire Docs
-            account.
-          </p>
-          <p className="authorize-firstrun-revoke">
-            You can revoke this access anytime in Settings &rarr; AI Agent
-            Access.
-          </p>
-        </div>
-
-        {/* Value reminder (SECONDARY, subordinate): why connect — drawn only
-            from verified messaging, kept to 2–3 tight lines so the primary
-            action stays above the fold on mobile (C3/C4/FR-014). */}
-        <ul className="authorize-firstrun-points">
-          <li>One place where humans and coding agents write the same spec together.</li>
-          <li>
-            A spec your agents can work with and your team can review — with
-            two-way sync to the markdown in your repo.
-          </li>
-          <li>Every edit is attributed to human or agent, and revertible.</li>
-        </ul>
-
-        <a
-          href={`/auth/google?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-          className="login-button google-button authorize-signin-link"
-        >
-          Continue with Google
-        </a>
-      </AuthorizeShell>
-    );
+    const href = `/auth/google?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    return <FirstRunConsent agentName={who} scopes={scopes} href={href} />;
   }
 
   if (success) {
