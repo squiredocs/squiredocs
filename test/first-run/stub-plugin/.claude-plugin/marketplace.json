@@ -1,0 +1,14 @@
+{
+  "name": "squire-stub-marketplace",
+  "owner": { "name": "Squire Docs (test scaffolding)" },
+  "metadata": {
+    "description": "SCAFFOLDING FOR TESTING — local-path marketplace for the first-run rehearsal harness. NOT a real marketplace; real distribution is M3."
+  },
+  "plugins": [
+    {
+      "name": "squire",
+      "source": "./",
+      "description": "SCAFFOLDING FOR TESTING — real content is M2."
+    }
+  ]
+}
