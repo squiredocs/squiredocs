@@ -124,22 +124,51 @@ export function AuthProvider({ children }) {
   }, []);
 
   /**
-   * Dev login - bypass OAuth and login with test user
-   * Only works when VITE_BYPASS_AUTH=true
+   * Dev login - bypass OAuth and login with a test user.
+   * Only works when VITE_BYPASS_AUTH=true.
    *
-   * Accepts an optional same-origin returnTo path; if valid, redirects the
-   * browser there after the JSON response succeeds (mirrors the cookie
-   * behavior of the real OAuth callback for the dev bypass).
+   * Feature 029 (FR-005): composes with the fresh-user faucet.
+   *   - With a valid same-origin returnTo (the consent-page round-trip), drive a
+   *     real full-page POST navigation to the faucet's BROWSER MODE
+   *     (fresh + browser + returnTo). The server sets session cookies and 302s
+   *     back to returnTo through the SAME shared post-auth path as the Google
+   *     callback — so the dev-bypass consent account is stamped agent_oauth and
+   *     skips the welcome doc, exactly like a real consent-born account (RBD-10).
+   *   - Without a returnTo (mount-time bootstrap), fall back to the JSON mode:
+   *     a fresh synthetic user when `fresh` is requested, else the fixed dev user.
+   *
+   * @param {string} [returnTo] - same-origin path to land on after sign-in.
+   * @param {object} [opts]
+   * @param {boolean} [opts.fresh]  - mint a fresh synthetic user (JSON fallback).
+   * @param {string}  [opts.nonce]  - stable nonce for a repeatable identity.
    */
-  const devLogin = useCallback(async (returnTo) => {
+  const devLogin = useCallback(async (returnTo, { fresh = false, nonce } = {}) => {
+    // Browser-mode faucet via full-page POST navigation (consent round-trip).
+    if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = `${API_BASE_URL}/auth/dev-login`;
+      const fields = { fresh: 'true', browser: 'true', returnTo };
+      if (typeof nonce === 'string' && nonce) fields.nonce = nonce;
+      for (const [name, value] of Object.entries(fields)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit(); // full navigation; server sets cookies + 302 to returnTo
+      return true;
+    }
+
+    // JSON fallback (no returnTo): fresh synthetic user or the fixed dev user.
     try {
-      const response = await api.post('/auth/dev-login');
+      const body = fresh ? { fresh: true, ...(nonce ? { nonce } : {}) } : {};
+      const response = await api.post('/auth/dev-login', body);
       const { accessToken: newToken, user: userData } = response.data;
       setAccessToken(newToken);
       setUser(userData);
-      if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
-        window.location.href = returnTo;
-      }
       return true;
     } catch (error) {
       console.error('Dev login failed:', error);

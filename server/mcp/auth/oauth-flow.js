@@ -211,11 +211,73 @@ async function handleApprove(req, res) {
     return res.redirect(redirectUrl);
   }
 
-  // 3. Get or create registered agent (allow dynamic registration)
+  // 3. Mint the authorization code via the shared approve core.
+  const result = await approveAuthorization({
+    userId: req.user.userId,
+    agent_client_id,
+    agent_instance_id,
+    scopes,
+    redirect_uri,
+    state,
+    code_challenge,
+    code_challenge_method,
+  });
+
+  if (!result.ok) {
+    return res.status(result.status).json(result.body);
+  }
+
+  console.log('[MCP OAuth] APPROVED - Redirecting to:', result.redirectUrl);
+  console.log('[MCP OAuth] Accept header:', req.headers.accept);
+
+  // Return JSON for API requests, redirect for browser requests
+  if (req.headers.accept && req.headers.accept.includes('application/json')) {
+    console.log('[MCP OAuth] Returning JSON response with redirectUrl');
+    return res.json({ redirectUrl: result.redirectUrl });
+  }
+
+  console.log('[MCP OAuth] Returning HTTP redirect');
+  res.redirect(result.redirectUrl);
+}
+
+/**
+ * Approve core (feature 029, T014): mint the authorization code for an already-
+ * authenticated + already-consented request, WITHOUT any HTTP request/response
+ * or accept-header formatting. Factored out of handleApprove so the dev-only
+ * consent auto-approve endpoint can call it after a synthetic-session check,
+ * exercising the exact same code-mint path a browser Approve click drives — no
+ * duplicated logic (research R2).
+ *
+ * Required fields (confirmed against handleApprove): agent_client_id,
+ * redirect_uri, state, code_challenge, scopes; agent_instance_id and
+ * code_challenge_method are optional and carried consistently with the pending
+ * authorize request.
+ *
+ * @param {object} args
+ * @param {string} args.userId - the consenting user's id (the delegating principal)
+ * @returns {Promise<{ok:true, redirectUrl:string, code:string} | {ok:false, status:number, body:object}>}
+ */
+async function approveAuthorization({
+  userId,
+  agent_client_id,
+  agent_instance_id,
+  scopes,
+  redirect_uri,
+  state,
+  code_challenge,
+  code_challenge_method,
+}) {
+  if (!redirect_uri || !state || !code_challenge || !scopes || !agent_client_id) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: 'invalid_request', error_description: 'missing approve parameters' },
+    };
+  }
+
+  // Get or create registered agent (allow dynamic registration).
   let agent = await getRegisteredAgent(agent_client_id);
   if (!agent) {
-    // Auto-register new agents if they don't exist. Registration is intentionally
-    // unlimited — sign-up is never gated (removed admission caps, 2026-07-18).
     const result = await registerAgent({
       id: agent_client_id,
       name: agent_client_id,
@@ -231,52 +293,39 @@ async function handleApprove(req, res) {
     }
   }
 
-  // Validate redirect URI (defense in depth - also validated in handleAuthorize)
+  // Validate redirect URI (defense in depth - also validated in handleAuthorize).
   const redirectCheck = checkRedirectUri(agent, redirect_uri);
   if (!redirectCheck.allowed) {
     console.log(`[MCP OAuth] REJECTED redirect_uri in approve for ${agent_client_id}: ${redirect_uri} - ${redirectCheck.error}`);
-    return res.status(400).json({ error: 'invalid_request', error_description: redirectCheck.error });
+    return { ok: false, status: 400, body: { error: 'invalid_request', error_description: redirectCheck.error } };
   }
 
   const scopeArray = Array.isArray(scopes) ? scopes : scopes.split(' ');
   const scopeValidation = validateScopes(agent, scopeArray);
   if (!scopeValidation.valid) {
-    return res.status(400).json({ error: 'invalid_scope' });
+    return { ok: false, status: 400, body: { error: 'invalid_scope' } };
   }
 
-  // 4. Generate authorization code
+  // Generate + store the authorization code.
   const authCode = generateAuthCode();
   const codeHash = hashAuthCode(authCode);
   const expiresAt = new Date(Date.now() + AUTH_CODE_EXPIRY_SECONDS * 1000);
 
-  // 5. Store authorization code
   await pool.query(
     `INSERT INTO mcp_auth_codes
      (code_hash, user_id, agent_client_id, agent_instance_id, scopes,
       code_challenge, code_challenge_method, redirect_uri, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [codeHash, req.user.userId, agent_client_id, agent_instance_id,
+    [codeHash, userId, agent_client_id, agent_instance_id,
      scopeValidation.scopes, code_challenge, code_challenge_method, redirect_uri, expiresAt]
   );
 
-  // 6. Redirect back to agent with authorization code
+  // Build the agent callback URL carrying the code + state.
   const callbackUrl = new URL(redirect_uri);
   callbackUrl.searchParams.set('code', authCode);
   callbackUrl.searchParams.set('state', state);
 
-  const redirectUrl = callbackUrl.toString();
-
-  console.log('[MCP OAuth] APPROVED - Redirecting to:', redirectUrl);
-  console.log('[MCP OAuth] Accept header:', req.headers.accept);
-
-  // Return JSON for API requests, redirect for browser requests
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    console.log('[MCP OAuth] Returning JSON response with redirectUrl');
-    return res.json({ redirectUrl });
-  }
-
-  console.log('[MCP OAuth] Returning HTTP redirect');
-  res.redirect(redirectUrl);
+  return { ok: true, redirectUrl: callbackUrl.toString(), code: authCode };
 }
 
 /**
@@ -668,6 +717,7 @@ module.exports = {
   init,
   handleAuthorize,
   handleApprove,
+  approveAuthorization,
   handleToken,
   handleRevoke,
   handleRegister,
