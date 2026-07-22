@@ -1,6 +1,6 @@
 ---
 name: squire
-description: Use when starting or finishing specced work, when spec, design, or plan files change (specs/, .kiro/specs, PLAN.md), or when a teammate should review a spec. Squire Docs syncs docs two-way with the repo: read at run start, write status back after.
+description: Use when a teammate should review a spec living in the repo, when setting up reviewable spec-driven development, or when iterating with the user on a spec or design doc. Squire Docs syncs docs two-way with the repo (specs/, .kiro/specs, PLAN.md).
 ---
 <!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/shared/skill.md
      Regenerate with: node test/first-run/assemble-bundle.mjs -->
@@ -9,7 +9,7 @@ description: Use when starting or finishing specced work, when spec, design, or 
 
 Squire Docs is the durable, attributed spec layer for agentic development. The spec, design, and status your team works from live in a Squire Docs document where every edit — human or agent — is attributed and revertible, and teammates and other agents all see the same doc.
 
-Reach for this skill at these moments: you are about to start work the spec describes; you have just finished work the spec should reflect; the repo's spec, design, or plan files changed since the last sync; or a teammate — a product manager, a designer, another agent — needs to review or refine the spec in a place they can edit. The job is to keep the spec and the work in sync, both directions.
+Reach for this skill when a teammate — a product manager, a designer, another agent — needs to review or refine a spec in a place they can edit; when the team wants a reviewable spec-driven development flow; or when you and the user are iterating together on a spec, design doc, or plan. Once the doc exists, the standing loop below keeps the spec and the work in sync, both directions.
 
 ## The standing loop
 
