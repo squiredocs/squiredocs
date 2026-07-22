@@ -107,6 +107,22 @@ This is the design answer to the strategy doc's open question "what does an agen
 4. **Deliver the payoff.** Print the new doc URL and say what the editor adds: the human reviews and refines there, with every edit attributed human-vs-agent and revertible. The editor is the payoff inside the loop, not the front door.
 5. **Teach the loop.** Close with the standing behavior now that the skill is installed: the agent reads the spec before each run and writes status/design back after — and teammates and other agents see attributed edits in the same doc.
 
+#### Amendment (2026-07-22, ratified by Sam): collapse first-run to a single consent screen
+
+Sam’s first production onboarding walk surfaced that a genuine first-run user passes through **three** Squire screens before the agent connects (evidence: [3-screen capture](https://squiredocs.com/d/7228531b-6ebe-43fa-9e94-08c6b863d876)): (1) the “Connect to Squire Docs” first-run surface, (2) the generic /login “Welcome Back” page (a second Google button, with returning-user copy shown to a brand-new user), and (3) the OAuth ConsentCard (“Authorize Claude Code… Approve/Deny”). For the beachhead flow this is two redundant steps. This amendment collapses true first-run to ONE Squire screen (plus Google’s own sign-in, which is not ours to remove).
+
+The single screen is the existing “Connect to Squire Docs” first-run surface — which already names the agent, states what it will do, and the attribution/revocability promise, so it already IS an informed-consent surface. Two changes remove the other screens:
+
+- **Kill screen 2.** The first-run “Continue with Google” links to /login today; point it straight at the Google OAuth entry (`/auth/google?returnTo=…`, the path login() already uses). No /login hop, and the misapplied “Welcome Back / Don’t have an account?” copy disappears for first-run.
+- **Fold screen 3 into screen 1.** When the Google leg returns and the account was created in THIS authorize round-trip, `completePostAuth` mints the authorization code inline and redirects to the agent’s callback — no ConsentCard. Naturally scoped to just-created accounts because it keys off `user.isNew`.
+- **Enrich screen 1 copy.** Since it becomes the only consent surface, spell out the grant it now stands in for: read + create/edit/delete of documents, and the “revoke anytime in Settings → AI Agent Access” line currently only on the card. Honest, barely longer.
+
+**Security floor (load-bearing — this is consent-bypass territory).** The inline auto-issue fires ONLY when both hold: the account is `user.isNew` (created seconds ago in this very flow, so it holds zero documents — the ConsentCard protects nothing), AND the return carries the OAuth parameters of THIS authorize request (client_id, redirect_uri, PKCE code_challenge, state), validated and matched. Never for a pre-authenticated or pre-existing account — else a phishing authorize-URL could mint a token against a victim’s real documents the instant they signed in. PKCE and redirect_uri validation are unchanged (reuse handleAuthorize’s validation); the delegation is still recorded, attributed, and revocable exactly as an explicit approve.
+
+- **Existing accounts keep the explicit ConsentCard.** They have data to protect and no created-in-this-flow safety, so a returning user connecting a new agent still sees screen 1 → consent. Net: first-run = 1 screen; returning-user reconnect = 2. The security value lives exactly where the screen is kept.
+- **Provenance unchanged.** signup_source=agent_oauth is still stamped at creation; the welcome-doc skip is unchanged.
+- **Scope.** Converges as feature 031-first-run-consent-collapse. Amends the ratified M2/030 consent-page design here and the OAuth consent contract in the Authentication & Sharing doc; the auto-issue path gets an adversarial security review pass. A fast-follow — does not reopen M2 sign-off.
+
 ### 3. Kiro Powers — wave 2
 
 A Power: MCP config + `POWER.md` steering in a public repo with an "Add to Kiro" button on our site. Steering content is generated from `shared/` but reframed Kiro-native — hosting the `.kiro/specs` files these users already generate, made collaborative with attribution and history, is the hero move. Kiro users are pre-qualified spec-driven ICP. The Powers registry submission (kiro.dev/powers/submit) and the featured-partner track are Sam ops.
