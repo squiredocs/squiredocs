@@ -19,44 +19,11 @@ const SCOPE_DESCRIPTIONS = {
   },
 };
 
-function AgentGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="26" height="26" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="14" rx="3" />
-      <circle cx="9" cy="11" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="15" cy="11" r="1.5" fill="currentColor" stroke="none" />
-      <path d="M7 2v3M17 2v3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function CheckGlyph({ size = 12 }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width={size} height={size} aria-hidden="true">
       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
     </svg>
-  );
-}
-
-/**
- * Agent-tile ⋯ ✓ ⋯ Squire-tile connection row — the identity header for
- * every consent state, in place of the stacked login branding block.
- */
-function IdentityRow({ iconUrl }) {
-  return (
-    <div className="authorize-identity">
-      <div className="authorize-identity-tile authorize-identity-agent">
-        {iconUrl ? <img src={iconUrl} alt="" /> : <AgentGlyph />}
-      </div>
-      <div className="authorize-connector" aria-hidden="true">
-        <span className="authorize-connector-line" />
-        <span className="authorize-connector-check"><CheckGlyph /></span>
-        <span className="authorize-connector-line" />
-      </div>
-      <div className="authorize-identity-tile" title="Squire Docs">
-        <Logo color="#7c3aed" size={30} />
-      </div>
-    </div>
   );
 }
 
@@ -86,23 +53,30 @@ function ConsentCard({
   existingDelegation,
   isSubmitting,
   onDecision,
+  bare = false,
 }) {
   const isLocalRedirect = redirectUri &&
     (redirectUri.startsWith('http://localhost') ||
      redirectUri.startsWith('http://127.0.0.1') ||
      redirectUri.startsWith('http://[::1]'));
 
+  // Mirror the first-run surface (FirstRunConsent): same Squire Docs branding
+  // shell, heading, lead, and bordered grant box — so the returning-user consent
+  // reads as the same product, not a separate screen. Keeps its functional bits:
+  // per-scope permission detail, signed-in/redirect meta, and Deny/Authorize.
   return (
-    <div className="login-container authorize-container">
-      <IdentityRow iconUrl={iconUrl} />
-
-      <h1 className="authorize-headline">Authorize {agentName}</h1>
-      <p className="authorize-subtitle">
-        {agentDescription || 'This agent is requesting access to your Squire Docs account.'}
+    <AuthorizeShell bare={bare}>
+      <h2 className="login-headline">Authorize {agentName}</h2>
+      <p className="authorize-firstrun-lead">
+        {agentName} is asking to connect to your Squire Docs account.
+        {existingDelegation ? " You've connected it before — approving updates its access." : ''}
       </p>
 
-      <div className="authorize-permissions">
-        <h2 className="authorize-permissions-heading">{agentName} will be able to</h2>
+      <div className="authorize-firstrun-grant">
+        <p className="authorize-firstrun-grant-lead">
+          This grants {agentName} access to your Squire Docs account. It will be
+          able to:
+        </p>
         <ul className="authorize-permissions-list">
           {scopes.map(scope => {
             const info = SCOPE_DESCRIPTIONS[scope] || { label: scope, description: '' };
@@ -117,13 +91,10 @@ function ConsentCard({
             );
           })}
         </ul>
-      </div>
-
-      {existingDelegation && (
-        <p className="authorize-existing-note">
-          You've authorized {agentName} before — approving updates its permissions.
+        <p className="authorize-firstrun-revoke">
+          You can revoke this access anytime in Settings &rarr; AI Agent Access.
         </p>
-      )}
+      </div>
 
       <dl className="authorize-meta">
         <div className="authorize-meta-row">
@@ -160,11 +131,7 @@ function ConsentCard({
           {isSubmitting ? 'Authorizing...' : 'Authorize'}
         </button>
       </div>
-
-      <p className="authorize-revoke-note">
-        Revoke access anytime in Settings &rarr; AI Agent Access.
-      </p>
-    </div>
+    </AuthorizeShell>
   );
 }
 
@@ -222,6 +189,7 @@ export function AuthorizePreview() {
     <div className="authorize-preview-stack">
       <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
       <ConsentCard
+        bare
         agentName="Claude Code"
         agentDescription="AI assistant for document editing"
         iconUrl={null}
@@ -383,18 +351,16 @@ export default function AuthorizePage() {
   }
 
   return (
-    <div className="login-page">
-      <ConsentCard
-        agentName={agentInfo?.name || agentClientId}
-        agentDescription={agentInfo?.description}
-        iconUrl={agentInfo?.iconUrl}
-        scopes={scopes}
-        redirectUri={redirectUri}
-        userEmail={user.email}
-        existingDelegation={existingDelegation}
-        isSubmitting={isSubmitting}
-        onDecision={handleDecision}
-      />
-    </div>
+    <ConsentCard
+      agentName={agentInfo?.name || agentClientId}
+      agentDescription={agentInfo?.description}
+      iconUrl={agentInfo?.iconUrl}
+      scopes={scopes}
+      redirectUri={redirectUri}
+      userEmail={user.email}
+      existingDelegation={existingDelegation}
+      isSubmitting={isSubmitting}
+      onDecision={handleDecision}
+    />
   );
 }
