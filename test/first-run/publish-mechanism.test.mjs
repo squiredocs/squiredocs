@@ -18,6 +18,7 @@ import {
   mirrorRemoteFor,
   CHANNELS,
   PROD_ENDPOINT,
+  SHIP_VERSION,
   REPO_ROOT,
 } from '../../distribution/publish.mjs';
 
@@ -96,7 +97,7 @@ test('first publish pushes generated bundles to configured mirrors', () => {
     const wd = checkout(root, cp.bare, 'cp');
     const plugin = JSON.parse(fs.readFileSync(path.join(wd, '.claude-plugin', 'plugin.json'), 'utf8'));
     assert.equal(plugin.name, 'squire');
-    assert.equal(plugin.version, '1.0.0');
+    assert.equal(plugin.version, SHIP_VERSION);
     assert.match(
       fs.readFileSync(path.join(wd, '.mcp.json'), 'utf8'),
       /https:\/\/squiredocs\.com\/mcp/,

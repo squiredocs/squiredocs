@@ -62,9 +62,42 @@ export const DEFAULT_MCP_REGISTRY_DIR = path.join(REPO_ROOT, 'distribution', 'mc
 // only the rehearsal harness rewrites it (in a throwaway copy) for the dev server.
 export const PROD_ENDPOINT = 'https://squiredocs.com/mcp';
 
-// First shipped version (RBD-5). The design's bump-on-any-change rule counts from here.
-// plugin.json and server.json mirror the same value.
-export const SHIP_VERSION = '1.0.0';
+// Shipped version. The design's bump-on-any-change rule: any change to generated
+// bundle content requires bumping this (the publish version guard refuses an
+// unchanged version with changed content). plugin.json and server.json mirror it.
+//   1.0.0 — initial wave-1 publish
+//   1.0.1 — add MIT LICENSE to both published bundles
+export const SHIP_VERSION = '1.0.1';
+
+// MIT license, generated into every published bundle so the mirrors carry it
+// (they are generated-only — a hand-added LICENSE would be pruned on publish).
+// Copyright holder + year here are the single source of truth.
+const LICENSE_YEAR = '2026';
+const LICENSE_HOLDER = 'Squire Docs';
+function licenseText() {
+  return `MIT License
+
+Copyright (c) ${LICENSE_YEAR} ${LICENSE_HOLDER}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+`;
+}
 
 // The pinned Official MCP Registry schema this server.json is authored against.
 const REGISTRY_SCHEMA_URL =
@@ -157,6 +190,7 @@ export function expectedFiles({ endpoint = PROD_ENDPOINT } = {}) {
     '.mcp.json': mcpJson(endpoint),
     'skills/squire/SKILL.md': withGeneratedHeader(readShared('skill.md'), 'distribution/shared/skill.md'),
     'commands/onboard.md': withGeneratedHeader(readShared('onboard.md'), 'distribution/shared/onboard.md'),
+    'LICENSE': licenseText(),
   };
 }
 
@@ -244,7 +278,7 @@ export const CHANNELS = [
   {
     id: 'mcp-registry',
     outDir: DEFAULT_MCP_REGISTRY_DIR,
-    files: () => ({ 'server.json': expectedRegistryServer() }),
+    files: () => ({ 'server.json': expectedRegistryServer(), 'LICENSE': licenseText() }),
     endpointRel: null,
     schemas: [{ manifestRel: 'server.json', file: 'server.schema.json', kind: 'registry' }],
     mirrorEnv: 'SQUIRE_MIRROR_MCP_REGISTRY',

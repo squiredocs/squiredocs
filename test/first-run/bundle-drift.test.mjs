@@ -22,11 +22,14 @@ import {
   expectedFiles,
   expectedRegistryServer,
   assembleBundle,
+  CHANNELS,
   PROD_ENDPOINT,
   SHARED_DIR,
   DEFAULT_CLAUDE_PLUGIN_DIR,
   DEFAULT_MCP_REGISTRY_DIR,
 } from '../../distribution/publish.mjs';
+
+const REGISTRY_CHANNEL = CHANNELS.find((c) => c.id === 'mcp-registry');
 
 const REGEN = 'node distribution/publish.mjs';
 
@@ -65,12 +68,15 @@ function driftProblems({ pluginDir, registryDir }) {
       problems.push(`${rel} drifted from distribution/shared/ — hand-edit the source, then run: ${REGEN}`);
     }
   }
-  // Registry channel.
-  const srvExpected = expectedRegistryServer();
-  const srvPath = path.join(registryDir, 'server.json');
-  if (!fs.existsSync(srvPath)) problems.push(`missing generated file: server.json (run: ${REGEN})`);
-  else if (fs.readFileSync(srvPath, 'utf8') !== srvExpected) {
-    problems.push(`server.json drifted from the expected registry content — run: ${REGEN}`);
+  // Registry channel — byte-match every generator-emitted file (server.json,
+  // LICENSE, …) derived from the generator, not a hardcoded list.
+  const regExpected = REGISTRY_CHANNEL.files();
+  for (const [rel, expectedContent] of Object.entries(regExpected)) {
+    const onDisk = path.join(registryDir, rel);
+    if (!fs.existsSync(onDisk)) { problems.push(`missing generated file: ${rel} (run: ${REGEN})`); continue; }
+    if (fs.readFileSync(onDisk, 'utf8') !== expectedContent) {
+      problems.push(`${rel} drifted from the expected registry content — run: ${REGEN}`);
+    }
   }
   // EXTRA-FILE guard (032 review MEDIUM #3): a committed file the generator does
   // NOT emit would pass the loops above, get installed by every rehearsal (the
@@ -93,8 +99,9 @@ function driftProblems({ pluginDir, registryDir }) {
   for (const rel of listFiles(pluginDir)) {
     if (!pluginExpected.has(rel)) problems.push(`unexpected committed file in claude-plugin: ${rel} — not emitted by the generator (remove it, or add it to expectedFiles)`);
   }
+  const registryExpected = new Set(Object.keys(regExpected));
   for (const rel of listFiles(registryDir)) {
-    if (rel !== 'server.json') problems.push(`unexpected committed file in mcp-registry: ${rel} — not emitted by the generator`);
+    if (!registryExpected.has(rel)) problems.push(`unexpected committed file in mcp-registry: ${rel} — not emitted by the generator`);
   }
   return problems;
 }
@@ -182,7 +189,10 @@ test('a hand-edited generated file is detected as drift, naming the file (SC-003
   const reg = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-drift-reg-'));
   try {
     assembleBundle({ outDir: tmp });
-    fs.writeFileSync(path.join(reg, 'server.json'), expectedRegistryServer());
+    // Materialize the full registry channel (server.json + LICENSE + …).
+    for (const [rel, content] of Object.entries(REGISTRY_CHANNEL.files())) {
+      fs.writeFileSync(path.join(reg, rel), content);
+    }
 
     // A clean materialization must agree with itself first (sanity).
     assert.deepEqual(driftProblems({ pluginDir: tmp, registryDir: reg }), [], 'fresh materialization must agree');

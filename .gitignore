@@ -54,3 +54,9 @@ test/first-run/matrix-archive/
 
 # feature 032: scratch mirror clones created by distribution/publish.mjs --publish
 .publish-mirror-*/
+
+# MCP registry domain-verification private key (Ed25519) — NEVER commit
+distribution/.mcp-publisher-key
+
+# feature 032 registry DNS setup artifacts (Sam-op, not source; key is secret)
+distribution/route53-txt-upsert.json
