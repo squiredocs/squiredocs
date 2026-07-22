@@ -127,19 +127,19 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 ### Harness cell-enabling extensions (FR-032)
 
-- [ ] T022 [US5] Add an **unauthenticated mode** to `test/first-run/rehearsal-harness.mjs`: configure the client's MCP server (endpoint via the throwaway copy) with NO Authorization header and NO completed consent, so Squire Docs tools are genuinely absent and the walkthrough branch runs (spec gap 2, R3). No new endpoint.
-- [ ] T023 [US5] Add a **token-fallback mode**: mint a real `sk_sqd_` token for the fresh synthetic user via existing token machinery, write it to the scratch `HOME`'s `~/.squire/token` (0600), configure client MCP auth from that file, no OAuth session (FR-032, RBD-6, R5).
-- [ ] T024 [US5] Add **scripted user-simulator turns**: drive the session with successive user turns reporting an event ("I clicked Deny" / "I closed the tab before approving" / pasting a synthesized full localhost callback URL) and capture the agent's coached response (FR-032, RBD-5, R4).
-- [ ] T025 [US5] Add **fixture-repo cwd**: copy the cell's `repo-fixtures/<shape>` to a temp dir and run the client with it as the working directory, keeping fixtures pristine (FR-032, RBD-7, R6).
-- [ ] T026 [P] [US5] Author the four repo-shape fixtures under `test/first-run/repo-fixtures/`: `kiro-specs/` (`.kiro/specs/**` + README), `specs/` (`specs/**` + README, the known file the sync cells assert), `claude-md/` (`CLAUDE.md` + README), `bare/` (README, nothing spec-shaped) per `contracts/matrix-cell-profile.md` (RBD-7).
+- [X] T022 [US5] Add an **unauthenticated mode** to `test/first-run/rehearsal-harness.mjs`: configure the client's MCP server (endpoint via the throwaway copy) with NO Authorization header and NO completed consent, so Squire Docs tools are genuinely absent and the walkthrough branch runs (spec gap 2, R3). No new endpoint.
+- [X] T023 [US5] Add a **token-fallback mode**: mint a real `sk_sqd_` token for the fresh synthetic user via existing token machinery, write it to the scratch `HOME`'s `~/.squire/token` (0600), configure client MCP auth from that file, no OAuth session (FR-032, RBD-6, R5).
+- [X] T024 [US5] Add **scripted user-simulator turns**: drive the session with successive user turns reporting an event ("I clicked Deny" / "I closed the tab before approving" / pasting a synthesized full localhost callback URL) and capture the agent's coached response (FR-032, RBD-5, R4).
+- [X] T025 [US5] Add **fixture-repo cwd**: copy the cell's `repo-fixtures/<shape>` to a temp dir and run the client with it as the working directory, keeping fixtures pristine (FR-032, RBD-7, R6).
+- [X] T026 [P] [US5] Author the four repo-shape fixtures under `test/first-run/repo-fixtures/`: `kiro-specs/` (`.kiro/specs/**` + README), `specs/` (`specs/**` + README, the known file the sync cells assert), `claude-md/` (`CLAUDE.md` + README), `bare/` (README, nothing spec-shaped) per `contracts/matrix-cell-profile.md` (RBD-7).
 
 ### Matrix runner + profiles (FR-030/031/033)
 
-- [ ] T027 [P] [US5] Author `test/first-run/matrix-cells.mjs` — the 11 cell definitions with expected-outcome profiles (required / exempt / assertions) per `contracts/matrix-cell-profile.md` (RBD-4/11/12).
-- [ ] T028 [US5] Implement `test/first-run/matrix-runner.mjs`: run the 11 cells **serially** (no concurrency — shared DB, constitution II), each invoking the harness in the cell's mode/fixture/turns, capturing a structured transcript, grading against the cell profile (passing `serverOrigin`), archiving transcript + grade; exit non-zero unless every cell matches its profile with its model leg completed (FR-030/031).
-- [ ] T029 [US5] Wire `--require-claude` **always on** in the matrix runner: a cell whose model leg failed/was skipped fails the gate; with `ANTHROPIC_API_KEY` absent the runner refuses to run rather than skipping legs (FR-029, RBD-3) — this is the gate 029's promotion note assigned to M2.
-- [ ] T030 [US5] Implement the existing-account-never-consented cell's server-side steps: faucet-premint the synthetic account before the client starts, and assert exactly one account exists for the identity after consent (find-or-create, no duplicate) (FR-033, RBD-12).
-- [ ] T031 [US5] Implement the token-fallback cell's security assertion: substring-scan the full captured transcript for the token bytes and fail the cell if present (RBD-6), using the `capture.mjs` scan helper (T004).
+- [X] T027 [P] [US5] Author `test/first-run/matrix-cells.mjs` — the 11 cell definitions with expected-outcome profiles (required / exempt / assertions) per `contracts/matrix-cell-profile.md` (RBD-4/11/12).
+- [X] T028 [US5] Implement `test/first-run/matrix-runner.mjs`: run the 11 cells **serially** (no concurrency — shared DB, constitution II), each invoking the harness in the cell's mode/fixture/turns, capturing a structured transcript, grading against the cell profile (passing `serverOrigin`), archiving transcript + grade; exit non-zero unless every cell matches its profile with its model leg completed (FR-030/031).
+- [X] T029 [US5] Wire `--require-claude` **always on** in the matrix runner: a cell whose model leg failed/was skipped fails the gate; with `ANTHROPIC_API_KEY` absent the runner refuses to run rather than skipping legs (FR-029, RBD-3) — this is the gate 029's promotion note assigned to M2.
+- [X] T030 [US5] Implement the existing-account-never-consented cell's server-side steps: faucet-premint the synthetic account before the client starts, and assert exactly one account exists for the identity after consent (find-or-create, no duplicate) (FR-033, RBD-12).
+- [X] T031 [US5] Implement the token-fallback cell's security assertion: substring-scan the full captured transcript for the token bytes and fail the cell if present (RBD-6), using the `capture.mjs` scan helper (T004).
 
 **Checkpoint**: One command produces a graded, profile-judged, archived result per cell with a trustworthy exit status — half of M2's exit.
 
@@ -149,7 +149,7 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Purpose**: Record the M3 hand-off and the twofold exit gate; validate the whole feature.
 
-- [ ] T032 [P] Author `specs/030-plugin-logic/promotion-notes.md` — the M3 obligations record (FR-035): Agent Surface signup-line amendment at ship time; agents.md / documentation-site / landing-page updates; real per-channel manifests + mirror repos + `publish.mjs` + full drift CI test replacing the rehearsal assembly; harness default `--bundle` → `distribution/claude-plugin` when it exists.
+- [X] T032 [P] Author `specs/030-plugin-logic/promotion-notes.md` — the M3 obligations record (FR-035): Agent Surface signup-line amendment at ship time; agents.md / documentation-site / landing-page updates; real per-channel manifests + mirror repos + `publish.mjs` + full drift CI test replacing the rehearsal assembly; harness default `--bundle` → `distribution/claude-plugin` when it exists.
 - [ ] T033 Run `quickstart.md` steps 2–6 in the dev pod and confirm each expected outcome (assembler + agreement; grader FAIL/FAIL/PASS; single rehearsal on real content; full matrix; consent-page client test + tier-1 green).
 - [ ] T034 Produce the exit-gate record (FR-034, SC-007): capture a clean full-matrix run (archived transcripts + grades) as gate part (a); prepare the sign-off record scaffold (date, scope=mechanics+tone, transcript references) for Sam's production self-test as gate part (b). M3 stays blocked until both are recorded — HITL by definition; do not proceed to publish anything.
 
