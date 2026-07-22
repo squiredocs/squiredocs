@@ -540,8 +540,8 @@ through to the consent page, which the driver asserts.
 ### Tier-3 — unattended in-pod rehearsal harness
 
 One command yields a pristine first-run environment (scratch `CLAUDE_CONFIG_DIR`
-+ fresh synthetic user + the stub plugin installed pointed at the dev server) and
-a graded transcript, driving `claude -p` non-interactively:
++ fresh synthetic user + the plugin installed pointed at the dev server) and a
+graded transcript, driving `claude -p` non-interactively:
 
 ```bash
 node test/first-run/rehearsal-harness.mjs --server $DEV       # full run (needs ANTHROPIC_API_KEY)
@@ -549,11 +549,18 @@ node test/first-run/rehearsal-harness.mjs --server $DEV --no-claude   # build + 
 node test/first-run/state-bleed-check.mjs --server $DEV       # two runs, assert no state bleed
 ```
 
-The stub plugin lives at `test/first-run/stub-plugin/` (scaffolding-for-testing,
-NOT the shipping bundle) and plants exactly one gradable coaching marker, so the
-grader (`test/first-run/grade-transcript.mjs`) demonstrates both a PASS and the
-expected FAILs. With the stub, ~1/7 items PASS by design — clean passes across the
-matrix are milestone M2, not M1.
+The `--bundle` default is the committed **shipping bundle**
+`distribution/claude-plugin/` (feature 032) — generated from
+`distribution/shared/{skill.md,onboard.md}` by `node distribution/publish.mjs`
+(the single generator; dry-run by default, `--publish` to push mirrors — a Sam
+op). So rehearsals exercise the real M2 coaching content, and clean passes across
+the matrix are the intended outcome. `bundle-drift.test.mjs` (in
+`npm run test:first-run`) asserts the committed bundle byte-matches what
+`publish.mjs` regenerates, so a hand-edit fails CI. Pass `--bundle
+test/first-run/stub-plugin/` to rehearse against the minimal single-marker stub
+instead (the M2 `assemble-bundle.mjs` / `assembled-bundle/` /
+`check-bundle-agreement.mjs` are retired — `publish.mjs` + the drift guard
+replace them).
 
 **Linux-pod-only**: pristine rehearsals require the Linux dev pod. On macOS,
 Claude Code stores OAuth credentials in the system Keychain, which a scratch
