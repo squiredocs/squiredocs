@@ -42,7 +42,7 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **⚠️ Blocks**: US2 (harness capture), US4 (event-based grading), US5 (cell grading). US1 and US3 do NOT depend on this phase and may proceed independently.
 
-- [ ] T004 Implement the structured-capture parser `test/first-run/capture.mjs`: parse `claude -p --output-format stream-json` JSONL into `{ prose, events }` where `events` is an ordered list of `{ tool, input, result }` tool-call records; export a helper to substring-scan the raw capture for a secret (used by the token-bytes assertion). Fail-closed contract: expose whether event data was present so callers can fail performable checks closed when it is absent (RBD-2).
+- [X] T004 Implement the structured-capture parser `test/first-run/capture.mjs`: parse `claude -p --output-format stream-json` JSONL into `{ prose, events }` where `events` is an ordered list of `{ tool, input, result }` tool-call records; export a helper to substring-scan the raw capture for a secret (used by the token-bytes assertion). Fail-closed contract: expose whether event data was present so callers can fail performable checks closed when it is absent (RBD-2).
 
 **Checkpoint**: Capture parsing available to grader, harness, and matrix runner.
 
