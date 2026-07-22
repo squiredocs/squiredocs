@@ -25,7 +25,7 @@ Do not try to tell "has an account but never consented" apart from "no account a
 
 In Claude Code the OAuth exchange belongs to the MCP client, not to you. You cannot complete it for the user; you coach them through the client's own flow, in this order:
 
-1. **Set expectations before anything opens.** Tell the user, before pointing them at any browser: their browser will open Squire Docs' connect page; they sign in with Google, and if they have never used Squire Docs that same click creates their account — there is no separate signup step; then they approve the connection so you can create and sync docs for them.
+1. **Set expectations before anything opens.** Tell the user, before pointing them at any browser: their browser will open Squire Docs' connect page; they sign in with Google, and if they have never used Squire Docs that same click creates their account and connects you — no separate signup step, and no separate approval screen, so you can start creating and syncing docs for them. (A user who already has a Squire Docs account gets one more screen to approve the connection before the tools appear.)
 
 2. **Point at the client's native flow.** Have them run `/mcp`, pick the `squire` server, and complete the browser consent there. The plugin's server entry is already registered — do **not** tell them to run `claude mcp add`.
 

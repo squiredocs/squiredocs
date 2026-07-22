@@ -1,7 +1,12 @@
 /**
- * Feature 030 US3 (T020, FR-024, SC-005): the consent page's UNAUTHENTICATED
- * state is a first-run surface. Asserts the four framing elements render, and
- * that the authenticated consent card path is unchanged (copy-only change).
+ * Feature 030 US3 + Feature 031 US3 (T006/T013/T014/T015): the consent page's
+ * UNAUTHENTICATED state is the SOLE first-run consent surface after the collapse.
+ * Asserts: the Continue-with-Google action goes DIRECTLY to /auth/google (no
+ * /login hop, C1/FR-001); transparency copy is primary (full grant matching the
+ * requested scopes + revocation line, C2/FR-009); a subordinate value reminder
+ * from the verified messaging (C3/FR-014); the structural fold ordering
+ * (transparency before value before the primary action, C4). The authenticated
+ * consent card path is unchanged.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -32,44 +37,73 @@ describe('AuthorizePage — unauthenticated first-run framing (SC-005)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the Continue-with-Google action', async () => {
+  it('renders a Continue-with-Google action that goes DIRECTLY to /auth/google (C1/FR-001)', async () => {
     render(<AuthorizePage />);
     const link = await screen.findByRole('link', { name: /continue with google/i });
     expect(link).toBeInTheDocument();
-    // Mechanics untouched: the returnTo link still carries the authorize path+query.
-    expect(link.getAttribute('href')).toMatch(/^\/login\?returnTo=/);
+    // FR-001: direct Google entry — NO intermediate /login hop.
+    expect(link.getAttribute('href')).toMatch(/^\/auth\/google\?returnTo=/);
+    expect(link.getAttribute('href')).not.toMatch(/^\/login/);
+    // The returnTo still carries the full authorize path+query.
     expect(decodeURIComponent(link.getAttribute('href'))).toContain('/authorize?agent_client_id=agent-xyz');
   });
 
-  it('states that the same click creates the account', async () => {
+  it('states that the same click creates the account (no separate signup step)', async () => {
     render(<AuthorizePage />);
     expect(await screen.findByText(/that same click creates your account/i)).toBeInTheDocument();
     expect(screen.getByText(/no separate\s+signup step/i)).toBeInTheDocument();
   });
 
-  it('carries the product line (durable, attributed spec layer for agentic development)', async () => {
+  it('states the full write grant matching the requested scopes (C2/FR-009)', async () => {
     render(<AuthorizePage />);
+    // write scope requested → names read + create/edit/delete, never narrower.
     expect(
-      await screen.findByText(/durable, attributed spec layer for agentic\s+development/i),
+      await screen.findByText(/read your documents, and create, edit, and delete documents/i),
     ).toBeInTheDocument();
   });
 
-  it('carries the attribution/revertibility line', async () => {
+  it('includes the revocation line (C2/FR-009)', async () => {
     render(<AuthorizePage />);
-    expect(await screen.findByText(/every agent edit is attributed and revertible/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/revoke this access anytime in Settings\s*→?\s*AI Agent Access/i),
+    ).toBeInTheDocument();
   });
 
-  it('names what the agent is asking to do', async () => {
-    render(<AuthorizePage />);
-    expect(await screen.findByText(/wants to create and sync documents/i)).toBeInTheDocument();
-  });
-
-  it('states a read-only ask when documents:write is not requested', async () => {
+  it('states a strictly narrower read-only grant when documents:write is not requested', async () => {
     setSearch('?agent_client_id=agent-xyz&scope=documents:read');
     render(<AuthorizePage />);
-    expect(await screen.findByText(/wants to read documents/i)).toBeInTheDocument();
-    // must NOT overstate write access the agent never asked for
-    expect(screen.queryByText(/create and sync documents/i)).not.toBeInTheDocument();
+    // grant lead names only reading; must NOT overstate create/edit/delete.
+    expect(await screen.findByText(/will be able to read your documents in your Squire Docs/i)).toBeInTheDocument();
+    expect(screen.queryByText(/create, edit, and delete documents/i)).not.toBeInTheDocument();
+  });
+
+  it('carries a subordinate value reminder drawn from the verified messaging (C3/FR-014)', async () => {
+    render(<AuthorizePage />);
+    expect(
+      await screen.findByText(/humans and coding agents write the same spec together/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/two-way sync to the markdown in your repo/i)).toBeInTheDocument();
+    expect(screen.getByText(/attributed to human or agent, and revertible/i)).toBeInTheDocument();
+  });
+
+  it('orders transparency (primary) before the value reminder before the primary action (C4 fold)', async () => {
+    const { container } = render(<AuthorizePage />);
+    await screen.findByRole('link', { name: /continue with google/i });
+    // Structural fold proxy (jsdom has no layout): DOM order must place the
+    // grant/transparency block ahead of the value reminder, and the primary
+    // "Continue with Google" action last — so value copy can never push the
+    // action above transparency or displace it in source order.
+    const grant = container.querySelector('.authorize-firstrun-grant');
+    const value = container.querySelector('.authorize-firstrun-points');
+    const action = container.querySelector('.authorize-signin-link');
+    expect(grant && value && action).toBeTruthy();
+    const order = (el) => Array.prototype.indexOf.call(el.ownerDocument.querySelectorAll('*'), el);
+    expect(order(grant)).toBeLessThan(order(value));
+    expect(order(value)).toBeLessThan(order(action));
+    // Value reminder stays tight (2–3 lines) so it cannot crowd the action off-screen.
+    const valueLines = value.querySelectorAll('li').length;
+    expect(valueLines).toBeGreaterThanOrEqual(2);
+    expect(valueLines).toBeLessThanOrEqual(3);
   });
 
   it('does NOT show the old existing-account "Sign in required" framing', async () => {

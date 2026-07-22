@@ -33,6 +33,11 @@ function arg(name, fallback) {
 
 const SERVER = (arg('--server', process.env.DEV_SERVER || 'http://localhost:3001')).replace(/\/$/, '');
 const REDIRECT_URI = arg('--redirect-uri', 'http://localhost:8765/callback');
+// Feature 031 (T008): --first-run drives the COLLAPSED flow — faucet BROWSER mode
+// with an /authorize returnTo, so a brand-new account's sign-in auto-issues the
+// code inline and 302s to the agent callback with ZERO consent POSTs. The default
+// (returning-user) path still exercises the explicit dev-consent-approve step.
+const FIRST_RUN = process.argv.includes('--first-run');
 
 let step = 0;
 function log(msg) {
@@ -91,50 +96,88 @@ async function main() {
   const scope = 'documents:read documents:write';
   log(`PKCE code_challenge (S256) + state generated`);
 
-  // 6. Faucet sign-in leg → synthetic session Bearer token.
   const nonce = `t2${crypto.randomBytes(4).toString('hex')}`;
-  const faucet = await fetch(`${SERVER}/auth/dev-login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fresh: true, nonce }),
-  });
-  const faucetBody = await faucet.json();
-  if (faucet.status !== 200 || !faucetBody.accessToken) {
-    fail(`faucet did not mint a session (status ${faucet.status}; is ENABLE_DEV_ENDPOINTS=1?)`);
-  }
-  const sessionToken = faucetBody.accessToken;
-  log(`faucet minted synthetic session → ${faucetBody.email}`);
+  let authCode;
 
-  // Sanity: the authorize endpoint accepts the request (302 to the consent page).
-  const authorizeUrl = new URL(asm.authorization_endpoint);
-  authorizeUrl.search = new URLSearchParams({
-    client_id: clientId, redirect_uri: REDIRECT_URI, response_type: 'code',
-    scope, state, code_challenge: codeChallenge, code_challenge_method: 'S256',
-  }).toString();
-  const authorizeRes = await fetch(authorizeUrl, { redirect: 'manual' });
-  if (![302, 303, 307].includes(authorizeRes.status)) {
-    fail(`authorize did not redirect to consent (status ${authorizeRes.status})`);
-  }
-  log(`authorize → ${authorizeRes.status} (consent page)`);
+  if (FIRST_RUN) {
+    // Feature 031 first-run COLLAPSE: faucet BROWSER mode carrying an /authorize
+    // returnTo. The brand-new account is created in this round-trip (isNew), so
+    // completePostAuth auto-issues the code inline and 302s STRAIGHT to the agent
+    // callback — WITHOUT any consent POST. Extract the code from that redirect.
+    const returnTo = '/authorize?' + new URLSearchParams({
+      agent_client_id: clientId,
+      agent_instance_id: '',
+      scope, redirect_uri: REDIRECT_URI, state,
+      code_challenge: codeChallenge, code_challenge_method: 'S256',
+      existing_delegation: 'false',
+    }).toString();
 
-  // 7. Auto-approve consent for the synthetic session → authorization code.
-  const approve = await fetch(`${SERVER}/auth/dev-consent-approve`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` },
-    body: JSON.stringify({
-      agent_client_id: clientId, redirect_uri: REDIRECT_URI, state,
-      scopes: ['documents:read', 'documents:write'], code_challenge: codeChallenge, code_challenge_method: 'S256',
-    }),
-  });
-  const approveBody = await approve.json();
-  if (approve.status !== 200 || !approveBody.code) fail(`auto-approve failed (status ${approve.status}): ${JSON.stringify(approveBody)}`);
-  log(`auto-approve → authorization code minted`);
+    const browserRes = await fetch(`${SERVER}/auth/dev-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fresh: true, browser: true, nonce, returnTo }),
+      redirect: 'manual',
+    });
+    if (![302, 303, 307].includes(browserRes.status)) {
+      fail(`first-run browser sign-in did not redirect (status ${browserRes.status}; is ENABLE_DEV_ENDPOINTS=1?)`);
+    }
+    const location = browserRes.headers.get('location');
+    let loc;
+    try { loc = new URL(location); } catch { fail(`first-run redirect had no parseable Location: ${location}`); }
+    // The COLLAPSE assertion: the 302 goes to the AGENT callback, not the consent page.
+    if (loc.origin + loc.pathname !== REDIRECT_URI) {
+      fail(`first-run did NOT auto-issue — redirected to ${loc.origin}${loc.pathname} (expected the agent callback ${REDIRECT_URI}; consent was NOT collapsed)`);
+    }
+    if (loc.searchParams.get('state') !== state) fail(`first-run callback state mismatch`);
+    authCode = loc.searchParams.get('code');
+    if (!authCode) fail(`first-run callback carried no code: ${location}`);
+    log(`first-run faucet BROWSER sign-in → auto-issued code inline (ZERO consent POSTs)`);
+  } else {
+    // Returning-user path: faucet JSON session + the EXPLICIT dev-consent-approve.
+    const faucet = await fetch(`${SERVER}/auth/dev-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fresh: true, nonce }),
+    });
+    const faucetBody = await faucet.json();
+    if (faucet.status !== 200 || !faucetBody.accessToken) {
+      fail(`faucet did not mint a session (status ${faucet.status}; is ENABLE_DEV_ENDPOINTS=1?)`);
+    }
+    const sessionToken = faucetBody.accessToken;
+    log(`faucet minted synthetic session → ${faucetBody.email}`);
+
+    // Sanity: the authorize endpoint accepts the request (302 to the consent page).
+    const authorizeUrl = new URL(asm.authorization_endpoint);
+    authorizeUrl.search = new URLSearchParams({
+      client_id: clientId, redirect_uri: REDIRECT_URI, response_type: 'code',
+      scope, state, code_challenge: codeChallenge, code_challenge_method: 'S256',
+    }).toString();
+    const authorizeRes = await fetch(authorizeUrl, { redirect: 'manual' });
+    if (![302, 303, 307].includes(authorizeRes.status)) {
+      fail(`authorize did not redirect to consent (status ${authorizeRes.status})`);
+    }
+    log(`authorize → ${authorizeRes.status} (consent page)`);
+
+    // Auto-approve consent for the synthetic session → authorization code.
+    const approve = await fetch(`${SERVER}/auth/dev-consent-approve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify({
+        agent_client_id: clientId, redirect_uri: REDIRECT_URI, state,
+        scopes: ['documents:read', 'documents:write'], code_challenge: codeChallenge, code_challenge_method: 'S256',
+      }),
+    });
+    const approveBody = await approve.json();
+    if (approve.status !== 200 || !approveBody.code) fail(`auto-approve failed (status ${approve.status}): ${JSON.stringify(approveBody)}`);
+    authCode = approveBody.code;
+    log(`auto-approve → authorization code minted`);
+  }
 
   // 8. Token exchange.
   const tok = await fetch(asm.token_endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ grant_type: 'authorization_code', code: approveBody.code, code_verifier: codeVerifier, redirect_uri: REDIRECT_URI }),
+    body: JSON.stringify({ grant_type: 'authorization_code', code: authCode, code_verifier: codeVerifier, redirect_uri: REDIRECT_URI }),
   });
   const tokBody = await tok.json();
   if (tok.status !== 200 || !tokBody.access_token) fail(`token exchange failed (status ${tok.status}): ${JSON.stringify(tokBody)}`);

@@ -27,6 +27,10 @@ const { requireAuth, requireAdmin, requireDevEndpoints } = require('./middleware
 const { notifyNewUser, notifyLogin } = require('../email');
 const onboarding = require('../onboarding');
 const mcpOauthFlow = require('../mcp/auth/oauth-flow');
+// PKCE format re-check on the inline auto-issue path (feature 031, FR-005/FR-006).
+// approveAuthorization checks code_challenge PRESENCE but not FORMAT, so the
+// auto-issue gate re-runs the same validator handleAuthorize uses (INV-6).
+const { validateCodeChallenge } = require('../mcp/auth/pkce');
 
 const router = express.Router();
 
@@ -218,6 +222,65 @@ router.get('/google/callback', async (req, res) => {
 });
 
 /**
+ * Feature 031 (T003, FR-005) — parse + revalidate a cookie-bound returnTo as an
+ * inline-auto-issue-eligible /authorize request. This is the trust boundary of
+ * the consent collapse: it accepts ONLY the single string it is passed (in
+ * production the server-bound httpOnly `oauth_return_to` cookie value), and
+ * NEVER reads req.query / req.body / headers — completePostAuth does not even
+ * receive `req`, so the auto-issue parameters cannot originate from any
+ * client-modifiable post-auth channel (INV-3 / structural invariant U2).
+ *
+ * Returns the parsed OAuth parameter set only when the value is a valid
+ * same-origin returnTo, its pathname is exactly `/authorize`, the required
+ * parameters are all present, and the PKCE challenge passes the SAME format
+ * validator handleAuthorize uses. Returns null otherwise — every miss FAILS
+ * CLOSED to the existing consent redirect. Agent resolution, redirect_uri
+ * (checkRedirectUri) and scope validation are left to approveAuthorization,
+ * which runs the byte-for-byte same validators as the explicit path (INV-6, D5).
+ *
+ * @param {*} rawReturnTo - the cookie-derived returnTo string (only accepted input)
+ * @returns {null | {agent_client_id, agent_instance_id, redirect_uri,
+ *   code_challenge, code_challenge_method, state, scope}}
+ */
+function tryParseAuthorizeReturnTo(rawReturnTo) {
+  if (!isValidReturnTo(rawReturnTo)) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(rawReturnTo, 'http://placeholder');
+  } catch {
+    return null;
+  }
+  if (parsed.pathname !== '/authorize') return null;
+
+  const q = parsed.searchParams;
+  const agent_client_id = q.get('agent_client_id') || q.get('client_id');
+  const redirect_uri = q.get('redirect_uri');
+  const code_challenge = q.get('code_challenge');
+  const code_challenge_method = q.get('code_challenge_method') || 'S256';
+  const state = q.get('state');
+  const scope = q.get('scope');
+  const agent_instance_id = q.get('agent_instance_id') || undefined;
+
+  // Required parameter presence (matches handleAuthorize's required set).
+  if (!agent_client_id || !redirect_uri || !code_challenge || !state) return null;
+
+  // PKCE challenge format re-check (approveAuthorization checks presence, not
+  // format) — the exact validator the standard authorize entry point runs.
+  if (!validateCodeChallenge(code_challenge).valid) return null;
+
+  return {
+    agent_client_id,
+    agent_instance_id,
+    redirect_uri,
+    code_challenge,
+    code_challenge_method,
+    state,
+    scope,
+  };
+}
+
+/**
  * Shared post-authentication logic for both the real Google callback and the
  * feature-029 faucet browser mode. Given a verified identity profile, it:
  *   - stamps signup provenance (agent_oauth iff a valid same-origin returnTo is
@@ -265,6 +328,63 @@ async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
   // is the deliberate, load-bearing welcome-doc skip for consent-born accounts
   // (FR-013) — do not "fix" it by falling through to onboarding.
   if (hasReturnTo) {
+    // Feature 031 — First-run consent collapse (FR-003/004/005/006/010).
+    //
+    // AUTO-ISSUE GATE. Fires ONLY when the account was created in THIS very
+    // round-trip (`user.isNew` === the xmax=0 INSERT outcome — never account
+    // age, emptiness, or a pre-authenticated session, FR-004/FR-007) AND the
+    // cookie-bound returnTo is a fully-valid /authorize request. A just-created
+    // account holds zero documents, so the consent card would protect nothing;
+    // every existing account (isNew === false) skips this branch and gets the
+    // explicit ConsentCard. Any miss FAILS CLOSED to the consent redirect below
+    // (never an error, never a fail-open mint — FR-010/INV-4).
+    //
+    // The OAuth parameters come EXCLUSIVELY from tryParseAuthorizeReturnTo(rawReturnTo)
+    // — the server-bound cookie value — never from req.query/req.body (INV-3).
+    // Minting reuses the shared approveAuthorization core (the same path the
+    // browser Approve click and dev-consent-approve drive) — no parallel mint
+    // path (FR-006/INV-2).
+    if (user.isNew === true) {
+      const authorizeParams = tryParseAuthorizeReturnTo(rawReturnTo);
+      if (authorizeParams) {
+        try {
+          // SECURITY NOTE (feature 031, T019 — carried to the adversarial review
+          // pass, research R9 / spec Flagged gap 5 / D5): approveAuthorization
+          // calls checkRedirectUri, which — for an AUTO-REGISTERED client (empty
+          // allow-list) — accepts ANY localhost OR HTTPS redirect_uri. On the
+          // explicit consent card a human sees and judges that redirect URL; on
+          // THIS auto-issue path no human eyeball reviews it. This does NOT widen
+          // the blast radius beyond FR-008's ceiling (a token bound to the
+          // just-created, zero-document account this flow itself created — never
+          // an existing account's data), and redirect validation is UNCHANGED per
+          // D5. Any tightening (e.g. restricting the auto-issue path to
+          // localhost-only redirects) is owned by the adversarial security review
+          // pass and MUST NOT be applied here without Sam's ratification.
+          const result = await mcpOauthFlow.approveAuthorization({
+            userId: user.id,
+            agent_client_id: authorizeParams.agent_client_id,
+            agent_instance_id: authorizeParams.agent_instance_id,
+            scopes: authorizeParams.scope,
+            redirect_uri: authorizeParams.redirect_uri,
+            state: authorizeParams.state,
+            code_challenge: authorizeParams.code_challenge,
+            code_challenge_method: authorizeParams.code_challenge_method,
+          });
+          if (result.ok) {
+            // AUTO-ISSUE: straight to the agent callback carrying code + state.
+            // No consent card, no "Authorized" interstitial (D1).
+            return res.redirect(result.redirectUrl);
+          }
+          // !result.ok → fall through to the consent redirect (FAIL CLOSED).
+        } catch (e) {
+          // Never dead-end the user on an auto-issue error — fall through to the
+          // existing consent redirect (FR-010/INV-4).
+          console.error('Auto-issue (first-run consent collapse) failed; falling back to consent:', e);
+        }
+      }
+      // authorizeParams null OR !result.ok OR threw → fall through below.
+    }
+
     return res.redirect(`${clientUrl}${rawReturnTo}`);
   }
 
@@ -685,6 +805,7 @@ router.post('/prod-reset-selftest-account', requireAdmin, async (req, res) => {
 
 module.exports = router;
 module.exports.isValidReturnTo = isValidReturnTo;
+module.exports.tryParseAuthorizeReturnTo = tryParseAuthorizeReturnTo;
 module.exports.PROD_RESET_ACCOUNT = PROD_RESET_ACCOUNT;
 
 
