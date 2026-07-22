@@ -4,9 +4,10 @@
  *   - structured capture: the model leg runs `--output-format stream-json` and
  *     the raw JSONL is parsed through capture.mjs into { prose, events } so the
  *     grader can measure what the agent DID, not just what it said (T010, RBD-2).
- *   - the `--bundle` default is the bundle assembled from distribution/shared/
- *     per run, so a shared/ edit mid-iteration can never exercise stale content
- *     (T011, FR-019).
+ *   - the `--bundle` default is the committed SHIPPING bundle
+ *     distribution/claude-plugin (032 FR-018), so rehearsals exercise byte-for-byte
+ *     what gets published; the drift guard keeps it in sync with
+ *     distribution/shared/, so unregenerated shared/ edits fail CI, not rehearsals.
  *   - cell modes for the sign-off matrix: pre-authorized (029), unauthenticated
  *     (tools genuinely absent → walkthrough branch), token-fallback (sk_sqd_ in
  *     ~/.squire/token); scripted user-simulator turns; a fixture-repo cwd
@@ -39,7 +40,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { gradeTranscript, formatReport } from './grade-transcript.mjs';
 import { parseCapture, captureContainsSecret } from './capture.mjs';
-import { assembleBundle, PROD_ENDPOINT } from './assemble-bundle.mjs';
+import { DEFAULT_CLAUDE_PLUGIN_DIR } from '../../distribution/publish.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../..');
@@ -164,16 +165,17 @@ export async function runRehearsal(opts = {}) {
     throw new Error(`dev server ${server} unreachable: ${e.message}`);
   }
 
-  // Bundle: default = assembled fresh from distribution/shared/ per run (FR-019),
-  // so mid-iteration shared/ edits can never exercise stale content. --bundle
-  // <path> overrides (029 RBD-9).
+  // Bundle: default = the committed SHIPPING bundle distribution/claude-plugin
+  // (032 FR-018), so rehearsals exercise byte-for-byte what gets published. The
+  // drift guard (bundle-drift.test.mjs) keeps that bundle in sync with
+  // distribution/shared/, so a mid-iteration shared/ edit that was never
+  // regenerated fails CI rather than silently rehearsing stale content. The
+  // endpoint is templated to the dev server in the throwaway copy below — the
+  // committed source is never mutated. --bundle <path> overrides.
   let bundleSrc = opts.bundleSrc;
   if (!bundleSrc) {
-    const asmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-rehearsal-assembled-'));
-    cleanupState.dirs.push(asmDir);
-    assembleBundle({ outDir: asmDir, endpoint: PROD_ENDPOINT });
-    bundleSrc = asmDir;
-    log(`assembled bundle from distribution/shared/ → ${asmDir}`);
+    bundleSrc = DEFAULT_CLAUDE_PLUGIN_DIR;
+    log(`using committed shipping bundle → ${bundleSrc}`);
   }
   bundleSrc = path.resolve(bundleSrc);
   if (!fs.existsSync(path.join(bundleSrc, '.claude-plugin', 'plugin.json'))) {
