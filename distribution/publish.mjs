@@ -393,6 +393,10 @@ export function validateBundles() {
 // Never exercised against a real remote by tests/CI; push-mechanism tests use
 // local bare-repo fixtures only. A default (no --publish) run never reaches here.
 
+// Identity stamped on every generated mirror commit — set explicitly so the
+// public commits never fall back to the ambient user (e.g. `root@<pod-host>`).
+const PUBLISH_IDENTITY = { name: 'Sam', email: 'sam@squiredocs.com' };
+
 function gitOut(args, opts = {}) {
   const res = spawnSync('git', args, { encoding: 'utf8', ...opts });
   return { status: res.status, stdout: (res.stdout || '').trim(), stderr: (res.stderr || '').trim(), error: res.error };
@@ -541,7 +545,10 @@ export function publishMirrors({ env = process.env, cloneRoot = null } = {}) {
       const add = gitOut(['add', '-A'], { cwd: mirrorDir });
       if (add.status !== 0) { problems.push(`${ch.id}: git add failed: ${add.stderr}`); continue; }
       const msg = `Publish ${ch.id} from squire source ${commit}`;
-      const cm = gitOut(['commit', '-m', msg], { cwd: mirrorDir });
+      const cm = gitOut(
+        ['-c', `user.name=${PUBLISH_IDENTITY.name}`, '-c', `user.email=${PUBLISH_IDENTITY.email}`, 'commit', '-m', msg],
+        { cwd: mirrorDir },
+      );
       if (cm.status !== 0) { problems.push(`${ch.id}: git commit failed: ${cm.stderr}`); continue; }
       const push = gitOut(['push', 'origin', 'HEAD'], { cwd: mirrorDir });
       if (push.status !== 0) { problems.push(`${ch.id}: git push failed: ${push.stderr}`); continue; }
