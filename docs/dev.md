@@ -559,7 +559,8 @@ is the hardcoded self-test account `selftest@example.com` and nothing else.
 Idempotent no-op when already reset.
 
 ```bash
-curl -sX POST https://squiredocs.com/auth/prod-reset-selftest-account -b "$ADMIN_COOKIE"
+curl -sX POST https://squiredocs.com/auth/prod-reset-selftest-account \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN"
 ```
 
 ## Telemetry (OpenTelemetry)

@@ -30,7 +30,7 @@
  * Usage:
  *   node test/first-run/rehearsal-harness.mjs [--server http://localhost:3001]
  *                                             [--bundle test/first-run/stub-plugin]
- *                                             [--keep] [--no-claude]
+ *                                             [--keep] [--no-claude] [--require-claude]
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -54,11 +54,29 @@ const SERVER = arg('--server', process.env.DEV_SERVER || 'http://localhost:3001'
 const BUNDLE_SRC = path.resolve(arg('--bundle', path.join(HERE, 'stub-plugin')));
 const KEEP = has('--keep');
 const NO_CLAUDE = has('--no-claude'); // build the pristine env + skip the model leg
+const REQUIRE_CLAUDE = has('--require-claude'); // non-zero exit unless the model leg completed
 const REDIRECT_URI = 'http://localhost:8765/callback';
 
 function log(msg) { console.log(`  • ${msg}`); }
-function fail(msg) { console.error(`\n✗ REHEARSAL FAILED: ${msg}`); process.exit(1); }
+function fail(msg) { throw new Error(msg); }
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
+
+// Registered as resources are created, so a failure at ANY later step still
+// releases the synthetic user and scratch dirs (029 review: fail() used to
+// process.exit(1) and leak everything created before the failure).
+const cleanupState = { email: null, dirs: [] };
+async function bestEffortCleanup() {
+  if (KEEP) return;
+  if (cleanupState.email) {
+    await fetch(`${SERVER}/auth/dev-wipe-user`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: cleanupState.email }),
+    }).catch(() => {});
+  }
+  for (const dir of cleanupState.dirs) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
 
 /** Minimal helper: mint a fresh synthetic user + run the OAuth chain to a token. */
 async function connectAgentToken() {
@@ -127,11 +145,13 @@ async function main() {
 
   // 1. Scratch config dir (pristine client).
   const scratchConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-rehearsal-cfg-'));
+  cleanupState.dirs.push(scratchConfig);
   log(`scratch CLAUDE_CONFIG_DIR: ${scratchConfig}`);
 
   // 2. Throwaway templated bundle copy with the endpoint rewritten to the dev
   //    server — the source bundle is never touched (FR-020, R8 fallback).
   const throwaway = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-rehearsal-bundle-'));
+  cleanupState.dirs.push(throwaway);
   copyDir(BUNDLE_SRC, throwaway);
   const mcpJsonPath = path.join(throwaway, '.mcp.json');
   const srcMcpBefore = fs.readFileSync(path.join(BUNDLE_SRC, '.mcp.json'), 'utf8');
@@ -146,6 +166,7 @@ async function main() {
 
   // 3 + 4. Fresh synthetic user + unattended consent via auto-approve → agent token.
   const { email, agentToken } = await connectAgentToken();
+  cleanupState.email = email;
   log(`fresh synthetic user + consent (auto-approve) → ${email}`);
 
   // Pre-authorized MCP config for the client (bypasses interactive OAuth; the
@@ -196,14 +217,15 @@ async function main() {
   console.log(formatReport(grade));
   console.log(`\n(transcript saved: ${transcriptPath})`);
 
+  // A CI wrapper keying on exit code must not read a broken model leg as
+  // success (029 review) — opt in via --require-claude before wiring into a gate.
+  if (REQUIRE_CLAUDE && claudeStatus !== 'completed') {
+    fail(`--require-claude: claude -p leg did not complete (status: ${claudeStatus})`);
+  }
+
   // 7. Cleanup (synthetic wipe + dirs) unless --keep.
   if (!KEEP) {
-    await fetch(`${SERVER}/auth/dev-wipe-user`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email }),
-    }).catch(() => {});
-    fs.rmSync(scratchConfig, { recursive: true, force: true });
-    fs.rmSync(throwaway, { recursive: true, force: true });
+    await bestEffortCleanup();
     log(`cleaned up synthetic user + scratch dirs`);
   } else {
     log(`--keep: left scratch config ${scratchConfig} and bundle ${throwaway} in place`);
@@ -214,4 +236,8 @@ async function main() {
   console.log(`  M1 outcome: pristine env + accurate grade report (clean passes are M2, RBD-8).`);
 }
 
-main().catch((e) => fail(e.stack || String(e)));
+main().catch(async (e) => {
+  console.error(`\n✗ REHEARSAL FAILED: ${e.message || e}`);
+  await bestEffortCleanup();
+  process.exit(1);
+});

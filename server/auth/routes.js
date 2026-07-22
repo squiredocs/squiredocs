@@ -244,10 +244,14 @@ async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
 
   const user = await findOrCreateUser(profile, { signupSource });
 
-  if (user.isNew) {
-    notifyNewUser({ email: user.email, name: user.name });
+  // Synthetic (faucet-minted) users never notify — repeated rehearsals must not
+  // spam the admin inbox on deploys with working SMTP (029 review).
+  if (!isSyntheticEmail(user.email)) {
+    if (user.isNew) {
+      notifyNewUser({ email: user.email, name: user.name });
+    }
+    notifyLogin({ email: user.email, name: user.name });
   }
-  notifyLogin({ email: user.email, name: user.name });
 
   await updateLastLogin(user.id);
 

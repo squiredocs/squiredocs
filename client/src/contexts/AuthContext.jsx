@@ -128,14 +128,16 @@ export function AuthProvider({ children }) {
    * Only works when VITE_BYPASS_AUTH=true.
    *
    * Feature 029 (FR-005): composes with the fresh-user faucet.
-   *   - With a valid same-origin returnTo (the consent-page round-trip), drive a
-   *     real full-page POST navigation to the faucet's BROWSER MODE
-   *     (fresh + browser + returnTo). The server sets session cookies and 302s
-   *     back to returnTo through the SAME shared post-auth path as the Google
-   *     callback — so the dev-bypass consent account is stamped agent_oauth and
-   *     skips the welcome doc, exactly like a real consent-born account (RBD-10).
-   *   - Without a returnTo (mount-time bootstrap), fall back to the JSON mode:
-   *     a fresh synthetic user when `fresh` is requested, else the fixed dev user.
+   *   - With a CONSENT-shaped returnTo (/authorize…) or an explicit `fresh`
+   *     request, drive a real full-page POST navigation to the faucet's BROWSER
+   *     MODE (fresh + browser + returnTo). The server sets session cookies and
+   *     302s back to returnTo through the SAME shared post-auth path as the
+   *     Google callback — so the dev-bypass consent account is stamped
+   *     agent_oauth and skips the welcome doc, exactly like a real consent-born
+   *     account (RBD-10).
+   *   - Otherwise fall back to the JSON mode (fixed dev user, or a fresh
+   *     synthetic user when `fresh` is requested), honoring any non-consent
+   *     returnTo deep link client-side after sign-in.
    *
    * @param {string} [returnTo] - same-origin path to land on after sign-in.
    * @param {object} [opts]
@@ -143,8 +145,12 @@ export function AuthProvider({ children }) {
    * @param {string}  [opts.nonce]  - stable nonce for a repeatable identity.
    */
   const devLogin = useCallback(async (returnTo, { fresh = false, nonce } = {}) => {
-    // Browser-mode faucet via full-page POST navigation (consent round-trip).
-    if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
+    const validReturnTo = typeof returnTo === 'string' && isValidReturnToClient(returnTo);
+    // Browser-mode faucet via full-page POST navigation — ONLY for the consent
+    // round-trip (/authorize…) or an explicitly requested fresh identity. A
+    // plain deep link (/login?returnTo=/docs) must keep the fixed dev user, not
+    // mint a fresh empty account (029 review disposition).
+    if (validReturnTo && (fresh || returnTo.startsWith('/authorize'))) {
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = `${API_BASE_URL}/auth/dev-login`;
@@ -162,13 +168,17 @@ export function AuthProvider({ children }) {
       return true;
     }
 
-    // JSON fallback (no returnTo): fresh synthetic user or the fixed dev user.
+    // JSON fallback: fresh synthetic user or the fixed dev user; a non-consent
+    // returnTo deep link is honored client-side after sign-in.
     try {
       const body = fresh ? { fresh: true, ...(nonce ? { nonce } : {}) } : {};
       const response = await api.post('/auth/dev-login', body);
       const { accessToken: newToken, user: userData } = response.data;
       setAccessToken(newToken);
       setUser(userData);
+      if (validReturnTo) {
+        window.location.href = returnTo;
+      }
       return true;
     } catch (error) {
       console.error('Dev login failed:', error);
