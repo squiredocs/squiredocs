@@ -57,8 +57,8 @@ function copyDir(src, dst) {
  * Mint a fresh synthetic user via the faucet, optionally run the OAuth chain to
  * a token. Returns { email, sessionToken, agentToken? }.
  */
-async function connectAgent(server, { withToken = true } = {}) {
-  const nonce = `t3${crypto.randomBytes(4).toString('hex')}`;
+async function connectAgent(server, { withToken = true, nonce: fixedNonce } = {}) {
+  const nonce = fixedNonce || `t3${crypto.randomBytes(4).toString('hex')}`;
   const faucet = await fetch(`${server}/auth/dev-login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ fresh: true, nonce }),
@@ -188,48 +188,79 @@ export async function runRehearsal(opts = {}) {
   // so tools are present; unauthenticated carries none so tools are genuinely
   // absent (walkthrough branch); token-fallback carries an sk_sqd_ token loaded
   // from the scratch ~/.squire/token.
-  let mcpAuth = {}; // headers object for the squire-docs server
   let tokenSecret = null; // for the token-bytes scan (token-fallback)
+  let configCounter = 0;
+  // Write an MCP config for the squire-docs server, optionally with a Bearer
+  // header. Returns its path. Distinct filenames so a --continue turn can point
+  // at a different (now-authed) config.
+  const writeMcpConfig = (headers) => {
+    const p = path.join(throwaway, `harness-mcp-config-${configCounter++}.json`);
+    fs.writeFileSync(p, JSON.stringify({
+      mcpServers: {
+        'squire-docs': { type: 'http', url: `${server}/mcp`, ...(headers ? { headers } : {}) },
+      },
+    }, null, 2));
+    return p;
+  };
 
-  if (opts.setup === 'faucet-premint' && mode === 'unauthenticated') {
-    // Pre-mint the account (existing-account-never-consented) BEFORE the client
-    // starts; no consent completed, so tools remain absent (find-or-create later).
-    const pre = await connectAgent(server, { withToken: false });
+  const unauthConfig = writeMcpConfig(null); // no header → tools absent (walkthrough)
+  const firstPrompt = opts.prompt || 'Run the /squire:onboard command to onboard me to Squire Docs, then stop.';
+  const userTurns = Array.isArray(opts.userTurns) ? opts.userTurns : [];
+
+  // Pre-mint (existing-account-never-consented): create the account BEFORE the
+  // client starts; reuse its identity (fixed nonce) when consent completes so
+  // find-or-create yields no duplicate (FR-033/RBD-12).
+  let identityNonce;
+  if (opts.setup === 'faucet-premint') {
+    identityNonce = `t3${crypto.randomBytes(4).toString('hex')}`;
+    const pre = await connectAgent(server, { withToken: false, nonce: identityNonce });
     cleanupState.email = pre.email;
-    result.preMintedEmail = pre.email;
-    log(`faucet-premint: account ${pre.email} exists, no consent (tools stay absent)`);
+    result.email = pre.email;
+    log(`faucet-premint: account ${pre.email} exists, no consent yet`);
   }
 
-  if (mode === 'pre-authorized') {
-    const { email, agentToken } = await connectAgent(server, { withToken: true });
-    cleanupState.email = email;
-    result.email = email;
-    mcpAuth = { Authorization: `Bearer ${agentToken}` };
-    log(`fresh synthetic user + consent (auto-approve) → ${email}`);
-  } else if (mode === 'unauthenticated') {
-    // No header, no completed consent: Squire Docs tools are genuinely absent, so
-    // the /squire:onboard auth-walkthrough branch runs (spec gap 2, R3).
-    if (!cleanupState.email) {
-      // fresh-happy / walkthrough cells: no account pre-minted; the coaching is
-      // graded, and the (non-interactive) OAuth cannot complete in-pod.
-      log(`unauthenticated mode: no Authorization header — tools absent, walkthrough branch`);
+  // Build the ordered turn plan: [{ prompt, config }]. The connect flow starts
+  // unauthenticated (walkthrough) then RESUMES on an authed config after consent.
+  const turns = [];
+  if (mode === 'pre-authorized' || mode === 'token-fallback') {
+    let headers;
+    if (mode === 'pre-authorized') {
+      const { email, agentToken } = await connectAgent(server, { withToken: true });
+      cleanupState.email = email; result.email = email;
+      headers = { Authorization: `Bearer ${agentToken}` };
+      log(`pre-authorized: consent via auto-approve → ${email} (tools present at start)`);
+    } else {
+      const staged = await stageTokenFallback(server, scratchHome, log);
+      cleanupState.email = staged.email; result.email = staged.email;
+      headers = { Authorization: `Bearer ${staged.token}` };
+      tokenSecret = staged.token;
     }
-  } else if (mode === 'token-fallback') {
-    const staged = await stageTokenFallback(server, scratchHome, log);
-    cleanupState.email = staged.email;
-    result.email = staged.email;
-    mcpAuth = { Authorization: `Bearer ${staged.token}` };
-    tokenSecret = staged.token;
+    const authed = writeMcpConfig(headers);
+    turns.push({ prompt: firstPrompt, config: authed });
+    for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true });
+  } else if (mode === 'unauthenticated' && opts.connect) {
+    // Phase A: walkthrough with tools absent.
+    turns.push({ prompt: firstPrompt, config: unauthConfig });
+    // Complete consent out-of-band (auto-approve) for this identity, then Phase B
+    // resumes with the now-authorized server so the tools appear (design step 4).
+    const { email, agentToken } = await connectAgent(server, { withToken: true, nonce: identityNonce });
+    cleanupState.email = email; result.email = email;
+    const authed = writeMcpConfig({ Authorization: `Bearer ${agentToken}` });
+    log(`connect flow: consent completed for ${email}; resuming with authorized tools present`);
+    turns.push({
+      prompt: "I've completed the browser sign-in and approved the connection. Please continue.",
+      config: authed, continue: true,
+    });
+    for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true });
+  } else if (mode === 'unauthenticated') {
+    // Walkthrough-only cells (declined / abandoned / paste-back / shape-*): tools
+    // stay absent; the coaching is what's graded (R3, spec gap 4).
+    log(`unauthenticated: no Authorization header — tools absent, walkthrough branch`);
+    turns.push({ prompt: firstPrompt, config: unauthConfig });
+    for (const t of userTurns) turns.push({ prompt: t, config: unauthConfig, continue: true });
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
-
-  const mcpConfigPath = path.join(throwaway, 'harness-mcp-config.json');
-  fs.writeFileSync(mcpConfigPath, JSON.stringify({
-    mcpServers: {
-      'squire-docs': { type: 'http', url: `${server}/mcp`, ...(Object.keys(mcpAuth).length ? { headers: mcpAuth } : {}) },
-    },
-  }, null, 2));
 
   // Working directory: a pristine copy of the cell's repo fixture, else the app
   // repo root (fixtures stay pristine — RBD-7).
@@ -252,11 +283,7 @@ export async function runRehearsal(opts = {}) {
       claudeStatus = 'skipped (ANTHROPIC_API_KEY not set)';
       log('ANTHROPIC_API_KEY not set — skipping the claude -p leg (env still built + graded empty)');
     } else {
-      const firstPrompt = opts.prompt || 'Run the /squire:onboard command to onboard me to Squire Docs, then stop.';
-      const userTurns = Array.isArray(opts.userTurns) ? opts.userTurns : [];
-      const { raw, status } = driveClaude({
-        firstPrompt, userTurns, throwaway, mcpConfigPath, scratchConfig, scratchHome, cwd, apiKey, log,
-      });
+      const { raw, status } = driveClaude({ turns, throwaway, scratchConfig, scratchHome, cwd, apiKey, log });
       rawCapture = raw;
       claudeStatus = status;
     }
@@ -309,34 +336,34 @@ async function stageTokenFallback(server, scratchHome, log) {
 }
 
 /**
- * Drive Claude Code non-interactively. Multi-turn cells append scripted user
- * turns via --resume against the scratch config dir. Returns { raw, status }
+ * Drive Claude Code non-interactively over an ordered turn plan. Each turn is
+ * { prompt, config, continue? }: the first turn starts the session; `continue`
+ * turns resume it via --continue (verified to preserve the conversation across
+ * separate -p processes sharing CLAUDE_CONFIG_DIR) and may point at a DIFFERENT
+ * (now-authed) --mcp-config so tools appear mid-flow. Returns { raw, status }
  * where raw is the concatenated stream-json JSONL of every turn.
  */
-function driveClaude({ firstPrompt, userTurns, throwaway, mcpConfigPath, scratchConfig, scratchHome, cwd, apiKey, log }) {
-  const baseArgs = [
-    '--output-format', 'stream-json', '--verbose',
-    '--plugin-dir', throwaway,
-    '--mcp-config', mcpConfigPath,
-    '--dangerously-skip-permissions',
-  ];
+function driveClaude({ turns, throwaway, scratchConfig, scratchHome, cwd, apiKey, log }) {
   const env = { ...process.env, CLAUDE_CONFIG_DIR: scratchConfig, HOME: scratchHome, ANTHROPIC_API_KEY: apiKey };
   const chunks = [];
   let status = 'completed';
 
-  log(`driving: claude -p (stream-json, plugin-dir + squire-docs MCP)`);
-  const first = spawnSync('claude', ['-p', firstPrompt, ...baseArgs], { cwd, env, encoding: 'utf8', timeout: 180000 });
-  chunks.push(first.stdout || '');
-  if (first.status !== 0) status = `exited ${first.status}${first.error ? ` (${first.error.message})` : ''}`;
-  if (first.stderr) chunks.push(`\n<!-- stderr:\n${first.stderr}\n-->\n`);
-
-  for (const turn of userTurns) {
-    if (status !== 'completed') break;
-    const res = spawnSync('claude', ['-p', turn, '--continue', ...baseArgs], { cwd, env, encoding: 'utf8', timeout: 180000 });
+  turns.forEach((turn, i) => {
+    if (status !== 'completed') return;
+    const args = [
+      '-p', turn.prompt,
+      ...(turn.continue ? ['--continue'] : []),
+      '--output-format', 'stream-json', '--verbose',
+      '--plugin-dir', throwaway,
+      '--mcp-config', turn.config,
+      '--dangerously-skip-permissions',
+    ];
+    log(`driving turn ${i + 1}/${turns.length}${turn.continue ? ' (--continue)' : ''}`);
+    const res = spawnSync('claude', args, { cwd, env, encoding: 'utf8', timeout: 180000 });
     chunks.push(res.stdout || '');
     if (res.status !== 0) status = `exited ${res.status}${res.error ? ` (${res.error.message})` : ''}`;
     if (res.stderr) chunks.push(`\n<!-- stderr:\n${res.stderr}\n-->\n`);
-  }
+  });
 
   return { raw: chunks.join('\n'), status };
 }

@@ -28,11 +28,18 @@ import { parseCapture } from './capture.mjs';
 
 // --- event predicates -------------------------------------------------------
 
+/** Tool basename, stripping any `mcp__<server>__` prefix the client adds. */
+function toolBase(tool) {
+  const t = String(tool || '');
+  const m = t.match(/mcp__[^_]+(?:_[^_]+)*__(.+)$/) || t.match(/__([^_]+)$/);
+  return m ? m[1] : t;
+}
+
 /** True if an event is a byte-channel file-sync (item 5). */
 function isByteChannelSyncEvent(e) {
   if (!e) return false;
-  const tool = String(e.tool || '');
-  if (tool === 'import_markdown_file') return true;
+  const base = toolBase(e.tool);
+  if (base === 'import_markdown_file') return true;
   const cmd = typeof e.input?.command === 'string' ? e.input.command : JSON.stringify(e.input || '');
   if (/\bcurl\b/.test(cmd) && (/\/api\/docs\/[^\s"']*\/import/.test(cmd) || /sk_sqd_/.test(cmd))) return true;
   // the import recipe is often a compound shell command carrying the claim + curl import
@@ -43,8 +50,8 @@ function isByteChannelSyncEvent(e) {
 /** True if an event created/imported a doc (item 6 corroboration). */
 function isDocCreatingEvent(e) {
   if (!e) return false;
-  const tool = String(e.tool || '');
-  if (tool === 'import_markdown_file' || tool === 'create_document') return true;
+  const base = toolBase(e.tool);
+  if (base === 'import_markdown_file' || base === 'create_document') return true;
   return isByteChannelSyncEvent(e);
 }
 
@@ -103,12 +110,22 @@ export const CHECKLIST = [
     name: 'silent reconnect / no success ceremony',
     kind: 'behavioral',
     test({ prose }) {
-      // RBD-10: correctly-silent content PASSes; a success-ceremony block between
-      // consent completing and the spec step FAILs. Reconnection prose is neither
-      // required nor penalized — we FAIL only on a detected ceremony marker.
+      // RBD-10: the design's "success needs no ceremony" rule targets the moment
+      // AFTER tools (re-)appear and BEFORE the find-the-spec step — no celebratory
+      // block there. A closing payoff summary AFTER the sync (move 4) legitimately
+      // states what happened and is NOT penalized. So we only FAIL on a ceremony
+      // marker that appears BEFORE the first find-the-spec-step marker.
       const ceremony =
         /\b(you'?re (?:now )?(?:all )?(?:set|connected)|successfully connected|connection (?:is )?(?:now )?successful|congratulations|🎉|✅ *(?:connected|done|success))\b/i;
-      return !ceremony.test(prose);
+      const specStep =
+        /(find(?:ing)?[^.\n]{0,20}spec|look(?:ing)?[^.\n]{0,20}spec|spec[- ]?shaped|spec candidate|\.kiro\/specs|\bspecs\/|\bCLAUDE\.md\b|starter spec)/i;
+      const cer = prose.match(ceremony);
+      if (!cer) return true; // correctly silent
+      const step = prose.match(specStep);
+      const stepIdx = step ? step.index : Infinity;
+      // Ceremony only fails the item if it precedes the spec step (the reconnect
+      // transition). Ceremony inside/after the payoff is fine.
+      return cer.index >= stepIdx;
     },
   },
   {
