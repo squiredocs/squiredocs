@@ -182,13 +182,13 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 
 **Sam-only ops (external identity and accounts):**
 
-- Create the public GitHub org and mirror repos (D1) and grant push access.
-- DNS challenge for `mcp-publisher` domain verification; run the first registry publish.
+- Create the public GitHub org and mirror repos (D1) and grant push access._ [org created 2026-07-21; repos + access owed]_
+- DNS challenge for `mcp-publisher` domain verification; run the first registry publish._ [Sam, 2026-07-21: will grant temporary Route 53 access so the orchestrator can set the TXT record when M3 reaches this step — the challenge itself need not be hands-on]_
 - Console form submission for the community directory; Kiro / Cursor / aggregator account submissions.
 
 ## Decisions for Sam
 
-- **D1 — Public GitHub org name.** Default: `squiredocs`. The app repo lives under personal accounts; public plugin repos should live under a product-named org.
+- **D1 — Public GitHub org name.** Default: `squiredocs`. The app repo lives under personal accounts; public plugin repos should live under a product-named org.** DONE (Sam, 2026-07-21): **the `squiredocs` org exists on GitHub (verified via API; empty). Mirror repos + push access still owed at M3.
 - **D2 — Plugin naming.** Default: manifest name `squire` (command ergonomics: `/squire:onboard`), display name and all listing copy "Squire Docs" per the product-name standard. Short manifest names are namespacing, not user-facing copy.
 - **D3 — Wave 1 scope.** Default: MCP Registry publish + own Claude marketplace + community-directory submission in the first build; Kiro + Cursor as wave 2; Gemini, Codex, and the aggregators as wave 3.
 - **D4 — Mirror strategy.** Default: one public repo per ecosystem, generated pushes only. Rejected: a single public monorepo (Gemini's crawler and Kiro's Add-to button expect manifests at repo root; per-repo keeps each storefront's contract clean). Rejected: authoring directly in the public repos (splits ground truth and moves the pipeline outside its own repo).
