@@ -29,8 +29,8 @@ description: "Task list: Packaging & Distribution — M3 Wave 1"
 
 **Purpose**: The `distribution/` tooling scaffold that every channel and test builds on.
 
-- [ ] T001 Create `distribution/schemas/` and vendor the pinned manifest JSON schemas (RBD-4, FR-010): the Claude Code plugin manifest schema, the marketplace manifest schema, and the Official MCP Registry `server.json` schema — each as `distribution/schemas/<name>.schema.json`. If a `.mcp.json` upstream schema does not exist, note that structural checks live in `publish.mjs` instead. Add `distribution/schemas/SOURCES.md` recording each schema's upstream URL, retrieval date, and the re-fetch-and-diff refresh procedure.
-- [ ] T002 Probe for an existing JSON-schema validator in the repo dependency tree (`node -e "require.resolve('ajv')"` or equivalent, per research R8). Record the outcome in a comment at the top of `distribution/publish.mjs` (T005): use the resolvable validator if present; otherwise the self-contained structural validator (T006). MUST NOT add a new *production* dependency solely for this gate.
+- [X] T001 Create `distribution/schemas/` and vendor the pinned manifest JSON schemas (RBD-4, FR-010): the Claude Code plugin manifest schema, the marketplace manifest schema, and the Official MCP Registry `server.json` schema — each as `distribution/schemas/<name>.schema.json`. If a `.mcp.json` upstream schema does not exist, note that structural checks live in `publish.mjs` instead. Add `distribution/schemas/SOURCES.md` recording each schema's upstream URL, retrieval date, and the re-fetch-and-diff refresh procedure.
+- [X] T002 Probe for an existing JSON-schema validator in the repo dependency tree (`node -e "require.resolve('ajv')"` or equivalent, per research R8). Record the outcome in a comment at the top of `distribution/publish.mjs` (T005): use the resolvable validator if present; otherwise the self-contained structural validator (T006). MUST NOT add a new *production* dependency solely for this gate.
 
 ---
 
