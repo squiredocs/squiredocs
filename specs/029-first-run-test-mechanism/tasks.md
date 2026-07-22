@@ -33,8 +33,8 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 **Purpose**: Scaffolding and environment confirmation. No new npm dependencies are anticipated.
 
-- [ ] T001 [P] Create the harness tree `test/first-run/` (empty dirs for the tier-2 driver, tier-3 harness, grader, and `stub-plugin/`) so later tasks drop files into a known layout.
-- [ ] T002 Confirm the dev/staging overlay exports `ENABLE_DEV_ENDPOINTS=1` and record the dev-server base URL used by the quickstart validations (research R11); if the overlay does not set it, note the exact file to set it in (do not edit prod overlays).
+- [X] T001 [P] Create the harness tree `test/first-run/` (empty dirs for the tier-2 driver, tier-3 harness, grader, and `stub-plugin/`) so later tasks drop files into a known layout.
+- [X] T002 Confirm the dev/staging overlay exports `ENABLE_DEV_ENDPOINTS=1` and record the dev-server base URL used by the quickstart validations (research R11); if the overlay does not set it, note the exact file to set it in (do not edit prod overlays).
 
 ---
 
@@ -44,11 +44,11 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 **⚠️ CRITICAL**: No user-story endpoint work can begin until this phase is complete.
 
-- [ ] T003 [P] Create migration `migrations/1799300000000_add-signup-source-to-users.js` adding `signup_source TEXT NOT NULL DEFAULT 'browser'` with `CHECK (signup_source IN ('browser','agent_oauth'))`; down = `dropColumns('users', ['signup_source'])` (FR-012, RBD-6/RBD-7; timestamp > current latest `1799200000000`).
-- [ ] T004 [P] Add a reusable dev-endpoint gate helper enforcing `process.env.ENABLE_DEV_ENDPOINTS === '1' && process.env.NODE_ENV !== 'production'` (positive flag primary + NODE_ENV belt, RBD-5) in `server/auth/middleware.js`, mirroring the existing `2b9d6be` gate on `dev-login`; used by all synthetic endpoints (FR-001).
-- [ ] T005 [P] Add the shared synthetic-namespace predicate `SYNTHETIC = /^test\+[a-z0-9-]{1,32}@test\.local$/` and an `isSyntheticEmail(email)` helper in `server/auth/users.js` — the single boundary reused by the synthetic wipe (US1) and consent auto-approve (US2) (RBD-1/RBD-2).
-- [ ] T006 Verify the reset cascade (research R3): confirm whether `yjs_updates` content rows (keyed by `doc_guid`) and dynamically-registered OAuth client rows cascade on `DELETE FROM users`, or need explicit teardown; record the finding in `research.md` §R3 and drive T007's sweep list from it.
-- [ ] T007 Implement `deleteUserByEmail(email)` cascade helper in `server/auth/users.js` — single hard `DELETE FROM users WHERE lower(email)=lower($1)` in a transaction, relying on `ON DELETE CASCADE` FKs plus an explicit sweep of any non-cascading artifacts found in T006; idempotent (no row ⇒ no-op); does NOT widen targets (callers enforce their own target rule). Shared by US1 wipe and US5 prod reset (FR-008/FR-010/FR-011). Depends on T006; same file as T005 (serialize).
+- [X] T003 [P] Create migration `migrations/1799300000000_add-signup-source-to-users.js` adding `signup_source TEXT NOT NULL DEFAULT 'browser'` with `CHECK (signup_source IN ('browser','agent_oauth'))`; down = `dropColumns('users', ['signup_source'])` (FR-012, RBD-6/RBD-7; timestamp > current latest `1799200000000`).
+- [X] T004 [P] Add a reusable dev-endpoint gate helper enforcing `process.env.ENABLE_DEV_ENDPOINTS === '1' && process.env.NODE_ENV !== 'production'` (positive flag primary + NODE_ENV belt, RBD-5) in `server/auth/middleware.js`, mirroring the existing `2b9d6be` gate on `dev-login`; used by all synthetic endpoints (FR-001).
+- [X] T005 [P] Add the shared synthetic-namespace predicate `SYNTHETIC = /^test\+[a-z0-9-]{1,32}@test\.local$/` and an `isSyntheticEmail(email)` helper in `server/auth/users.js` — the single boundary reused by the synthetic wipe (US1) and consent auto-approve (US2) (RBD-1/RBD-2).
+- [X] T006 Verify the reset cascade (research R3): confirm whether `yjs_updates` content rows (keyed by `doc_guid`) and dynamically-registered OAuth client rows cascade on `DELETE FROM users`, or need explicit teardown; record the finding in `research.md` §R3 and drive T007's sweep list from it.
+- [X] T007 Implement `deleteUserByEmail(email)` cascade helper in `server/auth/users.js` — single hard `DELETE FROM users WHERE lower(email)=lower($1)` in a transaction, relying on `ON DELETE CASCADE` FKs plus an explicit sweep of any non-cascading artifacts found in T006; idempotent (no row ⇒ no-op); does NOT widen targets (callers enforce their own target rule). Shared by US1 wipe and US5 prod reset (FR-008/FR-010/FR-011). Depends on T006; same file as T005 (serialize).
 
 **Checkpoint**: Column, gate, namespace predicate, and cascade helper exist — synthetic endpoints and both resets can now be built.
 
@@ -111,7 +111,7 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Extend `findOrCreateUser(profile, { signupSource })` in `server/auth/users.js`: default `'browser'`; write `signup_source` ONLY in the INSERT column list, NEVER in the `ON CONFLICT DO UPDATE SET` clause (stamp-once at creation, never overwritten on later login) (FR-012, RBD-10). Same file as T005/T007 (serialize).
+- [X] T018 [US3] Extend `findOrCreateUser(profile, { signupSource })` in `server/auth/users.js`: default `'browser'`; write `signup_source` ONLY in the INSERT column list, NEVER in the `ON CONFLICT DO UPDATE SET` clause (stamp-once at creation, never overwritten on later login) (FR-012, RBD-10). Same file as T005/T007 (serialize).
 - [ ] T019 [US3] In the shared Google-callback / post-auth logic in `server/auth/routes.js`: pass `signupSource: 'agent_oauth'` when a valid same-origin `returnTo` is present at account creation, `'browser'` otherwise; keep the existing early `return` on the consent returnTo branch (routes.js:223-225) that skips welcome-doc seeding, now documented + test-covered as deliberate and load-bearing (FR-012/FR-013). Depends T018; shared `routes.js` (serialize).
 - [ ] T020 [P] [US3] Audit client surfaces that read welcome/onboarding state (`welcomeDocId`/`onboarded` in auth responses, `?welcome=1`/`?signup=1` redirects, `AuthContext` consumers, any welcome-doc gate) and ensure none error, break redirects, or stick on an onboarding prompt when `welcome_doc_id` is null; fix any that misbehave (FR-014, Acc 3.4).
 - [ ] T021 [US3] returnTo length-budget measurement (FR-016, finding M4): measure a real Claude Code authorize URL's `returnTo` payload (PKCE `code_challenge`, `state`, `redirect_uri`, client id) against the 512-char cap (routes.js:83); record the measured length + decision in `research.md` §R7; if near/over cap, raise the (still same-origin-validated) cap OR carry OAuth params server-side, in `server/auth/routes.js`. Shared `routes.js` (serialize).

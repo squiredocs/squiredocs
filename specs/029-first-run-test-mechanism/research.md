@@ -30,8 +30,10 @@ design explicitly deferred. No open NEEDS CLARIFICATION remains.
   synthetic session, no browser click. Verified `oauth-router.js:29` mounts
   `POST /approve` behind `requireAuth` with `oauthFlow.handleApprove`.
 - **Synthetic-session recognition (RBD-1)**: the authenticated session user's email must match
-  the synthetic namespace pattern `^test\+[a-z0-9-]+@test\.local$`. Any other session is
-  refused. No separate flag/table — the namespace IS the boundary, identical rule to the wipe.
+  the bounded synthetic namespace pattern `/^test\+[a-z0-9-]{1,32}@test\.local$/`. Any other
+  session is refused. No separate flag/table — the namespace IS the boundary, identical rule to
+  the wipe. Single-sourced as `SYNTHETIC` + `isSyntheticEmail()` in `server/auth/users.js`
+  (I1 reconciliation — one code location; the bounded form matches contracts + tasks.md).
 - **Rationale**: One boundary, two enforcers. Reusing the real approve path keeps the code
   actually exercised end to end rather than a parallel mock.
 - **Implement note**: factor the approve core so the dev endpoint calls it after the namespace
@@ -41,25 +43,56 @@ design explicitly deferred. No open NEEDS CLARIFICATION remains.
 
 ## R3 — Reset cascade: what "everything hanging off the row" means (FR-008, FR-010)
 
-- **Decision**: Hard-delete is a single `DELETE FROM users WHERE lower(email) = lower($1)`
-  relying on existing FK cascades, with explicit cleanup of any non-FK-linked artifacts.
-- **Verified cascades (ON DELETE CASCADE → users(id))**: `documents.owner_id`
-  (migrations/004:16-21), `chats.user_id`, `mcp_agent_delegations` (010), MCP auth tables
-  (011), `mcp_api_tokens` (1773172617959), `ai_usage`, `ai_extra_credits`, `support_requests`,
-  `document_shares.user_id`. So deleting the user row cascades to owned documents, and owned
-  documents cascade to their own dependents.
-- **Preserved-by-design (ON DELETE SET NULL)**: `yjs_updates.user_id` (009 — attribution),
-  version-history author refs, `users.welcome_doc_id` (1783 — SET NULL, moot when the whole
-  user row is deleted). These are attribution nullers, correct to keep.
-- **Implement-time VERIFY (flagged, not blocking)**: `yjs_updates` / document *content* is keyed
-  by `doc_guid`, not necessarily an FK to `documents(id)`. Confirm at implement time whether
-  deleting the `documents` row cascades the CRDT content rows, or whether the reset must also
-  delete `yjs_updates` for the owned doc guids. Likewise confirm registered OAuth *client*
-  rows (dynamic client registration) are user-scoped and cascade. If not, the delete helper
-  must enumerate and remove them in the same transaction. This is a correctness detail for
-  "genuine first run," surfaced here so implement doesn't miss it.
-- **Rationale**: Reusing FK cascades is the least-code, hardest-to-drift teardown; the explicit
-  sweep covers only what the schema doesn't cascade.
+- **Decision**: Hard-delete is a transaction that (1) enumerates the user's owned/created doc
+  ids, (2) explicitly sweeps the non-cascading doc-keyed content, (3) deletes those `documents`
+  rows (cascading their FK dependents), then (4) `DELETE FROM users WHERE lower(email)=lower($1)`
+  (cascading the user's own FK dependents). A plain single `DELETE FROM users` is NOT sufficient
+  — see the verified drift below.
+- **VERIFIED against the live schema 2026-07-22 (U1 reconciliation — corrects the stale claim
+  that `documents.owner_id` cascades):**
+  - `documents.owner_id` **no longer exists**. Migration `006_add_role_to_shares.js:28-29`
+    DROPPED `owner_id`; ownership now lives in `document_shares` rows with `role='owner'`
+    (`document_shares.user_id → users` CASCADE). The remaining user link on `documents` is
+    `creator_id → users` **ON DELETE SET NULL** (`007_add_creator_to_documents.js:14` — "keep
+    doc even if creator is deleted"). **⇒ deleting a user does NOT delete their documents; the
+    doc row is orphaned (creator nulled, owner-share cascade-deleted).**
+  - Because the `documents` row survives a plain user delete, everything FK'd to `documents(id)`
+    with CASCADE (`document_embeddings`, `document_images`, `document_search_index`,
+    `document_share_invites`, `document_shares`) ALSO survives.
+  - `yjs_updates` (the CRDT **content**, keyed by `doc_guid = documents.id`) has **no FK to
+    documents at all** — only `yjs_updates.user_id → users` SET NULL. ⇒ content survives both a
+    user delete AND a documents delete unless swept explicitly by `doc_guid`.
+  - `document_versions.doc_id` has **no FK to documents** either (only `created_by → users`
+    SET NULL). ⇒ version rows survive a documents delete unless swept explicitly by `doc_id`.
+  - `agent_edits.doc_guid` / `agent_activity_log.doc_guid` — the user's own rows cascade via
+    `user_id → users` CASCADE; swept by `doc_guid` as belt for completeness.
+- **Confirmed cascades on `DELETE FROM users` (correct, no sweep needed)**: `agent_activity_log`,
+  `agent_delegations`, `agent_edits`, `ai_extra_credits.user_id`, `ai_usage_log`, `chats`,
+  `document_shares.user_id`, `mcp_api_tokens`, `mcp_auth_codes`, `support_requests`.
+- **Registered OAuth *client* rows are NOT user-scoped**: `registered_agents` has **no
+  `user_id` column** (dynamic client registration is global/shared, e.g. one "Claude Code"
+  client row shared across users). `agent_delegations.agent_client_id → registered_agents`
+  SET NULL. ⇒ the user's *grants* (`agent_delegations`, `mcp_auth_codes`) cascade-die with the
+  user; the global client registration correctly persists and is NOT swept.
+- **Preserved-by-design (SET NULL, attribution — correct to keep)**: `yjs_updates.user_id`,
+  `document_versions.created_by`, `document_images.uploader_id`,
+  `document_share_invites.invited_by_user_id`, `agent_activity_log.doc_guid`. Moot for the
+  user's own docs which are deleted outright.
+- **`deleteUserByEmail` algorithm (drives T007)**: in one transaction —
+  `docIds := SELECT id FROM documents WHERE creator_id=uid UNION SELECT doc_id FROM
+  document_shares WHERE user_id=uid AND role='owner'`; then
+  `DELETE FROM yjs_updates WHERE doc_guid = ANY(docIds)`,
+  `DELETE FROM document_versions WHERE doc_id = ANY(docIds)`,
+  `DELETE FROM agent_edits WHERE doc_guid = ANY(docIds)`,
+  `DELETE FROM agent_activity_log WHERE doc_guid = ANY(docIds)`,
+  `DELETE FROM documents WHERE id = ANY(docIds)` (cascades embeddings/images/search/shares/
+  invites), `DELETE FROM users WHERE lower(email)=lower($1)` (cascades the rest). Idempotent.
+- **Edge note (NO ACTION, not handled)**: `ai_extra_credits.granted_by → users` is NO ACTION —
+  if the target user had *granted* credits to others (admin action; never true for a synthetic
+  or the dataless self-test account) the user DELETE would raise. Out of scope for these targets.
+- **Rationale**: FK cascades cover the user-keyed rows; the explicit doc-content sweep covers
+  exactly the tables the schema does NOT cascade (`yjs_updates`, `document_versions`, orphaned
+  `documents`), which is what "genuine first run, no residue" (U1, T017) actually requires.
 
 ## R4 — signup_source schema (FR-012, RBD-6, RBD-7)
 
@@ -114,7 +147,20 @@ design explicitly deferred. No open NEEDS CLARIFICATION remains.
   failure mode entirely.
 - **Why now**: the M2 rehearsals will drive real authorize URLs; a silently-dropped cookie
   would make the agent never receive its code. FR-016 exists to catch this before M2.
-- **Status**: measurement is an implement-time task; the cap is 512 today (verified routes.js:83).
+- **MEASUREMENT (G1, taken 2026-07-22, BEFORE finalizing the tier-2 driver T016):** the
+  `returnTo` carried through `/auth/google` is the **consent-page URL** (`/authorize?...`) built
+  by `handleAuthorize`'s `consentParams` (agent_client_id, agent_instance_id, scope,
+  redirect_uri, state, code_challenge S256=43 chars, code_challenge_method, existing_delegation).
+  Measured against realistic Claude Code / claude.ai OAuth params (client_id `client_`+32hex,
+  state 64hex, code_challenge 43-char base64url):
+  - claude.ai remote callback (`https://claude.ai/api/mcp/auth_callback`): **374 chars**
+  - localhost loopback callback (`http://localhost:PORT/callback`): **364 chars**
+  - worst case (populated `agent_instance_id` UUID + longer loopback path w/ query): **426 chars**
+- **DECISION**: **keep the 512-char cap unchanged.** Worst case (426) clears it with ~86 chars
+  of headroom; typical is ~140 chars of headroom. Neither raising the cap nor carrying OAuth
+  params server-side is warranted — doing either would add surface area for no benefit. The cap
+  is not a silent-failure risk for the real Claude Code authorize URL. Same-origin validation on
+  `isValidReturnTo` (routes.js:81-94) is retained exactly as-is.
 
 ## R8 — Endpoint indirection for the harness (FR-020, finding M3)
 

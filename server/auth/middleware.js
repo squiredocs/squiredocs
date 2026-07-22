@@ -117,10 +117,49 @@ function requireAdmin(req, res, next) {
   });
 }
 
+/**
+ * Feature 029: shared fail-closed gate for dev-only support endpoints.
+ *
+ * Two independent conditions, BOTH required (the 2b9d6be pattern, RBD-5):
+ *   1. ENABLE_DEV_ENDPOINTS === '1' — the EXPLICIT positive opt-in that is the
+ *      primary, required, fail-closed gate. Absent ⇒ off, independent of
+ *      NODE_ENV. Set only in the minikube dev overlay and the test setup.
+ *   2. NODE_ENV !== 'production' — belt-and-suspenders: even if the flag is ever
+ *      set by accident in a prod-like env, production still blocks it.
+ *
+ * The invariant forbids the NODE_ENV negative as the SOLE gate (the 2026-07-21
+ * incident: NODE_ENV was unset in prod, so negatively-gated routes were live);
+ * it is kept here only as an ADDITIONAL guard on top of the positive flag.
+ *
+ * Evaluated per-request (not at module load) so the reachability tests can
+ * toggle the environment between requests on a single app instance.
+ *
+ * @returns {boolean} true iff the synthetic dev endpoints may be reached.
+ */
+function devEndpointsEnabled() {
+  return process.env.ENABLE_DEV_ENDPOINTS === '1' && process.env.NODE_ENV !== 'production';
+}
+
+/**
+ * Express middleware guarding every synthetic dev-support endpoint (faucet
+ * fresh/browser modes, synthetic wipe, consent auto-approve). Responds 404 when
+ * the gate is closed so the endpoint is indistinguishable from a non-existent
+ * route (no information leak that a dev surface exists). The prod single-account
+ * reset does NOT use this — it is admin-gated and deliberately prod-reachable.
+ */
+function requireDevEndpoints(req, res, next) {
+  if (!devEndpointsEnabled()) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+}
+
 module.exports = {
   requireAuth,
   optionalAuth,
   requireAdmin,
   requiredScopeForMethod,
   checkScopes,
+  devEndpointsEnabled,
+  requireDevEndpoints,
 };

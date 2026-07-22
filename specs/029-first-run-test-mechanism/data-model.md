@@ -28,10 +28,11 @@ The only persistent schema change is one column on `users`. Everything else is b
 ## Conceptual entities (no new tables)
 
 ### Synthetic test user
-- An ordinary `users` row whose `email` matches `^test\+[a-z0-9-]+@test\.local$` and whose
+- An ordinary `users` row whose `email` matches `/^test\+[a-z0-9-]{1,32}@test\.local$/` and whose
   `google_id` is `dev-test-<nonce>`. Indistinguishable from a real account to the app.
-- The namespace pattern is the security boundary for BOTH the synthetic wipe (FR-009, RBD-2)
-  and consent auto-approve (FR-007, RBD-1). Single predicate, reused.
+- The bounded namespace pattern is the security boundary for BOTH the synthetic wipe (FR-009,
+  RBD-2) and consent auto-approve (FR-007, RBD-1). Single predicate (`SYNTHETIC` /
+  `isSyntheticEmail` in `server/auth/users.js`), reused — I1: exactly one code location.
 - Created by the faucet (`POST /auth/dev-login` with `fresh:true`). Wipeable without ceremony.
 
 ### Signup provenance
@@ -47,11 +48,17 @@ The only persistent schema change is one column on `users`. Everything else is b
   surface of the prod-enabled reset. No parameter, no wildcard, no config list (FR-010, RBD-4).
 
 ### Reset cascade
-- The set of data a hard-delete of a `users` row removes so the identity's next sign-in is a
-  genuine first run: owned documents (and their content/shares/versions), agent delegations,
-  registered OAuth clients, API tokens, chats, AI-usage/credits, support requests. Implemented
-  via existing `ON DELETE CASCADE` FKs plus explicit sweep of any non-cascading artifacts
-  (see research.md R3 — `yjs_updates` content rows and OAuth client rows to VERIFY at implement).
+- The set of data a hard-delete removes so the identity's next sign-in is a genuine first run:
+  owned/created documents (and their content/shares/versions/embeddings/search-index/images),
+  agent delegations, API tokens, auth codes, chats, AI-usage/credits, support requests, agent
+  edits/activity. Implemented via existing `ON DELETE CASCADE` FKs on `users` PLUS an explicit
+  sweep of the non-cascading doc-keyed content — VERIFIED 2026-07-22 (see research.md R3):
+  `documents.owner_id` was dropped in migration 006 (ownership = `document_shares role='owner'`)
+  and `documents.creator_id` is SET NULL, so `documents` do NOT cascade on a plain user delete;
+  `yjs_updates` (CRDT content, keyed by `doc_guid`) and `document_versions` (keyed by `doc_id`)
+  have no FK to `documents` and must be swept explicitly. Registered OAuth *client* rows
+  (`registered_agents`) are global/not-user-scoped and are NOT swept; the user's grants
+  (`agent_delegations`, `mcp_auth_codes`) cascade with the user.
 
 ### Stub plugin bundle
 - Filesystem fixture under `test/first-run/stub-plugin/` (NOT `distribution/`, RBD-9): manifest
