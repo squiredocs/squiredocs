@@ -15,8 +15,12 @@ against, and the artifacts Sam diffs at a real submission.
 
 ## `server.schema.json` — Official MCP Registry `server.json`
 
-- **Upstream**: `https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json`
-- **Retrieved**: 2026-07-22 (byte-vendored verbatim, HTTP 200).
+- **Upstream**: `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`
+- **Retrieved**: 2026-07-22 (byte-vendored verbatim, HTTP 200). Migrated from the
+  2025-09-29 schema (deprecated) — the only change to `server.json` was the `$schema`
+  URL; ServerDetail required fields (name/description/version) and the streamable-http
+  `remotes[]` shape are identical, so no structural change was needed. Registry version
+  bumped 1.0.1→1.0.2 for the republish; the Claude plugin is unaffected (stays 1.0.1).
 - **Used for**: `distribution/mcp-registry/server.json` (`com.squiredocs/mcp`).
 - **Note**: The registry format has no dedicated OAuth field — remote MCP OAuth is
   discovered via the server's well-known chain (RFC 9728). We declare the remote

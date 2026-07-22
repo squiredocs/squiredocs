@@ -62,12 +62,18 @@ export const DEFAULT_MCP_REGISTRY_DIR = path.join(REPO_ROOT, 'distribution', 'mc
 // only the rehearsal harness rewrites it (in a throwaway copy) for the dev server.
 export const PROD_ENDPOINT = 'https://squiredocs.com/mcp';
 
-// Shipped version. The design's bump-on-any-change rule: any change to generated
-// bundle content requires bumping this (the publish version guard refuses an
-// unchanged version with changed content). plugin.json and server.json mirror it.
-//   1.0.0 — initial wave-1 publish
-//   1.0.1 — add MIT LICENSE to both published bundles
+// Shipped versions. The design's bump-on-any-change rule: any change to a
+// channel's generated content requires bumping that channel's version (the
+// publish version guard refuses an unchanged version with changed content).
+//
+// The two channels version INDEPENDENTLY — a change to one must not force a
+// no-op version bump (and a republish) of the other. SHIP_VERSION is the Claude
+// plugin; REGISTRY_VERSION is the MCP-registry server.json.
+//   plugin  1.0.0 initial · 1.0.1 add MIT LICENSE
+//   registry 1.0.0 initial · 1.0.1 add MIT LICENSE · 1.0.2 migrate to the
+//            2025-12-11 registry schema (plugin unchanged at 1.0.1)
 export const SHIP_VERSION = '1.0.1';
+export const REGISTRY_VERSION = '1.0.2';
 
 // MIT license, generated into every published bundle so the mirrors carry it
 // (they are generated-only — a hand-added LICENSE would be pruned on publish).
@@ -101,7 +107,7 @@ SOFTWARE.
 
 // The pinned Official MCP Registry schema this server.json is authored against.
 const REGISTRY_SCHEMA_URL =
-  'https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json';
+  'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json';
 
 /**
  * Insert the do-not-hand-edit header immediately AFTER any leading YAML
@@ -227,7 +233,7 @@ export function expectedRegistryServer() {
         $schema: REGISTRY_SCHEMA_URL,
         name: 'com.squiredocs/mcp',
         description: 'Squire Docs — the durable, attributed spec layer for agentic development.',
-        version: SHIP_VERSION,
+        version: REGISTRY_VERSION,
         websiteUrl: 'https://squiredocs.com',
         remotes: [
           {
