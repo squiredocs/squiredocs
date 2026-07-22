@@ -130,7 +130,9 @@ function buildCommand({ intent, docGuid, claimSecret, claimUrl, baseUrl }) {
   lines.push(
     `curl -sf -H "Authorization: Bearer $(cat ~/.squire/token)" \\`,
     `  "${baseUrl}/api/docs/$DOC/export?format=markdown&frontmatter=true" -o "$FILE"`,
-    `echo "Imported $FILE -> document $DOC. Receipt written back; the file is now a valid mode=sync baseline."`
+    // The URL is part of the receipt so agents relay it instead of guessing a
+    // route form (030 matrix caught a fabricated /docs/<guid>; canonical is /d/).
+    `echo "Imported $FILE -> document $DOC. View it at ${baseUrl}/d/$DOC — receipt written back; the file is now a valid mode=sync baseline."`
   );
 
   return lines.join('\n');

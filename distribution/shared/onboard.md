@@ -60,7 +60,7 @@ Sync the chosen file over the byte channel — never retype its content through 
 
 ## Move 4 — Deliver the payoff
 
-Print the new doc's URL and say what the editor adds: this is where the human reviews and refines the spec, with every edit — human or agent — attributed and revertible. The editor is the payoff inside the loop, not a front door the user has to visit first. What they got for one command is a durable, shared, attributed home for the spec that was sitting untracked in their repo a minute ago.
+Print the new doc's URL — the sync receipt states it (`View it at …/d/<docGuid>`); relay that link exactly, never construct a URL of another form. Say what the editor adds: this is where the human reviews and refines the spec, with every edit — human or agent — attributed and revertible. The editor is the payoff inside the loop, not a front door the user has to visit first. What they got for one command is a durable, shared, attributed home for the spec that was sitting untracked in their repo a minute ago.
 
 ## Move 5 — Teach the loop
 

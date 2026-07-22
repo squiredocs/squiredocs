@@ -42,6 +42,12 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [sharedModel, setSharedModel] = useState(null);
   const [savingSharedModel, setSavingSharedModel] = useState(false);
 
+  // Prod first-run self-test reset (029/030): one hardcoded throwaway account,
+  // admin-gated server-side. The button spares an admin from copying the session
+  // cookie out of DevTools to re-run the onboarding walk (Sam, 2026-07-22).
+  const [resettingSelfTest, setResettingSelfTest] = useState(false);
+  const [selfTestResult, setSelfTestResult] = useState(null);
+
   useEffect(() => {
     document.title = 'Admin - Squire Docs';
     fetchUsers();
@@ -66,6 +72,28 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       setSharedModel(res.data);
     } catch { /* ignore */ }
     finally { setSavingSharedModel(false); }
+  };
+
+  const handleResetSelfTest = async () => {
+    setResettingSelfTest(true);
+    setSelfTestResult(null);
+    try {
+      const res = await api.post('/auth/prod-reset-selftest-account');
+      const { account, deleted, docCount } = res.data;
+      setSelfTestResult({
+        ok: true,
+        message: deleted
+          ? `Reset ${account} — removed the account and ${docCount} doc${docCount === 1 ? '' : 's'}. Next sign-in is a fresh first-run.`
+          : `${account} was already empty — nothing to reset. Next sign-in is a fresh first-run.`,
+      });
+    } catch (err) {
+      setSelfTestResult({
+        ok: false,
+        message: err.response?.data?.error || err.message,
+      });
+    } finally {
+      setResettingSelfTest(false);
+    }
   };
 
   const fetchUsers = () => {
@@ -287,6 +315,32 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
             </div>
           </div>
         )}
+
+        <div className="admin-settings-card">
+          <div className="admin-settings-heading">
+            <h3>Plugin first-run self-test</h3>
+            <p>
+              Reset the onboarding self-test account (a single hardcoded throwaway)
+              to a fresh first-run, so you can walk <code>/squire:onboard</code> as a
+              brand-new user again. Removes that account and its docs only.
+            </p>
+          </div>
+          <div className="admin-settings-control">
+            <button
+              type="button"
+              className="admin-btn-sm admin-btn-primary"
+              onClick={handleResetSelfTest}
+              disabled={resettingSelfTest}
+            >
+              {resettingSelfTest ? 'Resetting…' : 'Reset self-test account'}
+            </button>
+            {selfTestResult && (
+              <span className={selfTestResult.ok ? 'admin-settings-status' : 'admin-error-inline'}>
+                {selfTestResult.message}
+              </span>
+            )}
+          </div>
+        </div>
 
         {loading && (
           <div className="admin-loading">
