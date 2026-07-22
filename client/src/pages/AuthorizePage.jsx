@@ -61,18 +61,19 @@ function IdentityRow({ iconUrl }) {
 }
 
 /** Simple centered shell for loading / sign-in / terminal states. */
-function AuthorizeShell({ children }) {
-  return (
-    <div className="login-page">
-      <div className="login-container authorize-container">
-        <div className="login-branding">
-          <div className="login-logo"><Logo color="currentColor" /></div>
-          <h1 className="login-title">Squire Docs</h1>
-        </div>
-        {children}
+function AuthorizeShell({ children, bare = false }) {
+  const card = (
+    <div className="login-container authorize-container">
+      <div className="login-branding">
+        <div className="login-logo"><Logo color="currentColor" /></div>
+        <h1 className="login-title">Squire Docs</h1>
       </div>
+      {children}
     </div>
   );
+  // `bare` renders just the card (no full-height centering wrapper) so several
+  // surfaces can be stacked — used by /authorize-preview.
+  return bare ? card : <div className="login-page">{card}</div>;
 }
 
 function ConsentCard({
@@ -173,12 +174,12 @@ function ConsentCard({
  * copy can be reviewed without a real OAuth request. Transparency (grant +
  * revocation) is PRIMARY; the value reminder is SECONDARY.
  */
-export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = '#' }) {
+export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = '#', bare = false }) {
   const grant = scopes.includes('documents:write')
     ? 'read your documents, and create, edit, and delete documents'
     : 'read your documents';
   return (
-    <AuthorizeShell>
+    <AuthorizeShell bare={bare}>
       <h2 className="login-headline">Connect to Squire Docs</h2>
       <p className="authorize-firstrun-lead">
         Continue with Google to connect {agentName}. If you've never used Squire
@@ -216,9 +217,9 @@ export function AuthorizePreview() {
   // Preview both first-run surfaces (the new single-screen copy, write + read
   // scope) and the returning-user ConsentCard. Visit /authorize-preview.
   return (
-    <div className="login-page authorize-preview-stack">
-      <FirstRunConsent agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
-      <FirstRunConsent agentName="Claude Code" scopes={['documents:read']} />
+    <div className="authorize-preview-stack">
+      <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
+      <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read']} />
       <ConsentCard
         agentName="Claude Code"
         agentDescription="AI assistant for document editing"

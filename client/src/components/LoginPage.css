@@ -210,14 +210,17 @@
   text-align: left;
 }
 
-/* /authorize-preview only: stack the sample surfaces vertically so all states
-   are visible on one page (feature 031 copy review). */
+/* /authorize-preview only: stack the sample surfaces (bare cards) vertically so
+   all states are visible on one page (feature 031 copy review). */
 .authorize-preview-stack {
-  flex-direction: column;
-  gap: 2rem;
-  padding: 2rem 0;
-  height: auto;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  padding: 2.5rem 1rem;
+  background: linear-gradient(135deg, var(--surface-sunken) 0%, var(--surface-raised) 100%);
+  font-family: var(--font-sans);
 }
 
 /* Feature 031: transparency block — PRIMARY, visual precedence over the value
