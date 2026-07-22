@@ -204,7 +204,14 @@ export async function runRehearsal(opts = {}) {
   };
 
   const unauthConfig = writeMcpConfig(null); // no header → tools absent (walkthrough)
-  const firstPrompt = opts.prompt || 'Run the /squire:onboard command to onboard me to Squire Docs, then stop.';
+  // The pod IS a headless remote session — the localhost OAuth callback naturally
+  // fails here, which the design says "exercises the remote paste-back branch by
+  // default." Stating that context up front makes the walkthrough's remote
+  // guidance (item 3: expected localhost error + paste-back) reliably reproduced
+  // rather than left to per-run variance. Faithful to the real environment, not a
+  // hint at the answer.
+  const firstPrompt = opts.prompt ||
+    "Run the /squire:onboard command to onboard me to Squire Docs. Context: this is a headless remote/SSH session — no local browser, and localhost callbacks cannot reach this machine. Then stop.";
   const userTurns = Array.isArray(opts.userTurns) ? opts.userTurns : [];
 
   // Pre-mint (existing-account-never-consented): create the account BEFORE the
