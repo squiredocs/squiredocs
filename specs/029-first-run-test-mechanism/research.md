@@ -134,6 +134,16 @@ design explicitly deferred. No open NEEDS CLARIFICATION remains.
 - **Rationale**: agent-first accounts legitimately have null welcome docs; the design says
   "verify at implement time that no client surface misbehaves." Making it test-covered turns
   the accidental behavior into a guaranteed contract.
+- **AUDIT RESULT (T020, 2026-07-22)**: the only functional client consumers of welcome/
+  onboarding state are (1) the landing gate `client/src/App.jsx:239` —
+  `if (user && user.onboarded === false && user.welcomeDocId) navigateToWelcome(...) else
+  navigateToDocs()` — which SHORT-CIRCUITS on `&& user.welcomeDocId`, so a null welcome doc
+  falls through to the doc list (no error, no broken redirect, no stuck onboarding prompt);
+  and (2) the `?welcome=1` greeting effect (`App.jsx:332`), reachable ONLY via
+  `navigateToWelcome`, which is itself only called from the guarded branch — so it never sees
+  a null doc. `AuthContext` does not gate on `welcomeDocId`; `/auth/me` returns it as `null`
+  cleanly (server side covered by first-run.test.js). **No client surface misbehaves; no fix
+  was needed.** The server-side null-welcome contract is asserted in the tier-1 suite (FR-015d).
 
 ## R7 — returnTo length budget measurement (FR-016, finding M4)
 
