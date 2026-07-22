@@ -324,6 +324,50 @@
   line-height: 1.6;
 }
 
+/* Coding-agent install block */
+.landing-agent-install {
+  max-width: 640px;
+  margin: 3rem auto 0;
+  text-align: left;
+  padding: 1.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+.landing-agent-install h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 0.5rem;
+}
+.landing-agent-install p {
+  font-size: 1rem;
+  color: #6b7280;
+  line-height: 1.6;
+}
+.landing-code {
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f3f4f6;
+  font-family: 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+}
+.landing-code code { background: none; color: inherit; padding: 0; }
+.landing-agent-note { font-size: 0.9rem; margin-top: 1rem; }
+.landing-agent-note code {
+  background: #ede9fe;
+  color: #6d28d9;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+.landing-agent-note a { color: #7c3aed; }
+
 /* Use cases */
 .landing-usecases-grid {
   display: grid;
