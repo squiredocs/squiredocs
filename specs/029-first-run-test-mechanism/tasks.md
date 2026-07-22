@@ -85,7 +85,7 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 ### Tests for User Story 2 ⚠️ (write first, expect FAIL before implementation)
 
-- [ ] T013 [P] [US2] Integration tests in `server/__tests__/integration/auto-approve.test.js`: a faucet-minted synthetic session ⇒ auto-approve completes the Approve step and mints the authorization code (Acc 2.2); a non-synthetic (real) user's session ⇒ **403 refuse** (Acc 2.3, RBD-1); unreachable with the flag unset / production-like `NODE_ENV` (SC-004). Serial suite.
+- [X] T013 [P] [US2] Integration tests in `server/__tests__/integration/auto-approve.test.js`: a faucet-minted synthetic session ⇒ auto-approve completes the Approve step and mints the authorization code (Acc 2.2); a non-synthetic (real) user's session ⇒ **403 refuse** (Acc 2.3, RBD-1); unreachable with the flag unset / production-like `NODE_ENV` (SC-004). Serial suite.
 
 ### Implementation for User Story 2
 
@@ -107,7 +107,7 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 ### Tests for User Story 3 ⚠️ (write first, expect FAIL before implementation)
 
-- [ ] T017 [P] [US3] Tier-1 integration tests in `server/__tests__/integration/first-run.test.js` (FR-015): (a) the consent returnTo round-trip with mid-flow account creation; (b) signup-source stamping — `browser` for the plain sign-in path (Acc 3.1), `agent_oauth` for the consent round-trip (Acc 3.2), default `browser` for a pre-existing row with no breakage (Acc 3.3); (c) the deliberate welcome-doc skip for consent-born accounts (Acc 3.2); (d) the null-welcome-doc client contract (Acc 3.4); (e) flag-off / production-like unreachability of every synthetic endpoint (SC-004). Serial suite.
+- [X] T017 [P] [US3] Tier-1 integration tests in `server/__tests__/integration/first-run.test.js` (FR-015): (a) the consent returnTo round-trip with mid-flow account creation; (b) signup-source stamping — `browser` for the plain sign-in path (Acc 3.1), `agent_oauth` for the consent round-trip (Acc 3.2), default `browser` for a pre-existing row with no breakage (Acc 3.3); (c) the deliberate welcome-doc skip for consent-born accounts (Acc 3.2); (d) the null-welcome-doc client contract (Acc 3.4); (e) flag-off / production-like unreachability of every synthetic endpoint (SC-004). Serial suite.
 
 ### Implementation for User Story 3
 
@@ -149,7 +149,7 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 ### Tests for User Story 5 ⚠️ (write first, expect FAIL before implementation)
 
-- [ ] T026 [P] [US5] Integration tests in `server/__tests__/integration/prod-reset.test.js`: an admin caller resets ONLY the hardcoded account with full cascade (Acc 5.1); a non-admin is rejected (Acc 5.3); an already-reset account is an idempotent no-op success (Acc 5.4); the endpoint consults no request body for targeting — no user id / email / wildcard / list exists (Acc 5.2, SC-005); the endpoint is reachable WITHOUT `ENABLE_DEV_ENDPOINTS` but requires admin (FR-002). Serial suite.
+- [X] T026 [P] [US5] Integration tests in `server/__tests__/integration/prod-reset.test.js`: an admin caller resets ONLY the hardcoded account with full cascade (Acc 5.1); a non-admin is rejected (Acc 5.3); an already-reset account is an idempotent no-op success (Acc 5.4); the endpoint consults no request body for targeting — no user id / email / wildcard / list exists (Acc 5.2, SC-005); the endpoint is reachable WITHOUT `ENABLE_DEV_ENDPOINTS` but requires admin (FR-002). Serial suite.
 
 ### Implementation for User Story 5
 
