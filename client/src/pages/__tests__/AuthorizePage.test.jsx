@@ -64,6 +64,14 @@ describe('AuthorizePage — unauthenticated first-run framing (SC-005)', () => {
     expect(await screen.findByText(/wants to create and sync documents/i)).toBeInTheDocument();
   });
 
+  it('states a read-only ask when documents:write is not requested', async () => {
+    setSearch('?agent_client_id=agent-xyz&scope=documents:read');
+    render(<AuthorizePage />);
+    expect(await screen.findByText(/wants to read documents/i)).toBeInTheDocument();
+    // must NOT overstate write access the agent never asked for
+    expect(screen.queryByText(/create and sync documents/i)).not.toBeInTheDocument();
+  });
+
   it('does NOT show the old existing-account "Sign in required" framing', async () => {
     render(<AuthorizePage />);
     await screen.findByRole('link', { name: /continue with google/i });

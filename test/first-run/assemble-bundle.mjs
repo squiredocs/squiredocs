@@ -91,7 +91,10 @@ const mcpJson = (endpoint) =>
   JSON.stringify(
     {
       mcpServers: {
-        'squire-docs': { type: 'http', url: endpoint },
+        // Server key MUST match the name the served agents.md / Agent Surface doc
+        // use in the `claude mcp add … squire` one-liner and that onboard.md tells
+        // the user to pick in `/mcp` ("the squire server").
+        squire: { type: 'http', url: endpoint },
       },
     },
     null,

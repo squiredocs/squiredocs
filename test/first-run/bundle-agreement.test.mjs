@@ -46,7 +46,7 @@ test('an endpoint-only change to .mcp.json is NOT flagged (exempt field)', () =>
     assembleBundle({ outDir: tmp });
     const mcp = path.join(tmp, '.mcp.json');
     const j = JSON.parse(fs.readFileSync(mcp, 'utf8'));
-    j.mcpServers['squire-docs'].url = 'http://localhost:3052/mcp';
+    j.mcpServers.squire.url = 'http://localhost:3052/mcp';
     fs.writeFileSync(mcp, JSON.stringify(j, null, 2) + '\n');
     const { ok } = checkBundleAgreement({ bundleDir: tmp });
     assert.equal(ok, true, 'endpoint field must be exempt from the agreement check');

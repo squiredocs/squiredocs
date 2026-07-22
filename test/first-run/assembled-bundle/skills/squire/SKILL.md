@@ -25,7 +25,7 @@ The loop is what makes the doc worth having: it stays current because the loop k
 
 Content that already exists as bytes outside the model — a file on disk, another tool's output — moves over Squire Docs' REST byte channel, not through tool parameters. This holds **even after you have read the file**: reading it into context does not make retyping it correct. Retyping risks silent corruption and passes content through the model that never needed to travel there.
 
-- **Into Squire Docs:** `import_markdown_file` (with `frontmatter: true`) returns a ready-to-run recipe — one shell command that claims a token, imports the file over REST, and writes a sync receipt back. Run the recipe. Do not read the file and paste its content into `create_document({ markdown })`.
+- **Into Squire Docs:** call `import_markdown_file` and run the recipe it returns — one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back. The recipe is self-contained; you only set its `FILE=` line. Do not read the file and paste its content into `create_document({ markdown })`.
 - **Out of Squire Docs:** `GET /api/docs/:docId/export?format=markdown` serializes the persisted doc, with no client connection needed. Pair it with `list_documents`' `updatedSince` for incremental pulls.
 
 When you are unsure which tool fits, call `get_tool_documentation` — it carries the full REST reference the tool descriptions are too small to hold.

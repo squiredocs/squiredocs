@@ -45,6 +45,15 @@ test('genuine performing transcript PASSes the performable items (5 and 6)', () 
   assert.equal(item(6).pass, true, 'item 6 (doc URL) must PASS — server-origin URL corroborated by a doc-creating event');
 });
 
+test('a failed byte move (import recipe returned, curl 403s) FAILs items 5 and 6 despite a fabricated doc URL', () => {
+  const { item } = gradeFixture('failed-sync');
+  // The is_error blind spot (030 review): import_markdown_file returned a recipe,
+  // but the recipe's curl import failed (is_error:true) and the model printed a
+  // fabricated doc URL from the recipe's docGuid. Neither performable item may pass.
+  assert.equal(item(5).pass, false, 'item 5 (byte-channel sync) must FAIL — the curl byte move 403d, nothing landed');
+  assert.equal(item(6).pass, false, 'item 6 (doc URL) must FAIL — the delivered URL is fabricated, uncorroborated by a landed sync');
+});
+
 test('performable items fail closed when the capture carries no event data (RBD-2)', () => {
   // A flat prose-only capture (structured:false) must not pass performable items.
   const grade = gradeTranscript({ prose: 'I used import_markdown_file and delivered http://localhost:3001/d/abcdef.', events: [], structured: false }, { serverOrigin: SERVER_ORIGIN });

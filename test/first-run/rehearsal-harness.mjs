@@ -25,6 +25,11 @@
  *   node test/first-run/rehearsal-harness.mjs [--server http://localhost:3001]
  *        [--bundle <dir>] [--mode pre-authorized|unauthenticated|token-fallback]
  *        [--fixture <repo-fixture-dir>] [--keep] [--no-claude] [--require-claude]
+ *        [--allow-repo-root]
+ *
+ * A fixture is REQUIRED unless --allow-repo-root is passed: without one the
+ * client's cwd defaults to the app repo root and a sync would touch the
+ * developer's own working tree.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -33,7 +38,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { gradeTranscript, formatReport } from './grade-transcript.mjs';
-import { parseCapture } from './capture.mjs';
+import { parseCapture, captureContainsSecret } from './capture.mjs';
 import { assembleBundle, PROD_ENDPOINT } from './assemble-bundle.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -118,6 +123,17 @@ export async function runRehearsal(opts = {}) {
   const requireClaude = !!opts.requireClaude;
   const log = opts.log || ((m) => console.log(`  • ${m}`));
 
+  // Safety: without a fixture the client's cwd defaults to the app repo root, so a
+  // rehearsal that reaches Move 3 would sync the DEVELOPER'S OWN working tree. All
+  // real cells pass a fixture; refuse the repo-root default unless explicitly
+  // opted in (030 review LOW).
+  if (!opts.fixtureDir && !opts.allowRepoRoot) {
+    throw new Error(
+      'refusing to rehearse with cwd = repo root (a sync would touch the developer\'s working tree). '
+      + 'Pass a fixture (--fixture <dir> / opts.fixtureDir) or --allow-repo-root / opts.allowRepoRoot to override.',
+    );
+  }
+
   // Resources registered as created, so a failure at any step still releases
   // the synthetic user and scratch dirs (029 review).
   const cleanupState = { email: null, dirs: [], server };
@@ -137,6 +153,9 @@ export async function runRehearsal(opts = {}) {
   }
   result.cleanup = cleanup;
 
+  // Any throw past this point leaks the synthetic user + scratch dirs unless we
+  // release them; run cleanup (which respects --keep) before rethrowing (030 review).
+  try {
   // Reachability preflight.
   try {
     const h = await fetch(`${server}/health`);
@@ -176,7 +195,7 @@ export async function runRehearsal(opts = {}) {
   const mcpJsonPath = path.join(throwaway, '.mcp.json');
   const srcMcpBefore = fs.readFileSync(path.join(bundleSrc, '.mcp.json'), 'utf8');
   const mcp = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8'));
-  mcp.mcpServers['squire-docs'].url = `${server}/mcp`;
+  mcp.mcpServers.squire.url = `${server}/mcp`;
   fs.writeFileSync(mcpJsonPath, JSON.stringify(mcp, null, 2));
   if (fs.readFileSync(path.join(bundleSrc, '.mcp.json'), 'utf8') !== srcMcpBefore) {
     throw new Error('source bundle .mcp.json was mutated — FR-020 violated');
@@ -190,14 +209,15 @@ export async function runRehearsal(opts = {}) {
   // from the scratch ~/.squire/token.
   let tokenSecret = null; // for the token-bytes scan (token-fallback)
   let configCounter = 0;
-  // Write an MCP config for the squire-docs server, optionally with a Bearer
+  // Write an MCP config for the `squire` server, optionally with a Bearer
   // header. Returns its path. Distinct filenames so a --continue turn can point
-  // at a different (now-authed) config.
+  // at a different (now-authed) config. Server key matches the bundle .mcp.json
+  // and the agents.md/onboard.md name ("the squire server").
   const writeMcpConfig = (headers) => {
     const p = path.join(throwaway, `harness-mcp-config-${configCounter++}.json`);
     fs.writeFileSync(p, JSON.stringify({
       mcpServers: {
-        'squire-docs': { type: 'http', url: `${server}/mcp`, ...(headers ? { headers } : {}) },
+        squire: { type: 'http', url: `${server}/mcp`, ...(headers ? { headers } : {}) },
       },
     }, null, 2));
     return p;
@@ -329,6 +349,10 @@ export async function runRehearsal(opts = {}) {
     result.requireClaudeFailed = true;
   }
   return result;
+  } catch (e) {
+    await cleanup();
+    throw e;
+  }
 }
 
 /**
@@ -340,10 +364,13 @@ async function stageTokenFallback(server, scratchHome, log) {
   const { email, sessionToken } = await connectAgent(server, { withToken: false });
   // Mint an sk_sqd_ token via the same authenticated endpoint Settings → AI Agent
   // Access uses (POST /mcp/auth/api-tokens, session-Bearer authed).
+  // Expire the rehearsal token ~1h out rather than minting a non-expiring secret
+  // (server field name: expiresAt — server/mcp/auth/api-tokens.js createToken).
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const res = await fetch(`${server}/mcp/auth/api-tokens`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` },
-    body: JSON.stringify({ name: 'rehearsal-token-fallback', scopes: ['documents:read', 'documents:write'] }),
+    body: JSON.stringify({ name: 'rehearsal-token-fallback', scopes: ['documents:read', 'documents:write'], expiresAt }),
   });
   const body = await res.json().catch(() => ({}));
   const token = body.token;
@@ -418,6 +445,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     res = await runRehearsal({
       server, bundleSrc, mode, fixtureDir,
       keep: has('--keep'), noClaude: has('--no-claude'), requireClaude: has('--require-claude'),
+      allowRepoRoot: has('--allow-repo-root'),
     });
   } catch (e) {
     console.error(`\n✗ REHEARSAL FAILED: ${e.message || e}`);
@@ -426,7 +454,23 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   console.log(`\n--- claude -p status: ${res.claudeStatus} ---`);
   console.log(formatReport(res.grade));
-  console.log(`\n(transcript saved: ${res.transcriptPath})`);
+
+  // Token-bytes leak scan (RBD-6): the matrix runner asserts this per-cell; run it
+  // here too so a direct token-fallback CLI run isn't blind to a leak.
+  if (res.tokenSecret) {
+    const leaked = captureContainsSecret(res.capture.raw, res.tokenSecret);
+    console.log(`  • token-bytes leak scan: ${leaked ? 'LEAKED ✗' : 'clean ✓'}`);
+    if (leaked) process.exitCode = 1;
+  }
+
+  // The graded transcript lives inside the throwaway bundle dir, which cleanup
+  // removes — copy it somewhere surviving first so the printed path isn't dead.
+  let transcriptOut = res.transcriptPath;
+  if (!has('--keep')) {
+    transcriptOut = path.join(os.tmpdir(), `squire-rehearsal-transcript-${Date.now()}.jsonl`);
+    try { fs.copyFileSync(res.transcriptPath, transcriptOut); } catch { transcriptOut = res.transcriptPath; }
+  }
+  console.log(`\n(transcript saved: ${transcriptOut})`);
 
   const requireFailed = res.requireClaudeFailed;
   if (!has('--keep')) {

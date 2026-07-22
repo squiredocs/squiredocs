@@ -300,9 +300,13 @@ export default function AuthorizePage() {
   }
 
   if (!isAuthenticated) {
-    const agentAsk = agentInfo?.name
-      ? `${agentInfo.name} wants to create and sync documents in your Squire Docs account.`
-      : 'Your agent wants to create and sync documents in your Squire Docs account.';
+    // Describe the ask by the scopes actually requested — a read-only agent
+    // (documents:read without documents:write) cannot create or sync (030 review).
+    const ask = scopes.includes('documents:write')
+      ? 'create and sync documents'
+      : 'read documents';
+    const who = agentInfo?.name || 'Your agent';
+    const agentAsk = `${who} wants to ${ask} in your Squire Docs account.`;
     return (
       <AuthorizeShell>
         <h2 className="login-headline">Connect to Squire Docs</h2>

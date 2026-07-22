@@ -218,7 +218,25 @@ export const CELLS = [
       required: [1, 3],
       exempt: [2, 4, 5, 6, 7],
       assertions: [
-        proseAssertion('.kiro/specs candidate offered first (precedence over specs/)', /\.kiro\/specs/i),
+        {
+          // A mere substring match passes even when the model offers the WRONG
+          // candidate (e.g. specs/legacy-notes.md) and only name-drops .kiro/specs
+          // later. Precedence means the .kiro/specs offer must come BEFORE any
+          // bare specs/ offer (030 review MEDIUM).
+          name: '.kiro/specs candidate offered before any bare specs/ (precedence)',
+          check: ({ capture }) => {
+            const p = capture.prose || '';
+            const kiroIdx = p.search(/\.kiro\/specs/i);
+            if (kiroIdx < 0) return { pass: false, detail: 'no .kiro/specs candidate offered' };
+            // a specs/ reference that is NOT the .kiro/specs path
+            const m = p.match(/(?<!\.kiro\/)\bspecs\//i);
+            const bareSpecsIdx = m ? m.index : Infinity;
+            return {
+              pass: kiroIdx < bareSpecsIdx,
+              detail: `kiroIdx=${kiroIdx} bareSpecsIdx=${Number.isFinite(bareSpecsIdx) ? bareSpecsIdx : 'none'}`,
+            };
+          },
+        },
       ],
     },
   },

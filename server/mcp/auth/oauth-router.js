@@ -33,12 +33,13 @@ router.delete('/delegations/:id', requireAuth, oauthFlow.handleDeleteDelegation)
 // API Token management endpoints (user-session-authenticated)
 router.post('/api-tokens', requireAuth, async (req, res) => {
   try {
-    const { name, scopes } = req.body;
+    const { name, scopes, expiresAt } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Token name is required' });
     }
     const options = {};
     if (scopes) options.scopes = scopes;
+    if (expiresAt !== undefined && expiresAt !== null) options.expiresAt = expiresAt;
     const { token, record } = await apiTokens.createToken(req.user.userId, name, options);
     res.json({
       token,
@@ -47,6 +48,7 @@ router.post('/api-tokens', requireAuth, async (req, res) => {
       tokenPrefix: record.token_prefix,
       scopes: record.scopes,
       createdAt: record.created_at,
+      expiresAt: record.expires_at,
     });
   } catch (error) {
     if (error.message.includes('Maximum of')) {

@@ -94,8 +94,11 @@ that fixed one line's variance simply moved it to another. This is the exact
 RBD-3/RBD-11 non-determinism the design anticipates — which is why part (b)
 (Sam's real interactive prod walk) is the paired half of the exit gate and the
 final arbiter of the flow. Re-run `node test/first-run/matrix-runner.mjs` freely;
-the deterministic derivatives (grader fixtures, bundle agreement + budgets,
-consent client test) gate every commit and are green.
+the deterministic derivatives run in CI on every push (`.github/workflows/test.yml`
+→ `npm run test:first-run` for grader fixtures + bundle agreement + content
+budgets, and `npm run test:client` for the consent client test), so bundle drift,
+budget overruns, and grader regressions gate pushed commits. The model-driven
+matrix stays on-demand (API cost + non-determinism), not in CI.
 
 ## Part (b) — Sam's production self-test sign-off
 

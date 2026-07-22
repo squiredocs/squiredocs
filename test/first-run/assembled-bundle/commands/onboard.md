@@ -58,7 +58,7 @@ Offer the best candidate you find and let the user confirm or point you at a dif
 
 ## Move 3 — Sync it byte-faithfully
 
-Sync the chosen file over the byte channel — never retype its content through a tool parameter, even though you may have read it. Call `import_markdown_file` with `frontmatter: true` and run the recipe it returns: a single shell command that claims a token, imports the file over REST, and writes a sync receipt back into the file's frontmatter. The doc is born sync-ready, and the receipt is what lets later runs update this same doc instead of creating a duplicate.
+Sync the chosen file over the byte channel — never retype its content through a tool parameter, even though you may have read it. Call `import_markdown_file` and run the recipe it returns: a single shell command that claims a token, imports the file over REST, and writes a sync receipt back into the file's frontmatter (you only set its `FILE=` line). The doc is born sync-ready, and the receipt is what lets later runs update this same doc instead of creating a duplicate.
 
 ## Move 4 — Deliver the payoff
 

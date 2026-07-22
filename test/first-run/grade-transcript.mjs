@@ -35,24 +35,65 @@ function toolBase(tool) {
   return m ? m[1] : t;
 }
 
-/** True if an event is a byte-channel file-sync (item 5). */
-function isByteChannelSyncEvent(e) {
-  if (!e) return false;
-  const base = toolBase(e.tool);
-  if (base === 'import_markdown_file') return true;
-  const cmd = typeof e.input?.command === 'string' ? e.input.command : JSON.stringify(e.input || '');
-  if (/\bcurl\b/.test(cmd) && (/\/api\/docs\/[^\s"']*\/import/.test(cmd) || /sk_sqd_/.test(cmd))) return true;
-  // the import recipe is often a compound shell command carrying the claim + curl import
-  if (/tokens\/claim/.test(cmd) && /\/import/.test(cmd)) return true;
-  return false;
+// A Bash recipe whose result text reports a failure did NOT move any bytes, even
+// if the harness somehow did not flag is_error (belt-and-suspenders; the recipe
+// echoes these markers on the curl/claim failure paths — import-markdown-file.js).
+const RECIPE_FAILURE_RE = /\bimport failed\b|\bclaim failed\b|curl: \(\d+\)|returned error \d/i;
+
+/** The shell command string of a Bash-style event (or '' for non-shell events). */
+function commandOf(e) {
+  return typeof e?.input?.command === 'string' ? e.input.command : JSON.stringify(e?.input || '');
 }
 
-/** True if an event created/imported a doc (item 6 corroboration). */
-function isDocCreatingEvent(e) {
+/**
+ * True if the event is a curl attempt to MOVE the file's bytes over the byte
+ * channel — regardless of whether it succeeded. Create intent hits
+ * /api/docs/import (no docId); update/sync hit /api/docs/<id>/import (docId
+ * optional). The compound recipe carries the token claim too.
+ */
+function isCurlImportAttempt(e) {
   if (!e) return false;
+  const cmd = commandOf(e);
+  const curlImport = /\bcurl\b/.test(cmd)
+    && (/\/api\/docs(?:\/[^\s"']*)?\/import/.test(cmd) || /sk_sqd_/.test(cmd));
+  const claimImport = /tokens\/claim/.test(cmd) && /\/import/.test(cmd);
+  return curlImport || claimImport;
+}
+
+/** True if a curl byte-move attempt actually SUCCEEDED (no is_error, no failure echo). */
+function curlImportSucceeded(e) {
+  if (!isCurlImportAttempt(e) || e.isError) return false;
+  const res = typeof e.result === 'string' ? e.result : '';
+  return !RECIPE_FAILURE_RE.test(res);
+}
+
+/**
+ * True if an event is a byte-channel file-sync that actually SUCCEEDED (item 5).
+ * A failed corroborating tool call performed no sync — 030 review: the predicate
+ * must not credit a sync whose is_error is true (e.g. import_markdown_file returns
+ * a recipe but the recipe's curl 403s), or the model can fabricate a doc URL from
+ * the recipe's docGuid and pass items 5+6.
+ */
+function isByteChannelSyncEvent(e) {
+  if (!e) return false;
+  if (e.isError) return false; // a failed tool call moved no bytes
   const base = toolBase(e.tool);
-  if (base === 'import_markdown_file' || base === 'create_document') return true;
-  return isByteChannelSyncEvent(e);
+  if (base === 'import_markdown_file') return true;
+  return curlImportSucceeded(e);
+}
+
+/**
+ * True iff a byte-channel sync actually LANDED across the whole event stream
+ * (item 5, and item 6's primary corroboration). A sync-shaped event must be
+ * present AND — if the byte move was attempted via curl recipes — at least one
+ * attempt must have succeeded. This closes the 030 is_error blind spot: an
+ * import_markdown_file recipe whose only curl attempt 403s did NOT land.
+ */
+function syncLanded(events) {
+  if (!events.some(isByteChannelSyncEvent)) return false;
+  const attempts = events.filter(isCurlImportAttempt);
+  if (attempts.length > 0 && !attempts.some(curlImportSucceeded)) return false;
+  return true;
 }
 
 function escapeRegExp(s) {
@@ -121,8 +162,10 @@ export const CHECKLIST = [
       // block there. A closing payoff summary AFTER the sync (move 4) legitimately
       // states what happened and is NOT penalized. So we only FAIL on a ceremony
       // marker that appears BEFORE the first find-the-spec-step marker.
+      // Emoji alternatives must sit OUTSIDE the \b…\b wrapper — an emoji is not a
+      // word character, so a \b adjacent to it can never match (030 review LOW).
       const ceremony =
-        /\b(you'?re (?:now )?(?:all )?(?:set|connected)|successfully connected|connection (?:is )?(?:now )?successful|congratulations|🎉|✅ *(?:connected|done|success))\b/i;
+        /\b(?:you'?re (?:now )?(?:all )?(?:set|connected)|successfully connected|connection (?:is )?(?:now )?successful|congratulations)\b|🎉|✅ *(?:connected|done|success)/i;
       const specStep =
         /(find(?:ing)?[^.\n]{0,20}spec|look(?:ing)?[^.\n]{0,20}spec|spec[- ]?shaped|spec candidate|\.kiro\/specs|\bspecs\/|\bCLAUDE\.md\b|starter spec)/i;
       const cer = prose.match(ceremony);
@@ -140,7 +183,7 @@ export const CHECKLIST = [
     kind: 'performable',
     test(_capture, { events, structured }) {
       if (!structured) return false; // fail closed — no event data (RBD-2)
-      return events.some(isByteChannelSyncEvent);
+      return syncLanded(events);
     },
   },
   {
@@ -156,11 +199,14 @@ export const CHECKLIST = [
       //     routes — the model uses either; both are real Squire Docs doc URLs.
       const urlRe = new RegExp(escapeRegExp(origin) + '\\/(?:d|documents)\\/[a-z0-9-]{6,}', 'i');
       const deliveredInProse = urlRe.test(prose);
-      // (b) corroborated by a doc-creating/import event, or a tool result that
-      //     returned a doc URL on the server origin.
+      // (b) corroborated by a sync that actually LANDED, a successful
+      //     create_document, or a (non-error) tool result that itself returned a
+      //     doc URL on the server origin. A doc-creating event whose byte move
+      //     failed does NOT corroborate (030 review: is_error blind spot).
       const corroborated =
-        events.some(isDocCreatingEvent) ||
-        events.some((e) => typeof e.result === 'string' && urlRe.test(e.result));
+        syncLanded(events) ||
+        events.some((e) => !e.isError && toolBase(e.tool) === 'create_document') ||
+        events.some((e) => !e.isError && typeof e.result === 'string' && urlRe.test(e.result));
       return deliveredInProse && corroborated;
     },
   },

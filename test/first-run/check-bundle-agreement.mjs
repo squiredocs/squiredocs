@@ -76,7 +76,7 @@ export function checkContentBudgets() {
   return problems;
 }
 
-/** Compare .mcp.json ignoring only the mcpServers['squire-docs'].url field. */
+/** Compare .mcp.json ignoring only the mcpServers['squire'].url field. */
 function mcpMatchesIgnoringEndpoint(expected, actual) {
   let e;
   let a;
@@ -88,7 +88,7 @@ function mcpMatchesIgnoringEndpoint(expected, actual) {
   }
   const strip = (o) => {
     const c = JSON.parse(JSON.stringify(o));
-    if (c?.mcpServers?.['squire-docs']) delete c.mcpServers['squire-docs'].url;
+    if (c?.mcpServers?.squire) delete c.mcpServers.squire.url;
     return JSON.stringify(c);
   };
   return strip(e) === strip(a);

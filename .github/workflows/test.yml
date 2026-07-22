@@ -60,3 +60,6 @@ jobs:
       - name: Run client tests
         run: npm run test:client
 
+      - name: Run first-run rehearsal suite (deterministic — bundle drift, content budgets, grader regressions)
+        run: npm run test:first-run
+
