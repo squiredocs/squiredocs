@@ -258,6 +258,14 @@ export async function runRehearsal(opts = {}) {
     cleanupState.dirs.push(scratchConfigB);
     log(`connect flow: consent completed for ${email}; phase B re-runs onboard in a fresh client with tools present`);
     turns.push({ prompt: firstPrompt, config: authed, continue: false, configDir: scratchConfigB });
+    // The content OFFERS the best candidate and awaits confirmation (Move 2 —
+    // "let the user confirm", never silently pick). A real user then says yes, so
+    // the flow proceeds into the byte-channel sync + payoff. Without this turn the
+    // model correctly stops at the offer, so items 5/6/7 fire only intermittently
+    // (RBD-11: intermittent = defect). The confirmation turn makes the sync
+    // deterministic; for candidate-selection cells whose sync items are exempt it
+    // is harmless (their offer was already graded on the prior turn).
+    turns.push({ prompt: 'Yes, that candidate is the right one — go ahead and sync it, then stop.', config: authed, continue: true, configDir: scratchConfigB });
     for (const t of userTurns) turns.push({ prompt: t, config: authed, continue: true, configDir: scratchConfigB });
   } else if (mode === 'unauthenticated') {
     // Walkthrough-only cells (declined / abandoned / paste-back / shape-*): tools
