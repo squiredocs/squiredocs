@@ -57,9 +57,9 @@ A developer who already has a Squire Docs account (with documents in it) connect
 
 ### User Story 3 - The single screen carries the full consent story (Priority: P2)
 
-Since the first-run surface becomes the only consent surface a first-run user ever sees, its copy states the grant it now stands in for: what access the agent gets (read plus create/edit/delete of documents, matching the scopes actually requested) and that access can be revoked anytime in Settings → AI Agent Access. Honest, barely longer.
+Since the first-run surface becomes the only consent surface a first-run user ever sees, its copy does double duty. **Transparency is primary**: it states the grant it now stands in for — what access the agent gets (read plus create/edit/delete of documents, matching the scopes actually requested) and that access can be revoked anytime in Settings → AI Agent Access. **Value is the secondary reminder**: a concise (2–3 line) summary of why the user would want to connect, drawn from the verified landing/blog value messaging — not a wall of marketing. Honest, barely longer, transparency first.
 
-**Why this priority**: Informed consent is what makes the collapse defensible. Without the enriched copy, the collapse trades a redundant screen for an under-informed grant. It is P2 only because Stories 1–2 are mechanically independent of the wording.
+**Why this priority**: Informed consent is what makes the collapse defensible. Without the enriched copy, the collapse trades a redundant screen for an under-informed grant. The value reminder is what makes the single screen also stand in for the value context the killed screens carried. It is P2 only because Stories 1–2 are mechanically independent of the wording.
 
 **Independent Test**: Load the unauthenticated authorize surface for a write-scoped request and for a read-only request; verify the stated grant matches the requested scopes and the revocation line is present.
 
@@ -68,6 +68,8 @@ Since the first-run surface becomes the only consent surface a first-run user ev
 1. **Given** an authorize request including write scope, **When** the first-run surface renders, **Then** it states the agent will be able to read and create/edit/delete documents in the user's Squire Docs account, and that access is revocable anytime in Settings → AI Agent Access.
 2. **Given** a read-only authorize request, **When** the surface renders, **Then** the stated grant is read-only — never broader than what will actually be granted.
 3. **Given** any first-run surface render, **Then** the copy uses "Squire Docs" naming and the honest-confident voice — no overclaiming, no self-deprecation.
+4. **Given** any first-run surface render, **Then** it includes a concise value reminder (2–3 benefit lines max) drawn only from the verified value messaging (below), with transparency copy taking visual precedence over the value reminder.
+5. **Given** a common mobile viewport (the browser the agent just opened), **When** the surface renders, **Then** the primary "Continue with Google" action is not pushed below the fold — the value reminder MUST NOT crowd the action off-screen (030 mobile-fold constraint).
 
 ---
 
@@ -102,7 +104,9 @@ Since the first-run surface becomes the only consent surface a first-run user ev
 
 **Consent surface**
 
-- **FR-009**: The first-run surface MUST state the grant it stands in for: reading plus creating, editing, and deleting documents in the user's Squire Docs account when write scope is requested, and a strictly narrower statement for read-only requests — the stated grant MUST match the scopes actually requested and subsequently granted. It MUST include that access is revocable anytime in Settings → AI Agent Access. Copy MUST say "Squire Docs" and follow the honest-confident voice.
+- **FR-009**: The first-run surface MUST state the grant it stands in for: reading plus creating, editing, and deleting documents in the user's Squire Docs account when write scope is requested, and a strictly narrower statement for read-only requests — the stated grant MUST match the scopes actually requested and subsequently granted. It MUST include that access is revocable anytime in Settings → AI Agent Access. Copy MUST say "Squire Docs" and follow the honest-confident voice. Transparency copy (grant + revocation) MUST take visual precedence over any value-reminder copy (FR-014).
+
+- **FR-014**: Because the collapsed screen is the only surface a first-run user sees before connecting, it MUST also carry a concise value reminder — 2–3 crisp benefit lines maximum — of why the user would want to connect, drawn EXCLUSIVELY from the verified value messaging recorded in "Value-reminder source messaging" below. It is a consent screen, not a landing page: the value reminder MUST NOT crowd out the transparency copy nor push the primary "Continue with Google" action below the fold on common mobile viewports (030 mobile-fold constraint). Every claim MUST be true of the product (two-way repo-markdown sync, human/agent attribution, revertibility) — no invented claims. Copy MUST say "Squire Docs" (never bare "Squire") and follow the honest-confident, never-self-deprecating voice. This copy feeds the eventual tone/marketing-copy sign-off.
 - **FR-010**: When the return destination is valid but auto-issue preconditions are not all met (pre-existing account, missing/invalid OAuth parameters, validation failure), the system MUST fall back to the existing behavior — redirecting to the authorize surface for explicit consent — and MUST NOT dead-end the user or leak why auto-issue was withheld into an attacker-readable channel beyond the standard flow's responses.
 
 **Unchanged adjacent behavior (guard rails, not respecs)**
@@ -132,6 +136,16 @@ Since the first-run surface becomes the only consent surface a first-run user ev
 - **SC-004**: Auto-issued delegations are indistinguishable from explicitly approved ones in attribution, listing, and revocation — revoking one takes the same steps and has the same effect.
 - **SC-005**: The automated first-run verification proves the collapsed flow end to end (account creation through token exchange with no consent-approval action) and runs green in the suite.
 - **SC-006**: First-run consent copy names the full grant and the revocation path on the one screen the user sees, and never states a broader grant than requested.
+- **SC-007**: The first-run screen carries a 2–3 line value reminder drawn only from the verified messaging, with transparency copy taking visual precedence and the "Continue with Google" action remaining above the fold on common mobile viewports.
+
+## Value-reminder source messaging (verified — source for FR-014)
+
+Copy for the value reminder MUST be drawn only from these product-true claims (source: landing page + blog, verified 2026-07-22). Draw 2–3, keep them crisp; do not invent beyond these:
+
+- One place where humans and coding agents write the same spec together — the document is where software decisions get made.
+- No more choosing between a spec your agents can work with (repo markdown) and one your team can review — Squire Docs is both, with two-way sync to the markdown in your repo.
+- Every edit is attributed (human vs agent) and revertible.
+- Your PM or designer can review and refine the spec in a place they can edit; your agent reads and writes it precisely.
 
 ## Assumptions
 
