@@ -223,7 +223,7 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 
 | Channel | Wave | Status |
 | --- | --- | --- |
-| Official MCP Registry | 1 | Mirror repo LIVE (squiredocs/squire-mcp-registry, v1.0.1 + LICENSE). Domain-verification **DNS challenge DONE + verified live 2026-07-22** (apex TXT v=MCPv1 ed25519, SPF preserved). Remaining: mcp-publisher CLI login + publish server.json to registry.modelcontextprotocol.io (Sam go; private key at distribution/.mcp-publisher-key). |
+| Official MCP Registry | 1 | **LIVE 2026-07-22** — com.squiredocs/mcp v1.0.1 published to registry.modelcontextprotocol.io (status: active; DNS ed25519 domain-verification). Subregistries mirror it. Follow-up: server.json is on the now-DEPRECATED 2025-09-29 schema — migrate to 2025-12-11 for future versions. |
 | Claude Code plugin (own marketplace) | 1 | **LIVE 2026-07-22** — squiredocs/squire-plugin published (own marketplace). Install: /plugin marketplace add squiredocs/squire-plugin then /plugin install squire. v1.0.0. |
 | Claude community directory | 1 | Not started |
 | Kiro Powers | 2 | Not started |
