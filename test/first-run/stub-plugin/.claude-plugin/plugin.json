@@ -1,0 +1,6 @@
+{
+  "name": "squire",
+  "version": "0.0.0-stub",
+  "description": "SCAFFOLDING FOR TESTING — Squire Docs first-run rehearsal stub. NOT the shipping bundle; real coaching content is M2. Used only by test/first-run/rehearsal-harness.mjs.",
+  "author": { "name": "Squire Docs" }
+}

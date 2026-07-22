@@ -439,7 +439,7 @@ When auth bypass is enabled:
 
 1. **Auto-login**: The app automatically logs you in as a test user (`dev@test.local`) when you load the page
 2. **No OAuth redirect**: Clicking "Login" calls the `/auth/dev-login` endpoint instead of redirecting to Google OAuth
-3. **Development-only**: The `/auth/dev-login` endpoint only works when `NODE_ENV=development`
+3. **Fail-closed gating**: The `/auth/dev-login` endpoint (and the other synthetic dev endpoints) are mounted only behind the explicit positive opt-in `ENABLE_DEV_ENDPOINTS=1`, with `NODE_ENV !== 'production'` as an additional belt. Absent the flag they return `404`, independent of `NODE_ENV`. The dev/staging overlay sets the flag (`k8s/overlays/minikube/app-dev.yaml`); production never does.
 
 ### Test User Details
 
@@ -457,8 +457,8 @@ When auth bypass is enabled:
 
 The dev-login endpoint includes several safety measures:
 
-- Only available when `NODE_ENV=development`
-- Returns 403 Forbidden in production
+- Mounted only behind the positive `ENABLE_DEV_ENDPOINTS=1` opt-in (plus a `NODE_ENV !== 'production'` belt); returns `404` otherwise
+- Never present in the production overlay, so it cannot leak even if `NODE_ENV` is left unset
 - Test user is clearly identifiable by email domain
 
 ### Disabling
@@ -471,6 +471,96 @@ VITE_BYPASS_AUTH=false
 ```
 
 Or simply remove the environment variable.
+
+## First-Run Test Mechanism (Feature 029)
+
+Tooling that makes the plugin first-run flow cheap to rehearse without burning
+real Google/Claude accounts or a human clicking browsers. All synthetic endpoints
+below are gated by `ENABLE_DEV_ENDPOINTS=1` (fail-closed; `404` when unset,
+independent of `NODE_ENV`) — the dev/staging overlay sets it. The `$DEV` base URL
+in the examples is the running dev server (e.g. `http://localhost:3001` in the pod).
+
+### Fresh-user faucet — `POST /auth/dev-login`
+
+Extends dev-login with three modes (empty body still mints the fixed
+`dev@test.local` user):
+
+```bash
+# Fresh synthetic user (JSON): mints test+<nonce>@test.local, distinct per call
+curl -sX POST $DEV/auth/dev-login -H 'content-type: application/json' -d '{"fresh":true}'
+#  => { accessToken, user, email:"test+<nonce>@test.local", nonce }
+
+# Explicit nonce for a stable, re-addressable identity (reuse = re-login)
+curl -sX POST $DEV/auth/dev-login -H 'content-type: application/json' -d '{"fresh":true,"nonce":"abc123"}'
+
+# Browser mode: sets session cookies + 302 to a validated same-origin returnTo,
+# standing in for Google on the consent page's sign-in leg (stamps agent_oauth
+# provenance + skips the welcome doc, exactly like a real consent-born account)
+curl -si -X POST $DEV/auth/dev-login -H 'content-type: application/json' \
+     -d '{"fresh":true,"browser":true,"returnTo":"/authorize?client_id=..."}'
+```
+
+### Synthetic wipe — `POST /auth/dev-wipe-user`
+
+Hard-deletes a synthetic user and everything hanging off the row (documents,
+their content/versions, delegations, tokens) so the identity's next sign-in is a
+genuine first run. Only ever targets the `test+<nonce>@test.local` namespace.
+
+```bash
+curl -sX POST $DEV/auth/dev-wipe-user -H 'content-type: application/json' -d '{"email":"test+abc123@test.local"}'
+curl -sX POST $DEV/auth/dev-wipe-user -H 'content-type: application/json' -d '{"all":true}'   # wipe all synthetic users
+# A non-synthetic address is refused (400) — real accounts are never touched.
+```
+
+### Consent auto-approve — `POST /auth/dev-consent-approve`
+
+Completes the OAuth consent Approve step for a **synthetic session** (Bearer
+token from the faucet) and mints the authorization code with no browser click.
+Refuses (403) any non-synthetic session.
+
+### Tier-2 — headless OAuth-chain driver
+
+Walks the whole agent connect chain (401 → resource/AS metadata → dynamic client
+registration → PKCE authorize → faucet sign-in → auto-approve → token exchange)
+and finishes with a real authenticated MCP tool call. Single command, re-runnable
+as a regression check:
+
+```bash
+node test/first-run/oauth-chain-driver.mjs --server $DEV
+```
+
+### Tier-3 — unattended in-pod rehearsal harness
+
+One command yields a pristine first-run environment (scratch `CLAUDE_CONFIG_DIR`
++ fresh synthetic user + the stub plugin installed pointed at the dev server) and
+a graded transcript, driving `claude -p` non-interactively:
+
+```bash
+node test/first-run/rehearsal-harness.mjs --server $DEV       # full run (needs ANTHROPIC_API_KEY)
+node test/first-run/rehearsal-harness.mjs --server $DEV --no-claude   # build + grade env only
+node test/first-run/state-bleed-check.mjs --server $DEV       # two runs, assert no state bleed
+```
+
+The stub plugin lives at `test/first-run/stub-plugin/` (scaffolding-for-testing,
+NOT the shipping bundle) and plants exactly one gradable coaching marker, so the
+grader (`test/first-run/grade-transcript.mjs`) demonstrates both a PASS and the
+expected FAILs. With the stub, ~1/7 items PASS by design — clean passes across the
+matrix are milestone M2, not M1.
+
+**Linux-pod-only**: pristine rehearsals require the Linux dev pod. On macOS,
+Claude Code stores OAuth credentials in the system Keychain, which a scratch
+config dir does not clear — macOS support is out of scope (not built).
+
+### Production single-account reset — `POST /auth/prod-reset-selftest-account`
+
+The one dev-support endpoint reachable in production. Admin-gated (`requireAdmin`),
+NOT behind `ENABLE_DEV_ENDPOINTS`. It takes **no target parameter** — the target
+is the hardcoded self-test account `selftest@example.com` and nothing else.
+Idempotent no-op when already reset.
+
+```bash
+curl -sX POST https://squiredocs.com/auth/prod-reset-selftest-account -b "$ADMIN_COOKIE"
+```
 
 ## Telemetry (OpenTelemetry)
 

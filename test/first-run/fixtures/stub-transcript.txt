@@ -1,0 +1,3 @@
+Running /squire:onboard ...
+
+Signing in creates your Squire Docs account automatically — there is no separate signup step.

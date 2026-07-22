@@ -105,3 +105,28 @@ environment (fresh account + pristine client state + installed plugin pointed at
 server) in under 3 minutes with zero human interaction, and emits a graded transcript.
 Human-in-the-loop remains only where a browser inherently is — i.e. nowhere in the synthetic
 tiers; the real-browser prod walk is M2's exit, on top of the reset capability shipped here.
+
+---
+
+## T030 verification log (implement, 2026-07-22)
+
+All quickstart validations were run and pass. **Note on the target server:** the pod's
+`:3001` dev server runs stale pre-029 code via mutagen sync, so verification used a
+freshly-booted 029 server instance (`server/index.js`) on port `3051` against the per-agent
+test DB `collab_test_db_029` with `ENABLE_DEV_ENDPOINTS=1`. Results:
+
+- **Tier-1 suite green**: `first-run.test.js` (7) + `faucet-wipe.test.js` (23) +
+  `auto-approve.test.js` (3) + `prod-reset.test.js` (6) all pass; full backend suite
+  **214 suites / 3663 tests pass** (no regressions), client **62 files / 758 tests pass**,
+  `npm run build` succeeds.
+- **Faucet/wipe smoke**: fresh JSON mints distinct `test+<nonce>@test.local`; browser mode
+  sets cookies + 302; wipe removes the user + all doc content; non-synthetic refused.
+- **Tier-2 driver**: completed all 10 steps headlessly and authenticated a real
+  `list_documents` MCP tool call with the exchanged agent token.
+- **Tier-3 harness**: full `claude -p` rehearsal completed in **~8s (< 180s, SC-001)**;
+  pristine scratch config + throwaway bundle (source untouched) + fresh synthetic user +
+  unattended consent via auto-approve; transcript graded **1/7** (the planted marker PASSes,
+  the six M2-content items FAIL — exactly as designed, RBD-8). State-bleed check passes
+  (distinct users, distinct scratch dirs, zero residual synthetic rows).
+- **Prod reset**: admin-only, no target parameter, resets only the hardcoded account,
+  idempotent — confirmed by test + endpoint-inventory audit (T028).
