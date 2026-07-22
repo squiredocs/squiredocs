@@ -222,6 +222,14 @@ design explicitly deferred. No open NEEDS CLARIFICATION remains.
   hardcoded single-email target as its only safety surface (FR-010).
 - **Test (SC-004)**: assert every synthetic endpoint 404s/refuses with the flag unset AND in a
   production-like `NODE_ENV` config.
+- **ENDPOINT INVENTORY AUDIT (T028, 2026-07-22, SC-004/SC-005)**: grep of `server/auth/routes.js`
+  confirms exactly FOUR synthetic endpoints behind `requireDevEndpoints` (positive flag + belt):
+  `POST /auth/dev-login`, `POST /auth/dev-onboarding-reset`, `POST /auth/dev-wipe-user`,
+  `POST /auth/dev-consent-approve` — each returns `404` when the flag is unset OR `NODE_ENV`
+  is production-like (test-covered in faucet-wipe/auto-approve/first-run suites). The ONLY
+  feature-029 endpoint reachable in production is `POST /auth/prod-reset-selftest-account`,
+  gated by `requireAdmin` and deliberately NOT by `ENABLE_DEV_ENDPOINTS` (FR-002), with a
+  hardcoded single-target and no request-body targeting (prod-reset suite, SC-005). Audit passes.
 
 ## Consolidated open verifications (carried to implement, none blocking)
 

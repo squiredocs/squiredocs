@@ -163,9 +163,9 @@ Web application: Express backend (`server/`), React frontend (`client/src/`), re
 
 **Purpose**: Cross-story validation, docs, and the M1 exit demonstration.
 
-- [ ] T028 Endpoint inventory audit (SC-004/SC-005): confirm the prod reset is the ONLY dev-support endpoint from this feature reachable in production, and every synthetic endpoint (faucet fresh/browser, auto-approve, wipe) is unreachable with the flag unset and in a production-like `NODE_ENV`; record the audit result in the feature artifacts.
-- [ ] T029 Add a "first-run test mechanism" section to `docs/dev.md` (the flag, the faucet modes, the wipe, the tier-2 driver command, the tier-3 harness command, Linux-pod-only caveat) — Principle I. (Implement-agent task; the plan agent must not edit `docs/dev.md`.)
-- [ ] T030 Run the `quickstart.md` validations end to end in the `app-dev` pod: tier-1 suite green, faucet/wipe smoke, tier-2 driver completes with a working tool call, tier-3 harness yields a pristine environment in under 3 minutes with a graded transcript, prod-reset inspection — the M1 exit demonstration (FR-025, SC-001).
+- [X] T028 Endpoint inventory audit (SC-004/SC-005): confirm the prod reset is the ONLY dev-support endpoint from this feature reachable in production, and every synthetic endpoint (faucet fresh/browser, auto-approve, wipe) is unreachable with the flag unset and in a production-like `NODE_ENV`; record the audit result in the feature artifacts.
+- [X] T029 Add a "first-run test mechanism" section to `docs/dev.md` (the flag, the faucet modes, the wipe, the tier-2 driver command, the tier-3 harness command, Linux-pod-only caveat) — Principle I. (Implement-agent task; the plan agent must not edit `docs/dev.md`.)
+- [X] T030 Run the `quickstart.md` validations end to end in the `app-dev` pod: tier-1 suite green, faucet/wipe smoke, tier-2 driver completes with a working tool call, tier-3 harness yields a pristine environment in under 3 minutes with a graded transcript, prod-reset inspection — the M1 exit demonstration (FR-025, SC-001).
 
 ---
 
