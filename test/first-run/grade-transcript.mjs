@@ -1,97 +1,171 @@
 #!/usr/bin/env node
 /**
- * Feature 029 US4 — coaching-contract transcript grader (FR-023, SC-008).
+ * Coaching-contract transcript grader — 029 seven-item checklist, HARDENED for
+ * 030 M2 (contracts/coaching-checklist.md, FR-025..028, RBD-2/10):
  *
- * Emits an explicit PASS/FAIL for each of the seven coaching-contract checklist
- * items against a rehearsal transcript. In M1 the GRADER ITSELF is the
- * deliverable: with the stub plugin most items are expected to FAIL and exactly
- * one planted marker PASSes, proving the grader detects both (RBD-8). Clean
- * passes across the matrix are M2's exit, not M1's.
+ *   gradeTranscript(capture, { serverOrigin })
+ *     capture = { prose, events, structured }   (from capture.mjs)
+ *
+ *   - prose items (1,2,3,7): matched semantically against capture.prose.
+ *   - behavioral item (4): after tools (re-)appear the flow proceeds directly to
+ *     find-the-spec with NO success-ceremony block; reconnection prose neither
+ *     required nor penalized (RBD-10).
+ *   - performable items (5,6): graded against capture.events (tool-call events),
+ *     and FAIL CLOSED when event data is absent — never a prose fallback (RBD-2).
+ *       5: a byte-channel sync event (import_markdown_file recipe, or a Bash curl
+ *          import carrying an sk_sqd_ token / the export API).
+ *       6: a delivered doc URL whose origin === serverOrigin AND corroborated by
+ *          a doc-creating/import tool-call event (FR-025); incidental /d/… paths
+ *          and other-origin URLs FAIL.
  *
  * Usage:
- *   node test/first-run/grade-transcript.mjs <transcript-file>
- *   node test/first-run/grade-transcript.mjs --require-all <transcript-file>   # exit 1 if any item FAILs (M2)
- *   cat transcript | node test/first-run/grade-transcript.mjs -
+ *   node grade-transcript.mjs [--server-origin http://localhost:3001] [--require-all] <capture.jsonl | ->
  *
  * Programmatic:  import { gradeTranscript } from './grade-transcript.mjs'
  */
 import fs from 'node:fs';
+import { parseCapture } from './capture.mjs';
 
-/**
- * The seven coaching-contract checklist items (data-model.md / FR-023). Each has
- * a `test(transcript, lines)` returning true when the coaching behavior is
- * present. Kept deliberately simple + line-oriented so the grade is deterministic.
- */
+// --- event predicates -------------------------------------------------------
+
+/** True if an event is a byte-channel file-sync (item 5). */
+function isByteChannelSyncEvent(e) {
+  if (!e) return false;
+  const tool = String(e.tool || '');
+  if (tool === 'import_markdown_file') return true;
+  const cmd = typeof e.input?.command === 'string' ? e.input.command : JSON.stringify(e.input || '');
+  if (/\bcurl\b/.test(cmd) && (/\/api\/docs\/[^\s"']*\/import/.test(cmd) || /sk_sqd_/.test(cmd))) return true;
+  // the import recipe is often a compound shell command carrying the claim + curl import
+  if (/tokens\/claim/.test(cmd) && /\/import/.test(cmd)) return true;
+  return false;
+}
+
+/** True if an event created/imported a doc (item 6 corroboration). */
+function isDocCreatingEvent(e) {
+  if (!e) return false;
+  const tool = String(e.tool || '');
+  if (tool === 'import_markdown_file' || tool === 'create_document') return true;
+  return isByteChannelSyncEvent(e);
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Origin string for a URL/base, or '' if unparseable. */
+function originOf(u) {
+  try { return new URL(u).origin; } catch { return ''; }
+}
+
+// --- the checklist ----------------------------------------------------------
+
 export const CHECKLIST = [
   {
     id: 1,
     name: 'signup-creates-account line appears before the browser step',
-    test(t) {
-      const m = t.match(/sign(?:ing)?[- ]?in creates[^.\n]*account/i);
-      if (!m) return false;
-      const signupIdx = m.index;
-      // "browser step" = the first mention of the browser / an authorize URL / consent.
-      const browserMatch = t.match(/\b(open (?:your |the )?browser|authoriz|consent|\/mcp\/auth\/authorize)/i);
-      const browserIdx = browserMatch ? browserMatch.index : Infinity;
+    kind: 'prose',
+    test({ prose }) {
+      // Semantic match (ledger gap 7 / FR-026): a "sign in (with Google) creates
+      // your account" / "no separate signup" line — tolerant of the model's
+      // paraphrase of the authored expectation line.
+      const signup =
+        prose.match(/sign(?:ing|s|ed)?[- ]?in[^.\n]{0,60}creat\w*[^.\n]{0,30}account/i) ||
+        prose.match(/creat\w*[^.\n]{0,30}account[^.\n]{0,60}sign(?:ing|s|ed)?[- ]?in/i) ||
+        prose.match(/no separate sign[- ]?up/i) ||
+        prose.match(/same click[^.\n]{0,40}account/i);
+      if (!signup) return false;
+      const signupIdx = signup.index;
+      const browser = prose.match(/\b(open (?:your |the )?browser|authoriz|consent page|\/mcp\b|https?:\/\/\S*\/mcp\/auth)/i);
+      const browserIdx = browser ? browser.index : Infinity;
       return signupIdx < browserIdx;
     },
   },
   {
     id: 2,
     name: 'bare authorization URL on its own line',
-    test(t, lines) {
-      return lines.some((l) => /^\s*https?:\/\/\S+$/.test(l) && /authoriz|oauth/i.test(l));
+    kind: 'prose',
+    test({ prose }) {
+      const lines = prose.split(/\r?\n/);
+      return lines.some((l) => /^\s*https?:\/\/\S+$/.test(l) && /authoriz|oauth|\/mcp\/auth/i.test(l));
     },
   },
   {
     id: 3,
     name: 'expected localhost-callback failure handled via paste-back',
-    test(t) {
-      return /localhost[^\n]*(fail|failed|didn'?t|couldn'?t|can'?t|won'?t|not reachable|refused)/i.test(t)
-        && /paste([- ]back)?/i.test(t);
+    kind: 'prose',
+    test({ prose }) {
+      return /localhost[^\n]*(error|fail|failed|didn'?t|couldn'?t|can'?t|won'?t|not reachable|refused|expected)/i.test(prose)
+        && /paste([- ]?back)?/i.test(prose);
     },
   },
   {
     id: 4,
-    name: 'silent reconnect and continuation after consent',
-    test(t) {
-      return /(silently|automatically|seamlessly)?\s*reconnect(?:s|ed|ing)?\b/i.test(t)
-        && /(continu|resume|pick(?:s| back)? up|carry on)/i.test(t);
+    name: 'silent reconnect / no success ceremony',
+    kind: 'behavioral',
+    test({ prose }) {
+      // RBD-10: correctly-silent content PASSes; a success-ceremony block between
+      // consent completing and the spec step FAILs. Reconnection prose is neither
+      // required nor penalized — we FAIL only on a detected ceremony marker.
+      const ceremony =
+        /\b(you'?re (?:now )?(?:all )?(?:set|connected)|successfully connected|connection (?:is )?(?:now )?successful|congratulations|🎉|✅ *(?:connected|done|success))\b/i;
+      return !ceremony.test(prose);
     },
   },
   {
     id: 5,
-    name: 'byte-channel (never-retyped) file sync used',
-    test(t) {
-      return /byte[- ]channel/i.test(t)
-        && (/never[^\n]*re-?typ/i.test(t) || /curl[^\n]*sk_sqd_/i.test(t) || /import_markdown_file/i.test(t));
+    name: 'byte-channel (never-retyped) file sync performed',
+    kind: 'performable',
+    test(_capture, { events, structured }) {
+      if (!structured) return false; // fail closed — no event data (RBD-2)
+      return events.some(isByteChannelSyncEvent);
     },
   },
   {
     id: 6,
     name: 'doc URL delivered (the payoff)',
-    test(t) {
-      return /https?:\/\/\S*\/d\/[a-z0-9-]{6,}/i.test(t) || /\/d\/[a-z0-9-]{6,}/i.test(t);
+    kind: 'performable',
+    test({ prose }, { events, structured, serverOrigin }) {
+      if (!structured) return false; // fail closed (RBD-2)
+      const origin = originOf(serverOrigin);
+      if (!origin) return false;
+      // (a) a delivered URL on the server origin appears in the prose payoff.
+      const urlRe = new RegExp(escapeRegExp(origin) + '\\/d\\/[a-z0-9-]{6,}', 'i');
+      const deliveredInProse = urlRe.test(prose);
+      // (b) corroborated by a doc-creating/import event, or a tool result that
+      //     returned a doc URL on the server origin.
+      const corroborated =
+        events.some(isDocCreatingEvent) ||
+        events.some((e) => typeof e.result === 'string' && urlRe.test(e.result));
+      return deliveredInProse && corroborated;
     },
   },
   {
     id: 7,
     name: 'the loop taught (read-spec-before / write-back-after standing behavior)',
-    test(t) {
-      return /(read[^\n]*spec[^\n]*before|write[- ]?back[^\n]*after|standing (?:behavior|loop|habit)|before you (?:start|touch)[^\n]*read)/i.test(t);
+    kind: 'prose',
+    test({ prose }) {
+      return /(read[^\n]*spec[^\n]*before|before[^\n]*run[^\n]*read[^\n]*spec|write[- ]?(?:status|design)?[^\n]*back[^\n]*after|standing (?:behavior|loop|habit)|the loop)/i.test(prose)
+        && /(write[^\n]*back|status|design|after (?:implement|each run|a run))/i.test(prose);
     },
   },
 ];
 
 /**
- * Grade a transcript string against the checklist.
- * @param {string} transcript
- * @returns {{ items: Array<{id,name,pass}>, passed:number, failed:number, total:number }}
+ * Grade a structured capture against the checklist.
+ * @param {{prose:string, events:Array, structured:boolean}} capture
+ * @param {{ serverOrigin?: string }} [opts]
  */
-export function gradeTranscript(transcript) {
-  const t = String(transcript || '');
-  const lines = t.split(/\r?\n/);
-  const items = CHECKLIST.map((c) => ({ id: c.id, name: c.name, pass: !!c.test(t, lines) }));
+export function gradeTranscript(capture, opts = {}) {
+  // Defensive: accept a raw string (legacy) as prose-only, structured=false so
+  // performable items fail closed rather than crashing.
+  const cap = typeof capture === 'string'
+    ? { prose: capture, events: [], structured: false }
+    : { prose: capture?.prose || '', events: capture?.events || [], structured: !!capture?.structured };
+  const serverOrigin = opts.serverOrigin || 'http://localhost:3001';
+  const ctx = { events: cap.events, structured: cap.structured, serverOrigin };
+  const items = CHECKLIST.map((c) => ({
+    id: c.id, name: c.name, kind: c.kind, pass: !!c.test(cap, ctx),
+  }));
   const passed = items.filter((i) => i.pass).length;
   return { items, passed, failed: items.length - passed, total: items.length };
 }
@@ -99,24 +173,25 @@ export function gradeTranscript(transcript) {
 /** Render a human-readable report. */
 export function formatReport(result) {
   const rows = result.items
-    .map((i) => `  [${i.pass ? 'PASS' : 'FAIL'}] ${i.id}. ${i.name}`)
+    .map((i) => `  [${i.pass ? 'PASS' : 'FAIL'}] ${i.id}. ${i.name} (${i.kind})`)
     .join('\n');
   return `Coaching-contract grade: ${result.passed}/${result.total} PASS\n${rows}`;
 }
 
-// CLI entrypoint.
+// CLI entrypoint — parses the input file through capture.mjs (stream-json).
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const requireAll = args.includes('--require-all');
-  const fileArg = args.find((a) => a !== '--require-all');
+  const soIdx = args.indexOf('--server-origin');
+  const serverOrigin = soIdx >= 0 && args[soIdx + 1] ? args[soIdx + 1] : 'http://localhost:3001';
+  const fileArg = args.find((a, i) => a !== '--require-all' && a !== '--server-origin' && args[i - 1] !== '--server-origin');
   if (!fileArg) {
-    console.error('usage: grade-transcript.mjs [--require-all] <transcript-file | ->');
+    console.error('usage: grade-transcript.mjs [--server-origin <url>] [--require-all] <capture.jsonl | ->');
     process.exit(2);
   }
-  const transcript = fileArg === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(fileArg, 'utf8');
-  const result = gradeTranscript(transcript);
+  const raw = fileArg === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(fileArg, 'utf8');
+  const capture = parseCapture(raw);
+  const result = gradeTranscript(capture, { serverOrigin });
   console.log(formatReport(result));
-  // M1: the report IS the deliverable — exit 0 even with expected FAILs.
-  // M2: --require-all makes any FAIL a non-zero exit (matrix must be clean).
   process.exit(requireAll && result.failed > 0 ? 1 : 0);
 }
