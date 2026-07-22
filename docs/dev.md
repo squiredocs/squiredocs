@@ -529,6 +529,14 @@ as a regression check:
 node test/first-run/oauth-chain-driver.mjs --server $DEV
 ```
 
+Pass `--first-run` to exercise the feature-031 single-screen collapse: a
+brand-new (`user.isNew`) account signs in via the faucet's browser mode carrying
+an `/authorize` returnTo, and the code is **auto-issued inline** — the chain
+completes with **zero consent POSTs**, standing in for the genuine one-screen
+first-run. Without the flag, the driver walks the returning-user path (explicit
+`dev-consent-approve`). A returning/existing account never auto-issues: it falls
+through to the consent page, which the driver asserts.
+
 ### Tier-3 — unattended in-pod rehearsal harness
 
 One command yields a pristine first-run environment (scratch `CLAUDE_CONFIG_DIR`
