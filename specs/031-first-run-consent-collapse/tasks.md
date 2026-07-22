@@ -101,7 +101,7 @@ Web app. Server: `server/auth/routes.js`, `server/mcp/auth/*`. Client: `client/s
 - [X] T017 [P] FR-011 guard: confirm the existing 029/030 provenance + welcome-doc-skip tests still pass on the auto-issue path (signup_source='agent_oauth' stamped, no welcome doc seeded); if any assert only the pre-collapse redirect, extend it to also cover the auto-issue branch (INV-5).
 - [X] T018 [P] FR-012 revocation parity: assert an auto-issued delegation appears in `handleListDelegations` and is revocable via `handleDeleteDelegation` identically to an explicitly-approved one (SC-004) — reuse existing delegation-listing/revocation tests, add an auto-issue-born case if not covered.
 - [X] T019 Adversarial-review carry-forward (research R9, D5, spec Flagged gap 5): add a clearly-marked comment at the `checkRedirectUri` call site on the auto-issue path (and a note in the implement brief) surfacing that auto-registered clients accept any localhost/HTTPS redirect and the auto-issue path removes the human eyeball; state that validation is UNCHANGED per D5 and that any tightening (proposed: restrict the auto-issue path to localhost-only redirects) is owned by the adversarial security review pass and MUST NOT be applied without Sam's ratification. Do NOT tighten in this feature.
-- [ ] T020 Run the full affected suites serially (backend Jest + `test/first-run/` harness incl. `oauth-chain-driver.mjs --first-run` and the matrix runner); confirm green. Record results for the implement brief / exit gate.
+- [X] T020 Run the full affected suites serially (backend Jest + `test/first-run/` harness incl. `oauth-chain-driver.mjs --first-run` and the matrix runner); confirm green. Record results for the implement brief / exit gate.
 
 ---
 
