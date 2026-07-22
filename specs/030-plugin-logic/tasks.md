@@ -30,9 +30,9 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 
 **Purpose**: Create the new directory trees this feature adds. No app code yet.
 
-- [ ] T001 Create the canonical content directory `distribution/shared/` (empty, tracked) per plan Project Structure — nothing else under `distribution/` (FR-020)
-- [ ] T002 [P] Create the repo-shape fixture tree `test/first-run/repo-fixtures/{kiro-specs,specs,claude-md,bare}/` with placeholder `.gitkeep` files (content authored in US5)
-- [ ] T003 [P] Create the grader fixtures placeholder note in `test/first-run/fixtures/` documenting the three new JSONL fixtures to be authored in US4 (no logic)
+- [X] T001 Create the canonical content directory `distribution/shared/` (empty, tracked) per plan Project Structure — nothing else under `distribution/` (FR-020)
+- [X] T002 [P] Create the repo-shape fixture tree `test/first-run/repo-fixtures/{kiro-specs,specs,claude-md,bare}/` with placeholder `.gitkeep` files (content authored in US5)
+- [X] T003 [P] Create the grader fixtures placeholder note in `test/first-run/fixtures/` documenting the three new JSONL fixtures to be authored in US4 (no logic)
 
 ---
 
