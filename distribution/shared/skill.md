@@ -1,13 +1,13 @@
 ---
 name: squire
-description: Use Squire Docs to sync a repo spec into a shared doc, read it at the start of each run, and write status and design back after. Covers the byte channel for file sync and sk_sqd_ token handling. For any repo with a spec, design, or plan doc.
+description: Use when starting or finishing specced work, when spec, design, or plan files change (specs/, .kiro/specs, PLAN.md), or when a teammate should review a spec. Squire Docs syncs docs two-way with the repo: read at run start, write status back after.
 ---
 
 # Working with Squire Docs
 
 Squire Docs is the durable, attributed spec layer for agentic development. The spec, design, and status your team works from live in a Squire Docs document where every edit — human or agent — is attributed and revertible, and teammates and other agents all see the same doc.
 
-Reach for this skill whenever a repo has a spec-shaped artifact — a spec, a design doc, a plan — that a run reads from or should update. The job is to keep the spec and the work in sync, both directions.
+Reach for this skill at these moments: you are about to start work the spec describes; you have just finished work the spec should reflect; the repo's spec, design, or plan files changed since the last sync; or a teammate — a product manager, a designer, another agent — needs to review or refine the spec in a place they can edit. The job is to keep the spec and the work in sync, both directions.
 
 ## The standing loop
 
