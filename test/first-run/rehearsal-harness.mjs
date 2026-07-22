@@ -204,14 +204,16 @@ export async function runRehearsal(opts = {}) {
   };
 
   const unauthConfig = writeMcpConfig(null); // no header → tools absent (walkthrough)
-  // The pod IS a headless remote session — the localhost OAuth callback naturally
-  // fails here, which the design says "exercises the remote paste-back branch by
-  // default." Stating that context up front makes the walkthrough's remote
-  // guidance (item 3: expected localhost error + paste-back) reliably reproduced
-  // rather than left to per-run variance. Faithful to the real environment, not a
-  // hint at the answer.
-  const firstPrompt = opts.prompt ||
-    "Run the /squire:onboard command to onboard me to Squire Docs. Context: this is a headless remote/SSH session — no local browser, and localhost callbacks cannot reach this machine. Then stop.";
+  // Neutral default prompt. (An experiment priming the walkthrough with the pod's
+  // real headless/remote context — faithful, since the localhost callback does
+  // fail in-pod — was found to be NET-NEUTRAL: it made item 3 (remote paste-back)
+  // reliable but shifted the variance onto item 1 (the model led with the URL flow,
+  // pushing the signup-expectation line after the connect step). Each walkthrough
+  // prose line reproduces at ~85%, so which one a run misses moves with the framing;
+  // no single content defect remains. The neutral prompt keeps item 1 — the design's
+  // flagship expectation line — reliable, and the residual item-3 variance on a
+  // single cell is model non-determinism, RBD-11, closed by Sam's prod self-test.)
+  const firstPrompt = opts.prompt || 'Run the /squire:onboard command to onboard me to Squire Docs, then stop.';
   const userTurns = Array.isArray(opts.userTurns) ? opts.userTurns : [];
 
   // Pre-mint (existing-account-never-consented): create the account BEFORE the

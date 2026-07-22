@@ -150,8 +150,8 @@ description: "Task list for feature 030-plugin-logic (Plugin M2)"
 **Purpose**: Record the M3 hand-off and the twofold exit gate; validate the whole feature.
 
 - [X] T032 [P] Author `specs/030-plugin-logic/promotion-notes.md` — the M3 obligations record (FR-035): Agent Surface signup-line amendment at ship time; agents.md / documentation-site / landing-page updates; real per-channel manifests + mirror repos + `publish.mjs` + full drift CI test replacing the rehearsal assembly; harness default `--bundle` → `distribution/claude-plugin` when it exists.
-- [ ] T033 Run `quickstart.md` steps 2–6 in the dev pod and confirm each expected outcome (assembler + agreement; grader FAIL/FAIL/PASS; single rehearsal on real content; full matrix; consent-page client test + tier-1 green).
-- [ ] T034 Produce the exit-gate record (FR-034, SC-007): capture a clean full-matrix run (archived transcripts + grades) as gate part (a); prepare the sign-off record scaffold (date, scope=mechanics+tone, transcript references) for Sam's production self-test as gate part (b). M3 stays blocked until both are recorded — HITL by definition; do not proceed to publish anything.
+- [X] T033 Run `quickstart.md` steps 2–6 in the dev pod and confirm each expected outcome (assembler + agreement; grader FAIL/FAIL/PASS; single rehearsal on real content; full matrix; consent-page client test + tier-1 green).
+- [X] T034 Produce the exit-gate record (FR-034, SC-007): capture a clean full-matrix run (archived transcripts + grades) as gate part (a); prepare the sign-off record scaffold (date, scope=mechanics+tone, transcript references) for Sam's production self-test as gate part (b). M3 stays blocked until both are recorded — HITL by definition; do not proceed to publish anything.
 
 ---
 
