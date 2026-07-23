@@ -63,6 +63,23 @@ export const SHARED_DIR = path.join(REPO_ROOT, 'distribution', 'shared');
 export const SCHEMAS_DIR = path.join(REPO_ROOT, 'distribution', 'schemas');
 export const DEFAULT_CLAUDE_PLUGIN_DIR = path.join(REPO_ROOT, 'distribution', 'claude-plugin');
 export const DEFAULT_MCP_REGISTRY_DIR = path.join(REPO_ROOT, 'distribution', 'mcp-registry');
+// Wave-2 channel output dirs (FR-016). Each new channel is a committed bundle dir.
+export const DEFAULT_KIRO_POWER_DIR = path.join(REPO_ROOT, 'distribution', 'kiro-power');
+export const DEFAULT_CURSOR_PLUGIN_DIR = path.join(REPO_ROOT, 'distribution', 'cursor-plugin');
+
+// Server keys (the `mcpServers` key + the manifest `name` + the deeplink `name`).
+// RBD-1: both wave-2 channels use `squire-docs`; the wave-1 claude-plugin key
+// stays `squire` (bound to `/squire:...` command namespacing + the agents.md
+// one-liner). These are identifiers, not user-facing copy.
+export const CURSOR_SERVER_KEY = 'squire-docs';
+export const KIRO_SERVER_KEY = 'squire-docs';
+
+// Wave-2 shipped versions. Each channel versions INDEPENDENTLY — a change to one
+// must not force a no-op bump (and republish) of any other (FR-016). Both start at
+// 1.0.0 (first publish). Kiro's carrier is POWER.md frontmatter `version:` (RBD-2);
+// Cursor's is `.cursor-plugin/plugin.json` `version`.
+export const KIRO_POWER_VERSION = '1.0.0';
+export const CURSOR_PLUGIN_VERSION = '1.0.0';
 
 // The one shipping endpoint. The committed `.mcp.json` always hardcodes this;
 // only the rehearsal harness rewrites it (in a throwaway copy) for the dev server.
@@ -135,6 +152,21 @@ export function withGeneratedHeader(sharedContent, sourceRel) {
 
 function readShared(name) {
   return fs.readFileSync(path.join(SHARED_DIR, name), 'utf8');
+}
+
+/**
+ * The Add-to-Cursor deeplink (FR-019, research R6). PURE — no disk, no network.
+ * Derived from `PROD_ENDPOINT` (never a second hardcoded URL): the `config` query
+ * param is base64 of `JSON.stringify({ url: endpoint })`, exactly the inner Cursor
+ * MCP server object. For the prod endpoint the config is
+ * `eyJ1cmwiOiJodHRwczovL3NxdWlyZWRvY3MuY29tL21jcCJ9`. The site surfaces embed this
+ * output byte-identically; the round-trip test decodes it back to `{url: PROD_ENDPOINT}`.
+ * @param {{ name?: string, endpoint?: string }} [opts]
+ * @returns {string}
+ */
+export function cursorDeeplink({ name = CURSOR_SERVER_KEY, endpoint = PROD_ENDPOINT } = {}) {
+  const config = Buffer.from(JSON.stringify({ url: endpoint })).toString('base64');
+  return `cursor://anysphere.cursor-deeplink/mcp/install?name=${name}&config=${config}`;
 }
 
 // --- Claude-plugin manifest derivations (production copy — no rehearsal framing) ---
@@ -261,19 +293,58 @@ export function expectedRegistryServer() {
   );
 }
 
+// --- Version carriers (FR-017 — security-load-bearing) -----------------------
+// Each channel declares HOW to read its own version from its {rel:content} file
+// map, so the publish version-bump guard reads the right carrier per channel
+// WITHOUT a hardcoded per-id branch. `readVersion` is TOTAL: it returns a semver
+// string or THROWS (an absent/malformed carrier is never silently a version). The
+// guard applies the SAME `readVersion` to both the fresh in-memory map and the
+// mirror map read from disk, and treats a throw on the mirror side as
+// "present-but-unreadable → refuse", never "first publish". Kiro has no JSON
+// manifest — its version rides in POWER.md YAML frontmatter (RBD-2).
+
+/** Version carrier for a JSON manifest: files => JSON.parse(files[rel]).version. */
+export function versionFromJson(rel) {
+  return (files) => {
+    const raw = files[rel];
+    if (typeof raw !== 'string') throw new Error(`version carrier ${rel} absent`);
+    const v = JSON.parse(raw).version;
+    if (typeof v !== 'string' || !v) throw new Error(`version carrier ${rel} has no version`);
+    return v;
+  };
+}
+
+/** Version carrier for a YAML-frontmatter file (e.g. POWER.md `version:`). */
+export function versionFromFrontmatter(rel, key = 'version') {
+  return (files) => {
+    const raw = files[rel];
+    if (typeof raw !== 'string') throw new Error(`version carrier ${rel} absent`);
+    const fm = raw.match(/^---\n([\s\S]*?)\n---\n/);
+    if (!fm) throw new Error(`version carrier ${rel} has no YAML frontmatter`);
+    // Match `key: "1.0.0"` or `key: 1.0.0` (quoted or bare), a single line.
+    const m = fm[1].match(new RegExp(`^${key}:\\s*["']?([^"'\\n]+)["']?\\s*$`, 'm'));
+    if (!m) throw new Error(`version carrier ${rel} frontmatter has no ${key}:`);
+    const v = m[1].trim();
+    if (!v) throw new Error(`version carrier ${rel} frontmatter ${key} is empty`);
+    return v;
+  };
+}
+
 // --- Channel registry (RBD-3) ------------------------------------------------
 // A list of channel descriptors so wave-2/3 channels (033+) add a descriptor
-// rather than a rearchitecture. Only `claude-plugin` and `mcp-registry` are wired
-// this wave (FR-029). Each descriptor:
-//   id          — stable channel id.
-//   outDir      — committed output directory (absolute).
-//   files()     — () → { relPath: content } pure map of every generated file.
-//   endpointRel — (optional) the rel path whose endpoint field is drift-exempt.
-//   schema      — pinned schema binding: { file, kind } (kind selects the
-//                 structural validator; `manifestRel` names which generated file
-//                 the schema validates within this channel).
-//   mirrorEnv   — env var name that supplies this channel's push remote (never a
-//                 committed default — fail-closed, INV-1).
+// rather than a rearchitecture. Wave 1 wires `claude-plugin` + `mcp-registry`;
+// wave 2 (033) appends `kiro-power` + `cursor-plugin`. Each descriptor:
+//   id                — stable channel id.
+//   outDir            — committed output directory (absolute).
+//   files()           — () → { relPath: content } pure map of every generated file.
+//   endpointRel       — (optional) the rel path whose endpoint field is drift-exempt.
+//   schema            — pinned schema binding: { file, kind } (kind selects the
+//                       structural validator; `manifestRel` names which generated
+//                       file the schema validates within this channel).
+//   mirrorEnv         — env var name that supplies this channel's push remote (never
+//                       a committed default — fail-closed, INV-1).
+//   readVersion(files)— (FR-017) total version carrier: semver string or throws.
+//   versionCarrierRel — human label of the version-bearing file (refusal messages).
 export const CHANNELS = [
   {
     id: 'claude-plugin',
@@ -286,6 +357,8 @@ export const CHANNELS = [
       { manifestRel: '.mcp.json', file: null, kind: 'mcp' },
     ],
     mirrorEnv: 'SQUIRE_MIRROR_CLAUDE_PLUGIN',
+    readVersion: versionFromJson('.claude-plugin/plugin.json'),
+    versionCarrierRel: '.claude-plugin/plugin.json',
   },
   {
     id: 'mcp-registry',
@@ -294,6 +367,8 @@ export const CHANNELS = [
     endpointRel: null,
     schemas: [{ manifestRel: 'server.json', file: 'server.schema.json', kind: 'registry' }],
     mirrorEnv: 'SQUIRE_MIRROR_MCP_REGISTRY',
+    readVersion: versionFromJson('server.json'),
+    versionCarrierRel: 'server.json',
   },
 ];
 
@@ -467,7 +542,14 @@ export function mirrorRemoteFor(channel, env = process.env) {
 /**
  * Recursively compare the freshly-generated files for a channel against a checked-out
  * mirror working tree. Returns { changed, versionRel, mirrorVersion, freshVersion }.
- * The version is read from the channel's first manifest that carries a `version`.
+ *
+ * The version is read through the channel's DECLARED carrier (FR-017) — the SAME
+ * `channel.readVersion` applied to the fresh in-memory map AND the mirror-on-disk
+ * map, so no channel gets a weaker (or a wrong-file) version read. This replaces the
+ * former hardcoded `id === 'mcp-registry' ? 'server.json' : '.claude-plugin/...'`
+ * branch, which could not express Kiro's POWER.md-frontmatter carrier at all.
+ * SECURITY (constitution V): the guard's three refusals — content-change-without-bump,
+ * non-forward bump, present-but-unreadable — MUST fire identically for every channel.
  */
 function diffAgainstMirror(channel, mirrorDir) {
   // The publish path is ALWAYS prod-pinned — a dev endpoint can never be staged
@@ -478,17 +560,22 @@ function diffAgainstMirror(channel, mirrorDir) {
     const onDisk = path.join(mirrorDir, rel);
     if (!fs.existsSync(onDisk) || fs.readFileSync(onDisk, 'utf8') !== content) { changed = true; break; }
   }
-  // Locate a manifest carrying a version, in both fresh + mirror, for the guard.
-  const versionRel = channel.id === 'mcp-registry' ? 'server.json' : '.claude-plugin/plugin.json';
-  const freshVersion = JSON.parse(fresh[versionRel]).version;
-  // Distinguish "no mirror manifest" (genuine first publish, ok) from "manifest
+  // Read the version via the channel's declared carrier, on BOTH sides.
+  const versionRel = channel.versionCarrierRel;
+  const freshVersion = channel.readVersion(fresh);
+  // Distinguish "no mirror carrier" (genuine first publish, ok) from "carrier
   // present but unreadable" (refuse — never silently treat as first publish, 032
-  // review LOW #5).
+  // review LOW #5). A carrier that reads but yields null/throws is UNREADABLE, so
+  // a Kiro bundle whose POWER.md lost its `version:` frontmatter can never be
+  // republished unguarded (the FR-017 hole this refactor must not open).
   let mirrorVersion = null;
   let mirrorVersionUnreadable = false;
-  const mv = path.join(mirrorDir, versionRel);
-  if (fs.existsSync(mv)) {
-    try { mirrorVersion = JSON.parse(fs.readFileSync(mv, 'utf8')).version; }
+  const carrierPath = path.join(mirrorDir, versionRel);
+  if (fs.existsSync(carrierPath)) {
+    // Build a {rel:content} map with the carrier file so channel.readVersion —
+    // the identical function used on the fresh side — reads the mirror version.
+    const mirrorMap = { [versionRel]: fs.readFileSync(carrierPath, 'utf8') };
+    try { mirrorVersion = channel.readVersion(mirrorMap); }
     catch { mirrorVersionUnreadable = true; }
     if (mirrorVersion == null) mirrorVersionUnreadable = true;
   }
