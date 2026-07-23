@@ -141,7 +141,84 @@ test('re-push with changed content but unchanged version is refused (FR-013)', (
   }
 });
 
-test('--publish with no configured remotes fails closed with zero side effects (INV-1)', () => {
+test('a NEW channel (Kiro, POWER.md frontmatter carrier) pushes then refuses change-without-bump (FR-026)', () => {
+  // Proves the version-carrier generalization (T004) drives the guard for a channel
+  // whose version rides in POWER.md YAML frontmatter — the novel non-JSON carrier.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-publish-kiro-'));
+  try {
+    const kp = makeBareRepo(root, 'squire-kiro-power');
+    const env = fixtureEnv({ SQUIRE_MIRROR_KIRO_POWER: kp.url });
+    // Exactly one fixture channel configured — no inherited remote rides along.
+    assert.equal(configuredCount(env), 1, 'only the one Kiro fixture channel is configured');
+
+    // First publish lands the Kiro bundle (v1.0.0 from POWER.md frontmatter).
+    const first = publishMirrors({ env });
+    assert.equal(first.ok, true, `first Kiro publish should succeed: ${first.problems.join('; ')}`);
+    assert.equal(first.pushed.filter((l) => l.includes('pushed')).length, 1, 'the Kiro channel pushed');
+
+    // The pushed bundle carries the real generated POWER.md + prod mcp.json.
+    const wd = checkout(root, kp.bare, 'kp');
+    const power = fs.readFileSync(path.join(wd, 'POWER.md'), 'utf8');
+    assert.match(power, /^version: "1\.0\.0"$/m, 'POWER.md frontmatter carries version 1.0.0');
+    assert.match(
+      fs.readFileSync(path.join(wd, 'mcp.json'), 'utf8'),
+      /https:\/\/squiredocs\.com\/mcp/,
+      'pushed mcp.json ships the prod endpoint',
+    );
+
+    // Simulate the mirror carrying DIFFERENT content at the SAME version: hand-edit a
+    // generated steering file while leaving POWER.md's frontmatter version at 1.0.0.
+    fs.appendFileSync(path.join(wd, 'steering', 'specs-sync-workflow.md'), '\nstale mirror edit\n');
+    git(['add', '-A'], wd);
+    git(['commit', '-m', 'stale content, same version'], wd);
+    git(['push', 'origin', 'main'], wd);
+
+    const second = publishMirrors({ env });
+    assert.equal(second.ok, false, 'must refuse when content differs but the POWER.md version is unchanged');
+    assert.ok(
+      second.problems.some((p) => p.includes('version is unchanged') && p.includes('POWER.md')),
+      `refusal must name the POWER.md version carrier: ${second.problems.join('; ')}`,
+    );
+    assert.equal(second.pushed.filter((l) => l.includes('pushed')).length, 0, 'nothing pushed on refusal');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a Kiro mirror whose POWER.md lost its version frontmatter is refused as unreadable (FR-017 hole check)', () => {
+  // The security hole the version-carrier generalization must NOT open: a channel
+  // whose carrier can't be read must REFUSE, never be treated as first-publish and
+  // republished unguarded.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-publish-kiro-unreadable-'));
+  try {
+    const kp = makeBareRepo(root, 'squire-kiro-power');
+    const env = fixtureEnv({ SQUIRE_MIRROR_KIRO_POWER: kp.url });
+    const first = publishMirrors({ env });
+    assert.equal(first.ok, true, `first Kiro publish should succeed: ${first.problems.join('; ')}`);
+
+    // Corrupt the mirror's POWER.md: strip the `version:` line from the frontmatter,
+    // change other content too, keep the file present. readVersion now throws on the
+    // mirror side → mirrorVersionUnreadable → refuse.
+    const wd = checkout(root, kp.bare, 'kp');
+    const power = fs.readFileSync(path.join(wd, 'POWER.md'), 'utf8');
+    fs.writeFileSync(path.join(wd, 'POWER.md'), power.replace(/^version: ".*"$/m, '') + '\nstale\n');
+    git(['add', '-A'], wd);
+    git(['commit', '-m', 'drop version frontmatter'], wd);
+    git(['push', 'origin', 'main'], wd);
+
+    const second = publishMirrors({ env });
+    assert.equal(second.ok, false, 'must refuse when the mirror version carrier is unreadable');
+    assert.ok(
+      second.problems.some((p) => p.includes('unreadable')),
+      `refusal must cite the unreadable carrier: ${second.problems.join('; ')}`,
+    );
+    assert.equal(second.pushed.filter((l) => l.includes('pushed')).length, 0, 'nothing pushed on refusal');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('--publish with no configured remotes fails closed with zero side effects, naming all four vars (INV-1)', () => {
   // No mirror env vars → mirrorRemoteFor returns null for every channel.
   const env = {};
   for (const ch of CHANNELS) assert.equal(mirrorRemoteFor(ch, env), null, `${ch.id}: no committed default remote`);
@@ -154,6 +231,10 @@ test('--publish with no configured remotes fails closed with zero side effects (
     res.problems.some((p) => p.includes('no mirror remotes configured')),
     `must explain the fail-closed refusal: ${res.problems.join('; ')}`,
   );
+  // The refusal names EVERY channel's mirror env var (all four wave-1+wave-2 names).
+  const msg = res.problems.join(' ');
+  for (const ch of CHANNELS) assert.ok(msg.includes(ch.mirrorEnv), `refusal must name ${ch.mirrorEnv}`);
+  assert.equal(CHANNELS.length, 4, 'four channels are wired');
   const after = fs.readdirSync(REPO_ROOT).filter((n) => n.startsWith('.publish-mirror-'));
   assert.deepEqual(after, before, 'no scratch clone dir created — zero side effects');
 });

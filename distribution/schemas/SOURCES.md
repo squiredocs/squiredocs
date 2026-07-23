@@ -30,6 +30,20 @@ against, and the artifacts Sam diffs at a real submission.
   this exact upstream schema at Sam's real submission (R7 — do not waste the
   one-time DNS-challenge session on a structurally-wrong file).
 
+## `cursor-plugin.schema.json` — Cursor plugin manifest (`.cursor-plugin/plugin.json`)
+
+- **Upstream**: `https://raw.githubusercontent.com/cursor/plugins/main/schemas/plugin.schema.json`
+- **Retrieved**: 2026-07-23 (byte-vendored verbatim, HTTP 200). Draft-07,
+  `additionalProperties: false`, `required: ["name"]` with the kebab `name` pattern
+  `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`. Distinct filename from the hand-authored Claude
+  `plugin.schema.json` (no collision — Cursor's manifest lives at
+  `.cursor-plugin/plugin.json`, a different path and shape).
+- **Used for**: `distribution/cursor-plugin/.cursor-plugin/plugin.json` (`squire-docs`).
+- **Note**: The structural validator in `publish.mjs` (`validateCursorPlugin`) enforces
+  this schema's `required`/`additionalProperties:false` intent by deriving its allowed
+  top-level keys from this vendored file's `properties` — a hand-added manifest key
+  outside the schema is a validation failure, not a silent pass.
+
 ## `plugin.schema.json` — Claude Code plugin manifest (`.claude-plugin/plugin.json`)
 
 - **Upstream**: none. Anthropic ships the `plugin-dev` plugin with scaffolding and

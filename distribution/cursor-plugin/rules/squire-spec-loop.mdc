@@ -1,0 +1,13 @@
+---
+description: Use when working from a spec/design doc in this repo — keep the Squire Docs spec and the repo in sync (read before a run, write status back after).
+alwaysApply: false
+---
+<!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/shared/skill.md
+     Regenerate with: node distribution/publish.mjs -->
+# Squire Docs spec loop
+
+- Sync the repo's spec into its Squire Docs doc before a run if it changed.
+- Read the spec from the doc at run start — it may carry human refinements not yet in the repo file.
+- After implementing, write status and design decisions back: what shipped, what changed, what's open. Every edit is attributed and revertible; the next run starts from an accurate spec.
+- Move file content over Squire Docs' REST byte channel (run the recipe `import_markdown_file` returns), never by retyping it — even after you have read the file.
+- Keep an `sk_sqd_` token in `~/.squire/token` (a `0600` file), reference it as `$(cat ~/.squire/token)`, and never paste the raw value into the transcript.

@@ -1,0 +1,21 @@
+{
+  "name": "squire-docs",
+  "displayName": "Squire Docs",
+  "version": "1.0.0",
+  "description": "The durable, attributed spec layer for agentic development — two-way sync between your repo's spec files and a live Squire Docs document your team edits together.",
+  "author": {
+    "name": "Squire Docs",
+    "email": "hello@squiredocs.com"
+  },
+  "homepage": "https://squiredocs.com",
+  "repository": "https://github.com/squiredocs/squire-cursor-plugin",
+  "license": "MIT",
+  "keywords": [
+    "spec",
+    "spec-driven",
+    "mcp",
+    "collaboration",
+    "design-docs"
+  ],
+  "category": "Developer Tools"
+}

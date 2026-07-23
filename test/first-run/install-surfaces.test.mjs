@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cursorDeeplink } from '../../distribution/publish.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
@@ -44,4 +45,30 @@ test('the restart-after-install caveat reaches the documentation + landing surfa
   // FR-023: the caveat must appear beyond agents.md.
   assert.match(read('documentation/agents-and-mcp.md'), /restart/i, 'documentation surface must carry the restart caveat');
   assert.match(read('client/public/landing.html'), /restart/i, 'landing block must carry the restart caveat (light form)');
+});
+
+// --- Feature 033 US4 (T017, FR-029, SC-003) — cross-surface deeplink byte-identity ---
+
+const DEEPLINK_SURFACES = ['client/public/landing.html', 'documentation/agents-and-mcp.md'];
+
+test('the Add-to-Cursor deeplink is byte-identical to the generator on every surface (FR-029)', () => {
+  const deeplink = cursorDeeplink();
+  for (const surface of DEEPLINK_SURFACES) {
+    assert.ok(
+      read(surface).includes(deeplink),
+      `${surface} must embed the exact cursorDeeplink() value byte-for-byte:\n  ${deeplink}`,
+    );
+  }
+});
+
+test('the Kiro site/doc surface links the mirror repo and gives import steps, with NO fake button (FR-027/030)', () => {
+  const repo = 'https://github.com/squiredocs/squire-kiro-power';
+  for (const surface of DEEPLINK_SURFACES) {
+    const src = read(surface);
+    assert.ok(src.includes(repo), `${surface} must link the Kiro Power repo ${repo}`);
+    assert.match(src, /Add Custom Power/, `${surface} must give the Kiro import steps`);
+    assert.match(src, /Import power from GitHub/, `${surface} must name the GitHub import step`);
+    // No fabricated Add-to-Kiro deeplink (none exists — research-confirmed).
+    assert.ok(!/kiro:\/\//.test(src), `${surface} must NOT fabricate a kiro:// deeplink`);
+  }
 });

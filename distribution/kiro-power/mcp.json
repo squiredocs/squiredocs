@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "squire-docs": {
+      "type": "http",
+      "url": "https://squiredocs.com/mcp",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
