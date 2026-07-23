@@ -126,7 +126,7 @@ The single screen is the existing “Connect to Squire Docs” first-run surface
 
 ### 3. Kiro Powers — wave 2
 
-A Power: MCP config + `POWER.md` steering in a public repo with an "Add to Kiro" button on our site. Steering content is generated from `shared/` but reframed Kiro-native — hosting the `.kiro/specs` files these users already generate, made collaborative with attribution and history, is the hero move. Kiro users are pre-qualified spec-driven ICP. The Powers registry submission (kiro.dev/powers/submit) and the featured-partner track are Sam ops.
+A Power: MCP config + `POWER.md` steering in a public repo. Steering content is generated from `shared/` but reframed Kiro-native — hosting the `.kiro/specs` files these users already generate, made collaborative with attribution and history, is the hero move. Kiro users are pre-qualified spec-driven ICP. **Amended 2026-07-23 (feature 033 research):** there is NO embeddable "Add to Kiro" button/deeplink for third-party sites — the button exists only on kiro.dev/powers registry pages. Our site instead links the public repo with import steps (Kiro → Powers panel → Add Custom Power → Import from GitHub). The Powers registry submission (kiro.dev/powers/submit) and the featured-partner track are Sam ops.
 
 ### 4. Cursor Marketplace — wave 2
 

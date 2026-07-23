@@ -562,6 +562,14 @@ instead (the M2 `assemble-bundle.mjs` / `assembled-bundle/` /
 `check-bundle-agreement.mjs` are retired — `publish.mjs` + the drift guard
 replace them).
 
+`publish.mjs` now generates **four** distribution channels from `shared/` (feature
+033 added wave-2): `claude-plugin` + `mcp-registry` (wave 1) and `kiro-power` +
+`cursor-plugin` (wave 2). Each has its own mirror env var (`SQUIRE_MIRROR_*`),
+independent version (Kiro's rides `POWER.md` frontmatter; the others a JSON
+`version`), and a drift-exempt-but-prod-pinned `mcp.json`/`.mcp.json` endpoint. The
+drift guard, prod-pin, and extra-file guard run over all four channels; the
+Add-to-Cursor deeplink is computed from the prod endpoint and round-trip-tested.
+
 **Linux-pod-only**: pristine rehearsals require the Linux dev pod. On macOS,
 Claude Code stores OAuth credentials in the system Keychain, which a scratch
 config dir does not clear — macOS support is out of scope (not built).
