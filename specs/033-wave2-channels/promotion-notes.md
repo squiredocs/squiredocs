@@ -86,3 +86,35 @@ tone-review candidacy of the new prose (FR-032/033/034).
   bytes byte-neutral (`git diff main` on the wave-1 dirs is empty).
 - Publish path exercised in tests against LOCAL bare-repo fixtures only; real `SQUIRE_MIRROR_*`
   stripped; `--publish` never run against a real remote.
+
+## Post-merge review dispositions (033 review, Fable — 2026-07-23)
+
+Verdict: clean merge, **0 CRITICAL / 0 HIGH**. Version-guard generalization fail-closed on
+every enumerated path; 032 publish posture holds across all four channels; both bundles match
+the cited Kiro/Cursor formats. Six findings, all landed or accepted below (same-day, main tree).
+
+- **MEDIUM — carrier-absent mirror republished unguarded (FIXED).** `diffAgainstMirror` only
+  version-checked `if (existsSync(carrier))`; a populated mirror whose carrier file was
+  deleted/renamed (botched partial push, POWER.md removed mirror-side) fell through to
+  "first publish". Now: carrier absent BUT a generator-emitted non-seed file present →
+  `mirrorVersionUnreadable` → refuse. `MIRROR_SEED_FILES` (README/LICENSE/.gitignore) keep a
+  genuine README-seeded first publish working. Covered by a new publish-mechanism test.
+- **MEDIUM — `/squire:onboard` Claude-ism in the Cursor skill (FIXED, resolving the open item
+  above).** Resolved WITHOUT touching read-only `shared/skill.md` (which would change wave-1
+  claude-plugin bytes): `cursorSkillPort()` transforms only that one clause to channel-neutral
+  wording for the Cursor port, with a throw-tripwire if the shared wording changes. Regenerated;
+  `grep squire:onboard distribution/cursor-plugin/` is now empty.
+- **LOW — deletion-only change invisible to the guard (FIXED).** `diffAgainstMirror` now also
+  sets `changed=true` when the mirror holds a tracked file absent from the fresh map, so a
+  deletion-only regeneration hits the bump guard instead of skipping.
+- **LOW — wrong provenance stamp on the `.mdc` rule (FIXED).** `cursorRuleMdc()` now stamps
+  `distribution/publish.mjs` (the rule text is authored inline there), not `shared/skill.md`.
+- **LOW — stale `generateAll` doc comment ("wave-1") (FIXED).** Now "every channel's files".
+- **LOW — formatting-only drift in each `endpointRel` mcp file is invisible (ACCEPTED, promotion
+  note).** `stripMcpEndpoint` round-trips through `JSON.parse`/`stringify`, so a hand re-indent of
+  an mcp.json passes drift. Cosmetic only: field content is fully asserted and the endpoint is
+  separately prod-pinned, so no dev URL or field change can hide. If tightened later, also assert
+  each mcp file re-serializes to canonical 2-space form in `bundle-drift.test.mjs`.
+
+Re-verified after fixes: `npm run test:first-run` → 30/30 (added the carrier-absent refusal test);
+`node distribution/publish.mjs` dry-run → 4 channels regenerate + validate; wave-1 bytes byte-neutral.

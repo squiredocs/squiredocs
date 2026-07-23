@@ -218,6 +218,39 @@ test('a Kiro mirror whose POWER.md lost its version frontmatter is refused as un
   }
 });
 
+test('a populated Kiro mirror whose POWER.md carrier is ABSENT is refused, not treated as first-publish (033 review MEDIUM)', () => {
+  // The carrier-absent counterpart to the unreadable guard: if the mirror still holds
+  // generator-emitted content (mcp.json, steering/) but POWER.md — the version carrier —
+  // was deleted/renamed mirror-side, a naive `existsSync(carrier)` gate would fall
+  // through to "first publish" and republish unguarded. It must REFUSE.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'squire-publish-kiro-nocarrier-'));
+  try {
+    const kp = makeBareRepo(root, 'squire-kiro-power');
+    const env = fixtureEnv({ SQUIRE_MIRROR_KIRO_POWER: kp.url });
+    const first = publishMirrors({ env });
+    assert.equal(first.ok, true, `first Kiro publish should succeed: ${first.problems.join('; ')}`);
+
+    // Delete POWER.md (the carrier) from the mirror but leave the rest of the bundle,
+    // and change a steering file so `changed` is true.
+    const wd = checkout(root, kp.bare, 'kp');
+    fs.rmSync(path.join(wd, 'POWER.md'));
+    fs.appendFileSync(path.join(wd, 'steering', 'specs-sync-workflow.md'), '\nstale mirror edit\n');
+    git(['add', '-A'], wd);
+    git(['commit', '-m', 'drop the version carrier, keep the rest'], wd);
+    git(['push', 'origin', 'main'], wd);
+
+    const second = publishMirrors({ env });
+    assert.equal(second.ok, false, 'must refuse a populated mirror missing its version carrier');
+    assert.ok(
+      second.problems.some((p) => p.includes('unreadable')),
+      `refusal must cite the missing/unreadable carrier: ${second.problems.join('; ')}`,
+    );
+    assert.equal(second.pushed.filter((l) => l.includes('pushed')).length, 0, 'nothing pushed on refusal');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('--publish with no configured remotes fails closed with zero side effects, naming all four vars (INV-1)', () => {
   // No mirror env vars → mirrorRemoteFor returns null for every channel.
   const env = {};

@@ -499,7 +499,9 @@ alwaysApply: false
 - Move file content over Squire Docs' REST byte channel (run the recipe \`import_markdown_file\` returns), never by retyping it — even after you have read the file.
 - Keep an \`sk_sqd_\` token in \`~/.squire/token\` (a \`0600\` file), reference it as \`$(cat ~/.squire/token)\`, and never paste the raw value into the transcript.
 `;
-  return withGeneratedHeader(content, 'distribution/shared/skill.md');
+  // The rule text above is authored inline HERE, not in shared/skill.md — stamp the
+  // real source so a maintainer edits the right file (033 review LOW).
+  return withGeneratedHeader(content, 'distribution/publish.mjs');
 }
 
 function cursorReadme() {
@@ -524,9 +526,31 @@ This bundle is generated from the Squire Docs source repository — do not hand-
   return withGeneratedHeader(content, 'distribution/publish.mjs');
 }
 
+// The shared skill names Claude Code's `/squire:onboard` command for first-run doc
+// creation. The Cursor plugin ships NO commands, so porting that clause verbatim would
+// tell a Cursor user to run a command that does not exist (033 review MEDIUM). Rewrite
+// exactly that clause to channel-neutral wording; every other byte is the shared source
+// (so the Claude bundle's wave-1 bytes are untouched — we transform the port, not
+// shared/skill.md). The throw is a drift tripwire: if the shared wording changes, the
+// port fails loudly instead of silently shipping the stale Claude-ism.
+const CURSOR_ONBOARD_CLAUSE = '(First time in a repo, run `/squire:onboard` — it finds the spec and creates the doc.)';
+const CURSOR_ONBOARD_NEUTRAL = '(First time in a repo, create its Squire Docs doc from the spec, then keep the two in sync.)';
+function cursorSkillPort() {
+  const shared = readShared('skill.md');
+  const ported = shared.replace(CURSOR_ONBOARD_CLAUSE, CURSOR_ONBOARD_NEUTRAL);
+  if (ported === shared) {
+    throw new Error(
+      'cursor skill port: the `/squire:onboard` clause was not found in shared/skill.md — '
+      + 'its wording changed; update CURSOR_ONBOARD_CLAUSE so the Cursor port stays command-free.',
+    );
+  }
+  return withGeneratedHeader(ported, 'distribution/shared/skill.md');
+}
+
 /**
  * The full Cursor plugin bundle as { relativePath: content }. PURE, deterministic.
- * SKILL.md is shared/skill.md near-verbatim (+ generated header), FR-013.
+ * SKILL.md is shared/skill.md ported for Cursor (Claude-command clause neutralized,
+ * + generated header), FR-013.
  * @param {{ endpoint?: string }} [opts]
  */
 export function cursorPluginFiles({ endpoint = PROD_ENDPOINT } = {}) {
@@ -534,7 +558,7 @@ export function cursorPluginFiles({ endpoint = PROD_ENDPOINT } = {}) {
     '.cursor-plugin/plugin.json': cursorPluginJson(),
     'mcp.json': cursorMcpJson(endpoint),
     'rules/squire-spec-loop.mdc': cursorRuleMdc(),
-    'skills/squire/SKILL.md': withGeneratedHeader(readShared('skill.md'), 'distribution/shared/skill.md'),
+    'skills/squire/SKILL.md': cursorSkillPort(),
     'LICENSE': licenseText(),
     'README.md': cursorReadme(),
   };
@@ -645,7 +669,7 @@ export const CHANNELS = [
 ];
 
 /**
- * Write every wave-1 channel's files into its committed outDir (or a mirror of
+ * Write every channel's files into its committed outDir (or a mirror of
  * outDirs via `outRoot`). Never mutates `distribution/shared/`.
  * @param {{ endpoint?: string, outRoot?: string }} [opts]
  * @returns {{ id: string, outDir: string, files: string[] }[]}
@@ -1006,14 +1030,45 @@ export function mirrorRemoteFor(channel, env = process.env) {
  * SECURITY (constitution V): the guard's three refusals — content-change-without-bump,
  * non-forward bump, present-but-unreadable — MUST fire identically for every channel.
  */
+// Files a fresh clone can carry WITHOUT being a prior publish: GitHub's "initialize
+// with…" seeds. Their presence alone must NOT count as a populated mirror, or a
+// genuine first publish into a README-seeded repo would be refused (033 review MEDIUM).
+const MIRROR_SEED_FILES = new Set(['README.md', 'LICENSE', '.gitignore']);
+
+/** Recursively list a mirror clone's files as posix rel paths, skipping .git. */
+function listMirrorFiles(dir) {
+  const out = [];
+  const walk = (d, rel) => {
+    if (!fs.existsSync(d)) return;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (rel === '' && e.name === '.git') continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(d, e.name), r);
+      else out.push(r);
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
 function diffAgainstMirror(channel, mirrorDir) {
   // The publish path is ALWAYS prod-pinned — a dev endpoint can never be staged
   // for a mirror (032 review HIGH #2). There is no endpoint parameter here.
   const fresh = channel.files({ endpoint: PROD_ENDPOINT });
+  const freshRels = new Set(Object.keys(fresh));
+  const mirrorRels = listMirrorFiles(mirrorDir);
   let changed = false;
   for (const [rel, content] of Object.entries(fresh)) {
     const onDisk = path.join(mirrorDir, rel);
     if (!fs.existsSync(onDisk) || fs.readFileSync(onDisk, 'utf8') !== content) { changed = true; break; }
+  }
+  // A file the generator no longer emits, still live on the mirror, is a change too
+  // (033 review LOW): without this a deletion-only regeneration reports "no change",
+  // skips the version guard, and the retired file lingers on the public mirror. Any
+  // real bump touches the carrier and prune-before-stage would remove it — but a
+  // deletion with no other byte change and no bump would otherwise slip the guard.
+  if (!changed) {
+    for (const rel of mirrorRels) { if (!freshRels.has(rel)) { changed = true; break; } }
   }
   // Read the version via the channel's declared carrier, on BOTH sides.
   const versionRel = channel.versionCarrierRel;
@@ -1033,6 +1088,13 @@ function diffAgainstMirror(channel, mirrorDir) {
     try { mirrorVersion = channel.readVersion(mirrorMap); }
     catch { mirrorVersionUnreadable = true; }
     if (mirrorVersion == null) mirrorVersionUnreadable = true;
+  } else if (mirrorRels.some((rel) => freshRels.has(rel) && rel !== versionRel && !MIRROR_SEED_FILES.has(rel))) {
+    // The carrier file is GONE but the mirror still holds a generator-emitted,
+    // non-seed file — a populated mirror missing its version carrier (a botched
+    // partial push, or POWER.md deleted/renamed mirror-side), NOT a fresh repo.
+    // Refuse rather than treat as first-publish, which would republish unguarded
+    // (033 review MEDIUM — the carrier-absent counterpart to the unreadable guard).
+    mirrorVersionUnreadable = true;
   }
   return { changed, versionRel, mirrorVersion, freshVersion, mirrorVersionUnreadable };
 }

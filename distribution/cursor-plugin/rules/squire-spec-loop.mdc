@@ -2,7 +2,7 @@
 description: Use when working from a spec/design doc in this repo — keep the Squire Docs spec and the repo in sync (read before a run, write status back after).
 alwaysApply: false
 ---
-<!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/shared/skill.md
+<!-- GENERATED FILE — do not hand-edit. Source of truth: distribution/publish.mjs
      Regenerate with: node distribution/publish.mjs -->
 # Squire Docs spec loop
 

@@ -15,7 +15,7 @@ Reach for this skill when a teammate — a product manager, a designer, another 
 
 Once a repo's spec is synced into Squire Docs, hold this loop on every run:
 
-- **Sync before a run.** If the repo's spec file changed since it was last synced, sync it into its Squire Docs doc first, so the doc reflects what is in the repo. (First time in a repo, run `/squire:onboard` — it finds the spec and creates the doc.)
+- **Sync before a run.** If the repo's spec file changed since it was last synced, sync it into its Squire Docs doc first, so the doc reflects what is in the repo. (First time in a repo, create its Squire Docs doc from the spec, then keep the two in sync.)
 - **Read at the start.** Read the spec from the doc at the start of the run. It is the source of truth the team edits, and it may carry human refinements that never landed back in the repo file.
 - **Write back after.** After implementing, write status and design decisions back to the doc: what shipped, what changed, what is still open. The next run — yours, a teammate's, or another agent's — then starts from an accurate spec.
 
