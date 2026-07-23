@@ -451,6 +451,95 @@ export function kiroPowerFiles({ endpoint = PROD_ENDPOINT } = {}) {
   };
 }
 
+// --- Cursor plugin derivations (wave 2, FR-009..014) -------------------------
+// Fully generated from shared/ + channel-specific manifests. Cursor REQUIRES OSS,
+// so the bundle ships the same single-source MIT LICENSE as wave 1. Own version
+// (CURSOR_PLUGIN_VERSION), independent. Cursor's mcp.json uses a BARE url (no type).
+
+const CURSOR_KEYWORDS = ['spec', 'spec-driven', 'mcp', 'collaboration', 'design-docs'];
+
+const cursorPluginJson = () =>
+  JSON.stringify(
+    {
+      name: CURSOR_SERVER_KEY,
+      displayName: 'Squire Docs',
+      version: CURSOR_PLUGIN_VERSION,
+      description:
+        "The durable, attributed spec layer for agentic development — two-way sync between your repo's spec files and a live Squire Docs document your team edits together.",
+      author: { name: 'Squire Docs', email: 'hello@squiredocs.com' },
+      homepage: 'https://squiredocs.com',
+      repository: 'https://github.com/squiredocs/squire-cursor-plugin',
+      license: 'MIT',
+      keywords: CURSOR_KEYWORDS,
+      category: 'Developer Tools',
+    },
+    null,
+    2,
+  ) + '\n';
+
+// Cursor convention: a BARE `url` means remote streamable-HTTP — there is NO `type`
+// field (FR-011). DCR handles OAuth, so no `auth` block either.
+const cursorMcpJson = (endpoint) =>
+  JSON.stringify(
+    { mcpServers: { 'squire-docs': { url: endpoint } } },
+    null,
+    2,
+  ) + '\n';
+
+function cursorRuleMdc() {
+  const content = `---
+description: Use when working from a spec/design doc in this repo — keep the Squire Docs spec and the repo in sync (read before a run, write status back after).
+alwaysApply: false
+---
+# Squire Docs spec loop
+
+- Sync the repo's spec into its Squire Docs doc before a run if it changed.
+- Read the spec from the doc at run start — it may carry human refinements not yet in the repo file.
+- After implementing, write status and design decisions back: what shipped, what changed, what's open. Every edit is attributed and revertible; the next run starts from an accurate spec.
+- Move file content over Squire Docs' REST byte channel (run the recipe \`import_markdown_file\` returns), never by retyping it — even after you have read the file.
+- Keep an \`sk_sqd_\` token in \`~/.squire/token\` (a \`0600\` file), reference it as \`$(cat ~/.squire/token)\`, and never paste the raw value into the transcript.
+`;
+  return withGeneratedHeader(content, 'distribution/shared/skill.md');
+}
+
+function cursorReadme() {
+  const content = `# Squire Docs — Cursor plugin
+
+Squire Docs is the durable, attributed spec layer for spec-driven development. This plugin connects Cursor to your team's Squire Docs documents over MCP, and adds a spec-loop rule and a skill that keep your repo's spec files and the shared doc in sync, both directions.
+
+## What installing this does
+
+- **Registers the Squire Docs MCP server** (\`mcp.json\`) at \`https://squiredocs.com/mcp\`, so Cursor's agent can list, read, create, share, and edit your documents and work with version history.
+- **Adds the \`squire-spec-loop\` rule** (\`rules/squire-spec-loop.mdc\`) — an Agent-Requested rule that reminds the agent to sync before a run, read the spec from the doc, and write status back after.
+- **Adds the \`squire\` skill** (\`skills/squire/SKILL.md\`) — the full working-with-Squire-Docs guidance: the standing loop, the REST byte channel for file content, and the \`sk_sqd_\` token-handling rules.
+
+## First use: signing in
+
+The server uses OAuth. On the first tool call Cursor opens your browser to sign in — Squire Docs supports Dynamic Client Registration, so there are no client IDs or secrets to set by hand. Signing in with Google is find-or-create: if you do not have a Squire Docs account yet, that same click creates it and connects Cursor, with no separate signup step. Reading requires the \`documents:read\` scope and writing requires \`documents:write\`; the agent only ever acts within the roles your account has granted.
+
+## Where the ground truth lives
+
+This bundle is generated from the Squire Docs source repository — do not hand-edit it or open pull requests against this mirror. Fixes land upstream and are regenerated here. The plugin itself is MIT-licensed; the hosted Squire Docs service it connects to is a paid product.
+`;
+  return withGeneratedHeader(content, 'distribution/publish.mjs');
+}
+
+/**
+ * The full Cursor plugin bundle as { relativePath: content }. PURE, deterministic.
+ * SKILL.md is shared/skill.md near-verbatim (+ generated header), FR-013.
+ * @param {{ endpoint?: string }} [opts]
+ */
+export function cursorPluginFiles({ endpoint = PROD_ENDPOINT } = {}) {
+  return {
+    '.cursor-plugin/plugin.json': cursorPluginJson(),
+    'mcp.json': cursorMcpJson(endpoint),
+    'rules/squire-spec-loop.mdc': cursorRuleMdc(),
+    'skills/squire/SKILL.md': withGeneratedHeader(readShared('skill.md'), 'distribution/shared/skill.md'),
+    'LICENSE': licenseText(),
+    'README.md': cursorReadme(),
+  };
+}
+
 // --- Version carriers (FR-017 — security-load-bearing) -----------------------
 // Each channel declares HOW to read its own version from its {rel:content} file
 // map, so the publish version-bump guard reads the right carrier per channel
@@ -538,6 +627,20 @@ export const CHANNELS = [
     mirrorEnv: 'SQUIRE_MIRROR_KIRO_POWER',
     readVersion: versionFromFrontmatter('POWER.md'),
     versionCarrierRel: 'POWER.md',
+  },
+  {
+    id: 'cursor-plugin',
+    outDir: DEFAULT_CURSOR_PLUGIN_DIR,
+    files: ({ endpoint = PROD_ENDPOINT } = {}) => cursorPluginFiles({ endpoint }),
+    endpointRel: 'mcp.json',
+    schemas: [
+      { manifestRel: '.cursor-plugin/plugin.json', file: 'cursor-plugin.schema.json', kind: 'cursor-plugin' },
+      { manifestRel: 'mcp.json', file: null, kind: 'cursor-mcp' },
+      { manifestRel: 'rules/squire-spec-loop.mdc', file: null, kind: 'mdc-rule' },
+    ],
+    mirrorEnv: 'SQUIRE_MIRROR_CURSOR_PLUGIN',
+    readVersion: versionFromJson('.cursor-plugin/plugin.json'),
+    versionCarrierRel: '.cursor-plugin/plugin.json',
   },
 ];
 
@@ -721,7 +824,97 @@ function validateKiroPower(files) {
   return p;
 }
 
-const VALIDATORS = { plugin: validatePlugin, marketplace: validateMarketplace, mcp: validateMcp, registry: validateRegistry, 'kiro-power': validateKiroPower };
+// Cursor kebab name pattern — verbatim from the vendored schema (FR-010/023).
+const CURSOR_NAME_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+
+/**
+ * Validate .cursor-plugin/plugin.json against the vendored Cursor schema (FR-010/023):
+ * required kebab `name`, semver `version`, author {name(+optional email)}, string
+ * license, string homepage/repository when present, and — the additionalProperties:false
+ * intent — reject any top-level key not in the vendored schema's `properties`. The
+ * allowed key set is DERIVED from the vendored file, so it tracks a schema refresh.
+ * → problems[]
+ */
+function validateCursorPlugin(obj) {
+  const p = [];
+  if (typeof obj !== 'object' || obj === null) return ['not a JSON object'];
+  // Allowed top-level keys come from the vendored schema (additionalProperties:false).
+  let allowed = null;
+  try {
+    const schema = loadSchema('cursor-plugin.schema.json');
+    allowed = new Set(Object.keys(schema.properties || {}));
+  } catch {
+    p.push('vendored cursor-plugin.schema.json not readable — cannot derive allowed keys');
+  }
+  if (allowed) {
+    for (const k of Object.keys(obj)) {
+      if (!allowed.has(k)) p.push(`unexpected key "${k}": not in the vendored schema (additionalProperties:false)`);
+    }
+  }
+  if (typeof obj.name !== 'string') p.push('name: required string');
+  else if (!CURSOR_NAME_RE.test(obj.name)) p.push(`name "${obj.name}": must match ${CURSOR_NAME_RE}`);
+  if ('version' in obj) {
+    if (typeof obj.version !== 'string' || !SEMVER_RE.test(obj.version)) p.push(`version "${obj.version}": not semver`);
+  }
+  if ('description' in obj && typeof obj.description !== 'string') p.push('description: must be string');
+  if ('displayName' in obj && typeof obj.displayName !== 'string') p.push('displayName: must be string');
+  if ('author' in obj) {
+    const a = obj.author;
+    if (typeof a !== 'object' || a === null || typeof a.name !== 'string') p.push('author: must be an object with a string name');
+    else if ('email' in a && typeof a.email !== 'string') p.push('author.email: must be string');
+  }
+  if ('license' in obj && typeof obj.license !== 'string') p.push('license: must be a string SPDX id');
+  for (const k of ['homepage', 'repository']) {
+    if (k in obj && typeof obj[k] !== 'string') p.push(`${k}: must be a string URL`);
+  }
+  if ('keywords' in obj && !Array.isArray(obj.keywords)) p.push('keywords: must be an array');
+  if ('category' in obj && typeof obj.category !== 'string') p.push('category: must be a string');
+  return p;
+}
+
+/**
+ * Validate the Cursor mcp.json (FR-011): mcpServers["squire-docs"] present with a
+ * bare https `url` and NO `type` field (the Cursor-correct remote shape — the
+ * absence of `type` is asserted here, and ONLY here). → problems[]
+ */
+function validateCursorMcp(obj) {
+  const p = [];
+  if (typeof obj !== 'object' || obj === null) return ['not a JSON object'];
+  const s = obj.mcpServers && obj.mcpServers['squire-docs'];
+  if (!s || typeof s !== 'object') { p.push('mcpServers["squire-docs"]: required object (server key MUST be "squire-docs", RBD-1)'); return p; }
+  if (typeof s.url !== 'string' || !/^https:\/\//.test(s.url)) p.push('mcpServers["squire-docs"].url: required https URL');
+  if ('type' in s) p.push('mcpServers["squire-docs"]: must NOT contain a "type" field (Cursor bare-url convention, FR-011)');
+  if ('auth' in s) p.push('mcpServers["squire-docs"]: must NOT contain an "auth" block (DCR, FR-011)');
+  return p;
+}
+
+/**
+ * Validate an Agent-Requested .mdc rule (FR-012/023): frontmatter `description`
+ * non-empty and `alwaysApply: false`. Takes the RAW file content. → problems[]
+ */
+function validateMdcRule(content) {
+  const p = [];
+  if (typeof content !== 'string') return ['not a string'];
+  const fm = content.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!fm) { p.push('missing YAML frontmatter'); return p; }
+  const desc = fm[1].match(/^description:\s*(.+?)\s*$/m);
+  if (!desc || !desc[1].trim()) p.push('frontmatter description: required non-empty (Agent-Requested rule)');
+  const always = fm[1].match(/^alwaysApply:\s*(\S+)\s*$/m);
+  if (!always) p.push('frontmatter alwaysApply: required');
+  else if (always[1].trim() !== 'false') p.push(`frontmatter alwaysApply: must be false (Agent-Requested), got "${always[1].trim()}"`);
+  return p;
+}
+
+const VALIDATORS = {
+  plugin: validatePlugin,
+  marketplace: validateMarketplace,
+  mcp: validateMcp,
+  registry: validateRegistry,
+  'kiro-power': validateKiroPower,
+  'cursor-plugin': validateCursorPlugin,
+  'cursor-mcp': validateCursorMcp,
+  'mdc-rule': validateMdcRule,
+};
 
 // Validator dispatch kinds: JSON manifests are JSON.parse'd then validated; a
 // FILES kind receives the whole { rel: content } map; a RAW kind receives the raw
