@@ -81,8 +81,8 @@ description: "Task list: Wave 2 Distribution Channels — Kiro Power + Cursor Pl
 
 **Independent test**: dry-run shows 4 channels regenerated + validated; `--publish` with no env vars fails closed listing all four `SQUIRE_MIRROR_*` names; the version guard refuses a content-change-without-bump for a new channel.
 
-- [ ] T012 [US3] Verify the CLI dry-run (`node distribution/publish.mjs`) regenerates + validates all four channels green with zero side effects, and that the `--publish` fail-closed message joins all four channels' `mirrorEnv` names (FR-016/018) — the message is already `CHANNELS.map(c=>c.mirrorEnv).join(...)`, so confirm the two new descriptors flow into it.
-- [ ] T013 [US3] Verify the unchanged publish security posture covers the new channels (FR-018, research R8): push path takes no endpoint parameter (prod-pinned); `--publish` combined with `--out` or a non-prod `--endpoint` still exits 2; `mirrorRemoteFor` resolves null for the two new channels with no env set (no committed default); prune-before-stage applies. This is a code-audit + targeted-run task, backed by the tests in US4.
+- [X] T012 [US3] Verify the CLI dry-run (`node distribution/publish.mjs`) regenerates + validates all four channels green with zero side effects, and that the `--publish` fail-closed message joins all four channels' `mirrorEnv` names (FR-016/018) — the message is already `CHANNELS.map(c=>c.mirrorEnv).join(...)`, so confirm the two new descriptors flow into it.
+- [X] T013 [US3] Verify the unchanged publish security posture covers the new channels (FR-018, research R8): push path takes no endpoint parameter (prod-pinned); `--publish` combined with `--out` or a non-prod `--endpoint` still exits 2; `mirrorRemoteFor` resolves null for the two new channels with no env set (no committed default); prune-before-stage applies. This is a code-audit + targeted-run task, backed by the tests in US4.
 
 **Checkpoint**: the one-command promise from RBD-3 is proven for four channels with no posture regression.
 
