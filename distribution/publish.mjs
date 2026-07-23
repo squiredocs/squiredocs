@@ -293,6 +293,164 @@ export function expectedRegistryServer() {
   );
 }
 
+// --- Kiro Power derivations (wave 2, FR-001..008) ----------------------------
+// Fully generated from the same product truth as shared/, reframed Kiro-native:
+// the .kiro/specs files Kiro users already generate, hosted as a shared, attributed,
+// two-way-synced Squire Docs document. Own version (KIRO_POWER_VERSION), independent.
+
+const KIRO_KEYWORDS = [
+  'specs', 'spec-driven', 'kiro-specs', 'requirements', 'design',
+  'review', 'attribution', 'version-history', 'squire', 'docs',
+];
+
+function kiroPowerMd(endpoint) {
+  const frontmatter =
+    '---\n' +
+    'name: "squire-docs"\n' +
+    'displayName: "Squire Docs — collaborative specs"\n' +
+    'description: "The durable, attributed spec layer for spec-driven development — two-way sync between your .kiro/specs files and a live Squire Docs document your team edits together."\n' +
+    `keywords: ${JSON.stringify(KIRO_KEYWORDS)}\n` +
+    'author: "Squire Docs"\n' +
+    `version: "${KIRO_POWER_VERSION}"\n` +
+    '---\n';
+  const body = `# Squire Docs
+
+## Overview
+
+Squire Docs is the durable, attributed spec layer for spec-driven development. The requirements, design, and status your team works from live in a Squire Docs document where every edit — human or agent — is attributed and revertible, and teammates and other agents all see the same doc. This Power connects Kiro to that document over MCP and holds the loop that keeps your \`.kiro/specs\` files and the shared doc in sync, both directions.
+
+## When to Use This Power
+
+Reach for Squire Docs when a spec in this workspace should be reviewable in a place a teammate — a product manager, a designer, another agent — can edit; when you want the spec Kiro plans and implements against to be a living document your whole team signs off on; or when you and the user are iterating together on a requirements or design doc. Kiro's spec-driven workflow is a natural fit: the \`.kiro/specs\` files you already generate become a shared, attributed, two-way-synced Squire Docs document.
+
+## Onboarding
+
+First run in a workspace: get connected, sync the first spec, and hand back the doc URL.
+
+1. **Connect.** The \`squire-docs\` MCP server uses OAuth — Kiro opens your browser to sign in on the first tool call. Signing in with Google is find-or-create: if you do not have a Squire Docs account yet, that same click creates it and connects Kiro, with no separate signup step. (See MCP Configuration below.)
+2. **Find the spec.** Look for a spec-shaped artifact in this workspace, in order of precedence: \`.kiro/specs/**\`, then \`specs/**\`, then \`PLAN.md\` or \`docs/plan.md\`, then \`CLAUDE.md\`. Offer the best candidate and let the user confirm; if nothing spec-shaped exists, offer to draft a starter spec from the repo's README and structure.
+3. **Sync it byte-faithfully.** Move the chosen file over Squire Docs' REST byte channel — never retype its content through a tool parameter, even after you have read it. Call \`import_markdown_file\` and run the recipe it returns: one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back into the file. You only set its \`FILE=\` line.
+4. **Deliver the payoff.** Print the new doc's URL exactly as the sync receipt states it (\`View it at …/d/<docGuid>\`). The editor is where the human reviews and refines the spec, every edit attributed and revertible — the payoff inside the loop, not a front door the user must visit first.
+5. **Teach the loop.** State the standing behavior: read the spec from the doc before each run, write status and design back after. The loop is detailed in \`steering/specs-sync-workflow.md\`.
+
+## Available Steering Files
+
+- \`steering/working-with-squire-docs.md\` — what a Squire Docs document is: two-way sync, attribution, revertibility, and why hosting your \`.kiro/specs\` there is the hero move.
+- \`steering/specs-sync-workflow.md\` — the standing sync loop, the REST byte channel for file content, and the \`sk_sqd_\` token-handling rules.
+
+## When to Load Steering Files
+
+- When syncing a spec into Squire Docs, or setting up the workspace for the first time → load \`steering/specs-sync-workflow.md\`.
+- When explaining what the shared document gives the team, or deciding whether to host a spec there → load \`steering/working-with-squire-docs.md\`.
+- When moving file content or a token in or out of Squire Docs → load \`steering/specs-sync-workflow.md\` (the byte channel and token rules).
+
+## Available MCP Servers
+
+- \`squire-docs\` — the Squire Docs MCP server at \`${endpoint}\`. It exposes tools to list, create, read, share, and edit documents, work with version history, and mint scoped access tokens. Agents call \`get_tool_documentation\` for the full scripting reference before writing their first \`modify\` script.
+
+## MCP Configuration
+
+The \`mcp.json\` in this Power registers the server:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "squire-docs": {
+      "type": "http",
+      "url": "${endpoint}",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+\`\`\`
+
+Authentication is automatic: Squire Docs supports Dynamic Client Registration, so Kiro self-registers and runs the browser OAuth flow on first use — there are no client IDs or secrets to set by hand, which is why this config carries no \`oauth\` block. Reading requires the \`documents:read\` scope and writing requires \`documents:write\`; an agent only ever acts within the roles your account has granted.
+
+## License and Support
+
+- This Power is licensed **MIT** — you are free to fork and adapt the Power itself. The hosted Squire Docs service it connects to is a paid product, not open source.
+- Privacy policy: https://squiredocs.com/privacy
+- Support: hello@squiredocs.com
+`;
+  return withGeneratedHeader(frontmatter + body, 'distribution/publish.mjs');
+}
+
+const kiroMcpJson = (endpoint) =>
+  JSON.stringify(
+    {
+      mcpServers: {
+        'squire-docs': { type: 'http', url: endpoint, disabled: false, autoApprove: [] },
+      },
+    },
+    null,
+    2,
+  ) + '\n';
+
+function kiroSteeringWorking() {
+  return `# Working with Squire Docs
+
+Squire Docs is the durable, attributed spec layer for spec-driven development. The spec, design, and status your team works from live in a Squire Docs document where every edit — human or agent — is attributed and revertible, and teammates and other agents all see the same doc.
+
+For a Kiro workspace the hero move is simple: the \`.kiro/specs\` files you already generate become a shared, attributed, two-way-synced Squire Docs document. The spec Kiro plans and implements against stops being a file only one person can see and becomes something a product manager or designer can open, review, and refine — with every change tracked.
+
+## What the document gives you
+
+- **Two-way sync.** A spec stays in sync between your \`.kiro/specs\` file and its Squire Docs doc. Edit in either place; a push from the repo merges like an edit from a collaborator who was offline — attribution intact, no conflict dialogs.
+- **Attribution.** Every edit is attributed to whoever, or whatever, made it. An agent is a collaborator, not a hidden write path: while it works it appears as a live cursor named "AgentName (UserName)", and its edits show up in version history alongside everyone else's. There is no separate, unattributed way to change the document.
+- **Revertibility.** Every change lives in version history and can be reviewed, named, compared, and restored. Nothing is lost, and no edit is anonymous.
+
+## Why host your spec here
+
+A spec sitting untracked in \`.kiro/specs\` is visible to one person on one machine. Synced into Squire Docs it becomes a durable, shared, attributed home for the spec — the place the team signs off on requirements and design, and the source of truth your next run reads from. The loop in \`steering/specs-sync-workflow.md\` is what keeps it current.
+`;
+}
+
+function kiroSteeringSyncWorkflow() {
+  return `# The Squire Docs sync loop
+
+Once a workspace's spec is synced into Squire Docs, hold this loop on every run. It is what makes the doc worth having: the doc stays current because the loop keeps it current, and every change is attributed.
+
+## The standing loop
+
+- **Sync before a run.** If the repo's spec file changed since it was last synced, sync it into its Squire Docs doc first, so the doc reflects what is in the repo. (First time in a workspace, work the Onboarding steps in \`POWER.md\` — find the spec, connect, and create the doc.)
+- **Read at the start.** Read the spec from the doc at the start of the run. It is the source of truth the team edits, and it may carry human refinements that never landed back in the repo file.
+- **Write back after.** After implementing, write status and design decisions back to the doc: what shipped, what changed, what is still open. The next run — yours, a teammate's, or another agent's — then starts from an accurate spec.
+
+## The byte channel: never retype file content
+
+Content that already exists as bytes outside the model — a file on disk, another tool's output — moves over Squire Docs' REST byte channel, not through tool parameters. This holds even after you have read the file: reading it into context does not make retyping it correct. Retyping risks silent corruption and passes content through the model that never needed to travel there.
+
+- **Into Squire Docs:** call \`import_markdown_file\` and run the recipe it returns — one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back. You only set its \`FILE=\` line. Do not read the file and paste its content into a create call.
+- **Out of Squire Docs:** \`GET /api/docs/:docId/export?format=markdown\` serializes the persisted doc, no client connection needed. Pair it with \`list_documents\`' \`updatedSince\` for incremental pulls.
+
+When you are unsure which tool fits, call \`get_tool_documentation\` — it carries the full REST reference the tool descriptions are too small to hold.
+
+## Tokens live in a file, never in the transcript
+
+An \`sk_sqd_\` API token is a secret, and a secret is bytes outside the model: it moves Settings → disk → \`Authorization\` header, never through the conversation.
+
+- Keep the token in \`~/.squire/token\`, a \`0600\` file.
+- Reference it — \`$(cat ~/.squire/token)\` — and never print, echo, or paste the raw value, and never put it on a command line as an argument (argv leaks into shell history and process lists).
+- When an agent mints its own token, \`create_access_token\` returns a one-shot claim recipe that writes the bytes straight to disk; the token itself never enters the transcript.
+
+Context carries only what the model created or transformed — never a credential, and never file content that already exists as bytes.
+`;
+}
+
+/**
+ * The full Kiro Power bundle as { relativePath: content }. PURE, deterministic.
+ * @param {{ endpoint?: string }} [opts]
+ */
+export function kiroPowerFiles({ endpoint = PROD_ENDPOINT } = {}) {
+  return {
+    'POWER.md': kiroPowerMd(endpoint),
+    'mcp.json': kiroMcpJson(endpoint),
+    'steering/specs-sync-workflow.md': withGeneratedHeader(kiroSteeringSyncWorkflow(), 'distribution/publish.mjs'),
+    'steering/working-with-squire-docs.md': withGeneratedHeader(kiroSteeringWorking(), 'distribution/publish.mjs'),
+  };
+}
+
 // --- Version carriers (FR-017 — security-load-bearing) -----------------------
 // Each channel declares HOW to read its own version from its {rel:content} file
 // map, so the publish version-bump guard reads the right carrier per channel
@@ -369,6 +527,17 @@ export const CHANNELS = [
     mirrorEnv: 'SQUIRE_MIRROR_MCP_REGISTRY',
     readVersion: versionFromJson('server.json'),
     versionCarrierRel: 'server.json',
+  },
+  {
+    id: 'kiro-power',
+    outDir: DEFAULT_KIRO_POWER_DIR,
+    files: ({ endpoint = PROD_ENDPOINT } = {}) => kiroPowerFiles({ endpoint }),
+    endpointRel: 'mcp.json',
+    // Kiro's POWER.md is not JSON — its validator takes the whole file map (FILES_KINDS).
+    schemas: [{ manifestRel: 'POWER.md', file: null, kind: 'kiro-power' }],
+    mirrorEnv: 'SQUIRE_MIRROR_KIRO_POWER',
+    readVersion: versionFromFrontmatter('POWER.md'),
+    versionCarrierRel: 'POWER.md',
   },
 ];
 
@@ -473,7 +642,92 @@ function validateRegistry(obj) {
   return p;
 }
 
-const VALIDATORS = { plugin: validatePlugin, marketplace: validateMarketplace, mcp: validateMcp, registry: validateRegistry };
+/**
+ * Validate the whole Kiro Power file map (FR-022): POWER.md frontmatter + ordered
+ * body + License-and-Support triad, and mcp.json shape (type:"http", https url, no
+ * oauth). Takes the FULL { rel: content } map (POWER.md is not JSON). → problems[]
+ */
+function validateKiroPower(files) {
+  const p = [];
+  const power = files['POWER.md'];
+  if (typeof power !== 'string') {
+    p.push('POWER.md: missing');
+  } else {
+    const fmMatch = power.match(/^---\n([\s\S]*?)\n---\n/);
+    if (!fmMatch) {
+      p.push('POWER.md: missing YAML frontmatter');
+    } else {
+      const fm = fmMatch[1];
+      const strField = (k) => {
+        const m = fm.match(new RegExp(`^${k}:\\s*"?([^"\\n]+?)"?\\s*$`, 'm'));
+        return m ? m[1].trim() : null;
+      };
+      for (const k of ['name', 'displayName', 'description', 'author']) {
+        if (!strField(k)) p.push(`POWER.md frontmatter: ${k} required`);
+      }
+      const kwLine = fm.match(/^keywords:\s*(\[.*\])\s*$/m);
+      if (!kwLine) {
+        p.push('POWER.md frontmatter: keywords required (JSON array)');
+      } else {
+        try {
+          const arr = JSON.parse(kwLine[1]);
+          if (!Array.isArray(arr) || arr.length < 1) p.push('POWER.md frontmatter: keywords must be a non-empty array');
+        } catch { p.push('POWER.md frontmatter: keywords is not a valid array'); }
+      }
+      const ver = strField('version');
+      if (!ver) p.push('POWER.md frontmatter: version required (the version carrier, RBD-2)');
+      else if (!SEMVER_RE.test(ver)) p.push(`POWER.md frontmatter: version "${ver}" not semver`);
+      const name = strField('name');
+      if (name && !/^[a-z0-9-]+$/.test(name)) p.push(`POWER.md frontmatter: name "${name}" must be kebab-case`);
+    }
+    const body = power.replace(/^---\n[\s\S]*?\n---\n/, '');
+    const sections = [
+      'Overview', 'When to Use This Power', 'Onboarding', 'Available Steering Files',
+      'When to Load Steering Files', 'Available MCP Servers', 'MCP Configuration', 'License and Support',
+    ];
+    const positions = sections.map((s) => body.indexOf(`## ${s}`));
+    positions.forEach((pos, i) => { if (pos < 0) p.push(`POWER.md body: missing section "## ${sections[i]}"`); });
+    let last = -1;
+    for (const pos of positions) {
+      if (pos < 0) continue;
+      if (pos < last) { p.push('POWER.md body: sections are out of the required order'); break; }
+      last = pos;
+    }
+    const lsIdx = body.indexOf('## License and Support');
+    if (lsIdx >= 0) {
+      const ls = body.slice(lsIdx);
+      if (!/\bMIT\b/.test(ls)) p.push('POWER.md License and Support: missing MIT license id');
+      if (!ls.includes('https://squiredocs.com/privacy')) p.push('POWER.md License and Support: missing privacy policy link');
+      if (!ls.includes('hello@squiredocs.com')) p.push('POWER.md License and Support: missing support contact');
+    }
+  }
+  const mcpRaw = files['mcp.json'];
+  if (typeof mcpRaw !== 'string') {
+    p.push('mcp.json: missing');
+  } else {
+    let obj = null;
+    try { obj = JSON.parse(mcpRaw); } catch (e) { p.push(`mcp.json: invalid JSON (${e.message})`); }
+    if (obj) {
+      const s = obj.mcpServers && obj.mcpServers['squire-docs'];
+      if (!s || typeof s !== 'object') {
+        p.push('mcp.json: mcpServers["squire-docs"] required object (server key MUST be "squire-docs", RBD-1)');
+      } else {
+        if (s.type !== 'http') p.push(`mcp.json: mcpServers["squire-docs"].type "${s.type}": must be "http"`);
+        if (typeof s.url !== 'string' || !/^https:\/\//.test(s.url)) p.push('mcp.json: url required https URL');
+        if ('oauth' in s || 'oauthScopes' in s) p.push('mcp.json: must NOT contain oauth/oauthScopes (DCR self-registers, FR-004)');
+      }
+    }
+  }
+  return p;
+}
+
+const VALIDATORS = { plugin: validatePlugin, marketplace: validateMarketplace, mcp: validateMcp, registry: validateRegistry, 'kiro-power': validateKiroPower };
+
+// Validator dispatch kinds: JSON manifests are JSON.parse'd then validated; a
+// FILES kind receives the whole { rel: content } map; a RAW kind receives the raw
+// string content of its manifestRel (e.g. the .mdc rule, which is not JSON).
+const FILES_KINDS = new Set(['kiro-power']);
+const RAW_KINDS = new Set(['mdc-rule']);
 
 /**
  * Validate every generated manifest against its pinned schema (FR-009/010/011).
@@ -489,9 +743,6 @@ export function validateBundles() {
     for (const binding of ch.schemas) {
       const raw = files[binding.manifestRel];
       if (raw == null) { problems.push(`${ch.id}/${binding.manifestRel}: generated file missing`); continue; }
-      let obj;
-      try { obj = JSON.parse(raw); }
-      catch (e) { problems.push(`${ch.id}/${binding.manifestRel}: invalid JSON (${e.message})`); continue; }
       // Confirm the pinned schema file is present (so a deleted schema is caught).
       if (binding.file) {
         try { loadSchema(binding.file); }
@@ -499,7 +750,18 @@ export function validateBundles() {
       }
       const fn = VALIDATORS[binding.kind];
       if (!fn) { problems.push(`${ch.id}/${binding.manifestRel}: no validator for kind "${binding.kind}"`); continue; }
-      for (const prob of fn(obj)) problems.push(`${ch.id}/${binding.manifestRel}: ${prob}`);
+      if (FILES_KINDS.has(binding.kind)) {
+        // Whole-bundle validator (e.g. Kiro POWER.md + mcp.json) — pass the file map.
+        for (const prob of fn(files)) problems.push(`${ch.id}: ${prob}`);
+      } else if (RAW_KINDS.has(binding.kind)) {
+        // Non-JSON text manifest (e.g. the .mdc rule) — pass the raw content.
+        for (const prob of fn(raw)) problems.push(`${ch.id}/${binding.manifestRel}: ${prob}`);
+      } else {
+        let obj;
+        try { obj = JSON.parse(raw); }
+        catch (e) { problems.push(`${ch.id}/${binding.manifestRel}: invalid JSON (${e.message})`); continue; }
+        for (const prob of fn(obj)) problems.push(`${ch.id}/${binding.manifestRel}: ${prob}`);
+      }
     }
   }
   // Advisory plugin-dev validator (FR-011) — attempted, never fatal.
