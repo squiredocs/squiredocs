@@ -367,6 +367,34 @@
   font-size: 0.85em;
 }
 .landing-agent-note a { color: #7c3aed; }
+.landing-agent-sub {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+.landing-agent-sub:first-of-type {
+  margin-top: 1rem;
+  padding-top: 0;
+  border-top: none;
+}
+.landing-agent-sub h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 0.5rem;
+}
+.landing-agent-cursor-btn {
+  display: inline-block;
+  margin: 0.25rem 0;
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.landing-agent-cursor-btn:hover { background: #6d28d9; }
 
 /* Use cases */
 .landing-usecases-grid {

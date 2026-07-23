@@ -36,7 +36,19 @@ claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp 
 
 This registers the server and completes the sign-in right from the terminal. An MCP client loads its server configuration at startup, so if you add the server from inside a running session, that session will not see it. To pick an in-progress agent conversation back up afterward, exit it first and append `&& claude --continue` to the command above — it resumes the conversation with the server connected.
 
-For [Kiro](https://kiro.dev), AWS's spec-driven agentic IDE, add Squire to the `mcpServers` block of your MCP config — `.kiro/settings/mcp.json` in a workspace, or `~/.kiro/settings/mcp.json` to make it available in every project:
+### Cursor — Add to Cursor
+
+If you use Cursor, the quickest path is the Add to Cursor deeplink, which registers the Squire Docs MCP server in Cursor:
+
+[Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=squire-docs&config=eyJ1cmwiOiJodHRwczovL3NxdWlyZWRvY3MuY29tL21jcCJ9)
+
+That connects the MCP server; Cursor runs the browser OAuth sign-in on the first tool call, and signing in with Google creates your Squire Docs account if you do not have one yet. The full Squire Docs plugin — the spec-loop rule and the skill alongside the MCP server — arrives through the Cursor marketplace once it is listed.
+
+### Kiro — import the Power
+
+For [Kiro](https://kiro.dev), AWS's spec-driven agentic IDE, install the Squire Docs Power from its repository: [github.com/squiredocs/squire-kiro-power](https://github.com/squiredocs/squire-kiro-power). In Kiro, open the Powers panel, choose **Add Custom Power**, then **Import power from GitHub**, paste the repo URL, and install. The Power registers the MCP server and adds Kiro-native steering that hosts the `.kiro/specs` files you already generate as a shared, attributed, two-way-synced Squire Docs document.
+
+You can also add Squire to Kiro by hand, without the Power — add it to the `mcpServers` block of your MCP config, `.kiro/settings/mcp.json` in a workspace, or `~/.kiro/settings/mcp.json` to make it available in every project:
 
 ```json
 {
