@@ -30,8 +30,8 @@ description: "Task list: Wave 2 Distribution Channels — Kiro Power + Cursor Pl
 
 **Purpose**: Vendor the one external schema and re-confirm the validator constraint.
 
-- [ ] T001 Vendor the Cursor plugin manifest schema verbatim into `distribution/schemas/cursor-plugin.schema.json` from `https://raw.githubusercontent.com/cursor/plugins/main/schemas/plugin.schema.json` (draft-07, `additionalProperties:false`) — distinct filename from the existing hand-authored `plugin.schema.json` (no collision, FR-020). Add a `distribution/schemas/SOURCES.md` entry: upstream URL, retrieved 2026-07-23, used for `distribution/cursor-plugin/.cursor-plugin/plugin.json`, and the standard re-fetch+diff refresh note.
-- [ ] T002 Re-confirm `ajv` is not resolvable (`node -e "require.resolve('ajv')"` throws) and extend the validator comment block at the top of `distribution/publish.mjs` to record that the wave-2 Cursor/Kiro/`.mdc` validators are ALSO the self-contained structural kind (no new production dependency, FR-021).
+- [X] T001 Vendor the Cursor plugin manifest schema verbatim into `distribution/schemas/cursor-plugin.schema.json` from `https://raw.githubusercontent.com/cursor/plugins/main/schemas/plugin.schema.json` (draft-07, `additionalProperties:false`) — distinct filename from the existing hand-authored `plugin.schema.json` (no collision, FR-020). Add a `distribution/schemas/SOURCES.md` entry: upstream URL, retrieved 2026-07-23, used for `distribution/cursor-plugin/.cursor-plugin/plugin.json`, and the standard re-fetch+diff refresh note.
+- [X] T002 Re-confirm `ajv` is not resolvable (`node -e "require.resolve('ajv')"` throws) and extend the validator comment block at the top of `distribution/publish.mjs` to record that the wave-2 Cursor/Kiro/`.mdc` validators are ALSO the self-contained structural kind (no new production dependency, FR-021).
 
 ---
 

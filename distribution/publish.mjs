@@ -9,11 +9,17 @@
  * generated bundles to their public mirror repos. It replaces the retired M2
  * assembler (`test/first-run/assemble-bundle.mjs` + agreement check).
  *
- * VALIDATOR (T002 probe, 2026-07-22): `ajv` is NOT resolvable in this repo's
- * dependency tree (`node -e "require.resolve('ajv')"` throws). Per research R8 this
- * script therefore uses the self-contained STRUCTURAL validator below — no new
- * production dependency. The pinned schemas under `distribution/schemas/` are the
- * documented contract that validator is written against (see schemas/SOURCES.md).
+ * VALIDATOR (T002 probe, 2026-07-22; re-confirmed 033 T002, 2026-07-23): `ajv` is
+ * NOT resolvable in this repo's dependency tree (`node -e "require.resolve('ajv')"`
+ * throws). Per research R8 this script therefore uses the self-contained STRUCTURAL
+ * validator below — no new production dependency. The pinned schemas under
+ * `distribution/schemas/` are the documented contract that validator is written
+ * against (see schemas/SOURCES.md). The wave-2 Cursor/Kiro/`.mdc` validators
+ * (`validateCursorPlugin`, `validateCursorMcp`, `validateKiroPower`,
+ * `validateMdcRule`) are ALSO the self-contained structural kind — no new
+ * production dependency (FR-021). The Cursor validator derives its allowed
+ * top-level keys from the vendored `cursor-plugin.schema.json` `properties` so its
+ * `additionalProperties:false` intent tracks the vendored schema.
  *
  * SECURITY POSTURE (constitution V — highest-risk area; analyze escalates violations to HIGH):
  *   1. Default invocation is DRY-RUN: regenerate + validate only. NO network, NO
