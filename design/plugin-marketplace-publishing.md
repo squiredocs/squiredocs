@@ -226,8 +226,8 @@ The channel waves (D3) live inside M3. Nothing is published before M2's sign-off
 | Official MCP Registry | 1 | **LIVE 2026-07-22** — com.squiredocs/mcp v1.0.2 on registry.modelcontextprotocol.io (isLatest, active), now on the CURRENT 2025-12-11 schema (migrated from deprecated 2025-09-29; validator clean). Subregistries mirror it. Registry versions independent of the plugin (plugin stays 1.0.1). |
 | Claude Code plugin (own marketplace) | 1 | **LIVE 2026-07-22** — squiredocs/squire-plugin published (own marketplace). Install: /plugin marketplace add squiredocs/squire-plugin then /plugin install squire. v1.0.0. |
 | Claude community directory | 1 | **SUBMITTED — pending review (2026-07-22)** via platform.claude.com/plugins/submit (github.com/squiredocs/squire-plugin; name "Squire Docs"). On approval: CI mirrors + pins the SHA, auto-bumps on push, public catalog syncs nightly. Track in the Console submissions dashboard; escalate to mcp-review@anthropic.com if needed. |
-| Kiro Powers | 2 | Not started |
-| Cursor Marketplace | 2 | Not started |
+| Kiro Powers | 2 | **SUBMITTED — pending review (2026-07-24)** via kiro.dev/powers/submit (github.com/squiredocs/squire-kiro-power). Installed + verified working in real Kiro. On acceptance: featured-partner track + the site swaps repo-import steps for the registry link. |
+| Cursor Marketplace | 2 | **SUBMITTED — pending review (2026-07-24)** via cursor.com/marketplace/publish + repo link to the Cursor team (github.com/squiredocs/squire-cursor-plugin). Manual OSS security review; on listing, the site swaps the Add-to-Cursor button target to the marketplace listing. |
 | Gemini CLI extensions | 3 | Not started |
 | OpenAI Codex | 3 | Not started |
 | MCP aggregators (Smithery, PulseMCP, Glama, mcp.so, Docker MCP Catalog) | 3 | Not started |
