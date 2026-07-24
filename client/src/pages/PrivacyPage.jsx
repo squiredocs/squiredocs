@@ -3,12 +3,14 @@
  *
  * Standard privacy policy adapted to what Squire Docs actually does:
  * Google OAuth sign-in, document storage, third-party AI processing
- * (Anthropic, Google, OpenAI), S3 image storage, and analytics.
+ * (the providers in server/api/ai-providers.js — keep the provider list
+ * in the AI section in sync with that file), background Google search
+ * embeddings, agent/plugin token access, S3 image storage, and analytics.
  * Review with legal counsel before relying on it for compliance.
  */
 import LegalPage from './LegalPage';
 
-const LAST_UPDATED = 'June 23, 2026';
+const LAST_UPDATED = 'July 24, 2026';
 const CONTACT_EMAIL = 'contact@squiredocs.com';
 
 export default function PrivacyPage() {
@@ -51,9 +53,9 @@ export default function PrivacyPage() {
 
       <h3>API keys (Bring Your Own Key)</h3>
       <p>
-        If you choose to supply your own third-party AI provider API keys
-        (Anthropic, Google, or OpenAI), we store them encrypted at rest and use
-        them only to make AI requests on your behalf.
+        If you choose to supply your own API keys for a supported third-party
+        AI provider, we store them encrypted at rest and use them only to make
+        AI requests on your behalf.
       </p>
 
       <h3>Support requests</h3>
@@ -96,12 +98,41 @@ export default function PrivacyPage() {
       <p>
         When you use AI features, the content needed to fulfill your request —
         such as your prompts, relevant document content, and attached images — is
-        sent to third-party AI providers (currently Anthropic, Google, and
-        OpenAI) to generate a response. This processing is necessary to provide
-        the feature. Your use of these features is also subject to those
-        providers' terms and privacy policies. If you use your own API key, your
-        requests are sent to the corresponding provider under your account with
-        that provider.
+        sent to a third-party AI provider to generate a response. Depending on
+        the model you select, that provider is currently Anthropic, Google,
+        OpenAI, or Z.ai, or a model host reached through the OpenRouter gateway
+        (for example Moonshot AI, Alibaba, or MiniMax). The models currently
+        available, and the provider each one belongs to, are shown in the model
+        picker in the app. This processing is necessary to provide the feature.
+        Your use of these features is also subject to the relevant provider's
+        terms and privacy policies. If you use your own API key, your requests
+        are sent to the corresponding provider under your account with that
+        provider.
+      </p>
+      <p>
+        Separately from AI features you invoke directly, we use Google's
+        embedding API to power in-app search: when a document is created or
+        edited, its text is sent to Google to generate search embeddings, which
+        we store as part of the search index. Some background processing that
+        supports AI features, such as summarizing long chat histories, may also
+        use a different provider than the model you selected.
+      </p>
+      <p>
+        We do not train AI models of our own on your content. The third-party
+        providers described above process requests under their own terms, which
+        govern whether and how they may use content submitted through their
+        APIs.
+      </p>
+
+      <h2>Agent and Plugin Integrations</h2>
+      <p>
+        You can connect external AI agents and tools — such as Claude, Cursor,
+        or Kiro — to your account through OAuth or API access tokens. When you
+        authorize an integration, it can read and edit the documents your
+        account can access, and document content you direct it to work with
+        flows to that agent and to the AI service that powers it, under that
+        service's own terms. You can review and revoke an integration's access
+        tokens at any time in the app's settings.
       </p>
 
       <h2>How We Share Information</h2>
