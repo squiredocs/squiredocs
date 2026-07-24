@@ -154,7 +154,7 @@
                 <div class="landing-step-num">&#10003;</div>
                 <div class="landing-step-body">
                   <h3>Connect any agent</h3>
-                  <p>Connect external agents like Claude Code, Kiro, Codex, and Claude Desktop to your documents over MCP.</p>
+                  <p>Connect external agents like Claude Code, Kiro, Codex, and Claude Desktop to your documents over MCP. See the <a href="/documentation/agents-and-mcp">Agents &amp; MCP Guide</a> for setup.</p>
                 </div>
               </div>
               <div class="landing-step">
@@ -169,31 +169,6 @@
           <div class="landing-showcase-phone">
             <img src="/mobile-diagram.png" alt="Squire Docs on a phone showing a document with a rendered architecture diagram" />
           </div>
-        </div>
-        <div class="landing-agent-install">
-          <h3>Works with your coding agent</h3>
-
-          <div class="landing-agent-sub">
-            <h4>Claude Code</h4>
-            <p>Install the Squire Docs plugin — add our marketplace, then install:</p>
-            <pre class="landing-code"><code>/plugin marketplace add squiredocs/squire-plugin
-/plugin install squire</code></pre>
-            <p class="landing-agent-note">It registers Squire Docs where Claude Code reads it at startup and adds the <code>/squire:onboard</code> command. Claude Code loads plugins at startup, so you may need to restart it before the command appears.</p>
-          </div>
-
-          <div class="landing-agent-sub">
-            <h4>Cursor</h4>
-            <p><a class="landing-agent-cursor-btn" href="cursor://anysphere.cursor-deeplink/mcp/install?name=squire-docs&config=eyJ1cmwiOiJodHRwczovL3NxdWlyZWRvY3MuY29tL21jcCJ9">Add to Cursor</a></p>
-            <p class="landing-agent-note">Connects the Squire Docs MCP server in Cursor; the full plugin — spec-loop rule and skill — arrives via the Cursor marketplace once listed.</p>
-          </div>
-
-          <div class="landing-agent-sub">
-            <h4>Kiro</h4>
-            <p>Import the Squire Docs Power from its repo: <a href="https://github.com/squiredocs/squire-kiro-power">github.com/squiredocs/squire-kiro-power</a>.</p>
-            <p class="landing-agent-note">In Kiro: open the Powers panel, choose <em>Add Custom Power</em>, then <em>Import power from GitHub</em>, paste the repo URL, and install.</p>
-          </div>
-
-          <p class="landing-agent-note">Full setup for every agent — including the raw <code>claude mcp add</code> one-liner and other MCP clients — is in the <a href="/documentation/agents-and-mcp">agents &amp; MCP guide</a>.</p>
         </div>
       </div>
     </section>
