@@ -79,6 +79,24 @@ SQL-only. The follow-on will need one, and that endpoint must stay admin-gated.
    `collab_test_db_034`, including both CHECKs, the FK `ON DELETE CASCADE`, and
    all three indexes, and `node-pg-migrate` accepted the timestamp ordering.
 
+## Pre-existing failure the merge queue will see (NOT from this feature)
+
+`npm run test:server` on this branch reports **220 suites, 3734 passed, 1
+failed**. The one failure is
+`server/__tests__/agents-md-claims.test.js › (g) tells in-session agents not to
+run the connect command themselves`: the drift-guard expects
+`/do not run\s+the command above yourself/i`, but `client/public/agents.md:37`
+says "do not run **either** command above yourself" (the copy was widened to
+cover the plugin one-liner and the raw one-liner, and the guard was not updated).
+
+Both the test file and `client/public/agents.md` are **byte-identical to `main`**
+on this branch — this feature touches neither — so the failure reproduces on
+`main` and is not a 034 regression. Fixing it is a one-word change to the regex
+(or the doc) and belongs to whoever owns the agents.md copy, not here.
+
+Client suite: **64 suites, 772 passed, 0 failed**. `npm run build` (client):
+clean.
+
 ## Not done here (by design)
 
 - No backfill of historical accounts (FR-014) — pre-feature rows stay NULL and
