@@ -18,6 +18,21 @@ The only sign-in path is Google OAuth (`server/auth/google.js`, routes in `serve
 - `POST /auth/refresh` re-checks `token_version` against the DB and rotates both cookies WITHOUT incrementing the version — deliberate, to avoid a multi-tab revocation race. Logout increments `users.token_version`, invalidating every outstanding refresh token at once.
 - There is no server-side session store. Redis plays no role in auth — it caches Yjs docs and fans out updates/awareness across instances (`server/redis-persistence.js`, `server/redis-pubsub.js`), and is optional.
 
+## Abuse signals: signup/login IP + user-agent
+
+**Why (2026-07-25):** a single actor relayed five Google accounts to farm the $10 signup AI-credit grant (exhaust one account, sign up the next minutes later). The app stored no network or device metadata anywhere, so the spray was only detectable by content/timing forensics. The edge WAF sees client IPs but never hands them to the app.
+
+**What is recorded.** Every signup and login records the true client IP and the User-Agent header:
+
+- `users.signup_ip` / `users.signup_user_agent` — set once at account creation (`findOrCreateUser`), never overwritten.
+- `users.last_login_ip` / `users.last_login_user_agent` — refreshed on every login (`updateLastLogin`).
+- `auth_events` — append-only trail: `user_id, event (signup | login), signup_source, ip (inet), user_agent, created_at`. This history powers spray correlation: shared-IP grouping across accounts and exhaust-grant-then-respawn relay detection.
+
+- IP comes from `req.ip`, trustworthy only because trust proxy is a numeric hop count (feature 010 FR-014/RD-5) — a blanket `trust proxy true` would make these columns spoofable and MUST NOT be introduced. User-agent is truncated to 512 chars. Both are nullable; capture failure never blocks auth.
+- Coverage: browser OAuth callback, agent OAuth, and the dev-only login bypass — all paths flow through the same two user-store helpers. Token refresh is deliberately NOT logged (it is a background rotation every ~15 min, not a human sign-in; logging it would drown the signal in noise).
+- Exposure: admin area only (admin user list shows signup/last-login IP + UA). Never surfaced to non-admin users or in any public API.
+- Privacy: the privacy policy discloses IP/UA collection at signup and sign-in for security and abuse prevention. `auth_events` rows older than 180 days are purged (the denormalized users columns are kept while the account exists); rows delete with the user via FK cascade.
+
 ## Document roles and enforcement
 
 RBAC per document: owner > editor > viewer, stored as a Postgres enum on `document_shares`. `documents.getRole` is the single source of truth; `server/permissions.js` maps actions to minimum roles (view→viewer, edit→editor, manage→editor, delete→owner) and its `extractUser` unifies the three credential kinds — user JWT, agent OAuth JWT, and `sk_sqd_` API token — so HTTP, WebSocket, and MCP all authenticate through one path.
@@ -38,4 +53,4 @@ Admin = `users.is_admin` (copied into the JWT claim; `requireAdmin` fast-rejects
 
 ## Data model
 
-`users` (identity, token_version, is_admin, email_enabled, BYOK keys, credits, welcome_doc_id/onboarded_at) · `documents` (ownership + title metadata) · `document_shares` (the authorization table) · `document_share_invites` (pending email grants) · `mcp_api_tokens` / `agent_delegations` (agent credentials — see [Squire Agent Surface (MCP)](https://squiredocs.com/d/697456a2-b42b-49b3-ae57-875d3e328809)) · `support_requests` · `app_settings`.
+`users` (identity, token_version, is_admin, email_enabled, BYOK keys, credits, welcome_doc_id/onboarded_at, signup/last-login IP + user-agent) · `documents` (ownership + title metadata) · `document_shares` (the authorization table) · `document_share_invites` (pending email grants) · `mcp_api_tokens` / `agent_delegations` (agent credentials — see [Squire Agent Surface (MCP)](https://squiredocs.com/d/697456a2-b42b-49b3-ae57-875d3e328809)) · `support_requests` · `app_settings` · `auth_events` (append-only signup/login IP + user-agent trail — see Abuse signals).
