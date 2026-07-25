@@ -1119,7 +1119,8 @@ paragraphs.forEach((node, index) => {
   - **Yjs data**: `yjs_updates` (the append-only update log — the sole source of truth; each row carries its clock, attribution, and write-time `meaningful` classification)
   - **Document metadata**: `documents` table (document info, creator)
   - **Permissions**: `document_shares` table (user-document access with roles)
-  - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance)
+  - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance; signup and last-login IP + user-agent snapshots for abuse detection — admin-only)
+  - **Auth events**: `auth_events` table (append-only signup/login trail with client IP + user-agent, 180-day retention via a daily purge job; powers multi-account abuse correlation)
   - **AI usage**: `ai_usage_log` table (per-request token usage and cost tracking)
   - **AI extra credits**: `ai_extra_credits` table (one-off credit grants with optional expiration)
   - **Search index**: per-document full-text (`tsvector`) and vector embedding columns (`pgvector`, `gemini-embedding-001`, 1536-dim) powering hybrid content search; refreshed by a background indexer as documents change. The full-text row also stores a `content_hash` (SHA-256 of the extracted body text) that gates embedding regeneration — unchanged text skips the provider entirely, and the hash only advances atomically with a successful chunk swap (or the empty-content chunk cleanup). Chunk rows record `embedding_model` explicitly; the boot-time repair pass re-indexes documents that are missing, edit-stale, or carry a different model
