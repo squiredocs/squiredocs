@@ -24,6 +24,10 @@ const {
   deleteAllSyntheticUsers,
 } = require('./users');
 const { requireAuth, requireAdmin, requireDevEndpoints } = require('./middleware');
+// Feature 034 — the ONE extractor turning a request into a storable
+// { ip, userAgent } capture pair (never reads X-Forwarded-For; req.ip is
+// trustworthy only because trust proxy is a numeric hop count, FR-006).
+const { authContext } = require('./auth-context');
 const { notifyNewUser, notifyLogin } = require('../email');
 const onboarding = require('../onboarding');
 const mcpOauthFlow = require('../mcp/auth/oauth-flow');
@@ -217,7 +221,10 @@ router.get('/google/callback', async (req, res) => {
     // Shared post-auth logic (account creation, provenance stamping, welcome-doc
     // decision, returnTo handling). The faucet's browser mode routes through the
     // exact same helper, substituting only the identity leg (RBD-10).
-    return completePostAuth(res, { profile, clientUrl, rawReturnTo });
+    // Feature 034: the capture pair is extracted HERE, where `req` legitimately
+    // lives, and passed to completePostAuth as two inert scalars — see the
+    // invariant note below (completePostAuth never receives `req`).
+    return completePostAuth(res, { profile, clientUrl, rawReturnTo, ctx: authContext(req) });
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.redirect(`${clientUrl}/login?error=auth_failed`);
@@ -232,6 +239,11 @@ router.get('/google/callback', async (req, res) => {
  * NEVER reads req.query / req.body / headers — completePostAuth does not even
  * receive `req`, so the auto-issue parameters cannot originate from any
  * client-modifiable post-auth channel (INV-3 / structural invariant U2).
+ *
+ * Feature 034 preserves this exactly: completePostAuth gained a `ctx` parameter
+ * carrying ONLY the pre-extracted { ip, userAgent } capture pair, computed by
+ * each caller in its own scope. It is still handed no `req`, and `ctx` is inert
+ * storage data that no decision in this file reads — so U2 holds unchanged.
  *
  * Returns the parsed OAuth parameter set only when the value is a valid
  * same-origin returnTo, its pathname is exactly `/authorize`, the required
@@ -303,12 +315,15 @@ function tryParseAuthorizeReturnTo(rawReturnTo) {
  * @param {object} args.profile   - {googleId, email, name, picture}
  * @param {string} args.clientUrl - validated client origin for redirects
  * @param {*} args.rawReturnTo    - candidate returnTo (validated here)
+ * @param {{ip: string|null, userAgent: string|null}} [args.ctx] - feature 034
+ *   capture pair, already extracted from the request by the caller. Storage-only:
+ *   nothing in this function interprets it, and NO `req` is accepted (U2/INV-3).
  */
-async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
+async function completePostAuth(res, { profile, clientUrl, rawReturnTo, ctx = { ip: null, userAgent: null } }) {
   const hasReturnTo = isValidReturnTo(rawReturnTo);
   const signupSource = hasReturnTo ? 'agent_oauth' : 'browser';
 
-  const user = await findOrCreateUser(profile, { signupSource });
+  const user = await findOrCreateUser(profile, { signupSource, ...ctx });
 
   // Synthetic (faucet-minted) users never notify — repeated rehearsals must not
   // spam the admin inbox on deploys with working SMTP (029 review).
@@ -319,7 +334,7 @@ async function completePostAuth(res, { profile, clientUrl, rawReturnTo }) {
     notifyLogin({ email: user.email, name: user.name });
   }
 
-  await updateLastLogin(user.id);
+  await updateLastLogin(user.id, { ...ctx, signupSource, isNew: user.isNew });
 
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);
@@ -601,6 +616,11 @@ router.post('/dev-login', requireDevEndpoints, async (req, res) => {
   try {
     const { fresh, nonce: rawNonce, browser, returnTo } = req.body || {};
 
+    // Feature 034: capture pair for whichever dev-login mode runs below. The
+    // dev bypass records channel 'browser', matching what it already passes as
+    // signup provenance (design gap G-1's adopted default).
+    const ctx = authContext(req);
+
     // Legacy fixed-user mode — empty/`fresh`-absent body (backward compatible).
     if (!fresh) {
       const user = await findOrCreateUser({
@@ -608,8 +628,8 @@ router.post('/dev-login', requireDevEndpoints, async (req, res) => {
         email: 'dev@test.local',
         name: 'Dev Test User',
         picture: null,
-      });
-      await updateLastLogin(user.id);
+      }, { signupSource: 'browser', ...ctx });
+      await updateLastLogin(user.id, { ...ctx, signupSource: 'browser', isNew: user.isNew });
 
       const accessToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
@@ -661,12 +681,12 @@ router.post('/dev-login', requireDevEndpoints, async (req, res) => {
     // provenance/welcome-doc/returnTo behavior is production-identical (RBD-10).
     if (browser) {
       const clientUrl = getClientUrl(req);
-      return completePostAuth(res, { profile, clientUrl, rawReturnTo: returnTo });
+      return completePostAuth(res, { profile, clientUrl, rawReturnTo: returnTo, ctx });
     }
 
     // Fresh JSON mode — no returnTo, so browser provenance. Cookies + JSON echo.
-    const user = await findOrCreateUser(profile, { signupSource: 'browser' });
-    await updateLastLogin(user.id);
+    const user = await findOrCreateUser(profile, { signupSource: 'browser', ...ctx });
+    await updateLastLogin(user.id, { ...ctx, signupSource: 'browser', isNew: user.isNew });
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
