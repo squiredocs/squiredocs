@@ -2,6 +2,8 @@
  * User database operations
  */
 
+const authEvents = require('./auth-events');
+
 // Database pool - set by init function
 let pool = null;
 
@@ -29,6 +31,10 @@ function isSyntheticEmail(email) {
  */
 function init(dbPool) {
   pool = dbPool;
+  // Feature 034: the auth-event trail rides the same pool. Wiring it here means
+  // every existing init path (app boot and every test calling users.init(pool))
+  // initializes the trail with no new call site.
+  authEvents.init(dbPool);
 }
 
 /**
@@ -46,23 +52,39 @@ function ensurePool() {
  * @param {string} profile.email - User's email
  * @param {string} profile.name - User's display name
  * @param {string} profile.picture - Profile picture URL
+ * @param {object} [context] - optional capture context (feature 034)
+ * @param {string} [context.signupSource] - 'browser' | 'agent_oauth'
+ * @param {string|null} [context.ip] - client IP from authContext(req)
+ * @param {string|null} [context.userAgent] - user-agent from authContext(req)
  * @returns {Promise<object>} User record from database
  */
-async function findOrCreateUser({ googleId, email, name, picture }, { signupSource = 'browser' } = {}) {
+async function findOrCreateUser(
+  { googleId, email, name, picture },
+  { signupSource = 'browser', ip = null, userAgent = null } = {}
+) {
   // Feature 029 (FR-012, RBD-10): stamp provenance ONCE at creation. Written
   // only in the INSERT column list — deliberately NOT in the ON CONFLICT DO
   // UPDATE SET clause, so a returning user's provenance is never overwritten by
   // a later login. Guard the value to the CHECK-constrained domain.
   const source = signupSource === 'agent_oauth' ? 'agent_oauth' : 'browser';
 
-  // Atomic upsert: insert or update in a single query to prevent race conditions
+  // Atomic upsert: insert or update in a single query to prevent race conditions.
+  //
+  // Feature 034 (FR-001): signup_ip / signup_user_agent ride the SAME
+  // write-once mechanism as signup_source — present in the INSERT column list,
+  // absent from ON CONFLICT DO UPDATE SET — so a returning user's signup
+  // capture is never overwritten by a later login through this same path.
+  // Values arrive already validated and truncated by auth-context.js; a null
+  // pair (context omitted) simply stores NULL. This helper appends NO
+  // auth_events row — the single row per authentication is written by
+  // updateLastLogin (RBD-7).
   const result = await ensurePool().query(
-    `INSERT INTO users (google_id, email, name, picture, token_version, signup_source)
-     VALUES ($1, $2, $3, $4, 0, $5)
+    `INSERT INTO users (google_id, email, name, picture, token_version, signup_source, signup_ip, signup_user_agent)
+     VALUES ($1, $2, $3, $4, 0, $5, $6, $7)
      ON CONFLICT (google_id) DO UPDATE
      SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
      RETURNING *, (xmax = 0) AS is_new`,
-    [googleId, email, name, picture, source]
+    [googleId, email, name, picture, source, ip, userAgent]
   );
 
   const user = result.rows[0];
@@ -193,11 +215,60 @@ async function updateName(userId, name) {
 }
 
 /**
- * Update last_login_at timestamp for a user
+ * Update last_login_at (and, feature 034, the last-login capture pair) for a
+ * user, then append the ONE auth_events row for this authentication.
+ *
+ * NOTE ON THE NAME (RBD-7): despite being called updateLastLogin, this is also
+ * where the `signup` trail event is emitted — because this helper is called
+ * exactly once per completed authentication on every auth path (browser OAuth,
+ * agent OAuth, dev-login) and never by token refresh. Putting the append here
+ * makes "exactly one event per completed auth" true by construction; if
+ * findOrCreateUser appended its own row too, a signup would produce two rows and
+ * the spec's "a signup and two logins ⇒ three entries" would be wrong. The
+ * caller passes `isNew` (already computed by findOrCreateUser via xmax = 0) and
+ * this picks event = isNew ? 'signup' : 'login'. Renaming the function is a
+ * refactor deliberately out of this feature's scope.
+ *
+ * Capture is best-effort (FR-008): the trail write is delegated to
+ * authEvents.record(), which never throws, so a trail failure can neither
+ * prevent the users update nor fail the sign-in.
+ *
  * @param {string} userId - User's UUID
+ * @param {object} [context] - optional capture context (feature 034)
+ * @param {string|null} [context.ip] - client IP from authContext(req)
+ * @param {string|null} [context.userAgent] - user-agent from authContext(req)
+ * @param {string} [context.signupSource] - auth channel of THIS event
+ * @param {boolean} [context.isNew] - true when the account was just created
  */
-async function updateLastLogin(userId) {
-  await ensurePool().query('UPDATE users SET last_login_at = now() WHERE id = $1', [userId]);
+async function updateLastLogin(
+  userId,
+  { ip = null, userAgent = null, signupSource = 'browser', isNew = false } = {}
+) {
+  // One statement — the capture pair folds into the existing UPDATE, so the
+  // snapshot costs no extra round trip (FR-002).
+  await ensurePool().query(
+    `UPDATE users
+     SET last_login_at = now(), last_login_ip = $2, last_login_user_agent = $3
+     WHERE id = $1`,
+    [userId, ip, userAgent]
+  );
+
+  // Exactly one immutable trail row per completed authentication (FR-003).
+  // record() already swallows its own failures; the .catch() is belt-and-braces
+  // so this await can never surface a rejection into the sign-in path even if a
+  // future change to auth-events.js loses that guarantee (FR-008).
+  await authEvents
+    .record({
+      userId,
+      event: isNew ? 'signup' : 'login',
+      signupSource,
+      ip,
+      userAgent,
+    })
+    .catch((err) => {
+      console.error('[AuthEvents] record rejected unexpectedly:', err?.message || err);
+      return false;
+    });
 }
 
 /**

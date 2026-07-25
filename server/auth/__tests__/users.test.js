@@ -228,6 +228,180 @@ describe('Users module', () => {
       ).rejects.toThrow('User not found');
     });
   });
+
+  /**
+   * Feature 034 (T008/T016) — the per-account capture snapshot.
+   *
+   * The two guarantees under test: the signup pair is written ONCE at creation
+   * and is never overwritten by a later login through the same upsert path
+   * (FR-001), and the last-login pair is refreshed on every login (FR-002).
+   * Capture also has to fail open — a missing header, an unparsable address, or
+   * a broken trail write must still leave a successful sign-in (FR-008).
+   */
+  describe('signup/login IP + user-agent capture (feature 034)', () => {
+    const newProfile = () => ({
+      googleId: `test-google-${crypto.randomUUID()}`,
+      email: `test-${crypto.randomUUID()}@example.com`,
+      name: 'Capture User',
+      picture: null,
+    });
+
+    const captureRow = async (userId) => {
+      const { rows } = await pool.query(
+        `SELECT signup_ip, signup_user_agent, last_login_ip, last_login_user_agent, last_login_at
+         FROM users WHERE id = $1`,
+        [userId]
+      );
+      return rows[0];
+    };
+
+    test('writes the signup pair at account creation (FR-001)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 (Signup)',
+      });
+
+      expect(user.isNew).toBe(true);
+      const row = await captureRow(user.id);
+      expect(row.signup_ip).toBe('203.0.113.7');
+      expect(row.signup_user_agent).toBe('Mozilla/5.0 (Signup)');
+    });
+
+    test('NEVER overwrites the signup pair on a returning-user upsert (FR-001)', async () => {
+      const profile = newProfile();
+      const created = await users.findOrCreateUser(profile, {
+        ip: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 (Signup)',
+      });
+
+      // Same googleId, different capture context — this is the relay-spray
+      // scenario's second visit, and the once-only guarantee is what makes the
+      // signup origin trustworthy months later.
+      const returning = await users.findOrCreateUser(profile, {
+        ip: '198.51.100.9',
+        userAgent: 'Mozilla/5.0 (Later)',
+      });
+
+      expect(returning.id).toBe(created.id);
+      expect(returning.isNew).toBe(false);
+      const row = await captureRow(created.id);
+      expect(row.signup_ip).toBe('203.0.113.7');
+      expect(row.signup_user_agent).toBe('Mozilla/5.0 (Signup)');
+    });
+
+    test('updateLastLogin refreshes the last-login pair alongside the timestamp (FR-002)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 (Signup)',
+      });
+
+      await users.updateLastLogin(user.id, {
+        ip: '198.51.100.9',
+        userAgent: 'Mozilla/5.0 (Later)',
+      });
+
+      const row = await captureRow(user.id);
+      expect(row.last_login_ip).toBe('198.51.100.9');
+      expect(row.last_login_user_agent).toBe('Mozilla/5.0 (Later)');
+      expect(row.last_login_at).toBeInstanceOf(Date);
+      // ...and the signup pair is still the original.
+      expect(row.signup_ip).toBe('203.0.113.7');
+      expect(row.signup_user_agent).toBe('Mozilla/5.0 (Signup)');
+    });
+
+    test('first sign-in leaves signup and last-login pairs identical (US1 acceptance 1)', async () => {
+      const ctx = { ip: '2001:db8::1', userAgent: 'Mozilla/5.0 (First)' };
+      const user = await users.findOrCreateUser(newProfile(), ctx);
+      await users.updateLastLogin(user.id, { ...ctx, isNew: user.isNew });
+
+      const row = await captureRow(user.id);
+      expect(row.last_login_ip).toBe(row.signup_ip);
+      expect(row.last_login_user_agent).toBe(row.signup_user_agent);
+      expect(row.signup_ip).toBe('2001:db8::1');
+    });
+
+    test('stores an IPv4-mapped IPv6 address (::ffff: dual-stack form)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: '::ffff:127.0.0.1',
+        userAgent: 'Mozilla/5.0',
+      });
+      const row = await captureRow(user.id);
+      // Postgres normalizes the mapped form; the address must round-trip as an
+      // address, not error out.
+      expect(row.signup_ip).toBeTruthy();
+    });
+
+    test('context-less calls still succeed and store NULL (backward compatibility)', async () => {
+      const user = await users.findOrCreateUser(newProfile());
+      await users.updateLastLogin(user.id);
+
+      const row = await captureRow(user.id);
+      expect(row.signup_ip).toBeNull();
+      expect(row.signup_user_agent).toBeNull();
+      expect(row.last_login_ip).toBeNull();
+      expect(row.last_login_user_agent).toBeNull();
+      expect(row.last_login_at).toBeInstanceOf(Date);
+    });
+
+    test('a sign-in with no user-agent stores NULL and succeeds (US3 acceptance 1)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: '203.0.113.7',
+        userAgent: null,
+      });
+      await users.updateLastLogin(user.id, { ip: '203.0.113.7', userAgent: null });
+
+      const row = await captureRow(user.id);
+      expect(row.signup_ip).toBe('203.0.113.7');
+      expect(row.signup_user_agent).toBeNull();
+      expect(row.last_login_user_agent).toBeNull();
+    });
+
+    test('a 512-char user-agent (authContext already truncated) stores exactly 512 chars (US3 acceptance 2)', async () => {
+      // authContext bounds the value; users.js stores what it is handed. This
+      // asserts the storage side accepts the full bound without complaint.
+      const bounded = 'U'.repeat(512);
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: '203.0.113.7',
+        userAgent: bounded,
+      });
+      const row = await captureRow(user.id);
+      expect(row.signup_user_agent).toHaveLength(512);
+    });
+
+    test('an unavailable address stores NULL and the sign-in succeeds (US3 acceptance 3)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {
+        ip: null,
+        userAgent: 'Mozilla/5.0 (No IP)',
+      });
+      await users.updateLastLogin(user.id, { ip: null, userAgent: 'Mozilla/5.0 (No IP)' });
+
+      const row = await captureRow(user.id);
+      expect(row.signup_ip).toBeNull();
+      expect(row.last_login_ip).toBeNull();
+      expect(row.signup_user_agent).toBe('Mozilla/5.0 (No IP)');
+    });
+
+    test('updateLastLogin still updates the timestamp when the trail write fails (FR-008)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), { ip: '203.0.113.7' });
+      const authEvents = require('../auth-events');
+      const spy = jest
+        .spyOn(authEvents, 'record')
+        .mockRejectedValue(new Error('trail is down'));
+
+      try {
+        // Even a REJECTING record() must not surface into the auth path.
+        await expect(
+          users.updateLastLogin(user.id, { ip: '198.51.100.9', userAgent: 'UA' })
+        ).resolves.toBeUndefined();
+      } finally {
+        spy.mockRestore();
+      }
+
+      const row = await captureRow(user.id);
+      expect(row.last_login_ip).toBe('198.51.100.9');
+      expect(row.last_login_at).toBeInstanceOf(Date);
+    });
+  });
 });
 
 

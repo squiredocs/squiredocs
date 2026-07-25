@@ -426,3 +426,39 @@
   font-size: var(--text-sm);
   width: 100%;
 }
+
+/* Feature 034 — signup/last-login origin (IP + user-agent).
+   The IP columns stay compact so the table keeps its shape; the full
+   user-agent lives on the cell title and in the expanded detail row. */
+.admin-cell-ip {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-origin-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.admin-origin-list dt {
+  color: var(--text-tertiary);
+}
+
+.admin-origin-list dd {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.admin-origin-ua {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-sm);
+}

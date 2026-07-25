@@ -250,7 +250,9 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   };
 
   // -- Column count for detail rows --
-  const colCount = 9;
+  // Column count drives the detail row's colSpan. 9 base columns + the two
+  // feature-034 origin columns (Signup IP / Login IP).
+  const colCount = 11;
 
   return (
     <>
@@ -360,6 +362,10 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                   <th>Email</th>
                   <th>Created</th>
                   <th>Last Login</th>
+                  {/* Feature 034 — signup/last-login origin, the at-a-glance
+                      multi-account spray signal. Hover reveals the user-agent. */}
+                  <th>Signup IP</th>
+                  <th>Login IP</th>
                   <th>Docs</th>
                   <th>Monthly Limit</th>
                   <th>AI Used</th>
@@ -381,6 +387,21 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                       <td>{u.email}</td>
                       <td>{formatDate(u.createdAt)}</td>
                       <td>{formatDate(u.lastLoginAt)}</td>
+                      {/* Values are React text children — auto-escaped. The
+                          user-agent is attacker-controlled input and must never
+                          be rendered with dangerouslySetInnerHTML. */}
+                      <td
+                        className="admin-cell-ip"
+                        title={u.signupUserAgent || 'No user-agent recorded'}
+                      >
+                        {u.signupIp || '—'}
+                      </td>
+                      <td
+                        className="admin-cell-ip"
+                        title={u.lastLoginUserAgent || 'No user-agent recorded'}
+                      >
+                        {u.lastLoginIp || '—'}
+                      </td>
                       <td>{u.docCount}</td>
                       <td>
                         {editingCreditUserId === u.id ? (
@@ -452,6 +473,22 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                 />
                                 Trusted — can send share invitation emails
                               </label>
+                            </div>
+
+                            {/* Feature 034 — full, untruncated capture values.
+                                Rendered as text children only (React escapes). */}
+                            <div className="admin-detail-section">
+                              <h4>Sign-in origin</h4>
+                              <dl className="admin-origin-list">
+                                <dt>Signup IP</dt>
+                                <dd>{u.signupIp || '—'}</dd>
+                                <dt>Signup user-agent</dt>
+                                <dd className="admin-origin-ua">{u.signupUserAgent || '—'}</dd>
+                                <dt>Last login IP</dt>
+                                <dd>{u.lastLoginIp || '—'}</dd>
+                                <dt>Last login user-agent</dt>
+                                <dd className="admin-origin-ua">{u.lastLoginUserAgent || '—'}</dd>
+                              </dl>
                             </div>
 
                             <div className="admin-detail-section">
