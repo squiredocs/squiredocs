@@ -138,6 +138,10 @@ router.get('/users', async (req, res) => {
         u.id, u.name, u.email, u.picture, u.is_admin, u.email_enabled,
         u.welcome_email_sent_at,
         u.ai_credit_cents, u.created_at, u.last_login_at,
+        -- Feature 034 (FR-011): the abuse-signal capture pair, admin-only.
+        -- Passed through verbatim — the admin is the investigator and needs the
+        -- exact stored value, so no masking, truncation, or reformatting here.
+        u.signup_ip, u.signup_user_agent, u.last_login_ip, u.last_login_user_agent,
         COALESCE(d.doc_count, 0)::int AS doc_count,
         COALESCE(a.ai_used_cents, 0)::int AS ai_used_cents,
         COALESCE(ec.ai_extra_credit_cents, 0)::int AS ai_extra_credit_cents
@@ -176,6 +180,11 @@ router.get('/users', async (req, res) => {
       aiCreditCents: r.ai_credit_cents,
       createdAt: r.created_at,
       lastLoginAt: r.last_login_at,
+      // Feature 034 — signup/last-login origin (null for pre-feature accounts).
+      signupIp: r.signup_ip,
+      signupUserAgent: r.signup_user_agent,
+      lastLoginIp: r.last_login_ip,
+      lastLoginUserAgent: r.last_login_user_agent,
       docCount: parseInt(r.doc_count, 10),
       aiUsedCents: parseInt(r.ai_used_cents, 10),
       aiExtraCreditCents: parseInt(r.ai_extra_credit_cents, 10),

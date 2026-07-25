@@ -6,11 +6,18 @@
  * (the providers in server/api/ai-providers.js — keep the provider list
  * in the AI section in sync with that file), background Google search
  * embeddings, agent/plugin token access, S3 image storage, and analytics.
+ *
+ * The sign-in disclosure under "Usage and log data" must likewise track what
+ * feature 034 actually stores (server/auth/auth-context.js + auth-events.js):
+ * IP address and user-agent recorded at signup and at each sign-in, the
+ * 180-day auth-history retention, and the account-lifetime retention of the
+ * most recent values. If that behavior changes, this paragraph changes with it.
+ *
  * Review with legal counsel before relying on it for compliance.
  */
 import LegalPage from './LegalPage';
 
-const LAST_UPDATED = 'July 24, 2026';
+const LAST_UPDATED = 'July 25, 2026';
 const CONTACT_EMAIL = 'contact@squiredocs.com';
 
 export default function PrivacyPage() {
@@ -72,6 +79,15 @@ export default function PrivacyPage() {
         counts, which we use to meter usage and enforce limits). We use cookies
         and similar technologies to keep you signed in and to maintain your
         session.
+      </p>
+      <p>
+        When you create an account, and each time you sign in, we record the IP
+        address and the browser or client (user-agent) information of that
+        request. We use this for security and abuse prevention — for example, to
+        identify accounts created in bulk from the same source to abuse free
+        usage credits. We keep this sign-in history for 180 days; the values
+        from your account's creation and your most recent sign-in stay
+        associated with your account for as long as it exists.
       </p>
 
       <h3>Analytics</h3>
@@ -173,7 +189,9 @@ export default function PrivacyPage() {
         document it is removed from the active Service, and when you ask us to
         delete your account we will delete or anonymize your personal information,
         except where we are required to retain it for legal or legitimate
-        business purposes.
+        business purposes. Sign-in history (the IP address and user-agent of each
+        signup and sign-in, described above) is deleted automatically after 180
+        days, and all of it is deleted with your account.
       </p>
 
       <h2>Security</h2>

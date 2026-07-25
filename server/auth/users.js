@@ -254,13 +254,21 @@ async function updateLastLogin(
   );
 
   // Exactly one immutable trail row per completed authentication (FR-003).
-  await authEvents.record({
-    userId,
-    event: isNew ? 'signup' : 'login',
-    signupSource,
-    ip,
-    userAgent,
-  });
+  // record() already swallows its own failures; the .catch() is belt-and-braces
+  // so this await can never surface a rejection into the sign-in path even if a
+  // future change to auth-events.js loses that guarantee (FR-008).
+  await authEvents
+    .record({
+      userId,
+      event: isNew ? 'signup' : 'login',
+      signupSource,
+      ip,
+      userAgent,
+    })
+    .catch((err) => {
+      console.error('[AuthEvents] record rejected unexpectedly:', err?.message || err);
+      return false;
+    });
 }
 
 /**
