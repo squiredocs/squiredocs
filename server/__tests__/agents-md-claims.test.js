@@ -70,7 +70,7 @@ describe('agents.md drift-guard', () => {
   // MCP clients load config at startup, so the session never sees the server.
   // agents.md must carry the user-facing terminal + restart + verify steps.
   test('(g) tells in-session agents not to run the connect command themselves', () => {
-    expect(content).toMatch(/do not run\s+the command above yourself/i);
+    expect(content).toMatch(/do not run\s+(?:either|the) command(?:s)? above yourself/i);
     expect(content).toMatch(/load server config at startup/i);
   });
 
