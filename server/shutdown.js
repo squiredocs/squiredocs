@@ -29,6 +29,9 @@
  * @param {() => Promise<void>} [deps.closeRedis] - shared redis client closer
  * @param {object} [deps.telemetry] - OTel bootstrap (shutdown = bounded flush)
  * @param {object} [deps.server] - http server (close)
+ * @param {() => void} [deps.stopBackgroundJobs] - optional synchronous hook that
+ *   clears recurring in-process timers (feature 034's auth-event retention job).
+ *   Absent → no-op, so every existing call site is unaffected.
  * @param {number} deps.deadlineMs - force-exit backstop
  * @param {(code: number) => void} [deps.exit] - process.exit seam (tests)
  * @param {object} [deps.logger] - console-like
@@ -44,6 +47,7 @@ function createShutdown(deps) {
     closeRedis,
     telemetry,
     server,
+    stopBackgroundJobs,
     deadlineMs,
     exit = (code) => process.exit(code),
     logger = console,
@@ -73,6 +77,17 @@ function createShutdown(deps) {
     };
 
     try {
+      // Stop recurring in-process timers first — they are synchronous, cheap,
+      // and nothing downstream should schedule new work mid-drain. Guarded the
+      // same way as every other step (absent dep → no-op).
+      if (typeof stopBackgroundJobs === 'function') {
+        try {
+          stopBackgroundJobs();
+        } catch (err) {
+          logger.error('[Shutdown] background-job stop failed (continuing):', err?.message || err);
+        }
+      }
+
       // Close live WS sessions so clients fail over to a healthy replica and
       // server.close() can complete (1001 = going away).
       if (wss && wss.clients) {

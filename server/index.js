@@ -56,6 +56,7 @@ const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
+const authEvents = require('./auth/auth-events');
 const admin = require('./api/admin');
 const appSettings = require('./api/app-settings');
 const collabGuardrail = require('./collab-guardrail');
@@ -431,7 +432,14 @@ setPersistence({
 });
 
 // Initialize user authentication with shared database pool
+// (initUsers also wires the feature-034 auth-event trail to the same pool).
 initUsers(persistenceProvider.getPool());
+
+// Feature 034 (FR-010): retention for the auth-event trail — one sweep now,
+// then a daily tick. The timer is unref()'d, so it never holds the process open
+// during a drain; stopPurgeJob is still handed to the shutdown routine below so
+// the teardown is explicit.
+authEvents.startPurgeJob();
 
 // Initialize documents module with shared database pool
 documents.init(persistenceProvider.getPool());
@@ -2292,6 +2300,8 @@ const runShutdown = createShutdown({
   closeRedis,
   telemetry,
   server,
+  // Feature 034: stop the auth-event retention timer on drain.
+  stopBackgroundJobs: authEvents.stopPurgeJob,
   deadlineMs: Number(process.env.SHUTDOWN_DEADLINE_MS ?? 20000),
 });
 process.on('SIGTERM', () => runShutdown('SIGTERM'));
