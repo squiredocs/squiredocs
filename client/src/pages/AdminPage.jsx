@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Avatar from '../components/Avatar';
@@ -24,6 +24,10 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [adoption, setAdoption] = useState(null);
   const [adoptionLoading, setAdoptionLoading] = useState(false);
   const [adoptionError, setAdoptionError] = useState(false);
+  // Sequence number for expand fetches — see toggleExpand. A ref, not state:
+  // the guard must read the CURRENT value inside an already-created promise
+  // callback, which a state closure cannot give it.
+  const expandTicket = useRef(0);
 
   // Trusted (email sending) toggle
   const [togglingEmailUserId, setTogglingEmailUserId] = useState(null);
@@ -190,20 +194,30 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
     setSharingLoading(true);
     setAdoptionLoading(true);
     setAdoptionError(false);
+
+    // Expand A (slow), then B (fast): without this guard A's late response wins
+    // and B's row shows A's credentials and onboarding state — wrong-user
+    // attribution in the very view built to answer "did THIS account connect an
+    // agent". Each expand takes a ticket; a response that is no longer the
+    // current one is dropped.
+    const ticket = expandTicket.current + 1;
+    expandTicket.current = ticket;
+    const current = () => expandTicket.current === ticket;
+
     api.get(`/api/admin/users/${userId}/extra-credits`)
-      .then((res) => setExtraCredits(res.data.credits))
-      .catch(() => setExtraCredits([]))
-      .finally(() => setExtraCreditsLoading(false));
+      .then((res) => { if (current()) setExtraCredits(res.data.credits); })
+      .catch(() => { if (current()) setExtraCredits([]); })
+      .finally(() => { if (current()) setExtraCreditsLoading(false); });
     api.get(`/api/admin/users/${userId}/sharing`)
-      .then((res) => setSharing(res.data))
-      .catch(() => setSharing({ invites: [], shares: [] }))
-      .finally(() => setSharingLoading(false));
+      .then((res) => { if (current()) setSharing(res.data); })
+      .catch(() => { if (current()) setSharing({ invites: [], shares: [] }); })
+      .finally(() => { if (current()) setSharingLoading(false); });
     // Feature 036 — a third independent call, deliberately not chained to the
     // two above: each panel loads and fails on its own (FR-012).
     api.get(`/api/admin/users/${userId}/adoption`)
-      .then((res) => setAdoption(res.data))
-      .catch(() => { setAdoption(null); setAdoptionError(true); })
-      .finally(() => setAdoptionLoading(false));
+      .then((res) => { if (current()) setAdoption(res.data); })
+      .catch(() => { if (current()) { setAdoption(null); setAdoptionError(true); } })
+      .finally(() => { if (current()) setAdoptionLoading(false); });
   };
 
   const toggleEmailEnabled = async (u) => {

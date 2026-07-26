@@ -537,4 +537,40 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     expect(section.querySelector('img')).toBeNull();
     expect(section.querySelector('script')).toBeNull();
   });
+
+  it('never shows one user’s credentials under another user’s row', async () => {
+    const other = { ...captured, id: 'user-other', email: 'other@example.com' };
+    let releaseSlowAdoption;
+    const slow = new Promise((resolve) => { releaseSlowAdoption = resolve; });
+
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') return Promise.resolve({ data: { users: [subject, other] } });
+      if (url === '/api/admin/settings/shared-model') return Promise.reject(new Error('not available'));
+      if (url.endsWith('/extra-credits')) return Promise.resolve({ data: { credits: [] } });
+      if (url.endsWith('/sharing')) return Promise.resolve({ data: { invites: [], shares: [] } });
+      // The FIRST user expanded answers slowly; the second answers at once.
+      if (url === `/api/admin/users/${subject.id}/adoption`) return slow;
+      if (url === `/api/admin/users/${other.id}/adoption`) {
+        return Promise.resolve({ data: { ...adoptionPayload, delegations: [], tokens: [] } });
+      }
+      return Promise.reject(new Error('not available'));
+    });
+
+    const user = userEvent.setup();
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+
+    const firstRow = (await screen.findByText('adoption@example.com')).closest('tr');
+    await user.click(within(firstRow).getByLabelText(/Expand details/i));
+    const secondRow = screen.getByText('other@example.com').closest('tr');
+    await user.click(within(secondRow).getByLabelText(/Expand details/i));
+
+    // Now let the first user's response land late. It must be discarded: the
+    // open row belongs to someone else, and this is the view an admin uses to
+    // decide whether THIS account connected an agent.
+    releaseSlowAdoption({ data: adoptionPayload });
+    await screen.findByText('Agent access');
+
+    const section = (await screen.findByText('Agent access')).closest('.admin-detail-section');
+    expect(within(section).queryByText(adoptionPayload.delegations[0].agentName)).toBeNull();
+  });
 });
