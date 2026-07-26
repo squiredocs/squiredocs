@@ -468,6 +468,163 @@ router.get('/users/:userId/extra-credits', async (req, res) => {
 });
 
 /**
+ * Lifetime state of a credential row: revoked beats expired (a credential
+ * revoked before its expiry is revoked, not expired), and everything else is
+ * active. Evaluated against `now` at request time, so a row expiring during the
+ * request may land on either side — accepted (spec Edge Cases).
+ */
+function credentialState(revokedAt, expiresAt, now) {
+  if (revokedAt) return 'revoked';
+  if (expiresAt && new Date(expiresAt) <= now) return 'expired';
+  return 'active';
+}
+
+/**
+ * GET /users/:userId/adoption — one user's agent-access and onboarding detail.
+ *
+ * Feature 036. Strictly read-only: it reports, it never revokes, mints or
+ * edits — revocation stays in the user's own Settings (FR-010). Nothing here
+ * writes, and nothing is precomputed: every value is read from the live tables
+ * at request time, so there is no counter to drift (FR-011).
+ *
+ * SECURITY: the three credential tables carry secret material —
+ * `agent_delegations.refresh_token_hash`, `mcp_api_tokens.token_hash`,
+ * `registered_agents.client_secret_hash`. Every query below uses an EXPLICIT
+ * column list and every response field is an explicit literal, so a `SELECT *`
+ * can never wash a hash into an admin payload (FR-009). For the same reason
+ * this does NOT reuse delegation.listUserDelegations()/apiTokens.listUserTokens()
+ * — they are `SELECT *` and they filter revoked rows out, which is the opposite
+ * of the lifetime semantics this view needs.
+ *
+ * `agent_activity_log.metadata` is never read: it records tool arguments
+ * verbatim, i.e. user content. The summary is a count and a timestamp.
+ */
+router.get('/users/:userId/adoption', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // The user row anchors the response: an unknown id is a 404, not an empty
+    // payload that would read as "this account has never connected anything".
+    const userResult = await pool.query(
+      `SELECT id, created_at, signup_source, onboarded_at, welcome_email_sent_at, welcome_doc_id
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    // Lifetime listing — revoked and expired rows are INCLUDED and labelled.
+    // "Did this account ever connect an agent?" is unanswerable if dead
+    // credentials are hidden (FR-003). Re-consent reuses the same row, so
+    // created_at is the original consent time, which is the honest answer.
+    const delegationsResult = await pool.query(
+      `SELECT d.id, d.agent_id, d.agent_name, d.agent_client_id, d.scopes,
+              d.created_at, d.last_used_at, d.revoked_at, d.expires_at,
+              ra.name AS registered_name
+       FROM agent_delegations d
+       LEFT JOIN registered_agents ra ON ra.id = d.agent_client_id
+       WHERE d.user_id = $1
+       ORDER BY d.created_at DESC`,
+      [userId]
+    );
+
+    const tokensResult = await pool.query(
+      `SELECT id, name, token_prefix, scopes, created_at, last_used_at,
+              revoked_at, expires_at, minted_by_delegation_id, minted_by_api_token_id
+       FROM mcp_api_tokens
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    // "Authored a real document" = owns a document that is not the seeded
+    // welcome doc. When welcome_doc_id is unset (cleared, or never seeded for
+    // an agent-OAuth signup) the NULL-safe comparison keeps every owned doc in
+    // scope — the documented imprecision (spec Assumptions).
+    const authoredResult = await pool.query(
+      `SELECT COUNT(*)::int AS n
+       FROM document_shares
+       WHERE user_id = $1 AND role = 'owner'
+         AND ($2::uuid IS NULL OR doc_id <> $2::uuid)`,
+      [userId, user.welcome_doc_id]
+    );
+
+    // Index-served by idx_agent_activity_user_time. metadata is not read.
+    const activityResult = await pool.query(
+      `SELECT COUNT(*)::int AS count, MAX(created_at) AS last_at
+       FROM agent_activity_log
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    const now = new Date();
+
+    const delegations = delegationsResult.rows.map((r) => ({
+      id: r.id,
+      // The registered catalog's display name wins; a delegation with no
+      // catalog link (older, or dynamically registered) falls back to its
+      // self-reported name rather than being dropped or blank (FR-004).
+      // Both are attacker-controlled strings — the client renders them as
+      // text children only, never as markup.
+      agentName: r.registered_name || r.agent_name,
+      agentId: r.agent_id,
+      isRegistered: !!r.registered_name,
+      scopes: r.scopes || [],
+      createdAt: r.created_at,
+      lastUsedAt: r.last_used_at,
+      revokedAt: r.revoked_at,
+      expiresAt: r.expires_at,
+      state: credentialState(r.revoked_at, r.expires_at, now),
+    }));
+
+    const tokens = tokensResult.rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      // The non-secret prefix only — never the hash, never a token value.
+      tokenPrefix: r.token_prefix,
+      scopes: r.scopes || [],
+      createdAt: r.created_at,
+      lastUsedAt: r.last_used_at,
+      revokedAt: r.revoked_at,
+      expiresAt: r.expires_at,
+      state: credentialState(r.revoked_at, r.expires_at, now),
+      // Minted by a delegation OR by another token — both are the agent path.
+      // A token whose mint-parent row was deleted has its reference nulled
+      // (ON DELETE SET NULL) and so reads as interactive: accepted imprecision
+      // at current scale (spec Edge Cases).
+      mintPath: (r.minted_by_delegation_id || r.minted_by_api_token_id) ? 'agent' : 'interactive',
+    }));
+
+    res.json({
+      delegations,
+      tokens,
+      onboarding: {
+        signupSource: user.signup_source,
+        signupAt: user.created_at,
+        onboardedAt: user.onboarded_at,
+        authoredRealDocument: authoredResult.rows[0].n > 0,
+        welcomeEmailSentAt: user.welcome_email_sent_at,
+      },
+      activity: {
+        count: activityResult.rows[0].count,
+        lastActivityAt: activityResult.rows[0].last_at,
+      },
+    });
+  } catch (err) {
+    // Same convention as PATCH /users/:userId/chat-model: a malformed user id
+    // reaches pg as an invalid uuid literal, which is "no such user", not a
+    // server fault.
+    if (err?.code === '22P02') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    console.error('[Admin] Error fetching adoption detail:', err);
+    res.status(500).json({ error: 'Failed to fetch adoption detail' });
+  }
+});
+
+/**
  * POST /users/extra-credits — grant extra AI credits to a user
  * Body: { userId, amountCents, memo?, expiresAt? }
  */
