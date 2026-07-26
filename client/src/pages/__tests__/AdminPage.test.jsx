@@ -2,7 +2,7 @@
  * AdminPage tests — feature 034 (T012).
  *
  * Minimal by design (the backend suites carry the weight): the admin user list
- * must show the signup/last-login origin columns, and an account created before
+ * must show the captured sign-in origin, and an account created before
  * the feature must render the table's `—` placeholder rather than blowing up on
  * null (US1 acceptance 4).
  */
@@ -73,33 +73,37 @@ describe('AdminPage — sign-in origin columns (feature 034)', () => {
   const renderPage = () =>
     render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
 
-  it('renders the two new column headers', async () => {
+  it('renders the origin column header', async () => {
     renderPage();
-    expect(await screen.findByText('Signup IP')).toBeInTheDocument();
-    expect(screen.getByText('Login IP')).toBeInTheDocument();
+    expect(await screen.findByText('IP')).toBeInTheDocument();
   });
 
-  it('shows both captured IPs for an account with capture data', async () => {
+  it('shows the latest address in the list, both on the cell title', async () => {
     renderPage();
-    expect(await screen.findByText('203.0.113.7')).toBeInTheDocument();
-    expect(screen.getByText('198.51.100.9')).toBeInTheDocument();
-  });
+    // The narrow list carries the last-login address; the signup one would
+    // double the column's width for a value that only matters on inspection.
+    expect(await screen.findByText('198.51.100.9')).toBeInTheDocument();
 
-  it('exposes the user-agent as the cell title (hover fingerprint)', async () => {
-    renderPage();
-    const signupCell = await screen.findByTitle('Mozilla/5.0 (Signup Agent)');
-    expect(signupCell).toHaveTextContent('203.0.113.7');
-    expect(screen.getByTitle('Mozilla/5.0 (Latest Agent)')).toHaveTextContent('198.51.100.9');
+    const cell = screen.getByText('198.51.100.9');
+    expect(cell).toHaveAttribute(
+      'title',
+      'Signup 203.0.113.7 · Mozilla/5.0 (Signup Agent)\n'
+        + 'Last login 198.51.100.9 · Mozilla/5.0 (Latest Agent)',
+    );
   });
 
   it('renders the placeholder for a pre-feature account without erroring', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('prefeature@example.com')).toBeInTheDocument());
 
-    // Both origin cells of the pre-feature row fall back to the table's
-    // em-dash placeholder, and the title explains the absence.
-    const emptyCells = screen.getAllByTitle('No user-agent recorded');
-    expect(emptyCells).toHaveLength(2);
-    emptyCells.forEach((cell) => expect(cell).toHaveTextContent('—'));
+    // The pre-feature row's origin cell falls back to the table's em-dash
+    // placeholder, and its title explains both absences.
+    // getByTitle's default normalizer collapses the newline between the two
+    // origin lines, so keep the raw string.
+    const emptyCell = screen.getByTitle(
+      'Signup — · no user-agent recorded\nLast login — · no user-agent recorded',
+      { normalizer: (s) => s },
+    );
+    expect(emptyCell).toHaveTextContent('—');
   });
 });

@@ -118,6 +118,13 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
 
   const formatCents = (cents) => `$${(cents / 100).toFixed(2)}`;
 
+  // Both captured origins on the IP cell's hover, since the list shows only the
+  // latest address. The full values also live in the expanded row.
+  const originTitle = (u) => [
+    `Signup ${u.signupIp || '—'} · ${u.signupUserAgent || 'no user-agent recorded'}`,
+    `Last login ${u.lastLoginIp || '—'} · ${u.lastLoginUserAgent || 'no user-agent recorded'}`,
+  ].join('\n');
+
   // Human label for a model key from the shared-model settings payload.
   const modelLabel = (settings, key) =>
     settings?.models.find((m) => m.key === key)?.label || key;
@@ -252,7 +259,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   // -- Column count for detail rows --
   // Column count drives the detail row's colSpan. 9 base columns + the two
   // feature-034 origin columns (Signup IP / Login IP).
-  const colCount = 11;
+  const colCount = 6;
 
   return (
     <>
@@ -358,18 +365,18 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Created</th>
-                  <th>Last Login</th>
-                  {/* Feature 034 — signup/last-login origin, the at-a-glance
-                      multi-account spray signal. Hover reveals the user-agent. */}
-                  <th>Signup IP</th>
-                  <th>Login IP</th>
-                  <th>Docs</th>
-                  <th>Monthly Limit</th>
-                  <th>AI Used</th>
-                  <th>AI Remaining</th>
+                  {/* Related fields share a cell (identity, dates, credit) so the
+                      table fits beside the assistant panel instead of scrolling.
+                      Anything only read one user at a time lives in the expanded
+                      row — see the Sign-in origin block below. */}
+                  <th>User</th>
+                  <th>Activity</th>
+                  {/* Feature 034 — the at-a-glance multi-account spray signal is a
+                      REPEATED address, so the list shows the latest one and the
+                      title/expanded row carry both plus their user-agents. */}
+                  <th>IP</th>
+                  <th className="admin-col-num">Docs</th>
+                  <th>AI credit</th>
                   <th></th>
                 </tr>
               </thead>
@@ -379,31 +386,30 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                   return [
                     // Main user row
                     <tr key={u.id} className={isExpanded ? 'admin-row-expanded' : ''}>
-                      <td className="admin-cell-name">
+                      <td className="admin-cell-user">
                         <Avatar picture={u.picture} name={u.name} className="admin-avatar" />
-                        {u.name || '—'}
-                        {u.isAdmin && <span className="admin-badge">Admin</span>}
+                        <div className="admin-user-lines">
+                          <div className="admin-user-name">
+                            {u.name || '—'}
+                            {u.isAdmin && <span className="admin-badge">Admin</span>}
+                          </div>
+                          <div className="admin-user-email" title={u.email}>{u.email}</div>
+                        </div>
                       </td>
-                      <td>{u.email}</td>
-                      <td>{formatDate(u.createdAt)}</td>
-                      <td>{formatDate(u.lastLoginAt)}</td>
+                      <td>
+                        <div>{formatDate(u.createdAt)}</div>
+                        <div className="admin-cell-sub">
+                          {u.lastLoginAt ? `seen ${formatDate(u.lastLoginAt)}` : 'never signed in'}
+                        </div>
+                      </td>
                       {/* Values are React text children — auto-escaped. The
                           user-agent is attacker-controlled input and must never
                           be rendered with dangerouslySetInnerHTML. */}
-                      <td
-                        className="admin-cell-ip"
-                        title={u.signupUserAgent || 'No user-agent recorded'}
-                      >
-                        {u.signupIp || '—'}
+                      <td className="admin-cell-ip" title={originTitle(u)}>
+                        {u.lastLoginIp || u.signupIp || '—'}
                       </td>
-                      <td
-                        className="admin-cell-ip"
-                        title={u.lastLoginUserAgent || 'No user-agent recorded'}
-                      >
-                        {u.lastLoginIp || '—'}
-                      </td>
-                      <td>{u.docCount}</td>
-                      <td>
+                      <td className="admin-col-num">{u.docCount}</td>
+                      <td className="admin-cell-credit">
                         {editingCreditUserId === u.id ? (
                           <span className="admin-inline-edit">
                             $<input
@@ -421,39 +427,52 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                             <button className="admin-btn-sm" onClick={cancelEditCredit}>Cancel</button>
                           </span>
                         ) : (
-                          <span className="admin-editable" onClick={() => startEditCredit(u)} title="Click to edit">
-                            {formatCents(u.aiCreditCents)}
-                          </span>
-                        )}
-                      </td>
-                      <td>{formatCents(u.aiUsedCents)}</td>
-                      <td>
-                        {formatCents(u.aiRemainingCents)}
-                        {u.aiExtraCreditCents > 0 && (
-                          <span className="admin-extra-tag" title="Includes extra credits">
-                            +{formatCents(u.aiExtraCreditCents)}
-                          </span>
+                          <>
+                            <div>
+                              {formatCents(u.aiUsedCents)}
+                              {' / '}
+                              <span
+                                className="admin-editable"
+                                onClick={() => startEditCredit(u)}
+                                title="Click to edit the monthly limit"
+                              >
+                                {formatCents(u.aiCreditCents)}
+                              </span>
+                            </div>
+                            <div className={`admin-cell-sub${u.aiRemainingCents <= 0 ? ' admin-cell-sub-spent' : ''}`}>
+                              {formatCents(u.aiRemainingCents)} left
+                              {u.aiExtraCreditCents > 0 && (
+                                <span className="admin-extra-tag" title="Includes extra credits">
+                                  +{formatCents(u.aiExtraCreditCents)}
+                                </span>
+                              )}
+                            </div>
+                          </>
                         )}
                       </td>
                       <td className="admin-actions">
                         <button
-                          className="admin-btn-sm"
+                          className="admin-btn-icon"
                           onClick={() => handleSendWelcome(u)}
                           disabled={sendingWelcomeUserId === u.id}
+                          aria-label="Send welcome email"
                           title={u.welcomeEmailSentAt
                             ? `Welcome email sent ${formatDate(u.welcomeEmailSentAt)} — click to resend`
                             : 'Send the beta welcome email to this user (you are BCC’d)'}
                         >
                           {sendingWelcomeUserId === u.id
-                            ? 'Sending…'
-                            : `${u.welcomeEmailSentAt ? '✓' : '✉'} Welcome email`}
+                            ? '…'
+                            : (u.welcomeEmailSentAt ? '✓' : '✉')}
                         </button>
                         <button
-                          className="admin-btn-sm"
+                          className="admin-btn-icon"
                           onClick={() => toggleExpand(u.id)}
-                          title={isExpanded ? 'Collapse' : 'Expand extra credits'}
+                          aria-label={isExpanded ? 'Collapse details' : 'Expand details'}
+                          title={isExpanded
+                            ? 'Collapse'
+                            : 'Details — sign-in origin, sharing, extra credits'}
                         >
-                          {isExpanded ? '▾' : '▸'} Credits
+                          {isExpanded ? '▾' : '▸'}
                         </button>
                       </td>
                     </tr>,

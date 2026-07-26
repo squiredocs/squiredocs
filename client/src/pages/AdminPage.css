@@ -137,11 +137,52 @@
   border-bottom: none;
 }
 
-.admin-cell-name {
+/* Identity, dates and credit each pack two lines into one cell: the second
+   line is the supporting value (email, last login, remaining) in muted type.
+   This is what keeps the table narrow enough to sit beside the chat panel. */
+.admin-cell-user {
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: var(--font-medium);
+}
+
+.admin-user-lines {
+  min-width: 0; /* lets the email ellipsize instead of widening the column */
+}
+
+.admin-user-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.admin-user-email {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--font-normal, 400);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.admin-cell-sub {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Exhausted allowance — the signal that matters when reviewing abuse. */
+.admin-cell-sub-spent {
+  color: var(--danger);
+}
+
+.admin-cell-credit {
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .admin-avatar {
@@ -166,8 +207,35 @@
 .admin-actions {
   text-align: right;
   white-space: nowrap;
+  width: 1%; /* shrink-to-fit so the identity column gets the slack */
 }
 .admin-actions .admin-btn-sm + .admin-btn-sm {
+  margin-left: 6px;
+}
+
+/* Icon-only row actions — the labels moved to title/aria-label so two
+   buttons cost ~60px instead of ~250px. */
+.admin-btn-icon {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+}
+.admin-btn-icon:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.admin-btn-icon:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.admin-btn-icon + .admin-btn-icon {
   margin-left: 6px;
 }
 
@@ -428,8 +496,8 @@
 }
 
 /* Feature 034 — signup/last-login origin (IP + user-agent).
-   The IP columns stay compact so the table keeps its shape; the full
-   user-agent lives on the cell title and in the expanded detail row. */
+   The list shows the latest address only and stays compact; both addresses,
+   with their user-agents, live on the cell title and in the expanded row. */
 .admin-cell-ip {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--text-sm);
