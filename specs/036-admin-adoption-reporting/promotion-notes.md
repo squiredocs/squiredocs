@@ -102,3 +102,25 @@ worth keeping.
   same-URL admin request asserts `200` so the 403 cannot be coming from a missing route.
 - `SELECT`-only: a before/after snapshot across repeated requests asserts row counts and both
   `last_used_at` columns are unchanged, and `POST`/`PUT`/`PATCH`/`DELETE` on the path all 404.
+
+## Post-merge review dispositions (2026-07-26, Fable review of 439a2be..a3c6ce1)
+
+Verdict: 0 CRITICAL / 0 HIGH / 1 MEDIUM / 1 LOW. Secrets, authorization,
+read-only-ness, injection/XSS and the honest activity labelling all verified
+clean; the contract reconciliation (14eec2d) was checked row by row and is
+complete.
+
+- MEDIUM (FIXED before the review landed, 525d4a7): the mobile card rules used
+  descendant selectors, so the new 8-column tokens table rendered header-less and
+  unlabelled below 768px. The implementer had this fix and correctly reverted it
+  to honour the contract's one-CSS-rule budget, disclosing it here — the budget
+  was the wrong constraint for a real rendering bug, and the orchestrator landed
+  the fix on main instead.
+- LOW (FIXED, 986b95e): expand fetches had no stale-response guard, so a slow
+  response for user A could render under user B — wrong-user attribution in an
+  audit view. All three panel fetches now take a ticket; the flaw was pre-existing
+  in the extra-credits and sharing fetches. Test verified to fail without the guard.
+- Trivial, accepted: shipped copy uses typographic apostrophes where the contract
+  shows ASCII.
+- Still owed (Sam): T020 browser walk — expand latency, table density, dark-mode
+  legibility of the revoked badge, and a phone-width check of 525d4a7.
