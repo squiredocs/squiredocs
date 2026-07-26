@@ -52,7 +52,7 @@ RBAC per document: owner > editor > viewer, stored as a Postgres enum on `docume
 
 ## Admin area
 
-Admin = `users.is_admin` (copied into the JWT claim; `requireAdmin` fast-rejects on the claim then re-verifies against the DB). Capabilities (`server/api/admin.js`): per-user stats (docs, monthly non-BYOK AI spend, credits, last login), setting monthly AI credit, granting one-off extra credits, the `email_enabled` trusted flag, reviewing a user’s sharing activity, and choosing the shared assistant’s default model (stored in `app_settings`). The admin (`ADMIN_EMAIL`) also receives sign-up, login, credit-limit, and support-request notification emails.
+Admin = `users.is_admin` (copied into the JWT claim; `requireAdmin` fast-rejects on the claim then re-verifies against the DB). Capabilities (`server/api/admin.js`): per-user stats (docs, monthly non-BYOK AI spend, credits, last login), setting monthly AI credit, granting one-off extra credits, the `email_enabled` trusted flag, reviewing a user’s sharing activity, pinning a per-user chat model override (see the in-app assistant doc), and choosing the shared assistant’s default model (stored in `app_settings`). The admin (`ADMIN_EMAIL`) also receives sign-up, login, credit-limit, and support-request notification emails.
 
 ## Data model
 
