@@ -100,6 +100,56 @@ decisions below cover the points it leaves under-specified.
    authored-a-real-doc, welcome-email sent); it is an existing user attribute already
    surfaced to admins elsewhere on the page, so no new exposure class. Spec: FR-005.
 
+## Plan-phase additions — RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-07-26)
+
+8. **One endpoint for the whole per-user payload, named `/adoption`** — RATIFIED-BY-DEFAULT.
+   *Question*: one `GET /api/admin/users/:userId/adoption` returning
+   `{ delegations, tokens, onboarding, activity }`, or four narrow endpoints?
+   *Why it matters*: it fixes how many round trips an expand costs, how many failure modes the
+   panel has, and how many response shapes the secret-material assertion must cover.
+   *Rationale*: the `GET /users/:userId/sharing` precedent already returns two unrelated
+   collections in one response because they make up one panel — 036 is the same case, larger.
+   One fetch (FR-007), one `.catch()` (FR-012), one shape to prove leak-free (FR-009). The name
+   is the design document's own word for this surface, covers onboarding and activity as well as
+   credentials, and leaves `/api/admin/adoption` free for the deferred rollups. Plan Summary,
+   research R1.
+
+9. **Credential state is derived server-side as one `state` field** — RATIFIED-BY-DEFAULT.
+   *Question*: ship raw timestamps and let the client decide "active", or compute it once?
+   *Why it matters*: "is this credential live?" is a security-relevant judgement; two
+   implementations of it will eventually disagree.
+   *Rationale*: `GET /users/:userId/extra-credits` already derives `isExpired`/`isDepleted`
+   server-side. 036 returns `state: 'active' | 'revoked' | 'expired'` (revoked wins over
+   expired) plus the raw timestamps, so the invariant is assertable from the backend suite
+   (SC-006) and the client stays a renderer. Research R3.
+
+10. **"Authored a real document" uses list-ownership, not `isEngaged()`** — RATIFIED-BY-DEFAULT.
+    *Question*: reuse `server/onboarding.js` `isEngaged()` (which additionally requires persisted
+    content) or the admin list's ownership notion?
+    *Why it matters*: the two predicates disagree for a user who created a document and never
+    typed in it — one says yes, the other no, and `onboarded_at` follows the stricter one.
+    *Rationale*: the spec's Assumptions pin this to "the same ownership notion the admin user
+    list's existing doc count uses" (`document_shares`, `role = 'owner'`), which keeps the field
+    consistent with the `Docs` column on the same row and costs no extra query. The divergence is
+    **not hidden**: `onboardedAt` is displayed beside it and the label reads *"Owns a doc besides
+    the welcome doc"*, never "engaged" or "activated". Research R7.
+
+11. **Malformed `:userId` returns 404, not 500** — RATIFIED-BY-DEFAULT.
+    *Question*: let a non-UUID path parameter reach Postgres (raising `22P02` → 500), or shape-check it?
+    *Why it matters*: a mistyped id should read as "no such user", not as a server fault in the logs.
+    *Rationale*: a UUID-shape guard before the query, `404 { error: 'User not found' }` for both
+    the malformed and the genuinely-absent case. Three lines, admin-only surface, no behaviour
+    change for valid ids. Contract "Mounting and authorisation".
+
+12. **Failed-to-load is distinguished from loaded-and-empty** — RATIFIED-BY-DEFAULT.
+    *Question*: on fetch failure, fall back to empty arrays like the sharing/extra-credits panels do?
+    *Why it matters*: for those panels "empty" and "failed" look the same and it does not matter.
+    For 036 an empty fallback would assert *"this account never connected an agent"* — the exact
+    wrong answer to the feature's headline question.
+    *Rationale*: the panel renders **"Couldn't load agent detail."** on failure and
+    **"No agent connections." / "No API tokens."** when genuinely empty; either way the other
+    sections of the expanded row keep working (FR-012). Research R8.
+
 ## Flagged design gaps (Principle VI)
 
 - **Design doc still describes the deployment-wide rollups as part of 036 (known,
@@ -140,3 +190,30 @@ decisions below cover the points it leaves under-specified.
   needed or exposed by 036. A token whose mint-parent was deleted has its mint-parent
   reference nulled (FK `ON DELETE SET NULL`), so it would display as interactively
   minted — accepted imprecision (spec Edge Cases).
+
+## Plan-phase addendum to the design-gap list (2026-07-26, re-checked at plan time)
+
+- **Gap 1 — CLOSED.** The design amendment has landed in `design/agent-surface-mcp.md`: the
+  rollup bullet now reads "**Deployment-wide rollups — DEFERRED (Sam, 2026-07-26)**", so the
+  export and this spec no longer disagree. The spec-phase entry above is kept for history; it is
+  no longer an open divergence.
+- **Gap 2 — (a) CLOSED, (b) still open.** The design now carries the paragraph "What the
+  activity signal actually covers (found while speccing 036)", stating the delegation-only
+  coverage, the honest-labelling requirement and the token `last_used_at` fallback — exactly the
+  amendment that was owed. Follow-up (b), logging token-authenticated activity, remains an
+  optional follow-on feature and is still out of scope for 036.
+- **Gap 4 — CLOSED.** The design's per-user bullet now itemises the onboarding fields
+  (`onboarded_at`, authored-a-doc-beyond-the-welcome-doc, `signup_source`, welcome-email sent),
+  matching FR-005 field for field.
+- **Gaps 3 and 5** were informational and remain accurate; nothing owed.
+
+## New follow-on ticket found at plan time (out of 036's scope)
+
+- **`GET /mcp/auth/delegations/:userId` discloses `refresh_token_hash` to the delegation's own
+  owner.** `delegation.listUserDelegations()` is `SELECT * FROM agent_delegations` and
+  `server/mcp/index.js` passes the rows straight to `res.json()`. Self-only exposure (the route
+  403s for any other user), so not an escalation path, but a credential-equivalent value is
+  crossing a network boundary for no reason. 036 deliberately does **not** touch it: the fix
+  belongs on the user-facing MCP routes, outside this feature's tight-diff constraint, and 036
+  avoids the helper entirely rather than inheriting the problem (research R2). Recorded here so
+  it is not lost.
