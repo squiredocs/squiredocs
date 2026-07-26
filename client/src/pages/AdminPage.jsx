@@ -18,6 +18,12 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [extraCreditsLoading, setExtraCreditsLoading] = useState(false);
   const [sharing, setSharing] = useState(null);
   const [sharingLoading, setSharingLoading] = useState(false);
+  // Feature 036 — per-user agent credentials, onboarding position and activity
+  // summary. Its own state and its own fetch, so a failure here cannot blank
+  // the sharing or extra-credit panels beside it.
+  const [adoption, setAdoption] = useState(null);
+  const [adoptionLoading, setAdoptionLoading] = useState(false);
+  const [adoptionFailed, setAdoptionFailed] = useState(false);
 
   // Trusted (email sending) toggle
   const [togglingEmailUserId, setTogglingEmailUserId] = useState(null);
@@ -122,6 +128,25 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
 
   const formatCents = (cents) => `$${(cents / 100).toFixed(2)}`;
 
+  // "When did it last do anything?" is a question about a moment, not a day —
+  // the credential and activity timestamps carry the time of day too.
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'Never';
+    return new Date(dateString).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+  };
+
+  const formatScopes = (scopes) => (scopes && scopes.length ? scopes.join(', ') : '—');
+
+  // Feature 036 — one badge style for both credential kinds, so an admin reads
+  // "revoked" the same way whether it is a delegation or a token.
+  const stateBadgeClass = (state) => ({
+    active: 'admin-status-active',
+    revoked: 'admin-status-expired',
+    expired: 'admin-status-depleted',
+  }[state] || 'admin-status-depleted');
+
   // Both captured origins on the IP cell's hover, since the list shows only the
   // latest address. The full values also live in the expanded row.
   const originTitle = (u) => [
@@ -156,11 +181,15 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       setExpandedUserId(null);
       setExtraCredits([]);
       setSharing(null);
+      setAdoption(null);
+      setAdoptionFailed(false);
       return;
     }
     setExpandedUserId(userId);
     setExtraCreditsLoading(true);
     setSharingLoading(true);
+    setAdoptionLoading(true);
+    setAdoptionFailed(false);
     api.get(`/api/admin/users/${userId}/extra-credits`)
       .then((res) => setExtraCredits(res.data.credits))
       .catch(() => setExtraCredits([]))
@@ -169,6 +198,12 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       .then((res) => setSharing(res.data))
       .catch(() => setSharing({ invites: [], shares: [] }))
       .finally(() => setSharingLoading(false));
+    // Feature 036 — a third independent call, deliberately not chained to the
+    // two above: each panel loads and fails on its own (FR-012).
+    api.get(`/api/admin/users/${userId}/adoption`)
+      .then((res) => setAdoption(res.data))
+      .catch(() => { setAdoption(null); setAdoptionFailed(true); })
+      .finally(() => setAdoptionLoading(false));
   };
 
   const toggleEmailEnabled = async (u) => {
@@ -613,6 +648,161 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                 <dt>Last login user-agent</dt>
                                 <dd className="admin-origin-ua">{u.lastLoginUserAgent || '—'}</dd>
                               </dl>
+                            </div>
+
+                            {/* Feature 036 — agent access, onboarding position and
+                                the agent-session summary. Read-only: nothing here
+                                revokes, mints or edits; revocation lives in the
+                                user's own Settings. Values are React text children
+                                throughout — agent names, agent ids and token names
+                                are self-reported by the OAuth client (dynamic
+                                registration is open), so they are attacker-
+                                controlled and must never be rendered as markup. */}
+                            <div className="admin-detail-section">
+                              <h4>Agent access</h4>
+                              {adoptionLoading ? (
+                                <div className="admin-detail-loading">Loading...</div>
+                              ) : adoptionFailed || !adoption ? (
+                                <div className="admin-detail-empty">Agent detail unavailable.</div>
+                              ) : (
+                                <>
+                                  <h5>Connected agents</h5>
+                                  {adoption.delegations.length === 0 ? (
+                                    <div className="admin-detail-empty">
+                                      This user has never connected an agent.
+                                    </div>
+                                  ) : (
+                                    <table className="admin-credits-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Agent</th><th>Scopes</th><th>Connected</th>
+                                          <th>Last used</th><th>State</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {adoption.delegations.map((d) => (
+                                          <tr key={d.id} className={d.state === 'active' ? '' : 'admin-credit-inactive'}>
+                                            <td>
+                                              <div>{d.agentName}</div>
+                                              {/* The self-reported client id, kept as
+                                                  the supporting line: two delegations
+                                                  can share a display name. */}
+                                              <div className="admin-cell-sub">{d.agentId}</div>
+                                            </td>
+                                            <td>{formatScopes(d.scopes)}</td>
+                                            <td>{formatDate(d.createdAt)}</td>
+                                            <td>{formatDateTime(d.lastUsedAt)}</td>
+                                            <td>
+                                              <span className={`admin-status-badge ${stateBadgeClass(d.state)}`}>
+                                                {d.state}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+
+                                  <h5>API tokens</h5>
+                                  {adoption.tokens.length === 0 ? (
+                                    <div className="admin-detail-empty">
+                                      This user has never minted an API token.
+                                    </div>
+                                  ) : (
+                                    <table className="admin-credits-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Name</th><th>Prefix</th><th>Scopes</th><th>Minted</th>
+                                          <th>Created</th><th>Last used</th><th>Expires</th><th>State</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {adoption.tokens.map((t) => (
+                                          <tr key={t.id} className={t.state === 'active' ? '' : 'admin-credit-inactive'}>
+                                            <td>{t.name}</td>
+                                            {/* The non-secret prefix. There is no full
+                                                token value in this payload at all. */}
+                                            <td className="admin-token-prefix">{t.tokenPrefix}</td>
+                                            <td>{formatScopes(t.scopes)}</td>
+                                            <td>{t.mintPath === 'agent' ? 'By an agent' : 'Interactively'}</td>
+                                            <td>{formatDate(t.createdAt)}</td>
+                                            <td>{formatDateTime(t.lastUsedAt)}</td>
+                                            <td>{t.expiresAt ? formatDate(t.expiresAt) : '—'}</td>
+                                            <td>
+                                              <span className={`admin-status-badge ${stateBadgeClass(t.state)}`}>
+                                                {t.state}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </>
+                              )}
+                            </div>
+
+                            <div className="admin-detail-section">
+                              <h4>Onboarding</h4>
+                              {adoptionLoading ? (
+                                <div className="admin-detail-loading">Loading...</div>
+                              ) : adoptionFailed || !adoption ? (
+                                <div className="admin-detail-empty">Onboarding detail unavailable.</div>
+                              ) : (
+                                <dl className="admin-origin-list">
+                                  <dt>Signed up</dt>
+                                  <dd>
+                                    {formatDate(adoption.onboarding.signupAt)}
+                                    {' via '}
+                                    {adoption.onboarding.signupSource === 'agent_oauth'
+                                      ? 'agent OAuth'
+                                      : 'the browser'}
+                                  </dd>
+                                  <dt>Onboarding completed</dt>
+                                  <dd>
+                                    {adoption.onboarding.onboardedAt
+                                      ? formatDate(adoption.onboarding.onboardedAt)
+                                      : 'Not yet'}
+                                  </dd>
+                                  <dt>Authored a real document</dt>
+                                  <dd>{adoption.onboarding.authoredRealDocument ? 'Yes' : 'No'}</dd>
+                                  <dt>Welcome email</dt>
+                                  <dd>
+                                    {adoption.onboarding.welcomeEmailSentAt
+                                      ? `Sent ${formatDate(adoption.onboarding.welcomeEmailSentAt)}`
+                                      : 'Not sent'}
+                                  </dd>
+                                </dl>
+                              )}
+                            </div>
+
+                            {/* The heading is contractual, not decoration: this log
+                                records ONLY delegation-authenticated MCP calls, so
+                                sk_sqd_ token traffic and REST import/export never
+                                appear in it. Presenting it as total activity would
+                                make a busy token-only user look dormant. */}
+                            <div className="admin-detail-section">
+                              <h4>Agent sessions (OAuth-delegated MCP calls)</h4>
+                              {adoptionLoading ? (
+                                <div className="admin-detail-loading">Loading...</div>
+                              ) : adoptionFailed || !adoption ? (
+                                <div className="admin-detail-empty">Activity summary unavailable.</div>
+                              ) : (
+                                <>
+                                  <dl className="admin-origin-list">
+                                    <dt>Recorded actions</dt>
+                                    <dd>{adoption.activity.count}</dd>
+                                    <dt>Most recent</dt>
+                                    <dd>{formatDateTime(adoption.activity.lastActivityAt)}</dd>
+                                  </dl>
+                                  <div className="admin-detail-note">
+                                    Counts only calls made over an OAuth agent delegation.
+                                    Work done with an <code>sk_sqd_</code> API token, and REST
+                                    import/export traffic, is not recorded here — see each
+                                    token’s Last used above for that.
+                                  </div>
+                                </>
+                              )}
                             </div>
 
                             <div className="admin-detail-section">

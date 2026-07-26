@@ -316,3 +316,208 @@ describe('AdminPage — per-user chat model override (feature 035)', () => {
     expect(within(section).queryByRole('combobox')).toBeNull();
   });
 });
+
+/**
+ * Feature 036 — the per-user agent-access, onboarding and activity panels in
+ * the expanded row.
+ *
+ * The value of the panel is that it distinguishes live access from dead access
+ * and says honestly what the activity number covers, so those are what the
+ * tests pin — along with the isolation guarantee: the adoption fetch is a third
+ * independent call, and its failure must not take the neighbouring panels with
+ * it (FR-012).
+ */
+describe('AdminPage — per-user adoption detail (feature 036)', () => {
+  const subject = { ...captured, id: 'user-adoption', email: 'adoption@example.com' };
+
+  const adoptionPayload = {
+    delegations: [
+      {
+        id: 'del-1', agentName: 'Claude Code', agentId: 'claude-code', isRegistered: true,
+        scopes: ['documents:read', 'documents:write'],
+        createdAt: '2026-01-02T00:00:00.000Z', lastUsedAt: '2026-07-20T09:30:00.000Z',
+        revokedAt: null, expiresAt: null, state: 'active',
+      },
+      {
+        id: 'del-2', agentName: 'Retired Agent', agentId: 'retired-agent', isRegistered: false,
+        scopes: ['documents:read'],
+        createdAt: '2026-02-02T00:00:00.000Z', lastUsedAt: null,
+        revokedAt: '2026-03-03T00:00:00.000Z', expiresAt: null, state: 'revoked',
+      },
+    ],
+    tokens: [
+      {
+        id: 'tok-1', name: 'Laptop token', tokenPrefix: 'sk_sqd_aaa', scopes: ['documents:read'],
+        createdAt: '2026-04-01T00:00:00.000Z', lastUsedAt: '2026-07-25T08:00:00.000Z',
+        revokedAt: null, expiresAt: null, state: 'active', mintPath: 'interactive',
+      },
+      {
+        id: 'tok-2', name: 'Agent-minted token', tokenPrefix: 'sk_sqd_bbb', scopes: ['documents:write'],
+        createdAt: '2026-04-02T00:00:00.000Z', lastUsedAt: null,
+        revokedAt: null, expiresAt: '2026-05-01T00:00:00.000Z', state: 'expired', mintPath: 'agent',
+      },
+    ],
+    onboarding: {
+      signupSource: 'agent_oauth',
+      signupAt: '2026-01-01T00:00:00.000Z',
+      onboardedAt: '2026-01-05T00:00:00.000Z',
+      authoredRealDocument: true,
+      welcomeEmailSentAt: null,
+    },
+    activity: { count: 42, lastActivityAt: '2026-07-24T12:00:00.000Z' },
+  };
+
+  const emptyPayload = {
+    delegations: [],
+    tokens: [],
+    onboarding: {
+      signupSource: 'browser', signupAt: '2026-07-01T00:00:00.000Z',
+      onboardedAt: null, authoredRealDocument: false, welcomeEmailSentAt: null,
+    },
+    activity: { count: 0, lastActivityAt: null },
+  };
+
+  // `adoption` defaults to the rich payload; pass null to make that ONE call
+  // fail while the others still resolve.
+  const mockWith = (adoption) => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') return Promise.resolve({ data: { users: [subject] } });
+      if (url === '/api/admin/settings/shared-model') return Promise.reject(new Error('not available'));
+      if (url.endsWith('/extra-credits')) return Promise.resolve({ data: { credits: [] } });
+      if (url.endsWith('/sharing')) return Promise.resolve({ data: { invites: [], shares: [] } });
+      if (url.endsWith('/adoption')) {
+        return adoption ? Promise.resolve({ data: adoption }) : Promise.reject(new Error('boom'));
+      }
+      return Promise.reject(new Error('not available'));
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const expandRow = async () => {
+    const user = userEvent.setup();
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+    const row = (await screen.findByText('adoption@example.com')).closest('tr');
+    await user.click(within(row).getByLabelText(/Expand details/i));
+    return user;
+  };
+
+  const sectionFor = async (heading) =>
+    (await screen.findByText(heading)).closest('.admin-detail-section');
+
+  it('fetches the adoption detail on expand, not with the user list', async () => {
+    mockWith(adoptionPayload);
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+    await screen.findByText('adoption@example.com');
+
+    // The list is loaded; nothing has asked for adoption yet (FR-007).
+    expect(mockGet).not.toHaveBeenCalledWith('/api/admin/users/user-adoption/adoption');
+
+    const row = screen.getByText('adoption@example.com').closest('tr');
+    await userEvent.setup().click(within(row).getByLabelText(/Expand details/i));
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/admin/users/user-adoption/adoption'));
+  });
+
+  it('lists revoked delegations alongside active ones, each state-labelled', async () => {
+    mockWith(adoptionPayload);
+    await expandRow();
+    const section = await sectionFor('Agent access');
+
+    // Lifetime semantics: the dead delegation is present, not filtered out.
+    expect(within(section).getByText('Claude Code')).toBeInTheDocument();
+    expect(within(section).getByText('Retired Agent')).toBeInTheDocument();
+
+    const activeRow = within(section).getByText('Claude Code').closest('tr');
+    expect(within(activeRow).getByText('active')).toBeInTheDocument();
+    const revokedRow = within(section).getByText('Retired Agent').closest('tr');
+    expect(within(revokedRow).getByText('revoked')).toBeInTheDocument();
+  });
+
+  it('shows each token by name and non-secret prefix, with its mint path', async () => {
+    mockWith(adoptionPayload);
+    await expandRow();
+    const section = await sectionFor('Agent access');
+
+    const interactive = within(section).getByText('Laptop token').closest('tr');
+    expect(within(interactive).getByText('sk_sqd_aaa')).toBeInTheDocument();
+    expect(within(interactive).getByText('Interactively')).toBeInTheDocument();
+
+    const agentMinted = within(section).getByText('Agent-minted token').closest('tr');
+    expect(within(agentMinted).getByText('By an agent')).toBeInTheDocument();
+    expect(within(agentMinted).getByText('expired')).toBeInTheDocument();
+  });
+
+  it('reports the onboarding position, including the signup path', async () => {
+    mockWith(adoptionPayload);
+    await expandRow();
+    const section = await sectionFor('Onboarding');
+
+    expect(within(section).getByText(/via agent OAuth/)).toBeInTheDocument();
+    expect(within(section).getByText('Yes')).toBeInTheDocument();
+    expect(within(section).getByText('Not sent')).toBeInTheDocument();
+  });
+
+  it('labels the activity summary as OAuth-delegated calls and points at token last-used', async () => {
+    mockWith(adoptionPayload);
+    await expandRow();
+
+    // The heading must not claim to cover all agent traffic: the log records
+    // only delegation-authenticated MCP calls.
+    const section = await sectionFor('Agent sessions (OAuth-delegated MCP calls)');
+    expect(within(section).getByText('42')).toBeInTheDocument();
+    expect(within(section).getByText(/sk_sqd_/)).toBeInTheDocument();
+    expect(within(section).getByText(/Last used/)).toBeInTheDocument();
+  });
+
+  it('renders plain empty states for a user who never connected anything', async () => {
+    mockWith(emptyPayload);
+    await expandRow();
+    const section = await sectionFor('Agent access');
+
+    expect(within(section).getByText('This user has never connected an agent.')).toBeInTheDocument();
+    expect(within(section).getByText('This user has never minted an API token.')).toBeInTheDocument();
+
+    const onboarding = await sectionFor('Onboarding');
+    expect(within(onboarding).getByText('Not yet')).toBeInTheDocument();
+  });
+
+  it('a failed adoption fetch degrades to a note and leaves the other panels intact', async () => {
+    mockWith(null);
+    await expandRow();
+
+    const section = await sectionFor('Agent access');
+    expect(within(section).getByText('Agent detail unavailable.')).toBeInTheDocument();
+
+    // The neighbouring panels loaded from their own independent calls.
+    const sharing = await sectionFor('Sharing activity');
+    expect(within(sharing).getByText('No invites sent.')).toBeInTheDocument();
+    expect(screen.getByText('No extra credit records.')).toBeInTheDocument();
+    expect(screen.getByText('Sign-in origin')).toBeInTheDocument();
+  });
+
+  it('renders agent and token names as text, never as markup', async () => {
+    const hostile = {
+      ...adoptionPayload,
+      delegations: [{
+        ...adoptionPayload.delegations[0],
+        agentName: '<img src=x onerror="alert(1)">',
+        agentId: '<script>alert(2)</script>',
+      }],
+      tokens: [{ ...adoptionPayload.tokens[0], name: '<b>bold token</b>' }],
+    };
+    mockWith(hostile);
+    await expandRow();
+    const section = await sectionFor('Agent access');
+
+    // Self-reported by the OAuth client (dynamic registration is open), so the
+    // values are attacker-controlled: they must survive as literal text.
+    expect(within(section).getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+    expect(within(section).getByText('<script>alert(2)</script>')).toBeInTheDocument();
+    expect(within(section).getByText('<b>bold token</b>')).toBeInTheDocument();
+    expect(section.querySelector('img')).toBeNull();
+    expect(section.querySelector('script')).toBeNull();
+  });
+});
