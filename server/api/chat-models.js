@@ -59,12 +59,10 @@ const MODEL_DEFS = [
   // set these become eligible as the shared assistant default (feature 026); a BYOK
   // user can also select them, billed to their own OpenRouter account. pricing (cents
   // per 1M tokens = catalog USD/token × 10^8) and context windows are read straight
-  // from OpenRouter's models API (openrouter.ai/api/v1/models). The Kimi/Qwen/MiniMax/
-  // GLM entries carry the 2026-07-21 authoring snapshot; the families added below
-  // carry a 2026-07-26 one. Refresh all gateway entries together off ONE snapshot
-  // when next revisited so metering stays consistent — as of 2026-07-26 the catalog
-  // had drifted on or-kimi-k2.7-code (78/350), or-kimi-k2.6 (64.6/272) and
-  // or-glm-5.2 (71.96/226.16), and the GLM-4.6/4.7 context is now 204_800.
+  // from OpenRouter's models API (openrouter.ai/api/v1/models). All gateway entries
+  // carry the 2026-07-26 snapshot (coordinated refresh; every entry re-verified off
+  // one catalog fetch). Refresh all gateway entries together off ONE snapshot when
+  // next revisited so metering stays consistent.
   //
   // Every model below must support tool calling (`tools` in the catalog's
   // supported_parameters) — the assistant drives its whole document workflow through
@@ -88,17 +86,17 @@ const MODEL_DEFS = [
   { key: 'or-kimi-k3',         provider: 'openrouter', modelId: 'moonshotai/kimi-k3',        label: 'Kimi K3',                       pricing: { input: 300,    output: 1500 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   // Kimi K2 series (Sam's ask, 2026-07-21): the current-generation K2 line.
   // Older snapshots (kimi-k2, kimi-k2-0905) are deliberately omitted as superseded.
-  { key: 'or-kimi-k2.7-code',  provider: 'openrouter', modelId: 'moonshotai/kimi-k2.7-code', label: 'Kimi K2.7 Code',                pricing: { input:  82,    output:  375 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
-  { key: 'or-kimi-k2.6',       provider: 'openrouter', modelId: 'moonshotai/kimi-k2.6',      label: 'Kimi K2.6',                     pricing: { input:  68.4,  output:  342 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-kimi-k2.7-code',  provider: 'openrouter', modelId: 'moonshotai/kimi-k2.7-code', label: 'Kimi K2.7 Code',                pricing: { input:  78,    output:  350 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-kimi-k2.6',       provider: 'openrouter', modelId: 'moonshotai/kimi-k2.6',      label: 'Kimi K2.6',                     pricing: { input:  64.6,  output:  272 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-kimi-k2.5',       provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5',      label: 'Kimi K2.5',                     pricing: { input:  57,    output:  285 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-kimi-k2-thinking', provider: 'openrouter', modelId: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking',           pricing: { input:  60,    output:  250 },   contextWindow:   262_144 }, // text-only per catalog
   { key: 'or-qwen3.7-max',     provider: 'openrouter', modelId: 'qwen/qwen3.7-max',          label: 'Qwen3.7 Max',                   pricing: { input: 147.5,  output: 442.5 },  contextWindow: 1_000_000 }, // text-only per catalog
   { key: 'or-qwen3.7-plus',    provider: 'openrouter', modelId: 'qwen/qwen3.7-plus',         label: 'Qwen3.7 Plus',                  pricing: { input:  32,    output:  128 },   contextWindow: 1_000_000 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-minimax-m3',      provider: 'openrouter', modelId: 'minimax/minimax-m3',        label: 'MiniMax M3',                    pricing: { input:  30,    output:  120 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
-  { key: 'or-glm-4.6',         provider: 'openrouter', modelId: 'z-ai/glm-4.6',              label: 'GLM-4.6',                       pricing: { input:  50,    output:  200 },   contextWindow:   202_752 },
-  { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40,    output:  175 },   contextWindow:   202_752 },
+  { key: 'or-glm-4.6',         provider: 'openrouter', modelId: 'z-ai/glm-4.6',              label: 'GLM-4.6',                       pricing: { input:  50,    output:  200 },   contextWindow:   204_800 },
+  { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40,    output:  175 },   contextWindow:   204_800 },
   { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  95,    output:  255 },   contextWindow:   204_800 },
-  { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  80.36, output:  252.56 }, contextWindow: 1_048_576 },
+  { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  71.96, output:  226.16 }, contextWindow: 1_048_576 },
   // Families added 2026-07-26 to broaden the gateway lineup beyond Moonshot/Qwen/
   // MiniMax/z.ai. Chosen off OpenRouter's live token-volume rankings (DeepSeek V4
   // Flash, Hy3 and MiMo V2.5 were all top-5 by 30-day tokens at authoring time) plus
