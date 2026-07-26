@@ -292,7 +292,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                 disabled={savingSharedModel}
               >
                 <option value="">
-                  Deployment default{sharedModel.modelKey === null ? ` (${modelLabel(sharedModel, sharedModel.effectiveModelKey)})` : ''}
+                  Deployment default ({modelLabel(sharedModel, sharedModel.deploymentDefaultKey ?? sharedModel.effectiveModelKey)})
                 </option>
                 {/* A stored default can outlive its provider's server key (rollback
                     path): keep the controlled value renderable and say what's

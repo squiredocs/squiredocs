@@ -50,6 +50,9 @@ router.get('/settings/shared-model', async (req, res) => {
     res.json({
       modelKey: storedKey,
       effectiveModelKey: resolveSharedDefaultKey(storedKey),
+      // What the default resolves to with no admin selection stored — shown in
+      // the picker's "Deployment default" label even while an override is set.
+      deploymentDefaultKey: resolveSharedDefaultKey(null),
       models: sharedDefaultModels(),
       providers: sharedDefaultProviders(),
     });
@@ -85,6 +88,7 @@ router.put('/settings/shared-model', async (req, res) => {
     res.json({
       modelKey: storedKey,
       effectiveModelKey: resolveSharedDefaultKey(storedKey),
+      deploymentDefaultKey: resolveSharedDefaultKey(null),
       models: sharedDefaultModels(),
       providers: sharedDefaultProviders(),
     });
