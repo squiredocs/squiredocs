@@ -29,8 +29,19 @@ sync_name = "app-sync"
 [mounts]
 # Comma-separated host dirs bound into the pod (read-only) at the SAME absolute
 # path, via `minikube mount` + hostPath — so a dragged file path (e.g. a
-# screenshot) resolves inside the pod. Tilde-expanded. The macOS screenshot
-# thumbnail temp dir is auto-added when present. Leave empty to disable.
+# screenshot) resolves inside the pod. Tilde-expanded. Leave empty to disable.
+#
+# Auto-added on macOS, so they don't need listing here:
+#   * the configured screenshot destination (com.apple.screencapture location),
+#     when it's been changed from the default ~/Desktop;
+#   * $TMPDIR/TemporaryItems — where a screenshot lives BEFORE it's saved, i.e.
+#     what you get when you drag the floating thumbnail straight into the pod;
+#   * /private/tmp, used by some apps to stage drag promises.
+#
+# These mounts are fragile by nature: `minikube mount` never reconnects, so a
+# reboot or `minikube stop/start` leaves them dead. `collab-devcontainer mounts
+# --install-agent` installs a LaunchAgent that re-establishes them automatically;
+# `collab-devcontainer mounts` heals them on demand.
 host_paths = "~/Desktop,~/Downloads"
 
 [git]
