@@ -335,6 +335,23 @@ describe('Agent Delegation Module', () => {
 
       expect(result).toEqual([]);
     });
+
+    // These rows are serialised straight to the user by
+    // GET /mcp/auth/delegations/:userId, so a `SELECT *` here put a
+    // password-equivalent refresh-token hash in an API response. Assert on the
+    // shape, not just the one column, so a future column added to the table is
+    // non-public until someone deliberately names it in the query.
+    test('never returns secret material', async () => {
+      await delegation.createDelegation(testUserId, 'secret-check', 'Secret Check');
+
+      const [row] = await delegation.listUserDelegations(testUserId);
+
+      expect(row).toBeDefined();
+      expect(row).not.toHaveProperty('refresh_token_hash');
+      for (const key of Object.keys(row)) {
+        expect(key).not.toMatch(/hash|secret|token_hash/i);
+      }
+    });
   });
 
   describe('updateLastUsed', () => {

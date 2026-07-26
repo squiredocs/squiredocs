@@ -104,12 +104,12 @@
       "**/?(*.)+(spec|test).js"
     ],
     "modulePathIgnorePatterns": [
-      "/.claude/worktrees/"
+      "<rootDir>/.claude/worktrees/"
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/client/",
-      "/.claude/worktrees/"
+      "<rootDir>/.claude/worktrees/"
     ],
     "transform": {
       "\\.[jt]sx?$": [

@@ -161,7 +161,17 @@ async function listUserDelegations(userId, options = {}) {
 
   const { includeRevoked = false } = options;
 
-  let query = 'SELECT * FROM agent_delegations WHERE user_id = $1';
+  // Explicit column list, NOT `SELECT *`: the sole caller serialises these rows
+  // straight to the user over /mcp/auth/delegations/:userId, and `SELECT *`
+  // carried `refresh_token_hash` into that response. A refresh-token hash is
+  // password-equivalent to an offline attacker and has no business leaving the
+  // server — even to the row's own owner, whose logs, extensions and shoulder
+  // are not part of our trust boundary. Anything added to this table is
+  // non-public until someone names it here.
+  let query = `SELECT id, user_id, agent_id, agent_name, agent_metadata, scopes,
+                      created_at, last_used_at, revoked_at, expires_at,
+                      refresh_token_version, agent_client_id, agent_instance_id
+               FROM agent_delegations WHERE user_id = $1`;
   if (!includeRevoked) {
     query += ' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())';
   }
