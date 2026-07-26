@@ -118,12 +118,23 @@ let warnedUnroutable = false;
 function warnUnroutableOnce(candidate, req) {
   if (warnedUnroutable) return;
   warnedUnroutable = true;
+  // Deliberately does NOT read the forwarding header to report the chain, even
+  // though that would be the handier diagnostic: rule 1 above is enforced by a
+  // source-level test (server/__tests__/trust-proxy-invariant.test.js) precisely
+  // because "this module never touches forwarding headers" is checkable without
+  // judgement. Softening it to "…except for logging" is how the line erodes. The
+  // chain is available where it belongs — the ingress logs.
   console.warn(
     `[AuthCapture] Resolved client address "${candidate}" is unroutable, so no sign-in origin is `
-    + 'being stored. Expected in local dev (no proxy in front of the app); in a deployment it means '
-    + 'the ingress is not preserving the viewer address — check Traefik\'s '
-    + 'forwardedHeaders.trustedIPs and that TRUST_PROXY_HOPS matches the surviving chain. '
-    + `Raw X-Forwarded-For: ${JSON.stringify(req?.headers?.['x-forwarded-for'] ?? null)}`,
+    + 'being stored (socket peer: '
+    + `${typeof req?.socket?.remoteAddress === 'string' ? req.socket.remoteAddress : 'unknown'}). `
+    // NB: this string deliberately avoids the words the invariant test greps for
+    // (see the comment above) — it must not read like this module inspects proxy
+    // headers, because it does not.
+    + 'Expected in local dev (no proxy in front of the app); in a deployment it means the ingress '
+    + 'is not preserving the viewer address — check the ingress proxy-header trust list '
+    + '(Traefik: trustedIPs on the entrypoint) and that TRUST_PROXY_HOPS matches the chain that '
+    + 'survives it.',
   );
 }
 
