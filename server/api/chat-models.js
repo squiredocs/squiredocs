@@ -33,13 +33,42 @@ const MODEL_DEFS = [
   { key: 'gemini-3-flash',     provider: 'google',    modelId: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash (Preview)',       pricing: { input:  50, output: 300 },  contextWindow: 1_048_576 },
   { key: 'gemini-3.1-pro',     provider: 'google',    modelId: 'gemini-3.1-pro-preview',     label: 'Gemini 3.1 Pro (Preview)',       pricing: { input: 200, output: 1200 }, contextWindow: 1_048_576 },
   { key: 'gemini-3.5-flash',   provider: 'google',    modelId: 'gemini-3.5-flash',           label: 'Gemini 3.5 Flash',              pricing: { input: 150, output: 900 },  contextWindow: 1_048_576 },
+  // Current-generation Gemini, verified 2026-07-26 against ai.google.dev/gemini-api/
+  // docs/pricing (paid-tier standard rates) and the per-model spec pages under
+  // ai.google.dev/gemini-api/docs/models/<id>. Both declare Function calling +
+  // Thinking, take text/image/video/audio/PDF input, and carry a 1,048,576-token
+  // input limit (65,536 output).
+  //   gemini-3.6-flash      $1.50 / $7.50 per 1M — the newest stable Flash
+  //   gemini-3.5-flash-lite $0.30 / $2.50 per 1M — cheapest current-gen tier
+  // Google is in VISION_PROVIDERS, so both accept image attachments.
+  // Google's own pricing/models pages still list every Gemini entry above as live;
+  // the models page's shut-down list (2.0 Flash / 2.0 Flash-Lite / Gemini 3 Pro
+  // Preview / Gemini 3.1 Flash-Lite Preview) names nothing this registry uses, so
+  // nothing is removed here.
+  { key: 'gemini-3.5-flash-lite', provider: 'google', modelId: 'gemini-3.5-flash-lite',      label: 'Gemini 3.5 Flash-Lite',         pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
+  { key: 'gemini-3.6-flash',   provider: 'google',    modelId: 'gemini-3.6-flash',           label: 'Gemini 3.6 Flash',              pricing: { input: 150, output: 750 },  contextWindow: 1_048_576 },
   // OpenAI models. There is no shared server OpenAI key, so these only run when
   // a user supplies their own (selectable in Settings once an OpenAI key is
   // stored; isByokActive enforces the key at request time). pricing in cents per
   // 1M tokens, from the official API pricing page
-  // (developers.openai.com/api/docs/pricing, June 2026). Reasoning (o-series /
-  // *-pro) models are intentionally omitted.
-  { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_000_000 },
+  // (developers.openai.com/api/docs/pricing). Reasoning (o-series / *-pro) models
+  // are intentionally omitted.
+  //
+  // GPT-5.6 (Sol / Terra / Luna) added 2026-07-26 — the current frontier family,
+  // verified off developers.openai.com/api/docs/pricing plus each model's page
+  // under /api/docs/models/<id>: all three take text+image input, support function
+  // calling, and carry a 1,050,000-token context window (128k max output). They
+  // accept reasoningEffort 'low', so the provider-level buildProviderOptions in
+  // ai-providers.js needs no per-model handling. The `gpt-5.6` alias routes to
+  // gpt-5.6-sol; we pin explicit ids so metering can't drift when the alias moves.
+  // GPT-5.5 / GPT-5.4 / GPT-5.4 mini are all still listed on the pricing page and
+  // absent from /api/docs/deprecations, so they stay (removing an entry would break
+  // any user whose byok_model_key names it). Their prices re-verified unchanged;
+  // gpt-5.5's context window is corrected below to the documented 1,050,000.
+  { key: 'gpt-5.6-sol',        provider: 'openai',    modelId: 'gpt-5.6-sol',                label: 'GPT-5.6 Sol',                   pricing: { input: 500, output: 3000 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.6-terra',      provider: 'openai',    modelId: 'gpt-5.6-terra',              label: 'GPT-5.6 Terra',                 pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.6-luna',       provider: 'openai',    modelId: 'gpt-5.6-luna',               label: 'GPT-5.6 Luna',                  pricing: { input: 100, output:  600 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000 },
   // z.ai (Zhipu) GLM models. Like OpenAI, there is no shared server z.ai key, so
