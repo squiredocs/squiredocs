@@ -22,6 +22,12 @@ const MODEL_DEFS = [
   // record standard $3/$15 list pricing so metering stays correct after it lapses.
   { key: 'claude-sonnet-5',    provider: 'anthropic', modelId: 'claude-sonnet-5',           label: 'Claude Sonnet 5',               pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
   { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 200_000 },
+  // Claude 5 family (pricing + limits from platform.claude.com/docs/en/about-claude/pricing
+  // and .../models/overview, verified 2026-07-26): Opus 5 $5/$25 per 1M, Fable 5 $10/$50
+  // per 1M; both ship a 1M-token context window at standard pricing and 128k max output,
+  // and both accept image input (vision is derived from the anthropic provider below).
+  { key: 'claude-opus-5',      provider: 'anthropic', modelId: 'claude-opus-5',              label: 'Claude Opus 5',                 pricing: { input: 500, output: 2500 }, contextWindow: 1_000_000 },
+  { key: 'claude-fable-5',     provider: 'anthropic', modelId: 'claude-fable-5',             label: 'Claude Fable 5',                pricing: { input: 1000, output: 5000 }, contextWindow: 1_000_000 },
   { key: 'gemini-2.5-flash',   provider: 'google',    modelId: 'gemini-2.5-flash',           label: 'Gemini 2.5 Flash',              pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
   { key: 'gemini-2.5-pro',     provider: 'google',    modelId: 'gemini-2.5-pro',             label: 'Gemini 2.5 Pro',                pricing: { input: 125, output: 1000 }, contextWindow: 1_048_576 },
   { key: 'gemini-3-flash',     provider: 'google',    modelId: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash (Preview)',       pricing: { input:  50, output: 300 },  contextWindow: 1_048_576 },
