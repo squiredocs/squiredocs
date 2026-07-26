@@ -22,8 +22,22 @@
  *     precisely what FR-008 forbids. Anything that fails `net.isIP()` becomes
  *     `null` here, before it can ever reach a bind parameter.
  *
- * Pure, synchronous, no I/O, no logging, and never throws — a null or malformed
- * `req` yields `{ ip: null, userAgent: null }`.
+ *  3. MUST NOT store an unroutable address. Discovered in prod 2026-07-26: every
+ *     capture was `10.42.0.1`, the k3s pod-network gateway. Traefik replaces
+ *     `X-Forwarded-For` with the peer address unless the peer is in its
+ *     `forwardedHeaders.trustedIPs`, and behind klipper-lb the peer is always an
+ *     in-cluster address — so CloudFront's viewer IP was discarded before Express
+ *     ever saw it, and no `trust proxy` hop count could have recovered it. Storing
+ *     that value is WORSE than storing nothing: it is identical for every user, so
+ *     it would make the whole user base look like one shared-IP cluster and defeat
+ *     the exact correlation this capture exists for. Unroutable ⇒ null, plus one
+ *     warning per process naming the misconfiguration.
+ *
+ * Synchronous, never throws, no I/O — a null or malformed `req` yields
+ * `{ ip: null, userAgent: null }`. The single warning is the one exception to the
+ * no-logging rule, and it is deliberate: a silent null here looks identical to
+ * "user has no capture yet", which is how this went unnoticed until the data was
+ * inspected by hand.
  */
 const net = require('node:net');
 
@@ -61,7 +75,56 @@ function extractIp(req) {
   // strip the zone.
   if (candidate.includes('%')) return null;
   // net.isIP returns 0 for anything that is not a bare IPv4/IPv6 literal.
-  return net.isIP(candidate) === 0 ? null : candidate;
+  if (net.isIP(candidate) === 0) return null;
+  if (isUnroutable(candidate)) {
+    warnUnroutableOnce(candidate, req);
+    return null;
+  }
+  return candidate;
+}
+
+/**
+ * Whether an address can never belong to an internet client — loopback, private
+ * (RFC1918), link-local, carrier-grade NAT, IPv6 unique-local, or unspecified.
+ * Reaching one of these means the request's real origin was lost upstream.
+ * @param {string} ip A value already known to be a bare IP literal.
+ * @returns {boolean}
+ */
+function isUnroutable(ip) {
+  // An IPv4-mapped IPv6 address ('::ffff:10.42.0.1') carries a v4 address and
+  // must be judged as one, not by its v6 prefix.
+  const lower = ip.toLowerCase();
+  const bare = lower.startsWith('::ffff:') ? lower.slice('::ffff:'.length) : lower;
+
+  if (net.isIP(bare) === 4) {
+    const [a, b] = bare.split('.').map(Number);
+    if (a === 0 || a === 127) return true;              // unspecified, loopback
+    if (a === 10) return true;                          // RFC1918
+    if (a === 172 && b >= 16 && b <= 31) return true;   // RFC1918
+    if (a === 192 && b === 168) return true;            // RFC1918
+    if (a === 169 && b === 254) return true;            // link-local
+    if (a === 100 && b >= 64 && b <= 127) return true;  // CGNAT (RFC6598)
+    return false;
+  }
+
+  if (bare === '::' || bare === '::1') return true;     // unspecified, loopback
+  if (/^fe[89ab]/.test(bare)) return true;              // fe80::/10 link-local
+  if (/^f[cd]/.test(bare)) return true;                 // fc00::/7 unique-local
+  return false;
+}
+
+/** Once per process — this is a deployment misconfiguration, not a per-request event. */
+let warnedUnroutable = false;
+function warnUnroutableOnce(candidate, req) {
+  if (warnedUnroutable) return;
+  warnedUnroutable = true;
+  console.warn(
+    `[AuthCapture] Resolved client address "${candidate}" is unroutable, so no sign-in origin is `
+    + 'being stored. Expected in local dev (no proxy in front of the app); in a deployment it means '
+    + 'the ingress is not preserving the viewer address — check Traefik\'s '
+    + 'forwardedHeaders.trustedIPs and that TRUST_PROXY_HOPS matches the surviving chain. '
+    + `Raw X-Forwarded-For: ${JSON.stringify(req?.headers?.['x-forwarded-for'] ?? null)}`,
+  );
 }
 
 /**
