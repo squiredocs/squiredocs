@@ -53,20 +53,38 @@ const MODEL_DEFS = [
   { key: 'glm-5',              provider: 'zai',       modelId: 'glm-5',                      label: 'GLM-5',                         pricing: { input: 100, output:  320 }, contextWindow:   200_000 },
   { key: 'glm-5.2',            provider: 'zai',       modelId: 'glm-5.2',                    label: 'GLM-5.2',                       pricing: { input: 140, output:  440 }, contextWindow: 1_000_000 },
   // OpenRouter — an OpenAI-compatible gateway. Model ids are namespaced
-  // (`z-ai/glm-*`, `moonshotai/*`, `qwen/*`, `minimax/*`); like z.ai it only
-  // implements chat-completions, so the provider's createModel hook forces the chat
-  // model. When OPENROUTER_API_KEY is set these become eligible as the shared
-  // assistant default (feature 026); a BYOK user can also select them, billed to
-  // their own OpenRouter account. pricing (cents per 1M tokens = catalog USD/token ×
-  // 10^8) and context windows are read straight from OpenRouter's models API
-  // (openrouter.ai/api/v1/models), authoring snapshot 2026-07-21. Refresh all
-  // gateway entries together off one snapshot so metering stays consistent.
+  // (`z-ai/glm-*`, `moonshotai/*`, `qwen/*`, `minimax/*`, `deepseek/*`, `xiaomi/*`,
+  // `tencent/*`, `meta-llama/*`); like z.ai it only implements chat-completions, so
+  // the provider's createModel hook forces the chat model. When OPENROUTER_API_KEY is
+  // set these become eligible as the shared assistant default (feature 026); a BYOK
+  // user can also select them, billed to their own OpenRouter account. pricing (cents
+  // per 1M tokens = catalog USD/token × 10^8) and context windows are read straight
+  // from OpenRouter's models API (openrouter.ai/api/v1/models). The Kimi/Qwen/MiniMax/
+  // GLM entries carry the 2026-07-21 authoring snapshot; the families added below
+  // carry a 2026-07-26 one. Refresh all gateway entries together off ONE snapshot
+  // when next revisited so metering stays consistent — as of 2026-07-26 the catalog
+  // had drifted on or-kimi-k2.7-code (78/350), or-kimi-k2.6 (64.6/272) and
+  // or-glm-5.2 (71.96/226.16), and the GLM-4.6/4.7 context is now 204_800.
+  //
+  // Every model below must support tool calling (`tools` in the catalog's
+  // supported_parameters) — the assistant drives its whole document workflow through
+  // tools, so a non-tool model is useless here regardless of how it benchmarks.
   //
   // Vision: openrouter is not in VISION_PROVIDERS, so every entry below is text-only
   // and rides the honest model_no_image_support gate. The catalog declares `image`
   // input on kimi-k3 / qwen3.7-plus / minimax-m3, but with no funded shared key to
   // verify a live image round-trip (feature 026 D5/C1, fail-closed), they ship
   // text-only. Flip supportsImages:true per entry only after the go-live round-trip.
+  // The families added below are text-only in the catalog itself, so for them
+  // supportsImages:false is the honest declaration and not a deferred verification.
+  //
+  // Reasoning: several of these (DeepSeek V4, Hy3, MiMo) stream a chain of thought.
+  // That needs no per-model handling — openrouter already declares
+  // stripReasoningFromHistory at the PROVIDER level (ai-providers.js), so reasoning
+  // is dropped from outgoing history for every gateway entry, and
+  // buildProviderOptions sends no reasoning config, leaving each model on its own
+  // default effort. Keep it that way: a model that would need NEW normalization code
+  // does not belong in this list.
   { key: 'or-kimi-k3',         provider: 'openrouter', modelId: 'moonshotai/kimi-k3',        label: 'Kimi K3',                       pricing: { input: 300,    output: 1500 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   // Kimi K2 series (Sam's ask, 2026-07-21): the current-generation K2 line.
   // Older snapshots (kimi-k2, kimi-k2-0905) are deliberately omitted as superseded.
@@ -81,6 +99,31 @@ const MODEL_DEFS = [
   { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40,    output:  175 },   contextWindow:   202_752 },
   { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  95,    output:  255 },   contextWindow:   204_800 },
   { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  80.36, output:  252.56 }, contextWindow: 1_048_576 },
+  // Families added 2026-07-26 to broaden the gateway lineup beyond Moonshot/Qwen/
+  // MiniMax/z.ai. Chosen off OpenRouter's live token-volume rankings (DeepSeek V4
+  // Flash, Hy3 and MiMo V2.5 were all top-5 by 30-day tokens at authoring time) plus
+  // price-per-capability; all are current, non-deprecated, tool-calling endpoints.
+  //
+  // DeepSeek V4 (2026-04-24): 1M-token context, text-only. Pro is the frontier
+  // reasoning/coding tier; Flash is the efficiency tier and the better default for
+  // ordinary tool-driven document work at ~1/3 the price.
+  { key: 'or-deepseek-v4-pro', provider: 'openrouter', modelId: 'deepseek/deepseek-v4-pro',  label: 'DeepSeek V4 Pro',               pricing: { input:  43.5,  output:   87 },   contextWindow: 1_048_576 },
+  { key: 'or-deepseek-v4-flash', provider: 'openrouter', modelId: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash',          pricing: { input:  14,    output:   28 },   contextWindow: 1_048_576 },
+  // Xiaomi's flagship, strong on agentic/long-horizon work. The sibling
+  // `xiaomi/mimo-v2.5` is omnimodal; we take the text-only Pro so the text-only
+  // declaration below is the model's own nature rather than a gateway limitation.
+  { key: 'or-mimo-v2.5-pro',   provider: 'openrouter', modelId: 'xiaomi/mimo-v2.5-pro',      label: 'MiMo-V2.5-Pro',                 pricing: { input:  43.5,  output:   87 },   contextWindow: 1_050_000 },
+  // Tencent's agentic MoE (295B total / 21B active). Cheapest input of the capable
+  // tier here. Labelled with its vendor since the bare product name isn't
+  // self-identifying the way Kimi/Qwen/GLM are.
+  { key: 'or-hy3',             provider: 'openrouter', modelId: 'tencent/hy3',               label: 'Tencent Hy3',                   pricing: { input:  13.2,  output:   52.8 }, contextWindow:   262_144 },
+  // Deliberately minimal tier. Llama 3.1 8B is a 2024-era small model — weak by
+  // current standards, and that is the point: it is the floor option for accounts an
+  // admin wants to keep functional but cheap (see the per-user model override). It is
+  // kept in the list because it still WORKS end to end — native tool calling, ordinary
+  // streaming, and one of the most widely served, most reliable endpoints on the
+  // gateway. Do not swap it for something cheaper that can't hold a tool call.
+  { key: 'or-llama-3.1-8b',    provider: 'openrouter', modelId: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B Instruct',  pricing: { input:   5,    output:    8 },   contextWindow:   131_072 },
 ];
 
 // Vision support. Anthropic/Google/OpenAI models all accept image input; the
