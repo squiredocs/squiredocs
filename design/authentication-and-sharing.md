@@ -32,6 +32,9 @@ The only sign-in path is Google OAuth (`server/auth/google.js`, routes in `serve
 - Coverage: browser OAuth callback, agent OAuth, and the dev-only login bypass — all paths flow through the same two user-store helpers. Token refresh is deliberately NOT logged (it is a background rotation every ~15 min, not a human sign-in; logging it would drown the signal in noise).
 - Exposure: admin area only (admin user list shows signup/last-login IP + UA). Never surfaced to non-admin users or in any public API.
 - Privacy: the privacy policy discloses IP/UA collection at signup and sign-in for security and abuse prevention. `auth_events` rows older than 180 days are purged (the denormalized users columns are kept while the account exists); rows delete with the user via FK cascade.
+- Event semantics (034 as built): only completed signups/logins are recorded — failed or abandoned auth attempts append nothing. On `login` rows, `signup_source` records the channel of that event itself (`browser` | `agent_oauth`; dev-login records `browser`), not the channel the account originally signed up through.
+- Trail writer: the single `auth_events` row per completed auth is written by `updateLastLogin` (`event = isNew ? 'signup' : 'login'`) — every auth path calls both user-store helpers once, so writing from both would double-count signups.
+- Purge mechanism: in-process — a boot-time sweep plus a daily `setInterval` owned by `server/auth/auth-events.js` (unref()’d; stopped via the shutdown path). There is no external scheduler; multiple replicas are harmless because the DELETE is set-based and idempotent.
 
 ## Document roles and enforcement
 
