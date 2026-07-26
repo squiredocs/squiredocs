@@ -107,3 +107,49 @@ describe('AdminPage — sign-in origin columns (feature 034)', () => {
     expect(emptyCell).toHaveTextContent('—');
   });
 });
+
+describe('AdminPage — shared model picker prices', () => {
+  const sharedModel = {
+    modelKey: null,
+    effectiveModelKey: 'claude-opus-5',
+    deploymentDefaultKey: 'claude-opus-5',
+    providers: [{ id: 'anthropic', label: 'Anthropic' }],
+    models: [
+      // pricing is cents per 1M tokens, as the registry stores it.
+      { key: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic', pricing: { input: 500, output: 2500 } },
+      { key: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'anthropic', pricing: { input: 30, output: 250 } },
+      { key: 'free-model', label: 'Free Model', provider: 'anthropic', pricing: { input: 0, output: 0 } },
+      { key: 'no-price', label: 'No Price', provider: 'anthropic' },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') return Promise.resolve({ data: { users: [captured] } });
+      if (url === '/api/admin/settings/shared-model') return Promise.resolve({ data: sharedModel });
+      return Promise.reject(new Error('not available'));
+    });
+  });
+
+  const renderPage = () =>
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+
+  it('shows each option price in dollars per 1M tokens', async () => {
+    renderPage();
+    expect(await screen.findByText('Claude Opus 5 — $5/$25 per 1M')).toBeInTheDocument();
+    // Sub-dollar prices keep their cents.
+    expect(screen.getByText('Gemini 2.5 Flash — $0.30/$2.50 per 1M')).toBeInTheDocument();
+  });
+
+  it('renders zero and missing pricing without $NaN or $0/$0', async () => {
+    renderPage();
+    expect(await screen.findByText('Free Model — free')).toBeInTheDocument();
+    expect(screen.getByText('No Price')).toBeInTheDocument();
+  });
+
+  it('keeps the deployment-default label price-free', async () => {
+    renderPage();
+    expect(await screen.findByText('Deployment default (Claude Opus 5)')).toBeInTheDocument();
+  });
+});

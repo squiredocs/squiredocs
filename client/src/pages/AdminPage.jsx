@@ -125,9 +125,25 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
     `Last login ${u.lastLoginIp || '—'} · ${u.lastLoginUserAgent || 'no user-agent recorded'}`,
   ].join('\n');
 
-  // Human label for a model key from the shared-model settings payload.
+  // Human label for a model key from the shared-model settings payload. Stays
+  // price-free — it's used mid-sentence ("Deployment default (…)").
   const modelLabel = (settings, key) =>
     settings?.models.find((m) => m.key === key)?.label || key;
+
+  // Registry pricing is cents per 1M tokens, so 500 → "$5" and 30 → "$0.30".
+  // Whole dollars drop the decimals so the list stays scannable.
+  const pricePerMTok = (cents) =>
+    (cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`);
+
+  // Picker option text: "Claude Opus 5 — $5/$25 per 1M" (input/output). A model
+  // with no pricing in the registry renders label-only rather than "$NaN", and a
+  // genuinely free one reads "free" instead of "$0/$0" noise.
+  const modelOptionLabel = (m) => {
+    const p = m.pricing;
+    if (!p || !Number.isFinite(p.input) || !Number.isFinite(p.output)) return m.label;
+    if (p.input === 0 && p.output === 0) return `${m.label} — free`;
+    return `${m.label} — ${pricePerMTok(p.input)}/${pricePerMTok(p.output)} per 1M`;
+  };
 
   // -- Expand/collapse extra credits --
 
@@ -315,7 +331,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                     {sharedModel.models
                       .filter((m) => m.provider === p.id)
                       .map((m) => (
-                        <option key={m.key} value={m.key}>{m.label}</option>
+                        <option key={m.key} value={m.key}>{modelOptionLabel(m)}</option>
                       ))}
                   </optgroup>
                 ))}

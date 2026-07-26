@@ -21,9 +21,19 @@ function init(dbPool) {
  * Models eligible to back the shared-assistant default: those whose provider has
  * a shared server key in this deployment (BYOK-only providers are excluded, since
  * the shared assistant has no user key to run them on).
+ *
+ * Each entry carries the registry's `pricing` (cents per 1M tokens, e.g. 500 →
+ * $5/1M) alongside the getAvailableModels() fields, so the admin picker can show
+ * what a model costs while it's being chosen. Registry entries without pricing
+ * simply omit the field; the client renders those label-only.
  */
 function sharedDefaultModels() {
-  return getAvailableModels().filter((m) => hasServerKey(m.provider));
+  return getAvailableModels()
+    .filter((m) => hasServerKey(m.provider))
+    .map((m) => {
+      const pricing = MODEL_DEFS.find((d) => d.key === m.key)?.pricing;
+      return pricing ? { ...m, pricing: { input: pricing.input, output: pricing.output } } : m;
+    });
 }
 
 /**

@@ -595,6 +595,12 @@ describe('Admin API', () => {
       const providers = response.body.models.map((m) => m.provider);
       expect(providers).toContain('anthropic');
       expect(providers).not.toContain('openai');
+
+      // Pricing rides along so the picker can show cost per model (cents per 1M
+      // tokens, straight from the registry).
+      const opus = response.body.models.find((m) => m.key === 'claude-opus');
+      expect(opus.label).toBe('Claude Opus 4.8');
+      expect(opus.pricing).toEqual({ input: 500, output: 2500 });
     });
 
     test('PUT sets and clears the shared default', async () => {
