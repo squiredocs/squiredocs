@@ -333,13 +333,13 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
   const adoptionPayload = {
     delegations: [
       {
-        id: 'del-1', agentName: 'Claude Code', agentId: 'claude-code', isRegistered: true,
+        id: 'del-1', agentName: 'Claude Code', agentClientId: 'claude-code',
         scopes: ['documents:read', 'documents:write'],
         createdAt: '2026-01-02T00:00:00.000Z', lastUsedAt: '2026-07-20T09:30:00.000Z',
         revokedAt: null, expiresAt: null, state: 'active',
       },
       {
-        id: 'del-2', agentName: 'Retired Agent', agentId: 'retired-agent', isRegistered: false,
+        id: 'del-2', agentName: 'Retired Agent', agentClientId: null,
         scopes: ['documents:read'],
         createdAt: '2026-02-02T00:00:00.000Z', lastUsedAt: null,
         revokedAt: '2026-03-03T00:00:00.000Z', expiresAt: null, state: 'revoked',
@@ -349,19 +349,19 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
       {
         id: 'tok-1', name: 'Laptop token', tokenPrefix: 'sk_sqd_aaa', scopes: ['documents:read'],
         createdAt: '2026-04-01T00:00:00.000Z', lastUsedAt: '2026-07-25T08:00:00.000Z',
-        revokedAt: null, expiresAt: null, state: 'active', mintPath: 'interactive',
+        revokedAt: null, expiresAt: null, state: 'active', mintedBy: 'interactive',
       },
       {
         id: 'tok-2', name: 'Agent-minted token', tokenPrefix: 'sk_sqd_bbb', scopes: ['documents:write'],
         createdAt: '2026-04-02T00:00:00.000Z', lastUsedAt: null,
-        revokedAt: null, expiresAt: '2026-05-01T00:00:00.000Z', state: 'expired', mintPath: 'agent',
+        revokedAt: null, expiresAt: '2026-05-01T00:00:00.000Z', state: 'expired', mintedBy: 'agent',
       },
     ],
     onboarding: {
       signupSource: 'agent_oauth',
-      signupAt: '2026-01-01T00:00:00.000Z',
+      createdAt: '2026-01-01T00:00:00.000Z',
       onboardedAt: '2026-01-05T00:00:00.000Z',
-      authoredRealDocument: true,
+      authoredNonWelcomeDoc: true,
       welcomeEmailSentAt: null,
     },
     activity: { count: 42, lastActivityAt: '2026-07-24T12:00:00.000Z' },
@@ -371,8 +371,8 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     delegations: [],
     tokens: [],
     onboarding: {
-      signupSource: 'browser', signupAt: '2026-07-01T00:00:00.000Z',
-      onboardedAt: null, authoredRealDocument: false, welcomeEmailSentAt: null,
+      signupSource: 'browser', createdAt: '2026-07-01T00:00:00.000Z',
+      onboardedAt: null, authoredNonWelcomeDoc: false, welcomeEmailSentAt: null,
     },
     activity: { count: 0, lastActivityAt: null },
   };
@@ -455,9 +455,19 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     await expandRow();
     const section = await sectionFor('Onboarding');
 
-    expect(within(section).getByText(/via agent OAuth/)).toBeInTheDocument();
+    expect(within(section).getByText('Agent OAuth')).toBeInTheDocument();
     expect(within(section).getByText('Yes')).toBeInTheDocument();
     expect(within(section).getByText('Not sent')).toBeInTheDocument();
+  });
+
+  it('labels the doc predicate for what it is, not as "engaged"', async () => {
+    mockWith(adoptionPayload);
+    await expandRow();
+    const section = await sectionFor('Onboarding');
+
+    // RBD-10: it is weaker than onboardedAt — mere ownership of a second doc.
+    expect(within(section).getByText('Owns a doc besides the welcome doc')).toBeInTheDocument();
+    expect(within(section).queryByText(/engaged|activated/i)).toBeNull();
   });
 
   it('labels the activity summary as OAuth-delegated calls and points at token last-used', async () => {
@@ -465,11 +475,14 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     await expandRow();
 
     // The heading must not claim to cover all agent traffic: the log records
-    // only delegation-authenticated MCP calls.
-    const section = await sectionFor('Agent sessions (OAuth-delegated MCP calls)');
+    // only delegation-authenticated MCP calls. A regression here is silent and
+    // misleading, which is exactly why the wording is pinned.
+    const section = await sectionFor('Onboarding');
+    expect(within(section).getByText('Agent sessions (OAuth-delegated MCP calls)')).toBeInTheDocument();
     expect(within(section).getByText('42')).toBeInTheDocument();
-    expect(within(section).getByText(/sk_sqd_/)).toBeInTheDocument();
-    expect(within(section).getByText(/Last used/)).toBeInTheDocument();
+    expect(within(section).getByText(
+      'API-token and REST traffic are not logged — see each token’s Last used.',
+    )).toBeInTheDocument();
   });
 
   it('renders plain empty states for a user who never connected anything', async () => {
@@ -477,11 +490,15 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     await expandRow();
     const section = await sectionFor('Agent access');
 
-    expect(within(section).getByText('This user has never connected an agent.')).toBeInTheDocument();
-    expect(within(section).getByText('This user has never minted an API token.')).toBeInTheDocument();
+    expect(within(section).getByText('No agent connections.')).toBeInTheDocument();
+    expect(within(section).getByText('No API tokens.')).toBeInTheDocument();
 
+    // Null onboarding fields read as words, not blanks or "Invalid Date".
     const onboarding = await sectionFor('Onboarding');
     expect(within(onboarding).getByText('Not yet')).toBeInTheDocument();
+    expect(within(onboarding).getByText('Not sent')).toBeInTheDocument();
+    expect(within(onboarding).getByText('No')).toBeInTheDocument();
+    expect(within(onboarding).getByText('Browser')).toBeInTheDocument();
   });
 
   it('a failed adoption fetch degrades to a note and leaves the other panels intact', async () => {
@@ -489,7 +506,7 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     await expandRow();
 
     const section = await sectionFor('Agent access');
-    expect(within(section).getByText('Agent detail unavailable.')).toBeInTheDocument();
+    expect(within(section).getByText('Couldn’t load agent detail.')).toBeInTheDocument();
 
     // The neighbouring panels loaded from their own independent calls.
     const sharing = await sectionFor('Sharing activity');
@@ -504,7 +521,7 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
       delegations: [{
         ...adoptionPayload.delegations[0],
         agentName: '<img src=x onerror="alert(1)">',
-        agentId: '<script>alert(2)</script>',
+        agentClientId: '<script>alert(2)</script>',
       }],
       tokens: [{ ...adoptionPayload.tokens[0], name: '<b>bold token</b>' }],
     };

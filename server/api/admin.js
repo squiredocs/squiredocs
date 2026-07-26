@@ -467,6 +467,10 @@ router.get('/users/:userId/extra-credits', async (req, res) => {
   }
 });
 
+// Feature 036 — :userId is shape-checked before it reaches a query, so a
+// mistyped id is "no such user" rather than a Postgres invalid-uuid error.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Lifetime state of a credential row: revoked beats expired (a credential
  * revoked before its expiry is revoked, not expired), and everything else is
@@ -503,11 +507,36 @@ router.get('/users/:userId/adoption', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // The user row anchors the response: an unknown id is a 404, not an empty
-    // payload that would read as "this account has never connected anything".
+    // Shape-checked before any query, so a mistyped id is a 404 rather than a
+    // Postgres 22P02 surfacing as a 500 (RBD-11). Still passed as a bound
+    // parameter everywhere below — never interpolated.
+    if (!UUID_RE.test(userId)) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // The onboarding row doubles as the existence check, so an unknown id is a
+    // 404 rather than an empty payload that would read as "this account never
+    // connected anything". The EXISTS rides along on the same row — one trip.
+    //
+    // NOT read here: signup_ip / signup_user_agent / last_login_* (034 already
+    // carries those on the list row); nothing secret lives on users.
+    //
+    // authored_non_welcome_doc deliberately diverges from onboarding.js
+    // isEngaged(), which additionally requires persisted content (RBD-10): this
+    // is the same ownership notion as the Docs column on the same admin row, and
+    // the UI labels it "Owns a doc besides the welcome doc" rather than
+    // "engaged" so the weaker predicate is not oversold. When welcome_doc_id is
+    // NULL (cleared, or never seeded for an agent-OAuth signup) every owned doc
+    // counts — the documented imprecision (spec Edge Cases).
     const userResult = await pool.query(
-      `SELECT id, created_at, signup_source, onboarded_at, welcome_email_sent_at, welcome_doc_id
-       FROM users WHERE id = $1`,
+      `SELECT u.created_at, u.signup_source, u.onboarded_at, u.welcome_email_sent_at,
+              EXISTS (
+                SELECT 1 FROM document_shares ds
+                WHERE ds.user_id = u.id AND ds.role = 'owner'
+                  AND (u.welcome_doc_id IS NULL OR ds.doc_id <> u.welcome_doc_id)
+              ) AS authored_non_welcome_doc
+       FROM users u
+       WHERE u.id = $1`,
       [userId]
     );
     if (userResult.rows.length === 0) {
@@ -519,8 +548,14 @@ router.get('/users/:userId/adoption', async (req, res) => {
     // "Did this account ever connect an agent?" is unanswerable if dead
     // credentials are hidden (FR-003). Re-consent reuses the same row, so
     // created_at is the original consent time, which is the honest answer.
+    //
+    // FORBIDDEN in this SELECT list: agent_delegations.refresh_token_hash,
+    // agent_delegations.agent_metadata, registered_agents.client_secret_hash.
+    // Explicit columns only — no SELECT *, and no reuse of
+    // delegation.listUserDelegations() (it is SELECT *, so it carries the
+    // refresh-token hash, and it filters out exactly the rows FR-003 needs).
     const delegationsResult = await pool.query(
-      `SELECT d.id, d.agent_id, d.agent_name, d.agent_client_id, d.scopes,
+      `SELECT d.id, d.agent_name, d.agent_client_id, d.scopes,
               d.created_at, d.last_used_at, d.revoked_at, d.expires_at,
               ra.name AS registered_name
        FROM agent_delegations d
@@ -530,6 +565,9 @@ router.get('/users/:userId/adoption', async (req, res) => {
       [userId]
     );
 
+    // FORBIDDEN in this SELECT list: mcp_api_tokens.token_hash. Explicit
+    // columns only — no SELECT *, and no reuse of apiTokens.listUserTokens()
+    // (it filters revoked/expired rows out, the opposite of FR-003).
     const tokensResult = await pool.query(
       `SELECT id, name, token_prefix, scopes, created_at, last_used_at,
               revoked_at, expires_at, minted_by_delegation_id, minted_by_api_token_id
@@ -539,21 +577,17 @@ router.get('/users/:userId/adoption', async (req, res) => {
       [userId]
     );
 
-    // "Authored a real document" = owns a document that is not the seeded
-    // welcome doc. When welcome_doc_id is unset (cleared, or never seeded for
-    // an agent-OAuth signup) the NULL-safe comparison keeps every owned doc in
-    // scope — the documented imprecision (spec Assumptions).
-    const authoredResult = await pool.query(
-      `SELECT COUNT(*)::int AS n
-       FROM document_shares
-       WHERE user_id = $1 AND role = 'owner'
-         AND ($2::uuid IS NULL OR doc_id <> $2::uuid)`,
-      [userId, user.welcome_doc_id]
-    );
-
-    // Index-served by idx_agent_activity_user_time. metadata is not read.
+    // Index-served by idx_agent_activity_user_time.
+    //
+    // FORBIDDEN in this SELECT list: agent_activity_log.metadata — it stores
+    // raw tool arguments, i.e. user content.
+    //
+    // This table covers DELEGATION-authenticated MCP calls only: its
+    // delegation_id is NOT NULL and the write is gated on it, so sk_sqd_ token
+    // calls and REST import/export traffic never appear. The number is
+    // therefore not total agent usage, and the UI heading says so (FR-006).
     const activityResult = await pool.query(
-      `SELECT COUNT(*)::int AS count, MAX(created_at) AS last_at
+      `SELECT COUNT(*)::int AS count, MAX(created_at) AS last_activity_at
        FROM agent_activity_log
        WHERE user_id = $1`,
       [userId]
@@ -569,8 +603,9 @@ router.get('/users/:userId/adoption', async (req, res) => {
       // Both are attacker-controlled strings — the client renders them as
       // text children only, never as markup.
       agentName: r.registered_name || r.agent_name,
-      agentId: r.agent_id,
-      isRegistered: !!r.registered_name,
+      // null = no catalog link, which is what makes a self-reported name
+      // visibly unbacked in the UI.
+      agentClientId: r.agent_client_id,
       scopes: r.scopes || [],
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
@@ -594,7 +629,11 @@ router.get('/users/:userId/adoption', async (req, res) => {
       // A token whose mint-parent row was deleted has its reference nulled
       // (ON DELETE SET NULL) and so reads as interactive: accepted imprecision
       // at current scale (spec Edge Cases).
-      mintPath: (r.minted_by_delegation_id || r.minted_by_api_token_id) ? 'agent' : 'interactive',
+      mintedBy: (r.minted_by_delegation_id || r.minted_by_api_token_id) ? 'agent' : 'interactive',
+      // The parent ids ship too, so the admin can correlate a minted token back
+      // to the delegation or token that created it without a second request.
+      mintedByDelegationId: r.minted_by_delegation_id,
+      mintedByApiTokenId: r.minted_by_api_token_id,
     }));
 
     res.json({
@@ -602,25 +641,19 @@ router.get('/users/:userId/adoption', async (req, res) => {
       tokens,
       onboarding: {
         signupSource: user.signup_source,
-        signupAt: user.created_at,
+        createdAt: user.created_at,
         onboardedAt: user.onboarded_at,
-        authoredRealDocument: authoredResult.rows[0].n > 0,
+        authoredNonWelcomeDoc: user.authored_non_welcome_doc,
         welcomeEmailSentAt: user.welcome_email_sent_at,
       },
       activity: {
         count: activityResult.rows[0].count,
-        lastActivityAt: activityResult.rows[0].last_at,
+        lastActivityAt: activityResult.rows[0].last_activity_at,
       },
     });
   } catch (err) {
-    // Same convention as PATCH /users/:userId/chat-model: a malformed user id
-    // reaches pg as an invalid uuid literal, which is "no such user", not a
-    // server fault.
-    if (err?.code === '22P02') {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    console.error('[Admin] Error fetching adoption detail:', err);
-    res.status(500).json({ error: 'Failed to fetch adoption detail' });
+    console.error('[Admin] Error fetching agent adoption detail:', err);
+    res.status(500).json({ error: 'Failed to fetch agent adoption detail' });
   }
 });
 

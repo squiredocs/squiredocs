@@ -485,6 +485,14 @@
   color: var(--danger-hover);
 }
 
+/* Feature 036 — a revoked credential. Neutral rather than alarming: revocation
+   is the intended end of a credential's life, not a fault, and the row is
+   already dimmed by .admin-credit-inactive. */
+.admin-status-revoked {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
 /* ─── Grant form ───────────────────────────────────────── */
 
 .admin-grant-form {
@@ -553,21 +561,6 @@
 }
 
 .admin-origin-ua {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--text-sm);
-}
-
-/* Feature 036 — the non-secret token prefix. Monospaced because it is read
-   character by character when matching a token against a report; it is a
-   prefix, never a token value, and there is no hash anywhere near this view. */
-.admin-token-prefix {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--text-sm);
-}
-
-/* The agent-session caveat reuses .admin-detail-note (035) for its type; only
-   the inline code span needs anything of its own. */
-.admin-detail-note code {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--text-sm);
 }
@@ -693,46 +686,6 @@
     display: block;
     overflow-x: auto;
     white-space: nowrap;
-  }
-
-  /* ...but the card rules above are written as `.admin-table tr/td`, which also
-     match the NESTED tables' rows and cells, turning each sub-row into its own
-     card and stacking its cells — the opposite of the tabular shape the rule
-     above intends. Restore table semantics inside the detail panel, so the
-     sharing, extra-credit and feature-036 credential tables all scroll inside
-     their own box instead. */
-  .admin-detail .admin-credits-table thead {
-    display: table-header-group;
-  }
-
-  .admin-detail .admin-credits-table tbody {
-    display: table-row-group;
-  }
-
-  .admin-detail .admin-credits-table tr,
-  .admin-detail .admin-table tbody tr {
-    display: table-row;
-    width: auto;
-    background: none;
-    border-radius: 0;
-    box-shadow: none;
-    margin-bottom: 0;
-    padding: 0;
-  }
-
-  .admin-detail .admin-credits-table td,
-  .admin-detail .admin-credits-table th {
-    display: table-cell;
-    width: auto;
-    padding: 6px 10px;
-    white-space: nowrap;
-    text-align: left;
-  }
-
-  /* Two-line agent cell: the supporting id must not be right-aligned by the
-     card layout's value rule. */
-  .admin-detail .admin-credits-table td > * {
-    text-align: left;
   }
 
   /* Settings cards: label above the control, control full width. */

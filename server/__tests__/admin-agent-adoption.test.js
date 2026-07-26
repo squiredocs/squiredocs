@@ -209,36 +209,42 @@ describe('Feature 036: per-user adoption detail', () => {
       delegations = res.body.delegations;
     });
 
+    const byName = (name) => delegations.find((d) => d.agentName === name);
+
     test('lists every delegation ever created, not just the live one', () => {
       expect(delegations).toHaveLength(3);
-      expect(delegations.map((d) => d.agentId).sort())
-        .toEqual(['agent-active', 'agent-expired', 'agent-revoked']);
+      expect(delegations.map((d) => d.agentName).sort())
+        .toEqual(['Expired Agent', 'Registered Display Name', 'Revoked Agent']);
     });
 
     test('labels active, revoked and expired distinctly', () => {
-      const byAgent = Object.fromEntries(delegations.map((d) => [d.agentId, d]));
-      expect(byAgent['agent-active'].state).toBe('active');
-      expect(byAgent['agent-revoked'].state).toBe('revoked');
-      expect(byAgent['agent-expired'].state).toBe('expired');
+      expect(byName('Registered Display Name').state).toBe('active');
+      expect(byName('Revoked Agent').state).toBe('revoked');
+      // Seeded with expires_at in the past and revoked_at NULL, so `expired` is
+      // exercised on a delegation and not only on a token.
+      expect(byName('Expired Agent').state).toBe('expired');
     });
 
     test('the registered-catalog name wins over the self-reported one', () => {
-      const active = delegations.find((d) => d.agentId === 'agent-active');
-      expect(active.agentName).toBe('Registered Display Name');
-      expect(active.isRegistered).toBe(true);
+      const active = byName('Registered Display Name');
+      expect(active.agentClientId).toBe(REGISTERED_AGENT_ID);
     });
 
     test('an unregistered delegation falls back to its self-reported name, never blank', () => {
-      const revoked = delegations.find((d) => d.agentId === 'agent-revoked');
-      expect(revoked.agentName).toBe('Revoked Agent');
-      expect(revoked.isRegistered).toBe(false);
+      // agentClientId null is what makes the fallback visible in the UI.
+      expect(byName('Revoked Agent').agentClientId).toBeNull();
     });
 
     test('carries scopes and the lifetime timestamps', () => {
-      const active = delegations.find((d) => d.agentId === 'agent-active');
+      const active = byName('Registered Display Name');
       expect(active.scopes).toEqual(['documents:read', 'documents:write']);
       expect(new Date(active.createdAt).toISOString()).toBe('2026-01-02T00:00:00.000Z');
       expect(new Date(active.lastUsedAt).toISOString()).toBe('2026-07-20T00:00:00.000Z');
+    });
+
+    test('orders newest-first by created_at', () => {
+      const created = delegations.map((d) => new Date(d.createdAt).getTime());
+      expect(created).toEqual([...created].sort((a, b) => b - a));
     });
   });
 
@@ -259,13 +265,29 @@ describe('Feature 036: per-user adoption detail', () => {
     });
 
     test('a token minted by a delegation AND one minted by a token both read as agent-minted', () => {
-      const byName = Object.fromEntries(tokens.map((t) => [t.name, t.mintPath]));
+      const byName = Object.fromEntries(tokens.map((t) => [t.name, t.mintedBy]));
       expect(byName['Delegation-minted token']).toBe('agent');
       expect(byName['Token-minted token']).toBe('agent');
     });
 
+    test('ships the mint-parent ids so a minted token correlates with its minter', () => {
+      const fromDelegation = tokens.find((t) => t.name === 'Delegation-minted token');
+      expect(fromDelegation.mintedByDelegationId).toBe(activeDelegationId);
+      expect(fromDelegation.mintedByApiTokenId).toBeNull();
+
+      const fromToken = tokens.find((t) => t.name === 'Token-minted token');
+      expect(fromToken.mintedByApiTokenId)
+        .toBe(tokens.find((t) => t.name === 'Interactive token').id);
+      expect(fromToken.mintedByDelegationId).toBeNull();
+    });
+
+    test('orders newest-first by created_at', () => {
+      const created = tokens.map((t) => new Date(t.createdAt).getTime());
+      expect(created).toEqual([...created].sort((a, b) => b - a));
+    });
+
     test('a token with no mint parent reads as interactively minted', () => {
-      expect(tokens.find((t) => t.name === 'Interactive token').mintPath).toBe('interactive');
+      expect(tokens.find((t) => t.name === 'Interactive token').mintedBy).toBe('interactive');
     });
 
     test('identifies tokens by display name and non-secret prefix only', () => {
@@ -282,15 +304,15 @@ describe('Feature 036: per-user adoption detail', () => {
       const o = res.body.onboarding;
 
       expect(o.signupSource).toBe('agent_oauth');
-      expect(o.signupAt).toBeTruthy();
+      expect(o.createdAt).toBeTruthy();
       expect(new Date(o.onboardedAt).toISOString()).toBe('2026-01-05T00:00:00.000Z');
-      expect(o.authoredRealDocument).toBe(true);
+      expect(o.authoredNonWelcomeDoc).toBe(true);
       expect(new Date(o.welcomeEmailSentAt).toISOString()).toBe('2026-01-06T00:00:00.000Z');
     });
 
     test('a user whose only doc is the seeded welcome doc has authored no real document', async () => {
       const res = await getAdoption(welcomeOnlyUser.id);
-      expect(res.body.onboarding.authoredRealDocument).toBe(false);
+      expect(res.body.onboarding.authoredNonWelcomeDoc).toBe(false);
     });
 
     test('a fresh account reports not-yet-onboarded rather than erroring', async () => {
@@ -298,7 +320,7 @@ describe('Feature 036: per-user adoption detail', () => {
       expect(res.status).toBe(200);
       expect(res.body.onboarding.onboardedAt).toBeNull();
       expect(res.body.onboarding.welcomeEmailSentAt).toBeNull();
-      expect(res.body.onboarding.authoredRealDocument).toBe(false);
+      expect(res.body.onboarding.authoredNonWelcomeDoc).toBe(false);
       expect(res.body.onboarding.signupSource).toBe('browser');
     });
   });
@@ -347,8 +369,23 @@ describe('Feature 036: per-user adoption detail', () => {
 
       // ...and by field name, so a future rename can't quietly reintroduce one.
       for (const field of ['token_hash', 'tokenHash', 'refresh_token_hash', 'refreshTokenHash',
-        'client_secret_hash', 'clientSecretHash']) {
+        'client_secret_hash', 'clientSecretHash', 'metadata', 'agent_metadata', 'agentMetadata']) {
         expect(body).not.toContain(field);
+      }
+    });
+
+    test('no 64-character hex string appears — the catch-all for a column added later', async () => {
+      const res = await getAdoption(connectedUser.id);
+      // Every hash on these tables is a varchar(64) SHA-256 hex digest, so this
+      // fires even for a secret column that does not exist yet.
+      expect(JSON.stringify(res.body)).not.toMatch(/[0-9a-f]{64}/i);
+    });
+
+    test('no full sk_sqd_ token value appears — only the stored prefix', async () => {
+      const res = await getAdoption(connectedUser.id);
+      // Prefixes are varchar(12); anything materially longer is a token body.
+      for (const match of JSON.stringify(res.body).matchAll(/sk_sqd_[A-Za-z0-9_-]*/g)) {
+        expect(match[0].length).toBeLessThanOrEqual(12);
       }
     });
 
@@ -356,7 +393,8 @@ describe('Feature 036: per-user adoption detail', () => {
       const res = await getAdoption(connectedUser.id);
       for (const t of res.body.tokens) {
         expect(Object.keys(t).sort()).toEqual([
-          'createdAt', 'expiresAt', 'id', 'lastUsedAt', 'mintPath',
+          'createdAt', 'expiresAt', 'id', 'lastUsedAt', 'mintedBy',
+          'mintedByApiTokenId', 'mintedByDelegationId',
           'name', 'revokedAt', 'scopes', 'state', 'tokenPrefix',
         ]);
       }
@@ -366,8 +404,8 @@ describe('Feature 036: per-user adoption detail', () => {
       const res = await getAdoption(connectedUser.id);
       for (const d of res.body.delegations) {
         expect(Object.keys(d).sort()).toEqual([
-          'agentId', 'agentName', 'createdAt', 'expiresAt', 'id',
-          'isRegistered', 'lastUsedAt', 'revokedAt', 'scopes', 'state',
+          'agentClientId', 'agentName', 'createdAt', 'expiresAt', 'id',
+          'lastUsedAt', 'revokedAt', 'scopes', 'state',
         ]);
       }
     });
