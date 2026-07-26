@@ -485,6 +485,14 @@
   color: var(--danger-hover);
 }
 
+/* Feature 036 — a revoked credential. Neutral rather than alarming: revocation
+   is the intended end of a credential's life, not a fault, and the row is
+   already dimmed by .admin-credit-inactive. */
+.admin-status-revoked {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
 /* ─── Grant form ───────────────────────────────────────── */
 
 .admin-grant-form {
