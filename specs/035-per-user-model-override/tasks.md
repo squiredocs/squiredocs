@@ -39,7 +39,7 @@ default-follow, BYOK-wins, no-silent-fallback, stale-never-fails) are the expens
 **Purpose**: confirm the seams are where the plan says they are. `server/api/chat-models.js` is under
 concurrent edit by a registry-update agent, so line numbers in the plan are indicative only.
 
-- [ ] T001 Re-read the four serving-path seams before editing anything and confirm the plan's assumptions
+- [X] T001 Re-read the four serving-path seams before editing anything and confirm the plan's assumptions
       still hold: `isSharedEligible` / `resolveSharedDefaultKey` / `resolveChatModel` and the export list in
       `server/api/chat-models.js`; the column list in `loadByokSettings` and the explicit `buildResponse`
       literal in `server/api/byok-settings.js`; the single `resolveChatModel` call site in
@@ -59,13 +59,13 @@ concurrent edit by a registry-update agent, so line numbers in the plan are indi
 
 **⚠️ CRITICAL**: no user story work can begin until T003 is green.
 
-- [ ] T002 Create `migrations/1799500000000_add-chat-model-override-to-users.js` adding a single nullable
+- [X] T002 Create `migrations/1799500000000_add-chat-model-override-to-users.js` adding a single nullable
       `chat_model_override text` column to `users` (`pgm.addColumns` up / `pgm.dropColumns` down), with a
       header comment stating: NULL = follow the shared default dynamically; no default and no backfill; no
       CHECK/enum/FK because legal values are a code-side, deployment-dependent registry (research R2); and
       why the timestamp clears both `1799400000000` and the stale `>1795000000000` floor. Shape per
       [data-model.md](./data-model.md).
-- [ ] T003 Apply the migration (`npm run migrate`) against the dev/test database and verify with
+- [X] T003 Apply the migration (`npm run migrate`) against the dev/test database and verify with
       `\d users` that the column is `text`, nullable, no default, and that
       `SELECT count(*) FROM users WHERE chat_model_override IS NOT NULL` is `0` (quickstart §2).
 
