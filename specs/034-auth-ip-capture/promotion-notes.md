@@ -114,3 +114,19 @@ clean.
 - `/privacy` renders the new paragraph and the updated "Last updated" date.
 - The `quickstart.md` §3 dev-login walk against a running server (this branch was
   verified through the suites, not through a live server).
+
+## Post-merge review dispositions (2026-07-25, Fable review of 199b032..12a4dd2)
+
+Verdict: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW. All security lenses verified
+clean (admin-only exposure grep-confirmed; C4a/031 invariant structurally
+preserved; numeric trust-proxy sourcing intact; zone-ID inet guard confirmed
+load-bearing empirically).
+
+- LOW (FIXED same-day): `startPurgeJob` ran its boot sweep before the
+  idempotency guard, so a repeat call launched an extra fire-and-forget DELETE —
+  spurious stderr noise if it outlived a test's pool teardown. Guard moved above
+  the sweep; first call keeps its boot sweep. auth-events suite green (19/19).
+- Design divergences G-1/G-2/G-3 + RBD-7 trail-writer choice: amended into the
+  Squire auth doc same-day (see design/authentication-and-sharing.md).
+- Benign divergence, accepted: migration adds an `id bigserial` PK not in the
+  design's column list.

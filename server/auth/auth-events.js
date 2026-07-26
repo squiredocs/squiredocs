@@ -138,10 +138,11 @@ function startPurgeJob({ intervalMs = DEFAULT_INTERVAL_MS, days = RETENTION_DAYS
       });
   };
 
+  if (purgeTimer) return; // already scheduled — no second timer, no extra sweep
+
   // Boot sweep, fire-and-forget.
   sweep();
 
-  if (purgeTimer) return; // already scheduled — no second timer
   purgeTimer = setInterval(sweep, intervalMs);
   if (typeof purgeTimer.unref === 'function') purgeTimer.unref();
 }
