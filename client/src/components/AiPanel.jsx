@@ -21,6 +21,24 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
   const byok = useByok();
   const isByok = !!byok.settings?.enabled;
   const { accentColor } = byok;
+
+  // Header title. For a BYOK user the parenthetical names the model they chose
+  // (registry label, already carried by the BYOK settings payload) instead of the
+  // old literal "(BYOK)" marker — the model name IS the BYOK signal, so there's no
+  // second badge; the tooltip below is what still spells out "your own key".
+  // Shared-key users keep the plain title with no parenthetical.
+  // `activeModelLabel` is null while settings load and when the stored model key
+  // isn't in the registry, so the plain title doubles as the graceful fallback —
+  // we never render "(undefined)" or a guessed model.
+  const byokModelLabel = isByok ? byok.activeModelLabel : null;
+  const panelTitle = byokModelLabel
+    ? `Squire Docs Assistant (${byokModelLabel})`
+    : 'Squire Docs Assistant';
+  // One tooltip does double duty: the full title when a long label is ellipsized
+  // in the narrow docked panel, plus the BYOK explanation.
+  const panelTitleTooltip = byokModelLabel
+    ? `${panelTitle} — running on your own API key`
+    : undefined;
   const {
     isOpen, close,
     position, setPosition,
@@ -170,7 +188,7 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
       )}
       <div className="panel-header ai-panel-header">
         <div className="ai-panel-title-group">
-          <span className="ai-panel-title">{isByok ? 'Squire Docs Assistant (BYOK)' : 'Squire Docs Assistant'}</span>
+          <span className="ai-panel-title" title={panelTitleTooltip}>{panelTitle}</span>
           {currentChatTitle && (
             <span className="ai-panel-chat-title">{currentChatTitle}</span>
           )}

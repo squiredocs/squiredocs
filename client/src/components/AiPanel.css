@@ -77,6 +77,12 @@
   font-size: var(--text-md);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  /* The title now carries a model name for BYOK users; a long label must
+     ellipsize rather than wrap or push the header actions off the panel
+     (same convention as .ai-panel-chat-title). Full text is in the tooltip. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-panel-chat-title {

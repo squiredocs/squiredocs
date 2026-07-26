@@ -15,8 +15,10 @@ vi.mock('../../hooks/useMobile', () => ({
 }));
 
 // Mock useByok
+const BYOK_OFF = { settings: null, activeModelLabel: null };
+let mockByok = BYOK_OFF;
 vi.mock('../../contexts/ByokContext', () => ({
-  useByok: () => ({ settings: null, loading: false, saving: false, error: null, saveSettings: vi.fn(), clearKey: vi.fn(), accentColor: '#7c3aed' }),
+  useByok: () => ({ loading: false, saving: false, error: null, saveSettings: vi.fn(), clearKey: vi.fn(), accentColor: '#7c3aed', ...mockByok }),
 }));
 
 // Mock useResizeHandle
@@ -73,6 +75,7 @@ function makeAiChat(overrides = {}) {
 describe('AiPanel', () => {
   beforeEach(() => {
     mockIsMobile = false;
+    mockByok = BYOK_OFF;
   });
 
   afterEach(() => {
@@ -140,6 +143,34 @@ describe('AiPanel', () => {
   it('shows panel title on desktop', () => {
     render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
     expect(screen.getByText('Squire Docs Assistant')).toBeInTheDocument();
+  });
+
+  // --------------- Header model name ---------------
+
+  it('shows the BYOK model name in the title, with a tooltip naming the own-key setup', () => {
+    mockByok = { settings: { enabled: true, modelKey: 'claude-opus' }, activeModelLabel: 'Claude Opus 4.8' };
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    const title = screen.getByText('Squire Docs Assistant (Claude Opus 4.8)');
+    expect(title).toBeInTheDocument();
+    expect(title).toHaveAttribute('title', 'Squire Docs Assistant (Claude Opus 4.8) — running on your own API key');
+  });
+
+  it('shows the plain title for a shared-key user (no model name, no tooltip)', () => {
+    mockByok = { settings: { enabled: false, modelKey: null }, activeModelLabel: null };
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    const title = screen.getByText('Squire Docs Assistant');
+    expect(title).toBeInTheDocument();
+    expect(title).not.toHaveAttribute('title');
+  });
+
+  it('falls back to the plain title when BYOK is on but the model label is unknown', () => {
+    mockByok = { settings: { enabled: true, modelKey: 'retired-model' }, activeModelLabel: null };
+    render(<AiPanel aiPanel={makeAiPanel()} aiChat={makeAiChat()} />);
+
+    expect(screen.getByText('Squire Docs Assistant')).toBeInTheDocument();
+    expect(screen.queryByText(/\((undefined|null)\)/)).not.toBeInTheDocument();
   });
 
   // --------------- Mobile ---------------
