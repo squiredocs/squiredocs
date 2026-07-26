@@ -583,19 +583,22 @@
     box-shadow: none;
   }
 
+  /* Direct-child selectors throughout: `.admin-table td` would also match the
+     nested .admin-credits-table rows inside an expanded row and stack each of
+     their sub-rows as its own card — the opposite of the intent below. */
   .admin-table,
-  .admin-table tbody,
-  .admin-table tr,
-  .admin-table td {
+  .admin-table > tbody,
+  .admin-table > tbody > tr,
+  .admin-table > tbody > tr > td {
     display: block;
     width: 100%;
   }
 
-  .admin-table thead {
+  .admin-table > thead {
     display: none;
   }
 
-  .admin-table tbody tr {
+  .admin-table > tbody > tr {
     background: var(--surface-raised);
     border-radius: 10px;
     box-shadow: 0 1px 3px var(--shadow-color), 0 0 0 1px var(--shadow-color);
@@ -605,11 +608,11 @@
 
   /* Hover highlighting is a pointer affordance; on a card list it just makes
      the tapped card look stuck. */
-  .admin-table tbody tr:hover {
+  .admin-table > tbody > tr:hover {
     background: var(--surface-raised);
   }
 
-  .admin-table td {
+  .admin-table > tbody > tr > td {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -619,7 +622,7 @@
     white-space: normal;
   }
 
-  .admin-table td[data-label]::before {
+  .admin-table > tbody > tr > td[data-label]::before {
     content: attr(data-label);
     flex: 0 0 auto;
     color: var(--text-secondary);
@@ -627,7 +630,7 @@
   }
 
   /* Value side of each labelled row aligns right, against its label. */
-  .admin-table td[data-label] > * {
+  .admin-table > tbody > tr > td[data-label] > * {
     text-align: right;
   }
 
@@ -661,7 +664,7 @@
   }
 
   /* The expanded detail row is a full-width panel, not a labelled card row. */
-  .admin-detail-row td {
+  .admin-detail-row > td {
     display: block;
     padding: 0;
   }
@@ -707,20 +710,20 @@
     padding: 12px 8px;
   }
 
-  .admin-table td {
+  .admin-table > tbody > tr > td {
     padding: 8px 12px;
   }
 
   /* At this width the label + a long value collide; stack them. */
   .admin-cell-credit,
-  .admin-table td[data-label="Activity"] {
+  .admin-table > tbody > tr > td[data-label="Activity"] {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
   }
 
   .admin-cell-credit > *,
-  .admin-table td[data-label="Activity"] > * {
+  .admin-table > tbody > tr > td[data-label="Activity"] > * {
     text-align: left;
   }
 }
