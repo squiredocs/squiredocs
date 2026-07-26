@@ -204,6 +204,19 @@
   margin-left: 4px;
 }
 
+/* Pinned-model badge: distinct from the Admin badge (which is a role, not a
+   setting) and bounded so a long model name can't stretch the identity column. */
+.admin-badge-model {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .admin-actions {
   text-align: right;
   white-space: nowrap;
@@ -356,6 +369,19 @@
   padding: 12px 0;
   color: var(--text-tertiary);
   font-size: var(--text-base);
+}
+
+/* Rejected pin (the endpoint 400s by design) and the text-only-model caveat. */
+.admin-detail-error {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.admin-detail-note {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .admin-detail-section {

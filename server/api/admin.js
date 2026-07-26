@@ -328,6 +328,11 @@ router.patch('/users/:userId/chat-model', async (req, res) => {
       effectiveModelKey: resolveUserChatModelKey(stored, appSettings.getSharedDefaultModel()),
     });
   } catch (err) {
+    // A malformed user id reaches pg as an invalid uuid literal (22P02). That is
+    // "no such user", not a server fault — the contract promises 404.
+    if (err?.code === '22P02') {
+      return res.status(404).json({ error: 'User not found' });
+    }
     console.error('[Admin] Error updating chat model override:', err);
     res.status(500).json({ error: 'Failed to update chat model override' });
   }

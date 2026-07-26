@@ -52,10 +52,18 @@ export function ByokProvider({ children }) {
 
   const accentColor = settings?.enabled ? '#312e81' : '#7c3aed';
 
-  // The active chat model — only meaningful when BYOK is on (otherwise the chat
-  // uses the shared server default, which is always a vision-capable provider).
-  // The text-only models (GLM) are all BYOK-only, so gating image attachment on
-  // the BYOK-selected model covers every text-only case.
+  // The active chat model — known here only when BYOK is on. A non-BYOK user's
+  // model is resolved server-side and deliberately not disclosed (035 FR-011),
+  // so this gate cannot see it.
+  //
+  // KNOWN GAP (035 review, MEDIUM): the shared path is NOT guaranteed vision-
+  // capable any more — every `or-*` gateway entry is shared-eligible once
+  // OPENROUTER_API_KEY is set, and several are text-only, so an admin-set shared
+  // default or a per-user pin can land a user on a text-only model. Their attach
+  // button stays enabled and the turn fails server-side with
+  // `model_no_image_support`. The admin picker warns when pinning such a model;
+  // closing it properly means exposing an effective supportsImages boolean (a
+  // capability, not the pin) on an authenticated payload and gating on that.
   const activeModel = settings?.enabled && settings?.modelKey
     ? (settings.models || []).find((m) => m.key === settings.modelKey) || null
     : null;

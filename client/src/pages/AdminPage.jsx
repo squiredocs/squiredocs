@@ -44,6 +44,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
 
   // Per-user assistant model pin (feature 035) — admin-only, invisible to the user
   const [savingModelUserId, setSavingModelUserId] = useState(null);
+  const [modelPinError, setModelPinError] = useState(null);
 
   // Prod first-run self-test reset (029/030): one hardcoded throwaway account,
   // admin-gated server-side. The button spares an admin from copying the session
@@ -183,11 +184,17 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   // the shared default dynamically. Same convention as handleSharedModelChange.
   const handleChatModelChange = async (u, value) => {
     setSavingModelUserId(u.id);
+    setModelPinError(null);
     try {
       await api.patch(`/api/admin/users/${u.id}/chat-model`, { modelKey: value === '' ? null : value });
       fetchUsers(); // re-read the stored state; expandedUserId is separate state, so the row stays open
-    } catch { /* ignore — same posture as the neighbouring per-user handlers */ }
-    finally { setSavingModelUserId(null); }
+    } catch (err) {
+      // This endpoint 400s by design — a model whose provider key was withdrawn
+      // since page load is rejected. Swallowing that would silently snap the
+      // select back with no explanation, which reads as "the click did nothing".
+      setModelPinError(err.response?.data?.error || 'Could not set the model for this user.');
+      fetchUsers();
+    } finally { setSavingModelUserId(null); }
   };
 
   const handleSendWelcome = async (u) => {
@@ -422,6 +429,17 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                           <div className="admin-user-name">
                             {u.name || '—'}
                             {u.isAdmin && <span className="admin-badge">Admin</span>}
+                            {/* A pinned model is rare and consequential, so it earns a
+                                badge in the list rather than hiding behind an expand.
+                                Absent for everyone else, so it costs no column width. */}
+                            {u.chatModelOverride && (
+                              <span
+                                className="admin-badge admin-badge-model"
+                                title={`Assistant model pinned to ${modelLabel(sharedModel, u.chatModelOverride)} for this user`}
+                              >
+                                {modelLabel(sharedModel, u.chatModelOverride)}
+                              </span>
+                            )}
                           </div>
                           <div className="admin-user-email" title={u.email}>{u.email}</div>
                         </div>
@@ -560,6 +578,21 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                     </optgroup>
                                   ))}
                                 </select>
+                              )}
+                              {modelPinError && savingModelUserId !== u.id && (
+                                <div className="admin-detail-error">{modelPinError}</div>
+                              )}
+                              {/* A text-only model breaks this user's image attachments —
+                                  the server rejects the turn with model_no_image_support and,
+                                  because the pin is never disclosed to them (FR-011), nothing
+                                  can explain why. Say so here, where the choice is made. */}
+                              {sharedModel && u.chatModelOverride
+                                && sharedModel.models.some(
+                                  (m) => m.key === u.chatModelOverride && m.supportsImages === false,
+                                ) && (
+                                <div className="admin-detail-note">
+                                  Text-only model — this user cannot attach images to chats while pinned.
+                                </div>
                               )}
                             </div>
 

@@ -214,10 +214,27 @@ describe('AdminPage — per-user chat model override (feature 035)', () => {
     const user = userEvent.setup();
     renderPage();
     const row = (await screen.findByText(email)).closest('tr');
-    await user.click(within(row).getByTitle(/Expand extra credits/i));
+    await user.click(within(row).getByLabelText(/Expand details/i));
     const section = (await screen.findByText('Assistant model')).closest('.admin-detail-section');
     return { user, select: within(section).getByRole('combobox') };
   };
+
+  it('marks pinned users in the list itself, without expanding the row', async () => {
+    mockList([plain, pinned]);
+    renderPage();
+
+    // The badge names the model, so an admin scanning the table sees both THAT
+    // a user is pinned and to WHAT, with no clicking.
+    const pinnedRow = (await screen.findByText('pinned@example.com')).closest('tr');
+    expect(within(pinnedRow).getByTitle(/pinned to Claude Haiku 4\.5/i)).toHaveTextContent(
+      'Claude Haiku 4.5',
+    );
+
+    // ...and an unpinned user carries no badge at all (it must not cost width
+    // for the common case).
+    const plainRow = screen.getByText('plain@example.com').closest('tr');
+    expect(within(plainRow).queryByTitle(/pinned to/i)).toBeNull();
+  });
 
   it('shows Default (<shared effective label>) selected for a user with no override', async () => {
     mockList([plain]);
@@ -292,7 +309,7 @@ describe('AdminPage — per-user chat model override (feature 035)', () => {
     const user = userEvent.setup();
     renderPage();
     const row = (await screen.findByText('plain@example.com')).closest('tr');
-    await user.click(within(row).getByTitle(/Expand extra credits/i));
+    await user.click(within(row).getByLabelText(/Expand details/i));
 
     const section = (await screen.findByText('Assistant model')).closest('.admin-detail-section');
     expect(within(section).getByText('Model list unavailable.')).toBeInTheDocument();
