@@ -45,17 +45,23 @@ const preFeature = {
 
 const mockGet = vi.fn();
 const mockPatch = vi.fn();
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: () => ({
-    api: {
-      get: (...args) => mockGet(...args),
-      put: vi.fn(),
-      post: vi.fn(),
-      patch: (...args) => mockPatch(...args),
-    },
-    logout: vi.fn(),
-  }),
-}));
+// `api` is built ONCE, inside the factory, and handed back by identity on every
+// call. AdminPage's boot effect is keyed on it (`useEffect(..., [api])`), so a
+// fresh object per render — as this mock originally built — makes each
+// fetch-driven state update look like a new `api` and re-fires the effect: the
+// page re-fetches forever. Invisible to a test that asserts and exits at once;
+// a runaway loop (worker OOM) for one that waits on an element that never
+// appears. The method bodies stay lazy so the vi.mock hoist doesn't trip on the
+// mockGet/mockPatch declarations below it.
+vi.mock('../../contexts/AuthContext', () => {
+  const api = {
+    get: (...args) => mockGet(...args),
+    put: vi.fn(),
+    post: vi.fn(),
+    patch: (...args) => mockPatch(...args),
+  };
+  return { useAuth: () => ({ api, logout: vi.fn() }) };
+});
 
 vi.mock('../../components/Logo', () => ({ default: () => <div data-testid="logo" /> }));
 vi.mock('../../components/UserProfileBadge', () => ({ default: () => <div data-testid="badge" /> }));

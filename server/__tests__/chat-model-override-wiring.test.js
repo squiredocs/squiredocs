@@ -58,6 +58,15 @@ const chat = require('../api/chat');
 const chatModels = require('../api/chat-models');
 
 describe('035 FR-012 — chat.js passes the stored override into resolveChatModel', () => {
+  // chat.js only reads the per-turn settings row when it has a pool
+  // (`pool ? await loadByokSettings(...) : null`), and the pool is handed in by
+  // index.js at boot. The exemplar harness never needed one; this suite does,
+  // because the row IS what it is asserting on. A stub with getPool() is enough:
+  // resolveChatModel returns null, so the early return fires long before any query.
+  beforeAll(() => {
+    chat.init({ getPool: () => ({ query: jest.fn(async () => ({ rows: [] })) }) });
+  });
+
   const postOneMessage = async (id) => {
     const app = express();
     app.use('/api/chat', express.json(), chat.router);
