@@ -274,4 +274,61 @@ describe('BYOK Settings API', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  /**
+   * Feature 035 (FR-011 / SC-005) — the per-user chat model override is an
+   * ADMIN-only routing preference. loadByokSettings now selects the column so
+   * the chat path can read it per turn, which puts it one careless spread away
+   * from this payload: buildResponse must stay an explicit literal, and the
+   * user it applies to must never learn the pin exists.
+   */
+  describe('per-user chat model override is never disclosed to the user (035)', () => {
+    afterEach(async () => {
+      await pool.query('UPDATE users SET chat_model_override = NULL WHERE id = $1', [testUserId]);
+    });
+
+    test('GET /api/settings/byok carries no override field and never names the pinned key', async () => {
+      await pool.query(
+        `UPDATE users SET chat_model_override = 'claude-haiku' WHERE id = $1`,
+        [testUserId]
+      );
+
+      const res = await request(app).get('/api/settings/byok');
+
+      expect(res.status).toBe(200);
+      const keys = Object.keys(res.body);
+      expect(keys).not.toContain('chatModelOverride');
+      expect(keys).not.toContain('chat_model_override');
+      // The serialized body must not name the pinned model anywhere outside the
+      // public model catalog — check the payload minus `models` (which legitimately
+      // lists every selectable model, including claude-haiku).
+      const { models, ...rest } = res.body;
+      expect(JSON.stringify(rest)).not.toContain('claude-haiku');
+      expect(JSON.stringify(res.body)).not.toContain('chat_model_override');
+    });
+
+    test('PUT /api/settings/byok also returns no override field', async () => {
+      await pool.query(
+        `UPDATE users SET chat_model_override = 'claude-haiku' WHERE id = $1`,
+        [testUserId]
+      );
+
+      const res = await request(app).put('/api/settings/byok').send({ modelKey: 'gemini-2.5-flash' });
+
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body)).not.toContain('chatModelOverride');
+      const { models, ...rest } = res.body;
+      expect(JSON.stringify(rest)).not.toContain('claude-haiku');
+    });
+
+    test('the override does not disturb existing BYOK state or responses', async () => {
+      const before = await request(app).get('/api/settings/byok');
+      await pool.query(
+        `UPDATE users SET chat_model_override = 'claude-haiku' WHERE id = $1`,
+        [testUserId]
+      );
+      const after = await request(app).get('/api/settings/byok');
+      expect(after.body).toEqual(before.body);
+    });
+  });
 });
