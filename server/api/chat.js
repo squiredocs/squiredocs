@@ -862,6 +862,9 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       byokSettings,
       decryptKey: decrypt,
       sharedDefaultKey: appSettings.getSharedDefaultModel(),
+      // Feature 035 — admin-set per-user pin; NULL for everyone by default. Read from
+      // the same per-turn row as BYOK state, so a set/clear lands on the next turn.
+      userOverrideKey: byokSettings?.chat_model_override || null,
     });
     if (resolved && resolved.error === 'byok_misconfigured') {
       // BYOK on but the key/model can't be resolved: reject loudly BEFORE any

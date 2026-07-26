@@ -153,7 +153,13 @@ router.put('/', requireAuth, async (req, res) => {
  * Returns null if user not found.
  */
 async function loadByokSettings(userId) {
-  const columns = ['byok_enabled', 'byok_model_key', ...listProviders().map((p) => p.keyColumn)];
+  // This is the per-turn user-settings row for a chat turn, not just BYOK state:
+  // chat_model_override (feature 035) rides the same SELECT so an admin's change
+  // applies on the user's very next turn with no cache and no re-login (FR-012).
+  // NOTE: buildResponse() above builds an explicit key set — the override must never
+  // be added to it (FR-011: the user it applies to must not learn it exists).
+  const columns = ['byok_enabled', 'byok_model_key', 'chat_model_override',
+    ...listProviders().map((p) => p.keyColumn)];
   const result = await pool.query(
     `SELECT ${columns.join(', ')} FROM users WHERE id = $1`,
     [userId]
