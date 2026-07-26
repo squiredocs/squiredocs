@@ -444,7 +444,10 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                           <div className="admin-user-email" title={u.email}>{u.email}</div>
                         </div>
                       </td>
-                      <td>
+                      {/* data-label feeds the mobile card layout: below 768px the
+                          header row is hidden and each cell prints its own label
+                          (see AdminPage.css). Keep them in sync with the <th>s. */}
+                      <td data-label="Activity">
                         <div>{formatDate(u.createdAt)}</div>
                         <div className="admin-cell-sub">
                           {u.lastLoginAt ? `seen ${formatDate(u.lastLoginAt)}` : 'never signed in'}
@@ -453,11 +456,11 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                       {/* Values are React text children — auto-escaped. The
                           user-agent is attacker-controlled input and must never
                           be rendered with dangerouslySetInnerHTML. */}
-                      <td className="admin-cell-ip" title={originTitle(u)}>
+                      <td className="admin-cell-ip" data-label="IP" title={originTitle(u)}>
                         {u.lastLoginIp || u.signupIp || '—'}
                       </td>
-                      <td className="admin-col-num">{u.docCount}</td>
-                      <td className="admin-cell-credit">
+                      <td className="admin-col-num" data-label="Docs">{u.docCount}</td>
+                      <td className="admin-cell-credit" data-label="AI credit">
                         {editingCreditUserId === u.id ? (
                           <span className="admin-inline-edit">
                             $<input

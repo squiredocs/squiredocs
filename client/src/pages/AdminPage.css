@@ -556,3 +556,163 @@
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--text-sm);
 }
+
+/* ─── Mobile responsive styles ─────────────────────────── */
+
+/* A 6-column table still can't fit a phone, and side-scrolling a table you are
+   scanning is miserable. Below 768px each row becomes a card: the header row is
+   dropped and every cell prints its own label from data-label (set in
+   AdminPage.jsx — keep the two in sync). The identity cell stays unlabelled and
+   acts as the card's title. */
+@media (max-width: 768px) {
+  .admin-page {
+    padding: 16px 12px;
+  }
+
+  .admin-table-wrapper {
+    overflow-x: visible; /* nothing to scroll once rows are cards */
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .admin-table,
+  .admin-table tbody,
+  .admin-table tr,
+  .admin-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .admin-table thead {
+    display: none;
+  }
+
+  .admin-table tbody tr {
+    background: var(--surface-raised);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px var(--shadow-color), 0 0 0 1px var(--shadow-color);
+    margin-bottom: 12px;
+    padding: 4px 0;
+  }
+
+  /* Hover highlighting is a pointer affordance; on a card list it just makes
+     the tapped card look stuck. */
+  .admin-table tbody tr:hover {
+    background: var(--surface-raised);
+  }
+
+  .admin-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    border-bottom: none;
+    white-space: normal;
+  }
+
+  .admin-table td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+  }
+
+  /* Value side of each labelled row aligns right, against its label. */
+  .admin-table td[data-label] > * {
+    text-align: right;
+  }
+
+  .admin-cell-user {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+  }
+
+  .admin-user-email {
+    max-width: none; /* the card is the constraint now, not a column */
+  }
+
+  .admin-cell-ip,
+  .admin-col-num {
+    max-width: none;
+    text-align: right;
+  }
+
+  /* Touch targets: 28px icon buttons are fine for a mouse, not a thumb. */
+  .admin-actions {
+    width: auto;
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
+  .admin-btn-icon {
+    min-width: 44px;
+    height: 44px;
+    font-size: var(--text-lg);
+  }
+
+  /* The expanded detail row is a full-width panel, not a labelled card row. */
+  .admin-detail-row td {
+    display: block;
+    padding: 0;
+  }
+
+  .admin-detail {
+    padding: 4px 14px 14px;
+  }
+
+  .admin-origin-list {
+    grid-template-columns: 1fr; /* label above value instead of beside it */
+    row-gap: 2px;
+  }
+
+  .admin-origin-list dd {
+    margin-bottom: 8px;
+  }
+
+  /* The nested credit/sharing tables keep their tabular shape — they are read,
+     not scanned — so they scroll inside their own box rather than widening the
+     page. */
+  .admin-credits-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* Settings cards: label above the control, control full width. */
+  .admin-settings-control {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .admin-settings-control select,
+  .admin-detail-section select {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-page {
+    padding: 12px 8px;
+  }
+
+  .admin-table td {
+    padding: 8px 12px;
+  }
+
+  /* At this width the label + a long value collide; stack them. */
+  .admin-cell-credit,
+  .admin-table td[data-label="Activity"] {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .admin-cell-credit > *,
+  .admin-table td[data-label="Activity"] > * {
+    text-align: left;
+  }
+}
