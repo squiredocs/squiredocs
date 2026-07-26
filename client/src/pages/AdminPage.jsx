@@ -42,6 +42,9 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   const [sharedModel, setSharedModel] = useState(null);
   const [savingSharedModel, setSavingSharedModel] = useState(false);
 
+  // Per-user assistant model pin (feature 035) — admin-only, invisible to the user
+  const [savingModelUserId, setSavingModelUserId] = useState(null);
+
   // Prod first-run self-test reset (029/030): one hardcoded throwaway account,
   // admin-gated server-side. The button spares an admin from copying the session
   // cookie out of DevTools to re-run the onboarding walk (Sam, 2026-07-22).
@@ -174,6 +177,17 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
       fetchUsers();
     } catch { /* ignore */ }
     finally { setTogglingEmailUserId(null); }
+  };
+
+  // Empty string = "Default" → clears the pin (sends null), so the user rejoins
+  // the shared default dynamically. Same convention as handleSharedModelChange.
+  const handleChatModelChange = async (u, value) => {
+    setSavingModelUserId(u.id);
+    try {
+      await api.patch(`/api/admin/users/${u.id}/chat-model`, { modelKey: value === '' ? null : value });
+      fetchUsers(); // re-read the stored state; expandedUserId is separate state, so the row stays open
+    } catch { /* ignore — same posture as the neighbouring per-user handlers */ }
+    finally { setSavingModelUserId(null); }
   };
 
   const handleSendWelcome = async (u) => {
@@ -508,6 +522,45 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                 />
                                 Trusted — can send share invitation emails
                               </label>
+                            </div>
+
+                            {/* Feature 035 — per-user assistant model pin. Options come
+                                from the SAME shared-model payload the default picker
+                                above uses, so the two lists cannot drift. Admin-only:
+                                nothing about this is shown to the user it applies to. */}
+                            <div className="admin-detail-section">
+                              <h4>Assistant model</h4>
+                              {!sharedModel ? (
+                                <div className="admin-detail-empty">Model list unavailable.</div>
+                              ) : (
+                                <select
+                                  value={u.chatModelOverride ?? ''}
+                                  disabled={savingModelUserId === u.id}
+                                  onChange={(e) => handleChatModelChange(u, e.target.value)}
+                                >
+                                  <option value="">
+                                    Default ({modelLabel(sharedModel, sharedModel.effectiveModelKey)})
+                                  </option>
+                                  {/* A pin can outlive its provider's server key: keep the
+                                      controlled value renderable and say what the user is
+                                      actually getting, rather than misreporting "Default". */}
+                                  {u.chatModelOverride
+                                    && !sharedModel.models.some((m) => m.key === u.chatModelOverride) && (
+                                    <option value={u.chatModelOverride} disabled>
+                                      {u.chatModelOverride} (unavailable — using {modelLabel(sharedModel, sharedModel.effectiveModelKey)})
+                                    </option>
+                                  )}
+                                  {(sharedModel.providers ?? []).map((p) => (
+                                    <optgroup key={p.id} label={p.label}>
+                                      {sharedModel.models
+                                        .filter((m) => m.provider === p.id)
+                                        .map((m) => (
+                                          <option key={m.key} value={m.key}>{m.label}</option>
+                                        ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                              )}
                             </div>
 
                             {/* Feature 034 — full, untruncated capture values.

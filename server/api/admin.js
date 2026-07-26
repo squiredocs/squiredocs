@@ -7,7 +7,7 @@ const express = require('express');
 const aiUsage = require('../ai-usage');
 const { sendWelcomeEmail } = require('../email');
 const appSettings = require('./app-settings');
-const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey } = require('./chat-models');
+const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey, resolveUserChatModelKey } = require('./chat-models');
 const { hasServerKey, listProviders } = require('./ai-providers');
 
 const router = express.Router();
@@ -156,6 +156,8 @@ router.get('/users', async (req, res) => {
         -- Passed through verbatim — the admin is the investigator and needs the
         -- exact stored value, so no masking, truncation, or reformatting here.
         u.signup_ip, u.signup_user_agent, u.last_login_ip, u.last_login_user_agent,
+        -- Feature 035 — admin-only per-user model pin; NULL = follow the shared default.
+        u.chat_model_override,
         COALESCE(d.doc_count, 0)::int AS doc_count,
         COALESCE(a.ai_used_cents, 0)::int AS ai_used_cents,
         COALESCE(ec.ai_extra_credit_cents, 0)::int AS ai_extra_credit_cents
@@ -199,6 +201,9 @@ router.get('/users', async (req, res) => {
       signupUserAgent: r.signup_user_agent,
       lastLoginIp: r.last_login_ip,
       lastLoginUserAgent: r.last_login_user_agent,
+      // Feature 035 — the stored pin only; the client derives the effective label
+      // from the shared-model payload it already holds (RBD-12).
+      chatModelOverride: r.chat_model_override,
       docCount: parseInt(r.doc_count, 10),
       aiUsedCents: parseInt(r.ai_used_cents, 10),
       aiExtraCreditCents: parseInt(r.ai_extra_credit_cents, 10),
@@ -267,6 +272,64 @@ router.patch('/users/:userId/email-enabled', async (req, res) => {
   } catch (err) {
     console.error('[Admin] Error updating email_enabled:', err);
     res.status(500).json({ error: 'Failed to update email setting' });
+  }
+});
+
+/**
+ * PATCH /users/:userId/chat-model — pin (or clear) one user's assistant model.
+ * Body: { modelKey: string | null }  (null clears the pin → back to the shared default)
+ *
+ * Feature 035. Admin-only by virtue of the mount (`app.use('/api/admin',
+ * requireAdmin, admin.router)`) — no in-handler check, same as its neighbours.
+ * Validation mirrors PUT /settings/shared-model: the two 400 branches are
+ * isSharedEligible decomposed for message clarity, so the write-time rule and
+ * the resolution-time fallback can never disagree (FR-005/FR-007).
+ *
+ * The stored value is admin-only: it is never echoed to the user it applies to
+ * (FR-011), and BYOK state is deliberately not consulted — pinning a BYOK-active
+ * user succeeds and simply lies dormant (FR-015/RBD-5).
+ */
+router.patch('/users/:userId/chat-model', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { modelKey } = req.body;
+
+    if (modelKey !== null && typeof modelKey !== 'string') {
+      return res.status(400).json({ error: 'modelKey must be a model key string or null' });
+    }
+
+    if (modelKey !== null) {
+      const def = MODEL_DEFS.find((d) => d.key === modelKey);
+      if (!def) {
+        return res.status(400).json({ error: `Unknown model: ${modelKey}` });
+      }
+      if (!hasServerKey(def.provider)) {
+        return res.status(400).json({
+          error: `Model "${modelKey}" has no shared server key and can't be pinned for a user`,
+        });
+      }
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET chat_model_override = $1 WHERE id = $2 RETURNING chat_model_override',
+      [modelKey, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const stored = result.rows[0].chat_model_override;
+    res.json({
+      chatModelOverride: stored,
+      // What this user's next shared-path turn will actually run on — after a
+      // clear that is the CURRENT shared default, not the one in force when the
+      // pin was set (SC-003).
+      effectiveModelKey: resolveUserChatModelKey(stored, appSettings.getSharedDefaultModel()),
+    });
+  } catch (err) {
+    console.error('[Admin] Error updating chat model override:', err);
+    res.status(500).json({ error: 'Failed to update chat model override' });
   }
 });
 

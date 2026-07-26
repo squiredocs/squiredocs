@@ -39,7 +39,7 @@ default-follow, BYOK-wins, no-silent-fallback, stale-never-fails) are the expens
 **Purpose**: confirm the seams are where the plan says they are. `server/api/chat-models.js` is under
 concurrent edit by a registry-update agent, so line numbers in the plan are indicative only.
 
-- [ ] T001 Re-read the four serving-path seams before editing anything and confirm the plan's assumptions
+- [X] T001 Re-read the four serving-path seams before editing anything and confirm the plan's assumptions
       still hold: `isSharedEligible` / `resolveSharedDefaultKey` / `resolveChatModel` and the export list in
       `server/api/chat-models.js`; the column list in `loadByokSettings` and the explicit `buildResponse`
       literal in `server/api/byok-settings.js`; the single `resolveChatModel` call site in
@@ -59,13 +59,13 @@ concurrent edit by a registry-update agent, so line numbers in the plan are indi
 
 **⚠️ CRITICAL**: no user story work can begin until T003 is green.
 
-- [ ] T002 Create `migrations/1799500000000_add-chat-model-override-to-users.js` adding a single nullable
+- [X] T002 Create `migrations/1799500000000_add-chat-model-override-to-users.js` adding a single nullable
       `chat_model_override text` column to `users` (`pgm.addColumns` up / `pgm.dropColumns` down), with a
       header comment stating: NULL = follow the shared default dynamically; no default and no backfill; no
       CHECK/enum/FK because legal values are a code-side, deployment-dependent registry (research R2); and
       why the timestamp clears both `1799400000000` and the stale `>1795000000000` floor. Shape per
       [data-model.md](./data-model.md).
-- [ ] T003 Apply the migration (`npm run migrate`) against the dev/test database and verify with
+- [X] T003 Apply the migration (`npm run migrate`) against the dev/test database and verify with
       `\d users` that the column is `text`, nullable, no default, and that
       `SELECT count(*) FROM users WHERE chat_model_override IS NOT NULL` is `0` (quickstart §2).
 
@@ -87,13 +87,13 @@ management endpoint is rejected, and nothing in A's own API payloads names the p
 
 > Write these first; they must fail before the implementation tasks land.
 
-- [ ] T004 [P] [US1] Create `server/api/__tests__/chat-model-override.test.js` (pure unit, no DB) covering the
+- [X] T004 [P] [US1] Create `server/api/__tests__/chat-model-override.test.js` (pure unit, no DB) covering the
       core precedence: an eligible override beats the shared default; no override (`null`/`undefined`) →
       `resolveSharedDefaultKey` result; an override equal to the current shared default still resolves to
       that key (pinned, per spec Edge Cases); and — as a regression guard — calling `resolveChatModel`
       **without** `userOverrideKey` reproduces today's behavior exactly. Follow the env save/restore +
       `console.warn` spy pattern already used in `server/api/__tests__/chat-models.test.js`.
-- [ ] T005 [P] [US1] Create `server/__tests__/admin-chat-model-override.test.js` mounting the router the way
+- [X] T005 [P] [US1] Create `server/__tests__/admin-chat-model-override.test.js` mounting the router the way
       `server/index.js` does — `app.use('/api/admin', requireAdmin, admin.router)` — exactly as
       `server/__tests__/admin-auth-capture.test.js` does (a bare-router mount would make the 403 assertion
       vacuous). Cover: set → `200` with stored + `effectiveModelKey`; unknown key → `400`, nothing stored;
@@ -105,18 +105,18 @@ management endpoint is rejected, and nothing in A's own API payloads names the p
       active succeeds (dormant, FR-015). Toggle provider env vars to create an ineligible case rather than
       assuming any particular key is unfunded. Create accounts under a suite-specific email suffix and delete
       them in `afterAll` (the shared `collab_test_db` is serial-only — leaked fixed-key rows break later runs).
-- [ ] T006 [P] [US1] Create `server/__tests__/chat-model-override-wiring.test.js` proving `chat.js` passes the
+- [X] T006 [P] [US1] Create `server/__tests__/chat-model-override-wiring.test.js` proving `chat.js` passes the
       stored value into resolution: reuse the mock harness from
       `server/__tests__/chat-reservation-release.test.js` (mock `../auth`, `../ai-usage`, `../chat-store`,
       `../api/app-settings`, etc.), make `loadByokSettings` resolve a row containing
       `chat_model_override: 'claude-haiku'`, spy on `resolveChatModel`, POST one message, and assert the spy
       was called with `userOverrideKey: 'claude-haiku'`. Add a second case asserting a `null` column yields
       `userOverrideKey: null`.
-- [ ] T007 [P] [US1] Extend `server/__tests__/byok-settings.test.js` with the FR-011/SC-005 non-disclosure
+- [X] T007 [P] [US1] Extend `server/__tests__/byok-settings.test.js` with the FR-011/SC-005 non-disclosure
       assertion: with `chat_model_override` set directly in the DB for the test user, `GET /api/settings/byok`
       returns a key set that contains no `chatModelOverride` / `chat_model_override`, and the serialized body
       does not contain the pinned key anywhere (mirrors 034's `/auth/me` whitelist test).
-- [ ] T008 [P] [US1] Extend `client/src/pages/__tests__/AdminPage.test.jsx` with the picker states: a user with
+- [X] T008 [P] [US1] Extend `client/src/pages/__tests__/AdminPage.test.jsx` with the picker states: a user with
       no override renders the `Default (<shared effective label>)` option selected; the offered options are
       **exactly** the mocked shared-model payload's models grouped under their providers, plus `Default` — no
       extra or hand-listed model (US1 acceptance 3 / FR-009); a user whose stored override is absent from the
@@ -130,35 +130,35 @@ management endpoint is rejected, and nothing in A's own API payloads names the p
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] In `server/api/chat-models.js`, add `resolveUserChatModelKey(overrideKey, sharedDefaultKey)`
+- [X] T009 [US1] In `server/api/chat-models.js`, add `resolveUserChatModelKey(overrideKey, sharedDefaultKey)`
       immediately after `resolveSharedDefaultKey` (so the file reads in precedence order): eligible override →
       return it; ineligible/unknown override → one `console.warn` naming the key and the reason, then delegate
       to `resolveSharedDefaultKey(sharedDefaultKey)`; falsy override → delegate silently. Document that the
       stored value is deliberately never cleared here (RBD-2). Exact contract in
       [contracts/model-resolution.md](./contracts/model-resolution.md) C1.
-- [ ] T010 [US1] In `server/api/chat-models.js`, give `resolveChatModel` an optional `userOverrideKey`
+- [X] T010 [US1] In `server/api/chat-models.js`, give `resolveChatModel` an optional `userOverrideKey`
       parameter and change **only** its non-BYOK branch to
       `const modelKey = resolveUserChatModelKey(userOverrideKey, sharedDefaultKey);`. The BYOK branch —
       including the `byok_misconfigured` early return — must be byte-for-byte unchanged. Add
       `resolveUserChatModelKey` and `isSharedEligible` to `module.exports` (contract C2). No other refactor of
       this function.
-- [ ] T011 [P] [US1] In `server/api/byok-settings.js`, add `'chat_model_override'` to the `loadByokSettings`
+- [X] T011 [P] [US1] In `server/api/byok-settings.js`, add `'chat_model_override'` to the `loadByokSettings`
       column list with the comment from contract C3 (this is the per-turn user-settings row; `buildResponse`
       must stay an explicit literal and must never carry the override). Leave `buildResponse` and
       `isByokActive` unchanged.
-- [ ] T012 [US1] In `server/api/chat.js`, at the single `chatModels.resolveChatModel({...})` call site, pass
+- [X] T012 [US1] In `server/api/chat.js`, at the single `chatModels.resolveChatModel({...})` call site, pass
       `userOverrideKey: byokSettings?.chat_model_override || null` with a one-line comment (contract C4).
       Depends on T010, T011.
-- [ ] T013 [P] [US1] In `server/api/admin.js`, add `u.chat_model_override` to the `GET /users` SELECT and
+- [X] T013 [P] [US1] In `server/api/admin.js`, add `u.chat_model_override` to the `GET /users` SELECT and
       `chatModelOverride: r.chat_model_override` to the row mapping (contract A2).
-- [ ] T014 [US1] In `server/api/admin.js`, add `PATCH /users/:userId/chat-model` per contract A1: validate
+- [X] T014 [US1] In `server/api/admin.js`, add `PATCH /users/:userId/chat-model` per contract A1: validate
       `modelKey` is a string or `null` (else `400`), then — for a string — reject an unknown key and a key
       whose provider has no shared server key with the two distinct `400` messages; `UPDATE users SET
       chat_model_override = $1 WHERE id = $2 RETURNING chat_model_override`; `404` when no row; respond
       `{ chatModelOverride, effectiveModelKey }` where the effective key comes from
       `resolveUserChatModelKey(stored, appSettings.getSharedDefaultModel())`. Place it beside the other
       `PATCH /users/:userId/*` handlers; import `resolveUserChatModelKey` from `./chat-models`. Depends on T009.
-- [ ] T015 [US1] In `client/src/pages/AdminPage.jsx`, add the "Assistant model" section to the existing
+- [X] T015 [US1] In `client/src/pages/AdminPage.jsx`, add the "Assistant model" section to the existing
       expanded detail row (after the Trusted toggle, before "Sign-in origin"): a `<select>` valued from
       `u.chatModelOverride ?? ''` with the `Default (<effective label>)` option, provider `<optgroup>`s built
       from the already-loaded `sharedModel.providers`/`.models`, the disabled
@@ -180,19 +180,19 @@ account to whatever the shared default is *at that moment* — never a snapshot.
 **Independent Test**: with no override, change the shared default and confirm the next turn follows it; pin,
 change the shared default again, clear the pin — the next turn runs on the **new** shared default.
 
-- [ ] T016 [US2] Extend `server/api/__tests__/chat-model-override.test.js` with the dynamic-default cases: with
+- [X] T016 [US2] Extend `server/api/__tests__/chat-model-override.test.js` with the dynamic-default cases: with
       no override, changing the `sharedDefaultKey` argument changes the resolved key on the next call (no
       snapshot anywhere); with an override set, changing `sharedDefaultKey` does **not** affect the resolved
       key; after clearing (override `null`), the resolved key is the *current* shared default, including a
       value that changed while the override was in force (FR-004, US2-1/2/3, SC-003). Same file as T004 — run
       after it.
-- [ ] T017 [US2] Extend `server/__tests__/admin-chat-model-override.test.js` with the clear round-trip: set an
+- [X] T017 [US2] Extend `server/__tests__/admin-chat-model-override.test.js` with the clear round-trip: set an
       override, change the shared default via `appSettings.setSharedDefaultModel(...)`, clear the override,
       and assert the response's `effectiveModelKey` equals the **new** shared default (not the one in force
       when the pin was set). Same file as T005 — run after it. This test mutates the **global** `app_settings`
       shared-default row: capture `appSettings.getSharedDefaultModel()` first and restore it in `afterAll`, or
       the next suite in the serial run inherits a changed default.
-- [ ] T018 [US2] Verify the deploy-time state (US2 acceptance 4) as part of the quickstart §2 check: after the
+- [X] T018 [US2] Verify the deploy-time state (US2 acceptance 4) as part of the quickstart §2 check: after the
       migration every existing account has `chat_model_override IS NULL` and therefore behaves exactly as
       before. Record the observed count in the run notes.
 
@@ -209,13 +209,13 @@ still fails loudly, and a stale pin degrades quietly to the shared default.
 BYOK config still surfaces the misconfiguration error with no shared fallback; a stored pin whose provider
 key was withdrawn resolves to the shared default with a warning, and the stored value survives.
 
-- [ ] T019 [US3] Extend `server/api/__tests__/chat-model-override.test.js` with the stale-override cases: a
+- [X] T019 [US3] Extend `server/api/__tests__/chat-model-override.test.js` with the stale-override cases: a
       known override whose provider lost its shared server key resolves to the shared-default chain and emits
       exactly one warning naming the key; an unknown override key does the same; and the fallback is
       re-evaluated per call, so restoring the provider key makes the very next call return the override again
       (FR-006, US3-3, spec Edge Cases). Assert the turn always resolves to a usable model — never `null`,
       never a throw (SC-004).
-- [ ] T020 [US3] Extend `server/api/__tests__/chat-model-override.test.js` with the two BYOK invariants as
+- [X] T020 [US3] Extend `server/api/__tests__/chat-model-override.test.js` with the two BYOK invariants as
       **separate, explicitly named** tests (FR-003, SC-006): (a) an active-BYOK user with a stored override
       resolves the BYOK model via the user's key — the override has no effect; (b) BYOK enabled but
       unresolvable (unknown BYOK model, missing key, or a key that fails to decrypt) returns
@@ -229,7 +229,7 @@ branch is ever touched.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T021 Record the owed follow-ups for the merge queue in `specs/035-per-user-model-override/promotion-notes.md`
+- [X] T021 Record the owed follow-ups for the merge queue in `specs/035-per-user-model-override/promotion-notes.md`
       (034 precedent). **Verified, not hypothetical (Principle I): `README.md` will be factually wrong the
       moment this lands** — line ~33 lists the Admin Area capabilities without the per-user pin, and line ~557
       states the precedence as "admin selection → `AI_CHAT_MODEL` → `DEFAULT_MODEL_KEY`" with no per-user slot
@@ -241,11 +241,11 @@ branch is ever touched.
       amendments already flagged in `clarifications-needed.md` (write-time validation, stale-override
       retention, UI placement); and the `loadByokSettings` naming smell (research R3) as a deliberate,
       documented MEDIUM.
-- [ ] T022 Run the full suites serially and green: `npm run test:server` then `npm run test:client`. Pay
+- [X] T022 Run the full suites serially and green: `npm run test:server` then `npm run test:client`. Pay
       particular attention to the untouched-by-design suites that exercise the same seam —
       `chat-models-byok.test.js`, `chat-models.test.js`, `chat.durable-failures.test.js`,
       `chat-reservation-release.test.js`, `admin-auth-capture.test.js` — which must pass **unmodified**.
-- [ ] T023 Walk [quickstart.md](./quickstart.md) §3–§8 against the dev pod: admin API walk, serving-path
+- [X] T023 Walk [quickstart.md](./quickstart.md) §3–§8 against the dev pod: admin API walk, serving-path
       matrix (pinned vs un-pinned vs shared-default change vs clear), stale-override degradation **including
       the RBD-2 retention check** (`SELECT chat_model_override` still returns the stale key after a
       fallback turn), the BYOK matrix, the non-disclosure check on `/api/settings/byok` and `/auth/me`, and

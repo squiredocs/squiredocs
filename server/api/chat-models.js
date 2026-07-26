@@ -435,6 +435,35 @@ function resolveSharedDefaultKey(storedKey) {
 }
 
 /**
+ * Resolve the model KEY for a shared-key (non-BYOK) turn, honoring an admin-set
+ * per-user override (feature 035):
+ *   1. users.chat_model_override — when it is shared-eligible.
+ *   2. resolveSharedDefaultKey(sharedDefaultKey) — the existing chain
+ *      (app_settings → AI_CHAT_MODEL → DEFAULT_MODEL_KEY).
+ *
+ * An override that is unknown or currently ineligible (its provider lost its shared
+ * server key) is SKIPPED with a warning and the turn proceeds on the shared default —
+ * a stale override never fails a chat (FR-006). The stored value is deliberately NOT
+ * cleared here: eligibility is re-evaluated every turn, so a temporarily-withdrawn
+ * provider key resumes the override automatically once restored (RBD-2).
+ *
+ * @param {string} [overrideKey]      users.chat_model_override (may be null/undefined).
+ * @param {string} [sharedDefaultKey] Admin-selected shared default from app_settings.
+ * @returns {string} The resolved model key.
+ */
+function resolveUserChatModelKey(overrideKey, sharedDefaultKey) {
+  if (overrideKey) {
+    if (isSharedEligible(overrideKey)) return overrideKey;
+    console.warn(
+      `[Chat] Per-user chat model override "${overrideKey}" is ineligible (unknown model, or `
+      + `its provider has no shared server key); falling back to the shared default. The stored `
+      + `value is kept — it resumes if the model/key comes back.`
+    );
+  }
+  return resolveSharedDefaultKey(sharedDefaultKey);
+}
+
+/**
  * Resolve the model to use for a chat request, in order of preference:
  *  1. BYOK — when enabled, the user's selected model + decrypted key. If BYOK is
  *     enabled but the model/key cannot be resolved, this returns a discriminated
@@ -442,20 +471,26 @@ function resolveSharedDefaultKey(storedKey) {
  *     fall back to the shared server key (feature 012, FR-019). A silent fallback
  *     would bill the operator's key while the request is still flagged BYOK,
  *     bypassing credit metering.
- *  2. Shared default (non-BYOK only) — the admin-selected model (sharedDefaultKey),
+ *  2. Per-user override (non-BYOK only) — the admin-set users.chat_model_override,
+ *     when it is still shared-eligible (feature 035; see resolveUserChatModelKey).
+ *  3. Shared default (non-BYOK only) — the admin-selected model (sharedDefaultKey),
  *     else AI_CHAT_MODEL, else DEFAULT_MODEL_KEY (see resolveSharedDefaultKey).
- *  3. DEFAULT_MODEL_KEY as a final fallback if the resolved shared key is unknown.
+ *  4. DEFAULT_MODEL_KEY as a final fallback if the resolved shared key is unknown.
  *
  * @param {object}   opts
  * @param {boolean}  opts.isByok       Whether BYOK is enabled/intended for this user.
  * @param {object}   [opts.byokSettings] Raw BYOK settings row (may be null).
  * @param {function} opts.decryptKey   Decrypts a stored BYOK key ciphertext.
  * @param {string}   [opts.sharedDefaultKey] Admin-selected shared default model key.
+ * @param {string}   [opts.userOverrideKey] Admin-set per-user pin (users.chat_model_override).
+ *   OPTIONAL: omitting it reproduces the pre-035 resolution exactly, and it is consumed
+ *   only on the shared-key path — the BYOK branch below never reads it, which is what
+ *   makes "BYOK wins" and "byok_misconfigured never falls back" structural (FR-003).
  * @returns {{ model, def, provider } | { error: 'byok_misconfigured', provider: string|null } | null}
  *   Resolved model; the misconfig signal when BYOK is on but unresolvable; or null
  *   if no shared model is configured at all (genuine server misconfiguration).
  */
-function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }) {
+function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, userOverrideKey }) {
   if (isByok && byokSettings) {
     const def = MODEL_DEFS.find((d) => d.key === byokSettings.byok_model_key);
     if (def) {
@@ -476,7 +511,7 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
     return { error: 'byok_misconfigured', provider: def ? def.provider : null };
   }
 
-  const modelKey = resolveSharedDefaultKey(sharedDefaultKey);
+  const modelKey = resolveUserChatModelKey(userOverrideKey, sharedDefaultKey);
   const resolved = resolveModel(modelKey);
   if (resolved) return resolved;
 
@@ -484,4 +519,6 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey }
   return resolveModel(DEFAULT_MODEL_KEY);
 }
 
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+// isSharedEligible is exported so the admin write-time validation and this
+// module's resolution-time fallback are literally the same predicate (035 FR-005).
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
