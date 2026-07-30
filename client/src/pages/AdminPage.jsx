@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from '../components/UserProfileBadge';
 import Avatar from '../components/Avatar';
@@ -6,11 +6,58 @@ import Logo from '../components/Logo';
 import ViewToggleButton from '../components/ViewToggleButton';
 import './AdminPage.css';
 
+// User-list sort orders. Sorting is client-side: the list endpoint returns
+// every user in one payload (no pagination), and re-sorting locally means the
+// chosen order survives the fetchUsers() refresh that follows each mutation.
+// A missing timestamp sorts as 0, i.e. "never" lands at the bottom of the
+// recency orders rather than throwing on Date.parse(null).
+const ts = (v) => (v ? Date.parse(v) || 0 : 0);
+const USER_SORTS = [
+  {
+    key: 'lastActive',
+    label: 'Recently active',
+    compare: (a, b) => ts(b.lastLoginAt) - ts(a.lastLoginAt) || ts(b.createdAt) - ts(a.createdAt),
+  },
+  {
+    key: 'newest',
+    label: 'Newest account',
+    compare: (a, b) => ts(b.createdAt) - ts(a.createdAt),
+  },
+  {
+    key: 'oldest',
+    label: 'Oldest account',
+    compare: (a, b) => ts(a.createdAt) - ts(b.createdAt),
+  },
+  {
+    key: 'name',
+    label: 'Name (A–Z)',
+    compare: (a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || ''),
+  },
+  {
+    key: 'aiSpend',
+    label: 'AI spend (this month)',
+    compare: (a, b) => b.aiUsedCents - a.aiUsedCents || ts(b.lastLoginAt) - ts(a.lastLoginAt),
+  },
+  {
+    key: 'docs',
+    label: 'Most documents',
+    compare: (a, b) => b.docCount - a.docCount || ts(b.lastLoginAt) - ts(a.lastLoginAt),
+  },
+];
+
 export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToChat, user }) {
   const { api, logout } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Most-recently-active first by default: "who is using this right now?" is
+  // the question an admin usually opens this page with.
+  const [sortKey, setSortKey] = useState('lastActive');
+  const sortedUsers = useMemo(() => {
+    const sort = USER_SORTS.find((s) => s.key === sortKey) || USER_SORTS[0];
+    return [...users].sort(sort.compare);
+  }, [users, sortKey]);
 
   // Expanded user row — shows extra credit + sharing detail
   const [expandedUserId, setExpandedUserId] = useState(null);
@@ -447,7 +494,23 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
         {error && <div className="admin-error">{error}</div>}
 
         {!loading && !error && (
-          <div className="admin-table-wrapper">
+          <>
+            <div className="admin-table-toolbar">
+              <label htmlFor="admin-user-sort">Sort by</label>
+              <select
+                id="admin-user-sort"
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value)}
+              >
+                {USER_SORTS.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+              <span className="admin-table-toolbar-count">
+                {users.length} user{users.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="admin-table-wrapper">
             <table className="admin-table">
               <thead>
                 <tr>
@@ -467,7 +530,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
+                {sortedUsers.map((u) => {
                   const isExpanded = expandedUserId === u.id;
                   return [
                     // Main user row
@@ -952,7 +1015,8 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
     </>

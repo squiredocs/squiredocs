@@ -7,6 +7,7 @@
 }
 
 .admin-page > .admin-table-wrapper,
+.admin-page > .admin-table-toolbar,
 .admin-page > .admin-loading,
 .admin-page > .admin-error,
 .admin-page > .admin-settings-card {
@@ -93,6 +94,37 @@
 }
 
 /* ─── Main table ───────────────────────────────────────── */
+
+/* Sort control above the user table. Sits OUTSIDE .admin-table-wrapper so it
+   never scrolls sideways with a wide table. */
+.admin-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.admin-table-toolbar label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+
+.admin-table-toolbar select {
+  padding: 5px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.admin-table-toolbar-count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
 
 .admin-table-wrapper {
   overflow-x: auto;

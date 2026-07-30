@@ -117,6 +117,83 @@ describe('AdminPage — sign-in origin columns (feature 034)', () => {
   });
 });
 
+describe('AdminPage — user list sorting', () => {
+  // Deliberately adversarial ordering: the API returns them newest-signup
+  // first (the old fixed order), which is NOT the recency-of-activity order.
+  const dormant = {
+    ...captured,
+    id: 'user-dormant',
+    email: 'dormant@example.com',
+    createdAt: '2026-07-28T10:00:00.000Z',
+    lastLoginAt: null,
+    docCount: 9,
+  };
+  const stale = {
+    ...captured,
+    id: 'user-stale',
+    email: 'stale@example.com',
+    createdAt: '2026-06-01T10:00:00.000Z',
+    lastLoginAt: '2026-06-02T10:00:00.000Z',
+    docCount: 5,
+  };
+  const active = {
+    ...captured,
+    id: 'user-active',
+    email: 'active@example.com',
+    createdAt: '2026-05-01T10:00:00.000Z',
+    lastLoginAt: '2026-07-29T10:00:00.000Z',
+    docCount: 1,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') {
+        return Promise.resolve({ data: { users: [dormant, stale, active] } });
+      }
+      return Promise.reject(new Error('not available'));
+    });
+  });
+
+  const renderPage = () =>
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+
+  const emailOrder = () =>
+    Array.from(document.querySelectorAll('.admin-user-email')).map((el) => el.textContent);
+
+  it('defaults to most recently active first, never-signed-in last', async () => {
+    renderPage();
+    await screen.findByText('active@example.com');
+
+    expect(emailOrder()).toEqual([
+      'active@example.com',
+      'stale@example.com',
+      'dormant@example.com',
+    ]);
+  });
+
+  it('re-orders the list when another sort is chosen', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('active@example.com');
+
+    // Newest signup first — the reverse of activity recency in this fixture.
+    await user.selectOptions(screen.getByLabelText('Sort by'), 'newest');
+    expect(emailOrder()).toEqual([
+      'dormant@example.com',
+      'stale@example.com',
+      'active@example.com',
+    ]);
+
+    await user.selectOptions(screen.getByLabelText('Sort by'), 'docs');
+    expect(emailOrder()).toEqual([
+      'dormant@example.com',
+      'stale@example.com',
+      'active@example.com',
+    ]);
+  });
+});
+
 describe('AdminPage — shared model picker prices', () => {
   const sharedModel = {
     modelKey: null,
