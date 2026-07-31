@@ -576,4 +576,65 @@ describe('REST import API', () => {
       expect(md).toContain('keep text');
     });
   });
+
+  // ==========================================================================
+  // Presence end-to-end (feature 037, T004)
+  //
+  // The point of these is the SEAM between the route and the presence module,
+  // asserted on the real end-to-end path: one session per agent import with the
+  // right identity, and an HTTP response the feature cannot have touched.
+  // ==========================================================================
+  describe('agent presence on import (037)', () => {
+    const importPresence = require('../../server/import-presence');
+    const { makeAgentPresenceDouble } = require('../../server/__tests__/helpers/import-presence-doubles');
+    let presenceDouble;
+    let docId;
+
+    // The exact response contract of PUT — byte-identical before and after 037.
+    const PUT_BODY_KEYS = ['docId', 'mode', 'clock', 'blocks', 'images', 'markdown'];
+
+    beforeEach(async () => {
+      presenceDouble = makeAgentPresenceDouble();
+      importPresence._setDepsForTests({ agentPresence: presenceDouble });
+      const res = await post('# Base\n\nOriginal body.');
+      docId = res.body.docId;
+      createdDocIds.push(docId);
+    });
+
+    afterEach(() => { importPresence._setDepsForTests(); });
+
+    for (const mode of ['append', 'replace']) {
+      test(`${mode}: exactly one session for the token's own identity, response unchanged`, async () => {
+        const res = await put(docId, '## Added\n\nSome text.', { query: `?mode=${mode}` });
+        await Promise.all(pendingOperations.splice(0));
+
+        expect(res.status).toBe(200);
+        expect(Object.keys(res.body).sort()).toEqual([...PUT_BODY_KEYS].sort());
+        expect(res.body.mode).toBe(mode);
+
+        // One distinct session key (open + the apply-time TTL refresh).
+        const keys = new Set(presenceDouble.sessions.map(
+          (s) => `${s.agentToken.userId}-${s.agentToken.agentId}-${s.docGuid}`
+        ));
+        expect(keys.size).toBe(1);
+        expect(presenceDouble.sessions[0].agentToken.agentName).toBe('import default');
+        expect(presenceDouble.sessions[0].agentToken.agentId).toMatch(/^api-token:/);
+      });
+    }
+
+    test('a presence backend that is completely down leaves the response identical', async () => {
+      const healthy = await put(docId, '## Added\n\nSome text.');
+      await Promise.all(pendingOperations.splice(0));
+
+      presenceDouble.behave({ mode: 'reject' });
+      const degraded = await put(docId, '## Added\n\nSome text.');
+      await Promise.all(pendingOperations.splice(0));
+
+      expect(degraded.status).toBe(healthy.status);
+      expect(Object.keys(degraded.body).sort()).toEqual(Object.keys(healthy.body).sort());
+      expect(degraded.body.blocks).toEqual(healthy.body.blocks);
+      expect(degraded.body.images).toEqual(healthy.body.images);
+      expect(degraded.body.mode).toBe(healthy.body.mode);
+    });
+  });
 });
