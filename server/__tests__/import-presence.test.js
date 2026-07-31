@@ -322,4 +322,123 @@ describe('037 import presence', () => {
       expect(presenceDouble.selections).toHaveLength(0);                // never fabricated
     });
   });
+
+  // -------------------------------------------------------------------------
+  // C4, C5, C10 — presence is provably decorative (T019-T021, US3)
+  //
+  // The proof obligation is that degradation cannot reach the byte channel:
+  // not the response, not the latency beyond the cap, not the document.
+  // -------------------------------------------------------------------------
+  describe('degradation never reaches the import (C4, C5, C10)', () => {
+    test('C4: a rejecting getOrCreateSession leaves the response identical, and warns once', async () => {
+      const { docId: healthyDoc } = await seedDoc('# Notes\n\nOne.');
+      const healthy = await put(healthyDoc, '\n\nAppended.\n');
+      await drain();
+
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      presenceDouble.reset(); // drop the healthy baseline's recordings
+      presenceDouble.behave({ mode: 'reject' });
+      const warns = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      let logged;
+      let res;
+      try {
+        res = await put(docId, '\n\nAppended.\n');
+        await drain();
+        logged = warns.mock.calls.map((c) => String(c[0]));
+      } finally { warns.mockRestore(); }
+
+      expect(res.status).toBe(healthy.status);
+      expect(Object.keys(res.body).sort()).toEqual(Object.keys(healthy.body).sort());
+      expect(res.body.blocks).toEqual(healthy.body.blocks);
+      expect(res.body.markdown).toBe(healthy.body.markdown);
+      // Observable, but only in the log.
+      expect(logged.filter((l) => l.startsWith('[import-presence]'))).toHaveLength(1);
+      expect(presenceDouble.selections).toHaveLength(0);
+    });
+
+    test('C5: a hanging getOrCreateSession costs at most the ~2 s cap', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      presenceDouble.behave({ mode: 'hang' });
+
+      const started = Date.now();
+      const res = await put(docId, '\n\nAppended.\n');
+      const elapsed = Date.now() - started;
+      await drain();
+
+      expect(res.status).toBe(200);
+      // The cap bounds it; anything near it proves we did not wait on the dial
+      // indefinitely, and the generous ceiling keeps this off the flake list.
+      expect(elapsed).toBeGreaterThanOrEqual(importPresence.PRESENCE_ATTACH_CAP_MS - 100);
+      expect(elapsed).toBeLessThan(importPresence.PRESENCE_ATTACH_CAP_MS + 5000);
+      // The import completed while the session was still attaching, so nothing
+      // was ever announced — the ratified best-effort trade (US3 scenario 2).
+      expect(presenceDouble.selections).toHaveLength(0);
+    }, 20000);
+
+    test('C10: the document is byte-identical with presence enabled and disabled (FR-013)', async () => {
+      const body = '## Added\n\nSome **text** here.\n\n- a\n- b\n';
+
+      // Same seed content, same import, only presence differs.
+      const withPresence = await seedDoc('# Notes\n\nOne.');
+      await put(withPresence.docId, body);
+      await drain();
+
+      const withoutPresence = await seedDoc('# Notes\n\nOne.');
+      presenceDouble.behave({ mode: 'reject' });
+      await put(withoutPresence.docId, body);
+      await drain();
+
+      const { toMarkdown } = require('../mcp/yjs/serialization');
+      const read = (id) => toMarkdown(
+        documentService.getSharedDoc(id).get('default', Y.XmlFragment)
+      );
+      // Markdown equality is the readable half of the claim; the structural
+      // half is that presence performed no transaction of its own.
+      expect(read(withPresence.docId)).toBe(read(withoutPresence.docId));
+
+      const rows = async (id) => (await pool.query(
+        'SELECT COUNT(*)::int AS n FROM yjs_updates WHERE doc_guid=$1', [id]
+      )).rows[0].n;
+      expect(await rows(withPresence.docId)).toBe(await rows(withoutPresence.docId));
+    });
+
+    test('SC-005: a session that attaches AFTER the apply still writes nothing to the doc', async () => {
+      presenceDouble.behave({ mode: 'resolve', delayMs: 40 });
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      const before = await (async () => {
+        await put(docId, '\n\nAppended.\n');
+        await drain();
+        return Y.encodeStateAsUpdate(documentService.getSharedDoc(docId));
+      })();
+
+      // Let the late attach land and the settle chain run to completion.
+      await new Promise((r) => setTimeout(r, 200));
+      const after = Y.encodeStateAsUpdate(documentService.getSharedDoc(docId));
+
+      expect(Buffer.from(after)).toEqual(Buffer.from(before));
+      expect(presenceDouble.selections).toHaveLength(1); // it DID announce, late
+    });
+
+    test('a throwing position computation is logged and never reaches the response', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      const boom = jest.spyOn(cursorOps, 'createBlockRangeSelection')
+        .mockImplementation(() => { throw new Error('position math exploded'); });
+      importPresence._setDepsForTests({ agentPresence: presenceDouble, cursorOps });
+      const warns = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      let res;
+      let logged;
+      try {
+        res = await put(docId, '\n\nAppended.\n');
+        await drain();
+        logged = warns.mock.calls.map((c) => String(c[0]));
+      } finally { warns.mockRestore(); boom.mockRestore(); }
+
+      expect(res.status).toBe(200);
+      expect(res.body.blocks).toEqual({ imported: 1 });
+      expect(logged.some((l) => l.includes('changed-range computation failed'))).toBe(true);
+      // The session still refreshed; only the selection was lost.
+      expect(presenceDouble.selections).toHaveLength(0);
+      expect(presenceDouble.sessions).toHaveLength(2);
+    });
+  });
 });
