@@ -317,4 +317,43 @@ describe('import_markdown_file tool', () => {
       expect(res.command).toContain('11111111-2222-3333-4444-555555555555');
     });
   });
+
+  // =========================================================================
+  // Token naming (feature 037, US5) — assertions N1 and N7.
+  // =========================================================================
+  describe('token naming (037)', () => {
+    const pendingMints = require('../../auth/pending-mints');
+
+    test('N1: a client registered as "Claude Code" mints a token named "Claude Code"', async () => {
+      const spy = jest.spyOn(pendingMints, 'createPendingMint');
+      try {
+        await call({}, jwtPrincipal({ agentName: 'Claude Code' }));
+        expect(spy).toHaveBeenCalledTimes(1);
+        const params = spy.mock.calls[0][0];
+        expect(params.name).toBe('Claude Code');
+        // The name describes the agent, not this call.
+        expect(params.name).not.toMatch(/Minted by|via import_markdown_file/);
+      } finally { spy.mockRestore(); }
+    });
+
+    test('N5: a principal with no agentName falls back to "AI Agent"', async () => {
+      const spy = jest.spyOn(pendingMints, 'createPendingMint');
+      try {
+        await call({}, jwtPrincipal({ agentName: undefined, agentId: 'api-token:abc-123' }));
+        expect(spy.mock.calls[0][0].name).toBe('AI Agent');
+        expect(spy.mock.calls[0][0].name).not.toContain('api-token:');
+      } finally { spy.mockRestore(); }
+    });
+
+    test('N7: the tool description instructs naming the token after the agent', () => {
+      const tool = require('../../tools/import-markdown-file');
+      expect(tool.description).toMatch(/named after YOU, the agent/i);
+      expect(tool.description).toMatch(/presence label/i);
+      expect(tool.description).toMatch(/version history/i);
+      // The recipe tool deliberately takes NO name parameter — it returns a
+      // ready-to-run command, and a name argument would be one more thing to
+      // get wrong.
+      expect(tool.inputSchema.properties.name).toBeUndefined();
+    });
+  });
 });

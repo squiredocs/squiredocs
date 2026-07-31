@@ -318,7 +318,7 @@ async function importMarkdown(ydoc, markdown, options = {}) {
   );
 
   // ONE transaction — one undo boundary, one attributed version entry (FR-004).
-  await documentService.updateDocument(
+  const live = await documentService.updateDocument(
     imageContext.docId,
     (liveDoc) => {
       const liveFragment = liveDoc.get('default', Y.XmlFragment);
@@ -343,7 +343,15 @@ async function importMarkdown(ydoc, markdown, options = {}) {
     { userId: actor.userId, agentName: actor.agentName || null }
   );
 
-  return { blocks: { imported: nodes.length }, images, frontmatter };
+  // `live` carries the transaction's bytes so the caller can fan them out
+  // cross-instance when nothing else did (feature 037). INTERNAL module
+  // contract — deliberately not part of the HTTP receipt.
+  return {
+    blocks: { imported: nodes.length },
+    images,
+    frontmatter,
+    live: live || { update: null, hadRedisHandler: false },
+  };
 }
 
 module.exports = {

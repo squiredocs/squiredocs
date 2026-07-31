@@ -1016,5 +1016,10 @@ module.exports = {
   getSession,
   // Internal indexes exposed for testing only
   _sessionsByKey: sessionsByKey,
+  // Test seam (feature 037): the import-presence suite asserts that an
+  // import's presence label equals the author version history records for the
+  // same change, and must compare against the SHIPPED label shape rather than
+  // a copy of it.
+  _buildAgentInfo,
   _sessionsByUserId: sessionsByUserId,
 };

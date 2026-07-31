@@ -35,6 +35,10 @@ const {
   deriveImportTitle,
   ImportError,
 } = require('../markdown-import');
+const importPresence = require('../import-presence');
+const { publishIfUnhandled } = require('../live-apply');
+const redisPubSub = require('../redis-pubsub');
+const { buildBaseUrl } = require('../url');
 
 // ---------------------------------------------------------------------------
 // mode=sync (feature 004) — contracts/sync-push.md
@@ -85,7 +89,7 @@ const REJECTION_MESSAGES = {
   sync_baseline_unavailable: 'The document can no longer be reconstructed at that baseline clock.',
 };
 
-async function handleSyncPush(persistence, req, res, docId, user) {
+async function handleSyncPush(persistence, req, res, docId, user, presence = null) {
   const markdown = typeof req.body === 'string' ? req.body : '';
   const { squire, body } = parseFrontmatter(markdown);
 
@@ -105,16 +109,38 @@ async function handleSyncPush(persistence, req, res, docId, user) {
   }
   const { baselineClock, flavor } = v;
 
-  const receipt = await applySyncPush(persistence, docId, {
-    body, // frontmatter-stripped body — the engine diffs against the doc's body
-    baselineClock,
-    flavor,
-    userId: user.userId,
-    agentName: SYNC_AGENT_NAME,
-    onBehalfOf: parseOnBehalfOf(req),
-    imageMap: squire && squire.images ? squire.images : null,
-    getSharedDoc: documentService.getSharedDoc,
-  });
+  // A sync push edits an arbitrary subset of blocks, so the changed span is
+  // only knowable from what actually lands. Observe it around the apply (037,
+  // FR-011); `stop()` in a finally — a leaked observeDeep on a long-lived
+  // shared doc is a real leak. Skipped entirely without presence, so a
+  // human-session push is byte-identical to before.
+  const observed = presence ? importPresence.observeSyncRange(docId) : null;
+  let receipt;
+  try {
+    receipt = await applySyncPush(persistence, docId, {
+      body, // frontmatter-stripped body — the engine diffs against the doc's body
+      baselineClock,
+      flavor,
+      userId: user.userId,
+      agentName: SYNC_AGENT_NAME,
+      onBehalfOf: parseOnBehalfOf(req),
+      imageMap: squire && squire.images ? squire.images : null,
+      getSharedDoc: documentService.getSharedDoc,
+    });
+  } finally {
+    if (observed) observed.stop();
+  }
+
+  // Fire-and-forget (never awaited): refresh the session TTL and show the
+  // changed range. Only on the success path — a failed push leaves any open
+  // session to expire on its own TTL (ledger RBD-2).
+  if (presence) {
+    importPresence.settle(presence, {
+      fragment: documentService.getSharedDoc(docId).get('default', Y.XmlFragment),
+      mode: 'sync',
+      observed,
+    });
+  }
   return res.status(200).json(receipt);
 }
 
@@ -350,11 +376,29 @@ function createImportRouter(persistence) {
       // its own contract (baseline replay); auth above is the same trust
       // boundary — no privileged path (FR-003).
       const mode = req.query.mode === undefined ? 'append' : String(req.query.mode);
-      if (mode === 'sync') {
-        return await handleSyncPush(persistence, req, res, docId, req.user);
-      }
-      if (mode !== 'append' && mode !== 'replace') {
+      if (mode !== 'append' && mode !== 'replace' && mode !== 'sync') {
         return res.status(400).json({ error: `Unknown import mode: ${mode} (use append or replace or sync)` });
+      }
+
+      // Announce the agent BEFORE any content changes (feature 037, FR-006):
+      // right after the auth + editor-role gates and mode resolution, before
+      // receipt-option validation, the empty-body check, waitForDocLoaded, sync
+      // baseline validation, parsing and the image pass. An unknown mode 400s
+      // above, so presence never opens for one.
+      //
+      // Presence is DECORATIVE — never fails, blocks, or changes an import.
+      // `open` returns synchronously and never throws; `awaitAttach` is the ONLY
+      // await on presence anywhere in this request, and its ~2 s cap resolves
+      // rather than rejects. Human (browser-session) imports skip it entirely
+      // (FR-003), as does POST /api/docs/import (FR-004).
+      let presence = null;
+      if (req.user.isAgent === true) {
+        presence = importPresence.open({ docId, user: req.user, mode, baseUrl: buildBaseUrl(req) });
+        await importPresence.awaitAttach(presence);
+      }
+
+      if (mode === 'sync') {
+        return await handleSyncPush(persistence, req, res, docId, req.user, presence);
       }
       const receiptOpts = parseReceiptOptions(req);
       if (receiptOpts.error) {
@@ -375,6 +419,26 @@ function createImportRouter(persistence) {
         actor: actorFrom(req.user),
         imageContext: { docId },
       });
+
+      // Cross-instance fan-out (feature 037, FR-018). An import reaches the
+      // shared doc via getSharedDoc, which attaches no Redis handler — so on an
+      // instance holding no live connection for this document the update would
+      // reach viewers elsewhere only on reload. Publish it when nothing else
+      // did. Publish-only: the transaction already applied it here.
+      const live = report.live || {};
+      publishIfUnhandled({ redisPubSub }, docId, live.update, live.hadRedisHandler, 'import');
+
+      // Fire-and-forget (never awaited): refresh the session TTL and show a
+      // temporary selection over the changed range. Positions are computed
+      // synchronously here, so a session that attached late still points at the
+      // right content.
+      if (presence) {
+        importPresence.settle(presence, {
+          fragment: ydoc.get('default', Y.XmlFragment),
+          mode,
+          imported: report.blocks.imported,
+        });
+      }
 
       const clock = await waitForClock(persistence, docId, pre.rows + 1);
       // Additive-extensible response (CN-12): feature 004 added mode=sync;

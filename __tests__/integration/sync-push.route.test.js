@@ -633,4 +633,56 @@ describe('sync-push route (mode=sync)', () => {
       expect(res.body.markdown).toContain('first sync now works');
     });
   });
+  // ==========================================================================
+  // Presence on a sync push (feature 037, T004)
+  //
+  // Sync is the mode whose presence identity deliberately does NOT follow the
+  // token: a push announces as 'Repo Sync', the same author version history
+  // records, so repeated CI pushes dedup per user+document rather than per
+  // token (FR-015, ledger RBD-7).
+  // ==========================================================================
+  describe('agent presence on a sync push (037)', () => {
+    const importPresence = require('../../server/import-presence');
+    const { makeAgentPresenceDouble } = require('../../server/__tests__/helpers/import-presence-doubles');
+    let presenceDouble;
+
+    beforeEach(() => {
+      presenceDouble = makeAgentPresenceDouble();
+      importPresence._setDepsForTests({ agentPresence: presenceDouble });
+    });
+    afterEach(() => { importPresence._setDepsForTests(); });
+
+    test('announces as Repo Sync under a fixed agent id, receipt unchanged', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBeFalsy();
+      expect(res.body.clock).toEqual(expect.any(Number));
+
+      expect(presenceDouble.sessions.length).toBeGreaterThanOrEqual(1);
+      const opened = presenceDouble.sessions[0];
+      expect(opened.agentToken.agentId).toBe('repo-sync');
+      expect(opened.agentToken.agentName).toBe('Repo Sync');
+      // Never the token's own display name, and never an api-token: id.
+      expect(opened.agentToken.agentId).not.toMatch(/^api-token:/);
+      expect(presenceDouble.selections).toHaveLength(1);
+    });
+
+    test('a human (browser-session) sync push opens no session', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.');
+      // A browser-session principal for the owner (who is an editor): the
+      // import succeeds, and presence is skipped because it is not an agent.
+      const owner = await pool.query('SELECT id, email, name, is_admin FROM users WHERE id=$1', [ownerId]);
+      const ownerJwt = generateAccessToken(owner.rows[0]);
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.'), {
+        auth: `Bearer ${ownerJwt}`,
+      });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(presenceDouble.sessions).toHaveLength(0);
+    });
+  });
 });
