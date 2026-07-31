@@ -84,7 +84,9 @@ describe('GET /api/tokens/claim', () => {
     expect(record).not.toBeNull();
     expect(record.user_id).toBe(testUserId);
     expect(record.scopes).toEqual(['documents:read']);
-    expect(record.name).toBe('Minted by Claim Test Agent via MCP');
+    // Feature 037: the name describes the AGENT, not the operation — it is a
+    // presence label and a version-history author.
+    expect(record.name).toBe('Claim Test Agent');
 
     const row = await apiTokens.getTokenById(record.id);
     expect(row.minted_by_delegation_id).toBe(testDelegation.id);
@@ -176,7 +178,7 @@ describe('GET /api/tokens/claim', () => {
       expect(record).not.toBeNull();
       expect(record.user_id).toBe(testUserId);
       expect(record.scopes).toEqual(['documents:read', 'documents:write']);
-      expect(record.name).toBe('Minted by Claim Test Agent via import_markdown_file');
+      expect(record.name).toBe('Claim Test Agent'); // 037: names the agent, not the operation
 
       // Default minted-token TTL (1 h), counted from the claim.
       const expiresAt = new Date(record.expires_at).getTime();

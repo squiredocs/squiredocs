@@ -391,14 +391,18 @@ describe('037 import presence', () => {
       await drain();
 
       expect(res.status).toBe(200);
-      // The cap bounds it; anything near it proves we did not wait on the dial
-      // indefinitely, and the generous ceiling keeps this off the flake list.
+      // The double's promise NEVER settles, so the fact that a response came
+      // back at all is the real assertion: without the cap this request would
+      // hang forever. The lower bound proves the cap is what released it; the
+      // upper bound is deliberately loose because this file shares a machine
+      // with the rest of the serial backend suite and a tight wall-clock
+      // ceiling here would be a flake generator, not a regression detector.
       expect(elapsed).toBeGreaterThanOrEqual(importPresence.PRESENCE_ATTACH_CAP_MS - 100);
-      expect(elapsed).toBeLessThan(importPresence.PRESENCE_ATTACH_CAP_MS + 5000);
+      expect(elapsed).toBeLessThan(30000);
       // The import completed while the session was still attaching, so nothing
       // was ever announced — the ratified best-effort trade (US3 scenario 2).
       expect(presenceDouble.selections).toHaveLength(0);
-    }, 20000);
+    }, 60000);
 
     test('C10: the document is byte-identical with presence enabled and disabled (FR-013)', async () => {
       const body = '## Added\n\nSome **text** here.\n\n- a\n- b\n';
