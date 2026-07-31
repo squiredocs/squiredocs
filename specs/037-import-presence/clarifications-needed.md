@@ -222,11 +222,12 @@ contract, not a new product decision.
   The US4 identity-parity assertions must compare against the *shipped* label shape rather than a
   copy of it. Added alongside the module's existing `_sessionsByKey` test seam; no behavior change.
 
-- **RBD-15 — two pre-existing assertions on the old minted-token names were updated.**
-  `create-access-token.test.js` and `token-claim.test.js` asserted
-  `"Minted by <agent> via MCP"` / `"… via import_markdown_file"`. These are the ratified FR-017
-  behavior change landing, not broken tests; both now assert the agent-descriptive name and the
-  create_access_token one additionally asserts the old string is *absent*.
+- **RBD-15 — three pre-existing assertions on the old minted-token names were updated.**
+  `create-access-token.test.js` (one) and `token-claim.test.js` (two — the MCP claim and the
+  `import_markdown_file` claim) asserted `"Minted by <agent> via MCP"` /
+  `"… via import_markdown_file"`. These are the ratified FR-017 behavior change landing, not
+  broken tests; all three now assert the agent-descriptive name, and the create_access_token one
+  additionally asserts the old string is *absent*.
 
 ## Explicitly deferred (flagged, not decided here)
 

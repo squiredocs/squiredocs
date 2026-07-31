@@ -6,8 +6,13 @@
  *                                   (?mode=append|replace, default append)
  *
  * Contracts: specs/002-markdown-import-surfaces/contracts/rest-import.md.
- * Both routes are thin wrappers over server/markdown-import.js (FR-001):
- * no parsing or materialization happens here.
+ * Both routes are thin wrappers over server/markdown-import.js (FR-001): no
+ * parsing or materialization happens here. The PUT handler additionally
+ * ORCHESTRATES the surrounding announcements — it opens the import-presence
+ * session and settles its changed range, and it fans the update out to other
+ * instances (feature 037) — but each of those is a call into its own module,
+ * and all of it is decorative: nothing there can change what the import
+ * writes, or fail one.
  *
  * Auth mirrors the export route: `requireAuth` accepts browser sessions and
  * sk_sqd_/agent tokens, and already enforces `documents:write` for scoped
