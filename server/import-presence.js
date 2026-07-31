@@ -182,13 +182,19 @@ function computeChangedRange({ fragment, mode, imported, observed }) {
     return { first: 0, last: len - 1 };
   }
   if (mode === 'sync') {
+    // ONLY insert/content-derived indices span the range. A deleted block's
+    // recorded index points, post-apply, at its surviving NEIGHBOUR — including
+    // it would highlight content the push never touched, so deletions are
+    // tracked separately and never widen (or fabricate) a span: a push whose
+    // only change is a deletion shows NO selection at all (ledger RBD-8), the
+    // same as a no-op push (FR-012). What was removed is not there to point at.
     const indices = observed && Array.isArray(observed.indices) ? observed.indices : [];
-    if (indices.length === 0) return null; // no-op push (FR-012)
+    if (indices.length === 0) return null;
     const first = Math.min(...indices);
     let last = Math.max(...indices);
     if (last > len - 1) last = len - 1;
-    // A net-deletion whose span has zero post-apply width leaves nothing to
-    // point at — show no selection rather than fabricate one (ledger RBD-7).
+    // Nothing left in bounds to point at — show no selection rather than
+    // fabricate one (ledger RBD-7).
     if (first < 0 || first > last) return null;
     return { first, last };
   }
@@ -209,7 +215,8 @@ function computeChangedRange({ fragment, mode, imported, observed }) {
  * @param {Y.XmlFragment} ctx.fragment - the live post-apply fragment
  * @param {'append'|'replace'|'sync'} ctx.mode
  * @param {number} [ctx.imported] - report.blocks.imported (append)
- * @param {{indices: number[]}} [ctx.observed] - observeSyncRange result (sync)
+ * @param {{indices: number[], deleteIndices: number[]}} [ctx.observed] -
+ *        observeSyncRange result (sync)
  */
 function settle(presence, { fragment, mode, imported, observed } = {}) {
   if (!presence || !presence.promise) return;
@@ -267,12 +274,17 @@ function settle(presence, { fragment, mode, imported, observed } = {}) {
  * idempotent and MUST run in a `finally` — a leaked observeDeep on a
  * long-lived shared doc is a real leak (research R8.3).
  *
+ * Insert/content-derived indices (`indices`) and delete-derived ones
+ * (`deleteIndices`) are kept apart: only the former describe post-apply
+ * positions that still hold the pushed content (ledger RBD-8).
+ *
  * @param {string} docId
- * @returns {{indices: number[], stop: function}}
+ * @returns {{indices: number[], deleteIndices: number[], stop: function}}
  */
 function observeSyncRange(docId) {
   const indices = [];
-  const observed = { indices, stop: () => {} };
+  const deleteIndices = [];
+  const observed = { indices, deleteIndices, stop: () => {} };
 
   try {
     const sharedDoc = deps.documentService.getSharedDoc(docId);
@@ -306,9 +318,12 @@ function observeSyncRange(docId) {
               continue;
             }
             if (op.delete) {
-              // Post-apply, the deleted run's position is where what follows
-              // now sits — record it and do not advance.
-              indices.push(idx);
+              // Post-apply, the deleted run's position is where what FOLLOWS
+              // now sits — an unchanged neighbour. Kept apart from `indices` so
+              // it can never widen or fabricate a selection (ledger RBD-8);
+              // recorded anyway so callers can tell a pure deletion (something
+              // happened, nothing to point at) from a no-op push.
+              deleteIndices.push(idx);
             }
           }
         }

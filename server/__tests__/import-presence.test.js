@@ -331,6 +331,45 @@ describe('037 import presence', () => {
       expect(last).toBe(7);
     });
 
+    test('RBD-8: a sync push that ONLY deletes a mid-document block shows no selection', async () => {
+      // The deleted block's recorded index points, post-apply, at its surviving
+      // neighbour — highlighting it would tell the viewer content they never
+      // touched had just changed. Pure deletions must show nothing.
+      const paras = ['Alpha here.', 'Beta here.', 'Gamma here.', 'Delta here.', 'Epsilon here.'];
+      const { docId, clock } = await seedDoc(paras.join('\n\n'));
+      const kept = paras.filter((_, i) => i !== 2); // drop the middle block
+
+      const res = await put(docId, fileFor(docId, clock, kept.join('\n\n')), { query: '?mode=sync' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(false); // the push DID change the document…
+      const fragment = documentService.getSharedDoc(docId).get('default', Y.XmlFragment);
+      expect(fragment.length).toBe(4);
+      expect(presenceDouble.selections).toHaveLength(0); // …and pointed at nothing
+    });
+
+    test('RBD-8: a mixed insert+delete push spans only the inserted block', async () => {
+      const paras = ['Alpha here.', 'Beta here.', 'Gamma here.', 'Delta here.', 'Epsilon here.'];
+      const { docId, clock } = await seedDoc(paras.join('\n\n'));
+      const edited = paras.filter((_, i) => i !== 2).concat('Brand new tail.');
+
+      const res = await put(docId, fileFor(docId, clock, edited.join('\n\n')), { query: '?mode=sync' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(presenceDouble.selections).toHaveLength(1);
+      const fragment = documentService.getSharedDoc(docId).get('default', Y.XmlFragment);
+      const blocks = fragment.toArray().map((n) => n.toString());
+      const newIndex = blocks.findIndex((b) => b.includes('Brand new tail.'));
+      expect(newIndex).toBeGreaterThanOrEqual(0);
+      const { first, last } = resolvedBlocks(docId, presenceDouble.selections[0]);
+      // The delete-derived index (the surviving neighbour of removed "Gamma here.")
+      // must not widen the span back over untouched blocks.
+      expect(first).toBe(newIndex);
+      expect(last).toBe(newIndex);
+    });
+
     test('C9: a no-op sync push opens a session but shows NO selection (FR-012)', async () => {
       const body = '# Notes\n\nUnchanged one.\n\nUnchanged two.';
       const { docId, clock } = await seedDoc(body);
