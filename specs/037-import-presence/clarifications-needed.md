@@ -189,6 +189,45 @@ plan chooses the **synthetic agent token pair** (the chat pattern) over recoveri
 because the bearer cannot express the "Repo Sync" identity mode=sync requires and because it would
 widen raw-secret handling. Full rationale in research.md R2.
 
+## Implementation-phase decisions (RATIFIED-BY-DEFAULT, Sam pre-authorized 2026-07-31)
+
+Recorded by the implementer. Each is a placement/coverage judgment inside an already-ratified
+contract, not a new product decision.
+
+- **RBD-11 — the sync observer wraps `applySyncPush`, not `handleSyncPush`.**
+  contracts/import-presence.md shows the observer wrapping `handleSyncPush` from the route. It is
+  instead registered inside `handleSyncPush` around the `applySyncPush` call.
+  *Rationale*: identical coverage of the applying transaction with a strictly shorter observation
+  window, and the baseline-rejection early returns (400/403/409/410) then cannot leak an observer at
+  all — they return before it is ever registered. `stop()` still runs in a `finally`.
+
+- **RBD-12 — F9 and the sync fan-out assertions live in `server/__tests__/live-fanout.test.js`.**
+  tasks.md T012 named `__tests__/integration/redis-sync.test.js` and T018 named
+  `server/__tests__/markdown-sync.replay.test.js`.
+  *Rationale*: redis-sync.test.js is a pure in-memory pub/sub simulation with no DB, persistence or
+  documentService harness, and markdown-sync.replay.test.js is pure-unit and never reaches
+  `applySyncPush`'s store-then-apply tail — the code actually under test. Both assertions need the
+  real import path, which live-fanout.test.js already stands up. Grafting a DB harness onto either
+  suite would have tested less, not more.
+
+- **RBD-13 — FR-007's ~60 s linger is manual-only coverage.**
+  Per implementer brief section 4, stated explicitly here and in the commit message. The suite pins
+  the half this feature owns: the apply-time refresh re-presents the *same* token, duration and
+  `requiredRole`, which is exactly what routes it down agent-presence's reuse path and re-arms
+  `_setSessionTimeout`. That the re-armed timeout then expires unattended is agent-presence's own
+  behavior, and its reuse path gates on `provider.wsconnected` — asserting it needs a live WS
+  provider, not a double. quickstart.md scenario A now carries the obligation explicitly.
+
+- **RBD-14 — `agent-presence._buildAgentInfo` is exported as a test seam.**
+  The US4 identity-parity assertions must compare against the *shipped* label shape rather than a
+  copy of it. Added alongside the module's existing `_sessionsByKey` test seam; no behavior change.
+
+- **RBD-15 — two pre-existing assertions on the old minted-token names were updated.**
+  `create-access-token.test.js` and `token-claim.test.js` asserted
+  `"Minted by <agent> via MCP"` / `"… via import_markdown_file"`. These are the ratified FR-017
+  behavior change landing, not broken tests; both now assert the agent-descriptive name and the
+  create_access_token one additionally asserts the old string is *absent*.
+
 ## Explicitly deferred (flagged, not decided here)
 
 - **Undo targets for REST imports.** REST imports do not record agent-edit undo rows, so

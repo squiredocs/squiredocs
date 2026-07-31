@@ -204,7 +204,7 @@ inspect the stored names and the tool descriptions. Assertions N1–N7 in
 
 - [x] T034 [P] Update `README.md` in the same commit as the behavior change (Constitution Principle I): imports now announce agent presence (the agent-presence / MCP sections around the presence-claim description ~:630-639 and the import surface bullets ~:689), an import's content now fans out cross-replica regardless of which replica handles it, and minted-token naming + the new `create_access_token` `name` parameter (~:678, ~:748). Do **not** hand-edit anything under `design/`.
 - [x] T035 Confirm **no migration** was introduced anywhere in the change set (`git diff --stat migrations/`). This feature needs none; if one appears, stop and flag it — migration slots are serialized across features and new migrations must be numbered above `1795000000000`.
-- [ ] T036 Run the full backend suite serially: `npm run test:server` (never concurrently with another backend run — Principle II), then `npm run test:client` to confirm the untouched client is still green.
+- [x] T036 Run the full backend suite serially: `npm run test:server` (never concurrently with another backend run — Principle II), then `npm run test:client` to confirm the untouched client is still green.
 - [ ] T037 Walk the manual scenarios A–E in [quickstart.md](./quickstart.md) — especially scenario C (two replicas) and scenario A (the 2026-07-30 reproduction, SC-002), which no automated test can fully stand in for.
 
 ---
