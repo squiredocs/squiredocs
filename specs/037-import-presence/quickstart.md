@@ -66,6 +66,14 @@ Repeat with `?mode=replace` (selection spans the whole imported document) and wi
 Then run the same token's import twice back-to-back: **at most one** avatar for that identity appears
 at any moment (US1 scenario 7).
 
+> **This scenario carries the only coverage of FR-007's ~60 s linger.** The automated suite pins the
+> half this feature owns — that the apply-time refresh re-presents the *same* token, duration and
+> `requiredRole` to `getOrCreateSession`, which is exactly what routes it down the reuse path that
+> re-arms `_setSessionTimeout`. That the re-armed timeout then expires unattended is agent-presence's
+> own behavior and its reuse path gates on `provider.wsconnected`, so asserting it needs a live WS
+> provider. The third bullet above (avatar disappears on its own ~60 s after the import, no manual
+> action) is therefore **manual-only** and must actually be walked before ship.
+
 ---
 
 ## 3. Manual scenario B — identity matches history (US4, SC-006)

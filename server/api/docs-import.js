@@ -425,9 +425,8 @@ function createImportRouter(persistence) {
       // instance holding no live connection for this document the update would
       // reach viewers elsewhere only on reload. Publish it when nothing else
       // did. Publish-only: the transaction already applied it here.
-      publishIfUnhandled(
-        { redisPubSub }, docId, report.live.update, report.live.hadRedisHandler, 'import'
-      );
+      const live = report.live || {};
+      publishIfUnhandled({ redisPubSub }, docId, live.update, live.hadRedisHandler, 'import');
 
       // Fire-and-forget (never awaited): refresh the session TTL and show a
       // temporary selection over the changed range. Positions are computed

@@ -224,6 +224,31 @@ describe('037 import presence', () => {
       expect(typeof importPresence.endSession).toBe('undefined');
     });
 
+    test('FR-007: apply re-arms the TTL by re-presenting the SAME token and duration', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      await put(docId, '\n\nAppended.\n');
+      await drain();
+
+      // The open and the apply-time refresh must be indistinguishable to
+      // agent-presence: same session key components, same duration. That is
+      // precisely what routes the second call down the reuse path, which is
+      // what re-arms _setSessionTimeout and gives the session its ~60 s linger
+      // AFTER the response — even when the image pass ran for a minute.
+      expect(presenceDouble.sessions).toHaveLength(2);
+      const [opened, refreshed] = presenceDouble.sessions;
+      expect(refreshed.docGuid).toBe(opened.docGuid);
+      expect(refreshed.agentToken.userId).toBe(opened.agentToken.userId);
+      expect(refreshed.agentToken.agentId).toBe(opened.agentToken.agentId);
+      expect(refreshed.durationSeconds).toBe(opened.durationSeconds);
+      expect(refreshed.durationSeconds).toBe(60);
+      expect(refreshed.options).toEqual({ requiredRole: 'editor' });
+
+      // NOTE: that the re-armed timeout then actually expires unattended is
+      // agent-presence's own _setSessionTimeout behavior and needs a live WS
+      // provider (the reuse path gates on provider.wsconnected). It is covered
+      // manually by quickstart scenario A, not here.
+    });
+
     test('FR-014: nothing in this feature triggers a modify-style highlight sweep', async () => {
       const { docId } = await seedDoc('# Notes\n\nOne.');
       await put(docId, '\n\nAppended line.\n');
