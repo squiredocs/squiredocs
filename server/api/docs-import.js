@@ -414,6 +414,14 @@ function createImportRouter(persistence) {
       const ydoc = documentService.getSharedDoc(docId);
       await waitForDocLoaded(persistence, docId, ydoc);
 
+      // Where the appended blocks will start, captured BEFORE they land (037,
+      // LOW-2): settle runs after updateDocument's setImmediate hop, so a
+      // browser edit relayed in that hop is already counted in the post-apply
+      // length. Read-only, and skipped entirely without presence.
+      const baseline = presence && mode === 'append'
+        ? importPresence.captureAppendBaseline(ydoc.get('default', Y.XmlFragment))
+        : null;
+
       const report = await importMarkdown(ydoc, markdown, {
         mode,
         actor: actorFrom(req.user),
@@ -437,6 +445,7 @@ function createImportRouter(persistence) {
           fragment: ydoc.get('default', Y.XmlFragment),
           mode,
           imported: report.blocks.imported,
+          baseline,
         });
       }
 

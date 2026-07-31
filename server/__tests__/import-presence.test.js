@@ -302,6 +302,41 @@ describe('037 import presence', () => {
       expect(last).toBe(after - 1);   // last appended block
     });
 
+    test('LOW-2: a tail edit landing between apply and settle does not drag the range', async () => {
+      // settle runs after updateDocument's setImmediate hop, so a browser edit
+      // relayed in that hop is already in the post-apply length. Computing the
+      // range from that length would slide it off the imported blocks and onto
+      // the human's. Injected at the settle boundary, which is exactly where
+      // such an edit would have become visible.
+      const { docId } = await seedDoc('# Notes\n\nKeep one.\n\nKeep two.');
+      const before = documentService.getSharedDoc(docId).get('default', Y.XmlFragment).length;
+
+      const realSettle = importPresence.settle;
+      const spy = jest.spyOn(importPresence, 'settle').mockImplementation((presence, ctx) => {
+        const doc = documentService.getSharedDoc(docId);
+        const fragment = doc.get('default', Y.XmlFragment);
+        doc.transact(() => {
+          fragment.insert(fragment.length, require('../mcp/yjs/pm-json-to-nodes').pmJsonToNodes(
+            require('../../shared/markdown').markdownToPm('Human tail edit.')
+          ));
+        }, { userId: ownerId, agentName: null });
+        return realSettle(presence, ctx);
+      });
+      try {
+        await put(docId, '\n\nAdded A.\n\nAdded B.\n');
+        await drain();
+      } finally { spy.mockRestore(); }
+
+      expect(presenceDouble.selections).toHaveLength(1);
+      const { first, last } = resolvedBlocks(docId, presenceDouble.selections[0]);
+      expect(first).toBe(before);          // first appended block
+      expect(last).toBe(before + 1);       // last appended block, NOT the human's
+      const blocks = documentService.getSharedDoc(docId)
+        .get('default', Y.XmlFragment).toArray().map((n) => n.toString());
+      expect(blocks[last]).toContain('Added B.');
+      expect(blocks.some((b) => b.includes('Human tail edit.'))).toBe(true);
+    });
+
     test('C7: replace ⇒ the range covers the whole post-apply document', async () => {
       const { docId } = await seedDoc('# Notes\n\nOld one.\n\nOld two.\n\nOld three.');
       await put(docId, '# Fresh\n\nNew body.\n', { query: '?mode=replace' });

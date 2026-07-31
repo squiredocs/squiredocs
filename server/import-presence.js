@@ -157,16 +157,68 @@ function awaitAttach(presence, capMs = PRESENCE_ATTACH_CAP_MS) {
 }
 
 /**
+ * Snapshot, BEFORE an append applies, where the appended blocks will start.
+ *
+ * A plain index would be wrong by settle time (a concurrent edit earlier in the
+ * document shifts it), so this is a Yjs RelativePosition bound to the last
+ * pre-existing block — CRDT-item-based, and therefore stable under any
+ * concurrent edit. Read-only: creating a relative position never mutates.
+ *
+ * Returns null (⇒ tail-relative fallback) if anything goes wrong, and
+ * `{length: 0}` for an empty document, where the answer is simply index 0.
+ *
+ * @param {Y.XmlFragment} fragment - the live PRE-apply fragment
+ * @returns {{length: number, anchor: object|null}|null}
+ */
+function captureAppendBaseline(fragment) {
+  try {
+    if (!fragment) return null;
+    const length = fragment.length;
+    if (length === 0) return { length: 0, anchor: null };
+    // assoc -1 binds the position to the block on its LEFT (the last existing
+    // one), so blocks inserted at or after it never drag it along.
+    return { length, anchor: Y.createRelativePositionFromTypeIndex(fragment, length, -1) };
+  } catch (err) {
+    warn('append baseline capture failed', err);
+    return null;
+  }
+}
+
+/**
+ * First post-apply index of an append: the baseline anchor when there is one,
+ * else the historical tail-relative arithmetic.
+ */
+function resolveAppendStart(fragment, baseline, len, count) {
+  const tailRelative = Math.max(0, len - count);
+  if (!baseline) return tailRelative;
+  if (!baseline.anchor) return baseline.length === 0 ? 0 : tailRelative;
+  try {
+    const absolute = Y.createAbsolutePositionFromRelativePosition(baseline.anchor, fragment.doc);
+    if (absolute && absolute.type === fragment && Number.isInteger(absolute.index)) {
+      return absolute.index;
+    }
+  } catch (err) {
+    warn('append baseline resolution failed', err);
+  }
+  return tailRelative;
+}
+
+/**
  * Changed range for the mode, computed from the LIVE fragment AFTER apply.
  * Pure arithmetic + reads. Returns `{first, last}` or null.
  *
  * append/replace are computed rather than observed because their transaction
  * origin is a plain `{userId, agentName}` object — not distinguishable from a
- * concurrent browser edit by the same user. Post-apply arithmetic is exact and
- * free, and append's tail-relative form is robust to concurrent inserts
- * earlier in the document (research R4).
+ * concurrent browser edit by the same user (research R4).
+ *
+ * append anchors on the PRE-APPLY baseline (`captureAppendBaseline`) rather
+ * than on the post-apply length: `settle` runs after updateDocument's
+ * setImmediate hop, so a browser edit relayed in that hop is already in `len`.
+ * A tail-relative `len - count` would then slide the range off the imported
+ * blocks and onto the human's; the baseline anchor is a CRDT item, so it holds
+ * under concurrent edits on EITHER side of the append.
  */
-function computeChangedRange({ fragment, mode, imported, observed }) {
+function computeChangedRange({ fragment, mode, imported, observed, baseline }) {
   if (!fragment) return null;
   const len = fragment.length;
   if (len === 0) return null;
@@ -174,7 +226,10 @@ function computeChangedRange({ fragment, mode, imported, observed }) {
   if (mode === 'append') {
     const count = Number(imported);
     if (!Number.isFinite(count) || count <= 0) return null;
-    return { first: Math.max(0, len - count), last: len - 1 };
+    const first = resolveAppendStart(fragment, baseline, len, count);
+    const last = Math.min(first + count - 1, len - 1);
+    if (first < 0 || first > last) return null;
+    return { first, last };
   }
   if (mode === 'replace') {
     // replace clears and re-inserts the whole fragment — the imported content
@@ -217,13 +272,15 @@ function computeChangedRange({ fragment, mode, imported, observed }) {
  * @param {number} [ctx.imported] - report.blocks.imported (append)
  * @param {{indices: number[], deleteIndices: number[]}} [ctx.observed] -
  *        observeSyncRange result (sync)
+ * @param {{length: number, anchor: object|null}} [ctx.baseline] -
+ *        captureAppendBaseline result (append)
  */
-function settle(presence, { fragment, mode, imported, observed } = {}) {
+function settle(presence, { fragment, mode, imported, observed, baseline } = {}) {
   if (!presence || !presence.promise) return;
 
   let selection = null;
   try {
-    const range = computeChangedRange({ fragment, mode, imported, observed });
+    const range = computeChangedRange({ fragment, mode, imported, observed, baseline });
     if (range) {
       // Returns null for any out-of-bounds or inverted range — a missing range
       // is never fabricated (FR-012, FR-013).
@@ -349,6 +406,7 @@ module.exports = {
   awaitAttach,
   settle,
   observeSyncRange,
+  captureAppendBaseline,
   computeChangedRange,
   PRESENCE_ATTACH_CAP_MS,
   SYNC_AGENT_ID,
