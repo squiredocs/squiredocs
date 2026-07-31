@@ -100,6 +100,8 @@ const {
   stageImagePass,
 } = require('./markdown-import');
 const { ORIGIN_SYNC_PUSH } = require('./origin');
+const { applyLiveUpdate } = require('./live-apply');
+const defaultRedisPubSub = require('./redis-pubsub');
 const searchIndexer = require('./search-indexer');
 const { withSpan } = require('./telemetry/spans');
 
@@ -1068,6 +1070,9 @@ async function applySyncPush(persistence, docGuid, opts) {
     onBehalfOf = null,
     imageMap = null,
     getSharedDoc,
+    // Injectable so suites can pass a double (the undo-service defaultRedisPubSub
+    // pattern); production always takes the real module.
+    redisPubSub = defaultRedisPubSub,
   } = opts;
 
   // Operation-level manual span for the collaboration sync path (feature 014,
@@ -1147,13 +1152,14 @@ async function applySyncPush(persistence, docGuid, opts) {
     // [ledger: sync single-row]
     const clock = await persistence.storeUpdate(
       docGuid, pushUpdate, userId, agentName, sanitizeOnBehalfOf(onBehalfOf));
-    try {
-      const sharedDoc = getSharedDoc(docGuid);
-      if (sharedDoc) Y.applyUpdate(sharedDoc, pushUpdate, ORIGIN_SYNC_PUSH);
-    } catch (err) {
-      // Broadcast failure is non-fatal — the update is already persisted.
-      console.error(`[sync] broadcast to shared doc ${docGuid} failed:`, err.message);
-    }
+    // One shared broadcast path (feature 037): applyLiveUpdate applies here
+    // exactly as the inline call did, AND publishes when this instance holds no
+    // attached Redis handler — the connection-less-instance hole. Its H1 guard
+    // keeps that from double-sending when a handler IS attached (ORIGIN_SYNC_PUSH
+    // is deliberately off the publish skip-list, so the handler publishes), and
+    // it warns rather than going silent when there is no delivery path at all.
+    // Non-fatal throughout — the update is already persisted.
+    applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, pushUpdate, ORIGIN_SYNC_PUSH, 'sync');
     // The push changed document content — mark the search index dirty (the
     // listener would have, but we suppressed it via the sentinel origin).
     try { searchIndexer.markDirty(docGuid); } catch { /* uninitialized in tests */ }

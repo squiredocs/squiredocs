@@ -45,7 +45,10 @@ function getSharedDoc(docGuid) {
  * @param {Object} options - Attribution options
  * @param {string|null} options.userId - User ID for attribution
  * @param {string|null} options.agentName - Agent name for attribution (e.g., 'Chat Assistant')
- * @returns {Promise<void>} Promise that resolves when update is applied and persistence is initiated
+ * @returns {Promise<{update: Uint8Array|null, hadRedisHandler: boolean}>} Resolves
+ *   when the update is applied and persistence is initiated, carrying the bytes
+ *   this transaction emitted (feature 037, FR-018). ADDITIVE — every existing
+ *   caller ignores it and no timing semantics changed.
  */
 async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
   const ydoc = getSharedDoc(docGuid);
@@ -53,12 +56,26 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   // Track whether update fired
   let updateFired = false;
   let updateHandler;
+  // Cross-instance fan-out capture (feature 037). A document reached through
+  // getSharedDoc has NO Redis handler attached — that is wired lazily by the WS
+  // connection handler — so on a replica holding no live connection an import
+  // would persist and broadcast to nobody. The caller republishes when nothing
+  // else did.
+  let captured = { update: null, hadRedisHandler: false };
 
   // Create a promise that resolves when the update event fires
   // The update event fires synchronously at the end of the transaction
   const updatePromise = new Promise((resolve) => {
-    updateHandler = () => {
+    updateHandler = (update) => {
       updateFired = true;
+      // `hadRedisHandler` MUST be sampled here, at emit time — not after the
+      // await. The presence dial (or any browser) can attach the handler in the
+      // window between the transaction and a post-hoc check, and a post-hoc
+      // check would then skip publishing an update that handler never saw: a
+      // silent cross-instance loss. The Redis handler is a peer 'update'
+      // listener, so "was it attached when the event fired" is exactly "did it
+      // publish" (research R3).
+      captured = { update, hadRedisHandler: !!ydoc._redisUpdateHandler };
       ydoc.off('update', updateHandler);
       // Allow event loop to process (persistence starts asynchronously)
       // Use setImmediate to ensure async persistence has been initiated
@@ -89,6 +106,10 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   });
 
   await Promise.race([updatePromise, timeoutPromise]);
+
+  // No-change transactions never fire, so the 50 ms timeout path returns the
+  // zero value and the caller publishes nothing.
+  return captured;
 }
 
 /**

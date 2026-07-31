@@ -36,6 +36,8 @@ const {
   ImportError,
 } = require('../markdown-import');
 const importPresence = require('../import-presence');
+const { publishIfUnhandled } = require('../live-apply');
+const redisPubSub = require('../redis-pubsub');
 const { buildBaseUrl } = require('../url');
 
 // ---------------------------------------------------------------------------
@@ -417,6 +419,15 @@ function createImportRouter(persistence) {
         actor: actorFrom(req.user),
         imageContext: { docId },
       });
+
+      // Cross-instance fan-out (feature 037, FR-018). An import reaches the
+      // shared doc via getSharedDoc, which attaches no Redis handler — so on an
+      // instance holding no live connection for this document the update would
+      // reach viewers elsewhere only on reload. Publish it when nothing else
+      // did. Publish-only: the transaction already applied it here.
+      publishIfUnhandled(
+        { redisPubSub }, docId, report.live.update, report.live.hadRedisHandler, 'import'
+      );
 
       // Fire-and-forget (never awaited): refresh the session TTL and show a
       // temporary selection over the changed range. Positions are computed

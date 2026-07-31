@@ -54,4 +54,41 @@ function applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, update, origin,
   }
 }
 
-module.exports = { applyLiveUpdate };
+/**
+ * Publish-only companion to applyLiveUpdate (feature 037, FR-018/FR-019).
+ *
+ * For updates produced by a transaction ON the shared doc itself — an import's
+ * append/replace — which are therefore ALREADY applied locally. Calling
+ * applyLiveUpdate here would re-apply an update the doc already has (a Yjs
+ * no-op, but semantically wrong) and would re-derive the double-send guard too
+ * late to be meaningful.
+ *
+ * NEVER applies anything, so there is no double-apply and no new origin
+ * sentinel: receivers apply with ORIGIN_REDIS, which is on the publisher
+ * skip-list (no feedback loop) and which parseOrigin maps to null (no second
+ * persisted row).
+ *
+ * @param {{redisPubSub: object}} deps
+ * @param {string} docGuid
+ * @param {Uint8Array|null} update - bytes captured at emit time by updateDocument
+ * @param {boolean} hadRedisHandler - was a Redis handler attached WHEN the
+ *   update fired; if so it already published and we must not publish again
+ * @param {string} [label='live-fanout']
+ */
+function publishIfUnhandled({ redisPubSub }, docGuid, update, hadRedisHandler, label = 'live-fanout') {
+  if (!update) return;               // no-change transaction
+  if (hadRedisHandler) return;       // the attached handler already fanned out
+  try {
+    // Redis disabled (single instance) ⇒ nothing to do, and behavior is
+    // byte-identical to before this feature (FR-019).
+    if (redisPubSub && redisPubSub.isEnabled()) {
+      redisPubSub.publishUpdate(docGuid, update);
+    }
+  } catch (err) {
+    // The update is already durable and the import already succeeded — a
+    // fan-out failure must never turn into a failed import (ledger RBD-6).
+    console.error(`[${label}] redis fan-out failed for ${docGuid}:`, err.message);
+  }
+}
+
+module.exports = { applyLiveUpdate, publishIfUnhandled };
