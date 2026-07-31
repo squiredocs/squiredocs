@@ -466,4 +466,82 @@ describe('037 import presence', () => {
       expect(presenceDouble.sessions).toHaveLength(2);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // C12 / SC-006 — presence and provenance tell one story (T024-T026, US4)
+  //
+  // The label a viewer sees while the agent works must be exactly the author
+  // version history records for the same change. These walk the mode x identity
+  // matrix and compare the two ends against each other, not against a
+  // hand-rolled string.
+  // -------------------------------------------------------------------------
+  describe('identity parity with version history (C12)', () => {
+    const agentPresenceReal = require('../mcp/agent-presence');
+
+    /** The label agent-presence would actually render for a token. */
+    function labelFor(agentToken, userName) {
+      // Exercised through the real _buildAgentInfo so the assertion tracks the
+      // shipped label shape rather than a copy of it.
+      const info = agentPresenceReal._buildAgentInfo(
+        agentToken, userName, 'test-037-presence@example.com', null, ownerId
+      );
+      expect(info.isAgent).toBe(true);
+      return info.name;
+    }
+
+    async function agentNameOnLatestRow(docId) {
+      const r = await pool.query(
+        'SELECT agent_name FROM yjs_updates WHERE doc_guid=$1 ORDER BY clock DESC LIMIT 1', [docId]
+      );
+      return r.rows[0].agent_name;
+    }
+
+    test.each(['append', 'replace'])(
+      '%s: the presence label and the stored author are the same token name',
+      async (mode) => {
+        const { docId } = await seedDoc('# Notes\n\nOne.');
+        await put(docId, '## Added\n\nText.\n', { query: `?mode=${mode}` });
+        await drain();
+
+        const token = presenceDouble.sessions[0].agentToken;
+        expect(labelFor(token, 'Presence Owner')).toBe('Claude Code (Presence Owner)');
+        // The same string version history attributes the change to.
+        expect(await agentNameOnLatestRow(docId)).toBe('Claude Code');
+        expect(token.agentName).toBe(await agentNameOnLatestRow(docId));
+      }
+    );
+
+    test('sync: the presence label and the stored author are both Repo Sync', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'), {
+        query: '?mode=sync',
+      });
+      await drain();
+      expect(res.status).toBe(200);
+
+      const token = presenceDouble.sessions[0].agentToken;
+      expect(labelFor(token, 'Presence Owner')).toBe('Repo Sync (Presence Owner)');
+      expect(await agentNameOnLatestRow(docId)).toBe('Repo Sync');
+      // T026 / ledger RBD-7: a FIXED agent id, so repeated pushes from any CI
+      // token dedup per user+document rather than per token — and the label
+      // never inherits the token's own display name.
+      expect(token.agentId).toBe('repo-sync');
+      expect(token.agentName).not.toBe('Claude Code');
+    });
+
+    test('FR-016: no request-supplied parameter can influence the label', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOne.');
+      await request(app)
+        .put(`/api/docs/${docId}/import?agentName=Totally%20Legit%20Human`)
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('X-Squire-Agent-Name', 'Totally Legit Human')
+        .set('Content-Type', 'text/markdown')
+        .send('## Added\n\nText.\n');
+      await drain();
+
+      const token = presenceDouble.sessions[0].agentToken;
+      expect(token.agentName).toBe('Claude Code');
+      expect(labelFor(token, 'Presence Owner')).toBe('Claude Code (Presence Owner)');
+    });
+  });
 });
