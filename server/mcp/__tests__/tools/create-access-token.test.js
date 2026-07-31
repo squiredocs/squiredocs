@@ -121,10 +121,14 @@ describe('create_access_token tool', () => {
       expect(row.minted_by_delegation_id).toBeNull();
     });
 
-    test('auto-generates a provenance name visible in Settings', async () => {
+    // Feature 037: the default name describes the AGENT, not the operation.
+    // Since 037 this string is a user-facing presence label and a
+    // version-history author, so it must answer "who is here".
+    test('auto-generates an agent-descriptive name visible in Settings', async () => {
       const result = await mint({ inline: true }, jwtPrincipal());
       const record = await apiTokens.verifyToken(result.token);
-      expect(record.name).toBe('Minted by Test Agent via MCP');
+      expect(record.name).toBe('Test Agent');
+      expect(record.name).not.toMatch(/Minted by|via MCP/);
     });
   });
 
@@ -242,6 +246,92 @@ describe('create_access_token tool', () => {
         logSpy.mockRestore();
         errorSpy.mockRestore();
       }
+    });
+  });
+
+  // =========================================================================
+  // Token naming (feature 037, US5) — assertions N2-N5, N7.
+  //
+  // The name is no longer bookkeeping: since 037 it is the live presence label
+  // a watching human sees while the agent works, and the version-history
+  // author. So it must describe the AGENT, and a caller who knows what it is
+  // called must be able to say so.
+  // =========================================================================
+  describe('token naming (037)', () => {
+    async function storedName(result) {
+      const record = await apiTokens.verifyToken(result.token);
+      return record.name;
+    }
+
+    test('N2: no name ⇒ the derived agent name, never an operation string', async () => {
+      const result = await mint({ inline: true }, jwtPrincipal());
+      expect(await storedName(result)).toBe('Test Agent');
+    });
+
+    test('N3: an explicit name is stored verbatim (inline path)', async () => {
+      const result = await mint({ inline: true, name: 'Repo CI' }, jwtPrincipal());
+      expect(await storedName(result)).toBe('Repo CI');
+    });
+
+    test('N3: an explicit name is stored verbatim (claim path)', async () => {
+      // The claim path defers the mint to redemption, stashing the parameters
+      // in Redis — so assert at that module boundary rather than on a token row
+      // that does not exist yet.
+      const pendingMints = require('../../auth/pending-mints');
+      const spy = jest.spyOn(pendingMints, 'createPendingMint');
+      try {
+        await mint({ name: 'Repo CI' }, jwtPrincipal());
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0]).toMatchObject({ name: 'Repo CI', userId: testUserId });
+      } finally { spy.mockRestore(); }
+    });
+
+    test('N2: the claim path also defaults to the derived agent name', async () => {
+      const pendingMints = require('../../auth/pending-mints');
+      const spy = jest.spyOn(pendingMints, 'createPendingMint');
+      try {
+        await mint({}, jwtPrincipal());
+        expect(spy.mock.calls[0][0].name).toBe('Test Agent');
+      } finally { spy.mockRestore(); }
+    });
+
+    test('N3: a name is trimmed before storage', async () => {
+      const result = await mint({ inline: true, name: '  Repo CI  ' }, jwtPrincipal());
+      expect(await storedName(result)).toBe('Repo CI');
+    });
+
+    test.each([
+      ['empty', ''],
+      ['whitespace only', '   '],
+      ['not a string', 42],
+      ['over 255 chars', 'x'.repeat(256)],
+    ])('N4: %s ⇒ invalid-parameter error, and nothing is minted', async (_label, bad) => {
+      await expect(mint({ inline: true, name: bad }, jwtPrincipal()))
+        .rejects.toThrow(/Invalid parameters for tool 'create_access_token'.*'name'/s);
+      const rows = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM mcp_api_tokens WHERE user_id = $1', [testUserId]
+      );
+      expect(rows.rows[0].n).toBe(0);
+    });
+
+    test('N5: a principal with no agentName ⇒ "AI Agent", never api-token:<id>', async () => {
+      const result = await mint(
+        { inline: true },
+        jwtPrincipal({ agentName: undefined, agentId: 'api-token:abc-123' })
+      );
+      const stored = await storedName(result);
+      expect(stored).toBe('AI Agent');
+      expect(stored).not.toContain('api-token:');
+    });
+
+    test('N7: the tool description instructs naming the token after the agent', () => {
+      const tool = require('../../tools/create-access-token');
+      expect(tool.description).toMatch(/name the token after YOURSELF/i);
+      expect(tool.description).toMatch(/presence label/i);
+      expect(tool.description).toMatch(/version history/i);
+      // The parameter carries the same contract, since that is what an agent
+      // reads when it decides what to pass.
+      expect(tool.inputSchema.properties.name.description).toMatch(/YOURSELF/);
     });
   });
 });

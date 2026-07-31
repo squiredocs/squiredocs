@@ -21,6 +21,7 @@
  */
 const apiTokens = require('../auth/api-tokens');
 const { prepareClaimDelivery } = require('./create-access-token');
+const { deriveMintedTokenName } = require('../auth/token-naming');
 
 // The claim flow is wired through boot-time singletons (api-tokens,
 // delegation, pending-mints); the tool holds no persistence handle of its
@@ -41,6 +42,8 @@ INTENT:
 - create (default without docGuid): new document from the file
 - update (requires docGuid): the file replaces the document's content wholesale
 - sync (default with docGuid): baseline-anchored push of the file's edits
+
+The token this mints is named after YOU, the agent — that name is your public identity, shown as the live presence label people watching the document see while your import runs, and recorded as the author in version history.
 
 Use this whenever the markdown already exists as bytes on disk — even if you have already read the file into context, the file remains the source of truth. No shell? The result's guidance field covers you.`;
 
@@ -173,8 +176,10 @@ async function handler(args, agentToken) {
 
   const intent = resolveIntent(args.intent, args.docGuid);
 
-  const tokenName =
-    `Minted by ${agentToken.agentName || agentToken.agentId || 'agent'} via import_markdown_file`.slice(0, 255);
+  // The name is the agent's public identity, not a record of this call
+  // (feature 037): it is the live presence label while the import runs and the
+  // author in version history.
+  const tokenName = deriveMintedTokenName(agentToken);
 
   const { claimSecret, claimUrl, claimExpiresInSeconds } = await prepareClaimDelivery(agentToken, {
     scopes: MINT_SCOPES,

@@ -20,6 +20,7 @@
 const apiTokens = require('../auth/api-tokens');
 const delegation = require('../auth/delegation');
 const pendingMints = require('../auth/pending-mints');
+const { deriveMintedTokenName, MAX_NAME_LENGTH } = require('../auth/token-naming');
 
 // apiTokens and delegation are boot-time singletons wired up in
 // server/mcp/index.js init(); the tool holds no persistence handle of its
@@ -36,6 +37,8 @@ const description = `Mint a temporary API token (prefixed sk_sqd_) for REST acce
 The result contains NO token. It returns a one-shot claimCommand: run it in your shell within 5 minutes and the token is written straight to ~/.squire/token (it never enters this conversation). Reference it as $(cat ~/.squire/token) afterward. Pass inline: true ONLY if you cannot run shell commands — the token then appears once, in-band.
 
 The token is scoped to AT MOST your own permissions. Default: documents:read, which covers export only — to IMPORT or sync-push markdown, mint with scopes: ["documents:read", "documents:write"]. It expires automatically (default 1 hour, max 24 hours), appears under the user's Settings → API Tokens, and is revoked automatically if your own credential is revoked. Tokens minted by this tool cannot mint further tokens.
+
+The token's name is your public identity — it is the live presence label people watching a document see while you work in it, and the author recorded in version history — so name the token after YOURSELF (e.g. "Claude Code"), never after the operation.
 
 Usage: create_access_token() or create_access_token({ scopes: ["documents:read", "documents:write"], ttlSeconds: 600 })
 Then run claimCommand and follow curlExample / importCurlExample. Full REST recipe (export, import, two-way sync): get_tool_documentation({ tool: "rest_api" }).`;
@@ -57,6 +60,11 @@ const inputSchema = {
       type: 'boolean',
       description:
         'Return the token in-band instead of via claimCommand. ONLY for agents with no shell — the token lands in the conversation, which the claim flow exists to avoid. Default false.',
+    },
+    name: {
+      type: 'string',
+      description:
+        'Display name for the token — name it after YOURSELF, the agent (e.g. "Claude Code"). This name is shown to people watching the document as your live presence label while you import, and recorded as the author in version history. Not an operation name. Defaults to your own agent name.',
     },
   },
   required: [],
@@ -103,6 +111,27 @@ function resolveTtlSeconds(ttlSeconds) {
     );
   }
   return ttlSeconds;
+}
+
+/**
+ * Validate the optional `name` argument (feature 037, RBD-10).
+ *
+ * Caller-supplied names win — an agent that knows what it is called should say
+ * so. When absent, the default describes the AGENT rather than this call, since
+ * the name is the token's public identity: a live presence label and a
+ * version-history author.
+ */
+function resolveName(requested, agentToken) {
+  if (requested === undefined) {
+    return deriveMintedTokenName(agentToken);
+  }
+  const trimmed = typeof requested === 'string' ? requested.trim() : '';
+  if (!trimmed || trimmed.length > MAX_NAME_LENGTH) {
+    throw new Error(
+      `Invalid parameters for tool '${name}': 'name' must be a non-empty string of at most ${MAX_NAME_LENGTH} characters (got ${JSON.stringify(requested)})`
+    );
+  }
+  return trimmed;
 }
 
 /**
@@ -181,7 +210,7 @@ async function handler(args, agentToken) {
     delegationId: agentToken.delegationId || null,
     apiTokenId: agentToken.apiTokenId || null,
   };
-  const tokenName = `Minted by ${agentToken.agentName || agentToken.agentId || 'agent'} via MCP`.slice(0, 255);
+  const tokenName = resolveName(args.name, agentToken);
   const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
 
   // The usage examples never contain a secret in either delivery mode: the
