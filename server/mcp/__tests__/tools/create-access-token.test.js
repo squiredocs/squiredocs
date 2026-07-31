@@ -324,6 +324,29 @@ describe('create_access_token tool', () => {
       expect(stored).not.toContain('api-token:');
     });
 
+    // The name is text a remote agent gets to draw into a watching human's
+    // window, and trim() strips none of Unicode's invisible characters.
+    test('N6: a name of nothing but zero-width characters falls back to the derived name', async () => {
+      const result = await mint({ inline: true, name: '\u200B\u200B\u2060' }, jwtPrincipal());
+      expect(await storedName(result)).toBe('Test Agent');
+    });
+
+    test('N6: zero-width and bidi characters are stripped from an otherwise valid name', async () => {
+      const result = await mint(
+        { inline: true, name: 'Repo\u200B CI\u202E' }, jwtPrincipal()
+      );
+      const stored = await storedName(result);
+      expect(stored).toBe('Repo CI');
+      expect(stored).not.toMatch(/[\u200B\u202E]/);
+    });
+
+    test('N6: an invisible-laden principal name is cleaned before it becomes the default', async () => {
+      const result = await mint(
+        { inline: true }, jwtPrincipal({ agentName: 'Cla\u200Bude Code' })
+      );
+      expect(await storedName(result)).toBe('Claude Code');
+    });
+
     test('N7: the tool description instructs naming the token after the agent', () => {
       const tool = require('../../tools/create-access-token');
       expect(tool.description).toMatch(/name the token after YOURSELF/i);

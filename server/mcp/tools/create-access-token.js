@@ -20,7 +20,7 @@
 const apiTokens = require('../auth/api-tokens');
 const delegation = require('../auth/delegation');
 const pendingMints = require('../auth/pending-mints');
-const { deriveMintedTokenName, MAX_NAME_LENGTH } = require('../auth/token-naming');
+const { deriveMintedTokenName, sanitizeTokenName, MAX_NAME_LENGTH } = require('../auth/token-naming');
 
 // apiTokens and delegation are boot-time singletons wired up in
 // server/mcp/index.js init(); the tool holds no persistence handle of its
@@ -131,7 +131,12 @@ function resolveName(requested, agentToken) {
       `Invalid parameters for tool '${name}': 'name' must be a non-empty string of at most ${MAX_NAME_LENGTH} characters (got ${JSON.stringify(requested)})`
     );
   }
-  return trimmed;
+  // The length limits are measured on what the caller sent; the STORED label
+  // drops zero-width, bidi and control characters, which trim() leaves behind
+  // (token-naming.js). A name of nothing but invisibles would draw an empty
+  // cursor label on a watching human's screen, so it falls back to the derived
+  // agent name — the same string an omitted `name` would have produced.
+  return sanitizeTokenName(trimmed) || deriveMintedTokenName(agentToken);
 }
 
 /**
