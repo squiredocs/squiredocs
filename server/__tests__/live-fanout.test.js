@@ -236,6 +236,88 @@ describe('037 cross-instance fan-out for imports', () => {
     expect(Buffer.from(Y.encodeStateAsUpdate(target))).toEqual(Buffer.from(before));
   });
 
+  // -------------------------------------------------------------------------
+  // F9 / F7 — the receiving instance
+  //
+  // Lives here rather than in __tests__/integration/redis-sync.test.js: that
+  // suite is a pure pub/sub simulation with no DB or documentService harness,
+  // and F9's whole point is that the bytes a REAL import publishes reconstruct
+  // the content on an instance that never ran the import. Grafting the DB
+  // harness onto the pub/sub suite would have tested less, not more.
+  // -------------------------------------------------------------------------
+  describe('F9: an instance that never ran the import applies the published bytes', () => {
+    /** Stand in for a viewer's instance: apply what came off the bus. */
+    function receiveOn(receiver, published) {
+      const applied = [];
+      const persistedRows = [];
+      receiver.on('update', (_u, origin) => {
+        // ORIGIN_REDIS is on the publisher skip-list (no feedback loop) and
+        // parseOrigin maps it to null (no second persisted row).
+        if (origin === require('../origin').ORIGIN_REDIS) applied.push(origin);
+        if (parseOrigin(origin)) persistedRows.push(origin);
+      });
+      for (const p of published) {
+        Y.applyUpdate(receiver, p.update, require('../origin').ORIGIN_REDIS);
+      }
+      return { applied, persistedRows };
+    }
+
+    test.each([
+      ['append', async (docId) => runImport(docId, '\n\nAppended line.\n')],
+      ['replace', async (docId) => runImport(docId, '# Fresh\n\nReplaced body.\n', 'replace')],
+    ])('%s: the viewer converges without a reload', async (_mode, run) => {
+      const { docId } = await seedDoc('# Notes\n\nOriginal.');
+      // The receiver starts from the same persisted state the viewer would have.
+      const receiver = new Y.Doc();
+      Y.applyUpdate(receiver, Y.encodeStateAsUpdate(documentService.getSharedDoc(docId)));
+
+      await run(docId);
+      await drain();
+      expect(redis.published).toHaveLength(1);
+
+      const { applied, persistedRows } = receiveOn(receiver, redis.published);
+      expect(applied).toHaveLength(1);   // applied exactly once
+      expect(persistedRows).toHaveLength(0); // and never re-persisted (F7)
+
+      const { toMarkdown } = require('../mcp/yjs/serialization');
+      expect(toMarkdown(receiver.get('default', Y.XmlFragment)))
+        .toBe(toMarkdown(documentService.getSharedDoc(docId).get('default', Y.XmlFragment)));
+    });
+
+    test('sync: the viewer converges without a reload', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const receiver = new Y.Doc();
+      Y.applyUpdate(receiver, Y.encodeStateAsUpdate(documentService.getSharedDoc(docId)));
+
+      await runSync(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.');
+      await drain();
+      expect(redis.published).toHaveLength(1);
+
+      const { applied, persistedRows } = receiveOn(receiver, redis.published);
+      expect(applied).toHaveLength(1);
+      expect(persistedRows).toHaveLength(0);
+
+      const { toMarkdown } = require('../mcp/yjs/serialization');
+      expect(toMarkdown(receiver.get('default', Y.XmlFragment))).toContain('Alpha EDITED.');
+    });
+  });
+
+  // T018 — the sync short-circuits. These live here rather than in
+  // markdown-sync.replay.test.js because that suite is pure-unit (no DB, no
+  // documentService) and never reaches applySyncPush's store-then-apply tail,
+  // which is exactly the code under test.
+  test('a no-op sync push short-circuits before any fan-out', async () => {
+    const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+    const { toMarkdown } = require('../mcp/yjs/serialization');
+    const current = toMarkdown(documentService.getSharedDoc(docId).get('default', Y.XmlFragment));
+
+    const receipt = await runSync(docId, clock, current);
+    await drain();
+
+    expect(receipt.noop).toBe(true);
+    expect(redis.published).toHaveLength(0);
+  });
+
   test('no-change transactions publish nothing (the 50 ms timeout path)', async () => {
     const { docId } = await seedDoc('# Notes\n\nOne.');
     const live = await documentService.updateDocument(docId, () => {}, { userId: ownerId });
