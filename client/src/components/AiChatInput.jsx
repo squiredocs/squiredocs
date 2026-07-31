@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { isImageType } from '../utils/media';
+import { isImageType, downscaleOversizedImage } from '../utils/media';
 
 const ACCEPTED_TYPES = [
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
@@ -109,9 +109,21 @@ const AiChatInput = forwardRef(function AiChatInput({ onSend, onStop, isStreamin
     }
 
     // Read each file as data URL, then add to state. Markdown gets its
-    // mediaType normalized (browsers are inconsistent for .md).
-    toAdd.forEach(file => {
+    // mediaType normalized (browsers are inconsistent for .md). Images past the
+    // provider's 8000px-per-side limit are downscaled first (a null result
+    // means no resize was needed/possible — attach the original unchanged).
+    toAdd.forEach(async file => {
       const mediaType = isMarkdownFile(file) ? 'text/markdown' : file.type;
+      if (isImageType(file.type)) {
+        const resized = await downscaleOversizedImage(file);
+        if (resized) {
+          setPendingFiles(current => [
+            ...current,
+            { type: 'file', mediaType: resized.mediaType, url: resized.url, filename: file.name },
+          ]);
+          return;
+        }
+      }
       const reader = new FileReader();
       reader.onload = () => {
         setPendingFiles(current => [
