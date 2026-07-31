@@ -160,7 +160,17 @@ router.get('/users', async (req, res) => {
         u.chat_model_override,
         COALESCE(d.doc_count, 0)::int AS doc_count,
         COALESCE(a.ai_used_cents, 0)::int AS ai_used_cents,
-        COALESCE(ec.ai_extra_credit_cents, 0)::int AS ai_extra_credit_cents
+        COALESCE(ec.ai_extra_credit_cents, 0)::int AS ai_extra_credit_cents,
+        -- Last activity = the most recent thing the user actually did, not just
+        -- the last full login (refresh tokens keep sessions alive for weeks, so
+        -- last_login_at alone goes stale). GREATEST skips NULLs.
+        GREATEST(
+          u.last_login_at,
+          ye.last_edit_at::timestamptz,
+          ch.last_chat_at,
+          au.last_ai_at,
+          ag.last_agent_at
+        ) AS last_activity_at
       FROM users u
       LEFT JOIN (
         SELECT user_id, COUNT(*) AS doc_count
@@ -182,6 +192,27 @@ router.get('/users', async (req, res) => {
           AND (expires_at IS NULL OR expires_at > now())
         GROUP BY user_id
       ) ec ON ec.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS last_edit_at
+        FROM yjs_updates
+        WHERE user_id IS NOT NULL
+        GROUP BY user_id
+      ) ye ON ye.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, MAX(updated_at) AS last_chat_at
+        FROM chats
+        GROUP BY user_id
+      ) ch ON ch.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS last_ai_at
+        FROM ai_usage_log
+        GROUP BY user_id
+      ) au ON au.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS last_agent_at
+        FROM agent_activity_log
+        GROUP BY user_id
+      ) ag ON ag.user_id = u.id
       ORDER BY u.created_at DESC
     `);
 
@@ -196,6 +227,7 @@ router.get('/users', async (req, res) => {
       aiCreditCents: r.ai_credit_cents,
       createdAt: r.created_at,
       lastLoginAt: r.last_login_at,
+      lastActivityAt: r.last_activity_at,
       // Feature 034 — signup/last-login origin (null for pre-feature accounts).
       signupIp: r.signup_ip,
       signupUserAgent: r.signup_user_agent,

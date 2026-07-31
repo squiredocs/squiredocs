@@ -12,11 +12,15 @@ import './AdminPage.css';
 // A missing timestamp sorts as 0, i.e. "never" lands at the bottom of the
 // recency orders rather than throwing on Date.parse(null).
 const ts = (v) => (v ? Date.parse(v) || 0 : 0);
+// lastActivityAt (server-derived: latest of login, doc edit, chat, AI call,
+// agent action) supersedes lastLoginAt, which refresh-token sessions leave
+// stale for weeks. The fallback covers payloads predating the field.
+const activityTs = (u) => ts(u.lastActivityAt) || ts(u.lastLoginAt);
 const USER_SORTS = [
   {
     key: 'lastActive',
     label: 'Recently active',
-    compare: (a, b) => ts(b.lastLoginAt) - ts(a.lastLoginAt) || ts(b.createdAt) - ts(a.createdAt),
+    compare: (a, b) => activityTs(b) - activityTs(a) || ts(b.createdAt) - ts(a.createdAt),
   },
   {
     key: 'newest',
@@ -36,12 +40,12 @@ const USER_SORTS = [
   {
     key: 'aiSpend',
     label: 'AI spend (this month)',
-    compare: (a, b) => b.aiUsedCents - a.aiUsedCents || ts(b.lastLoginAt) - ts(a.lastLoginAt),
+    compare: (a, b) => b.aiUsedCents - a.aiUsedCents || activityTs(b) - activityTs(a),
   },
   {
     key: 'docs',
     label: 'Most documents',
-    compare: (a, b) => b.docCount - a.docCount || ts(b.lastLoginAt) - ts(a.lastLoginAt),
+    compare: (a, b) => b.docCount - a.docCount || activityTs(b) - activityTs(a),
   },
 ];
 
@@ -562,7 +566,9 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                       <td data-label="Activity">
                         <div>{formatDate(u.createdAt)}</div>
                         <div className="admin-cell-sub">
-                          {u.lastLoginAt ? `seen ${formatDate(u.lastLoginAt)}` : 'never signed in'}
+                          {(u.lastActivityAt || u.lastLoginAt)
+                            ? `active ${formatDate(u.lastActivityAt || u.lastLoginAt)}`
+                            : 'never signed in'}
                         </div>
                       </td>
                       {/* Values are React text children — auto-escaped. The

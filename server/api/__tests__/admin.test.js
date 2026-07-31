@@ -124,6 +124,60 @@ describe('Admin API', () => {
       expect(typeof admin.aiCreditCents).toBe('number');
       // lastLoginAt may be null
       expect('lastLoginAt' in admin).toBe(true);
+      expect('lastActivityAt' in admin).toBe(true);
+    });
+
+    test('lastActivityAt is the newest of login, doc edit, chat and AI usage', async () => {
+      const docGuid = crypto.randomUUID();
+      // Three activity signals with distinct fixed timestamps; the yjs doc
+      // edit is deliberately the newest so the GREATEST must pick it over
+      // the chat, the AI call and the (null) last login.
+      await pool.query(
+        `INSERT INTO chats (id, user_id, title, created_at, updated_at)
+         VALUES ($1, $2, 'activity test', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z')`,
+        [`chat-${crypto.randomUUID()}`, regularUser.id]
+      );
+      await pool.query(
+        `INSERT INTO ai_usage_log (user_id, model_key, input_tokens, output_tokens, cost_cents, is_byok, created_at)
+         VALUES ($1, 'test-model', 1, 1, 1, false, '2026-04-01T00:00:00Z')`,
+        [regularUser.id]
+      );
+      await pool.query(
+        `INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, created_at)
+         VALUES ($1, 1, $2, $3, '2026-05-01T00:00:00Z')`,
+        [docGuid, Buffer.from([0]), regularUser.id]
+      );
+
+      const token = generateAccessToken(adminUser);
+      const response = await request(app)
+        .get('/api/admin/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const user = response.body.users.find(u => u.id === regularUser.id);
+      expect(Date.parse(user.lastActivityAt)).toBe(Date.parse('2026-05-01T00:00:00Z'));
+
+      // Cleanup (user deletion cascades chats but SET-NULLs yjs rows, which
+      // would otherwise accumulate as orphans across runs)
+      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      await pool.query('DELETE FROM chats WHERE user_id = $1', [regularUser.id]);
+      await pool.query('DELETE FROM ai_usage_log WHERE user_id = $1', [regularUser.id]);
+    });
+
+    test('lastActivityAt falls back to last login when there is no other activity', async () => {
+      await pool.query(
+        "UPDATE users SET last_login_at = '2026-06-15T12:00:00Z' WHERE id = $1",
+        [regularUser.id]
+      );
+
+      const token = generateAccessToken(adminUser);
+      const response = await request(app)
+        .get('/api/admin/users')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const user = response.body.users.find(u => u.id === regularUser.id);
+      expect(Date.parse(user.lastActivityAt)).toBe(Date.parse('2026-06-15T12:00:00Z'));
     });
 
     test('returns correct doc count', async () => {

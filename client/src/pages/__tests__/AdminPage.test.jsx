@@ -172,6 +172,36 @@ describe('AdminPage — user list sorting', () => {
     ]);
   });
 
+  it('prefers lastActivityAt over lastLoginAt for recency', async () => {
+    // Stale login but a fresh server-derived activity timestamp (e.g. doc
+    // edits on a refresh-token session) — must outrank everyone.
+    const editing = {
+      ...captured,
+      id: 'user-editing',
+      email: 'editing@example.com',
+      createdAt: '2026-04-01T10:00:00.000Z',
+      lastLoginAt: '2026-05-01T10:00:00.000Z',
+      lastActivityAt: '2026-07-30T10:00:00.000Z',
+      docCount: 0,
+    };
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') {
+        return Promise.resolve({ data: { users: [dormant, stale, active, editing] } });
+      }
+      return Promise.reject(new Error('not available'));
+    });
+
+    renderPage();
+    await screen.findByText('editing@example.com');
+
+    expect(emailOrder()).toEqual([
+      'editing@example.com',
+      'active@example.com',
+      'stale@example.com',
+      'dormant@example.com',
+    ]);
+  });
+
   it('re-orders the list when another sort is chosen', async () => {
     const user = userEvent.setup();
     renderPage();
