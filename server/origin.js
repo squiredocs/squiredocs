@@ -30,6 +30,44 @@ const ORIGIN_REDIS = 'redis';
 const ORIGIN_SYNC_PUSH = 'sync-push';
 
 /**
+ * Brand for a PER-PUSH sync origin. Two pushes to the same document overlap
+ * freely (nothing serializes them), and an observer that can only ask "is this
+ * A sync push?" attributes both pushes' changes to whichever one is watching —
+ * so feature 037's changed-range observation needs origins it can tell apart
+ * (a Symbol so it can never collide with a document's own data).
+ *
+ * Every OTHER consumer must treat a branded object exactly like the shared
+ * string sentinel, which is what `isSyncPushOrigin` is for: parseOrigin returns
+ * null for both (no unattributed second row), and neither is on the Redis
+ * publish skip-list (both fan out cross-instance).
+ */
+const SYNC_PUSH_MARKER = Symbol('squire.sync-push');
+
+/**
+ * A distinguishable origin for ONE sync push. Identity is the whole point:
+ * compare with `===` to recognise your own push, `isSyncPushOrigin` to
+ * recognise the class.
+ *
+ * @param {string} [pushId] - optional debugging tag, never load-bearing
+ * @returns {object}
+ */
+function createSyncPushOrigin(pushId) {
+  return { [SYNC_PUSH_MARKER]: true, sentinel: ORIGIN_SYNC_PUSH, pushId: pushId || null };
+}
+
+/**
+ * Is this origin a sync push — the shared sentinel or any per-push object?
+ * The ONLY correct test outside the pushing code itself.
+ *
+ * @param {*} origin
+ * @returns {boolean}
+ */
+function isSyncPushOrigin(origin) {
+  if (origin === ORIGIN_SYNC_PUSH) return true;
+  return !!origin && typeof origin === 'object' && origin[SYNC_PUSH_MARKER] === true;
+}
+
+/**
  * Sentinel: a log-derived undo/redo inverse (feature 016) broadcast onto the
  * live shared doc AFTER the undo service has already stored the one attributed
  * inverse row (store-then-apply, research R3). parseOrigin returns null so the
@@ -77,7 +115,7 @@ function parseOrigin(origin) {
   if (
     origin === ORIGIN_DB_LOAD
     || origin === ORIGIN_REDIS
-    || origin === ORIGIN_SYNC_PUSH
+    || isSyncPushOrigin(origin)
     || origin === ORIGIN_INVERSE_APPLY
     || origin === ORIGIN_RESTORE
   ) {
@@ -102,6 +140,8 @@ module.exports = {
   ORIGIN_DB_LOAD,
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
+  createSyncPushOrigin,
+  isSyncPushOrigin,
   ORIGIN_INVERSE_APPLY,
   ORIGIN_RESTORE,
   createOrigin,

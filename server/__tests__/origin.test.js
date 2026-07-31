@@ -13,6 +13,8 @@ const {
   ORIGIN_INVERSE_APPLY,
   ORIGIN_RESTORE,
   createOrigin,
+  createSyncPushOrigin,
+  isSyncPushOrigin,
   parseOrigin,
 } = require('../origin');
 
@@ -59,6 +61,35 @@ describe('Redis publish predicate — F3 fan-out routing', () => {
     // This is the exact combination F3 requires — no double-store, yet fanned out.
     expect(parseOrigin(ORIGIN_SYNC_PUSH)).toBeNull();
     expect(shouldPublishToRedis(ORIGIN_SYNC_PUSH)).toBe(true);
+  });
+});
+
+describe('per-push sync origins (037 LOW-3)', () => {
+  // Two pushes to one document overlap freely, so the changed-range observer
+  // needs origins it can tell apart. Every OTHER consumer must keep treating a
+  // per-push origin exactly like the shared sentinel — that is the whole risk
+  // of the shape, so it is asserted here rather than left to inspection.
+  test('each push gets its own identity, all recognised as sync pushes', () => {
+    const a = createSyncPushOrigin('a');
+    const b = createSyncPushOrigin('b');
+    expect(a).not.toBe(b);
+    expect(isSyncPushOrigin(a)).toBe(true);
+    expect(isSyncPushOrigin(b)).toBe(true);
+    // The legacy string sentinel is still a sync push…
+    expect(isSyncPushOrigin(ORIGIN_SYNC_PUSH)).toBe(true);
+    // …and nothing else is.
+    expect(isSyncPushOrigin(ORIGIN_REDIS)).toBe(false);
+    expect(isSyncPushOrigin(createOrigin('u', 'Repo Sync'))).toBe(false);
+    expect(isSyncPushOrigin(null)).toBe(false);
+    expect(isSyncPushOrigin({})).toBe(false);
+  });
+
+  test('a per-push origin routes exactly like the sentinel: no re-store, still published', () => {
+    const origin = createSyncPushOrigin('doc-1');
+    // F3, unchanged: the push is already stored as its one attributed row.
+    expect(parseOrigin(origin)).toBeNull();
+    // …and still fans out to instances holding the doc.
+    expect(shouldPublishToRedis(origin)).toBe(true);
   });
 });
 

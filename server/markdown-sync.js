@@ -99,7 +99,7 @@ const {
   rejectDataImages,
   stageImagePass,
 } = require('./markdown-import');
-const { ORIGIN_SYNC_PUSH } = require('./origin');
+const { createSyncPushOrigin } = require('./origin');
 const { applyLiveUpdate } = require('./live-apply');
 const defaultRedisPubSub = require('./redis-pubsub');
 const searchIndexer = require('./search-indexer');
@@ -1073,6 +1073,13 @@ async function applySyncPush(persistence, docGuid, opts) {
     // Injectable so suites can pass a double (the undo-service defaultRedisPubSub
     // pattern); production always takes the real module.
     redisPubSub = defaultRedisPubSub,
+    // The origin this push's broadcast carries. A distinguishable per-push
+    // object rather than the shared sentinel (feature 037), so a changed-range
+    // observer watching for THIS push cannot pick up a concurrent one's edits.
+    // Every consumer treats it exactly like the sentinel — parseOrigin returns
+    // null for it (no unattributed second row) and it is deliberately NOT on
+    // the Redis publish skip-list.
+    pushOrigin = createSyncPushOrigin(),
   } = opts;
 
   // Operation-level manual span for the collaboration sync path (feature 014,
@@ -1142,11 +1149,11 @@ async function applySyncPush(persistence, docGuid, opts) {
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE
     // durable row carrying attribution + on-behalf-of provenance (FR-008 single
-    // stored update). The broadcast to live editors uses the ORIGIN_SYNC_PUSH
-    // sentinel so the shared doc's persistence listener SKIPS a second (unattri-
+    // stored update). The broadcast to live editors carries a sync-push origin
+    // so the shared doc's persistence listener SKIPS a second (unattri-
     // buted) re-store — unlike restoreVersion, which tolerates the double write
     // because it carries no per-row metadata. Same-instance peers receive the
-    // update via the y-websocket broadcast; ORIGIN_SYNC_PUSH (unlike the
+    // update via the y-websocket broadcast; a sync-push origin (unlike the
     // ORIGIN_DB_LOAD sync used before F3) is NOT on the Redis publish skip-list,
     // so OTHER instances holding the doc get the cross-instance fan-out too.
     // [ledger: sync single-row]
@@ -1155,11 +1162,12 @@ async function applySyncPush(persistence, docGuid, opts) {
     // One shared broadcast path (feature 037): applyLiveUpdate applies here
     // exactly as the inline call did, AND publishes when this instance holds no
     // attached Redis handler — the connection-less-instance hole. Its H1 guard
-    // keeps that from double-sending when a handler IS attached (ORIGIN_SYNC_PUSH
-    // is deliberately off the publish skip-list, so the handler publishes), and
-    // it warns rather than going silent when there is no delivery path at all.
+    // keeps that from double-sending when a handler IS attached (a sync-push
+    // origin is deliberately off the publish skip-list, so the handler
+    // publishes), and it warns rather than going silent when there is no
+    // delivery path at all.
     // Non-fatal throughout — the update is already persisted.
-    applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, pushUpdate, ORIGIN_SYNC_PUSH, 'sync');
+    applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, pushUpdate, pushOrigin, 'sync');
     // The push changed document content — mark the search index dirty (the
     // listener would have, but we suppressed it via the sentinel origin).
     try { searchIndexer.markDirty(docGuid); } catch { /* uninitialized in tests */ }

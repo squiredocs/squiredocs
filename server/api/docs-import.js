@@ -36,6 +36,7 @@ const {
   ImportError,
 } = require('../markdown-import');
 const importPresence = require('../import-presence');
+const { createSyncPushOrigin } = require('../origin');
 const { publishIfUnhandled } = require('../live-apply');
 const redisPubSub = require('../redis-pubsub');
 const { buildBaseUrl } = require('../url');
@@ -114,10 +115,15 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
   // FR-011); `stop()` in a finally — a leaked observeDeep on a long-lived
   // shared doc is a real leak. Skipped entirely without presence, so a
   // human-session push is byte-identical to before.
-  const observed = presence ? importPresence.observeSyncRange(docId) : null;
+  // A per-push origin, so an overlapping push to the same document on this
+  // instance cannot bleed its indices into this one's observation (037 LOW-3).
+  // Every other consumer treats it exactly like the shared sentinel.
+  const pushOrigin = createSyncPushOrigin(docId);
+  const observed = presence ? importPresence.observeSyncRange(docId, pushOrigin) : null;
   let receipt;
   try {
     receipt = await applySyncPush(persistence, docId, {
+      pushOrigin,
       body, // frontmatter-stripped body — the engine diffs against the doc's body
       baselineClock,
       flavor,

@@ -25,7 +25,7 @@ const importPresence = require('../import-presence');
 const cursorOps = require('../mcp/yjs/cursor-operations');
 const { generateAccessToken } = require('../auth/jwt');
 const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
-const { ORIGIN_DB_LOAD, parseOrigin } = require('../origin');
+const { ORIGIN_DB_LOAD, createSyncPushOrigin, parseOrigin } = require('../origin');
 const { buildFrontmatter } = require('../mcp/yjs/serialization');
 const { createImportRouter } = require('../api/docs-import');
 const { makeAgentPresenceDouble } = require('./helpers/import-presence-doubles');
@@ -403,6 +403,32 @@ describe('037 import presence', () => {
       // must not widen the span back over untouched blocks.
       expect(first).toBe(newIndex);
       expect(last).toBe(newIndex);
+    });
+
+    test('LOW-3: an observer ignores a CONCURRENT sync push on the same document', async () => {
+      // Two pushes to one document overlap freely — nothing serializes them —
+      // so an observer that recognised only "a sync push" recorded the other
+      // push's indices too, and pointed this agent's cursor at them.
+      const paras = ['Alpha here.', 'Beta here.', 'Gamma here.', 'Delta here.'];
+      const { docId } = await seedDoc(paras.join('\n\n'));
+      const mine = createSyncPushOrigin('mine');
+      const theirs = createSyncPushOrigin('theirs');
+      const block = (text) => require('../mcp/yjs/pm-json-to-nodes').pmJsonToNodes(
+        require('../../shared/markdown').markdownToPm(text)
+      );
+
+      const observed = importPresence.observeSyncRange(docId, mine);
+      try {
+        const doc = documentService.getSharedDoc(docId);
+        const fragment = doc.get('default', Y.XmlFragment);
+        doc.transact(() => fragment.insert(1, block('Someone else pushed this.')), theirs);
+        expect(observed.indices).toEqual([]);      // not mine, not recorded
+        doc.transact(() => fragment.insert(4, block('My push wrote this.')), mine);
+        expect(observed.indices).toEqual([4]);     // only mine
+      } finally {
+        observed.stop();
+      }
+      await drain();
     });
 
     test('C9: a no-op sync push opens a session but shows NO selection (FR-012)', async () => {

@@ -33,7 +33,7 @@
  * the caller (research R2, Constitution Principle V).
  */
 const Y = require('yjs');
-const { ORIGIN_SYNC_PUSH } = require('./origin');
+const { isSyncPushOrigin } = require('./origin');
 
 // Deps are indirected so the suites can inject doubles without jest.mock'ing
 // half the server (the presence-claim `_setDepsForTests` pattern).
@@ -323,9 +323,11 @@ function settle(presence, { fragment, mode, imported, observed, baseline } = {})
  * exposing it would change the receipt (out of scope) — observing the fragment
  * gives the ACTUALLY APPLIED change with zero markdown-sync surface change.
  *
- * Filtered on `transaction.origin === ORIGIN_SYNC_PUSH`, the sentinel no other
- * writer uses, so a human typing during the import window cannot pollute the
- * range.
+ * Filtered on the origin THIS push will carry (server/origin.js
+ * `createSyncPushOrigin`), so neither a human typing during the import window
+ * nor a second sync push landing on the same document in the same window can
+ * pollute the range. Without a `pushOrigin` it falls back to recognising any
+ * sync push, which is the pre-037-review behaviour.
  *
  * Read-only: the callback records numbers and nothing else. `stop()` is
  * idempotent and MUST run in a `finally` — a leaked observeDeep on a
@@ -336,9 +338,10 @@ function settle(presence, { fragment, mode, imported, observed, baseline } = {})
  * positions that still hold the pushed content (ledger RBD-8).
  *
  * @param {string} docId
+ * @param {object} [pushOrigin] - the origin this push's apply will carry
  * @returns {{indices: number[], deleteIndices: number[], stop: function}}
  */
-function observeSyncRange(docId) {
+function observeSyncRange(docId, pushOrigin = null) {
   const indices = [];
   const deleteIndices = [];
   const observed = { indices, deleteIndices, stop: () => {} };
@@ -352,7 +355,11 @@ function observeSyncRange(docId) {
       // Never throw out of an observer — it runs inside someone else's
       // transaction cleanup.
       try {
-        if (!transaction || transaction.origin !== ORIGIN_SYNC_PUSH) return;
+        if (!transaction) return;
+        const matches = pushOrigin
+          ? transaction.origin === pushOrigin
+          : isSyncPushOrigin(transaction.origin);
+        if (!matches) return;
         for (const event of events) {
           const path = event.path || [];
           if (path.length > 0) {
