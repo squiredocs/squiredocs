@@ -231,4 +231,95 @@ describe('037 import presence', () => {
       expect(presenceDouble.highlights).toHaveLength(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // C6-C9 — the temporary selection covers what actually changed (T005)
+  // -------------------------------------------------------------------------
+  describe('changed range (C6-C9)', () => {
+    /**
+     * Resolve the recorded RelativePosition JSON back to absolute block
+     * indices. Asserting on the resolved COORDINATES rather than on the
+     * arithmetic is the point: it proves the positions a viewer's browser
+     * would resolve actually bracket the changed blocks.
+     */
+    function resolvedBlocks(docId, selection) {
+      const doc = documentService.getSharedDoc(docId);
+      const fragment = doc.get('default', Y.XmlFragment);
+      const blocks = fragment.toArray();
+      const anchor = Y.createAbsolutePositionFromRelativePosition(
+        Y.createRelativePositionFromJSON(selection.anchor), doc
+      );
+      const head = Y.createAbsolutePositionFromRelativePosition(
+        Y.createRelativePositionFromJSON(selection.head), doc
+      );
+      const indexOfType = (pos) => {
+        if (!pos) return -1;
+        // The position lands inside a block's text; walk up to the top level.
+        let node = pos.type;
+        while (node && node.parent && node.parent !== fragment) node = node.parent;
+        return blocks.indexOf(node);
+      };
+      return { first: indexOfType(anchor), last: indexOfType(head) };
+    }
+
+    test('C6: append ⇒ the range covers exactly the appended blocks', async () => {
+      const { docId } = await seedDoc('# Notes\n\nKeep one.\n\nKeep two.');
+      const before = documentService.getSharedDoc(docId).get('default', Y.XmlFragment).length;
+
+      await put(docId, '\n\nAdded A.\n\nAdded B.\n');
+      await drain();
+
+      expect(presenceDouble.selections).toHaveLength(1);
+      const { first, last } = resolvedBlocks(docId, presenceDouble.selections[0]);
+      const after = documentService.getSharedDoc(docId).get('default', Y.XmlFragment).length;
+      expect(after).toBe(before + 2);
+      expect(first).toBe(before);     // first appended block
+      expect(last).toBe(after - 1);   // last appended block
+    });
+
+    test('C7: replace ⇒ the range covers the whole post-apply document', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOld one.\n\nOld two.\n\nOld three.');
+      await put(docId, '# Fresh\n\nNew body.\n', { query: '?mode=replace' });
+      await drain();
+
+      expect(presenceDouble.selections).toHaveLength(1);
+      const { first, last } = resolvedBlocks(docId, presenceDouble.selections[0]);
+      const len = documentService.getSharedDoc(docId).get('default', Y.XmlFragment).length;
+      expect(first).toBe(0);
+      expect(last).toBe(len - 1);
+    });
+
+    test('C8: a sync push touching blocks 3 and 7 ⇒ first=3, last=7', async () => {
+      const paras = Array.from({ length: 9 }, (_, i) => `Line ${i}.`);
+      const { docId, clock } = await seedDoc(paras.join('\n\n'));
+
+      const edited = paras.slice();
+      edited[3] = 'Line 3 EDITED.';
+      edited[7] = 'Line 7 EDITED.';
+      const res = await put(docId, fileFor(docId, clock, edited.join('\n\n')), { query: '?mode=sync' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(presenceDouble.selections).toHaveLength(1);
+      const { first, last } = resolvedBlocks(docId, presenceDouble.selections[0]);
+      expect(first).toBe(3);
+      expect(last).toBe(7);
+    });
+
+    test('C9: a no-op sync push opens a session but shows NO selection (FR-012)', async () => {
+      const body = '# Notes\n\nUnchanged one.\n\nUnchanged two.';
+      const { docId, clock } = await seedDoc(body);
+      const shared = documentService.getSharedDoc(docId);
+      const currentBody = require('../mcp/yjs/serialization')
+        .toMarkdown(shared.get('default', Y.XmlFragment));
+
+      const res = await put(docId, fileFor(docId, clock, currentBody), { query: '?mode=sync' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expect(presenceDouble.sessions.length).toBeGreaterThanOrEqual(1); // opened
+      expect(presenceDouble.selections).toHaveLength(0);                // never fabricated
+    });
+  });
 });
