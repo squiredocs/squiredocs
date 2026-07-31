@@ -414,11 +414,9 @@
   }
 
   /* Print-only document title: the on-screen title lives in the hidden app
-     header, so page 1 opens with this instead. Above the serif body, in the
-     brand sans, with a hairline rule. */
+     header, so page 1 opens with this instead — over a hairline rule. */
   .print-doc-title {
     display: block;
-    font-family: var(--font-sans);
     font-size: 20pt;
     font-weight: 700;
     line-height: 1.2;
@@ -430,13 +428,12 @@
 
   /* -----------------------------------------------------------------------
      6. Typography optimized for print.
-     Serif body at 11pt/1.4 (the classic print register — Word/Docs land at
-     11pt for the same reason); headings keep the brand sans for contrast.
-     Sizes and margins are in pt: print hierarchy leans on weight and
-     whitespace, not the web's poster-scale ratios.
+     Brand sans throughout, at the print register: 11pt/1.4 body (where
+     Word/Docs land for the same reason). Sizes and margins are in pt: print
+     hierarchy leans on weight and whitespace, not the web's poster-scale
+     ratios.
      ----------------------------------------------------------------------- */
   .editor-common-content .ProseMirror {
-    font-family: Georgia, 'Times New Roman', serif;
     font-size: 11pt;
     line-height: 1.4;
     color: #000;
@@ -445,15 +442,6 @@
   .editor-common-content .ProseMirror p {
     margin: 0 0 7pt;
     hyphens: auto;
-  }
-
-  .editor-common-content .ProseMirror h1,
-  .editor-common-content .ProseMirror h2,
-  .editor-common-content .ProseMirror h3,
-  .editor-common-content .ProseMirror h4,
-  .editor-common-content .ProseMirror h5,
-  .editor-common-content .ProseMirror h6 {
-    font-family: var(--font-sans);
   }
 
   .editor-common-content .ProseMirror h1 {
@@ -537,9 +525,18 @@
      (Header rows can't repeat across pages — prosemirror-tables emits th
      cells in the first tbody row, never a thead.) */
   .editor-common-content .ProseMirror pre,
-  .editor-common-content .ProseMirror blockquote,
+  .editor-common-content .ProseMirror blockquote {
+    break-inside: avoid;
+  }
+
+  /* Images render inside a NodeViewWrapper div (.image-node), and the
+     browser makes its fragmentation decision at that wrapper — break-inside
+     on the inner img alone is ignored (same reason .diagram-node carries the
+     avoid for diagrams). Legacy page-break-inside alias kept to match. */
+  .editor-common-content .ProseMirror .image-node,
   .editor-common-content .ProseMirror img {
     break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .editor-common-content .ProseMirror tr {

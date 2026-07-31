@@ -301,4 +301,12 @@
   .diagram-preview {
     padding: 0;
   }
+  /* A diagram taller than one page can't honor page-break-inside: avoid and
+     splits across pages — scale it down to fit instead. Mermaid SVGs carry a
+     viewBox, so with the screen rule's height:auto this height cap shrinks
+     the whole drawing proportionally (8in fits the printable area inside the
+     0.75in margins). */
+  .diagram-preview svg {
+    max-height: 8in;
+  }
 }
