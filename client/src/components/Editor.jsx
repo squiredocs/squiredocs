@@ -443,6 +443,9 @@ export default function Editor({ ydoc, awareness, provider, onEditorReady, onSho
 
   return (
     <div className={`editor-common-container editor-container${isMobile ? ' mobile' : ''}`} ref={containerRef} onClick={handleClick} onContextMenu={handleContextMenu}>
+      {/* Print-only: the document title lives in the app header, which print
+          hides — without this the printout's first line is body content. */}
+      <div className="print-doc-title" aria-hidden="true">{docTitle || 'Untitled document'}</div>
       <EditorContent editor={editor} className="editor-common-content editor-content" />
       {linkPreview && (
         <LinkPreview

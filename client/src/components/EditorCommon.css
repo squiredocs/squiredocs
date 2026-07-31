@@ -256,6 +256,11 @@
   }
 }
 
+/* Print-only document title (rendered by Editor.jsx): invisible on screen. */
+.print-doc-title {
+  display: none;
+}
+
 /* ==========================================================================
    Print styles — single consolidated block for the entire app.
    All other @media print blocks have been removed from EditorView.css,
@@ -408,46 +413,78 @@
     overflow: visible !important;
   }
 
+  /* Print-only document title: the on-screen title lives in the hidden app
+     header, so page 1 opens with this instead. Above the serif body, in the
+     brand sans, with a hairline rule. */
+  .print-doc-title {
+    display: block;
+    font-family: var(--font-sans);
+    font-size: 20pt;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #000;
+    padding-bottom: 8pt;
+    border-bottom: 1pt solid #ccc;
+    margin-bottom: 14pt;
+  }
+
   /* -----------------------------------------------------------------------
      6. Typography optimized for print.
+     Serif body at 11pt/1.4 (the classic print register — Word/Docs land at
+     11pt for the same reason); headings keep the brand sans for contrast.
+     Sizes and margins are in pt: print hierarchy leans on weight and
+     whitespace, not the web's poster-scale ratios.
      ----------------------------------------------------------------------- */
   .editor-common-content .ProseMirror {
-    font-size: 12pt;
-    line-height: 1.5;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.4;
     color: #000;
+  }
+
+  .editor-common-content .ProseMirror p {
+    margin: 0 0 7pt;
+    hyphens: auto;
+  }
+
+  .editor-common-content .ProseMirror h1,
+  .editor-common-content .ProseMirror h2,
+  .editor-common-content .ProseMirror h3,
+  .editor-common-content .ProseMirror h4,
+  .editor-common-content .ProseMirror h5,
+  .editor-common-content .ProseMirror h6 {
+    font-family: var(--font-sans);
   }
 
   .editor-common-content .ProseMirror h1 {
-    font-size: 24pt;
+    font-size: 17pt;
     line-height: 1.2;
+    margin: 18pt 0 8pt;
   }
 
   .editor-common-content .ProseMirror h2 {
-    font-size: 18pt;
+    font-size: 14pt;
     line-height: 1.25;
+    margin: 14pt 0 6pt;
   }
 
   .editor-common-content .ProseMirror h3 {
-    font-size: 14pt;
+    font-size: 12pt;
     line-height: 1.3;
+    margin: 12pt 0 5pt;
   }
 
-  /* Links: show URL after link text */
+  .editor-common-content .ProseMirror h4,
+  .editor-common-content .ProseMirror h5,
+  .editor-common-content .ProseMirror h6 {
+    font-size: 11pt;
+    line-height: 1.3;
+    margin: 10pt 0 4pt;
+  }
+
   .editor-common-content .ProseMirror a {
     color: #000;
     text-decoration: underline;
-  }
-
-  .editor-common-content .ProseMirror a[href]:after {
-    content: " (" attr(href) ")";
-    font-size: 0.85em;
-    color: #555;
-    word-break: break-all;
-  }
-
-  .editor-common-content .ProseMirror a[href^="#"]:after,
-  .editor-common-content .ProseMirror a[href^="javascript:"]:after {
-    content: "";
   }
 
   /* Blockquotes — darken for print (screen gray is too faint on paper) */
@@ -464,14 +501,27 @@
     print-color-adjust: exact;
   }
 
-  /* Code blocks: wrap long lines instead of overflowing */
+  /* Code blocks: print-register mono size, wrapped lines, and a hairline
+     border so the block still reads as a block when the user prints without
+     background graphics (a common default). */
   .editor-common-content .ProseMirror pre {
+    font-size: 9.5pt;
+    line-height: 1.35;
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow: visible;
+    border: 1pt solid #ddd;
   }
 
-  /* Table borders: darken for crisp printing */
+  .editor-common-content .ProseMirror code {
+    font-size: 9.5pt;
+  }
+
+  /* Tables: one register below body, crisp borders */
+  .editor-common-content .ProseMirror table {
+    font-size: 10pt;
+  }
+
   .editor-common-content .ProseMirror td,
   .editor-common-content .ProseMirror th {
     border-color: #999;
@@ -481,11 +531,18 @@
      7. Page break control.
      ----------------------------------------------------------------------- */
 
-  /* Avoid breaks inside complex block elements */
-  .editor-common-content .ProseMirror table,
+  /* Avoid breaks inside complex block elements. Tables are deliberately NOT
+     here: a table taller than one page would get pushed to a fresh page and
+     still break, leaving a large gap. Instead each ROW is kept whole below.
+     (Header rows can't repeat across pages — prosemirror-tables emits th
+     cells in the first tbody row, never a thead.) */
   .editor-common-content .ProseMirror pre,
   .editor-common-content .ProseMirror blockquote,
   .editor-common-content .ProseMirror img {
+    break-inside: avoid;
+  }
+
+  .editor-common-content .ProseMirror tr {
     break-inside: avoid;
   }
 
@@ -507,9 +564,12 @@
     widows: 3;
   }
 
-  /* Images should not exceed page width */
+  /* Images should not exceed page width — nor most of a page's height
+     (a tall screenshot would otherwise swallow a page or get clipped;
+     max-height with height:auto preserves aspect ratio). */
   .editor-common-content .ProseMirror img {
     max-width: 100% !important;
     height: auto !important;
+    max-height: 8in;
   }
 }
