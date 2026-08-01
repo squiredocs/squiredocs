@@ -10,9 +10,8 @@ markdown that round-trips with the files in your repo.
 
 ## Connect
 
-**Claude Code — install the Squire Docs plugin (recommended).** In a terminal,
-not from inside a running agent session, add our marketplace and install the
-plugin:
+**Claude Code — install the Squire Docs plugin (recommended).** Inside Claude
+Code, add our marketplace and install the plugin:
 
 ```
 /plugin marketplace add squiredocs/squire-plugin
