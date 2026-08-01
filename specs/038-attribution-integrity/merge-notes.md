@@ -149,7 +149,30 @@ Verified untouched by this feature: `getUpdateRowsUpTo`, `_fetchRowsWithGapRetry
 - **Version-history author display for flagged rows.** Feature 040 scope. Rows
   carry the field; the timeline's behavior is unchanged in this feature.
 
-## 7. Manual validation still owed (Sam, post-deploy)
+## 7. Verification performed in this worktree
+
+| Gate | Result |
+|---|---|
+| Full backend suite (`npm run test:server`, serial, per-agent DB `collab_test_db_038`) | **230 suites, 3971 tests passed, 0 failed** |
+| Client suite (`npx vitest run`) | **65 suites, 805 passed** |
+| `npm run build` | green (incl. documentation + blog builds) |
+| Migration `down` then re-`up` | clean both ways |
+
+Each story's tests were additionally confirmed to FAIL against the pre-feature
+behavior, not merely to pass against the new: reverting step2 classification
+fails 9 tests across the three US1 files; removing the `viaSync` check in
+`isIdentityRow` fails 5 undo tests; restoring the old `document-service.js`
+fails 6 capture tests including the F4 repro.
+
+**One caveat on a discarded run.** A second full-suite run was started while the
+first was still finishing, against the same database, and produced 18 failures —
+all `documents_creator_id_fkey` violations and "never persisted" errors in MCP
+suites, i.e. the two runs' `cleanupTestUser` calls deleting each other's rows.
+That is the known backend-tests-are-serial-only hazard, self-inflicted, not a
+regression: those same suites pass in isolation (30/30). The authoritative
+result is the clean run in the table above.
+
+## 8. Manual validation still owed (Sam, post-deploy)
 
 Per quickstart.md — none of this is automatable here:
 
