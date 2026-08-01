@@ -124,6 +124,16 @@ function viaSyncFromOrigin(origin) {
  *  - step2 frame from a connection that MAY edit ⇒ applied inside the step2 flag
  *    window (see below) so the rows it produces are marked via_sync.
  *
+ * ── via_sync CONTRACT (FR-015), stated where the flag is SET ─────────────────
+ * A via_sync row proves the content reached the server THROUGH this client —
+ * never that this client WROTE it. The flag records the CHANNEL, not a verdict
+ * on authorship, and it does NOT alter attribution: a genuine offline edit
+ * re-supplied on reconnect is still that user's work and stays stamped to them.
+ * Only `true` carries meaning; `null` (every pre-feature row — there is no
+ * backfill — and every non-step2 write) means "not known to be sync" and must
+ * never be read as suspicious. The same contract is restated for readers on the
+ * column mapping in server/postgres-persistence.js.
+ *
  * ── SYNCHRONICITY ASSUMPTION (FR-011) ────────────────────────────────────────
  * The flag is scoped by a plain set/`finally`-clear around the delegated emit.
  * That is exact ONLY because frame application is one fully synchronous chain on
