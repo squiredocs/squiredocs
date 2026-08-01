@@ -54,7 +54,6 @@ const { createReadyHandler } = require('./ready');
 const { createPendingWrites } = require('./pending-writes');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
-const decoding = require('lib0/decoding');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
 const authEvents = require('./auth/auth-events');
 const admin = require('./api/admin');
@@ -80,6 +79,11 @@ const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
 const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
+// The sync-protocol edit gate (feature 038). Frame classification AND the
+// interceptor that installs it live in one module so there is exactly one
+// implementation: the unit test, the FR-008 protocol e2e, and this file all
+// exercise the same code. Do not reintroduce byte classification here.
+const { installGate, viaSyncFromOrigin } = require('./ws-edit-gate');
 const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -310,6 +314,17 @@ setPersistence({
       if (!parsed) return;
       const { userId, agentName } = parsed;
 
+      // Channel marker (feature 038 US2, FR-010/FR-012). Read AFTER the sentinel
+      // early-return, so server-side paths (db-load, redis, sync-push,
+      // inverse-apply, restore) can never be flagged. `true` only while a
+      // SYNC_STEP2 catch-up frame is being applied on the originating
+      // connection — y-websocket passes that connection as the transaction
+      // origin, which is the same object ws.userId attribution rides on, so the
+      // flag is exactly per-frame-application scoped and cannot leak across
+      // connections. Attribution is NOT altered: via_sync records how the
+      // content ARRIVED, never who wrote it (the row stays this user's work).
+      const viaSync = viaSyncFromOrigin(origin);
+
       // Classify vs the previous baseline. Unknown (no baseline yet, an extractXml
       // failure, or classification disabled for an oversized doc) ⇒ null ⇒
       // meaningful at read (fail-visible, D-3).
@@ -350,7 +365,22 @@ setPersistence({
       // after the queue slot completes, so registering it in pendingWrites keeps
       // the graceful-shutdown flush covering queued-but-not-yet-started writes
       // (FR-006). The entry is removed on settle regardless of outcome.
-      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful });
+      // ── FR-018: publish-before-commit window (documented, not changed) ──────
+      // The doc `update` event that brought us here ALSO drove the Redis publish
+      // (redisUpdateHandler is a peer listener on this same event) and the
+      // y-websocket broadcast to connected clients — both initiated
+      // synchronously, before this call. The durable commit below is
+      // asynchronous. So there is a real window in which content is live on
+      // other instances and in other browsers while no `yjs_updates` row exists
+      // yet: an instance dying inside that window leaves the edit visible
+      // everywhere and absent from durable history.
+      //
+      // Reordering to publish-after-commit would close it, but it puts a DB
+      // round-trip in front of every keystroke's fan-out — a latency and
+      // failure-mode change on the hottest path in the product. That is
+      // deliberately DEFERRED, not overlooked (feature 038 R10). This comment is
+      // the record; nothing here changes behavior.
+      const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful, viaSync });
       pendingWrites.add(writePromise);
       writePromise.finally(() => pendingWrites.delete(writePromise));
       writePromise
@@ -363,7 +393,7 @@ setPersistence({
           // chain regardless.
           try {
             Promise.resolve(
-              collabGuardrail.evaluateUpdate({ docGuid, update, userId, agentName })
+              collabGuardrail.evaluateUpdate({ docGuid, update, userId, agentName, viaSync })
             ).catch(() => {});
           } catch (guardrailErr) {
             console.error('[CollabGuardrail] invocation failed (swallowed):', guardrailErr);
@@ -1952,49 +1982,17 @@ server.on('upgrade', async (request, socket, head) => {
   });
 });
 
-// y-websocket protocol constants
-const MESSAGE_SYNC = 0;
-const MESSAGE_AWARENESS = 1;
-// Sync message sub-types
-const SYNC_STEP1 = 0;  // Request state vector
-const SYNC_STEP2 = 1;  // Send full state (response)
-const SYNC_UPDATE = 2; // Send an update (edit)
-
-/**
- * Parse clientIds from an awareness message.
- * Awareness message format: [MESSAGE_AWARENESS, ...encoded awareness update]
- * Awareness update: varint(numClients), then for each: varint(clientId), varint(clock), varint(stateLen), state bytes
- */
-function parseAwarenessClientIds(buffer) {
-  if (!buffer || buffer.length < 2 || buffer[0] !== MESSAGE_AWARENESS) return [];
-  try {
-    const decoder = decoding.createDecoder(buffer.subarray(1));
-    const numClients = decoding.readVarUint(decoder);
-    const clientIds = [];
-    for (let i = 0; i < numClients; i++) {
-      clientIds.push(decoding.readVarUint(decoder));
-      decoding.readVarUint(decoder); // clock
-      const stateLen = decoding.readVarUint(decoder);
-      decoder.pos += stateLen; // skip state
-    }
-    return clientIds;
-  } catch (e) {
-    return [];
-  }
-}
-
-/**
- * Check if a WebSocket message is an edit operation
- * @param {Buffer} data - Raw message data
- * @returns {boolean} True if this is an edit operation
- */
-function isEditMessage(data) {
-  if (!data || data.length < 2) return false;
-  const messageType = data[0];
-  const syncType = data[1];
-  // Edit = sync message with update type
-  return messageType === MESSAGE_SYNC && syncType === SYNC_UPDATE;
-}
+// Presence cleanup note (feature 038 US5): this file used to hand-parse clientIds
+// out of the first awareness frame a connection sent (`parseAwarenessClientIds` +
+// a `connectionClientId` capture) and explicitly evict that id on close. That
+// capture was wrong by construction — an awareness frame is a broadcast ABOUT a
+// set of clients, not necessarily FROM the sender, so a connection that arrived
+// after someone else's awareness broadcast adopted the WRONG id and evicted the
+// wrong participant on disconnect. It is deleted. Presence eviction is now solely
+// y-websocket's `closeConn`, which calls removeAwarenessStates with the
+// per-connection CONTROLLED-IDS set it maintains — exactly the ids each
+// connection actually announced. (The Redis pub/sub cleanup that shared the close
+// handler is preserved; see the close handler below.)
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
@@ -2039,44 +2037,27 @@ wss.on('connection', (ws, req) => {
     ws.ping();
   }, PING_INTERVAL);
 
-  // Track this connection's own clientId (captured from first awareness message it sends)
-  // Used to explicitly clean up awareness when connection closes
-  let connectionClientId = null;
+  // Note: a per-message token expiry check was removed because tokenExp is frozen
+  // at connection time and never updates when the client refreshes its access
+  // token. That caused WebSocket disconnects after 15 minutes even though the
+  // user had a valid session. The periodic role re-check (every 60s) handles
+  // access revocation, and the client reconnects with fresh cookies on auth errors.
 
-  // Intercept messages before y-websocket processes them
-  const originalEmit = ws.emit.bind(ws);
-  ws.emit = (event, ...args) => {
-    if (event === 'message') {
-      const data = args[0];
-      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
-
-      // Note: per-message token expiry check was removed because the tokenExp is
-      // frozen at connection time and never updates when the client refreshes its
-      // access token. This caused WebSocket disconnects after 15 minutes even though
-      // the user had a valid session. The periodic role re-check (every 60s) handles
-      // access revocation, and the client reconnects with fresh cookies on auth errors.
-
-      // Capture this connection's clientId from the first awareness message it sends
-      // Capture this connection's clientId for awareness cleanup on disconnect
-      if (!connectionClientId && buffer[0] === MESSAGE_AWARENESS) {
-        const clientIds = parseAwarenessClientIds(buffer);
-        if (clientIds.length > 0) {
-          connectionClientId = clientIds[0];
-        }
-      }
-
-
-      // Block edit messages from viewers
-      if (!currentCanEdit && isEditMessage(buffer)) {
-        logPerf('WS_EDIT_BLOCKED', { connId, userId, docId, role: userRole });
-        console.log(`✗ Edit blocked for viewer ${userId} on doc ${docId}`);
-        return false;
-      }
-    }
-
-    // Call original emit (this will trigger y-websocket processing and eventually ydoc.on('update'))
-    return originalEmit(event, ...args);
-  };
+  // Install the sync-protocol edit gate (feature 038 US1). It classifies each
+  // frame, drops edit frames from connections that may not edit — SYNC_UPDATE
+  // and SYNC_STEP2 alike, since both reach Y.applyUpdate — and scopes the step2
+  // channel-marker flag around frame application. `canEdit` is read per frame so
+  // the 60s role re-check below (which fails closed) governs step2 exactly as it
+  // governs update frames. See server/ws-edit-gate.js for the classification
+  // table and the synchronicity assumption behind the flag window.
+  installGate(ws, {
+    canEdit: () => currentCanEdit,
+    onBlocked: (event) => {
+      logPerf(event, { connId, userId, docId, role: userRole });
+      const what = event === 'WS_STEP2_BLOCKED' ? 'Sync step2 (catch-up) frame' : 'Edit';
+      console.log(`✗ ${what} blocked for viewer ${userId} on doc ${docId}`);
+    },
+  });
 
   ws.on('error', (error) => {
     logPerf('WS_ERROR', { connId, error: error.message });
@@ -2239,10 +2220,9 @@ wss.on('connection', (ws, req) => {
       if (doc.awareness) {
         // Clean up on close - explicitly remove this connection's awareness
         ws.on('close', () => {
-          if (connectionClientId) {
-            console.log(`[WS:${connId}] Closing - removing awareness for clientId ${connectionClientId}`);
-            awarenessProtocol.removeAwarenessStates(doc.awareness, [connectionClientId], 'connection closed');
-          }
+          // Awareness eviction is y-websocket's job (closeConn -> controlled ids,
+          // feature 038 US5) — this handler must NOT evict anything itself. What
+          // it still owns is the Redis pub/sub teardown below (FR-024).
 
           // ========== REDIS PUB/SUB CLEANUP ==========
           // If no more local connections, unsubscribe from Redis
