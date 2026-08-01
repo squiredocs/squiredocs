@@ -97,6 +97,166 @@ describe('ws-edit-gate: classifyFrame', () => {
   });
 });
 
+describe('ws-edit-gate: non-canonical varint headers (038 review, HIGH)', () => {
+  // The header fields are lib0 varints, not fixed bytes, and lib0's readVarUint
+  // accepts NON-MINIMAL encodings: 0x80 0x00 -> 0, 0x82 0x00 -> 2. A gate that
+  // indexed data[0]/data[1] classified `80 00 82 00` as "not an edit" while
+  // y-protocols read it as an ordinary sync/update and applied it — a complete
+  // viewer-write bypass, reproduced end-to-end in review. These cases pin the
+  // fix: classification must match what the applier decodes.
+  //
+  // Sanity-check the premise itself, so this suite fails loudly if lib0 ever
+  // stops accepting non-minimal encodings (at which point the threat is gone
+  // and these expectations should be revisited rather than blindly updated).
+  test('lib0 really does decode non-minimal varints (premise of this suite)', () => {
+    const decoding = require('lib0/decoding');
+    const d = decoding.createDecoder(Uint8Array.from([0x80, 0x00, 0x82, 0x00]));
+    expect(decoding.readVarUint(d)).toBe(MESSAGE_SYNC);
+    expect(decoding.readVarUint(d)).toBe(SYNC_UPDATE);
+  });
+
+  test.each([
+    ['update, 2-byte varints',   [0x80, 0x00, 0x82, 0x00],             { isEdit: true,  kind: 'update' }],
+    ['step2, 2-byte varints',    [0x80, 0x00, 0x81, 0x00],             { isEdit: true,  kind: 'step2'  }],
+    ['step1, 2-byte varints',    [0x80, 0x00, 0x80, 0x00],             { isEdit: false, kind: null     }],
+    ['awareness, 2-byte varint', [0x81, 0x00, 0x00],                   { isEdit: false, kind: null     }],
+    ['update, 3-byte varint',    [0x80, 0x80, 0x00, 0x82, 0x00],       { isEdit: true,  kind: 'update' }],
+    ['step2, mixed widths',      [0x00, 0x81, 0x00],                   { isEdit: true,  kind: 'step2'  }],
+  ])('classifies %s exactly as its canonical equivalent', (_label, bytes, expected) => {
+    expect(classifyFrame(Buffer.from(bytes))).toEqual(expected);
+  });
+
+  test('a truncated varint header is not an edit and does not throw', () => {
+    // Continuation bit set but the frame ends: undecodable. y-websocket's own
+    // decode fails on the same bytes, so falling through is correct.
+    for (const bytes of [[0x80], [0x80, 0x80], [0x00, 0x80]]) {
+      const frame = Buffer.from(bytes);
+      expect(() => classifyFrame(frame)).not.toThrow();
+      expect(classifyFrame(frame)).toEqual({ isEdit: false, kind: null });
+    }
+  });
+
+  test('isEditMessage agrees on non-canonical frames too', () => {
+    const evasive = Buffer.from([0x80, 0x00, 0x82, 0x00]);
+    expect(isEditMessage(evasive)).toBe(true);
+    expect(isEditMessage(evasive)).toBe(classifyFrame(evasive).isEdit);
+  });
+});
+
+describe('ws-edit-gate: classification matches the REAL applier (038 review)', () => {
+  // THE test for this bug class. Every other test in this file states what we
+  // BELIEVE the protocol does; this one asks the protocol itself.
+  //
+  // The bypass existed because the gate's model of a frame diverged from what
+  // y-protocols actually decodes — and no fake-ws test can catch that, because
+  // a fake ws never runs the real decoder. Here we feed each frame through the
+  // genuine readSyncMessage → Y.applyUpdate path and assert the invariant the
+  // whole feature rests on:
+  //
+  //     if a frame mutates the document, the gate MUST classify it as an edit
+  //
+  // A future protocol change, a new sync message type, or another encoding
+  // trick fails HERE without anyone having to think of it in advance.
+  const Y = require('yjs');
+  const syncProtocol = require('y-protocols/sync');
+  const encoding = require('lib0/encoding');
+  const decoding = require('lib0/decoding');
+
+  /** Build a frame with explicitly-encoded (optionally non-minimal) headers. */
+  function frame(messageTypeBytes, syncTypeBytes, payload) {
+    return Buffer.concat([
+      Buffer.from(messageTypeBytes),
+      Buffer.from(syncTypeBytes),
+      Buffer.from(payload),
+    ]);
+  }
+
+  /** The bytes y-protocols expects after the two header varints, for an update. */
+  function updatePayload(doc) {
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint8Array(enc, Y.encodeStateAsUpdate(doc));
+    return encoding.toUint8Array(enc);
+  }
+
+  /**
+   * Run a frame through the real applier exactly as y-websocket's
+   * messageListener does, and report whether the document changed.
+   */
+  function appliesToDoc(frameBytes) {
+    const target = new Y.Doc();
+    target.getXmlFragment('default'); // materialize so length is comparable
+    const before = Y.encodeStateAsUpdate(target);
+
+    try {
+      const decoder = decoding.createDecoder(new Uint8Array(frameBytes));
+      const messageType = decoding.readVarUint(decoder);
+      if (messageType !== MESSAGE_SYNC) return false;
+      const enc = encoding.createEncoder();
+      syncProtocol.readSyncMessage(decoder, enc, target, 'test-origin');
+    } catch {
+      return false; // undecodable / rejected by the protocol
+    }
+
+    const after = Y.encodeStateAsUpdate(target);
+    return Buffer.compare(Buffer.from(before), Buffer.from(after)) !== 0;
+  }
+
+  // A source doc with real content, so an applied update is observable.
+  function sourceDoc() {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    const p = new Y.XmlElement('paragraph');
+    const t = new Y.XmlText();
+    t.insert(0, 'viewer-authored content');
+    p.insert(0, [t]);
+    frag.insert(0, [p]);
+    return doc;
+  }
+
+  test('the non-canonical update frame really does mutate a document (attack is real)', () => {
+    const evasive = frame([0x80, 0x00], [0x82, 0x00], updatePayload(sourceDoc()));
+    // If this ever goes false, the threat model changed — investigate before
+    // relaxing anything below.
+    expect(appliesToDoc(evasive)).toBe(true);
+  });
+
+  test.each([
+    ['canonical update',      [0x00],       [0x02]],
+    ['canonical step2',       [0x00],       [0x01]],
+    ['non-canonical update',  [0x80, 0x00], [0x82, 0x00]],
+    ['non-canonical step2',   [0x80, 0x00], [0x81, 0x00]],
+    ['3-byte varint update',  [0x80, 0x80, 0x00], [0x82, 0x00]],
+  ])('%s: mutates the doc AND is gated as an edit', (_label, mt, st) => {
+    const f = frame(mt, st, updatePayload(sourceDoc()));
+    expect(appliesToDoc(f)).toBe(true);          // the applier writes
+    expect(classifyFrame(f).isEdit).toBe(true);  // ...so the gate must block it
+  });
+
+  test('INVARIANT: no frame mutates the document without being classified an edit', () => {
+    const payload = updatePayload(sourceDoc());
+    const candidates = [
+      frame([0x00], [0x00], payload),                    // step1
+      frame([0x00], [0x01], payload),                    // step2
+      frame([0x00], [0x02], payload),                    // update
+      frame([0x80, 0x00], [0x80, 0x00], payload),        // step1, non-minimal
+      frame([0x80, 0x00], [0x81, 0x00], payload),        // step2, non-minimal
+      frame([0x80, 0x00], [0x82, 0x00], payload),        // update, non-minimal
+      frame([0x80, 0x80, 0x00], [0x82, 0x00], payload),  // update, 3-byte type
+      frame([0x01], [0x00], payload),                    // awareness
+      frame([0x00], [0x03], payload),                    // unknown sub-type
+      Buffer.from([0x80]),                               // truncated
+      Buffer.from([]),                                   // empty
+    ];
+
+    for (const f of candidates) {
+      if (appliesToDoc(f)) {
+        expect({ frame: f.toString('hex'), isEdit: classifyFrame(f).isEdit })
+          .toEqual({ frame: f.toString('hex'), isEdit: true });
+      }
+    }
+  });
+});
+
 describe('ws-edit-gate: isEditMessage', () => {
   test('agrees with classifyFrame on every case', () => {
     const cases = [

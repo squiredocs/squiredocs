@@ -19,16 +19,38 @@
  * write-permission bypass by construction.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Frame      Bytes   Reaches Y.applyUpdate?   Classification
- * Step1      [0, 0]  no (read-only request)   not an edit
- * Step2      [0, 1]  YES                      edit  (kind: 'step2')
- * Update     [0, 2]  yes                      edit  (kind: 'update')
- * Awareness  [1, …]  no                       not an edit
- * < 2 bytes  —       no                       not an edit (y-websocket handles)
+ * Frame      Header      Reaches Y.applyUpdate?   Classification
+ * Step1      sync, 0     no (read-only request)   not an edit
+ * Step2      sync, 1     YES                      edit  (kind: 'step2')
+ * Update     sync, 2     yes                      edit  (kind: 'update')
+ * Awareness  awareness   no                       not an edit
+ * undecodable —          no                       not an edit (y-websocket handles)
  *
- * Nothing here parses frame payloads beyond the two-byte header: this is an
+ * ── WHY THIS DECODES VARINTS INSTEAD OF INDEXING BYTES (038 review, HIGH) ─────
+ * The header fields are lib0 VARINTS, not fixed bytes. lib0's `readVarUint`
+ * accepts NON-MINIMAL encodings: `0x80 0x00` decodes to 0 and `0x82 0x00`
+ * decodes to 2, so the four-byte header `80 00 82 00` is an ordinary
+ * sync/update to y-protocols. The original gate compared `data[0]`/`data[1]`
+ * against 0/1/2 and therefore classified that frame as "not an edit" while
+ * y-websocket applied it — a complete bypass of the viewer block, reproduced
+ * end-to-end during review (a view-only user could write, attributed to
+ * themselves).
+ *
+ * The invariant that fixes it, and that any future edit here must preserve:
+ * CLASSIFY THE FRAME THE SAME WAY THE APPLIER PARSES IT. We decode with the
+ * same `lib0/decoding` primitive y-websocket uses, so the gate's view of a
+ * frame cannot drift from the applier's view. Do not "optimize" this back into
+ * byte indexing — the two are not equivalent, and the difference is a
+ * privilege escalation. (Rejecting non-canonical encodings outright would also
+ * close this hole, but decoding keeps the gate defined by the applier's
+ * behavior rather than by a second opinion about what is well-formed.)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Nothing here parses frame payloads beyond the two header varints: this is an
  * ingestion surface for untrusted client bytes (Constitution V).
  */
+
+const decoding = require('lib0/decoding');
 
 // y-websocket protocol constants
 const MESSAGE_SYNC = 0;
@@ -49,11 +71,16 @@ const SYNC_UPDATE = 2; // Send an update (edit)
 const STEP2_ORIGIN_FLAG = '_applyingSyncStep2';
 
 /**
- * Classify a raw WebSocket frame by its two-byte header.
+ * Classify a raw WebSocket frame by its two header varints.
+ *
+ * Decodes with the SAME primitive y-websocket uses (see the varint note in the
+ * module header) so the gate cannot disagree with the applier about what a
+ * frame is. Non-minimal varint encodings therefore classify exactly as their
+ * canonical equivalents do.
  *
  * Pure and throw-free on ANY input (null, undefined, empty, 1-byte, non-Buffer,
- * garbage) — a malformed frame is simply "not an edit" and falls through to
- * y-websocket's own handling, exactly as before.
+ * garbage, truncated varint) — anything undecodable is simply "not an edit" and
+ * falls through to y-websocket's own handling, which rejects it the same way.
  *
  * @param {Buffer|Uint8Array|null|undefined} data - Raw message bytes
  * @returns {{ isEdit: boolean, kind: 'update'|'step2'|null }}
@@ -62,9 +89,24 @@ function classifyFrame(data) {
   if (!data || typeof data.length !== 'number' || data.length < 2) {
     return { isEdit: false, kind: null };
   }
-  if (data[0] !== MESSAGE_SYNC) return { isEdit: false, kind: null };
-  if (data[1] === SYNC_UPDATE) return { isEdit: true, kind: 'update' };
-  if (data[1] === SYNC_STEP2) return { isEdit: true, kind: 'step2' };
+
+  let messageType;
+  let syncType;
+  try {
+    // Uint8Array view over the same bytes; Buffer is already one.
+    const bytes = data instanceof Uint8Array ? data : Uint8Array.from(data);
+    const decoder = decoding.createDecoder(bytes);
+    messageType = decoding.readVarUint(decoder);
+    if (messageType !== MESSAGE_SYNC) return { isEdit: false, kind: null };
+    syncType = decoding.readVarUint(decoder);
+  } catch {
+    // Undecodable header (truncated varint, unreadable buffer): not an edit.
+    // y-websocket's own decode will fail on the same bytes.
+    return { isEdit: false, kind: null };
+  }
+
+  if (syncType === SYNC_UPDATE) return { isEdit: true, kind: 'update' };
+  if (syncType === SYNC_STEP2) return { isEdit: true, kind: 'step2' };
   return { isEdit: false, kind: null };
 }
 
