@@ -168,15 +168,20 @@ class PostgresPersistence {
    * @param {boolean|null} [opts.meaningful=null] - write-time meaningful-vs-noise
    *   classification (feature 023 US4). Persisted verbatim in T022; null=unknown
    *   ⇒ meaningful at read time. Never affects persistence success (FR-018).
+   * @param {boolean|null} [opts.viaSync=null] - write-time CHANNEL marker
+   *   (feature 038 US2). See the via_sync contract on _mapUpdateRow: `true` means
+   *   the update arrived on a SYNC_STEP2 catch-up frame; null = unknown ≡
+   *   not-sync. Like `meaningful`, it is persisted verbatim and never affects
+   *   persistence success.
    * @returns {Promise<number>} The clock value of the stored update
    */
-  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null, externalClient = null, { meaningful = null } = {}) {
+  async storeUpdate(docGuid, update, userId = null, agentName = null, onBehalfOf = null, externalClient = null, { meaningful = null, viaSync = null } = {}) {
     await this._init();
 
     // External-client (016 claim) path: bypass the process queue; the advisory
     // lock is taken on the caller's open transaction inside _storeUpdateCritical.
     if (externalClient) {
-      return this._storeUpdateCritical(externalClient, docGuid, update, userId, agentName, onBehalfOf, meaningful, false);
+      return this._storeUpdateCritical(externalClient, docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync, false);
     }
 
     // Pool-client path: enqueue the whole critical section as one per-doc FIFO
@@ -185,7 +190,7 @@ class PostgresPersistence {
     // later updates (D-9). The caller gets `slot` (the real result/rejection);
     // the map tail is a never-rejecting promise so the next enqueue chains cleanly.
     const prev = this._writeQueues.get(docGuid) || Promise.resolve();
-    const run = () => this._runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful);
+    const run = () => this._runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync);
     const slot = prev.then(run, run);
     const tail = slot.catch(() => {});
     this._writeQueues.set(docGuid, tail);
@@ -203,7 +208,7 @@ class PostgresPersistence {
    * jitter — the constants bindState used before 023), release the client.
    * @private
    */
-  async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful) {
+  async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync = null) {
     const MAX_ATTEMPTS = 3;
     const baseDelay = 100;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -215,7 +220,7 @@ class PostgresPersistence {
       // per attempt restores pre-023 retry semantics. Released on every path.
       const client = await this.pool.connect();
       try {
-        return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, true);
+        return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync, true);
       } catch (err) {
         if (attempt === MAX_ATTEMPTS) throw err;
         const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
@@ -235,7 +240,7 @@ class PostgresPersistence {
    * releases at the caller's COMMIT.
    * @private
    */
-  async _storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, ownTxn) {
+  async _storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync, ownTxn) {
     const MAX_CONFLICT_RETRIES = 5;
     if (ownTxn) await client.query('BEGIN');
     let nextClock;
@@ -255,9 +260,11 @@ class PostgresPersistence {
         // unserialized peer claimed this clock (mixed-window backstop, D-8).
         // `meaningful` is persisted verbatim (null = unknown ⇒ meaningful at read,
         // feature 023 US4); it never affects persistence success (FR-018).
+        // `via_sync` likewise (feature 038 US2) — one extra bind parameter, no new
+        // statements, so the queue/lock/retry/commit semantics above are unchanged.
         const result = await client.query(
-          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of, meaningful) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (doc_guid, clock) DO NOTHING',
-          [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf), meaningful]
+          'INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id, agent_name, on_behalf_of, meaningful, via_sync) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (doc_guid, clock) DO NOTHING',
+          [docGuid, nextClock, Buffer.from(update), userId, agentName, onBehalfOf == null ? null : JSON.stringify(onBehalfOf), meaningful, viaSync ?? null]
         );
 
         if (result.rowCount > 0) break; // claimed this clock
@@ -593,6 +600,25 @@ class PostgresPersistence {
       // Write-time meaningful classification (feature 023 US4); null = unknown
       // ⇒ every reader treats it as meaningful (D-3). undefined when unselected.
       meaningful: row.meaningful ?? null,
+      // ── via_sync CONTRACT (feature 038 US2, FR-015) ────────────────────────
+      // A via_sync row proves the content reached the server THROUGH that
+      // client — never that the client WROTE it. It records the CHANNEL, not a
+      // verdict on authorship: `true` means the update was produced while a
+      // SYNC_STEP2 catch-up frame was being applied. Attribution (userId /
+      // agentName) on a flagged row is unchanged and still correct as TRANSPORT
+      // attribution — a genuine offline edit synced on reconnect is that user's
+      // work and stays theirs.
+      //
+      // Uniform read rule: ONLY `true` means sync. `null` (every pre-feature
+      // row — there is no backfill, D1 — and every non-step2 write) and `false`
+      // are identical, "not known to be sync". Never treat `null` as suspicious.
+      //
+      // Consumer obligations: undo (server/undo/legacy.js) treats a flagged row
+      // as foreign to an identity run — it breaks the run, and the honest
+      // refusal is preferred over stitching across a re-supply (D2); the collab
+      // guardrail ANNOTATES sync-sourced triggers without changing whether a
+      // page fires (D3). undefined when the column is unselected ⇒ null.
+      viaSync: row.via_sync ?? null,
     };
     if (includeData && row.update_data) {
       result.updateData = new Uint8Array(row.update_data);
@@ -642,7 +668,7 @@ class PostgresPersistence {
         params.push(limit);
       }
 
-      const sql = `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of, u.meaningful,
+      const sql = `SELECT u.clock, ${dataColumn}u.created_at, u.user_id, u.agent_name, u.on_behalf_of, u.meaningful, u.via_sync,
                 usr.name as user_name, usr.email as user_email, usr.picture as user_picture
          FROM yjs_updates u
          LEFT JOIN users usr ON u.user_id = usr.id

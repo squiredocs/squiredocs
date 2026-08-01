@@ -43,8 +43,137 @@ describe('parseOrigin — persistence listener routing', () => {
   });
 
   test('real origins still parse to attribution', () => {
-    expect(parseOrigin('user-123')).toEqual({ userId: 'user-123', agentName: null });
+    // A bare string origin must be a UUID (feature 038 US3) — 'user-123' used to
+    // be accepted here and is now a degraded parse, covered below.
+    const uuid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+    expect(parseOrigin(uuid)).toEqual({ userId: uuid, agentName: null });
     expect(parseOrigin(createOrigin('u', 'Repo Sync'))).toEqual({ userId: 'u', agentName: 'Repo Sync' });
+  });
+});
+
+/**
+ * Feature 038 US3 (FR-017). A malformed origin must degrade ATTRIBUTION and
+ * shout — never make the caller skip persistence, never throw. Before this,
+ * a non-UUID string flowed into the uuid `user_id` column, the INSERT failed,
+ * retries exhausted, and the row was DROPPED while the update stayed live in
+ * every connected browser: silent durable-history loss.
+ */
+describe('parseOrigin — malformed origins degrade loudly, never drop (feature 038 US3)', () => {
+  let errorSpy;
+  let warnSpy;
+
+  beforeEach(() => {
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  test('(a) a valid UUID string is attributed, unchanged', () => {
+    for (const uuid of [
+      '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      '00000000-0000-0000-0000-000000000000',
+      'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF', // case-insensitive
+    ]) {
+      expect(parseOrigin(uuid)).toEqual({ userId: uuid, agentName: null });
+    }
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test('(b) a non-UUID string degrades to unattributed + a flag, and logs loudly', () => {
+    const result = parseOrigin('user-123');
+    expect(result).toEqual({
+      userId: null,
+      agentName: null,
+      malformedOrigin: 'non-uuid-string',
+    });
+    // The signal must name the rejected value so the caller is findable.
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(String(errorSpy.mock.calls[0][0])).toContain('user-123');
+  });
+
+  test('(b) validation is STRICT — almost-UUIDs are rejected, not tolerated', () => {
+    const almost = [
+      '3f2504e0-4f89-41d3-9a0c-0305e82c330',    // too short
+      '3f2504e0-4f89-41d3-9a0c-0305e82c33011',  // too long
+      '3f2504e0-4f89-41d3-9a0c-0305e82c330g',   // non-hex character
+      '3f2504e04f8941d39a0c0305e82c3301',       // no hyphens
+      '3f2504e0-4f89-41d3-9a0c0305e82c3301',    // missing a hyphen
+      ' 3f2504e0-4f89-41d3-9a0c-0305e82c3301',  // leading space
+      '3f2504e0-4f89-41d3-9a0c-0305e82c3301 ',  // trailing space
+      '{3f2504e0-4f89-41d3-9a0c-0305e82c3301}', // braced form
+      '',
+    ];
+    for (const value of almost) {
+      expect(parseOrigin(value)).toEqual({
+        userId: null, agentName: null, malformedOrigin: 'non-uuid-string',
+      });
+    }
+  });
+
+  test('(c) an object with neither userId nor agentName is an unrecognized shape', () => {
+    const result = parseOrigin({ someOtherField: 1 });
+    expect(result).toEqual({
+      userId: null,
+      agentName: null,
+      malformedOrigin: 'unrecognized-object',
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('(d) explicit nulls and ws-shaped objects are RECOGNIZED, never flagged', () => {
+    // `in`-checks, not truthiness: "present but null" means unattributed, which
+    // is a legitimate answer, not a malformation.
+    for (const origin of [
+      { userId: null },
+      { agentName: null },
+      { userId: null, agentName: null },
+      createOrigin(null, null),
+      { userId: 'u1', agentName: null },                 // ws-shaped
+      Object.assign(Object.create(null), { userId: 'u2' }), // null-prototype ws-like
+    ]) {
+      const result = parseOrigin(origin);
+      expect(result).not.toHaveProperty('malformedOrigin');
+      expect(result).toEqual({
+        userId: origin.userId ?? null,
+        agentName: origin.agentName ?? null,
+      });
+    }
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test('(e) all five sentinels still return null — the skip-list runs first', () => {
+    expect(parseOrigin(ORIGIN_DB_LOAD)).toBeNull();
+    expect(parseOrigin(ORIGIN_REDIS)).toBeNull();
+    expect(parseOrigin(ORIGIN_SYNC_PUSH)).toBeNull();          // string form
+    expect(parseOrigin(createSyncPushOrigin('push-1'))).toBeNull(); // branded object form
+    expect(parseOrigin(ORIGIN_INVERSE_APPLY)).toBeNull();
+    expect(parseOrigin(ORIGIN_RESTORE)).toBeNull();
+    // Sentinels are non-UUID strings; they must NOT be reported as malformed.
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('never throws, whatever it is handed', () => {
+    for (const origin of [
+      null, undefined, 0, 1, NaN, true, false, Symbol('s'), 123n,
+      [], [1, 2], () => {}, new Date(), new Map(), /re/,
+      Object.create(null), { toString() { throw new Error('boom'); } },
+    ]) {
+      expect(() => parseOrigin(origin)).not.toThrow();
+    }
+  });
+
+  test('null/undefined/number origins stay unattributed WITHOUT a malformed flag', () => {
+    // Unchanged behavior: these never reached the uuid column as a value, so
+    // they were never the data-loss path this hardening targets.
+    expect(parseOrigin(null)).toEqual({ userId: null, agentName: null });
+    expect(parseOrigin(undefined)).toEqual({ userId: null, agentName: null });
+    expect(parseOrigin(42)).toEqual({ userId: null, agentName: null });
   });
 });
 

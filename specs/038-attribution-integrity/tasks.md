@@ -45,11 +45,11 @@ testable.
 
 **Purpose**: Worktree environment + verified baseline
 
-- [ ] T001 Set up the worktree environment exactly per the "Worktree environment" block
+- [X] T001 Set up the worktree environment exactly per the "Worktree environment" block
       above (npm ci both trees, `.env`, `createdb collab_test_db_038`), then apply
       migrations to the per-agent DB: `DATABASE_URL=... npm run migrate` (head should be
       `1799600000000_add-yjs-updates-user-activity-index.js` pre-feature)
-- [ ] T002 Baseline run (all must be GREEN before any change, with `DATABASE_URL` set to
+- [X] T002 Baseline run (all must be GREEN before any change, with `DATABASE_URL` set to
       the per-agent DB): `npx jest server/__tests__/permissions.test.js
       server/__tests__/origin.test.js server/undo/__tests__/legacy.test.js
       server/__tests__/collab-guardrail.test.js server/__tests__/live-fanout.test.js
@@ -66,13 +66,13 @@ module that US1 and US2 both build on
 
 **⚠️ CRITICAL**: complete before any user-story phase
 
-- [ ] T003 [P] Create migration `/local-dev/migrations/1799700000000_add-via-sync-to-yjs-updates.js`
+- [X] T003 [P] Create migration `/local-dev/migrations/1799700000000_add-via-sync-to-yjs-updates.js`
       per data-model.md: up = `pgm.addColumns('yjs_updates', { via_sync: { type: 'boolean',
       notNull: false } })`, down = `pgm.dropColumns('yjs_updates', ['via_sync'])`; header
       comment documenting D1 (no default, no backfill, null = unknown) modeled on
       `migrations/1799000000000_add-meaningful-to-yjs-updates.js`; then run
       `DATABASE_URL=... npm run migrate` against the per-agent DB
-- [ ] T004 [P] Create `/local-dev/server/ws-edit-gate.js` (research R1, contract
+- [X] T004 [P] Create `/local-dev/server/ws-edit-gate.js` (research R1, contract
       `contracts/sync-protocol-gate.md`): export protocol constants (`MESSAGE_SYNC`,
       `MESSAGE_AWARENESS`, `SYNC_STEP1`, `SYNC_STEP2`, `SYNC_UPDATE`) and
       `classifyFrame(buffer) → { isEdit, kind: 'update'|'step2'|null }` — pure,
@@ -80,14 +80,14 @@ module that US1 and US2 both build on
       edits (FR-001); frames < 2 bytes never edit-classified; include the design-rule
       comment ("any frame that can reach the document-apply path is an edit; new sync
       message types must be classified before they ship")
-- [ ] T005 Thread `viaSync` through the WRITE path in
+- [X] T005 Thread `viaSync` through the WRITE path in
       `/local-dev/server/postgres-persistence.js` (FR-012, contract
       `contracts/internal-api-changes.md`): `storeUpdate(..., { meaningful = null,
       viaSync = null })` → `_runStoreSlot` → `_storeUpdateCritical` → add `via_sync` to
       the INSERT column list/params; NO other change to queue/lock/retry/commit
       semantics; add the FR-015 `via_sync` contract comment ("proves transport, not
       authorship; null = unknown ≡ not-sync")
-- [ ] T006 Surface the column to readers in `/local-dev/server/postgres-persistence.js`
+- [X] T006 Surface the column to readers in `/local-dev/server/postgres-persistence.js`
       (same file as T005 — run after it): add `u.via_sync` to the `_queryUpdatesWithUsers`
       SELECT and `viaSync: row.via_sync ?? null` to `_mapUpdateRow`; DO NOT touch the
       039-owned read functions
@@ -109,17 +109,17 @@ still syncs downstream; same frame from an editor applies and persists.
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] Create `/local-dev/server/__tests__/ws-edit-gate.test.js`: pin the
+- [X] T007 [P] [US1] Create `/local-dev/server/__tests__/ws-edit-gate.test.js`: pin the
       NEW contract via the REAL module (`require('../ws-edit-gate')`) — update frame ⇒
       `{isEdit: true, kind: 'update'}`; step2 ⇒ `{isEdit: true, kind: 'step2'}`; step1,
       awareness, null, empty, 1-byte ⇒ not edits; never throws on garbage input
-- [ ] T008 [P] [US1] Update `/local-dev/server/__tests__/permissions.test.js` lines
+- [X] T008 [P] [US1] Update `/local-dev/server/__tests__/permissions.test.js` lines
       257–293 (FR-007): DELETE the hand-mirrored local `isEditMessage` copy (it is how
       the bug stayed pinned), import from `server/ws-edit-gate.js`, and flip the step2
       assertion to the new contract (step2 IS edit-classified). Keep: update-is-edit,
       step1/awareness-not-edit, short-frame cases. NOTE: changing this test is the work
       itself, not collateral damage — do not "preserve" the old assertion.
-- [ ] T009 [P] [US1] Create `/local-dev/__tests__/integration/step2-viewer-block.test.js`
+- [X] T009 [P] [US1] Create `/local-dev/__tests__/integration/step2-viewer-block.test.js`
       (FR-008, research R11): mini-server pattern from
       `__tests__/integration/collaboration.test.js` + frame-crafting helpers pattern from
       `server/__tests__/attribution-bug.test.js`, wiring the REAL
@@ -135,7 +135,7 @@ still syncs downstream; same frame from an editor applies and persists.
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Wire the gate into `/local-dev/server/index.js` (FR-002/003/006, D4):
+- [X] T010 [US1] Wire the gate into `/local-dev/server/index.js` (FR-002/003/006, D4):
       delete the inline protocol constants + `isEditMessage` (~lines 1955–1997), import
       from `server/ws-edit-gate.js`; in the `ws.emit` interceptor replace the
       `isEditMessage` check with `classifyFrame`: `!currentCanEdit && kind === 'update'`
@@ -143,7 +143,7 @@ still syncs downstream; same frame from an editor applies and persists.
       'step2'` ⇒ `logPerf('WS_STEP2_BLOCKED', { connId, userId, docId, role: userRole })`
       + console line + drop (`return false`), connection stays open; step1/awareness
       untouched for all roles; editor frames untouched
-- [ ] T011 [US1] Run US1 suites: `DATABASE_URL=... npx jest
+- [X] T011 [US1] Run US1 suites: `DATABASE_URL=... npx jest
       server/__tests__/ws-edit-gate.test.js server/__tests__/permissions.test.js
       __tests__/integration/step2-viewer-block.test.js
       __tests__/integration/collaboration.test.js` — all green (collaboration.test.js
@@ -164,14 +164,14 @@ rows not; undo refuses across flagged rows; guardrail pages carry `syncSourced`.
 
 ### Tests for User Story 2
 
-- [ ] T012 [P] [US2] Extend `/local-dev/server/undo/__tests__/legacy.test.js` (FR-013,
+- [X] T012 [P] [US2] Extend `/local-dev/server/undo/__tests__/legacy.test.js` (FR-013,
       D2): (a) trailing run whose newest row has `viaSync: true` ⇒ run breaks at it
       (foreign semantics), derived range excludes it or refuses per anchor rules; (b)
       anchored case where the first row after baseline is flagged ⇒ `null` (start
       unpinnable); (c) window where ALL identity rows are flagged ⇒ `null` (honest
       "nothing to undo" — never stitches across); (d) `viaSync: null`/absent ⇒ byte-for-
       byte today's behavior
-- [ ] T013 [P] [US2] Extend `/local-dev/server/__tests__/collab-guardrail.test.js`
+- [X] T013 [P] [US2] Extend `/local-dev/server/__tests__/collab-guardrail.test.js`
       (FR-014, D3): a matching evaluation with `viaSync: true` ⇒ warn line contains
       `syncSourced=true` and `notifyException` extra contains `syncSourced: true`; a
       matching evaluation with `viaSync: null` ⇒ no annotation; paging/suppression
@@ -179,7 +179,7 @@ rows not; undo refuses across flagged rows; guardrail pages carry `syncSourced`.
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Step2 flag scoping in `/local-dev/server/index.js` (FR-011, research
+- [X] T014 [US2] Step2 flag scoping in `/local-dev/server/index.js` (FR-011, research
       R2): in the `ws.emit` interceptor, when `kind === 'step2'` and the connection may
       edit, set `ws._applyingSyncStep2 = true`, call `originalEmit(...)` in `try`, clear
       in `finally` (a throw must not leave it stuck); comment at the flag site
@@ -187,28 +187,28 @@ rows not; undo refuses across flagged rows; guardrail pages carry `syncSourced`.
       `readSyncStep2` → `Y.applyUpdate(doc, payload, conn)` → update listeners, one
       synchronous chain; y-websocket passes the ws object as origin; revisit if the
       library ever defers application)
-- [ ] T015 [US2] Thread the flag through the bindState listener in
+- [X] T015 [US2] Thread the flag through the bindState listener in
       `/local-dev/server/index.js` (FR-010/012): AFTER the `parseOrigin` sentinel
       early-return, compute `const viaSync = (origin && typeof origin === 'object' &&
       origin._applyingSyncStep2 === true) || null`; pass `{ meaningful, viaSync }` to
       `persistenceProvider.storeUpdate(...)` and `viaSync` into the
       `collabGuardrail.evaluateUpdate({...})` call; attribution args unchanged
-- [ ] T016 [US2] Undo exclusion in `/local-dev/server/undo/legacy.js` (FR-013, D2):
+- [X] T016 [US2] Undo exclusion in `/local-dev/server/undo/legacy.js` (FR-013, D2):
       `isIdentityRow` returns `false` when `row.viaSync === true`; header comment gains
       the via_sync rule ("a flagged row proves transport, not authorship — foreign to
       identity runs; refusal, never transparent skipping")
-- [ ] T017 [US2] Guardrail annotation in `/local-dev/server/collab-guardrail.js`
+- [X] T017 [US2] Guardrail annotation in `/local-dev/server/collab-guardrail.js`
       (FR-014, D3): `evaluateUpdate({ docGuid, update, userId, agentName, viaSync = null })`;
       when truthy, append `syncSourced=true` to the N1 `console.warn` match line and add
       `syncSourced: true` to the `notifyException` extra; matching, suppression, and
       whether a page fires unchanged
-- [ ] T018 [US2] Extend `/local-dev/__tests__/integration/step2-viewer-block.test.js`
+- [X] T018 [US2] Extend `/local-dev/__tests__/integration/step2-viewer-block.test.js`
       with the flag-window e2e (SC-003, spec edge cases): editor step2 ⇒ its row has
       `via_sync = true` with the editor's unchanged attribution; a live update frame
       sent immediately after on the SAME connection ⇒ its row has `via_sync` NULL (flag
       never leaks); a second step2 on the same connection gets its own flagged window;
       empty-diff step2 ⇒ no row, no error
-- [ ] T019 [US2] Run US2 suites: `DATABASE_URL=... npx jest
+- [X] T019 [US2] Run US2 suites: `DATABASE_URL=... npx jest
       server/undo/__tests__/legacy.test.js server/__tests__/collab-guardrail.test.js
       server/__tests__/undo-status-api.test.js
       __tests__/integration/step2-viewer-block.test.js` — all green
@@ -227,7 +227,7 @@ loud signal, CRITICAL drop path unreachable; unrecognized object ⇒ persisted +
 
 ### Tests for User Story 3
 
-- [ ] T020 [P] [US3] Extend `/local-dev/server/__tests__/origin.test.js` (FR-017):
+- [X] T020 [P] [US3] Extend `/local-dev/server/__tests__/origin.test.js` (FR-017):
       (a) valid-UUID string ⇒ `{ userId: <uuid>, agentName: null }` (unchanged);
       (b) non-UUID string (incl. almost-UUIDs: wrong length, bad chars — strict, not
       fuzzy) ⇒ `{ userId: null, agentName: null, malformedOrigin: 'non-uuid-string' }`,
@@ -238,7 +238,7 @@ loud signal, CRITICAL drop path unreachable; unrecognized object ⇒ persisted +
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Harden `parseOrigin` in `/local-dev/server/origin.js` (FR-017, research
+- [X] T021 [US3] Harden `parseOrigin` in `/local-dev/server/origin.js` (FR-017, research
       R7, contract `contracts/internal-api-changes.md`): sentinel skip-list first,
       unchanged; string branch validates
       `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` — invalid ⇒
@@ -246,7 +246,7 @@ loud signal, CRITICAL drop path unreachable; unrecognized object ⇒ persisted +
       the rejected value; object branch: `'userId' in origin || 'agentName' in origin`
       both false ⇒ `malformedOrigin: 'unrecognized-object'` + `console.warn`; never
       throws; JSDoc updated
-- [ ] T022 [US3] Alert wiring + FR-018 comment in `/local-dev/server/index.js`: in the
+- [X] T022 [US3] Alert wiring + FR-018 comment in `/local-dev/server/index.js`: in the
       bindState listener, when `parsed.malformedOrigin === 'non-uuid-string'`, call
       `notifyException(new Error('Malformed string transaction origin (persisting
       unattributed)'), { source: 'origin-parsing', extra: { docGuid, rejectedOrigin } })`
@@ -256,7 +256,7 @@ loud signal, CRITICAL drop path unreachable; unrecognized object ⇒ persisted +
       initiated synchronously at update time; durable commit async; an instance dying in
       between leaves content live elsewhere but absent from durable history; reorder
       deliberately deferred as hot-path risk — documentation only, no behavior change)
-- [ ] T023 [US3] Run US3 suites: `DATABASE_URL=... npx jest
+- [X] T023 [US3] Run US3 suites: `DATABASE_URL=... npx jest
       server/__tests__/origin.test.js server/__tests__/version-history.test.js
       server/__tests__/live-fanout.test.js` — green (version-history/live-fanout guard
       against accidental sentinel/ws-path regressions)
@@ -275,7 +275,7 @@ edit captures nothing; change path still returns its own bytes with emit-time sa
 
 ### Tests for User Story 4
 
-- [ ] T024 [P] [US4] Create `/local-dev/server/__tests__/document-service-capture.test.js`
+- [X] T024 [P] [US4] Create `/local-dev/server/__tests__/document-service-capture.test.js`
       (FR-019/020/021): (a) change-producing `updateDocument` returns exactly its
       transaction's update bytes with `hadRedisHandler` sampled at emit time; (b)
       no-change `updateDocument`, then a concurrent update with a DIFFERENT origin
@@ -291,7 +291,7 @@ edit captures nothing; change path still returns its own bytes with emit-time sa
 
 ### Implementation for User Story 4
 
-- [ ] T025 [US4] Rework capture in `/local-dev/server/document-service.js` per research
+- [X] T025 [US4] Rework capture in `/local-dev/server/document-service.js` per research
       R6 (verbatim shape in research.md): origin-identity match (`updOrigin === origin`)
       via `ydoc.on` + `finally`-detached `ydoc.off`; delete the
       `updatePromise`/`timeoutPromise` race and the 50 ms `setTimeout`; change path
@@ -299,7 +299,7 @@ edit captures nothing; change path still returns its own bytes with emit-time sa
       no-change path returns the zero value immediately; PRESERVE the load-bearing
       emit-time `hadRedisHandler` comment (037) and the returned shape
       `{ update, hadRedisHandler }`
-- [ ] T026 [US4] Run US4 suites (037 regression guards): `DATABASE_URL=... npx jest
+- [X] T026 [US4] Run US4 suites (037 regression guards): `DATABASE_URL=... npx jest
       server/__tests__/document-service-capture.test.js
       server/__tests__/live-fanout.test.js server/__tests__/import-presence.test.js
       server/__tests__/onboarding.test.js` — all green
@@ -318,7 +318,7 @@ fan-out suite green; manual two-participant disconnect walk post-deploy (Sam).
 
 ### Implementation for User Story 5
 
-- [ ] T027 [US5] Delete the client-id machinery from `/local-dev/server/index.js`
+- [X] T027 [US5] Delete the client-id machinery from `/local-dev/server/index.js`
       (FR-022/023/024, research R9): remove `parseAwarenessClientIds` (~lines
       1963–1984), the first-awareness-frame capture block + `connectionClientId`
       declaration in the interceptor (~lines 2042–2066), and the
@@ -327,7 +327,7 @@ fan-out suite green; manual two-participant disconnect walk post-deploy (Sam).
       `setImmediate` block in that same close handler (~lines 2247–2272), the ping/pong
       interval, role re-check, and `WS_CLOSE` logging. Remove the lib0 `decoding` import
       ONLY if `grep -n "decoding\." server/index.js` shows no remaining users
-- [ ] T028 [US5] Verify removal + regression: `grep -rn
+- [X] T028 [US5] Verify removal + regression: `grep -rn
       "parseAwarenessClientIds\|connectionClientId" /local-dev/server/` returns only
       comment/history mentions (e.g. `attribution-bug.test.js` narrative comments — leave
       those); then `DATABASE_URL=... npx jest
@@ -341,21 +341,21 @@ fan-out suite green; manual two-participant disconnect walk post-deploy (Sam).
 
 ## Phase 8: Polish & Cross-Cutting Verification
 
-- [ ] T029 Full-gate run per quickstart.md (SC-009): `DATABASE_URL=... npm test`
+- [X] T029 Full-gate run per quickstart.md (SC-009): `DATABASE_URL=... npm test`
       (backend, serial), then `cd client && npx vitest run`, then `npm run build` — all
       green with zero skipped suites
-- [ ] T030 Boundary + scope audit of the working diff: `git status`/`git diff --stat`
+- [X] T030 Boundary + scope audit of the working diff: `git status`/`git diff --stat`
       shows NO changes to `server/postgres-persistence.js` read-path functions
       (`getUpdateRowsUpTo`, `_fetchRowsWithGapRetry`, `_findFirstGap`), NO files under
       `server/diff/`, `server/diff-service.js`, `specs/039-*`, `design/`, `CLAUDE.md`,
       `README.md`, `docs/dev.md`; exactly ONE new migration
       (`migrations/1799700000000_add-via-sync-to-yjs-updates.js`); migration `down`
       tested once against the per-agent DB (`npm run migrate down` then re-up)
-- [ ] T031 Requirements sweep: walk FR-001..FR-024 and SC-001..SC-009 against the diff
+- [X] T031 Requirements sweep: walk FR-001..FR-024 and SC-001..SC-009 against the diff
       and test output; confirm the three FR-015/FR-011/FR-018 contract comments exist at
       their mandated sites (flag site + persistence module + persistence listener); fix
       any gap found
-- [ ] T032 Write `/local-dev/specs/038-attribution-integrity/merge-notes.md` for the
+- [X] T032 Write `/local-dev/specs/038-attribution-integrity/merge-notes.md` for the
       merge queue: migration-to-run note (`1799700000000`, reversible), new
       observability event `WS_STEP2_BLOCKED` (for the telemetry/alert catalog), any
       README/docs deltas the queue should reconcile (expected: none — mechanics below

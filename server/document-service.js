@@ -53,62 +53,72 @@ function getSharedDoc(docGuid) {
 async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
   const ydoc = getSharedDoc(docGuid);
 
-  // Track whether update fired
-  let updateFired = false;
-  let updateHandler;
+  // Attribution origin for this call. Its OBJECT IDENTITY is what scopes the
+  // capture below — the same identity-not-shape discipline feature 037 adopted
+  // for per-push sync origins (see SYNC_PUSH_MARKER in server/origin.js).
+  const origin = createOrigin(userId, agentName);
+
   // Cross-instance fan-out capture (feature 037). A document reached through
   // getSharedDoc has NO Redis handler attached — that is wired lazily by the WS
   // connection handler — so on a replica holding no live connection an import
   // would persist and broadcast to nobody. The caller republishes when nothing
   // else did.
   let captured = { update: null, hadRedisHandler: false };
+  let updateFired = false;
 
-  // Create a promise that resolves when the update event fires
-  // The update event fires synchronously at the end of the transaction
-  const updatePromise = new Promise((resolve) => {
-    updateHandler = (update) => {
-      updateFired = true;
-      // `hadRedisHandler` MUST be sampled here, at emit time — not after the
-      // await. The presence dial (or any browser) can attach the handler in the
-      // window between the transaction and a post-hoc check, and a post-hoc
-      // check would then skip publishing an update that handler never saw: a
-      // silent cross-instance loss. The Redis handler is a peer 'update'
-      // listener, so "was it attached when the event fired" is exactly "did it
-      // publish" (research R3).
-      captured = { update, hadRedisHandler: !!ydoc._redisUpdateHandler };
-      ydoc.off('update', updateHandler);
-      // Allow event loop to process (persistence starts asynchronously)
-      // Use setImmediate to ensure async persistence has been initiated
-      setImmediate(resolve);
-    };
+  // ── ORIGIN-SCOPED CAPTURE (feature 038 US4, FR-019/020/021) ────────────────
+  // This listener captures ONLY this transaction's own update. It previously
+  // used `ydoc.once` armed against a 50 ms timeout, which meant that on the
+  // no-change path (where our own event never fires) the listener stayed armed
+  // for 50 ms on a SHARED document and consumed whatever landed next — a
+  // concurrent edit by an unrelated user, returned to this caller as "the bytes
+  // this call produced" and republished under this call's attribution.
+  //
+  // `on` + an explicit `off` in `finally` replaces `once` because a
+  // foreign-origin update must be IGNORED WITHOUT CONSUMING the listener.
+  const updateHandler = (update, updOrigin) => {
+    if (updOrigin !== origin) return; // not ours — never capture it
+    updateFired = true;
+    // `hadRedisHandler` MUST be sampled here, at emit time — not after the
+    // await. The presence dial (or any browser) can attach the handler in the
+    // window between the transaction and a post-hoc check, and a post-hoc
+    // check would then skip publishing an update that handler never saw: a
+    // silent cross-instance loss. The Redis handler is a peer 'update'
+    // listener, so "was it attached when the event fired" is exactly "did it
+    // publish" (research R3).
+    captured = { update, hadRedisHandler: !!ydoc._redisUpdateHandler };
+  };
 
-    ydoc.once('update', updateHandler);
-  });
+  ydoc.on('update', updateHandler);
 
-  // Apply changes in a transaction
-  // The update event will automatically trigger:
-  // 1. Broadcast to WebSocket clients (via updateHandler)
-  // 2. Persistence to database with userId attribution (via bindState listener)
-  const origin = createOrigin(userId, agentName);
-  ydoc.transact(() => {
-    updateFn(ydoc);
-  }, origin); // Pass origin for attribution
+  // Apply changes in a transaction. Yjs fires the doc 'update' event
+  // SYNCHRONOUSLY at transaction end, so by the time transact() returns the
+  // event has either fired (a change) or never will (no change). There is
+  // nothing left to wait for, and therefore no window to leave armed.
+  //
+  // The update event also drives:
+  // 1. Broadcast to WebSocket clients
+  // 2. Persistence to the database with userId attribution (bindState listener)
+  try {
+    ydoc.transact(() => {
+      updateFn(ydoc);
+    }, origin);
+  } finally {
+    // Detached synchronously on EVERY path, including a throwing updateFn (the
+    // error still propagates). No armed listener survives this call.
+    ydoc.off('update', updateHandler);
+  }
 
-  // Wait for the update event to fire and async operations to be initiated
-  // If no changes were made, the update event won't fire and we timeout
-  const timeoutPromise = new Promise((resolve) => {
-    setTimeout(() => {
-      if (!updateFired) {
-        ydoc.off('update', updateHandler);
-      }
-      resolve();
-    }, 50);
-  });
+  if (updateFired) {
+    // "Persistence initiated" (FR-021): the bindState listener starts the write
+    // synchronously from the same event, but callers rely on being able to
+    // observe that it has begun. One event-loop turn preserves the contract
+    // 037's callers were written against.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 
-  await Promise.race([updatePromise, timeoutPromise]);
-
-  // No-change transactions never fire, so the 50 ms timeout path returns the
-  // zero value and the caller publishes nothing.
+  // No-change transactions never fire, so this returns the zero value
+  // immediately — no timer, and nothing captured from anyone else.
   return captured;
 }
 

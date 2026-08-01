@@ -6,12 +6,17 @@ const documents = require('../documents');
 const { generateAccessToken } = require('../auth/jwt');
 const { createPool } = require('./helpers/db');
 
-// y-websocket protocol constants (same as server/index.js)
-const MESSAGE_SYNC = 0;
-const MESSAGE_AWARENESS = 1;
-const SYNC_STEP1 = 0;
-const SYNC_STEP2 = 1;
-const SYNC_UPDATE = 2;
+// Protocol constants and the edit classifier come from the REAL module
+// (feature 038 FR-007). They used to be re-declared here alongside a local copy
+// of isEditMessage — see the note on the suite below.
+const {
+  MESSAGE_SYNC,
+  MESSAGE_AWARENESS,
+  SYNC_STEP1,
+  SYNC_STEP2,
+  SYNC_UPDATE,
+  isEditMessage,
+} = require('../ws-edit-gate');
 
 describe('Permissions module', () => {
   let pool;
@@ -256,15 +261,18 @@ describe('Permissions module', () => {
 
   describe('WebSocket edit message detection', () => {
     /**
-     * Helper to check if a message is an edit operation
-     * (mirrors the isEditMessage function in server/index.js)
+     * These cases run against the REAL classifier exported by
+     * server/ws-edit-gate.js.
+     *
+     * This suite previously defined its own local copy of `isEditMessage`,
+     * described as "mirrors the isEditMessage function in server/index.js" —
+     * because the real one was unexported. The mirror faithfully copied a
+     * security bug (SyncStep2 classified as not-an-edit, letting a viewer write
+     * through the sync channel) and nothing forced it to track the real code, so
+     * the bug passed its own test. The mirror is gone and the step2 expectation
+     * below is flipped to the true contract: a frame that can reach
+     * Y.applyUpdate IS an edit (feature 038 FR-001/FR-007).
      */
-    function isEditMessage(data) {
-      if (!data || data.length < 2) return false;
-      const messageType = data[0];
-      const syncType = data[1];
-      return messageType === MESSAGE_SYNC && syncType === SYNC_UPDATE;
-    }
 
     test('identifies sync update as edit message', () => {
       const editMsg = Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 0, 1, 2]); // sync update with payload
@@ -276,9 +284,9 @@ describe('Permissions module', () => {
       expect(isEditMessage(syncStep1)).toBe(false);
     });
 
-    test('identifies sync step2 as non-edit message', () => {
+    test('identifies sync step2 as an EDIT message (it can mutate the document)', () => {
       const syncStep2 = Buffer.from([MESSAGE_SYNC, SYNC_STEP2, 0, 1, 2]);
-      expect(isEditMessage(syncStep2)).toBe(false);
+      expect(isEditMessage(syncStep2)).toBe(true);
     });
 
     test('identifies awareness message as non-edit', () => {

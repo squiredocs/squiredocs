@@ -21,6 +21,18 @@
  *    last ~100 rows). A run that begins at the window's first row may extend
  *    into rows the window cut off — its true start is unprovable — unless
  *    that first row is clock 0, the log's origin. Refuse otherwise.
+ *  - Channel guard (feature 038 US2, D2): a row with `viaSync === true` reached
+ *    the server on a SYNC_STEP2 catch-up frame. That proves TRANSPORT, not
+ *    authorship — the identity relayed the content, and it may be causally
+ *    interleaved with other participants' work. Such a row is therefore FOREIGN
+ *    to an identity run: it breaks the run exactly like another user's row.
+ *    It is never transparently SKIPPED, because skipping would stitch two runs
+ *    into one range spanning the re-supply and invert content the identity
+ *    merely relayed — the precise surprise this guard exists to prevent. The
+ *    worst case of run-breaking is an honest "nothing to undo"; the worst case
+ *    of skipping is wrongly inverted content. `viaSync` null/undefined (every
+ *    pre-feature row, and any reader that did not select the column) behaves
+ *    exactly as before — only `true` carries meaning (D1/D5).
  *  - Freshness guard (the spec's undo-immediately-after-modify edge,
  *    FR-004/RBD-7(b), threshold raised by review L4): refuse when the run's
  *    newest row is younger than the background recording bound
@@ -42,6 +54,9 @@ const LEGACY_GAP_MS = 10_000;
 const LEGACY_FRESHNESS_MS = EDIT_RANGE_BACKGROUND_WAIT_MS;
 
 function isIdentityRow(row, identity) {
+  // A sync-sourced row is not the identity's authored work even when it carries
+  // their attribution (feature 038 D2) — see the channel guard in the header.
+  if (row.viaSync === true) return false;
   return row.userId === identity.userId
     && (row.agentName ?? null) === (identity.agentName ?? null);
 }
@@ -69,8 +84,9 @@ function segment(run, gapMs) {
  * Derive a pre-016 edit's clock range from attributed log rows.
  *
  * @param {Array<{clock: number, userId: string|null, agentName: string|null,
- *   createdAt: Date|string}>} rows - Log rows in ascending clock order
- *   (typically getRecentUpdatesWithUsers output).
+ *   createdAt: Date|string, viaSync?: boolean|null}>} rows - Log rows in
+ *   ascending clock order (typically getRecentUpdatesWithUsers output).
+ *   `viaSync === true` marks a row as sync-sourced (run-breaking, see header).
  * @param {{userId: string, agentName: string|null}} identity - Acting identity.
  * @param {object} [opts]
  * @param {number|null} [opts.baselineClock] - The chat part's persisted

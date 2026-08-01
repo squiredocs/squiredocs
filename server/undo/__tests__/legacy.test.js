@@ -106,6 +106,107 @@ describe('deriveLegacyRange — anchorless (trailing run)', () => {
   });
 });
 
+/**
+ * Feature 038 US2 (D2): a row that reached the server on a SYNC_STEP2 catch-up
+ * frame carries `viaSync: true`. It keeps its attribution — that attribution is
+ * still correct as TRANSPORT — but it is not the identity's authored work, so it
+ * must break an identity run rather than be transparently skipped. Skipping
+ * would let a derived range span the re-supply and invert content the identity
+ * merely relayed.
+ */
+describe('deriveLegacyRange — sync-sourced rows are foreign (feature 038 D2)', () => {
+  /** A row with the identity's attribution that arrived via sync catch-up. */
+  const syncRow = (clock, atSeconds) => ({ ...row(clock, ME, atSeconds), viaSync: true });
+
+  test('a flagged tail row breaks the trailing run — the run starts after it', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      row(1, ME, 100),
+      syncRow(2, 100.2), // relayed, not authored
+      row(3, ME, 100.4),
+      row(4, ME, 100.6),
+    ];
+    // Without the guard the run would be 1..4, spanning the re-supply.
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toEqual({ clockStart: 3, clockEnd: 4 });
+  });
+
+  test('a flagged NEWEST row refuses outright (the tail is not the identity\'s work)', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      row(1, ME, 100),
+      syncRow(2, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
+  });
+
+  test('anchored: refuses when the first row after the baseline is flagged (start unpinnable)', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      syncRow(1, 100),
+      row(2, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
+  });
+
+  test('anchored: a flagged row mid-run truncates the range at it, never across it', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      row(1, ME, 100),
+      row(2, ME, 100.2),
+      syncRow(3, 100.4),
+      row(4, ME, 100.6),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW }))
+      .toEqual({ clockStart: 1, clockEnd: 2 });
+  });
+
+  test('a window whose identity rows are ALL flagged yields the honest refusal', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      syncRow(1, 100),
+      syncRow(2, 100.2),
+      syncRow(3, 100.4),
+    ];
+    // "Nothing to undo" — never a stitched-together range.
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
+    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
+  });
+
+  test('viaSync null / false / absent behaves exactly as today (D1/D5 — only true means sync)', () => {
+    const base = [
+      row(0, FOREIGN, 0),
+      row(1, ME, 100),
+      row(2, ME, 100.2),
+    ];
+    const expected = { clockStart: 1, clockEnd: 2 };
+
+    // absent (every pre-feature row, and any reader that did not select it)
+    expect(deriveLegacyRange(base, IDENTITY, { now: NOW })).toEqual(expected);
+    // explicit null
+    expect(deriveLegacyRange(base.map((r) => ({ ...r, viaSync: null })), IDENTITY, { now: NOW }))
+      .toEqual(expected);
+    // explicit false (permitted for future positive-assertion writers)
+    expect(deriveLegacyRange(base.map((r) => ({ ...r, viaSync: false })), IDENTITY, { now: NOW }))
+      .toEqual(expected);
+    // undefined
+    expect(deriveLegacyRange(base.map((r) => ({ ...r, viaSync: undefined })), IDENTITY, { now: NOW }))
+      .toEqual(expected);
+    // and a non-boolean truthy value must NOT be read as the marker
+    expect(deriveLegacyRange(base.map((r) => ({ ...r, viaSync: 'true' })), IDENTITY, { now: NOW }))
+      .toEqual(expected);
+  });
+
+  test('a flagged row belonging to a DIFFERENT identity is foreign either way', () => {
+    const rows = [
+      row(0, FOREIGN, 0),
+      { ...row(1, FOREIGN, 50), viaSync: true },
+      row(2, ME, 100),
+      row(3, ME, 100.2),
+    ];
+    expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toEqual({ clockStart: 2, clockEnd: 3 });
+  });
+});
+
 describe('deriveLegacyRange — truncated-window guard (review L3)', () => {
   test('anchorless: refuses when the derived run starts at the first row of a truncated window', () => {
     // The window (getRecentUpdatesWithUsers caps at 100 rows) starts at
