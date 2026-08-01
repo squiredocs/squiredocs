@@ -352,17 +352,25 @@ describe('postProcessDiffLines — inlineSegments (word-level)', () => {
     expect(result.inlineSegments[3].filter((s) => s.changed).map((s) => s.text)).toEqual(['y']);
   });
 
-  test('unequal -/+ counts pair up to min(del,add); surplus rows are segment-free', () => {
+  test('unequal -/+ counts: EVERY row receives segments, surplus included (039 FR-009)', () => {
     // 3 del, 1 add — a text change so it is NOT format-only.
+    //
+    // Feature 039 behavior change (approved, SC-008 #1). This test previously
+    // asserted `keys === [0, 3]`: the old code paired rows positionally up to
+    // min(delCount, addCount) = 1, so the two surplus removed rows got no word
+    // emphasis at all while the version-history surface emphasised them. The
+    // region is now segmented as a unit, so every row on both sides is covered.
     const lines = ['-alpha one', '-beta two', '-gamma three', '+alpha ONE'];
     const result = postProcessDiffLines(lines, []);
     // del rows: output idx 0,1,2 ; add row: output idx 3
     expect(result.inlineSegments).toBeDefined();
     const keys = Object.keys(result.inlineSegments).map(Number).sort((a, b) => a - b);
-    // min(3,1)=1 pair → del row 0 + add row 3 only
-    expect(keys).toEqual([0, 3]);
-    expect(result.inlineSegments[1]).toBeUndefined();
-    expect(result.inlineSegments[2]).toBeUndefined();
+    expect(keys).toEqual([0, 1, 2, 3]);
+    // Per-row rejoin stays byte-exact for every row, surplus rows included (LS-2).
+    expect(result.inlineSegments[0].map((s) => s.text).join('')).toBe('alpha one');
+    expect(result.inlineSegments[1].map((s) => s.text).join('')).toBe('beta two');
+    expect(result.inlineSegments[2].map((s) => s.text).join('')).toBe('gamma three');
+    expect(result.inlineSegments[3].map((s) => s.text).join('')).toBe('alpha ONE');
   });
 
   test('context lines get no segments', () => {
@@ -389,11 +397,30 @@ describe('computeChatDiff — inlineSegments', () => {
   });
 
   test('on truncatedByServer, inlineSegments keys are filtered to < MAX_DIFF_LINES (200)', () => {
-    // Build a large diff: 260 lines, each changed by one word, long enough to
-    // exceed the 50,000-char cap and the 200-line cap.
+    // Build a large diff that exceeds BOTH the 50,000-char cap and the 200-line
+    // cap while keeping every individual replace REGION under MAX_SIDE_CHARS.
+    //
+    // Feature 039 fixture change (CS-3 preserved, corpus adjusted): this used to
+    // be 260 consecutive changed lines. Since 039 segments a replace region as a
+    // whole rather than row-pair by row-pair, 260 consecutive changed rows now
+    // join into one ~49k-char region, trip the size guardrail, and yield NO
+    // segments — which would silently stop exercising the truncation filter this
+    // test exists to pin. Interleaving unchanged context lines keeps each region
+    // a single small row pair, so segments are produced and the filter is
+    // genuinely exercised. The assertions below are unchanged.
     const pad = 'x'.repeat(180);
-    const before = Array.from({ length: 260 }, (_, n) => `${pad} alpha ${n}`).join('\n');
-    const after = Array.from({ length: 260 }, (_, n) => `${pad} beta ${n}`).join('\n');
+    const beforeLines = [];
+    const afterLines = [];
+    for (let n = 0; n < 120; n++) {
+      beforeLines.push(`${pad} alpha ${n}`);
+      afterLines.push(`${pad} beta ${n}`);
+      for (let c = 0; c < 3; c++) {
+        beforeLines.push(`${pad} context ${n}-${c}`);
+        afterLines.push(`${pad} context ${n}-${c}`);
+      }
+    }
+    const before = beforeLines.join('\n');
+    const after = afterLines.join('\n');
     const diff = computeChatDiff(before, after);
     expect(diff.truncatedByServer).toBe(true);
     expect(diff.inlineSegments).toBeDefined();

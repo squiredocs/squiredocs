@@ -65,7 +65,16 @@ describe('--- and hunk-fragment disambiguation pins', () => {
     expect(strict.content[0]).toMatchObject({ type: 'codeBlock', attrs: { language: 'js' } });
   });
 
-  test('diff-service CACHE_VERSION is v9 — clean cut from possibly-gapped pre-023 cache entries', () => {
-    expect(require('../diff-service').CACHE_VERSION).toBe('v9');
+  // This pin exists so a cache-namespace bump is always a DELIBERATE act: the
+  // strict parser is frozen precisely so diff output stays byte-stable and the
+  // cache stays valid, and an accidental bump would silently discard every
+  // cached comparison. Updating it is the intended way to record a real bump.
+  //
+  // v9 → v10 for feature 039: pre-039 entries could have been cached from a read
+  // that stopped SHORT of the requested newest version (gap-free-looking but
+  // incomplete), and they were shaped by the pre-parity chat segmentation and the
+  // regex-based plain-text extractor. Bumped exactly once for that whole feature.
+  test('diff-service CACHE_VERSION is v10 — clean cut from tail-gap-poisoned, pre-parity entries', () => {
+    expect(require('../diff-service').CACHE_VERSION).toBe('v10');
   });
 });

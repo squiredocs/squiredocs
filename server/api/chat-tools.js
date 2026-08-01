@@ -24,6 +24,7 @@ const { parseAppImageUrl } = require('../image-url');
 const svgRender = require('../mcp/svg-render');
 const agentPresence = require('../mcp/agent-presence');
 const { importMarkdown, deriveImportTitle, ImportError } = require('../markdown-import');
+const { stripUiOnlyDiffFields } = require('../mcp/diff-utils');
 
 /**
  * Upload a chat-attached image into a document and insert the image node.
@@ -518,6 +519,13 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
           return { error: error.message };
         }
       },
+      // Seam (b) of feature 039 FR-012/FR-013. `execute` above returns the FULL
+      // result — that is what the AI SDK persists and the browser renders, and it
+      // keeps `diff.inlineSegments` so word emphasis still shows in the chat card.
+      // `toModelOutput` is only the MODEL-BOUND projection, so the UI-only
+      // emphasis data is dropped here and nowhere else. Results without a diff
+      // are returned by identity (MB-4).
+      toModelOutput: ({ output }) => ({ type: 'json', value: stripUiOnlyDiffFields(output) }),
     });
   }
 

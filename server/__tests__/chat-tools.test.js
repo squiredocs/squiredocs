@@ -308,4 +308,88 @@ describe('chat-tools', () => {
       expect(holder.byDoc.has(DOC)).toBe(false);
     });
   });
+
+  // =======================================================================
+  // Feature 039 US5, seam (b) — MS-4 (FR-013).
+  //
+  // NOTE ON LOCATION (039 analyze finding I2): the tasks doc pointed at
+  // `server/api/__tests__/chat-tools.test.js`, which does not exist. THIS is
+  // the repo's chat-tools suite, and it already carries the `buildTools`
+  // harness these assertions need, so MS-4 lives here rather than in a new
+  // from-scratch duplicate.
+  // =======================================================================
+  describe('039 — toModelOutput strips UI-only diff data (MS-4)', () => {
+    const DOC = 'doc-guid-039';
+
+    /** A modify result carrying browser-only word-emphasis data. */
+    const modifyResult = () => ({
+      changed: true,
+      clock: 7,
+      diff: {
+        lines: ['-the quick fox', '+the slow fox'],
+        hunkStarts: [{ index: 0, oldStart: 1, newStart: 1 }],
+        formatAnnotations: { 1: 'bold → italic' },
+        inlineSegments: {
+          0: [{ text: 'the ', changed: false }, { text: 'quick', changed: true }],
+          1: [{ text: 'the ', changed: false }, { text: 'slow', changed: true }],
+        },
+      },
+    });
+
+    // The MCP bridge builds every tool through the same `tool({...})` call, so
+    // any bridged tool exercises the projection. `read_document` is in the
+    // default mock registry list; `modify` is not.
+    it('MB-1: execute() keeps the segments while toModelOutput strips them', async () => {
+      const tools = buildTools(fakeToken);
+      const bridged = tools.read_document;
+
+      mockExecuteTool.mockResolvedValue(modifyResult());
+      const executed = await bridged.execute({ docGuid: DOC });
+
+      // What the AI SDK persists and the browser renders keeps the emphasis...
+      expect(executed.diff.inlineSegments).toBeDefined();
+
+      // ...while the model-bound projection drops it and keeps everything useful.
+      const projected = bridged.toModelOutput({ output: executed });
+      expect(projected.type).toBe('json');
+      expect(projected.value.diff).not.toHaveProperty('inlineSegments');
+      expect(projected.value.diff.lines).toEqual(['-the quick fox', '+the slow fox']);
+      expect(projected.value.diff.hunkStarts).toBeDefined();
+      expect(projected.value.diff.formatAnnotations).toBeDefined();
+      expect(projected.value.changed).toBe(true);
+      expect(projected.value.clock).toBe(7);
+
+      // ST-1: projecting did not mutate the copy that gets stored/rendered.
+      expect(executed.diff.inlineSegments).toBeDefined();
+    });
+
+    it('MB-4: results with no diff pass through the projection unchanged', () => {
+      const tools = buildTools(fakeToken);
+      const plain = { content: 'hello', clock: 3 };
+      const projected = tools.read_document.toModelOutput({ output: plain });
+      // ST-2 identity — no clone, no reshaping.
+      expect(projected.value).toBe(plain);
+    });
+
+    it('every bridged tool gets a toModelOutput', () => {
+      const tools = buildTools(fakeToken);
+      for (const name of ['read_document', 'list_documents', 'read_document_version']) {
+        expect(typeof tools[name].toModelOutput).toBe('function');
+      }
+    });
+
+    it('MB-3: MAX_RESULT_CHARS still measures the FULL result, not the projection', async () => {
+      // The size guard protects what is STORED and RENDERED, not only what the
+      // model sees, so it must keep measuring the unstripped result.
+      const tools = buildTools(fakeToken);
+      const huge = modifyResult();
+      huge.diff.inlineSegments = { 0: [{ text: 'x'.repeat(MAX_RESULT_CHARS + 1000), changed: true }] };
+      mockExecuteTool.mockResolvedValue(huge);
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const executed = await tools.read_document.execute({ docGuid: DOC });
+      // Oversized because of the emphasis data alone → the guard still fires.
+      expect(executed.error).toBeDefined();
+    });
+  });
 });

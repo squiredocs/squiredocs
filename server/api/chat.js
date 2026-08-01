@@ -963,6 +963,12 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (caps.stripReasoningFromHistory) {
       modelInputMessages = chatModels.stripReasoningParts(modelInputMessages);
     }
+    // UI-only word-emphasis data on replayed tool results (feature 039, FR-012c).
+    // Unconditional, unlike the two gated strips above: `diff.inlineSegments` is
+    // browser-rendering data that is useless to EVERY model, and replaying it
+    // re-sends the whole thing on every subsequent turn. validatedMessages (the
+    // persisted history + UI) keeps it.
+    modelInputMessages = chatModels.stripUiOnlyDiffParts(modelInputMessages);
     // Markdown attachments stay out of model context (byte channel): swap their
     // file parts for a short note pointing at the import_markdown tool.
     modelInputMessages = replaceMarkdownFileParts(modelInputMessages);
@@ -973,6 +979,15 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     if (!def.supportsImages) {
       modelInputMessages = replaceUnsupportedImageParts(modelInputMessages);
     }
+    // ⚠️ DO NOT PASS `{ tools }` HERE (feature 039 FR-014, ratified CD-7).
+    // It looks like a free simplification — let each tool's `toModelOutput` do
+    // the stripping instead of the dedicated pass above — and it is the exact
+    // opposite. `view_image` and `view_svg_blocks` define `toModelOutput`
+    // specifically to ADD image bytes that stored history deliberately omits
+    // (see buildImageTools in chat-tools.js). Handing `tools` to the HISTORY
+    // conversion would re-inline every image on every turn, ballooning the
+    // request and 404-ing text-only models on a plain text follow-up. The
+    // UI-only diff strip must therefore stay its own pass.
     const modelMessages = await convertToModelMessages(modelInputMessages);
     await inlineDataUrls(modelMessages, req.user.userId);
 

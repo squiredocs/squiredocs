@@ -20,10 +20,19 @@ const { markdownToPm } = require('../shared/markdown');
 const { applyWordMarks } = require('./diff/apply-word-marks');
 const { extractXml, extractText } = require('./yjs-utils');
 
-// Bumped v8 -> v9 for feature 023: pre-023 entries could have been computed and
-// frozen from a gap-tolerant-but-still-gapped row set; a clean cut discards them
-// (post-023 entries are only ever written gap-free — see computeDiff).
-const CACHE_VERSION = 'v9';
+// Bumped v9 -> v10 for feature 039 (FR-007). Pre-039 entries are discarded for
+// two independent reasons:
+//   1. They may be TAIL-GAP-POISONED. Pre-039 the completeness check only looked
+//      for gaps *within* the fetched rows; a read that simply stopped short of
+//      the requested newest version looked contiguous and cached clean, freezing
+//      a diff that silently omits the newest version for a full TTL.
+//   2. They were shaped by the PRE-PARITY algorithms — the chat surface's
+//      positional row pairing and the regex-based plain-text extractor — so
+//      their word emphasis and `formattingOnly` flags no longer match what this
+//      code computes.
+// Old entries are never read again and expire naturally; there is no purge job.
+// THIS IS THE ONLY BUMP IN FEATURE 039 — do not bump again for a later change.
+const CACHE_VERSION = 'v10';
 
 class DiffService {
   /**
@@ -59,10 +68,21 @@ class DiffService {
     }
 
     // Fetch updates up to the later clock (no need to load future updates)
-    // through the gap-tolerant choke point. `gapped` tells us the row set was
-    // torn even after the retry budget — we still serve the diff, but must not
-    // freeze it into the cache (023 FR-009, D-2).
-    const { rows: updates, gapped } = await this.persistence.getUpdateRowsUpTo(docGuid, currentClock);
+    // through the gap-tolerant choke point.
+    //
+    // `expectedTailClock: currentClock` (039 FR-003) says "this read is only
+    // complete if it actually reaches version `currentClock`". Without it, a
+    // read that stopped SHORT of the newest version looked perfectly contiguous
+    // — `_findFirstGap` only judges gaps *between* fetched rows — so a diff
+    // missing the very version the user asked to see cached clean and froze for
+    // an hour. `gapped` now means INCOMPLETE: an internal gap OR a short tail
+    // (extends 023 FR-009 / D-2). We still SERVE the diff either way; we just
+    // never freeze it.
+    const { rows: updates, gapped } = await this.persistence.getUpdateRowsUpTo(
+      docGuid,
+      currentClock,
+      { expectedTailClock: currentClock }
+    );
 
     // Build two Y.Docs from scratch
     const { prevDoc, currDoc, prevText, currText } = this.buildDocsAtClocks(
@@ -81,11 +101,23 @@ class DiffService {
     const currPmDoc = this.yDocToProseMirror(currDoc);
     const currentDocument = currPmDoc ? currPmDoc.toJSON() : { type: 'doc', content: [] };
 
+    // Per-request degradation sink (039 FR-006). MUST be created here, per call:
+    // module-level state would leak one request's degradation into another's
+    // cacheability decision under concurrency.
+    //
+    // The flags are ACCUMULATING and never overwritten. `computeMarkdownDiff`
+    // calls `applyWordMarks` once per replace region against this one shared
+    // sink, so a last-write-wins `reason` field would let a later `'size'`
+    // region erase an earlier `'timeout'` — and cache a comparison that FR-005(c)
+    // forbids caching. `reason` is still stamped (it is the per-call contract
+    // with computeWordSegments) but it is deliberately NOT what we read here.
+    const report = { timedOut: false, sizeCapped: false };
+
     // Build diff document using markdown-based approach
     let document;
     let diffFailed = false;
     try {
-      document = this.computeMarkdownDiff(prevDoc, currDoc, textIdentical);
+      document = this.computeMarkdownDiff(prevDoc, currDoc, report);
     } catch (err) {
       console.error('[DiffService] Markdown diff failed, using plain document:', err.message);
       document = currentDocument;
@@ -108,14 +140,39 @@ class DiffService {
       },
     };
 
-    // Cache result (historical versions are immutable) — UNLESS the row set was
-    // still gapped after the retry budget: a diff computed from a torn read must
-    // never be frozen as truth. The next request recomputes from a healed log
-    // (023 FR-009, D-2). Gap-free requests cache exactly as before.
-    if (isRedisEnabled() && !gapped) {
+    // ---- Cache-write gate (039 FR-005) -------------------------------------
+    // Historical versions are immutable, so a comparison may be frozen for an
+    // hour — but ONLY when it is provably complete, successful, and
+    // deterministic. Each term below is a VETO, never a trade-off: a result
+    // failing any of them is still SERVED to the requester exactly as before
+    // (CD-2 — no new UI state), it is simply not written, so the next request
+    // recomputes and can self-heal.
+    //
+    // (a) FR-005a — the row set was incomplete (internal gap OR short of the
+    //     requested newest version). Caching here freezes a diff of the wrong
+    //     document state. Extends 023 FR-009 / D-2.
+    const rowsIncomplete = gapped;
+    // (b) FR-005b — the computation threw and we fell back to the plain current
+    //     document. Caching a failure froze the "Diff highlighting unavailable"
+    //     notice for a full hour with no retry path, even though the failure was
+    //     usually transient (audit finding F8).
+    const diffFailedFlag = result.meta.diffFailed;
+    // (c) FR-005c — word segmentation hit the WALL-CLOCK time budget somewhere.
+    //     This is load-dependent: the same version pair yields word-level
+    //     emphasis on a quieter run, so freezing the degraded render makes the
+    //     downgrade permanent and arbitrary. A `size` degradation is deliberately
+    //     NOT here (CW-2): MAX_SIDE_CHARS is a pure function of the inputs, so
+    //     the line-level result is the correct, reproducible answer and caching
+    //     it is right. Whole-result granularity (CD-4): any timed-out region
+    //     makes the entire comparison uncacheable.
+    const timeoutDegraded = report.timedOut;
+
+    const cacheable = isRedisEnabled() && !rowsIncomplete && !diffFailedFlag && !timeoutDegraded;
+    if (cacheable) {
       try {
         await getRedisClient().setex(cacheKey, 3600, JSON.stringify(result));
       } catch (err) {
+        // CW-5: transport errors are non-fatal and never change what is served.
         console.error('[DiffService] Redis cache write error:', err.message);
       }
     }
@@ -132,20 +189,40 @@ class DiffService {
    * @returns {{prevDoc: Y.Doc, currDoc: Y.Doc, prevText: string, currText: string}}
    */
   buildDocsAtClocks(updates, previousClock, currentClock) {
+    // `gc: false` on BOTH docs is load-bearing, not stylistic (SR-2): it keeps
+    // deleted structs in the document, which is what lets the seed below carry
+    // the full history across and makes the single-replay output byte-identical
+    // to the old double-replay. Do not "optimize" it away.
     const prevDoc = new Y.Doc({ gc: false });
     const currDoc = new Y.Doc({ gc: false });
 
-    for (const row of updates) {
-      const updateData = new Uint8Array(row.update_data);
-
-      // Apply to prevDoc if clock <= previousClock
-      if (previousClock >= 0 && row.clock <= previousClock) {
-        Y.applyUpdate(prevDoc, updateData);
+    // Single replay (039 FR-015). Previously every row with clock <= previousClock
+    // was applied TWICE — once to each doc — so a comparison deep in a long
+    // history replayed almost the whole log two times. Instead: build prevDoc,
+    // then SEED currDoc from prevDoc's state in one merge, then apply only the
+    // rows in (previousClock, currentClock]. CRDT convergence guarantees the
+    // result is identical (SR-3); each row is now applied at most once (SR-1).
+    if (previousClock >= 0) {
+      for (const row of updates) {
+        if (row.clock <= previousClock) {
+          Y.applyUpdate(prevDoc, new Uint8Array(row.update_data));
+        }
       }
-
-      // Apply to currDoc if clock <= currentClock
-      if (row.clock <= currentClock) {
-        Y.applyUpdate(currDoc, updateData);
+      // Additive CRDT merge, never a delete-and-recreate (constitution IV).
+      Y.applyUpdate(currDoc, Y.encodeStateAsUpdate(prevDoc));
+      for (const row of updates) {
+        if (row.clock > previousClock && row.clock <= currentClock) {
+          Y.applyUpdate(currDoc, new Uint8Array(row.update_data));
+        }
+      }
+    } else {
+      // SR-4: previousClock < 0 is the empty-state case — prevDoc stays empty,
+      // so there is nothing to seed from and currDoc replays directly. This is
+      // exactly the old behavior for this branch.
+      for (const row of updates) {
+        if (row.clock <= currentClock) {
+          Y.applyUpdate(currDoc, new Uint8Array(row.update_data));
+        }
       }
     }
 
@@ -181,10 +258,18 @@ class DiffService {
    *
    * @param {Y.Doc} prevDoc - Previous Y.Doc
    * @param {Y.Doc} currDoc - Current Y.Doc
-   * @param {boolean} textIdentical - Whether plain text is identical
+   * @param {{timedOut: boolean, sizeCapped: boolean, reason?: string}} [report] -
+   *   optional per-request degradation sink (039 FR-006), threaded into each
+   *   replace region's word segmentation. Accumulating: `timedOut`/`sizeCapped`
+   *   are only ever set to true, never reset, so one region's degradation cannot
+   *   be erased by a later region's. Omit it and behavior is unchanged.
+   *
+   *   NOTE: this parameter REPLACED a declared-but-never-read `textIdentical`
+   *   boolean (039 FR-017). The function derives that answer itself from
+   *   `prevMd === currMd` below; the old argument was dead.
    * @returns {object} ProseMirror document JSON with diffInsert/diffDelete marks
    */
-  computeMarkdownDiff(prevDoc, currDoc, textIdentical) {
+  computeMarkdownDiff(prevDoc, currDoc, report) {
     const prevFragment = prevDoc.get('default', Y.XmlFragment);
     const currFragment = currDoc.get('default', Y.XmlFragment);
 
@@ -210,7 +295,10 @@ class DiffService {
       const md = part.value;
       if (part.removed && idx + 1 < parts.length && parts[idx + 1].added) {
         // Replace region → word-level refinement (fail-open inside applyWordMarks).
-        allBlocks.push(...applyWordMarks(md, parts[idx + 1].value));
+        // The SAME `report` sink is passed to every region on purpose — the cache
+        // gate asks "did anything time out anywhere in this comparison?" at
+        // whole-result granularity (CD-4).
+        allBlocks.push(...applyWordMarks(md, parts[idx + 1].value, report));
         idx += 1; // consume the paired added part
       } else if (part.added) {
         const parsed = markdownToPm(md, 'diffInsert', { strict: true });

@@ -359,6 +359,20 @@ class PostgresPersistence {
    * CALLER decides the still-gapped consequence (serve / skip-cache / abort —
    * D-2). Gap-free reads take the plain query path plus one integer pass.
    *
+   * Feature 039 (FR-001) adds an OPT-IN tail-completeness check on top of this.
+   * `_findFirstGap` only judges contiguity BETWEEN fetched rows, so a read that
+   * simply stopped short of a known newest clock looks perfectly gap-free — the
+   * torn-read case that froze wrong diffs into the cache. A caller that knows
+   * which clock the read must reach passes `expectedTailClock`.
+   *
+   * ⚠️ NOTE ON THE RETURNED `gapped` FIELD (039 U2): when `expectedTailClock` is
+   * supplied, `gapped` means **incomplete** — an interior gap OR a short tail —
+   * not strictly "interior gap". The other three callers of this helper
+   * (`getYDoc`, `getYDocAtClock`, `_queryUpdatesWithUsers`, and undo/restore
+   * through them) never pass the option, so for them `gapped` retains its
+   * original meaning exactly. Do not assume the narrow meaning when reading a
+   * `gapped` that came from an opted-in call.
+   *
    * @param {import('pg').PoolClient} client - open client to query on
    * @param {string} sql - clock-ordered SELECT (must select a `clock` column)
    * @param {Array} params - query parameters
@@ -366,10 +380,14 @@ class PostgresPersistence {
    * @param {object} [opts]
    * @param {boolean} [opts.descending=false] - true when `sql` is DESC-ordered
    *   (recentFirst); contiguity is then judged on an ascending view of the rows
+   * @param {number} [opts.expectedTailClock] - when supplied, the read is also
+   *   incomplete if its newest row is below this clock (or if it returned no
+   *   rows at all and this is >= 0). Omit it and behavior is byte-identical to
+   *   pre-039, including retry counts and log output (G2).
    * @returns {Promise<{rows: Array, gapped: boolean, retries: number}>}
    * @private
    */
-  async _fetchRowsWithGapRetry(client, sql, params, label, { descending = false } = {}) {
+  async _fetchRowsWithGapRetry(client, sql, params, label, { descending = false, expectedTailClock } = {}) {
     const maxRetriesRaw = parseInt(process.env.COLLAB_READ_GAP_RETRIES, 10);
     const maxRetries = Number.isFinite(maxRetriesRaw) && maxRetriesRaw >= 0 ? maxRetriesRaw : 2;
     const delays = (process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS || '100,300')
@@ -377,27 +395,51 @@ class PostgresPersistence {
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => Number.isFinite(n) && n >= 0);
 
+    // Only meaningful when the caller opted in. `undefined`/`null` ⇒ the tail is
+    // never judged, which is what keeps every existing call site byte-identical
+    // (G2) — including the backfill's MAX_CLOCK sentinel (G5).
+    const checkTail = expectedTailClock !== undefined && expectedTailClock !== null;
+
     let result;
     let retries = 0;
     let firstGapAfterClock;
+    let tailShort = false;
     for (;;) {
       result = await client.query(sql, params);
       const rowsForGap = descending ? [...result.rows].reverse() : result.rows;
       firstGapAfterClock = this._findFirstGap(rowsForGap);
-      if (firstGapAfterClock === null || retries >= maxRetries) break;
+      // Tail check runs on the ASCENDING view, so a DESC-ordered query
+      // (recentFirst) is judged on the same axis as the gap check.
+      tailShort = checkTail && (
+        rowsForGap.length === 0
+          ? expectedTailClock >= 0
+          : Number(rowsForGap[rowsForGap.length - 1].clock) < expectedTailClock
+      );
+      const incomplete = firstGapAfterClock !== null || tailShort;
+      if (!incomplete || retries >= maxRetries) break;
       const delay = delays.length > 0 ? delays[Math.min(retries, delays.length - 1)] : 100;
       await new Promise((resolve) => setTimeout(resolve, delay));
       retries += 1;
     }
 
-    if (firstGapAfterClock !== null) {
-      // FR-010: never an error, never an unbounded wait — but observable.
+    const incomplete = firstGapAfterClock !== null || tailShort;
+    if (incomplete) {
+      // FR-010 / G3: never an error, never an unbounded wait — but observable,
+      // and now naming WHICH kind of incompleteness so the two causes are
+      // distinguishable in production logs (a persistent short tail means a
+      // clock that never commits; a persistent gap means a stuck mid-commit row).
+      const reason = firstGapAfterClock !== null
+        ? (tailShort ? 'gap+short-tail' : 'gap')
+        : 'short-tail';
+      const tailDetail = checkTail
+        ? `, expectedTailClock=${expectedTailClock}, lastClock=${result.rows.length ? Number((descending ? result.rows[0] : result.rows[result.rows.length - 1]).clock) : 'none'}`
+        : '';
       console.warn(
-        `[Postgres] ${label}: served with clock gap (retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock})`
+        `[Postgres] ${label}: served with clock gap (reason=${reason}, retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock}${tailDetail})`
       );
     }
 
-    return { rows: result.rows, gapped: firstGapAfterClock !== null, retries };
+    return { rows: result.rows, gapped: incomplete, retries };
   }
 
   /**
@@ -762,9 +804,23 @@ class PostgresPersistence {
    * torn read (023 FR-009, D-2). Returns rows with `clock` + `update_data`.
    * @param {string} docGuid - Document GUID
    * @param {number} clock - Upper clock bound (inclusive)
+   * @param {object} [opts]
+   * @param {number} [opts.expectedTailClock] - the clock this read MUST reach to
+   *   count as complete (039 FR-003). Forwarded to `_fetchRowsWithGapRetry`;
+   *   `gapped` then means "incomplete" (interior gap OR short tail).
+   *
+   *   ⚠️ NEVER DERIVE THIS FROM `clock` (CD-5 / G5). It is opt-in precisely
+   *   because `clock` is not always a real version:
+   *   `server/scripts/backfill-meaningful-classification.js:100` calls
+   *   `getUpdateRowsUpTo(docGuid, MAX_CLOCK)` with the sentinel
+   *   `MAX_CLOCK = 2147483647` to mean "the whole log". Defaulting
+   *   `expectedTailClock` to `clock` would make that read permanently
+   *   "incomplete", burning the full retry budget on EVERY document and logging
+   *   a false incomplete-read warning for each one. Only a caller that knows it
+   *   is asking for a specific committed version may pass this.
    * @returns {Promise<{rows: Array, gapped: boolean}>}
    */
-  async getUpdateRowsUpTo(docGuid, clock) {
+  async getUpdateRowsUpTo(docGuid, clock, { expectedTailClock } = {}) {
     await this._init();
     const client = await this.pool.connect();
     try {
@@ -772,7 +828,8 @@ class PostgresPersistence {
         client,
         'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
         [docGuid, clock],
-        `getUpdateRowsUpTo ${docGuid}@${clock}`
+        `getUpdateRowsUpTo ${docGuid}@${clock}`,
+        { expectedTailClock }
       );
       return { rows, gapped };
     } finally {

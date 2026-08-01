@@ -83,6 +83,78 @@ describe('DiffService', () => {
       expect(text).toBe('');
       doc.destroy();
     });
+
+    // ---------------------------------------------------------------------
+    // Feature 039 US7 (FR-016) — extractText walks the Yjs tree instead of
+    // regex-stripping anything that LOOKS like a tag.
+    // ---------------------------------------------------------------------
+
+    test('039: literal angle-bracket prose survives verbatim', () => {
+      // The old implementation was node.toString().replace(/<[^>]*>/g, ''),
+      // which ate this sentence's `<div>` along with the real markup — so two
+      // versions differing only here extracted to identical text and the
+      // comparison claimed "Formatting changes only" for a real content change.
+      const doc = createDocWithText('use <div> tags for layout');
+      expect(extractText(doc)).toBe('use <div> tags for layout');
+      doc.destroy();
+    });
+
+    test('039: an unclosed / mathematical angle bracket survives too', () => {
+      const doc = createDocWithText('if a < b then swap');
+      expect(extractText(doc)).toBe('if a < b then swap');
+      doc.destroy();
+    });
+
+    test('039: angle-bracket prose inside a bold run survives (toDelta, not toString)', () => {
+      // The Y.XmlText subtlety: toString() re-emits inline formatting as tags,
+      // so a formatted run would reintroduce exactly the markup the walk is
+      // meant to avoid. The walk must read the delta's string inserts.
+      const doc = new Y.Doc();
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'use ');
+        t.insert(4, '<section>', { bold: true });
+        t.insert(13, ' here');
+        p.insert(0, [t]);
+        fragment.insert(0, [p]);
+      });
+      const text = extractText(doc);
+      expect(text).toBe('use <section> here');
+      // No formatting markup leaked into the plain text.
+      expect(text).not.toContain('<strong');
+      expect(text).not.toContain('<bold');
+      doc.destroy();
+    });
+
+    test('039 CD-8: line shape is preserved exactly', () => {
+      // One line per TOP-LEVEL fragment node; descendants concatenated with NO
+      // separator; trailing whitespace trimmed. formattingOnly and the diff
+      // cache both depend on this shape, so it is pinned.
+      const doc = createDocWithParagraphs(['First paragraph', 'Second paragraph']);
+      expect(extractText(doc)).toBe('First paragraph\nSecond paragraph');
+      doc.destroy();
+
+      // Descendants of ONE top-level node concatenate with no separator.
+      const nested = new Y.Doc();
+      const frag = nested.getXmlFragment('default');
+      nested.transact(() => {
+        const list = new Y.XmlElement('bulletList');
+        for (const label of ['alpha', 'beta']) {
+          const item = new Y.XmlElement('listItem');
+          const para = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, label);
+          para.insert(0, [t]);
+          item.insert(0, [para]);
+          list.insert(list.length, [item]);
+        }
+        frag.insert(0, [list]);
+      });
+      expect(extractText(nested)).toBe('alphabeta');
+      nested.destroy();
+    });
   });
 
   describe('buildDocsAtClocks', () => {
@@ -675,6 +747,536 @@ describe('DiffService', () => {
       expect(mockSetex).not.toHaveBeenCalled();
 
       doc.destroy();
+    });
+  });
+
+  // =========================================================================
+  // Feature 039 — the cache-write gate (FR-005), single-replay reconstruction
+  // (FR-015) and metadata correctness (FR-016/017).
+  //
+  // A comparison may be frozen for an hour only when it is provably COMPLETE,
+  // SUCCESSFUL and DETERMINISTIC. Each condition is a veto: a result failing any
+  // of them is still SERVED (today's presentation, no new UI state) and simply
+  // not written, so the next request self-heals.
+  //
+  // Contract: specs/039-diff-cache-integrity/contracts/cache-write-rules.md
+  // =========================================================================
+  describe('039 cache-write gate', () => {
+    // ---- T007: the shared cache assertion harness -------------------------
+    /**
+     * Enable Redis with a fresh spy pair and return them. Every test in this
+     * block asserts one of exactly two outcomes:
+     *   served + NOT cached   →  expectServedNotCached(result, setex)
+     *   served + cached       →  expectServedAndCached(result, setex, key)
+     */
+    function withRedis(cached = null) {
+      const { isRedisEnabled, getRedisClient } = require('../redis');
+      isRedisEnabled.mockReturnValue(true);
+      const setex = jest.fn().mockResolvedValue('OK');
+      const get = jest.fn().mockResolvedValue(cached);
+      getRedisClient.mockReturnValue({ get, setex });
+      return { setex, get };
+    }
+
+    function expectServedNotCached(result, setex) {
+      // Served: a real, complete response reached the caller...
+      expect(result).toHaveProperty('document');
+      expect(result).toHaveProperty('currentDocument');
+      expect(result).toHaveProperty('meta');
+      // ...and nothing was frozen.
+      expect(setex).not.toHaveBeenCalled();
+    }
+
+    function expectServedAndCached(result, setex, docGuid, prev, curr) {
+      expect(result).toHaveProperty('document');
+      expect(setex).toHaveBeenCalledTimes(1);
+      const [key, ttl, payload] = setex.mock.calls[0];
+      expect(key).toBe(`diff${CACHE_VERSION}:${docGuid}:${prev}:${curr}`);
+      expect(key.startsWith('diffv10:')).toBe(true);   // CW-T6
+      expect(ttl).toBe(3600);                          // CW-6, unchanged
+      expect(typeof payload).toBe('string');
+    }
+
+    /** Rows for a one-update document at clock 0. */
+    function singleRow(text = 'Hello') {
+      const doc = createDocWithText(text);
+      const row = { clock: 0, update_data: Buffer.from(Y.encodeStateAsUpdate(doc)) };
+      doc.destroy();
+      return row;
+    }
+
+    /**
+     * A real two-clock chain whose second update REPLACES the first's text, so
+     * diffLines produces a `removed` part immediately followed by an `added`
+     * part — i.e. an actual replace region, which is the only thing that calls
+     * applyWordMarks. A pure insert (previousClock = -1) never segments a single
+     * word, so it cannot exercise the degradation path at all.
+     */
+    function replaceRegionRows() {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'the quick brown fox');
+        p.insert(0, [t]);
+        frag.insert(0, [p]);
+      });
+      const u0 = Y.encodeStateAsUpdate(doc);
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => {
+        const t = frag.get(0).get(0);
+        t.delete(0, t.length);
+        t.insert(0, 'the slow brown cat');
+      });
+      const u1 = Y.encodeStateAsUpdate(doc, sv);
+      doc.destroy();
+      return [
+        { clock: 0, update_data: Buffer.from(u0) },
+        { clock: 1, update_data: Buffer.from(u1) },
+      ];
+    }
+
+    // ---- US1 / CW-T1 ------------------------------------------------------
+    test('CW-T1: a tail-short (incomplete) read is served but NOT cached, and heals next time', async () => {
+      const { setex } = withRedis();
+      // The persistence layer reports the read never reached the requested
+      // version — gap-free rows, but short of currentClock.
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: true });
+
+      const result = await diffService.computeDiff('test-doc', -1, 5);
+      expectServedNotCached(result, setex);
+
+      // FR-003: the diff path opts in, telling the read which clock it must reach.
+      expect(mockPersistence.getUpdateRowsUpTo).toHaveBeenCalledWith(
+        'test-doc', 5, { expectedTailClock: 5 }
+      );
+
+      // Log heals → complete read → cached under the v10 namespace.
+      const healed = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
+      const second = await diffService.computeDiff('test-doc', -1, 5);
+      expectServedAndCached(second, healed.setex, 'test-doc', -1, 5);
+    });
+
+    // ---- US2 / CW-T2 ------------------------------------------------------
+    test('CW-T2: a failed computation is served as the plain fallback but NOT cached', async () => {
+      const { setex } = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow('Fallback')], gapped: false });
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      const boom = jest.spyOn(diffService, 'computeMarkdownDiff').mockImplementation(() => {
+        throw new Error('transient parse failure');
+      });
+
+      const result = await diffService.computeDiff('test-doc', -1, 0);
+
+      // CD-2: today's presentation exactly — the plain current document plus the
+      // existing diffFailed flag that drives the "Diff highlighting unavailable"
+      // notice. No new UI state was introduced.
+      expect(result.meta.diffFailed).toBe(true);
+      expect(result.document).toEqual(result.currentDocument);
+      expectServedNotCached(result, setex);
+
+      // F8: with the failure gone the same pair recovers AND caches — pre-039
+      // the failure itself was frozen for an hour with no retry path.
+      boom.mockRestore();
+      const healed = withRedis();
+      const second = await diffService.computeDiff('test-doc', -1, 0);
+      expect(second.meta.diffFailed).toBe(false);
+      expectServedAndCached(second, healed.setex, 'test-doc', -1, 0);
+    });
+
+    // ---- US3 / CW-T3..CW-T5 ----------------------------------------------
+    test('CW-T3: a SIZE-degraded comparison IS cached (deterministic)', async () => {
+      const { setex } = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
+      const wordDiff = require('../../shared/diff/word-diff');
+      const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
+        if (report) { report.reason = 'size'; report.sizeCapped = true; }
+        return null;
+      });
+
+      const result = await diffService.computeDiff('test-doc', 0, 1);
+      expect(spy).toHaveBeenCalled();   // the region really did segment
+      // MAX_SIDE_CHARS is a pure function of the inputs: the line-level result is
+      // the correct, reproducible answer for this pair, so caching it is right.
+      expectServedAndCached(result, setex, 'test-doc', 0, 1);
+    });
+
+    test('CW-T4: a TIMEOUT-degraded comparison is served but NOT cached, and recovers', async () => {
+      const { setex } = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
+      const wordDiff = require('../../shared/diff/word-diff');
+      const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
+        if (report) { report.reason = 'timeout'; report.timedOut = true; }
+        return null;
+      });
+
+      const result = await diffService.computeDiff('test-doc', 0, 1);
+      expect(spy).toHaveBeenCalled();
+      expectServedNotCached(result, setex);
+
+      // Under normal load the same pair returns word-level emphasis and caches.
+      spy.mockRestore();
+      const healed = withRedis();
+      const second = await diffService.computeDiff('test-doc', 0, 1);
+      expect(JSON.stringify(second.document)).toContain('diffDeleteWord');
+      expectServedAndCached(second, healed.setex, 'test-doc', 0, 1);
+    });
+
+    // U1 — the correctness fix this feature exists for. The report sink is
+    // SHARED across every replace region in one comparison, so a last-write-wins
+    // `reason` field would let a later size-capped region erase an earlier
+    // timeout and cache a comparison FR-005(c) forbids caching.
+    test('U1: a later SIZE region cannot erase an earlier TIMEOUT (sticky flags)', async () => {
+      const { setex } = withRedis();
+      // TWO replace regions in one comparison, separated by an unchanged block:
+      // the first times out, the second is merely size-capped.
+      const prev = createDocWithParagraphs(['alpha one', 'separator', 'gamma one']);
+      const curr = createDocWithParagraphs(['alpha two', 'separator', 'gamma two']);
+
+      const wordDiff = require('../../shared/diff/word-diff');
+      let call = 0;
+      const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
+        call += 1;
+        if (report) {
+          if (call === 1) { report.reason = 'timeout'; report.timedOut = true; }
+          else { report.reason = 'size'; report.sizeCapped = true; }
+        }
+        return null;
+      });
+
+      const report = { timedOut: false, sizeCapped: false };
+      diffService.computeMarkdownDiff(prev, curr, report);
+      expect(call).toBeGreaterThan(1);          // more than one region ran
+      expect(report.reason).toBe('size');       // last write wins on `reason`...
+      expect(report.timedOut).toBe(true);       // ...but the accumulator remembers,
+      expect(report.sizeCapped).toBe(true);     // and both kinds are recorded.
+
+      // End-to-end: because the timeout survived, the comparison is NOT cached.
+      // Reading `reason` here instead of the accumulator would have cached it —
+      // the exact bug this feature exists to fix.
+      call = 0;
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
+      spy.mockImplementation((b, a, rep) => {
+        call += 1;
+        if (rep) {
+          if (call === 1) { rep.reason = 'timeout'; rep.timedOut = true; }
+          else { rep.reason = 'size'; rep.sizeCapped = true; }
+        }
+        return null;
+      });
+      const result = await diffService.computeDiff('test-doc', 0, 1);
+      expectServedNotCached(result, setex);
+
+      prev.destroy();
+      curr.destroy();
+    });
+
+    test('CW-T5: several simultaneous failures still yield ONE served response and no cache write', async () => {
+      const { setex } = withRedis();
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      // incomplete read + failed computation at once
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: true });
+      jest.spyOn(diffService, 'computeMarkdownDiff').mockImplementation(() => {
+        throw new Error('boom');
+      });
+
+      const result = await diffService.computeDiff('test-doc', -1, 0);
+      // CW-1: the conditions are vetoes, never traded off against each other.
+      expect(result.meta.diffFailed).toBe(true);
+      expectServedNotCached(result, setex);
+    });
+
+    test('CW-T7: the healthy path caches exactly as before — TTL 3600, v10 key', async () => {
+      const { setex } = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
+      const result = await diffService.computeDiff('doc-healthy', -1, 0);
+      expectServedAndCached(result, setex, 'doc-healthy', -1, 0);
+    });
+
+    test('CW-T6: CACHE_VERSION is v10 and a v9 entry is never read', async () => {
+      expect(CACHE_VERSION).toBe('v10');
+      const { get } = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
+      await diffService.computeDiff('doc-ns', 1, 2);
+      expect(get).toHaveBeenCalledWith('diffv10:doc-ns:1:2');
+      expect(get).not.toHaveBeenCalledWith(expect.stringContaining('diffv9:'));
+    });
+
+    test('CW-T8: a throwing setex is caught and logged, and never fails the request', async () => {
+      const { isRedisEnabled, getRedisClient } = require('../redis');
+      isRedisEnabled.mockReturnValue(true);
+      const setex = jest.fn().mockRejectedValue(new Error('redis down'));
+      getRedisClient.mockReturnValue({ get: jest.fn().mockResolvedValue(null), setex });
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
+
+      const result = await diffService.computeDiff('doc-redis-down', -1, 0);
+      expect(result).toHaveProperty('document');   // CW-5: non-fatal
+      expect(errSpy).toHaveBeenCalledWith(
+        '[DiffService] Redis cache write error:', 'redis down'
+      );
+    });
+
+    test('CW-4: the predicate has exactly the three FR-005 conditions — no more, no fewer', async () => {
+      // Complete + successful + no timeout ⇒ cached. Flip each condition in turn
+      // and the write must disappear; nothing else may suppress it.
+      const rows = replaceRegionRows();
+      const wordDiff = require('../../shared/diff/word-diff');
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // baseline: all three satisfied
+      let r = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows, gapped: false });
+      await diffService.computeDiff('d', 0, 1);
+      expect(r.setex).toHaveBeenCalledTimes(1);
+
+      // (a) incomplete
+      r = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows, gapped: true });
+      await diffService.computeDiff('d', 0, 1);
+      expect(r.setex).not.toHaveBeenCalled();
+
+      // (b) diffFailed
+      r = withRedis();
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows, gapped: false });
+      const boom = jest.spyOn(diffService, 'computeMarkdownDiff').mockImplementation(() => { throw new Error('x'); });
+      await diffService.computeDiff('d', 0, 1);
+      expect(r.setex).not.toHaveBeenCalled();
+      boom.mockRestore();
+
+      // (c) timeout degradation
+      r = withRedis();
+      const seg = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
+        if (report) { report.reason = 'timeout'; report.timedOut = true; }
+        return null;
+      });
+      await diffService.computeDiff('d', 0, 1);
+      expect(r.setex).not.toHaveBeenCalled();
+      seg.mockRestore();
+
+      // and a SIZE degradation alone does NOT suppress the write (CW-2) — the
+      // fourth combination, proving the gate is not just "any degradation".
+      r = withRedis();
+      const sizeOnly = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
+        if (report) { report.reason = 'size'; report.sizeCapped = true; }
+        return null;
+      });
+      await diffService.computeDiff('d', 0, 1);
+      expect(r.setex).toHaveBeenCalledTimes(1);
+      sizeOnly.mockRestore();
+    });
+  });
+
+  // =========================================================================
+  // Feature 039 US6 (FR-015) — single-replay state reconstruction.
+  // =========================================================================
+  describe('039 single-replay reconstruction', () => {
+    /**
+     * Build a chain of n incremental updates from one client, so update i is
+     * causally dependent on i-1 (the realistic log shape).
+     */
+    function buildChain(n) {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      const rows = [];
+      for (let i = 0; i < n; i++) {
+        const sv = Y.encodeStateVector(doc);
+        doc.transact(() => {
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, `para-${i}`);
+          p.insert(0, [t]);
+          frag.push([p]);
+        });
+        rows.push({ clock: i, update_data: Buffer.from(Y.encodeStateAsUpdate(doc, sv)) });
+      }
+      doc.destroy();
+      return rows;
+    }
+
+    /** The pre-039 double-replay reconstruction, kept here as the oracle. */
+    function legacyBuild(updates, previousClock, currentClock) {
+      const prevDoc = new Y.Doc({ gc: false });
+      const currDoc = new Y.Doc({ gc: false });
+      for (const row of updates) {
+        const u = new Uint8Array(row.update_data);
+        if (previousClock >= 0 && row.clock <= previousClock) Y.applyUpdate(prevDoc, u);
+        if (row.clock <= currentClock) Y.applyUpdate(currDoc, u);
+      }
+      const { extractText } = require('../yjs-utils');
+      const out = {
+        prevText: extractText(prevDoc),
+        currText: extractText(currDoc),
+        prevXml: require('../yjs-utils').extractXml(prevDoc),
+        currXml: require('../yjs-utils').extractXml(currDoc),
+      };
+      prevDoc.destroy();
+      currDoc.destroy();
+      return out;
+    }
+
+    // CW-T9 — SR-3
+    test('CW-T9: output is deep-equal to the double-replay result for representative pairs', () => {
+      const rows = buildChain(8);
+      const { extractXml } = require('../yjs-utils');
+      // Includes previousClock = -1 (the empty-state case, where seeding is
+      // skipped) plus mid-history and full-history pairs.
+      for (const [prev, curr] of [[-1, 7], [-1, 0], [0, 7], [3, 7], [2, 5], [6, 7]]) {
+        const legacy = legacyBuild(rows, prev, curr);
+        const built = diffService.buildDocsAtClocks(rows, prev, curr);
+        expect(built.prevText).toEqual(legacy.prevText);
+        expect(built.currText).toEqual(legacy.currText);
+        expect(extractXml(built.prevDoc)).toEqual(legacy.prevXml);
+        expect(extractXml(built.currDoc)).toEqual(legacy.currXml);
+        built.prevDoc.destroy();
+        built.currDoc.destroy();
+      }
+    });
+
+    // CW-T10 — SR-1 / SC-006
+    test('CW-T10: no log row is applied more than once per reconstruction', () => {
+      const rows = buildChain(8);
+      const applySpy = jest.spyOn(Y, 'applyUpdate');
+
+      const built = diffService.buildDocsAtClocks(rows, 3, 7);
+
+      // Count how many times each ROW's bytes were applied. The single seed
+      // update (encodeStateAsUpdate(prevDoc)) is not one of the rows, so it is
+      // matched out rather than counted.
+      const rowBytes = rows.map((r) => Buffer.from(r.update_data).toString('base64'));
+      const counts = new Map(rowBytes.map((b) => [b, 0]));
+      for (const [, update] of applySpy.mock.calls) {
+        const key = Buffer.from(update).toString('base64');
+        if (counts.has(key)) counts.set(key, counts.get(key) + 1);
+      }
+      for (const [, n] of counts) expect(n).toBeLessThanOrEqual(1);
+
+      // And the work really did halve: pre-039 this pair applied rows 0..3 twice
+      // (8 rows → 12 applications); now it is 8 row-applies + 1 seed.
+      expect(applySpy.mock.calls.length).toBe(9);
+
+      applySpy.mockRestore();
+      built.prevDoc.destroy();
+      built.currDoc.destroy();
+    });
+
+    test('SR-4: previousClock < 0 skips seeding entirely', () => {
+      const rows = buildChain(4);
+      const applySpy = jest.spyOn(Y, 'applyUpdate');
+      const built = diffService.buildDocsAtClocks(rows, -1, 3);
+      // Exactly the 4 rows, no seed update.
+      expect(applySpy.mock.calls.length).toBe(4);
+      expect(built.prevText).toBe('');
+      applySpy.mockRestore();
+      built.prevDoc.destroy();
+      built.currDoc.destroy();
+    });
+
+    test('SR-2: gc:false is preserved on both docs (load-bearing for the seed)', () => {
+      const rows = buildChain(3);
+      const built = diffService.buildDocsAtClocks(rows, 0, 2);
+      expect(built.prevDoc.gc).toBe(false);
+      expect(built.currDoc.gc).toBe(false);
+      built.prevDoc.destroy();
+      built.currDoc.destroy();
+    });
+  });
+
+  // =========================================================================
+  // Feature 039 US7 (FR-016/017) — the "Formatting changes only" banner.
+  // =========================================================================
+  describe('039 formatting-only honesty', () => {
+    /**
+     * Drive computeDiff over a genuine two-clock update CHAIN: `seed` builds the
+     * clock-0 state, `evolve` mutates that same document to produce the clock-1
+     * delta. (Encoding two INDEPENDENT docs as clocks 0 and 1 would not model a
+     * version pair at all — replaying both merges them into one document with
+     * everything twice.)
+     */
+    async function metaForChain(seed, evolve, attrs) {
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      doc.transact(() => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, seed, attrs || {});
+        p.insert(0, [t]);
+        frag.insert(0, [p]);
+      });
+      const u0 = Y.encodeStateAsUpdate(doc);
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => evolve(frag.get(0).get(0)));
+      const u1 = Y.encodeStateAsUpdate(doc, sv);
+      doc.destroy();
+
+      mockPersistence.getUpdateRowsUpTo.mockResolvedValue({
+        rows: [
+          { clock: 0, update_data: Buffer.from(u0) },
+          { clock: 1, update_data: Buffer.from(u1) },
+        ],
+        gapped: false,
+      });
+      const { isRedisEnabled } = require('../redis');
+      isRedisEnabled.mockReturnValue(false);
+      return (await diffService.computeDiff('fmt-doc', 0, 1)).meta;
+    }
+
+    const retype = (text, attrs) => (t) => {
+      t.delete(0, t.length);
+      t.insert(0, text, attrs || {});
+    };
+
+    // CW-T11
+    test('CW-T11: versions differing only inside literal <div> prose report a TEXT change', async () => {
+      // Pre-039 the regex ate both bracketed words, the two versions extracted
+      // to the SAME string, and the UI announced "Formatting changes only" for a
+      // real content edit.
+      const meta = await metaForChain(
+        'use <div> tags for layout',
+        retype('use <span> tags for layout')
+      );
+      expect(meta.textIdentical).toBe(false);
+      expect(meta.formattingOnly).toBe(false);
+    });
+
+    // CW-T12
+    test('CW-T12: the same holds when the literal < sits inside a bold run', async () => {
+      // The Y.XmlText toDelta subtlety: a toString()-based walk would re-emit
+      // the bold as markup and reintroduce the very bug being fixed.
+      const meta = await metaForChain(
+        'use <div> tags',
+        retype('use <span> tags', { bold: true }),
+        { bold: true }
+      );
+      expect(meta.textIdentical).toBe(false);
+      expect(meta.formattingOnly).toBe(false);
+    });
+
+    test('a genuine formatting-only change still reports formattingOnly', async () => {
+      // The other direction must not regress: identical text, different marks.
+      const meta = await metaForChain(
+        'unchanged words here',
+        (t) => t.format(0, t.length, { bold: true })
+      );
+      expect(meta.textIdentical).toBe(true);
+      expect(meta.formattingOnly).toBe(true);
+    });
+
+    test('a plain text edit with no formatting change reports neither flag', async () => {
+      const meta = await metaForChain('alpha beta gamma', retype('alpha DELTA gamma'));
+      expect(meta.textIdentical).toBe(false);
+      expect(meta.formattingOnly).toBe(false);
+    });
+
+    // FR-017
+    test('FR-017: computeMarkdownDiff no longer declares a textIdentical parameter', () => {
+      // The old third parameter was declared but never read — the function
+      // re-derives the answer from prevMd === currMd. It is now the report sink.
+      const src = diffService.computeMarkdownDiff.toString();
+      expect(src).not.toContain('textIdentical');
+      expect(diffService.computeMarkdownDiff.length).toBe(3);
     });
   });
 });
