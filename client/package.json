@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/build-documentation.mjs && node scripts/build-blog.mjs",
+    "build": "node scripts/sync-footer.mjs && vite build && node scripts/build-documentation.mjs && node scripts/build-blog.mjs",
+    "sync:footer": "node scripts/sync-footer.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest --ui",

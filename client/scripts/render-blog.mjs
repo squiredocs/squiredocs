@@ -23,6 +23,7 @@
  *   formatDate(iso)                 -> "July 19, 2026"
  */
 import MarkdownIt from 'markdown-it';
+import { FOOTER } from './site-footer.mjs';
 
 export const CANONICAL_ORIGIN = 'https://squiredocs.com';
 
@@ -211,59 +212,6 @@ const HEADER = `    <header class="landing-header">
         </nav>
       </div>
     </header>`;
-
-// The marketing footer, reused from landing.html, with the "Blog" link added to
-// the Product column.
-const FOOTER = `    <footer class="landing-footer">
-      <div class="landing-footer-content">
-        <div class="landing-footer-top">
-          <div class="landing-footer-brand">
-            <a href="/" class="landing-footer-logo">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
-                <path d="M7.5 7.5h8" stroke-width="1" />
-                <path d="M13.5 5.5l2.5 2-2.5 2" stroke-width="1" />
-                <path d="M7.5 12h8" stroke-width="1" />
-                <path d="M7.5 16.5h8" stroke-width="1" />
-              </svg>
-              <span>Squire Docs</span>
-            </a>
-            <p class="landing-footer-tagline">Write with AI, right in your doc</p>
-          </div>
-          <div class="landing-footer-links">
-            <div class="landing-footer-column">
-              <h4>Product</h4>
-              <ul>
-                <li><a href="/pricing">Pricing</a></li>
-                <li><a href="/about">About</a></li>
-                <li><a href="/documentation">Documentation</a></li>
-                <li><a href="/blog">Blog</a></li>
-                <li><a href="/agents.md">Agents</a></li>
-                <li><a href="https://github.com/squiredocs">GitHub</a></li>
-                <li><a href="/signup">Sign Up</a></li>
-                <li><a href="/login">Sign In</a></li>
-              </ul>
-            </div>
-            <div class="landing-footer-column">
-              <h4>Legal</h4>
-              <ul>
-                <li><a href="/privacy">Privacy Policy</a></li>
-                <li><a href="/terms">Terms of Service</a></li>
-              </ul>
-            </div>
-            <div class="landing-footer-column">
-              <h4>Contact</h4>
-              <ul>
-                <li><a href="mailto:contact@squiredocs.com">contact@squiredocs.com</a></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <div class="landing-footer-bottom">
-          <p class="landing-copyright">&copy; 2026 21st Harmonic LLC</p>
-        </div>
-      </div>
-    </footer>`;
 
 // The shared bottom call-to-action, reused from the marketing pages.
 const CTA = `    <section class="landing-section cta">
