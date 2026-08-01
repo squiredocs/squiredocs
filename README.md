@@ -464,7 +464,7 @@ The version history panel uses a three-level hierarchy:
 
 ### Restoring Versions
 
-Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time (delivered cross-instance, never silently skipped). A restore is recorded like any other tracked edit, so the chat assistant's Undo can invert it, and both surfaces (web UI and MCP `restore_document_version`) share identical attribution and broadcast semantics.
+Restore is **non-destructive**: restoring a previous version creates a new version with that content rather than discarding subsequent history. All users see the restored content in real-time (delivered cross-instance, never silently skipped). A restore over MCP (`restore_document_version`) is recorded under the acting agent's identity like any other tracked edit, so that agent's undo can invert it. A restore from the web UI is currently recorded without an actor identity, so no undo surface can invert it; unifying the two paths is spec 040 (`specs/040-restore-undo-attribution/`).
 
 ### Diff Highlighting
 
@@ -1120,7 +1120,7 @@ paragraphs.forEach((node, index) => {
 ## Data Storage
 
 - **Server**: Documents are persisted to PostgreSQL database
-  - **Yjs data**: `yjs_updates` (the append-only update log — the sole source of truth; each row carries its clock, attribution, and write-time `meaningful` classification)
+  - **Yjs data**: `yjs_updates` (the append-only update log — the sole source of truth; each row carries its clock, attribution, write-time `meaningful` classification, and a `via_sync` channel marker). `via_sync` records *how* content reached the server, never who wrote it: it is `true` only for rows that arrived on a sync catch-up frame (a reconnecting client re-supplying state the server lacked), and `null` — meaning "not known to be sync" — for every live edit and every row written before the marker existed. Attribution is unaffected by it: a genuine offline edit replayed on reconnect is still that user's work
   - **Document metadata**: `documents` table (document info, creator)
   - **Permissions**: `document_shares` table (user-document access with roles)
   - **Users**: `users` table (OAuth user accounts, per-user AI credit allowance; signup and last-login IP + user-agent snapshots for abuse detection — admin-only)

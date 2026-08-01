@@ -59,8 +59,11 @@ if (!canEdit.allowed) {
 - `permissions.can.delete(userId, docId)` - Check delete access
 
 **WebSocket Enforcement:**
-- Viewers' edit messages are intercepted and blocked at the WebSocket level
-- Uses `isEditMessage()` helper to identify Yjs sync update messages
+- Viewers' edit frames are intercepted and dropped at the WebSocket level, before y-websocket sees them
+- `server/ws-edit-gate.js` owns both the classification (`classifyFrame`) and the interceptor that installs it (`installGate`). Production and the tests import the same module, so the gate that ships is the gate that is tested
+- **An edit is any frame that can reach `Y.applyUpdate`** — that means sync *update* frames **and** sync *step2* frames. Step2 was previously misclassified as read-only, which let a viewer write by framing content as a step2 reply (fixed in feature 038). Any new sync message type must be classified in that module before it ships
+- Blocked frames are dropped silently: the connection stays open, the client is not notified, and a `WS_EDIT_BLOCKED` / `WS_STEP2_BLOCKED` event is logged. Note that ordinary viewer clients answer the server's step1 with a step2, so `WS_STEP2_BLOCKED` is a normal-traffic signal, not an attack signal
+- Downward sync is unaffected — viewers still receive all document updates
 
 ### Client-Side
 
