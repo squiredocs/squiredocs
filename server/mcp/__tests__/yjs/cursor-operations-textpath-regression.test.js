@@ -1,13 +1,20 @@
 /**
  * Feature 027 — Text-path regression guard (FR-005/SC-004).
  *
- * The fix changes ONLY the text-less branch of the position constructors.
  * Positions computed for TEXT-BEARING content must be byte-identical to the
- * pre-fix behavior. This test re-serializes the same corpus captured (from the
- * OLD code) in fixtures/cursor-textpath-baseline.json and asserts exact JSON
- * equality. The corpus builder is shared with the baseline-capture step
+ * pinned baseline. This test re-serializes the same corpus captured in
+ * fixtures/cursor-textpath-baseline.json and asserts exact JSON equality. The
+ * corpus builder is shared with the baseline-capture step
  * (fixtures/cursor-textpath-corpus.js) so construction is identical on both
  * sides — any diff here is a real text-path regression.
+ *
+ * Baseline history: originally captured from the pre-027 code (027 changed
+ * only the text-less branch). Regenerated 2026-08-01 for the read-highlight
+ * fix: offset-0 text positions now serialize as the left-associated boundary
+ * form ({ type, assoc: -1 }, no item) so @tiptap/y-tiptap's
+ * isMisresolvedTextPosition guard cannot veto doc-start highlights; non-zero
+ * offsets are unchanged. See serializeTextPosition in yjs/cursor-operations.js
+ * and cursor-operations-docstart-render.test.js.
  */
 
 const fs = require('fs');

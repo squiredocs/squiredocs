@@ -4,22 +4,14 @@
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 2
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "p1.path.off0": {
     "type": {
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 2
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "p1.linear.off1": {
     "type": {
@@ -98,22 +90,14 @@
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 2
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "h2.path.off0": {
     "type": {
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 2
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "h2.linear.off4": {
     "type": {
@@ -170,11 +154,7 @@
       "client": 42,
       "clock": 3
     },
-    "item": {
-      "client": 42,
-      "clock": 4
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "li.path.off3": {
     "type": {
@@ -206,11 +186,7 @@
       "client": 42,
       "clock": 3
     },
-    "item": {
-      "client": 42,
-      "clock": 4
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "li.linear.past": {
     "type": {
@@ -224,22 +200,14 @@
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 3
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "multi.path.off0": {
     "type": {
       "client": 42,
       "clock": 1
     },
-    "item": {
-      "client": 42,
-      "clock": 3
-    },
-    "assoc": 0
+    "assoc": -1
   },
   "multi.linear.off4": {
     "type": {

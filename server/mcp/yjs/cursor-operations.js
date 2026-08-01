@@ -10,6 +10,25 @@
 const Y = require('yjs');
 
 /**
+ * Serialize a position inside a text run. Offset 0 uses the left-associated
+ * boundary form ({ type, item: null, assoc: -1 }) instead of anchoring to the
+ * first character's item: @tiptap/y-tiptap's cursor resolver
+ * (isMisresolvedTextPosition, since 3.0.7) treats any ITEM-anchored text
+ * position that resolves to absolute position <= 1 as misresolved and refuses
+ * to render it — which is exactly where a read highlight of the first block
+ * starts, so the whole caret+selection decoration was dropped. Both forms
+ * resolve to the same location (yjs: item null + assoc < 0 → index 0).
+ * @param {Y.XmlText} textNode - Text run to anchor in
+ * @param {number} offset - Character offset within the run
+ * @returns {object} JSON-serialized RelativePosition
+ */
+function serializeTextPosition(textNode, offset) {
+  const assoc = offset === 0 ? -1 : 0;
+  const relPos = Y.createRelativePositionFromTypeIndex(textNode, offset, assoc);
+  return Y.relativePositionToJSON(relPos);
+}
+
+/**
  * Create a cursor position from block index and character offset
  * @param {Y.XmlFragment} xmlFragment - The document fragment
  * @param {number} blockIndex - Block index (0-based)
@@ -77,8 +96,7 @@ function createCursorPosition(xmlFragment, blockIndex, charOffset) {
     return Y.relativePositionToJSON(relPos);
   }
 
-  const relPos = Y.createRelativePositionFromTypeIndex(result.textNode, result.offset);
-  return Y.relativePositionToJSON(relPos);
+  return serializeTextPosition(result.textNode, result.offset);
 }
 
 /**
@@ -606,8 +624,7 @@ function createCursorPositionFromPath(xmlFragment, path, charOffset = 0) {
     return Y.relativePositionToJSON(relPos);
   }
 
-  const relPos = Y.createRelativePositionFromTypeIndex(result.textNode, result.offset);
-  return Y.relativePositionToJSON(relPos);
+  return serializeTextPosition(result.textNode, result.offset);
 }
 
 /**
