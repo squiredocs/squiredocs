@@ -18,7 +18,7 @@ curl -H "Authorization: Bearer $(cat ~/.squire/token)" \
 
 The export route takes options:
 
-- **flavor**: `portable` (the default) or `squire`. Portable degrades the marks that only exist as HTML so the file renders cleanly on GitHub: underline becomes emphasis, and color and font spans drop their styling but keep their text. Squire flavor keeps full fidelity and is the internal canonical form.
+- **flavor**: `portable` (the default) or `squire`. Portable degrades the marks that only exist as HTML so the file renders cleanly on GitHub: underline becomes emphasis, and color and font spans drop their styling but keep their text. The `squire` flavor keeps full fidelity and is the internal canonical form.
 - **frontmatter**: `true` or `false` (default off). When on, the file starts with a `squire:` YAML block that describes it, including its document id, title, and the version (`clock`) it was exported at.
 - **format=bundle**: downloads a zip of the markdown plus its image assets under `assets/<docSlug>/`, with the references rewritten to relative paths. A bundle defaults to portable flavor with frontmatter on, and both are overridable.
 

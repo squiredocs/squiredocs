@@ -24,7 +24,7 @@ The quickest path for Claude Code is the Squire Docs plugin. Inside Claude Code,
 /plugin install squire
 ```
 
-This registers the MCP server where Claude Code reads it at startup (no `claude mcp add` step) and adds the `/squire:onboard` command, which walks you from connecting through syncing your first spec, along with a skill that teaches the agent the Squire spec loop and how to handle tokens safely. Claude Code loads plugins at startup, so after installing you may need to restart it before `/squire:onboard` appears. OAuth sign-in still happens in your browser on the first tool call, and signing in with Google creates your Squire Docs account if you do not have one yet.
+This registers the MCP server where Claude Code reads it at startup (no `claude mcp add` step) and adds the `/squire:onboard` command, which walks you from connecting through syncing your first spec, along with a skill that teaches the agent the Squire Docs spec loop and how to handle tokens safely. Claude Code loads plugins at startup, so after installing you may need to restart it before `/squire:onboard` appears. OAuth sign-in still happens in your browser on the first tool call, and signing in with Google creates your Squire Docs account if you do not have one yet.
 
 ### Claude Code and other Claude command-line clients: raw one-liner
 
@@ -48,7 +48,7 @@ That connects the MCP server; Cursor runs the browser OAuth sign-in on the first
 
 For [Kiro](https://kiro.dev), AWS's spec-driven agentic IDE, install the Squire Docs Power from its repository: [github.com/squiredocs/squire-kiro-power](https://github.com/squiredocs/squire-kiro-power). In Kiro, open the Powers panel, choose **Add Custom Power**, then **Import power from GitHub**, paste the repo URL, and install. The Power registers the MCP server and adds Kiro-native steering that hosts the `.kiro/specs` files you already generate as a shared, attributed, two-way-synced Squire Docs document.
 
-You can also add Squire to Kiro by hand, without the Power: add it to the `mcpServers` block of your MCP config, `.kiro/settings/mcp.json` in a workspace, or `~/.kiro/settings/mcp.json` to make it available in every project:
+You can also add Squire Docs to Kiro by hand, without the Power: add it to the `mcpServers` block of your MCP config, `.kiro/settings/mcp.json` in a workspace, or `~/.kiro/settings/mcp.json` to make it available in every project:
 
 ```json
 {
@@ -60,7 +60,7 @@ You can also add Squire to Kiro by hand, without the Power: add it to the `mcpSe
 }
 ```
 
-Kiro hot-reloads the file when you save it and walks you through the OAuth sign-in in your browser on first use, with no client IDs or secrets to set by hand. Squire pairs naturally with Kiro's spec-driven workflow: keep the spec Kiro plans and implements against as a living Squire document your team edits together, and every change Kiro makes is attributed and reversible alongside everyone else's.
+Kiro hot-reloads the file when you save it and walks you through the OAuth sign-in in your browser on first use, with no client IDs or secrets to set by hand. Squire Docs pairs naturally with Kiro's spec-driven workflow: keep the spec Kiro plans and implements against as a living Squire Docs document your team edits together, and every change Kiro makes is attributed and reversible alongside everyone else's.
 
 For any MCP-native client, point it at the endpoint above. The client's built-in OAuth discovery handles the rest through the standard chain, so you do not need to configure client IDs, secrets, or extra URLs by hand.
 
