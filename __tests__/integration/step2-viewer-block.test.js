@@ -338,4 +338,125 @@ describe('Step2 viewer block (protocol-level)', () => {
       }
     });
   });
+
+  // ── US2: the channel marker, end to end (SC-003) ──────────────────────────
+
+  describe('via_sync flag window', () => {
+    test('a step2 row is flagged; a live update on the SAME connection right after is not', async () => {
+      const docGuid = crypto.randomUUID();
+      const { ws } = await connect(docGuid, 'editor', editorUserId);
+
+      try {
+        // 1. Reconnect catch-up: content the editor authored while offline.
+        const offline = docWithParagraph('AUTHORED OFFLINE');
+        ws.send(step2FrameFrom(offline));
+        await waitFor(async () => (await rowsFor(docGuid)).length >= 1, { label: 'the step2 row' });
+
+        // 2. A live keystroke immediately afterwards, on the same socket. Its
+        //    update must NOT inherit the step2 window — the flag is cleared in a
+        //    finally the moment the frame finishes applying.
+        const svAfter = Y.encodeStateVector(offline);
+        offline.get('default', Y.XmlFragment).get(0).get(0).insert(0, 'LIVE ');
+        ws.send(updateFrame(Y.encodeStateAsUpdate(offline, svAfter)));
+
+        const rows = await waitFor(async () => {
+          const r = await rowsFor(docGuid);
+          return r.length >= 2 ? r : null;
+        }, { label: 'the live-edit row' });
+
+        expect(rows).toHaveLength(2);
+
+        // The catch-up row: flagged, attribution UNCHANGED (via_sync records the
+        // channel, not a verdict on authorship — this really is the editor's work).
+        expect(rows[0].via_sync).toBe(true);
+        expect(rows[0].user_id).toBe(editorUserId);
+
+        // The live row: never flagged. A leaking flag would mark every keystroke
+        // after a reconnect as relayed and quietly disable undo over them.
+        expect(rows[1].via_sync).toBe(null);
+        expect(rows[1].user_id).toBe(editorUserId);
+      } finally {
+        ws.close();
+      }
+    });
+
+    test('a second step2 on the same connection gets its own flagged window', async () => {
+      const docGuid = crypto.randomUUID();
+      const { ws } = await connect(docGuid, 'editor', editorUserId);
+
+      try {
+        const first = docWithParagraph('FIRST CATCHUP');
+        ws.send(step2FrameFrom(first));
+        await waitFor(async () => (await rowsFor(docGuid)).length >= 1, { label: 'first step2 row' });
+
+        // Interleaved live edit (unflagged), then a second catch-up (flagged).
+        const sv = Y.encodeStateVector(first);
+        first.get('default', Y.XmlFragment).get(0).get(0).insert(0, 'LIVE ');
+        ws.send(updateFrame(Y.encodeStateAsUpdate(first, sv)));
+        await waitFor(async () => (await rowsFor(docGuid)).length >= 2, { label: 'live row' });
+
+        const second = docWithParagraph('SECOND CATCHUP');
+        ws.send(step2FrameFrom(second));
+
+        const rows = await waitFor(async () => {
+          const r = await rowsFor(docGuid);
+          return r.length >= 3 ? r : null;
+        }, { label: 'second step2 row' });
+
+        expect(rows.map((r) => r.via_sync)).toEqual([true, null, true]);
+      } finally {
+        ws.close();
+      }
+    });
+
+    test('an empty-diff step2 produces no row and no error', async () => {
+      const docGuid = crypto.randomUUID();
+      const { ws } = await connect(docGuid, 'editor', editorUserId);
+
+      try {
+        // Seed, then re-send the very same state: Yjs has nothing to apply, so
+        // no update event fires and nothing is persisted.
+        const doc = docWithParagraph('ALREADY KNOWN');
+        ws.send(step2FrameFrom(doc));
+        await waitFor(async () => (await rowsFor(docGuid)).length >= 1, { label: 'seed row' });
+        const before = await rowsFor(docGuid);
+
+        ws.send(step2FrameFrom(doc));
+        await tick(200);
+
+        expect(await rowsFor(docGuid)).toHaveLength(before.length);
+        expect(ws.readyState).toBe(WebSocket.OPEN);
+        expect(perfEvents).toHaveLength(0);
+      } finally {
+        ws.close();
+      }
+    });
+
+    test('a blocked viewer step2 leaves no flag behind for anyone', async () => {
+      const docGuid = crypto.randomUUID();
+      const viewer = await connect(docGuid, 'viewer', viewerUserId);
+      const editor = await connect(docGuid, 'editor', editorUserId);
+
+      try {
+        viewer.ws.send(step2FrameFrom(docWithParagraph('BLOCKED')));
+        await tick(100);
+
+        // The editor's ordinary live edit is unaffected and unflagged.
+        const doc = docWithParagraph('EDITOR LIVE EDIT');
+        editor.ws.send(updateFrame(Y.encodeStateAsUpdate(doc)));
+
+        const rows = await waitFor(async () => {
+          const r = await rowsFor(docGuid);
+          return r.length >= 1 ? r : null;
+        }, { label: 'the editor row' });
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0].via_sync).toBe(null);
+        expect(rows[0].user_id).toBe(editorUserId);
+      } finally {
+        viewer.ws.close();
+        editor.ws.close();
+      }
+    });
+  });
 });

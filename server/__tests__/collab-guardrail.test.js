@@ -310,4 +310,114 @@ describe('021 collab guardrail', () => {
     expect(rows[1].agent_name).toBeNull();
     expect(agentUpdate.length).toBeGreaterThan(0);
   });
+
+  /**
+   * Feature 038 US2 (D3, FR-014): when the triggering update arrived on a
+   * SYNC_STEP2 catch-up frame, the guardrail says so — on the N1 match line and
+   * in the page's extra payload. It does NOT change matching, suppression, or
+   * whether a page fires. Suppressing sync-sourced pages would blind the
+   * guardrail to exactly the class of incident (021) it was built for.
+   */
+  describe('(e) sync-sourced annotation (feature 038 D3)', () => {
+    test('viaSync: true annotates the warn line and the notifier extra — and still pages', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await buildSignature(docGuid);
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid,
+        update: humanDeleteUpdate,
+        userId: HUMAN_ID,
+        agentName: null,
+        viaSync: true,
+      });
+
+      // Paging decision is IDENTICAL to the unannotated case (a).
+      expect(result).toEqual({ matched: true, alerted: true });
+      expect(notifyException).toHaveBeenCalledTimes(1);
+
+      const [, ctx] = notifyException.mock.calls[0];
+      expect(ctx.extra.syncSourced).toBe(true);
+      // ...and the rest of the payload is unchanged.
+      expect(ctx.source).toBe('collab-guardrail');
+      expect(ctx.extra.docGuid).toBe(docGuid);
+      expect(ctx.extra.humanUserId).toBe(HUMAN_ID);
+      expect(ctx.extra.agentClockRange).toEqual([0, 0]);
+
+      // N1 match line carries the token.
+      const warnLines = warnSpy.mock.calls.map((c) => String(c[0]));
+      const matchLine = warnLines.find((l) => l.includes('human-attributed deletion of fresh agent content'));
+      expect(matchLine).toBeDefined();
+      expect(matchLine).toContain('syncSourced=true');
+    });
+
+    test('viaSync: null/false/omitted adds no annotation anywhere', async () => {
+      for (const viaSync of [null, false, undefined]) {
+        notifyException.mockClear();
+        warnSpy.mockClear();
+        guardrail._resetForTest();
+
+        const docGuid = newDocGuid();
+        const { humanDeleteUpdate } = await buildSignature(docGuid);
+
+        const result = await guardrail.evaluateUpdate({
+          docGuid,
+          update: humanDeleteUpdate,
+          userId: HUMAN_ID,
+          agentName: null,
+          ...(viaSync === undefined ? {} : { viaSync }),
+        });
+
+        expect(result).toEqual({ matched: true, alerted: true });
+        const [, ctx] = notifyException.mock.calls[0];
+        expect(ctx.extra).not.toHaveProperty('syncSourced');
+
+        const warnLines = warnSpy.mock.calls.map((c) => String(c[0]));
+        const matchLine = warnLines.find((l) => l.includes('human-attributed deletion of fresh agent content'));
+        expect(matchLine).toBeDefined();
+        expect(matchLine).not.toContain('syncSourced');
+      }
+    });
+
+    test('suppression is unaffected by the annotation', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await buildSignature(docGuid);
+
+      const first = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null, viaSync: true,
+      });
+      const second = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null, viaSync: true,
+      });
+
+      // Same (doc, user)-keyed suppression as without the flag: page, then quiet.
+      expect(first).toEqual({ matched: true, alerted: true });
+      expect(second).toEqual({ matched: true, alerted: false });
+      expect(notifyException).toHaveBeenCalledTimes(1);
+    });
+
+    test('a sync-sourced update that does NOT match still stays silent', async () => {
+      const docGuid = newDocGuid();
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'relayed insert, no deletions');
+        el.insert(0, [t]);
+        frag.push([el]);
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid,
+        update: Y.encodeStateAsUpdate(doc, sv),
+        userId: HUMAN_ID,
+        agentName: null,
+        viaSync: true,
+      });
+
+      expect(result).toBeNull();
+      expect(notifyException).not.toHaveBeenCalled();
+    });
+  });
 });

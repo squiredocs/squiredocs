@@ -64,8 +64,15 @@ function init(dbPool) {
  * @param {Uint8Array|Buffer} params.update - the human update's encoded bytes
  * @param {string|null} params.userId - attribution from the originating socket
  * @param {string|null} params.agentName
+ * @param {boolean|null} [params.viaSync=null] - channel marker for the triggering
+ *   update (feature 038 US2/D3): true when it arrived on a SYNC_STEP2 catch-up
+ *   frame. ANNOTATION ONLY. It never changes matching, suppression, or whether a
+ *   page fires. Suppressing pages on sync-sourced updates would blind the
+ *   guardrail to exactly the "a client-side mechanism is masquerading as a user"
+ *   incidents (021) it was built to catch — that is a policy change reserved for
+ *   Sam, not an implementation detail.
  */
-async function evaluateUpdate({ docGuid, update, userId, agentName }) {
+async function evaluateUpdate({ docGuid, update, userId, agentName, viaSync = null }) {
   try {
     // 1. Human-attributed deleters only (RBD-2) — cheap-first ordering.
     if (!userId || agentName) return null;
@@ -129,11 +136,14 @@ async function evaluateUpdate({ docGuid, update, userId, agentName }) {
     const agentClockRange = [Math.min(...clocks), Math.max(...clocks)];
 
     // N1: log EVERY match, even when the page is suppressed below or the
-    // notifier's global email cap swallows the email.
+    // notifier's global email cap swallows the email. A sync-sourced trigger is
+    // annotated (038 D3) so a responder can see the deletion arrived on a
+    // reconnect catch-up rather than as a live keystroke — the page still fires.
+    const syncSourcedNote = viaSync ? ' syncSourced=true' : '';
     console.warn(
       `[CollabGuardrail] human-attributed deletion of fresh agent content: doc=${docGuid} ` +
         `human=${userId} agents=${agentNames.join(',')} dbClockRange=${agentClockRange.join('-')} ` +
-        `overlaps=${JSON.stringify(overlappedItemRanges)}`
+        `overlaps=${JSON.stringify(overlappedItemRanges)}${syncSourcedNote}`
     );
 
     // 5. (doc, user)-keyed suppression (FR-012, RBD-1).
@@ -157,6 +167,9 @@ async function evaluateUpdate({ docGuid, update, userId, agentName }) {
         agentClockRange,
         overlappedItemRanges,
         suppressedSinceLastAlert,
+        // Annotation only (038 D3) — present only when the trigger was
+        // sync-sourced, so existing pages are byte-identical.
+        ...(viaSync ? { syncSourced: true } : {}),
       },
     });
     return { matched: true, alerted: true };
