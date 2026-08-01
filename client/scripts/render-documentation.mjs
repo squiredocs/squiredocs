@@ -310,6 +310,7 @@ const FOOTER = `    <footer class="landing-footer">
                 <li><a href="/documentation">Documentation</a></li>
                 <li><a href="/blog">Blog</a></li>
                 <li><a href="/agents.md">Agents</a></li>
+                <li><a href="https://github.com/squiredocs">GitHub</a></li>
                 <li><a href="/signup">Sign Up</a></li>
                 <li><a href="/login">Sign In</a></li>
               </ul>
