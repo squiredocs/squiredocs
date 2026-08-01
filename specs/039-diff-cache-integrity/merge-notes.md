@@ -108,6 +108,43 @@ pairing and were updated to the new region behavior (they are changes 1 and 3, n
 
 ---
 
+## T056 — Quickstart §3 validation scenarios (V1–V8)
+
+All eight are covered by automated tests; none required manual execution.
+
+| Scenario | Criterion | Covering tests | Outcome |
+|---|---|---|---|
+| V1 | SC-001 incomplete read never cached | `diff-service.test.js` CW-T1; `postgres-gap-read.test.js` RC-1…RC-8 | ✅ pass |
+| V2 | SC-002 transient failure recovers | `diff-service.test.js` CW-T2 | ✅ pass |
+| V3 | SC-004 size vs. timeout determinism | `diff-service.test.js` CW-T3/CW-T4/U1/CW-4; `word-diff.test.js` WD-1…WD-4 | ✅ pass |
+| V4 | SC-003 two-surface parity | `diff-two-surface-parity.test.js` PAR-1a…f/PAR-2; `word-diff.test.js` LS-T1…LS-T5 | ✅ pass |
+| V5 | SC-005 no UI-only data to the model | `strip-ui-only.test.js` MS-1…MS-3; `chat-tools.test.js` MS-4; `chat-strip-ui-only.test.js` MS-5…MS-7 | ✅ pass |
+| V6 | SC-006 single replay | `diff-service.test.js` CW-T9/CW-T10/SR-2/SR-4 | ✅ pass |
+| V7 | SC-007 honest formatting-only banner | `diff-service.test.js` CW-T11/CW-T12 + extractText cases | ✅ pass |
+| V8 | SC-008 badge color + full suites | `HierarchicalVersionList.test.jsx` (039 describe); full backend + client suites | ✅ pass |
+
+**Test results.** Backend `223 suites / 3883 tests`, all passing, `--runInBand` against the
+per-agent `collab_test_db_039`. Client `65 files / 807 tests`, all passing. `npm run build` green.
+
+Baseline for comparison (same tree, pre-039 source): `219 suites / 3810 tests` passing with zero
+pre-existing failures, so every delta is attributable to this feature.
+
+### Manual smoke still owed to the maintainer (quickstart §4, not automatable here)
+
+- Version history on a real document, mid-history pair, word emphasis in light **and** dark themes.
+- An in-app agent `modify`, confirming the chat diff still shows word emphasis and that surplus
+  rows in a multi-line rewrite are now emphasized.
+- Confirm no `diffv9:` key is read after deploy (namespace cut-over).
+
+### Note for whoever runs the suites next
+
+`npx jest` does **not exit** on this repo after the run completes — an open Redis handle keeps the
+process alive, so a piped invocation (`… | tail`) appears to hang forever and returns nothing. Use
+`--forceExit`. This is pre-existing, unrelated to 039, and cost this agent ~20 minutes before it was
+diagnosed; worth a line in `docs/dev.md` if the merge-queue owner agrees.
+
+---
+
 ## Scope compliance
 
 - **No migration** added.
