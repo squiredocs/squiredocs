@@ -314,6 +314,21 @@ setPersistence({
       if (!parsed) return;
       const { userId, agentName } = parsed;
 
+      // Malformed origin (feature 038 US3, FR-017): parseOrigin already degraded
+      // this to unattributed and logged it. Page on the string case — it means a
+      // caller is passing something that is not a user id down the attribution
+      // path, which before this feature failed the uuid INSERT and DROPPED the
+      // update after retries (the CRITICAL branch below) while it stayed live in
+      // every browser. We deliberately continue to persist: an unattributed row
+      // is recoverable, a lost one is not. The drop path must be unreachable
+      // from origin parsing (SC-006).
+      if (parsed.malformedOrigin === 'non-uuid-string') {
+        notifyException(
+          new Error('Malformed string transaction origin (persisting unattributed)'),
+          { source: 'origin-parsing', extra: { docGuid, rejectedOrigin: String(origin).slice(0, 200) } }
+        );
+      }
+
       // Channel marker (feature 038 US2, FR-010/FR-012). Read AFTER the sentinel
       // early-return, so server-side paths (db-load, redis, sync-push,
       // inverse-apply, restore) can never be flagged. `true` only while a

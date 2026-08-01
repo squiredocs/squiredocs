@@ -105,13 +105,43 @@ function createOrigin(userId, agentName = null) {
 }
 
 /**
+ * Strict UUID form. Deliberately NOT fuzzy: `user_id` is a Postgres uuid column,
+ * so "close enough" is not a category that exists downstream — an almost-UUID
+ * (wrong length, stray character, missing group) fails the INSERT just as hard
+ * as arbitrary text.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * Parse any origin value into { userId, agentName }.
- * Returns null for sentinel origins (db-load, redis) that should be skipped.
+ * Returns null for sentinel origins (db-load, redis, sync-push, inverse-apply,
+ * restore) that the persistence listener should skip entirely.
+ *
+ * ── DEGRADE LOUDLY, NEVER DROP (feature 038 US3, FR-017) ─────────────────────
+ * A malformed origin used to be a DATA-LOSS path, not a cosmetic one: a non-UUID
+ * string was passed straight through as `userId`, the INSERT failed on the uuid
+ * column, the transient retries exhausted, and the row was dropped through the
+ * CRITICAL persistence-failure branch — while the update was already applied and
+ * broadcast. The edit stayed on everyone's screen and vanished from durable
+ * history.
+ *
+ * So: a malformed origin degrades ATTRIBUTION (the row persists unattributed)
+ * and raises a loud, alert-worthy signal. It must never make the caller skip
+ * persistence, and this function must never throw. Attribution is recoverable;
+ * a dropped update is not.
+ *
+ * The `malformedOrigin` field is additive — no existing consumer reads it. The
+ * bindState listener in server/index.js is the one persistence-path consumer and
+ * turns 'non-uuid-string' into a notifyException page.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
  * @param {*} origin - Transaction origin (string | object | ws | null)
- * @returns {{ userId: string|null, agentName: string|null } | null}
+ * @returns {{ userId: string|null, agentName: string|null,
+ *   malformedOrigin?: 'non-uuid-string'|'unrecognized-object' } | null}
  */
 function parseOrigin(origin) {
+  // Sentinels first, unchanged — these are server-side paths that already
+  // stored (or loaded) their row.
   if (
     origin === ORIGIN_DB_LOAD
     || origin === ORIGIN_REDIS
@@ -123,10 +153,30 @@ function parseOrigin(origin) {
   }
 
   if (typeof origin === 'string') {
-    return { userId: origin, agentName: null };
+    if (UUID_RE.test(origin)) {
+      return { userId: origin, agentName: null };
+    }
+    // Persist unattributed rather than fail the INSERT and lose the update.
+    try {
+      console.error(
+        '[origin] Malformed string transaction origin — persisting UNATTRIBUTED. '
+        + `Expected a UUID, got: ${JSON.stringify(origin)}`
+      );
+    } catch (_ignored) { /* logging must never break persistence */ }
+    return { userId: null, agentName: null, malformedOrigin: 'non-uuid-string' };
   }
 
   if (origin && typeof origin === 'object') {
+    // `in`-checks, not truthiness: an explicit { userId: null } (and a ws
+    // connection that simply has no agentName) is a RECOGNIZED shape that means
+    // "unattributed", not a malformed one. Only an object carrying neither
+    // property is unrecognized.
+    if (!('userId' in origin) && !('agentName' in origin)) {
+      try {
+        console.warn('[origin] Unrecognized object transaction origin — persisting UNATTRIBUTED.');
+      } catch (_ignored) { /* logging must never break persistence */ }
+      return { userId: null, agentName: null, malformedOrigin: 'unrecognized-object' };
+    }
     return {
       userId: origin.userId ?? null,
       agentName: origin.agentName ?? null,
