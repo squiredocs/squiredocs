@@ -463,3 +463,52 @@ describe('HierarchicalVersionList — US4 restore navigation (024)', () => {
     expect(onRestoreVersion).toHaveBeenCalledWith('5');
   });
 });
+
+/**
+ * Feature 039 US8 (FR-018) — the history author badge fallback color.
+ *
+ * The fallback used to be `generateColorFromId(author.id)`, whose hue is salted
+ * with the CURRENT DATE. That daily rotation is deliberate for LIVE PRESENCE
+ * (collaborators get a fresh palette each day) but wrong for history: the same
+ * archived version's badge silently changed color overnight, so the color
+ * carried no stable meaning and two viewers in different timezones could see
+ * different colors for the same author. History now uses the stable neutral
+ * `#888888`, matching the server's own no-identity fallback in
+ * server/version-history.js.
+ */
+describe('HierarchicalVersionList — author badge fallback color (039 FR-018)', () => {
+  const dotColor = (container) =>
+    container.querySelector('.hierarchy-author-dot').style.backgroundColor;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders the stable neutral #888888 for a colorless author, on any date', () => {
+    // rgb(136, 136, 136) === #888888 (jsdom normalizes to rgb()).
+    const NEUTRAL = 'rgb(136, 136, 136)';
+    const colorless = [{ id: 'user-abc', name: 'Ada Lovelace' }];
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-03-01T12:00:00Z'));
+    const first = renderWithVersion({ authors: colorless });
+    const firstColor = dotColor(first.container);
+    expect(firstColor).toBe(NEUTRAL);
+    first.unmount();
+
+    // A different day must not change the color.
+    vi.setSystemTime(new Date('2024-09-17T12:00:00Z'));
+    const second = renderWithVersion({ authors: colorless });
+    const secondColor = dotColor(second.container);
+    expect(secondColor).toBe(NEUTRAL);
+
+    expect(secondColor).toBe(firstColor);
+  });
+
+  it('still honors an author color when one is supplied', () => {
+    const { container } = renderWithVersion({
+      authors: [{ id: 'user-abc', name: 'Ada Lovelace', color: '#ff0000' }],
+    });
+    expect(dotColor(container)).toBe('rgb(255, 0, 0)');
+  });
+});

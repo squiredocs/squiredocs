@@ -175,7 +175,11 @@ function splitStreamByRow(segments, rowCount) {
 function computeLineWordSegments(beforeLines, afterLines, report) {
   const before = beforeLines.join('\n');
   const after = afterLines.join('\n');
-  const segs = computeWordSegments(before, after, report);
+  // Called through the module export rather than the local binding so tests can
+  // observe/inject it with jest.spyOn — the same reason server/diff/apply-word-marks.js
+  // and server/mcp/diff-postprocess.js use namespace imports. It is what lets the
+  // parity suite prove both surfaces segment at one call per region.
+  const segs = module.exports.computeWordSegments(before, after, report);
   if (!segs) return null;
 
   const beforeRows = splitStreamByRow(segs.before, beforeLines.length);
