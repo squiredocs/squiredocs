@@ -352,6 +352,18 @@ kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev/client && npm 
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run test:collab"
 ```
 
+**Always run backend tests via `npm run test:server`, not bare `npx jest`.** The
+script supplies `--runInBand --forceExit`, and `--forceExit` is load-bearing: a
+Redis client stays connected after the suite finishes, so plain `npx jest` never
+exits on its own. Interactively that looks like a hang; piped or captured (as an
+agent runs it) the command blocks indefinitely and returns nothing, which reads
+like a broken test run rather than a finished one. If you need to run a single
+suite, keep the flags: `npx jest path/to/file.test.js --runInBand --forceExit`.
+Backend tests are serial-only against one database — never run two suites
+concurrently against the same `DATABASE_URL`; they delete each other's fixture
+rows and fail with confusing foreign-key errors. Use a per-worktree database
+(`createdb collab_test_db_<n>` + `DATABASE_URL=...`) when working in parallel.
+
 **Backend test transform note:** the backend is CommonJS, but some AI SDK deps
 (`@ai-sdk/openai-compatible` and its nested `@ai-sdk/*`, plus `@workflow/*`) ship
 ESM-only. Jest handles them via a babel-jest `transform` with `@babel/preset-env`
