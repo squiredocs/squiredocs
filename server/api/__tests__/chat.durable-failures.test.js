@@ -48,6 +48,11 @@ jest.mock('../../documents', () => ({ getDocument: jest.fn(), hasAccess: jest.fn
 jest.mock('../chat-models', () => ({
   resolveChatModel: jest.fn(() => ({ model: {}, def: { key: 'test', modelId: 'm', provider: 'anthropic', supportsImages: true }, provider: {} })),
   buildProviderOptions: jest.fn(() => null),
+  // Feature 039: chat.js strips UI-only diff data from replayed history on every
+  // turn (unconditionally, unlike the capability-gated strips). This suite mocks
+  // chat-models wholesale, so the new export has to be present here or the turn
+  // dies with a TypeError and every failure is misclassified as 'internal'.
+  stripUiOnlyDiffParts: jest.fn((m) => m),
 }));
 jest.mock('../ai-providers', () => ({
   ...jest.requireActual('../ai-providers'),

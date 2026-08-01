@@ -1,6 +1,5 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { generateColorFromId } from '../utils/colorUtils';
 import VersionNameDialog from './VersionNameDialog';
 import VersionConfirmDialog from './VersionConfirmDialog';
 import './HierarchicalVersionList.css';
@@ -53,7 +52,13 @@ function AuthorList({ authors, maxDisplay = null }) {
         <div key={`${author.id}-${i}`} className="hierarchy-author" title={author.name}>
           <span
             className="hierarchy-author-dot"
-            style={{ backgroundColor: author.color || generateColorFromId(author.id) }}
+            // Feature 039 FR-018: a colorless author gets the stable neutral,
+            // matching the server's own no-identity fallback in
+            // server/version-history.js. generateColorFromId salts its hue with
+            // the current DATE — deliberate for live presence (collaborators get
+            // a fresh palette each day), but wrong for history, where the same
+            // archived version would change color overnight.
+            style={{ backgroundColor: author.color || '#888888' }}
           />
           <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
         </div>

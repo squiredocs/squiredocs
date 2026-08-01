@@ -140,6 +140,11 @@ function stampSide(doc, segments, side) {
  *
  * @param {string} removedMd - the removed side of the region (prev markdown)
  * @param {string} addedMd - the added side of the region (curr markdown)
+ * @param {object} [report] - optional degradation sink (feature 039, FR-006),
+ *   forwarded verbatim to the segmenter so the diff service can tell a
+ *   deterministic size cap from a load-dependent timeout and decide whether the
+ *   comparison may be cached. Purely out of band: omit it and behavior is
+ *   unchanged, and it never affects what this function returns.
  * @returns {Array<object>} refined removed blocks followed by refined added blocks
  */
 function lineLevelFallback(removedMd, addedMd) {
@@ -148,7 +153,7 @@ function lineLevelFallback(removedMd, addedMd) {
   return [...(removed.content || []), ...(added.content || [])];
 }
 
-function applyWordMarks(removedMd, addedMd) {
+function applyWordMarks(removedMd, addedMd, report) {
   try {
     const removedDoc = markdownToPm(removedMd, null, STRICT);
     const addedDoc = markdownToPm(addedMd, null, STRICT);
@@ -156,7 +161,7 @@ function applyWordMarks(removedMd, addedMd) {
     const plainRemoved = plainTextOf(removedDoc);
     const plainAdded = plainTextOf(addedDoc);
 
-    const segs = wordDiff.computeWordSegments(plainRemoved, plainAdded);
+    const segs = wordDiff.computeWordSegments(plainRemoved, plainAdded, report);
     if (!segs) {
       // Oversized or slow region (size cap / diff timeout): expected
       // degradation, not an error — line-level marks, no log.

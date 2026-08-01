@@ -141,4 +141,34 @@ function computeChatDiff(mdBefore, mdAfter) {
   };
 }
 
-module.exports = { computeChatDiff, stripHardBreakMarkers };
+/**
+ * Remove UI-only word-emphasis data from a tool result bound for a MODEL
+ * (feature 039, FR-012).
+ *
+ * `diff.inlineSegments` exists so the BROWSER can render emphasized spans inside
+ * changed rows. To a model it is pure noise — arrays of `{text, changed}` that
+ * merely restate, character by character, the diff lines it already has — and on
+ * a large `modify` it is the biggest part of the result. It is stripped at every
+ * model-bound seam while storage and the browser keep it.
+ *
+ * ST-1 (pure / non-mutating) is LOAD-BEARING, not hygiene: at two of the three
+ * seams the object handed to this function is also the copy that gets persisted
+ * and sent to the browser, so mutating it would delete the emphasis from the UI.
+ *
+ * ST-5: targeted at `result.diff`, not a deep key walk. All three producers
+ * (`modify`, `undo`, `redo`) attach the diff there; a generic deep removal would
+ * be over-broad and slower for no benefit.
+ *
+ * @param {*} result - any tool result
+ * @returns {*} the same reference when there is nothing to strip (ST-2), else a
+ *   shallow clone with `diff` shallow-cloned minus `inlineSegments`
+ */
+function stripUiOnlyDiffFields(result) {
+  if (!result || typeof result !== 'object') return result;
+  const diff = result.diff;
+  if (!diff || typeof diff !== 'object' || diff.inlineSegments === undefined) return result;
+  const { inlineSegments, ...diffRest } = diff;
+  return { ...result, diff: diffRest };
+}
+
+module.exports = { computeChatDiff, stripHardBreakMarkers, stripUiOnlyDiffFields };

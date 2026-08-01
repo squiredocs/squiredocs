@@ -7,7 +7,11 @@
  * a single annotated line instead of an unreadable -/+ pair.
  */
 
-const { computeWordSegments } = require('../../shared/diff/word-diff');
+// Namespace import on purpose (same rationale as server/diff/apply-word-marks.js):
+// calling through the module namespace lets tests observe/inject the shared
+// segmenter with jest.spyOn, which is how the two-surface parity suite proves
+// both surfaces segment at the same granularity.
+const wordDiff = require('../../shared/diff/word-diff');
 
 // ---------------------------------------------------------------------------
 // Stripping helpers
@@ -176,19 +180,30 @@ function postProcessDiffLines(lines, hunkStarts) {
         result.push(lines[j][0] + stripSpanTags(lines[j].slice(1)));
       }
 
-      // Word-level inline diff (feature 022): pair del/add rows by index up to
-      // min(delCount, addCount); surplus rows on the longer side get no
-      // segments. Segment each pair's prefix- and span-stripped text (the same
-      // text the row renders) so segments rejoin byte-identically to the row.
-      const pairCount = Math.min(delOutIdx.length, addOutIdx.length);
-      for (let k = 0; k < pairCount; k++) {
-        const beforeText = stripSpanTags(lines[delStart + k].slice(1));
-        const afterText = stripSpanTags(lines[addStart + k].slice(1));
-        const segs = computeWordSegments(beforeText, afterText);
-        if (!segs) continue; // oversized/slow pair: row tint only (fail-open)
-        inlineSegments[delOutIdx[k]] = segs.before;
-        inlineSegments[addOutIdx[k]] = segs.after;
+      // Word-level inline diff (feature 022, reworked in 039 FR-008..010).
+      //
+      // This used to pair rows POSITIONALLY — k-th removed against k-th added,
+      // up to min(delCount, addCount) — which disagreed with the version-history
+      // surface in two visible ways: a row inserted at the top of a block made
+      // every following row compare against its neighbour and light up as
+      // changed, and surplus rows past the shorter side got no emphasis at all.
+      // Now the REGION is the unit on both surfaces: one segmentation over all
+      // rows, split back out per row (SC-003 parity).
+      //
+      // Segment the SAME prefix- and span-stripped strings the rows render, so
+      // the per-row rejoin invariant is a statement about displayed text (CS-2).
+      const beforeLines = delOutIdx.map((_, k) => stripSpanTags(lines[delStart + k].slice(1)));
+      const afterLines = addOutIdx.map((_, k) => stripSpanTags(lines[addStart + k].slice(1)));
+      const perRow = wordDiff.computeLineWordSegments(beforeLines, afterLines);
+      if (perRow) {
+        // Every row on BOTH sides gets segments — no Math.min anywhere (LS-5).
+        delOutIdx.forEach((outIdx, k) => { inlineSegments[outIdx] = perRow.before[k]; });
+        addOutIdx.forEach((outIdx, k) => { inlineSegments[outIdx] = perRow.after[k]; });
       }
+      // perRow === null → oversized or slow region: emit NO inlineSegments for
+      // the whole region, row tint only (FR-010, fail-open). The guardrails now
+      // apply to the joined region, exactly as they do on the version-history
+      // side, so the two surfaces degrade together.
       continue;
     }
 

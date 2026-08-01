@@ -10,6 +10,7 @@
  */
 
 const { PROVIDERS, getProviderConfig, hasServerKey, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
+const { stripUiOnlyDiffFields } = require('../mcp/diff-utils');
 
 const DEFAULT_MODEL_KEY = 'claude-opus';
 
@@ -329,6 +330,41 @@ function stripReasoningParts(messages) {
 }
 
 /**
+ * Return a copy of UI `messages` with UI-only word-emphasis data removed from
+ * replayed tool outputs (feature 039, seam (c) of FR-012 / FR-014).
+ *
+ * A `modify` result's `diff.inlineSegments` is what the browser uses to draw
+ * emphasized spans inside changed rows. Once that turn is history, replaying it
+ * re-sends all of it to the model on EVERY subsequent turn, where it is useless
+ * — the model already has `diff.lines`.
+ *
+ * Differences from its two siblings above:
+ *   - MC-3: it never drops a part or a message, it only shrinks an output.
+ *   - MC-4: it is UNCONDITIONAL, not capability-gated. Reasoning and
+ *     provider-executed tools are stripped only for providers that mishandle
+ *     them; this data is useless to every model.
+ *   - MC-5: only `modelInputMessages` is rewritten. `validatedMessages` — the
+ *     persisted history and what the UI renders — keeps the segments.
+ *
+ * The input array and its parts are not mutated.
+ */
+function stripUiOnlyDiffParts(messages) {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((m) => {
+    if (!m || !Array.isArray(m.parts)) return m;
+    let changed = false;
+    const parts = m.parts.map((p) => {
+      if (!p || typeof p !== 'object' || p.output === undefined) return p;
+      const stripped = stripUiOnlyDiffFields(p.output);
+      if (stripped === p.output) return p;
+      changed = true;
+      return { ...p, output: stripped };
+    });
+    return changed ? { ...m, parts } : m;
+  });
+}
+
+/**
  * Get the list of models for the settings UI. The client groups these by
  * provider and gates selection on whether the user has stored that provider's
  * key (see SettingsPage); request-time enforcement lives in isByokActive.
@@ -521,4 +557,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, 
 
 // isSharedEligible is exported so the admin write-time validation and this
 // module's resolution-time fallback are literally the same predicate (035 FR-005).
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, stripUiOnlyDiffParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

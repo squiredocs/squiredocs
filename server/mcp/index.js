@@ -14,6 +14,7 @@ const oauthFlow = require('./auth/oauth-flow');
 const oauthRouter = require('./auth/oauth-router');
 const apiTokens = require('./auth/api-tokens');
 const toolRegistry = require('./tools');
+const { stripUiOnlyDiffFields } = require('./diff-utils');
 const { buildBaseUrl } = require('../url');
 const { notifyException } = require('../exception-notifier');
 
@@ -66,7 +67,10 @@ function toToolResultContent(result) {
   if (result && Array.isArray(result.__mcpContent)) {
     return result.__mcpContent;
   }
-  return [{ type: 'text', text: JSON.stringify(result, null, 2) }];
+  // Seam (a) of feature 039 FR-012: drop UI-only word-emphasis data before it
+  // reaches the model. Pass-through for results without a diff (ST-2), and the
+  // 2-space pretty-print is deliberately unchanged (MA-1).
+  return [{ type: 'text', text: JSON.stringify(stripUiOnlyDiffFields(result), null, 2) }];
 }
 
 function jsonRpcError(id, code, message, data) {
@@ -446,4 +450,6 @@ module.exports = {
   oauthRouter,
   init,
   SERVER_INSTRUCTIONS,
+  // Exported for the 039 model-bound-serialization tests (seam (a)).
+  toToolResultContent,
 };
