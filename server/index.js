@@ -77,6 +77,8 @@ const toolRegistry = require('./mcp/tools');
 const agentPresence = require('./mcp/agent-presence');
 const chat = require('./api/chat');
 const chatStore = require('./chat-store');
+// Feature 041 (FR-015): the verified chat "Reverted" stamp.
+const chatRevertStamp = require('./api/chat-revert-stamp');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
@@ -1602,10 +1604,30 @@ function makeUndoRedoHandler(toolName, label) {
       // Persist the reverted state on the chat message so the "Reverted" marker
       // survives reloads. Best-effort: never fail the undo/redo if this doesn't
       // stick. undo -> reverted, redo -> not reverted.
+      //
+      // ── VERIFIED STAMP (feature 041, FR-015) ─────────────────────────────
+      // The card reference is CLIENT-SUPPLIED. Undo picks its target by LIFO
+      // over the acting identity's records, which is not necessarily the edit
+      // on the card the request names: a newer edit from another chat, or a
+      // direct API call carrying an arbitrary toolCallId, would stamp
+      // "Reverted" onto a card whose edit was never touched — a user-facing
+      // attribution lie. So the stamp only lands when the card's own recorded
+      // edit range matches the range of the record that was actually undone.
+      // A card with NO stored range (pre-016, or still editRangePending) is a
+      // MISMATCH by rule: absence of evidence is not a pass.
+      //
+      // The undo/redo itself is never affected, and the HTTP response is
+      // identical whether the stamp applied or was skipped. Nothing cut by
+      // 040 D19 is revived here — this is a read-and-compare at the stamp
+      // site, not undo scoping and not an offer guard.
       const succeeded = toolName === 'undo' ? result.undone : result.redone;
       if (succeeded && req.body?.chatId && req.body?.toolCallId) {
         try {
-          await setChatPartReverted(req.body.chatId, userId, req.body.toolCallId, toolName === 'undo');
+          const recordRange = toolName === 'undo' ? result.undoneRecordRange : result.redoneRecordRange;
+          await setChatPartReverted(
+            req.body.chatId, userId, req.body.toolCallId, toolName === 'undo',
+            { expectedRange: recordRange, label }
+          );
         } catch (e) {
           console.warn(`[${label}] could not persist reverted flag:`, e.message);
         }
@@ -1620,22 +1642,11 @@ function makeUndoRedoHandler(toolName, label) {
   };
 }
 
-// Set/clear the `reverted` flag on a tool part (by toolCallId) within a stored
-// chat, so the chat UI can show the edit as reverted after a reload.
-async function setChatPartReverted(chatId, userId, toolCallId, reverted) {
-  const messages = await chatStore.loadChat(chatId, userId);
-  if (!messages || !messages.length) return;
-  let changed = false;
-  for (const m of messages) {
-    for (const p of (m.parts || [])) {
-      if (p.toolCallId === toolCallId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
-        if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
-        else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
-      }
-    }
-  }
-  if (changed) await chatStore.saveChat(chatId, userId, messages);
-}
+// The verified "Reverted" stamp lives in server/api/chat-revert-stamp.js so the
+// comparison rule is unit-testable without booting the server (feature 041,
+// FR-015).
+const setChatPartReverted = (chatId, userId, toolCallId, reverted, opts) =>
+  chatRevertStamp.setChatPartReverted({ chatStore }, chatId, userId, toolCallId, reverted, opts);
 
 app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo'));
 app.post('/api/docs/:docId/redo', requireAuth, makeUndoRedoHandler('redo', 'redo'));

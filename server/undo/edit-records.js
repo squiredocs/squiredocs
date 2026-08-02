@@ -185,12 +185,23 @@ async function nextRedoTarget(persistence, { docGuid, userId, agentName }) {
  * (b) younger than `freshnessMs` (callers pass the background wait bound, so
  * anything the background recorder could still record counts as pending).
  * Rows older than that will never be recorded and must not wedge undo.
+ *
+ * SYNC-CHANNEL ROWS ARE EXCLUDED (feature 041, FR-014). A reconnect catch-up
+ * re-supplies rows under the acting identity flagged `via_sync = true`. Those
+ * rows will NEVER get an `agent_edits` record — they are a re-delivery, not a
+ * new edit — so the "newer than everything accounted for" heuristic
+ * false-positived on them and refused undo with "still being recorded — retry
+ * shortly" for the whole freshness window after every routine reconnect.
+ * `IS NOT TRUE` keeps NULL matching, per the uniform via_sync read rule
+ * (`postgres-persistence._mapUpdateRow`): only a FLAGGED row is excluded;
+ * pre-038 rows and every normal write still count.
  */
 async function hasPendingRecording(persistence, { docGuid, userId, agentName }, freshnessMs) {
   const pool = persistence.getPool();
   const newest = await pool.query(
     `SELECT clock, created_at FROM yjs_updates
      WHERE doc_guid = $1 AND user_id = $2 AND agent_name = $3
+       AND via_sync IS NOT TRUE
      ORDER BY clock DESC LIMIT 1`,
     [docGuid, userId, agentName]
   );

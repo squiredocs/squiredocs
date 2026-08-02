@@ -173,6 +173,13 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     }
   }
 
+  // The ORIGINAL edit's clock range for the record about to be claimed — what a
+  // chat card stores (`part.output.editRange`, feature 016). Feature 041 returns
+  // it so the stamp site can verify it is talking about the same edit.
+  const recordRange = row
+    ? { clockStart: row.editClockStart, clockEnd: row.editClockEnd }
+    : { clockStart: legacyEdit.clockStart, clockEnd: legacyEdit.clockEnd };
+
   const { updates: rows, gapped } = await loadLog(persistence, docGuid);
   if (gapped) {
     // Torn read after the retry budget (023 FR-009/D-2): abort BEFORE any claim
@@ -230,6 +237,11 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     undone: true,
     message: 'Edit undone. Later edits by you and other collaborators were preserved.',
     clock,
+    // Feature 041 (FR-015), ADDITIVE: the ORIGINAL clock range of the record
+    // that was actually undone. The chat route compares this against the range
+    // stored on the card it was asked to stamp, so "Reverted" can only ever
+    // land on the card whose edit was the one reverted. Present on success only.
+    undoneRecordRange: recordRange,
     ...(diff ? { diff } : {}),
   };
 }
@@ -304,6 +316,10 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
     redone: true,
     message: 'Edit reapplied.',
     clock,
+    // Feature 041 (FR-015), ADDITIVE: the ORIGINAL edit's range (the same
+    // `edit_clock_*` bounds undo reports), because that is what the chat card
+    // stores — the redo un-stamps exactly the card the undo stamped.
+    redoneRecordRange: { clockStart: row.editClockStart, clockEnd: row.editClockEnd },
     ...(diff ? { diff } : {}),
   };
 }
