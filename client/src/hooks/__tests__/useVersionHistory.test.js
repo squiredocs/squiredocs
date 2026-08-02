@@ -665,6 +665,71 @@ describe('useVersionHistory', () => {
     });
   });
 
+  // ── Review M3: the timeline applies only the freshest response ────────────
+  // fetchHistory runs from three places at once (mount, the 10 s poll, and every
+  // CRUD action's refresh), so a slow poll could land AFTER a fresher refresh
+  // and overwrite the newer list with a pre-rename one — a stale world for up to
+  // a full poll interval, a second cache wipe, and a selection reconciled
+  // against history that no longer exists. Mirrors the F4 diff-race guard.
+  describe('review M3: out-of-order history responses', () => {
+    it('discards a slow poll response that lands after a fresher refresh', async () => {
+      const stale = [{ id: 'v-old', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const fresh = [{ id: 'v-new', name: 'Draft', clockStart: 1, clockEnd: 6, timestamp: '2025-01-01T10:01:00Z', isCurrent: true }];
+
+      let resolvePoll;
+      let resolveRefresh;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // mount
+        .mockImplementationOnce(() => new Promise((r) => { resolvePoll = () => r({ data: { versions: stale, totalEdits: 5 } }); }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveRefresh = () => r({ data: { versions: fresh, totalEdits: 6 } }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let pPoll;
+      let pRefresh;
+      act(() => {
+        pPoll = result.current.fetchHistory({ background: true });
+        pRefresh = result.current.refresh();
+      });
+
+      // The newer refresh answers first; the slow poll answers second.
+      await act(async () => { resolveRefresh(); await pRefresh; });
+      await act(async () => { resolvePoll(); await pPoll; });
+
+      expect(result.current.versions).toEqual(fresh);
+      expect(result.current.totalEdits).toBe(6);
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it('discards a stale FAILURE so it cannot alarm over a fresher good list', async () => {
+      const fresh = [{ id: 'v-new', name: null, clockStart: 1, clockEnd: 6, timestamp: '2025-01-01T10:01:00Z', isCurrent: true }];
+
+      let rejectPoll;
+      let resolveRefresh;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // mount
+        .mockImplementationOnce(() => new Promise((_r, rej) => { rejectPoll = () => rej({ response: { data: { error: 'poll boom' } } }); }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveRefresh = () => r({ data: { versions: fresh, totalEdits: 6 } }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let pPoll;
+      let pRefresh;
+      act(() => {
+        pPoll = result.current.fetchHistory({ background: true });
+        pRefresh = result.current.refresh();
+      });
+
+      await act(async () => { resolveRefresh(); await pRefresh; });
+      await act(async () => { rejectPoll(); await pPoll; });
+
+      expect(result.current.versions).toEqual(fresh);
+      expect(result.current.error).toBeNull();
+    });
+  });
+
   describe('041 FR-007: selection reconciliation after every refresh', () => {
     const diffOk = { data: { document: 'doc', meta: {} } };
 

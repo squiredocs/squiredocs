@@ -97,6 +97,15 @@ export function useVersionHistory(docGuid) {
   // selection's preview. Only the response whose seq is still current applies.
   const diffRequestSeqRef = useRef(0);
 
+  // The same guard for the timeline itself (review M3). `fetchHistory` runs from
+  // three places at once — mount, the 10 s background poll, and every CRUD action
+  // that refreshes afterwards — so a slow poll response could land AFTER a
+  // fresher refresh and overwrite the newer list with a pre-rename/pre-restore
+  // one, wiping the drill-down cache a second time and reconciling the selection
+  // against a world that no longer exists. Only the response whose seq is still
+  // current applies.
+  const historyRequestSeqRef = useRef(0);
+
   // Feature 041 (FR-007): the selection must be reconciled against every
   // refreshed list, so `fetchHistory` needs to read the CURRENT selection
   // without taking it as a dependency (that would rebuild the poll interval on
@@ -128,8 +137,10 @@ export function useVersionHistory(docGuid) {
       setError(null);
     }
 
+    const seq = ++historyRequestSeqRef.current;
     try {
       const response = await api.get(`/api/docs/${docGuid}/history`);
+      if (seq !== historyRequestSeqRef.current) return; // superseded by a newer fetch
       const fresh = response.data.versions || [];
       setVersions(fresh);
       setTotalEdits(response.data.totalEdits || 0);
@@ -146,9 +157,13 @@ export function useVersionHistory(docGuid) {
         setVersionUpdatesMeta({});
       }
     } catch (err) {
+      if (seq !== historyRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error fetching version history:', err);
       setError(err.response?.data?.error || 'Failed to load version history');
     } finally {
+      // Not seq-guarded: only a foreground fetch ever raises this flag, so the
+      // foreground fetch that raised it must always be able to lower it — a
+      // background tick superseding it must not strand the panel in "Loading".
       if (!background) setIsLoading(false);
     }
   }, [docGuid, api]);
