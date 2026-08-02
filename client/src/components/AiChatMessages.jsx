@@ -544,10 +544,6 @@ function ToolCard({ part, citations }) {
           isLatest={part === lastModifyPart}
           reverted={reverted}
           onRevertedChange={setReverted}
-          // Feature 040 (FR-017): this part's own durable edit identity.
-          // `undefined` when the modify's durability wait timed out
-          // (`editRangePending`) — the guard then fails open.
-          editClockStart={part.output?.editRange?.clockStart}
         />
       )}
       {isFormatOnly && (
@@ -600,29 +596,19 @@ const markdownLinkRenderer = { a: MarkdownLink };
  * Renders a single row: the "Reverted" label (left) and the action button
  * (right). Returns null when there's nothing to show.
  */
-function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedChange, editClockStart }) {
+function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedChange }) {
   const { api } = useAuth();
   const chatId = useAiChat()?.currentChatId || null;
   const [busy, setBusy] = useState(false);
   // Inline feedback: request errors AND the server's honest nothing-left
   // messages share the same display span.
   const [error, setError] = useState(null);
-  // { canUndo, canRedo, nextUndo?, nextRedo? } | null until first load
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(null); // { canUndo, canRedo } | null until first load
 
   const fetchStatus = useCallback(async () => {
     try {
       const res = await api.get(`/api/docs/${docGuid}/undo-status`);
-      return {
-        canUndo: !!res.data?.canUndo,
-        canRedo: !!res.data?.canRedo,
-        // Feature 040 (FR-016): carry the target record identifiers through
-        // instead of dropping them. `undefined` when the server omitted them
-        // (an older server, or the legacy-derivation fallback) — the offer
-        // guard below treats that as "unknown" and fails open.
-        nextUndoClock: res.data?.nextUndo?.editClockStart,
-        nextRedoClock: res.data?.nextRedo?.editClockStart,
-      };
+      return { canUndo: !!res.data?.canUndo, canRedo: !!res.data?.canRedo };
     } catch {
       return { canUndo: false, canRedo: false };
     }
@@ -669,37 +655,7 @@ function UndoEditButton({ docGuid, toolCallId, isLatest, reverted, onRevertedCha
   }, [api, docGuid, chatId, toolCallId, reverted, onRevertedChange, fetchStatus]);
 
   const canAct = reverted ? status?.canRedo : status?.canUndo;
-
-  // Feature 040 (FR-017/FR-018): offer the control only when the record the
-  // endpoint would act on IS this card's own edit.
-  //
-  // Why this exists: `/undo` selects the identity's most-recent record (LIFO)
-  // and uses `toolCallId` only to stamp the "Reverted" marker. Now that a
-  // web-UI restore is recorded under the same identity (FR-001), an unguarded
-  // button here would invert the RESTORE and mark THIS edit "Reverted" — a
-  // false statement to the user.
-  //
-  // FAIL OPEN when either value is unknown (D15). Both can legitimately be
-  // missing: an older server response without the field, the legacy-derivation
-  // fallback that has no record, or a modify whose durability wait timed out
-  // and returned `editRangePending` with no `editRange`. A fail-CLOSED guard
-  // would silently strip a working Undo button from every pre-existing chat
-  // card — an honesty fix turned into a capability regression.
-  //
-  // Failing open is safe because it is not the only defence: the server
-  // refuses to write the "Reverted" flag for a record it did not act on
-  // (FR-019), so a stale poll here cannot produce a lie — only a button that
-  // turns out to do something else, which the re-poll then corrects.
-  const targetClock = reverted ? status?.nextRedoClock : status?.nextUndoClock;
-  const isMyTarget = targetClock === undefined || editClockStart === undefined
-    ? true
-    : targetClock === editClockStart;
-
-  // `isLatest` stays as a cheaper necessary precondition (today's
-  // latest-edit-only chat semantics); the target check is an ADDITIONAL gate.
-  const showButton = isLatest && isMyTarget && (canAct || busy);
-  // The "Reverted" label is deliberately unaffected by the guard — it is a
-  // historical marker, not an action.
+  const showButton = isLatest && (canAct || busy);
   if (!reverted && !showButton) return null;
 
   const label = reverted ? 'Redo edit' : 'Undo edit';

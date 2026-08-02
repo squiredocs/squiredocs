@@ -573,13 +573,10 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
  * @param {object} [deps]
  * @param {Function|null} [deps.getSharedDoc] - docGuid -> Y.Doc|null (in-memory doc)
  * @param {object|null} [deps.redisPubSub] - cross-instance fan-out when not loaded
- * @param {string|null} [deps.agentName] - The acting identity this restore is
- *   recorded under, in BOTH the update log and the edit record (feature 040
- *   FR-001). An MCP restore passes the agent token's own name; the web-UI
- *   restore route passes the chat-assistant identity acting for the
- *   requesting user. `null` is not a supported value for a real caller — it
- *   is left as the default so it reaches `recordEdit`'s FR-006 guard and
- *   fails loudly by name rather than being coerced to an unreachable `''` row.
+ * @param {string|null} [deps.agentName] - Acting agent name, or `null` for a
+ *   human web-UI restore. An MCP restore passes the agent token's own name and
+ *   is recorded as that agent's undoable edit; a human restore is attributed to
+ *   the human in the update log and is NOT an undo target (see below).
  * @returns {Promise<Object>} Result with new version info
  */
 async function restoreVersion(persistence, docGuid, versionId, userId, {
@@ -693,36 +690,41 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   // Record the restore as an edit record so log-derived undo can invert it
-  // (feature 023 FR-020, D-4).
+  // (feature 023 FR-020, D-4) — but ONLY for an agent restore.
   //
-  // Feature 040 (FR-001): the SAME `agentName` now feeds BOTH stores — the
-  // `storeUpdate` above and this `recordEdit`. The old `agentName ?? ''`
-  // fallback here is gone: it meant a human UI restore wrote the acting
-  // identity into `yjs_updates` but the `''` sentinel into `agent_edits`, so
-  // the two stores disagreed and no undo surface could ever find the record.
-  // Callers supply a real identity (the REST route passes the chat-assistant
-  // identity, the MCP tool passes the acting agent's name).
+  // A human web-UI restore (`agentName === null`) is deliberately NOT recorded.
+  // The restore itself still lands in `yjs_updates` attributed to the human, so
+  // history shows who did it and the restore is reverted the ordinary way, by
+  // restoring again. It is simply not an undo target.
   //
-  // The `agentName = null` default parameter is KEPT ON PURPOSE (research
-  // R2): a null must now reach `recordEdit`'s FR-006 precondition and be
-  // rejected loudly by name. That rejection is the tripwire that catches a
-  // future caller which forgets to supply an identity — silently coercing it
-  // to `''` here is exactly the bug this feature removes.
+  // Why not: the only edits recorded under the chat-assistant identity are chat
+  // `modify` calls, which is exactly what the chat "Undo edit" button sits on.
+  // Because the LIFO undo target and the card the button lives on are always
+  // the same record, mislabelling is structurally impossible. Putting restores
+  // into that same queue (feature 040, since cut) broke that invariant and
+  // needed a guard apparatus to contain the divergence — for a capability with
+  // no UI to invoke it, at the cost of attributing a human's restore to the
+  // assistant. See specs/040-restore-undo-attribution/ (US1/US6 CUT).
+  //
+  // An MCP restore passes its own `agentName` and is recorded as that agent's
+  // edit, undoable by that agent, exactly as it has been since 023.
   //
   // Non-fatal (modify parity, D6): a recording failure logs and the restore
   // still succeeds — undo simply finds nothing to invert. The user's content
   // change is never lost to a bookkeeping failure.
-  try {
-    await editRecords.recordEdit(persistence, {
-      docGuid,
-      userId,
-      agentName,
-      clockStart: newClock,
-      clockEnd: newClock,
-      clocks: [newClock],
-    });
-  } catch (recordErr) {
-    console.error(`[Restore] Failed to record edit for ${docGuid} (restore still succeeds):`, recordErr.message);
+  if (agentName) {
+    try {
+      await editRecords.recordEdit(persistence, {
+        docGuid,
+        userId,
+        agentName,
+        clockStart: newClock,
+        clockEnd: newClock,
+        clocks: [newClock],
+      });
+    } catch (recordErr) {
+      console.error(`[Restore] Failed to record edit for ${docGuid} (restore still succeeds):`, recordErr.message);
+    }
   }
 
   // Broadcast the restore live on every instance without a silent skip

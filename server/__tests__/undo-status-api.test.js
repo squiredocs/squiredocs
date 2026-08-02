@@ -20,12 +20,10 @@ const agentPresence = require('../mcp/agent-presence');
 const undoService = require('../undo/undo-service');
 const editRecords = require('../undo/edit-records');
 const { getRevertedDocs } = require('../api/chat-staleness');
-const versionHistory = require('../version-history');
 
-// Feature 040 (FR-005): read from the one authoritative definition rather
-// than re-declaring the literal — a local copy here could drift from the
-// identity the restore route actually records under, which is the exact class
-// of bug FR-005 exists to make impossible. T016 pins this.
+// Read from the one authoritative definition rather than re-declaring the
+// literal, so a local copy here cannot drift from the identity the chat
+// assistant actually records under.
 const { CHAT_AGENT_NAME } = require('../agent-identity');
 
 describe('GET /api/docs/:docId/undo-status', () => {
@@ -122,11 +120,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
     const before = agentPresence._sessionsByKey.size;
 
     const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-    // 040 FR-016: canUndo/canRedo keep their exact prior values; the response
-    // additionally carries the target record's immutable edit_clock_start.
-    expect(res.body.canUndo).toBe(true);
-    expect(res.body.canRedo).toBe(false);
-    expect(res.body.nextUndo).toEqual({ editClockStart: 1 });
+    expect(res.body).toEqual({ canUndo: true, canRedo: false });
 
     // SC-006: the poll neither created nor extended any presence session.
     expect(agentPresence._sessionsByKey.size).toBe(before);
@@ -138,8 +132,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
         { docGuid, userId, agentName: CHAT_AGENT_NAME },
         { persistence: persistenceR }
       );
-      expect(status.canUndo).toBe(true);
-      expect(status.canRedo).toBe(false);
+      expect(status).toEqual({ canUndo: true, canRedo: false });
     } finally {
       await persistenceR.destroy();
     }
@@ -157,13 +150,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
     expect(result.undone).toBe(true);
 
     const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-    expect(res.body.canUndo).toBe(false);
-    expect(res.body.canRedo).toBe(true);
-    // 040 FR-016/D14: the redo target is reported by the record's IMMUTABLE
-    // edit_clock_start — unchanged by the undo that just happened.
-    expect(res.body.nextRedo).toEqual({ editClockStart: 1 });
-    // canUndo is false, so its target field is ABSENT (not null, not 0).
-    expect('nextUndo' in res.body).toBe(false);
+    expect(res.body).toEqual({ canUndo: false, canRedo: true });
   });
 
   test('viewer role gets { false, false }', async () => {
@@ -216,141 +203,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
     // NO agent_edits record — pre-016 fixture (the chat part would persist
     // only the baseline clock).
     const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-    // 040 FR-016 rule 2: canUndo is still true, and BOTH target fields are
-    // absent — this branch derives a range from the log and has no record, so
-    // there is no stable identity to report. Asserted with toEqual so an
-    // accidental null-guess would fail here.
     expect(res.body).toEqual({ canUndo: true, canRedo: false });
-  });
-
-  // T015 (040 FR-002 / SC-002): the headline defect. Before 040 a web-UI
-  // restore recorded under the unreachable '' sentinel, so this endpoint
-  // reported canUndo:false and no undo surface could invert it.
-  describe('040 T015: a web-UI restore is reported as undoable (FR-002, SC-002)', () => {
-    test('canUndo is true immediately after a web-UI restore, and survives a simulated process restart', async () => {
-      const docGuid = await createDoc({ agentEdit: false });
-      // Second revision, so there is an earlier version to restore to.
-      const doc = await persistence.getYDoc(docGuid);
-      const sv = Y.encodeStateVector(doc);
-      doc.transact(() => doc.get('default', Y.XmlFragment).get(0).get(0).insert(0, 'Changed: '));
-      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
-      doc.destroy();
-
-      // The restore exactly as server/index.js's REST route performs it.
-      const result = await versionHistory.restoreVersion(
-        persistence, docGuid, '0', userId,
-        { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME }
-      );
-      expect(result.success).toBe(true);
-
-      const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-      expect(res.body.canUndo).toBe(true);
-      // FR-016: and it names the restore's own record.
-      expect(res.body.nextUndo.editClockStart).toBe(result.newClock);
-
-      // Log-derived, not session-derived: a brand-new persistence over the
-      // same DB (a "restarted" process, no in-memory state) answers the same.
-      const persistenceR = createPersistence();
-      try {
-        const status = await undoService.getUndoStatus(
-          { docGuid, userId, agentName: CHAT_AGENT_NAME },
-          { persistence: persistenceR }
-        );
-        expect(status.canUndo).toBe(true);
-        expect(status.nextUndo.editClockStart).toBe(result.newClock);
-      } finally {
-        await persistenceR.destroy();
-      }
-    });
-
-    test('a viewer still gets { canUndo:false, canRedo:false } after a restore (unchanged edge case)', async () => {
-      const docGuid = await createDoc({ agentEdit: false });
-      const doc = await persistence.getYDoc(docGuid);
-      const sv = Y.encodeStateVector(doc);
-      doc.transact(() => doc.get('default', Y.XmlFragment).get(0).get(0).insert(0, 'Changed: '));
-      await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(doc, sv), userId, null);
-      doc.destroy();
-      await versionHistory.restoreVersion(
-        persistence, docGuid, '0', userId,
-        { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME }
-      );
-      await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'viewer')`,
-        [docGuid, viewerId]
-      );
-      const res = await request(app)
-        .get(`/api/docs/${docGuid}/undo-status`)
-        .set('x-test-user', viewerId);
-      expect(res.body).toEqual({ canUndo: false, canRedo: false });
-    });
-  });
-
-  // T045 (040 FR-016 / SC-011): the additive target fields, and the backward
-  // compatibility that makes them safe to add.
-  describe('040 T045: /undo-status additively reports the target record (FR-016, SC-011)', () => {
-    test('(a) with an active record, nextUndo.editClockStart equals that row edit_clock_start', async () => {
-      const docGuid = await createDoc({ agentEdit: true });
-      await editRecords.recordEdit(persistence, {
-        docGuid, userId, agentName: CHAT_AGENT_NAME, clockStart: 1, clockEnd: 1,
-      });
-      const row = await pool.query(
-        'SELECT edit_clock_start FROM agent_edits WHERE doc_guid = $1', [docGuid]
-      );
-      const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-      expect(res.body.nextUndo.editClockStart).toBe(row.rows[0].edit_clock_start);
-    });
-
-    test('(b) with canUndo false, nextUndo is ABSENT — not null, not zero', async () => {
-      const docGuid = await createDoc({ agentEdit: false });
-      const res = await request(app).get(`/api/docs/${docGuid}/undo-status`);
-      expect(res.body.canUndo).toBe(false);
-      // Absence, asserted as absence. A `null` here would make a fail-open
-      // client treat "no target" as "target unknown" and offer the control.
-      expect('nextUndo' in res.body).toBe(false);
-      expect('nextRedo' in res.body).toBe(false);
-    });
-
-    test('(d) canUndo/canRedo are byte-identical to today across every case', async () => {
-      // No record at all.
-      const empty = await createDoc({ agentEdit: false });
-      let res = await request(app).get(`/api/docs/${empty}/undo-status`);
-      expect({ canUndo: res.body.canUndo, canRedo: res.body.canRedo })
-        .toEqual({ canUndo: false, canRedo: false });
-
-      // Active record.
-      const active = await createDoc({ agentEdit: true });
-      await editRecords.recordEdit(persistence, {
-        docGuid: active, userId, agentName: CHAT_AGENT_NAME, clockStart: 1, clockEnd: 1,
-      });
-      res = await request(app).get(`/api/docs/${active}/undo-status`);
-      expect({ canUndo: res.body.canUndo, canRedo: res.body.canRedo })
-        .toEqual({ canUndo: true, canRedo: false });
-
-      // After an undo.
-      await undoService.performUndo(
-        { docGuid: active, userId, agentName: CHAT_AGENT_NAME },
-        { persistence, getSharedDoc: () => null }
-      );
-      res = await request(app).get(`/api/docs/${active}/undo-status`);
-      expect({ canUndo: res.body.canUndo, canRedo: res.body.canRedo })
-        .toEqual({ canUndo: false, canRedo: true });
-    });
-
-    test('(e) viewer role still gets exactly { canUndo:false, canRedo:false } with no target fields', async () => {
-      const docGuid = await createDoc({ agentEdit: true });
-      await editRecords.recordEdit(persistence, {
-        docGuid, userId, agentName: CHAT_AGENT_NAME, clockStart: 1, clockEnd: 1,
-      });
-      await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'viewer')`,
-        [docGuid, viewerId]
-      );
-      const res = await request(app)
-        .get(`/api/docs/${docGuid}/undo-status`)
-        .set('x-test-user', viewerId);
-      // toEqual: the viewer path must not leak a target record either.
-      expect(res.body).toEqual({ canUndo: false, canRedo: false });
-    });
   });
 
   test('legacy fallback refuses ambiguity: identity rows exist but the tail is foreign', async () => {
