@@ -266,6 +266,60 @@ best default, nothing silent, Sam may overturn any of them.
   fifth lying field; the cost of covering it is a line, the cost of leaving it
   is a lying feed for agents.
 
+---
+
+# Implementation-phase additions (2026-08-02)
+
+Decided while implementing, under the same rule: best default, nothing silent.
+
+## RBD-045-13 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Cache eviction is plain insertion-order (FIFO), not LRU
+
+- **Question**: the plan specified bounded per-process caches
+  (`RESUPPLY_CACHE_MAX_DOCS`, `RESUPPLY_CACHE_MAX_OUTCOMES`) but not the
+  eviction policy.
+- **Why it matters**: an LRU needs per-read bookkeeping on the hottest path of
+  a display request; the wrong choice adds cost to the common case.
+- **Decision**: **FIFO** — when a cap is exceeded, the oldest INSERTED entries
+  are dropped, with no recency tracking. Documented in the module header of
+  `server/resupply-resolution.js`.
+- **Rationale**: an evicted outcome costs a recompute, never correctness (it is
+  re-derivable from the durable log, and evidence is prior-only so it cannot
+  change). Recency bookkeeping would buy a marginally better hit rate for a
+  real per-read cost on every author-displaying request.
+
+## RBD-045-14 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — MCP `lastModifiedBy` gains the 040 unknown-author fallback
+
+- **Question**: `contracts/author-surfaces.md` defines the single-slot rule's
+  non-`via_sync` branch as `createAuthor(row) || UNKNOWN_AUTHOR`. MCP
+  `read_document` previously returned `null` for a row whose user was deleted
+  (bare `createAuthor`), while `getContentAtClock` already returned
+  `UNKNOWN_AUTHOR` there (040 FR-008).
+- **Why it matters**: adopting the shared helper changes that one field's value
+  for deleted-account rows from `null` to the synthetic unknown contributor.
+- **Decision**: **take the contract's rule.** `lastModifiedBy` now reports
+  `Unknown author` where it used to report nothing, which is what the per-clock
+  view already did. The field's type is unchanged (an author object or null),
+  and `null` now means only "there is no row at all".
+- **Rationale**: FR-007 is about one resolution everywhere; two surfaces
+  disagreeing on the deleted-account case is the same class of inconsistency,
+  and 040 already settled which answer is honest.
+
+## RBD-045-15 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Guardrail `agentUserId` is scoped to DIRECT matched rows
+
+- **Question**: `agentUserId` is "the first non-null `user_id` among matched
+  rows". With the candidate set widened, a matched sync candidate's `user_id`
+  is the RELAYER's, not an agent's.
+- **Why it matters**: leaving the field's derivation untouched would silently
+  present a relayer as the agent's user on the new alert type — a smaller
+  version of the exact lie the feature closes.
+- **Decision**: `agentUserId` is computed from matched rows that carry an
+  `agent_name` (so every alert that fires today is byte-identical), and a
+  matched sync candidate's stamped user is reported as the additive
+  `relayedByUserId`. When only sync candidates matched, `agentUserId` is null
+  and `relayedByUserId` carries the relayer.
+- **Rationale**: FR-012 requires the existing payload to be preserved exactly
+  and permits additive fields; naming the relayer as such is the honest option.
+
 ## N-045-1 — NOTE (no decision required) — Pre-038 unmarked resupplies are evidence-eligible
 
 Rows written before the `via_sync` marker existed carry `NULL`, and the 038

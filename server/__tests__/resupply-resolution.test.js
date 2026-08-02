@@ -7,6 +7,8 @@
  * reconnect end-to-end assertion belongs to 043, which merges after 045, so
  * nothing here builds a WebSocket harness.
  */
+const fs = require('fs');
+const path = require('path');
 const Y = require('yjs');
 const resolution = require('../resupply-resolution');
 
@@ -402,5 +404,58 @@ describe('cost and reuse (FR-009 / SC-005)', () => {
     const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }, {}), DOC, [rows[1]]);
     expect(ctx.outcomes.get(2).origins).toEqual([{ userId: 'user-gone', agentName: null }]);
     expect(ctx.directory.has('user-gone')).toBe(false);
+  });
+});
+describe('scope guard (FR-010)', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+
+  function importsResolver(relPath) {
+    const full = path.join(repoRoot, relPath);
+    if (!fs.existsSync(full)) return false;
+    return fs.readFileSync(full, 'utf8').includes('resupply-resolution');
+  }
+
+  function filesIn(relDir) {
+    const full = path.join(repoRoot, relDir);
+    if (!fs.existsSync(full)) return [];
+    return fs.readdirSync(full)
+      .filter(f => f.endsWith('.js'))
+      .map(f => path.join(relDir, f));
+  }
+
+  test('undo, diff and restore never import the resolver', () => {
+    const forbidden = [
+      ...filesIn('server/undo'),
+      'server/diff-service.js',
+      'server/live-apply.js',
+    ];
+    for (const file of forbidden) {
+      expect({ file, imports: importsResolver(file) }).toEqual({ file, imports: false });
+    }
+  });
+
+  test('exactly three modules consume the resolver', () => {
+    const consumers = [
+      'server/version-history.js',
+      'server/collab-guardrail.js',
+      'server/mcp/tools/read-document.js',
+    ];
+    for (const file of consumers) {
+      expect({ file, imports: importsResolver(file) }).toEqual({ file, imports: true });
+    }
+  });
+
+  test("undo's via_sync run-breaking guard is unchanged (038 D2)", () => {
+    const legacy = fs.readFileSync(path.join(repoRoot, 'server/undo/legacy.js'), 'utf8');
+    expect(legacy).toMatch(/viaSync/);
+    // The guard reads the ROW's flag directly and refuses; it must not consult a
+    // display resolution.
+    expect(legacy).not.toMatch(/resolveForRows|resupply/);
+  });
+
+  test('the restore path in version-history never receives a resolution context', () => {
+    const vh = fs.readFileSync(path.join(repoRoot, 'server/version-history.js'), 'utf8');
+    const restore = vh.slice(vh.indexOf('async function restoreVersion'), vh.indexOf('async function getUpdatesForVersion'));
+    expect(restore).not.toMatch(/resolveForRows|resolution/);
   });
 });
