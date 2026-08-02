@@ -80,6 +80,34 @@ function getAuthorKey(userId, agentName) {
 }
 
 /**
+ * The synthetic contributor shown for update rows that carry no user
+ * attribution (feature 040, FR-008, D4).
+ *
+ * Such rows are real history — most often edits by a user who has since
+ * deleted their account, since `yjs_updates.user_id` is `ON DELETE SET NULL`
+ * precisely so a document's history survives its contributors (see the
+ * FK-policy note in server/undo/edit-records.js). Before this feature those
+ * rows were simply skipped, so a version built entirely from them rendered an
+ * EMPTY contributor list — which reads as "nobody edited this", a silent lie
+ * about a version that demonstrably exists.
+ *
+ * `color` is the stable neutral, matching the client's no-id fallback, so the
+ * entry looks identical on any day (FR-010).
+ */
+const UNKNOWN_AUTHOR = Object.freeze({
+  id: null,
+  name: 'Unknown author',
+  email: null,
+  picture: null,
+  color: '#888888',
+  isAgent: false,
+});
+
+/** Fixed map key for UNKNOWN_AUTHOR, so repeated unattributed rows COLLAPSE
+ * into exactly one entry per version instead of one entry per row. */
+const UNKNOWN_AUTHOR_KEY = 'unknown';
+
+/**
  * Create an author object from update data or named version data
  * Shared helper to ensure consistent author representation
  * Accepts multiple input formats:
@@ -204,6 +232,18 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 
     if (update.userId && !currentVersion.authors.has(authorKey)) {
       currentVersion.authors.set(authorKey, createAuthor(update));
+    } else if (!update.userId && !currentVersion.authors.has(UNKNOWN_AUTHOR_KEY)) {
+      // Feature 040 (FR-008): a row with no user attribution still gets a
+      // contributor entry, so a version whose rows all lost their user (a
+      // deleted account — `yjs_updates.user_id` is ON DELETE SET NULL) shows
+      // "Unknown author" instead of an empty list. The FIXED key collapses
+      // any number of unattributed rows into exactly one entry, and lets it
+      // coexist with the version's real authors.
+      //
+      // NOTE: `getUpdatesForVersion` (the sub-version drill-down) calls THIS
+      // SAME function, so this one change satisfies FR-008's "both paths"
+      // requirement. Do not duplicate it there.
+      currentVersion.authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
     }
 
     // Collect on-behalf-of provenance from sync-push updates in this version.
@@ -812,13 +852,19 @@ async function getContentAtClock(persistence, docGuid, clock) {
     clock,
     timestamp: update?.createdAt || null,
     formattedTimestamp: update ? formatTimestamp(update.createdAt) : null,
-    author: update ? createAuthor(update) : null,
+    // Feature 040 (FR-008): a row that genuinely EXISTS but yields no author
+    // (its user was deleted) resolves to the synthetic unknown contributor
+    // rather than a bare null. `null` here is reserved for "there is no row
+    // at this clock at all", which is a different statement.
+    author: update ? (createAuthor(update) || UNKNOWN_AUTHOR) : null,
   };
 }
 
 module.exports = {
   generateColorFromId,
   createAuthor,
+  // Feature 040 (FR-008): the synthetic contributor for unattributed rows.
+  UNKNOWN_AUTHOR,
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,

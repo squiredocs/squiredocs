@@ -5,6 +5,7 @@ const {
   generateColorFromId,
   createAuthor,
   groupUpdatesIntoVersions,
+  UNKNOWN_AUTHOR,
   mergeNamedVersions,
   formatTimestamp,
   restoreVersion,
@@ -48,6 +49,87 @@ describe('version-history module', () => {
     test('returns HSL color format', () => {
       const color = generateColorFromId('test-user');
       expect(color).toMatch(/^hsl\(\d+, 70%, 45%\)$/);
+    });
+  });
+
+  // T026 (feature 040, FR-008, SC-005): a version whose rows exist must never
+  // render an empty contributor list. Unattributed rows are real history —
+  // usually edits by a since-deleted account, kept because
+  // yjs_updates.user_id is ON DELETE SET NULL.
+  describe('040 T026: unattributed rows render one "Unknown author" contributor (FR-008)', () => {
+    const at = (ms) => new Date(new Date('2024-01-01T10:00:00Z').getTime() + ms).toISOString();
+
+    test('(a) a version built ENTIRELY from unattributed rows shows exactly one Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: null },
+        { clock: 2, createdAt: at(1000), userId: null },
+      ]);
+      expect(versions).toHaveLength(1);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0]).toEqual(UNKNOWN_AUTHOR);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
+      expect(versions[0].authors[0].id).toBeNull();
+      expect(versions[0].authors[0].color).toBe('#888888');
+    });
+
+    test('(b) a MIXED version shows the real authors PLUS exactly one Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: 'user-1', userName: 'Alice' },
+        { clock: 2, createdAt: at(1000), userId: null },
+        { clock: 3, createdAt: at(2000), userId: 'user-2', userName: 'Bob' },
+      ]);
+      expect(versions).toHaveLength(1);
+      const names = versions[0].authors.map((a) => a.name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Unknown author']);
+      expect(versions[0].authors.filter((a) => a.id === null)).toHaveLength(1);
+    });
+
+    test('(c) MANY unattributed rows still collapse to exactly one entry', () => {
+      const updates = Array.from({ length: 25 }, (_, i) => ({
+        clock: i + 1, createdAt: at(i * 100), userId: null,
+      }));
+      const versions = groupUpdatesIntoVersions(updates);
+      const unknowns = versions.flatMap((v) => v.authors).filter((a) => a.id === null);
+      expect(unknowns).toHaveLength(1);
+    });
+
+    test('(e) a fully attributed version shows NO phantom Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: 'user-1', userName: 'Alice' },
+        { clock: 2, createdAt: at(1000), userId: 'user-1', userName: 'Alice' },
+      ]);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors.every((a) => a.id !== null)).toBe(true);
+    });
+
+    test('(d) the sub-version DRILL-DOWN gets the same treatment — via the same grouping function, not a duplicate', async () => {
+      const mockPersistence = {
+        getUpdatesInRange: async () => ([
+          { clock: 1, createdAt: at(0), userId: null, userName: null, agentName: null },
+          { clock: 2, createdAt: at(500), userId: null, userName: null, agentName: null },
+          { clock: 3, createdAt: at(1000), userId: 'user-1', userName: 'Alice', agentName: null },
+        ]),
+      };
+      const result = await getUpdatesForVersion(mockPersistence, 'doc-1', 1, 3);
+      const authors = result.subversions.flatMap((sv) => sv.authors);
+      const unknowns = authors.filter((a) => a.id === null);
+      expect(unknowns.length).toBeGreaterThan(0);
+      expect(unknowns[0].name).toBe('Unknown author');
+      expect(unknowns[0].color).toBe('#888888');
+      // Still collapsed to one per sub-version.
+      result.subversions.forEach((sv) => {
+        expect(sv.authors.filter((a) => a.id === null).length).toBeLessThanOrEqual(1);
+      });
+    });
+
+    test('an agent edit whose user was deleted is still attributed as unknown, not skipped', () => {
+      // agentName present but userId gone — createAuthor returns null here,
+      // so before 040 the row vanished from the contributor list entirely.
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: null, agentName: 'Some Agent' },
+      ]);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
     });
   });
 
@@ -131,7 +213,11 @@ describe('version-history module', () => {
       expect(versions[0].authors).toHaveLength(2); // Only 2 unique authors
     });
 
-    test('handles updates without user info', () => {
+    // ⚠️ INVERTED BY FEATURE 040 (FR-008). This case previously asserted
+    // `authors` was EMPTY for a row with no user info. That empty list is the
+    // defect: a version that demonstrably exists rendered as though nobody
+    // had edited it. It now shows one synthetic "Unknown author" contributor.
+    test('handles updates without user info — one Unknown author, not an empty list (040 FR-008 inverted this)', () => {
       const updates = [
         { clock: 1, createdAt: '2024-01-01T10:00:00Z' }, // No user info
       ];
@@ -139,7 +225,9 @@ describe('version-history module', () => {
       const versions = groupUpdatesIntoVersions(updates);
 
       expect(versions).toHaveLength(1);
-      expect(versions[0].authors).toHaveLength(0);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
+      expect(versions[0].authors[0].id).toBeNull();
     });
   });
 

@@ -512,3 +512,63 @@ describe('HierarchicalVersionList — author badge fallback color (039 FR-018)',
     expect(dotColor(container)).toBe('rgb(255, 0, 0)');
   });
 });
+
+/**
+ * Feature 040 — FR-009: null-id author tolerance.
+ *
+ * The server now emits a synthetic "Unknown author" contributor for update
+ * rows whose user was deleted (FR-008) — rather than skipping them and leaving
+ * a version that demonstrably exists with an EMPTY contributor list. The
+ * client must render an author entry whose `id` is null without crashing and
+ * without a blank or broken badge.
+ *
+ * The colour half of this entry is already covered by the 039 FR-018 block
+ * above; `#888888` is exactly what the server sends for these.
+ */
+describe('HierarchicalVersionList — unknown-author tolerance (040 FR-009)', () => {
+  const UNKNOWN = {
+    id: null,
+    name: 'Unknown author',
+    email: null,
+    picture: null,
+    color: '#888888',
+    isAgent: false,
+  };
+
+  it('renders a null-id author without crashing: name shown, badge has a colour, nothing blank', () => {
+    const { container } = renderWithVersion({ authors: [UNKNOWN] });
+
+    expect(screen.getByText('Unknown author')).toBeTruthy();
+
+    const dots = container.querySelectorAll('.hierarchy-author-dot');
+    expect(dots.length).toBe(1);
+    // A real colour, not an empty style.
+    expect(dots[0].style.backgroundColor).toBe('rgb(136, 136, 136)');
+
+    const names = container.querySelectorAll('.hierarchy-author-name');
+    expect(names.length).toBe(1);
+    expect(names[0].textContent).toBe('Unknown author');
+  });
+
+  it('keeps list keys stable with TWO unknown entries (the `${author.id}-${i}` map path)', () => {
+    const { container } = renderWithVersion({
+      authors: [UNKNOWN, { ...UNKNOWN }],
+    });
+    // Both render; React does not collapse or warn them away.
+    const names = container.querySelectorAll('.hierarchy-author-name');
+    expect(names.length).toBe(2);
+    Array.from(names).forEach((n) => expect(n.textContent).toBe('Unknown author'));
+  });
+
+  it('renders a mixed list — real author plus unknown — with both visible', () => {
+    const { container } = renderWithVersion({
+      authors: [
+        { id: 'u1', name: 'Alice', email: null, picture: null, color: '#875692', isAgent: false },
+        UNKNOWN,
+      ],
+    });
+    const names = Array.from(container.querySelectorAll('.hierarchy-author-name'))
+      .map((n) => n.textContent);
+    expect(names).toEqual(['Alice', 'Unknown author']);
+  });
+});
