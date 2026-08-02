@@ -572,3 +572,119 @@ describe('HierarchicalVersionList — unknown-author tolerance (040 FR-009)', ()
     expect(names).toEqual(['Alice', 'Unknown author']);
   });
 });
+
+/**
+ * Feature 041 US3 (FR-009): expansion state lives in this component while the
+ * drill-down cache lives in the hook, so a refresh that wiped the cache used to
+ * leave an expanded row rendering "No individual updates" — an empty-state claim
+ * about a range that demonstrably has edits.
+ */
+describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-009)', () => {
+  const mkVersion = (over = {}) => ({
+    id: 'v1',
+    name: null,
+    clockStart: 1,
+    clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z',
+    authors: [],
+    isNamed: false,
+    isCurrent: false,
+    onBehalfOf: [],
+    onBehalfOfMore: 0,
+    ...over,
+  });
+
+  const sub = {
+    id: '5',
+    clockStart: 1,
+    clockEnd: 5,
+    previousClock: 0,
+    timestamp: '2024-01-05T16:30:00Z',
+    authors: [],
+    updateCount: 5,
+  };
+
+  const listProps = (over = {}) => ({
+    hierarchicalVersions: [{ label: 'January 2024', versions: [mkVersion()] }],
+    selection: null,
+    onSelectVersion: () => {},
+    onSelectUpdate: () => {},
+    onLoadUpdates: () => Promise.resolve([]),
+    versionUpdates: {},
+    versionUpdatesMeta: {},
+    loadingVersionUpdates: {},
+    userRole: 'editor',
+    isLoading: false,
+    ...over,
+  });
+
+  const expandFirstRow = (container) => {
+    fireEvent.click(container.querySelector('.hierarchy-expand-btn'));
+  };
+
+  it('re-fetches an expanded row with the FRESH range after a refresh wipes the cache', async () => {
+    const onLoadUpdates = vi.fn(() => Promise.resolve([]));
+    const props = listProps({ onLoadUpdates, versionUpdates: { v1: [sub] } });
+    const { container, rerender } = render(<HierarchicalVersionList {...props} />);
+
+    expandFirstRow(container);
+    // Already cached at expand time — no load yet.
+    expect(onLoadUpdates).not.toHaveBeenCalled();
+
+    // A refresh wipes the cache AND re-splits the range.
+    rerender(
+      <HierarchicalVersionList
+        {...listProps({
+          onLoadUpdates,
+          hierarchicalVersions: [{ label: 'January 2024', versions: [mkVersion({ clockStart: 3 })] }],
+        })}
+      />
+    );
+
+    await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledWith(3, 5, 'v1'));
+  });
+
+  it('shows loading — never "No individual updates" — while the re-fetch is pending', async () => {
+    const props = listProps({ versionUpdates: { v1: [sub] } });
+    const { container, rerender } = render(<HierarchicalVersionList {...props} />);
+
+    expandFirstRow(container);
+
+    rerender(
+      <HierarchicalVersionList {...listProps({ onLoadUpdates: () => new Promise(() => {}) })} />
+    );
+
+    expect(screen.queryByText('No individual updates')).toBeNull();
+    expect(container.querySelector('.hierarchy-loading')).toBeTruthy();
+  });
+
+  it('still shows "No individual updates" for a genuinely empty successful response', () => {
+    const { container } = render(<HierarchicalVersionList {...listProps({ versionUpdates: { v1: [] } })} />);
+    expandFirstRow(container);
+    expect(screen.getByText('No individual updates')).toBeTruthy();
+  });
+
+  it('drops the expansion for a version that vanished from the refreshed list', async () => {
+    const onLoadUpdates = vi.fn(() => Promise.resolve([]));
+    const props = listProps({ onLoadUpdates, versionUpdates: { v1: [sub] } });
+    const { container, rerender } = render(<HierarchicalVersionList {...props} />);
+
+    expandFirstRow(container);
+    expect(container.querySelector('.hierarchy-updates-list')).toBeTruthy();
+
+    rerender(
+      <HierarchicalVersionList
+        {...listProps({
+          onLoadUpdates,
+          hierarchicalVersions: [{ label: 'January 2024', versions: [mkVersion({ id: 'v2' })] }],
+        })}
+      />
+    );
+
+    // v1 is gone: no load is attempted for it, and nothing renders expanded.
+    await waitFor(() => {
+      expect(container.querySelector('.hierarchy-updates-list')).toBeNull();
+    });
+    expect(onLoadUpdates.mock.calls.some(c => c[2] === 'v1')).toBe(false);
+  });
+});

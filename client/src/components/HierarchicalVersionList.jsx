@@ -396,6 +396,57 @@ function HierarchicalVersionList({
     };
   }, [menuOpen]);
 
+  // ── Feature 041 (FR-009): expanded rows re-fetch after a refresh ──────────
+  // A history refresh wipes the hook's drill-down cache, but expansion state
+  // lives HERE. An expanded row whose cache entry vanished used to render "No
+  // individual updates" — an empty-state claim about a range that demonstrably
+  // has edits — until the user manually collapsed and re-expanded it.
+  //
+  // A failed drill-down load would otherwise retry on every state change, so
+  // failures are remembered until the version list itself changes (at most one
+  // retry per refresh, never a tight loop).
+  const failedLoadsRef = React.useRef(new Set());
+  React.useEffect(() => {
+    failedLoadsRef.current = new Set();
+  }, [hierarchicalVersions]);
+
+  React.useEffect(() => {
+    if (!onLoadUpdates) return;
+
+    const present = new Map();
+    for (const month of hierarchicalVersions) {
+      for (const version of (month.versions || [])) present.set(version.id, version);
+    }
+
+    const expandedIds = Object.keys(expandedVersions).filter(id => expandedVersions[id]);
+
+    // A version that no longer exists (re-split, deleted) cannot stay expanded.
+    const vanished = expandedIds.filter(id => !present.has(id));
+    if (vanished.length > 0) {
+      setExpandedVersions(prev => {
+        const next = { ...prev };
+        for (const id of vanished) delete next[id];
+        return next;
+      });
+    }
+
+    for (const id of expandedIds) {
+      const version = present.get(id);
+      if (!version) continue;
+      if (versionUpdates[id] || loadingVersionUpdates[id]) continue;
+
+      // Always re-request with the FRESH range — a re-split moves it.
+      const key = `${id}:${version.clockStart}-${version.clockEnd}`;
+      if (failedLoadsRef.current.has(key)) continue;
+
+      Promise.resolve(onLoadUpdates(version.clockStart, version.clockEnd, id))
+        .then((result) => {
+          if (result === null || result === undefined) failedLoadsRef.current.add(key);
+        })
+        .catch(() => { failedLoadsRef.current.add(key); });
+    }
+  }, [hierarchicalVersions, expandedVersions, versionUpdates, loadingVersionUpdates, onLoadUpdates]);
+
   const toggleMonth = (label) => {
     setExpandedMonths(prev => ({ ...prev, [label]: !prev[label] }));
   };
@@ -570,9 +621,13 @@ function HierarchicalVersionList({
                   >
                     {isExpanded && (
                       <div className="hierarchy-updates-list">
-                        {loadingVersionUpdates[version.id] ? (
+                        {/* FR-009: "No individual updates" describes ONLY a
+                            successful, genuinely empty response. An absent
+                            cache entry (wiped by a refresh, re-fetch pending)
+                            is a loading state, not an empty one. */}
+                        {loadingVersionUpdates[version.id] || updates === undefined ? (
                           <div className="hierarchy-loading">Loading updates...</div>
-                        ) : updates && updates.length > 0 ? (
+                        ) : updates.length > 0 ? (
                           <>
                             {updates.map((subVersion) => {
                               const subVersionItem = subVersionToItem(subVersion);

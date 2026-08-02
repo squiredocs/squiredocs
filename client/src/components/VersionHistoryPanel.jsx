@@ -80,7 +80,11 @@ function VersionHistoryPanel({
         </label>
       </div>
 
-      {isLoading && (
+      {/* Feature 041: the loading placeholder only stands in for an EMPTY list.
+          Once there are versions the list stays mounted across refreshes, so a
+          rename, a restore or a live-refresh tick never tears the rows down and
+          takes the user's scroll position and row expansions with it. */}
+      {isLoading && hierarchicalVersions.length === 0 && (
         <div className="version-history-loading">Loading versions...</div>
       )}
 
@@ -111,7 +115,7 @@ function VersionHistoryPanel({
         </div>
       )}
 
-      {!isLoading && hierarchicalVersions.length > 0 && (
+      {hierarchicalVersions.length > 0 && (
         <HierarchicalVersionList
           hierarchicalVersions={hierarchicalVersions}
           selection={selection}

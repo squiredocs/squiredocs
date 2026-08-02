@@ -39,6 +39,26 @@ function groupVersionsByPeriod(versions) {
 }
 
 /**
+ * Live-refresh cadence for an open history panel (feature 041, FR-008, R5).
+ * A poll of an O(rows) endpoint every 10 s is negligible load and keeps the
+ * panel honest while a collaborator edits; ticks are skipped while the tab is
+ * hidden.
+ */
+export const HISTORY_POLL_INTERVAL_MS = 10000;
+
+/**
+ * Structural fingerprint of a version list. A refresh only invalidates the
+ * drill-down cache when this changes, so an idle poll neither wipes cached
+ * sub-versions nor makes expanded rows re-fetch every tick (FR-009 + the
+ * scroll/expansion-preservation edge case).
+ */
+function versionsSignature(versions) {
+  return (versions || [])
+    .map(v => `${v.id}:${v.clockStart}-${v.clockEnd}:${v.name || ''}:${v.isCurrent ? 1 : 0}`)
+    .join('|');
+}
+
+/**
  * Hook for managing document version history
  * @param {string} docGuid - Document GUID
  * @returns {Object} Version history state and actions
@@ -77,6 +97,16 @@ export function useVersionHistory(docGuid) {
   // selection's preview. Only the response whose seq is still current applies.
   const diffRequestSeqRef = useRef(0);
 
+  // Feature 041 (FR-007): the selection must be reconciled against every
+  // refreshed list, so `fetchHistory` needs to read the CURRENT selection
+  // without taking it as a dependency (that would rebuild the poll interval on
+  // every selection change). A ref is the cheap, correct way to do that.
+  const selectionRef = useRef(null);
+  useEffect(() => { selectionRef.current = selection; }, [selection]);
+
+  // Last seen structural fingerprint, for the cache-invalidation decision.
+  const versionsSignatureRef = useRef('');
+
   // Group versions client-side using browser's local timezone for proper display
   const groupedVersions = useMemo(() => groupVersionsByPeriod(versions), [versions]);
   // hierarchicalVersions is the same as groupedVersions - kept for API compatibility
@@ -85,25 +115,41 @@ export function useVersionHistory(docGuid) {
   /**
    * Fetch version history timeline
    */
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async ({ background = false } = {}) => {
     if (!docGuid) return;
 
-    setIsLoading(true);
-    setError(null);
+    // A background tick (the FR-008 live-refresh poll) must be invisible: no
+    // loading state — the panel would tear the list down and take the user's
+    // scroll position and row expansions with it — and no pre-emptive error
+    // clear, so a failing tick leaves the last-good list on screen next to an
+    // honest error rather than flickering.
+    if (!background) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history`);
-      setVersions(response.data.versions || []);
+      const fresh = response.data.versions || [];
+      setVersions(fresh);
       setTotalEdits(response.data.totalEdits || 0);
-      // Clear cached version updates since version structure may have changed
-      // (e.g., after naming a clock, auto versions get split and clock ranges change)
-      setVersionUpdates({});
-      setVersionUpdatesMeta({});
+      setError(null);
+
+      // Invalidate the drill-down cache only when the version STRUCTURE moved
+      // (e.g. naming a clock splits auto versions and shifts clock ranges). An
+      // idle poll must not wipe cached sub-versions — that would make every
+      // expanded row re-fetch every 10 s and blank its contents in between.
+      const signature = versionsSignature(fresh);
+      if (signature !== versionsSignatureRef.current) {
+        versionsSignatureRef.current = signature;
+        setVersionUpdates({});
+        setVersionUpdatesMeta({});
+      }
     } catch (err) {
       console.error('Error fetching version history:', err);
       setError(err.response?.data?.error || 'Failed to load version history');
     } finally {
-      setIsLoading(false);
+      if (!background) setIsLoading(false);
     }
   }, [docGuid, api]);
 
@@ -413,11 +459,98 @@ export function useVersionHistory(docGuid) {
     return fetchHistory();
   }, [fetchHistory]);
 
+  /**
+   * Reconcile the current selection against a freshly fetched version list
+   * (feature 041, FR-007 / RBD-041-8).
+   *
+   * The selection used to be a click-time SNAPSHOT. Everything downstream reads
+   * it — the header title, the contributors footer, the current-version badge,
+   * the restore gating, and the id the header's "Restore this version" button
+   * posts — so after a rename, a mid-range naming (which re-splits the
+   * containing auto version into new ids and ranges), a delete, or a live
+   * refresh, all of those described a world that no longer existed. The header
+   * could post a version id whose range had been split out from under it.
+   *
+   * Rule: re-resolve to the fresh version whose range CONTAINS the old
+   * selection's `clockEnd` — that survives renames and re-splits and keeps the
+   * user looking at the same point in history — otherwise fall back to the
+   * panel's default selection (the current version). A stale id is never kept.
+   * The preview is only re-fetched when the range actually moved, so an idle
+   * poll never re-requests an identical diff.
+   */
+  const reconcileSelection = useCallback((freshVersions) => {
+    const current = selectionRef.current;
+    if (!current) return;
+
+    if (!freshVersions || freshVersions.length === 0) {
+      setSelection(null);
+      setVersionContent(null);
+      setPreviousVersionContent(null);
+      setDiffData(null);
+      setDiffError(null);
+      return;
+    }
+
+    const containing = freshVersions.find(
+      v => v.clockStart <= current.clockEnd && v.clockEnd >= current.clockEnd
+    );
+
+    // A sub-version selection stays valid as long as a top-level version still
+    // covers it; only when its containing version is gone do we fall back.
+    if (current.isSubVersion) {
+      if (!containing) {
+        selectVersion(freshVersions.find(v => v.isCurrent) || freshVersions[0]);
+      }
+      return;
+    }
+
+    const resolved = containing || freshVersions.find(v => v.isCurrent) || freshVersions[0];
+
+    const rangeMoved = resolved.clockStart !== current.clockStart
+      || resolved.clockEnd !== current.clockEnd;
+
+    if (rangeMoved) {
+      // The preview is genuinely different now — reselect (refetches the diff).
+      selectVersion(resolved);
+      return;
+    }
+
+    // Same range: adopt the FRESH object so every consumer reads post-refresh
+    // id/name/isCurrent, but do not re-fetch an identical preview.
+    const metadataMoved = resolved.id !== current.id
+      || (resolved.name || null) !== (current.name || null)
+      || !!resolved.isCurrent !== !!current.isCurrent;
+    if (metadataMoved) {
+      setSelection(resolved);
+    }
+  }, [selectVersion]);
+
+  // Reconcile after EVERY refresh — CRUD-driven and poll-driven alike. Keyed on
+  // the versions array identity, which only changes when a fetch resolves.
+  useEffect(() => {
+    reconcileSelection(versions);
+  }, [versions, reconcileSelection]);
+
   // Load history on mount if docGuid is provided
   useEffect(() => {
     if (docGuid) {
       fetchHistory();
     }
+  }, [docGuid, fetchHistory]);
+
+  // Live refresh while the panel is open (feature 041, FR-008, R5). The hook is
+  // only mounted with a docGuid while version history is open, so the interval's
+  // lifetime is the panel's. Hidden tabs skip their ticks — a backgrounded panel
+  // has no viewer to be truthful to, and the next visible tick catches up.
+  useEffect(() => {
+    if (!docGuid) return undefined;
+
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchHistory({ background: true });
+    }, HISTORY_POLL_INTERVAL_MS);
+
+    return () => clearInterval(id);
   }, [docGuid, fetchHistory]);
 
   return {
