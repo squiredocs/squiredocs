@@ -8,6 +8,7 @@ const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml, replaceFragmentContents } = require('./yjs-utils');
 const editRecords = require('./undo/edit-records');
 const { applyLiveUpdate, publishIfUnhandled } = require('./live-apply');
+const { resolveForRows, EMPTY_RESOLUTION } = require('./resupply-resolution');
 
 /**
  * Thrown when a requested version cannot be resolved: an unknown/foreign named
@@ -108,6 +109,43 @@ const UNKNOWN_AUTHOR = Object.freeze({
 const UNKNOWN_AUTHOR_KEY = 'unknown';
 
 /**
+ * The synthetic contributor shown for sync-relayed content whose true author
+ * cannot be derived (feature 045, FR-004).
+ *
+ * A `via_sync` row's stamped identity is the CHANNEL the content arrived on,
+ * never a claim that the stamped user wrote it (038). When forensic resolution
+ * cannot recover the real author from the payload's own client identities — no
+ * prior evidence, evidence that maps one identity to two users, or a
+ * deletion-only payload that asserts nothing — this entry says exactly that,
+ * and the relayer is never credited instead.
+ *
+ * It states a DIFFERENT fact from UNKNOWN_AUTHOR (RBD-045-2), and the two may
+ * appear side by side in one version:
+ *   UNKNOWN_AUTHOR      — the row's identity was recorded; the account is gone.
+ *   SYNCED_CONTRIBUTION — the row's identity is a relay channel; authorship is
+ *                         not determinable.
+ * When resolution SUCCEEDS but the resolved account has since been deleted, the
+ * deleted-account rule wins (the identity WAS determined) and the version shows
+ * UNKNOWN_AUTHOR.
+ *
+ * `isSynced` is additive and exists so the client can style this entry
+ * distinctly without string-matching a display name.
+ */
+const SYNCED_CONTRIBUTION = Object.freeze({
+  id: null,
+  name: 'Synced content',
+  email: null,
+  picture: null,
+  color: '#888888',
+  isAgent: false,
+  isSynced: true,
+});
+
+/** Fixed map key for SYNCED_CONTRIBUTION: any number of unresolvable origins,
+ * across any number of rows, collapse into exactly ONE entry per version. */
+const SYNCED_CONTRIBUTION_KEY = 'synced';
+
+/**
  * Create an author object from update data or named version data
  * Shared helper to ensure consistent author representation
  * Accepts multiple input formats:
@@ -139,6 +177,113 @@ function createAuthor(data) {
     color: generateColorFromId(authorKey),
     isAgent: !!agentName,
   };
+}
+
+/**
+ * Build the display author for a RESOLVED origin (feature 045).
+ *
+ * Identifiers come from the memoized resolution outcome; display fields come
+ * from the per-request directory, never from the cache (R6), so a rename shows
+ * up immediately. A resolved id absent from the directory is the
+ * deleted-account signal (RBD-045-11) — the caller renders UNKNOWN_AUTHOR
+ * rather than inventing a name.
+ *
+ * @param {{userId: string, agentName: string|null}} origin
+ * @param {Map<string, {userName, userEmail, userPicture}>} directory
+ * @returns {Object|null} the same shape `createAuthor` produces, or null
+ */
+function authorFromOrigin(origin, directory) {
+  const fields = directory && typeof directory.get === 'function' ? directory.get(origin.userId) : null;
+  if (!fields) return null;
+  return createAuthor({
+    userId: origin.userId,
+    agentName: origin.agentName,
+    userName: fields.userName,
+    userEmail: fields.userEmail,
+    userPicture: fields.userPicture,
+  });
+}
+
+/**
+ * The ONE place a row becomes contributor entries (feature 045, FR-007).
+ *
+ * `groupUpdatesIntoVersions` and `computeRangeMeta` used to carry
+ * near-identical copies of this accumulation, with 041 requiring by comment
+ * that they stay identical. They now call this instead, which is what makes
+ * "one resolution, many renderers" structural rather than aspirational: no
+ * surface can grow its own, divergeable notion of who authored a relayed row.
+ *
+ * With no resolution context — and for every row that is not `via_sync` — the
+ * behavior is byte-for-byte the pre-045 logic, so the old baseline is always
+ * one argument away and every direct-call test stays valid.
+ *
+ * @param {Object} update - an update row
+ * @param {Map} authors - the version's author map (key -> author)
+ * @param {{outcomes: Map, directory: Map}} [ctx] - resolution context
+ */
+function collectAuthorsForUpdate(update, authors, ctx = EMPTY_RESOLUTION) {
+  const outcome = update.viaSync === true && ctx && ctx.outcomes
+    ? ctx.outcomes.get(update.clock)
+    : undefined;
+
+  if (!outcome) {
+    const authorKey = getAuthorKey(update.userId, update.agentName);
+    if (update.userId && !authors.has(authorKey)) {
+      authors.set(authorKey, createAuthor(update));
+    } else if (!update.userId && !authors.has(UNKNOWN_AUTHOR_KEY)) {
+      // Feature 040 (FR-008): a row with no user attribution still gets a
+      // contributor entry, so a version whose rows all lost their user (a
+      // deleted account — `yjs_updates.user_id` is ON DELETE SET NULL) shows
+      // "Unknown author" instead of an empty list. The FIXED key collapses any
+      // number of unattributed rows into exactly one entry, and lets it coexist
+      // with the version's real authors.
+      authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
+    }
+    return;
+  }
+
+  // A resolved relayed row is displayed EXACTLY as a direct one: same
+  // createAuthor shape, same keying, same dedupe. That is what preserves 038's
+  // promise that a genuine offline edit stays credited to its author (FR-003).
+  // The row's own stamped userId/agentName are never read here.
+  for (const origin of outcome.origins) {
+    const author = authorFromOrigin(origin, ctx.directory);
+    if (!author) {
+      if (!authors.has(UNKNOWN_AUTHOR_KEY)) authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
+      continue;
+    }
+    const key = getAuthorKey(origin.userId, origin.agentName);
+    if (!authors.has(key)) authors.set(key, author);
+  }
+  if (outcome.unresolved && !authors.has(SYNCED_CONTRIBUTION_KEY)) {
+    authors.set(SYNCED_CONTRIBUTION_KEY, SYNCED_CONTRIBUTION);
+  }
+}
+
+/**
+ * The collapse for surfaces that display exactly ONE author for a row — the
+ * per-clock view and the MCP `lastModifiedBy` (feature 045, RBD-045-9).
+ *
+ * The RESOLUTION is identical to the timeline's; only the rendering arity
+ * differs. A multi-origin or partially-resolved row shows the synced
+ * contribution rather than "the first resolved origin", which would present a
+ * true-but-partial author as the whole story and let this surface disagree with
+ * the timeline about who is credited.
+ *
+ * @param {Object|null} update - the row, or null when there is no row at all
+ * @param {{outcomes: Map, directory: Map}} [ctx]
+ * @returns {Object|null} an author, or null when there is no row
+ */
+function authorForSingleSlot(update, ctx = EMPTY_RESOLUTION) {
+  if (!update) return null;
+  const outcome = update.viaSync === true && ctx && ctx.outcomes
+    ? ctx.outcomes.get(update.clock)
+    : undefined;
+  if (!outcome) return createAuthor(update) || UNKNOWN_AUTHOR;
+  if (!outcome.unresolved && outcome.origins.length === 1) {
+    return authorFromOrigin(outcome.origins[0], ctx.directory) || UNKNOWN_AUTHOR;
+  }
+  return SYNCED_CONTRIBUTION;
 }
 
 /**
@@ -291,7 +436,7 @@ function assertClockInRange(clock, range, { onEmpty, onOutOfRange }) {
   if (clock < minClock || clock > maxClock) throw onOutOfRange(minClock, maxClock);
 }
 
-function computeRangeMeta(updates, clockStart, clockEnd) {
+function computeRangeMeta(updates, clockStart, clockEnd, { resolution } = {}) {
   const lo = (clockStart === null || clockStart === undefined) ? -Infinity : clockStart;
   const hi = (clockEnd === null || clockEnd === undefined) ? Infinity : clockEnd;
 
@@ -309,12 +454,7 @@ function computeRangeMeta(updates, clockStart, clockEnd) {
   const rawPushes = [];
 
   for (const update of rows) {
-    const authorKey = getAuthorKey(update.userId, update.agentName);
-    if (update.userId && !authors.has(authorKey)) {
-      authors.set(authorKey, createAuthor(update));
-    } else if (!update.userId && !authors.has(UNKNOWN_AUTHOR_KEY)) {
-      authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
-    }
+    collectAuthorsForUpdate(update, authors, resolution);
     if (update.onBehalfOf && typeof update.onBehalfOf === 'object') {
       rawPushes.push(update.onBehalfOf);
     }
@@ -347,8 +487,8 @@ function computeRangeMeta(updates, clockStart, clockEnd) {
  * @param {number} clockEnd - Fragment upper bound (inclusive)
  * @returns {{authors: Array, onBehalfOf: Array, onBehalfOfMore: number}}
  */
-function computeFragmentMeta(updates, clockStart, clockEnd) {
-  const { authors, onBehalfOf, onBehalfOfMore } = computeRangeMeta(updates, clockStart, clockEnd);
+function computeFragmentMeta(updates, clockStart, clockEnd, { resolution } = {}) {
+  const { authors, onBehalfOf, onBehalfOfMore } = computeRangeMeta(updates, clockStart, clockEnd, { resolution });
   return { authors, onBehalfOf, onBehalfOfMore };
 }
 
@@ -358,7 +498,7 @@ function computeFragmentMeta(updates, clockStart, clockEnd) {
  * @param {number} inactivityThreshold - Time gap to create new version (ms)
  * @returns {Array} Array of version objects
  */
-function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIVITY_THRESHOLD) {
+function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIVITY_THRESHOLD, { resolution } = {}) {
   if (!updates || updates.length === 0) {
     return [];
   }
@@ -388,24 +528,14 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
       currentVersion.lastUpdateTime = updateTime;
     }
 
-    // Track unique authors using composite key to distinguish agent edits
-    const authorKey = getAuthorKey(update.userId, update.agentName);
-
-    if (update.userId && !currentVersion.authors.has(authorKey)) {
-      currentVersion.authors.set(authorKey, createAuthor(update));
-    } else if (!update.userId && !currentVersion.authors.has(UNKNOWN_AUTHOR_KEY)) {
-      // Feature 040 (FR-008): a row with no user attribution still gets a
-      // contributor entry, so a version whose rows all lost their user (a
-      // deleted account — `yjs_updates.user_id` is ON DELETE SET NULL) shows
-      // "Unknown author" instead of an empty list. The FIXED key collapses
-      // any number of unattributed rows into exactly one entry, and lets it
-      // coexist with the version's real authors.
-      //
-      // NOTE: `getUpdatesForVersion` (the sub-version drill-down) calls THIS
-      // SAME function, so this one change satisfies FR-008's "both paths"
-      // requirement. Do not duplicate it there.
-      currentVersion.authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
-    }
+    // Track unique authors (feature 045: through the ONE shared accumulator, so
+    // this surface and `computeRangeMeta` cannot diverge — including on who
+    // authored a sync-relayed row).
+    //
+    // NOTE: `getUpdatesForVersion` (the sub-version drill-down) calls THIS SAME
+    // function, so the unattributed-row rule (040 FR-008) and the relayed-row
+    // rule (045) both land on both paths. Do not duplicate either there.
+    collectAuthorsForUpdate(update, currentVersion.authors, resolution);
 
     // Collect on-behalf-of provenance from sync-push updates in this version.
     if (update.onBehalfOf && typeof update.onBehalfOf === 'object') {
@@ -444,7 +574,7 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
  *   noise-only one (credit its real in-range editors, R16).
  * @returns {Array} Merged version list
  */
-function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
+function mergeNamedVersions(autoVersions, namedVersions, updates = [], { resolution } = {}) {
   if (!namedVersions || namedVersions.length === 0) {
     return autoVersions.map((v, i) => ({
       ...v,
@@ -460,7 +590,7 @@ function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
     // the named range's OWN rows, so they no longer depend on a matching auto
     // version existing at all — which is what left a named version whose
     // boundary row was noise-classified authorless (report A7).
-    const rangeMeta = computeRangeMeta(updates, nv.clock_start, nv.clock_end);
+    const rangeMeta = computeRangeMeta(updates, nv.clock_start, nv.clock_end, { resolution });
 
     // The matching auto version survives ONLY as a timestamp fallback layer.
     const matchingAutoVersion = autoVersions.find(av =>
@@ -525,7 +655,7 @@ function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
             clockEnd: currentEnd,
             id: String(currentEnd),
             isNamed: false,
-            ...computeFragmentMeta(updates, nv.clockEnd + 1, currentEnd),
+            ...computeFragmentMeta(updates, nv.clockEnd + 1, currentEnd, { resolution }),
           });
         }
 
@@ -542,7 +672,7 @@ function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
           clockEnd: currentEnd,
           id: String(currentEnd),
           isNamed: false,
-          ...computeFragmentMeta(updates, autoVersion.clockStart, currentEnd),
+          ...computeFragmentMeta(updates, autoVersion.clockStart, currentEnd, { resolution }),
         });
       }
     }
@@ -618,8 +748,16 @@ async function getVersionTimeline(persistence, docGuid) {
   // Get named versions
   const namedVersions = await persistence.getNamedVersions(docGuid);
 
+  // Feature 045: resolve every sync-relayed row ONCE for the whole request, so
+  // the timeline, its named versions and its split fragments cannot disagree
+  // about who authored relayed content. A document with no `via_sync` rows
+  // costs nothing here — the resolver returns without a query or a decode — and
+  // the resolver issues its own targeted payload reads, so this call site stays
+  // O(rows) with no payloads on the timeline query (023 FR-016).
+  const resolution = await resolveForRows(persistence, docGuid, allUpdates);
+
   // Group updates into auto versions
-  const autoVersions = groupUpdatesIntoVersions(updates);
+  const autoVersions = groupUpdatesIntoVersions(updates, DEFAULT_INACTIVITY_THRESHOLD, { resolution });
 
   // Merge with named versions. The rows go along so named versions and split
   // fragments compute their authors/provenance from their OWN clock ranges
@@ -632,7 +770,7 @@ async function getVersionTimeline(persistence, docGuid) {
   // is all noise" (R16 ⇒ credit its real, in-range editors). Handing it the
   // pre-filtered array would collapse those two into one indistinguishable
   // empty case.
-  const versions = mergeNamedVersions(autoVersions, namedVersions, allUpdates);
+  const versions = mergeNamedVersions(autoVersions, namedVersions, allUpdates, { resolution });
 
   // Format versions for API response
   const formattedVersions = versions.map(v => ({
@@ -1004,6 +1142,11 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
   // and the user cannot see — and the two surfaces disagreed on totals (SC-002).
   const meaningfulUpdates = updates.filter(isMeaningful);
 
+  // Feature 045: the drill-down resolves the SAME way the timeline does, over
+  // its own range rows, so the two surfaces always report one answer for a
+  // relayed row.
+  const resolution = await resolveForRows(persistence, docGuid, meaningfulUpdates);
+
   // Group updates into sub-versions using 10-second threshold
   // No document reconstruction needed - just return metadata about update groupings
   const groupStart = Date.now();
@@ -1016,8 +1159,13 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
       userEmail: u.userEmail,
       userPicture: u.userPicture,
       agentName: u.agentName,
+      // Feature 045: this projection used to DROP viaSync, which would have
+      // silently disabled resolution on the drill-down — the surface would then
+      // credit the relayer while the timeline credited the true author.
+      viaSync: u.viaSync,
     })),
-    UPDATE_GROUPING_THRESHOLD
+    UPDATE_GROUPING_THRESHOLD,
+    { resolution }
   );
   const groupTime = Date.now() - groupStart;
 
@@ -1062,11 +1210,16 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
  * Get authors from the current editing session
  * Uses same grouping logic as version history (5-minute inactivity threshold)
  * @param {Array} updates - Array of updates with user info (in ascending clock order)
+ * @param {object} [options]
+ * @param {{outcomes: Map, directory: Map}} [options.resolution] - feature 045:
+ *   the caller resolves (it is the one holding the persistence provider) and
+ *   passes the context in, which keeps this function SYNCHRONOUS. Omitting it
+ *   yields exactly the pre-045 behavior.
  * @returns {Array} Authors from the most recent session (last version)
  */
-function getCurrentSessionAuthors(updates) {
+function getCurrentSessionAuthors(updates, { resolution } = {}) {
   if (!updates || updates.length === 0) return [];
-  const versions = groupUpdatesIntoVersions(updates, DEFAULT_INACTIVITY_THRESHOLD);
+  const versions = groupUpdatesIntoVersions(updates, DEFAULT_INACTIVITY_THRESHOLD, { resolution });
   if (versions.length === 0) return [];
   return versions[versions.length - 1].authors;
 }
@@ -1100,6 +1253,11 @@ async function getContentAtClock(persistence, docGuid, clock) {
   const updates = await persistence.getUpdatesInRange(docGuid, clock, clock, { includeData: false });
   const update = updates[0];
 
+  // Feature 045: a relayed row's stamped identity is the channel, not the
+  // author, on THIS surface too. One row, the same resolution the timeline
+  // uses, collapsed to the single slot this view renders (RBD-045-9).
+  const resolution = await resolveForRows(persistence, docGuid, updates);
+
   return {
     content: Array.from(content),
     clock,
@@ -1109,7 +1267,7 @@ async function getContentAtClock(persistence, docGuid, clock) {
     // (its user was deleted) resolves to the synthetic unknown contributor
     // rather than a bare null. `null` here is reserved for "there is no row
     // at this clock at all", which is a different statement.
-    author: update ? (createAuthor(update) || UNKNOWN_AUTHOR) : null,
+    author: authorForSingleSlot(update, resolution),
   };
 }
 
@@ -1118,6 +1276,14 @@ module.exports = {
   createAuthor,
   // Feature 040 (FR-008): the synthetic contributor for unattributed rows.
   UNKNOWN_AUTHOR,
+  // Feature 045 (FR-004): the synthetic contributor for sync-relayed content
+  // whose author cannot be derived. States a different fact from
+  // UNKNOWN_AUTHOR (RBD-045-2); both may appear in one version.
+  SYNCED_CONTRIBUTION,
+  SYNCED_CONTRIBUTION_KEY,
+  // Feature 045 (RBD-045-9/RBD-045-12): the one-author collapse the per-clock
+  // view and MCP's lastModifiedBy share.
+  authorForSingleSlot,
   // Feature 041 (FR-001..004): the shared meaningful predicate and the
   // range-scoped metadata computation behind truthful version attribution.
   isMeaningful,
