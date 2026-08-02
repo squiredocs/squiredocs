@@ -132,12 +132,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *
  * The `malformedOrigin` field is additive — no existing consumer reads it. The
  * bindState listener in server/index.js is the one persistence-path consumer and
- * turns 'non-uuid-string' into a notifyException page.
+ * turns 'non-uuid-string' and 'null-or-primitive' into a notifyException page.
+ * 'unrecognized-object' keeps its warn-only treatment.
+ *
+ * The marker is this in-memory classification, NOT a database column
+ * (RBD-041-9): no consumer reads a persisted marker, and the loudness contract
+ * lives in the log plus the page — exactly where the existing classes' does.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * @param {*} origin - Transaction origin (string | object | ws | null)
  * @returns {{ userId: string|null, agentName: string|null,
- *   malformedOrigin?: 'non-uuid-string'|'unrecognized-object' } | null}
+ *   malformedOrigin?: 'non-uuid-string'|'unrecognized-object'|'null-or-primitive' } | null}
  */
 function parseOrigin(origin) {
   // Sentinels first, unchanged — these are server-side paths that already
@@ -183,7 +188,22 @@ function parseOrigin(origin) {
     };
   }
 
-  return { userId: null, agentName: null };
+  // Everything left is null/undefined or a primitive (number, boolean, symbol,
+  // bigint). Feature 041 (FR-017, RBD-041-9): this used to return a clean-looking
+  // unattributed result with no marker and no log — indistinguishable from a
+  // legitimately unattributed row, so a server-side caller that stopped passing
+  // an origin down the attribution path would accumulate anonymous rows in
+  // silence. Same defect class and severity as a non-UUID string, so it now
+  // carries a distinct marker, an error log, and (via the bindState listener)
+  // the same page. The row still persists unattributed: attribution is
+  // recoverable, a dropped update is not.
+  try {
+    console.error(
+      '[origin] Null or primitive transaction origin — persisting UNATTRIBUTED. '
+      + `typeof=${typeof origin}, value=${String(origin).slice(0, 200)}`
+    );
+  } catch (_ignored) { /* logging must never break persistence */ }
+  return { userId: null, agentName: null, malformedOrigin: 'null-or-primitive' };
 }
 
 module.exports = {

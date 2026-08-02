@@ -12,6 +12,10 @@ import './VersionPreview.css';
  */
 function VersionPreview({
   diffData,
+  // Preview/diff load failure (feature 041, FR-006). A failed load used to fall
+  // through to the "Select a version to preview" placeholder, which claims
+  // nothing is selected when something is — and hides the failure entirely.
+  diffError = null,
   selection,
   isLoading = false,
   showDiff = true,
@@ -46,12 +50,35 @@ function VersionPreview({
     );
   }
 
-  if (!diffData) {
+  if (diffError) {
+    return (
+      <div className="version-preview">
+        <div className="version-preview-error" role="alert">
+          <p>Couldn't load this version's preview.</p>
+          <p className="version-preview-error-detail">{diffError}</p>
+          <p className="version-preview-error-detail">Select the version again to retry.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // The placeholder means exactly one thing: nothing is selected (FR-006).
+  if (!selection) {
     return (
       <div className="version-preview">
         <div className="version-preview-empty">
           <p>Select a version to preview</p>
         </div>
+      </div>
+    );
+  }
+
+  // Selected, no error, no data yet — the load is still in flight (the hook
+  // sets isLoadingContent a tick later). Never claim emptiness here.
+  if (!diffData) {
+    return (
+      <div className="version-preview">
+        <div className="version-preview-loading">Loading version...</div>
       </div>
     );
   }

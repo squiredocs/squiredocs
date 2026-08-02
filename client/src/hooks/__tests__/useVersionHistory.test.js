@@ -107,6 +107,77 @@ describe('useVersionHistory', () => {
     });
   });
 
+  // Feature 041 US2 (FR-005/FR-006): the two failure channels are independent,
+  // and the timeline load is retryable.
+  describe('041: error vs diffError independence and retry', () => {
+    it('a timeline failure sets error only, and leaves diffError alone', async () => {
+      mockApi.get.mockRejectedValue({ response: { data: { error: 'history boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+
+      await waitFor(() => expect(result.current.error).toBe('history boom'));
+      expect(result.current.diffError).toBeNull();
+      expect(result.current.versions).toEqual([]);
+    });
+
+    it('a preview failure does not blank the already-loaded timeline', async () => {
+      const versions = [{ id: 'v1', timestamp: new Date().toISOString(), clockStart: 1, clockEnd: 5, authors: [] }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => {
+        await result.current.selectVersion(versions[0]);
+      });
+
+      expect(result.current.diffError).toBe('diff boom');
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toHaveLength(1);
+    });
+
+    it('selecting a new version clears a previous preview failure', async () => {
+      const good = { document: 'ok', meta: { currentClock: 20 } };
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } })
+        .mockResolvedValueOnce({ data: good });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v1', clockStart: 5, clockEnd: 10 });
+      });
+      expect(result.current.diffError).toBe('diff boom');
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v2', clockStart: 15, clockEnd: 20 });
+      });
+      expect(result.current.diffError).toBeNull();
+      expect(result.current.diffData).toEqual(good);
+    });
+
+    it('fetchHistory is a working retry: it clears the error and repopulates the list', async () => {
+      const versions = [{ id: 'v1', timestamp: new Date().toISOString(), authors: [] }];
+      mockApi.get
+        .mockRejectedValueOnce({ response: { data: { error: 'history boom' } } })
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 3 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.error).toBe('history boom'));
+
+      await act(async () => {
+        await result.current.fetchHistory();
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toEqual(versions);
+    });
+  });
+
   describe('selectVersion', () => {
     it('selects a version and loads its diff data', async () => {
       const mockDiffData = {
@@ -164,7 +235,7 @@ describe('useVersionHistory', () => {
       expect(result.current.diffData).toEqual(diffB);
     });
 
-    it('sets error and clears diffData on a diff fetch failure (F4)', async () => {
+    it('sets diffError and clears diffData on a diff fetch failure (F4; 041 FR-006)', async () => {
       const goodDiff = { document: 'ok', meta: { currentClock: 10 } };
       mockApi.get
         .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // initial history
@@ -183,9 +254,11 @@ describe('useVersionHistory', () => {
         await result.current.selectVersion({ id: 'v2', clockStart: 15, clockEnd: 20 });
       });
 
-      // No stale preview retained; error surfaced.
+      // No stale preview retained; the failure lands on the PREVIEW channel.
       expect(result.current.diffData).toBeNull();
-      expect(result.current.error).toBe('diff boom');
+      expect(result.current.diffError).toBe('diff boom');
+      // ...and never blanks the timeline (041 FR-005/FR-006 are independent).
+      expect(result.current.error).toBeNull();
     });
 
     it('clears content when selecting null', async () => {
@@ -421,10 +494,20 @@ describe('useVersionHistory', () => {
         { clock: 60, timestamp: '2025-01-01T10:03:00Z', author: { id: 'u1', name: 'Alice' } },
       ];
 
+      // Before: one auto version 57-60. After naming clock 59: a named version
+      // 57-59 plus a 60-60 fragment — the structural change that invalidates
+      // the drill-down cache (feature 041 keeps the cache when the structure is
+      // unchanged, so the payloads here must be realistic).
+      const before = [{ id: 'auto-60', name: null, clockStart: 57, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true }];
+      const after = [
+        { id: '60', name: null, clockStart: 60, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true },
+        { id: 'new-v1', name: 'Named Version', clockStart: 57, clockEnd: 59, timestamp: '2025-01-01T10:02:00Z', isCurrent: false },
+      ];
+
       mockApi.get
-        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // Initial fetch
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 4 } }) // Initial fetch
         .mockResolvedValueOnce({ data: { updates: mockUpdates } }) // Load updates for version
-        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }); // Refresh after naming
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 4 } }); // Refresh after naming
 
       mockApi.post.mockResolvedValue({
         data: { version: { id: 'new-v1', name: 'Named Version' } },
@@ -458,10 +541,13 @@ describe('useVersionHistory', () => {
         { clock: 1, timestamp: '2025-01-01T10:00:00Z', author: null },
       ];
 
+      const before = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 1, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const after = [{ id: 'auto-2', name: null, clockStart: 1, clockEnd: 2, timestamp: '2025-01-01T10:05:00Z', isCurrent: true }];
+
       mockApi.get
-        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // Initial fetch
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 1 } }) // Initial fetch
         .mockResolvedValueOnce({ data: { updates: mockUpdates } }) // Load updates
-        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }); // Manual refresh
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 2 } }); // Manual refresh
 
       const { result } = renderHook(() => useVersionHistory('doc-123'));
 
@@ -476,12 +562,207 @@ describe('useVersionHistory', () => {
 
       expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
 
-      // Refresh history - cache should be cleared
+      // Refresh history - the structure moved, so the cache must be cleared
       await act(async () => {
         await result.current.refresh();
       });
 
       expect(result.current.versionUpdates).toEqual({});
+    });
+
+    it('041: a refresh that returns the SAME structure keeps the cache (no per-tick wipe)', async () => {
+      const versions = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 1, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const mockUpdates = [{ clock: 1, timestamp: '2025-01-01T10:00:00Z', author: null }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 1 } })
+        .mockResolvedValueOnce({ data: { updates: mockUpdates } })
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 1 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.loadUpdatesForVersion(1, 1, 'auto-1');
+      });
+      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+
+      await act(async () => {
+        await result.current.refresh();
+      });
+
+      // An idle refresh must not blank an expanded row's contents.
+      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+    });
+  });
+
+  // ── Feature 041 US3 ────────────────────────────────────────────────────────
+  describe('041 FR-008: live-refresh poll', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('polls the history endpoint on a 10s cadence while open', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+
+      renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(1));
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('skips ticks while the tab is hidden', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+
+      renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(1));
+
+      const spy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+      spy.mockReturnValue(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+      spy.mockRestore();
+    });
+
+    it('stops polling once the panel closes (docGuid goes away)', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+
+      const { unmount } = renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(1));
+
+      unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed tick keeps the last-good list and surfaces the error', async () => {
+      const versions = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'poll boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+
+      expect(result.current.error).toBe('poll boom');
+      expect(result.current.versions).toEqual(versions);
+      // A background tick never flips the loading flag — that would tear the
+      // rendered list down and take scroll/expansions with it.
+      expect(result.current.isLoading).toBe(false);
+    });
+  });
+
+  describe('041 FR-007: selection reconciliation after every refresh', () => {
+    const diffOk = { data: { document: 'doc', meta: {} } };
+
+    it('re-resolves the selection to the post-split version containing its clockEnd', async () => {
+      const before = [{ id: '60', name: null, clockStart: 57, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true }];
+      const after = [
+        { id: '60', name: null, clockStart: 60, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true },
+        { id: 'named-uuid', name: 'Draft', clockStart: 57, clockEnd: 59, timestamp: '2025-01-01T10:02:00Z', isCurrent: false },
+      ];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 4 } })
+        .mockResolvedValueOnce(diffOk)               // select 57-60
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 4 } })
+        .mockResolvedValue(diffOk);                  // any reconcile-driven refetch
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      expect(result.current.selection.id).toBe('60');
+      expect(result.current.selection.clockStart).toBe(57);
+
+      await act(async () => { await result.current.refresh(); });
+
+      // The old 57-60 range no longer exists. clockEnd 60 now lives in the
+      // 60-60 fragment, and the selection must be that POST-split object —
+      // which is the id the header restore button posts.
+      await waitFor(() => expect(result.current.selection.clockStart).toBe(60));
+      expect(result.current.selection.id).toBe('60');
+      expect(after.some(v => v.id === result.current.selection.id)).toBe(true);
+    });
+
+    it('adopts a renamed version without re-fetching an identical preview', async () => {
+      const before = [{ id: 'nv', name: 'Old name', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const after = [{ id: 'nv', name: 'New name', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce(diffOk)
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 5 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      const callsAfterSelect = mockApi.get.mock.calls.length;
+
+      await act(async () => { await result.current.refresh(); });
+      await waitFor(() => expect(result.current.selection.name).toBe('New name'));
+
+      // One extra call: the refresh itself. No diff re-fetch — same range.
+      expect(mockApi.get.mock.calls.length).toBe(callsAfterSelect + 1);
+    });
+
+    it('never keeps a deleted selection: it falls back to the current version', async () => {
+      const before = [
+        { id: 'gone', name: 'Doomed', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: false },
+        { id: '10', name: null, clockStart: 6, clockEnd: 10, timestamp: '2025-01-01T10:05:00Z', isCurrent: true },
+      ];
+      const after = [
+        { id: '10', name: null, clockStart: 6, clockEnd: 10, timestamp: '2025-01-01T10:05:00Z', isCurrent: true },
+      ];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 10 } })
+        .mockResolvedValueOnce(diffOk)
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 10 } })
+        .mockResolvedValue(diffOk);
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(2));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      expect(result.current.selection.id).toBe('gone');
+
+      await act(async () => { await result.current.refresh(); });
+
+      await waitFor(() => expect(result.current.selection.id).toBe('10'));
+      expect(result.current.selection.isCurrent).toBe(true);
+    });
+
+    it('clears the selection when the refreshed list is empty', async () => {
+      const before = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce(diffOk)
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      await act(async () => { await result.current.refresh(); });
+
+      await waitFor(() => expect(result.current.selection).toBeNull());
+      expect(result.current.diffData).toBeNull();
     });
   });
 });

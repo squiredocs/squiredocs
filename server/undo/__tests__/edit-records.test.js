@@ -423,4 +423,59 @@ describe('edit-records', () => {
     );
     expect(upd.rows[0].n).toBe(0);
   });
+
+  // ── Feature 041 (FR-014, SC-007) ─────────────────────────────────────────
+  // A reconnect catch-up re-supplies rows under the acting identity flagged
+  // via_sync. Those rows never get an agent_edits record, so the pending-recording
+  // heuristic false-positived on them and blocked undo with "still being
+  // recorded — retry shortly" for the whole freshness window after every
+  // routine reconnect.
+  describe('041 FR-014: hasPendingRecording ignores sync-channel rows', () => {
+    const FRESHNESS_MS = 60000;
+
+    test('a fresh via_sync row does NOT report a pending recording', async () => {
+      const docGuid = randomUUID();
+      // A recorded edit at clock 0, fully accounted for.
+      await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT);
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
+      });
+      // Then a reconnect re-supplies content: newer clock, same identity, flagged.
+      await persistence.storeUpdate(docGuid, makeUpdate('resupplied'), userId, AGENT, null, null, { viaSync: true });
+
+      const pending = await editRecords.hasPendingRecording(persistence, identity(docGuid), FRESHNESS_MS);
+      expect(pending).toBe(false);
+    });
+
+    test('a genuine fresh UNRECORDED edit still reports pending (the guard keeps its teeth)', async () => {
+      const docGuid = randomUUID();
+      await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT);
+      await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
+      });
+      // No via_sync flag: an edit whose record has not landed yet.
+      await persistence.storeUpdate(docGuid, makeUpdate('in-flight'), userId, AGENT);
+
+      const pending = await editRecords.hasPendingRecording(persistence, identity(docGuid), FRESHNESS_MS);
+      expect(pending).toBe(true);
+    });
+
+    test('via_sync = NULL (every pre-038 row and every normal write) still counts', async () => {
+      const docGuid = randomUUID();
+      await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT, null, null, { viaSync: null });
+
+      const pending = await editRecords.hasPendingRecording(persistence, identity(docGuid), FRESHNESS_MS);
+      expect(pending).toBe(true);
+    });
+
+    test('a sync row does not mask an OLDER unrecorded real edit', async () => {
+      const docGuid = randomUUID();
+      await persistence.storeUpdate(docGuid, makeUpdate('real'), userId, AGENT);            // clock 0, unrecorded
+      await persistence.storeUpdate(docGuid, makeUpdate('resupplied'), userId, AGENT, null, null, { viaSync: true }); // clock 1
+
+      // Excluding the sync row surfaces the real unrecorded edit beneath it.
+      const pending = await editRecords.hasPendingRecording(persistence, identity(docGuid), FRESHNESS_MS);
+      expect(pending).toBe(true);
+    });
+  });
 });

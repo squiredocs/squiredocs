@@ -604,4 +604,48 @@ describe('undo-service (post-merge review pins)', () => {
       expect(updates[0].n).toBe(2); // only the two seeded rows — no inverse appended
     });
   });
+
+  // ---------------------------------------------------------------- 041 ----
+  // FR-015: undo/redo report the ORIGINAL clock range of the record they
+  // actually claimed, so the chat route can verify a "Reverted" stamp is about
+  // the edit on the card it was asked to stamp. Additive: honest-empty results
+  // are untouched.
+  describe('041 FR-015: undone/redoneRecordRange on success results', () => {
+    test('a successful undo carries the claimed record\'s ORIGINAL edit range', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid); // recorded edit at clock 1
+
+      const res = await undoService.performUndo(identity(docGuid), {
+        persistence, getSharedDoc: () => null,
+      });
+
+      expect(res.undone).toBe(true);
+      expect(res.undoneRecordRange).toEqual({ clockStart: 1, clockEnd: 1 });
+    });
+
+    test('a successful redo carries the SAME original range (the card stores that, not the inverse\'s)', async () => {
+      const docGuid = randomUUID();
+      await seedDocWithAgentEdit(docGuid);
+
+      const undo = await undoService.performUndo(identity(docGuid), { persistence, getSharedDoc: () => null });
+      expect(undo.undone).toBe(true);
+
+      const redo = await undoService.performRedo(identity(docGuid), { persistence, getSharedDoc: () => null });
+      expect(redo.redone).toBe(true);
+      expect(redo.redoneRecordRange).toEqual({ clockStart: 1, clockEnd: 1 });
+      expect(redo.redoneRecordRange).toEqual(undo.undoneRecordRange);
+    });
+
+    test('every honest-empty result omits the range field entirely', async () => {
+      const docGuid = randomUUID(); // nothing recorded, nothing in the log
+
+      const undo = await undoService.performUndo(identity(docGuid), { persistence, getSharedDoc: () => null });
+      expect(undo.undone).toBe(false);
+      expect(undo).not.toHaveProperty('undoneRecordRange');
+
+      const redo = await undoService.performRedo(identity(docGuid), { persistence, getSharedDoc: () => null });
+      expect(redo.redone).toBe(false);
+      expect(redo).not.toHaveProperty('redoneRecordRange');
+    });
+  });
 });

@@ -40,7 +40,11 @@ telemetry.start();
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');
-const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
+// `docs` is y-websocket's own doc registry (docName -> Y.Doc). Feature 041 uses
+// it for two honest primitives: evicting a doc whose bind failed (FR-010) and
+// asking "is this document loaded?" WITHOUT creating it (FR-013 —
+// `getYDoc` is `setIfUndefined`, so the lookup IS the creation).
+const { setupWSConnection, setPersistence, getYDoc, docs } = require('y-websocket/bin/utils');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
@@ -73,6 +77,8 @@ const toolRegistry = require('./mcp/tools');
 const agentPresence = require('./mcp/agent-presence');
 const chat = require('./api/chat');
 const chatStore = require('./chat-store');
+// Feature 041 (FR-015): the verified chat "Reverted" stamp.
+const chatRevertStamp = require('./api/chat-revert-stamp');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
@@ -97,6 +103,9 @@ const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
+// Feature 041 (FR-010): a document-load failure refuses the bind instead of
+// serving an empty doc over an outage.
+const { refuseBind } = require('./bind-failure');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
 const users = require('./auth/users');
@@ -285,6 +294,13 @@ setPersistence({
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
     ydoc.on('update', (update, origin) => {
+      // Feature 041 (FR-010): the load for this doc failed and the bind was
+      // refused — its connections are closed and it is evicted from the
+      // registry, so nothing should arrive here. If anything still does, it is
+      // NOT persisted: this doc's state is unknown, and writing into it would
+      // produce exactly the phantom history the refusal exists to prevent.
+      if (ydoc._bindFailed) return;
+
       // Feature 023 US4 (T023, U1): refresh the meaningful-classification
       // baseline on EVERY update, BEFORE the sentinel early-return. The listener
       // fires after the update applies, so extractXml(ydoc) is the post-update
@@ -325,10 +341,17 @@ setPersistence({
       // every browser. We deliberately continue to persist: an unattributed row
       // is recoverable, a lost one is not. The drop path must be unreachable
       // from origin parsing (SC-006).
-      if (parsed.malformedOrigin === 'non-uuid-string') {
+      //
+      // Feature 041 (FR-017) extends the page to the null/primitive class. That
+      // fallback used to return a marker-less, log-less unattributed result, so
+      // a server-side caller that stopped passing an origin down the attribution
+      // path would quietly accumulate anonymous rows — a silent degradation in
+      // the attribution system. It is the same caller-bug class as a non-UUID
+      // string, so it gets the same page. 'unrecognized-object' stays warn-only.
+      if (parsed.malformedOrigin === 'non-uuid-string' || parsed.malformedOrigin === 'null-or-primitive') {
         notifyException(
-          new Error('Malformed string transaction origin (persisting unattributed)'),
-          { source: 'origin-parsing', extra: { docGuid, rejectedOrigin: String(origin).slice(0, 200) } }
+          new Error(`Malformed transaction origin (${parsed.malformedOrigin}) — persisting unattributed`),
+          { source: 'origin-parsing', extra: { docGuid, malformedOrigin: parsed.malformedOrigin, rejectedOrigin: String(origin).slice(0, 200) } }
         );
       }
 
@@ -467,10 +490,15 @@ setPersistence({
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
-      // If document doesn't exist in persistence, that's okay - start with empty doc
-      // Update listener is already set up above
-      console.log(`[bindState] NEW DOC for ${docGuid} in ${Date.now() - startTime}ms`);
-      logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
+      // Feature 041 (FR-010, RBD-041-1). This catch used to log `NEW DOC` and
+      // bind the empty doc — but a genuinely new document does NOT come through
+      // here: `getYDoc` returns an empty doc for zero rows without throwing.
+      // Reaching this point means the load actually FAILED, and binding an empty
+      // doc over that serves a blank document for one that has content (and
+      // invites a client with local state to re-supply the whole thing as its
+      // own new edits). Refuse instead; clients retry. See server/bind-failure.js.
+      refuseBind({ docName, docGuid, ydoc, error, docs, notify: notifyException });
+      logPerf('BIND_STATE_REFUSED', { docGuid, totalDuration: Date.now() - startTime });
     }
   },
   // writeState intentionally omitted - we persist on every update via the listener above,
@@ -1527,8 +1555,12 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
     // update log under the requesting user and is NOT entered into any
     // identity's undo queue. Reverting it is done by restoring again. See the
     // rationale in versionHistory.restoreVersion.
+    // FR-013: the PEEK, never the creating lookup. Restore only needs to know
+    // whether the doc is already live here; asking with `getSharedDoc` created
+    // (and permanently leaked) an in-memory doc for every restore of a document
+    // nobody had open.
     const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, {
-      getSharedDoc: documentService.getSharedDoc,
+      getSharedDoc: documentService.peekSharedDoc,
       redisPubSub,
       agentName: null,
     });
@@ -1579,10 +1611,30 @@ function makeUndoRedoHandler(toolName, label) {
       // Persist the reverted state on the chat message so the "Reverted" marker
       // survives reloads. Best-effort: never fail the undo/redo if this doesn't
       // stick. undo -> reverted, redo -> not reverted.
+      //
+      // ── VERIFIED STAMP (feature 041, FR-015) ─────────────────────────────
+      // The card reference is CLIENT-SUPPLIED. Undo picks its target by LIFO
+      // over the acting identity's records, which is not necessarily the edit
+      // on the card the request names: a newer edit from another chat, or a
+      // direct API call carrying an arbitrary toolCallId, would stamp
+      // "Reverted" onto a card whose edit was never touched — a user-facing
+      // attribution lie. So the stamp only lands when the card's own recorded
+      // edit range matches the range of the record that was actually undone.
+      // A card with NO stored range (pre-016, or still editRangePending) is a
+      // MISMATCH by rule: absence of evidence is not a pass.
+      //
+      // The undo/redo itself is never affected, and the HTTP response is
+      // identical whether the stamp applied or was skipped. Nothing cut by
+      // 040 D19 is revived here — this is a read-and-compare at the stamp
+      // site, not undo scoping and not an offer guard.
       const succeeded = toolName === 'undo' ? result.undone : result.redone;
       if (succeeded && req.body?.chatId && req.body?.toolCallId) {
         try {
-          await setChatPartReverted(req.body.chatId, userId, req.body.toolCallId, toolName === 'undo');
+          const recordRange = toolName === 'undo' ? result.undoneRecordRange : result.redoneRecordRange;
+          await setChatPartReverted(
+            req.body.chatId, userId, req.body.toolCallId, toolName === 'undo',
+            { expectedRange: recordRange, label }
+          );
         } catch (e) {
           console.warn(`[${label}] could not persist reverted flag:`, e.message);
         }
@@ -1597,22 +1649,11 @@ function makeUndoRedoHandler(toolName, label) {
   };
 }
 
-// Set/clear the `reverted` flag on a tool part (by toolCallId) within a stored
-// chat, so the chat UI can show the edit as reverted after a reload.
-async function setChatPartReverted(chatId, userId, toolCallId, reverted) {
-  const messages = await chatStore.loadChat(chatId, userId);
-  if (!messages || !messages.length) return;
-  let changed = false;
-  for (const m of messages) {
-    for (const p of (m.parts || [])) {
-      if (p.toolCallId === toolCallId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
-        if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
-        else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
-      }
-    }
-  }
-  if (changed) await chatStore.saveChat(chatId, userId, messages);
-}
+// The verified "Reverted" stamp lives in server/api/chat-revert-stamp.js so the
+// comparison rule is unit-testable without booting the server (feature 041,
+// FR-015).
+const setChatPartReverted = (chatId, userId, toolCallId, reverted, opts) =>
+  chatRevertStamp.setChatPartReverted({ chatStore }, chatId, userId, toolCallId, reverted, opts);
 
 app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo'));
 app.post('/api/docs/:docId/redo', requireAuth, makeUndoRedoHandler('redo', 'redo'));
@@ -1913,8 +1954,10 @@ const server = app.listen(PORT, async () => {
   // Log WebSocket simulator status
   wsSimulator.logStatus();
 
-  // Initialize document service with y-websocket functions
-  documentService.init(getYDoc, extractDocGuid);
+  // Initialize document service with y-websocket functions. `docs` (the
+  // registry) is passed alongside the creating `getYDoc` so `peekSharedDoc` can
+  // answer "is this loaded?" without creating anything (feature 041, FR-013).
+  documentService.init(getYDoc, extractDocGuid, docs);
 
   // Initialize Redis pub/sub for cross-instance synchronization
   // Await to ensure Redis is ready before accepting WebSocket connections
@@ -2331,5 +2374,8 @@ process.on('SIGINT', () => runShutdown('SIGINT'));
 // Export for internal use (MCP tools, tests)
 module.exports = {
   getYDoc,
+  // Feature 041 (FR-010/FR-013): y-websocket's doc registry — the honest
+  // primitive behind bind eviction and the non-creating is-loaded peek.
+  docs,
   extractDocGuid,
 };

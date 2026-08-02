@@ -12,19 +12,32 @@ const documents = require('./documents');
 
 let getYDocFn = null;
 let extractDocGuidFn = null;
+let docsMap = null;
 
 /**
  * Initialize with server exports
  * @param {function(string, boolean): Y.Doc} getYDoc - Function to get shared ydoc
  * @param {function(string): string} extractDocGuid - Function to extract clean UUID
+ * @param {Map|null} [docs] - y-websocket's own `docName -> Y.Doc` registry, for
+ *   `peekSharedDoc`. Optional so existing callers/tests keep working; without it
+ *   the peek honestly answers "not loaded".
  */
-function init(getYDoc, extractDocGuid) {
+function init(getYDoc, extractDocGuid, docs = null) {
   getYDocFn = getYDoc;
   extractDocGuidFn = extractDocGuid;
+  docsMap = docs;
 }
 
 /**
- * Get the shared in-memory ydoc for a document
+ * Get the shared in-memory ydoc for a document, CREATING it if it is not loaded.
+ *
+ * ⚠️ This is a write-path primitive. y-websocket's `getYDoc` is
+ * `map.setIfUndefined(docs, ...)` — the lookup IS the creation, and it also
+ * fires an asynchronous `bindState` full load. That is the correct contract for
+ * `updateDocument` (an agent modify/import must have a doc to write into), but
+ * it is the WRONG primitive for asking "is this document loaded?" — see
+ * `peekSharedDoc` (feature 041, FR-013).
+ *
  * @param {string} docGuid - Document UUID
  * @returns {Y.Doc} The shared WSSharedDoc instance
  */
@@ -36,6 +49,27 @@ function getSharedDoc(docGuid) {
   // y-websocket expects "s/{docGuid}" format
   const docName = `s/${docGuid}`;
   return getYDocFn(docName);
+}
+
+/**
+ * Honest "is this document loaded on this instance?" probe (feature 041, FR-013).
+ *
+ * Returns the live shared doc if one exists, else `null` — and NEVER creates one.
+ *
+ * Every read-shaped consumer (restore, undo, redo) used to ask this question
+ * through the creating `getSharedDoc`, so the answer was always "yes": the
+ * not-loaded branches downstream were unreachable, every such operation on an
+ * unopened document allocated an in-memory doc plus a spurious full load, and
+ * nothing ever evicted it (eviction only happens when the last WebSocket
+ * connection closes, and these docs never had one). That is a permanent
+ * server-memory leak driven by read operations.
+ *
+ * @param {string} docGuid - Document UUID
+ * @returns {Y.Doc|null} The live shared doc, or null when it is not loaded here
+ */
+function peekSharedDoc(docGuid) {
+  if (!docsMap || typeof docsMap.get !== 'function') return null;
+  return docsMap.get(`s/${docGuid}`) || null;
 }
 
 /**
@@ -158,6 +192,8 @@ async function createSeededDocument({ userId, title, nodes = [], agentName = nul
 module.exports = {
   init,
   getSharedDoc,
+  // Feature 041 (FR-013): the non-creating is-loaded probe.
+  peekSharedDoc,
   updateDocument,
   createSeededDocument,
 };

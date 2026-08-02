@@ -168,12 +168,92 @@ describe('parseOrigin — malformed origins degrade loudly, never drop (feature 
     }
   });
 
-  test('null/undefined/number origins stay unattributed WITHOUT a malformed flag', () => {
-    // Unchanged behavior: these never reached the uuid column as a value, so
-    // they were never the data-loss path this hardening targets.
-    expect(parseOrigin(null)).toEqual({ userId: null, agentName: null });
-    expect(parseOrigin(undefined)).toEqual({ userId: null, agentName: null });
-    expect(parseOrigin(42)).toEqual({ userId: null, agentName: null });
+  // ── Feature 041 (FR-017, SC-010, RBD-041-9) ──────────────────────────────
+  // This fallback used to return a clean-looking unattributed result with no
+  // marker and no log — indistinguishable from a legitimately unattributed row.
+  // A server-side caller that stopped passing an origin down the attribution
+  // path would accumulate anonymous rows in total silence, which is exactly the
+  // kind of invisible degradation the attribution system cannot afford.
+  test('041 FR-017: null/undefined/primitive origins are MARKED and logged, still unattributed', () => {
+    for (const origin of [null, undefined, 42, 0, true, false, NaN]) {
+      errorSpy.mockClear();
+      const result = parseOrigin(origin);
+      expect(result).toEqual({
+        userId: null,
+        agentName: null,
+        malformedOrigin: 'null-or-primitive',
+      });
+      // Persisting unattributed is deliberate: attribution is recoverable, a
+      // dropped update is not.
+      expect(result.userId).toBeNull();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0][0])).toContain(`typeof=${typeof origin}`);
+    }
+  });
+
+  test('041 FR-017: the marker is a distinct class — object and string malformations keep theirs', () => {
+    expect(parseOrigin('user-123').malformedOrigin).toBe('non-uuid-string');
+    expect(parseOrigin({ someOtherField: 1 }).malformedOrigin).toBe('unrecognized-object');
+    expect(parseOrigin(null).malformedOrigin).toBe('null-or-primitive');
+  });
+
+  test('041 FR-017: the loud fallback still never throws on an exotic primitive', () => {
+    expect(() => parseOrigin(Symbol('s'))).not.toThrow();
+    expect(() => parseOrigin(123n)).not.toThrow();
+    expect(parseOrigin(Symbol('s')).malformedOrigin).toBe('null-or-primitive');
+  });
+});
+
+// The bindState listener is the one persistence-path consumer of the marker.
+// Feature 041 (FR-017) extends its page from 'non-uuid-string' to the
+// null/primitive class; 'unrecognized-object' stays warn-only.
+describe('041 FR-017: bindState notification routing by malformed class', () => {
+  /** Mirror of the notification branch in server/index.js's update listener. */
+  function pageIfMalformed(parsed, notify) {
+    if (parsed.malformedOrigin === 'non-uuid-string' || parsed.malformedOrigin === 'null-or-primitive') {
+      notify(new Error(`Malformed transaction origin (${parsed.malformedOrigin}) — persisting unattributed`), {
+        source: 'origin-parsing',
+        extra: { malformedOrigin: parsed.malformedOrigin },
+      });
+    }
+  }
+
+  let errorSpy;
+  let warnSpy;
+  beforeEach(() => {
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  test('a null origin pages exactly like a non-UUID string, and the row still persists unattributed', () => {
+    const notify = jest.fn();
+    const parsed = parseOrigin(null);
+
+    pageIfMalformed(parsed, notify);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][1].source).toBe('origin-parsing');
+    expect(notify.mock.calls[0][1].extra.malformedOrigin).toBe('null-or-primitive');
+    // Attribution degraded, persistence unaffected: the listener continues.
+    expect(parsed.userId).toBeNull();
+    expect(parsed.agentName).toBeNull();
+  });
+
+  test('an unrecognized object still does NOT page (warn-only, unchanged)', () => {
+    const notify = jest.fn();
+    pageIfMalformed(parseOrigin({ nope: 1 }), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test('a well-formed origin pages nothing', () => {
+    const notify = jest.fn();
+    pageIfMalformed(parseOrigin('3f2504e0-4f89-41d3-9a0c-0305e82c3301'), notify);
+    pageIfMalformed(parseOrigin({ userId: 'u1', agentName: 'A' }), notify);
+    expect(notify).not.toHaveBeenCalled();
   });
 });
 

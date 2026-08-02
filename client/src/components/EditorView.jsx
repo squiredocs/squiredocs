@@ -164,6 +164,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff
     totalEdits,
     isLoading: versionHistoryLoading,
+    // Feature 041 (FR-005/FR-006): the hook has always recorded these failures;
+    // nothing rendered them, so a failed load showed the empty state instead.
+    error: versionHistoryError,
+    diffError: versionDiffError,
+    fetchHistory: refetchHistory,
     isLoadingContent: versionContentLoading,
     selectVersion,
     restoreVersion,
@@ -402,6 +407,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           <div className="version-history-main">
             <VersionPreview
               diffData={diffData}
+              diffError={versionDiffError}
               versionContent={versionContent}
               selection={selection}
               isLoading={versionContentLoading}
@@ -418,6 +424,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             hierarchicalVersions={hierarchicalVersions}
             totalEdits={totalEdits}
             isLoading={versionHistoryLoading}
+            error={versionHistoryError}
+            onRetry={refetchHistory}
             onCreateNamedVersion={createNamedVersion}
             onRenameVersion={renameVersion}
             onDeleteVersion={deleteNamedVersion}

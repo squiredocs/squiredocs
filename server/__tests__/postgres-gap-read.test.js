@@ -684,5 +684,46 @@ describe('023 gap tolerance across every reader', () => {
       expect(res.gapped).toBe(true);
       expect(String(gapLogs()[0][0])).toContain('reason=gap+short-tail');
     });
+
+    // ── Feature 041 (FR-012) ────────────────────────────────────────────────
+    // getYDocAtClock is the OTHER stored-artifact reader (restore's target read)
+    // and had no tail-completeness option at all, so a read that stopped short
+    // of the requested version looked complete and restore's fail-closed
+    // guarantee had a hole.
+    describe('041 FR-012: getYDocAtClock gains expectedTailClock', () => {
+      test('a short tail reports gapped even though the rows present are gap-free', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+
+        const res = await persistence.getYDocAtClock(docGuid, 3, { withGap: true, expectedTailClock: 3 });
+
+        expect(res.gapped).toBe(true);
+        expect(String(gapLogs()[0][0])).toContain('reason=short-tail');
+        expect(String(gapLogs()[0][0])).toContain('getYDocAtClock');
+      });
+
+      test('the same read WITHOUT the option still reports complete (serving paths unchanged)', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+
+        const res = await persistence.getYDocAtClock(docGuid, 3, { withGap: true });
+
+        expect(res.gapped).toBe(false);
+        expect(gapLogs()).toHaveLength(0);
+      });
+
+      test('a complete read with the option reports complete', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 4; i++) await insertRow(docGuid, i, u[i]);
+
+        const res = await persistence.getYDocAtClock(docGuid, 3, { withGap: true, expectedTailClock: 3 });
+
+        expect(res.gapped).toBe(false);
+        expect(gapLogs()).toHaveLength(0);
+      });
+    });
   });
 });

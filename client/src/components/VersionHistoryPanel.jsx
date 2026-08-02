@@ -12,6 +12,11 @@ function VersionHistoryPanel({
   hierarchicalVersions = [],
   totalEdits = 0,
   isLoading = false,
+  // Timeline/CRUD failure (feature 041, FR-005). When set, the panel shows an
+  // explicit error with a retry instead of the empty state — a failed load must
+  // never read as "this document has no history".
+  error = null,
+  onRetry,
   onCreateNamedVersion,
   onRenameVersion,
   onDeleteVersion,
@@ -75,11 +80,33 @@ function VersionHistoryPanel({
         </label>
       </div>
 
-      {isLoading && (
+      {/* Feature 041: the loading placeholder only stands in for an EMPTY list.
+          Once there are versions the list stays mounted across refreshes, so a
+          rename, a restore or a live-refresh tick never tears the rows down and
+          takes the user's scroll position and row expansions with it. */}
+      {isLoading && hierarchicalVersions.length === 0 && (
         <div className="version-history-loading">Loading versions...</div>
       )}
 
-      {!isLoading && hierarchicalVersions.length === 0 && (
+      {!isLoading && error && (
+        <div className="version-history-error" role="alert">
+          <p>Couldn't load version history.</p>
+          <p className="version-history-empty-hint">{error}</p>
+          {onRetry && (
+            <button
+              type="button"
+              className="version-history-retry-btn"
+              onClick={() => onRetry()}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* The empty state describes a SUCCESSFUL response with zero versions —
+          never a failed load (FR-005). */}
+      {!isLoading && !error && hierarchicalVersions.length === 0 && (
         <div className="version-history-empty">
           <p>{filter === 'named' ? 'No named versions yet.' : 'No version history yet.'}</p>
           <p className="version-history-empty-hint">
@@ -88,7 +115,7 @@ function VersionHistoryPanel({
         </div>
       )}
 
-      {!isLoading && hierarchicalVersions.length > 0 && (
+      {hierarchicalVersions.length > 0 && (
         <HierarchicalVersionList
           hierarchicalVersions={hierarchicalVersions}
           selection={selection}

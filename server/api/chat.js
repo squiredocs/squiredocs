@@ -89,10 +89,12 @@ function getAI() {
 // Agent name attributed to the in-app chat assistant's edits in version
 // history. Used to tell the agent's own edits apart from concurrent ones.
 // Feature 040 (FR-005): the literal now lives in the zero-dependency leaf
-// `server/agent-identity.js`, so the identity a web-UI restore is RECORDED
-// under and the identity the undo surface QUERIES are the same string by
-// construction. Still re-exported from this module below, so existing readers
-// (notably server/index.js's /undo-status route) need no change.
+// `server/agent-identity.js`, so the identity the assistant's own edits are
+// RECORDED under and the identity the undo surface QUERIES are the same string
+// by construction. (A human web-UI restore is NOT recorded under it — that was
+// cut on 2026-08-02; see agent-identity.js.) Still re-exported from this module
+// below, so existing readers (notably server/index.js's /undo-status route)
+// need no change.
 const { CHAT_AGENT_NAME } = require('../agent-identity');
 
 // Stable agent id for the in-app chat assistant. Combined with the user id and

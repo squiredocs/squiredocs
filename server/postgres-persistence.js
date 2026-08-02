@@ -778,9 +778,21 @@ class PostgresPersistence {
    * @param {boolean} [opts.withGap=false] - when true, return `{ ydoc, gapped }`
    *   so a stored-artifact caller (restore — 023 FR-009/D-2) can fail closed on a
    *   torn read. Default keeps the bare-Y.Doc serving-only shape.
+   * @param {number} [opts.expectedTailClock] - the clock this read MUST reach to
+   *   count as complete (039 FR-003, extended here by feature 041 FR-012).
+   *   Without it, `gapped` only ever meant "interior gap": a read that stopped
+   *   SHORT of the target — rows at the tail not yet visible — looked complete,
+   *   which put a hole in restore's fail-closed guarantee (it would restore to
+   *   an earlier state while labelling the row with the requested version).
+   *
+   *   ⚠️ NEVER DERIVE THIS FROM `clock` — same caution as `getUpdateRowsUpTo`:
+   *   `clock` is not always a real version (sentinel MAX_CLOCK "whole log" reads
+   *   exist), so defaulting it would make those reads permanently "incomplete".
+   *   Only a caller that has validated it is asking for a committed version may
+   *   pass this; serving-only readers (previews, compare) must not.
    * @returns {Promise<Y.Doc|{ydoc: Y.Doc, gapped: boolean}>} Document state at that clock
    */
-  async getYDocAtClock(docGuid, clock, { withGap = false } = {}) {
+  async getYDocAtClock(docGuid, clock, { withGap = false, expectedTailClock } = {}) {
     await this._init();
     const client = await this.pool.connect();
     try {
@@ -788,7 +800,8 @@ class PostgresPersistence {
         client,
         'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock <= $2 ORDER BY clock ASC',
         [docGuid, clock],
-        `getYDocAtClock ${docGuid}@${clock}`
+        `getYDocAtClock ${docGuid}@${clock}`,
+        { expectedTailClock }
       );
       const ydoc = this._buildYDocFromRows(rows);
       return withGap ? { ydoc, gapped } : ydoc;
