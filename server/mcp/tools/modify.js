@@ -10,6 +10,8 @@ const agentPresence = require('../agent-presence');
 const { executeScript } = require('../sandbox');
 const { toMarkdown, loadYDoc } = require('../yjs/serialization');
 const documents = require('../../documents');
+// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
+const { isSameIdentity } = require('../../agent-identity');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks, validateSvgBlocks } = require('../diagram-validate');
@@ -302,10 +304,12 @@ async function handlerImpl(args, agentToken) {
     : null;
 
   if (baseClock !== null) {
+    // Feature 040 (FR-015, D11): the one shared identity predicate —
+    // behavior-identical to the raw comparison it replaces.
     const foreign = recentUpdates.filter(u =>
       typeof u.clock === 'number'
       && u.clock > baseClock
-      && !(u.agentName === agentToken.agentName && u.userId === agentToken.userId)
+      && !isSameIdentity(u, agentToken)
     );
     if (foreign.length > 0) {
       // `yjs_updates` rows include non-content writes — `meta` map (title sync),
@@ -324,7 +328,23 @@ async function handlerImpl(args, agentToken) {
           docGuid, baseClock + 1, 2147483647
         );
         for (const u of updatesSince) {
-          const isSelf = u.agentName === agentToken.agentName && u.userId === agentToken.userId;
+          // Feature 040 (FR-015, D11): shared predicate, behavior-identical.
+          //
+          // ACCEPTED CONSEQUENCE OF FR-001 (finding F5) — read this before
+          // filing it as a bug. A human web-UI restore is now recorded under
+          // the CHAT-ASSISTANT identity acting for that user. So when the
+          // in-app chat assistant runs a modify, a restore the user performed
+          // just beforehand in the version-history panel now counts as
+          // `isSelf` — the assistant replays it as its own work instead of
+          // treating it as a foreign edit that should trigger the conflict
+          // guard. That is the coherent reading: the restore genuinely WAS
+          // performed by that user through the assistant identity, and it is
+          // the same property that makes the restore undoable (FR-002).
+          //
+          // MCP agent tokens are UNAFFECTED: they carry their own agentName,
+          // which never equals the chat-assistant identity, so a UI restore
+          // stays foreign to them and their conflict guard is unchanged.
+          const isSelf = isSameIdentity(u, agentToken);
           if (isSelf && u.updateData) {
             Y.applyUpdate(expectedDoc, u.updateData);
           }

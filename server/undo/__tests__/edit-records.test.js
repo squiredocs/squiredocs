@@ -327,6 +327,78 @@ describe('edit-records', () => {
     expect(target.id).toBe(Number(rows[0].id)); // pg returns bigserial as string
   });
 
+  // T020 (feature 040, FR-006/FR-007, SC-006): the recording boundary rejects
+  // an identityless call LOUDLY and BY NAME, before any SQL runs.
+  //
+  // Before 040 these calls either reached Postgres and came back as
+  // `null value in column "agent_name" violates not-null constraint` — which
+  // names no document, no user and no code path — or (via restoreVersion's
+  // `?? ''` fallback) silently wrote a row under the '' sentinel that no undo
+  // surface could ever find. Both failure modes are now impossible.
+  describe('040 T020: recordEdit rejects a missing agent identity before any query (FR-006)', () => {
+    const badIdentities = [
+      ['null', null],
+      ['undefined', undefined],
+      ['empty string', ''],
+      ['whitespace only', '   '],
+      ['a non-string', 12345],
+    ];
+
+    test.each(badIdentities)('rejects agentName = %s without touching the database', async (_label, agentName) => {
+      const docGuid = randomUUID();
+      // A persistence double whose pool would throw if it were ever reached:
+      // proves the guard runs BEFORE any query, not after a failed insert.
+      let queried = false;
+      const spyingPersistence = {
+        getPool: () => {
+          queried = true;
+          throw new Error('recordEdit must not reach the database for an identityless call');
+        },
+      };
+
+      await expect(editRecords.recordEdit(spyingPersistence, {
+        docGuid, userId, agentName, clockStart: 0, clockEnd: 0,
+      })).rejects.toThrow(/no agent identity/i);
+
+      expect(queried).toBe(false);
+    });
+
+    test('the message names the missing identity, the document and the user — and is never a Postgres constraint string', async () => {
+      const docGuid = randomUUID();
+      let thrown = null;
+      try {
+        await editRecords.recordEdit(persistence, {
+          docGuid, userId, agentName: null, clockStart: 0, clockEnd: 0,
+        });
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toContain('no agent identity');
+      expect(thrown.message).toContain(docGuid);
+      expect(thrown.message).toContain(userId);
+      // SC-006: the whole point is that this is NOT the raw DB error.
+      expect(thrown.message).not.toContain('violates not-null constraint');
+      expect(thrown.message).not.toContain('null value in column');
+
+      // And nothing was written — in particular no '' sentinel row.
+      const { rows } = await pool.query(
+        'SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]
+      );
+      expect(rows[0].n).toBe(0);
+    });
+
+    test('a real agent name is still accepted, unchanged', async () => {
+      const docGuid = randomUUID();
+      const rec = await editRecords.recordEdit(persistence, {
+        docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
+      });
+      expect(rec).not.toBeNull();
+      expect(rec.agentName).toBe(AGENT);
+    });
+  });
+
   test('rollback atomicity: a failed inverse insert leaves the claim untaken and the log untouched', async () => {
     const docGuid = randomUUID();
     const rec = await editRecords.recordEdit(persistence, {

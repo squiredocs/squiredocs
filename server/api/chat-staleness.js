@@ -11,6 +11,9 @@
  * Pure functions only — the database read lives in the chat endpoint.
  */
 
+// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
+const { isSameIdentity } = require('../agent-identity');
+
 // Tool calls whose results reflect the *current* document (not a historical
 // version) and therefore advance the agent's baseline view.
 const SNAPSHOT_TOOLS = new Set(['read_document', 'modify']);
@@ -108,7 +111,23 @@ function foreignEditsSince(updates, sinceClock, agent) {
   const editors = new Map(); // dedup key -> editor
   for (const u of updates) {
     if (typeof u.clock !== 'number' || u.clock <= sinceClock) continue;
-    const isOwnAgent = u.agentName === agent.agentName && u.userId === agent.userId;
+    // Feature 040 (FR-015, D11): the one shared identity predicate —
+    // behavior-identical to the raw comparison it replaces.
+    //
+    // ACCEPTED CONSEQUENCE OF FR-001 (finding F5) — read this before filing
+    // it as a bug. A human web-UI restore is now recorded under the
+    // CHAT-ASSISTANT identity acting for that user, so a user's own restore
+    // performed in the version-history panel is no longer reported here as a
+    // FOREIGN edit. The staleness warning ("someone else changed this
+    // document") therefore stays silent for it.
+    //
+    // That is the correct outcome, not a gap: the warning exists to tell a
+    // user that SOMEONE ELSE moved the document under them, and this is the
+    // user's own action taken in another panel of their own session. Warning
+    // them about themselves would be noise. A restore by a DIFFERENT user, or
+    // by an MCP agent token, still carries a different identity and is still
+    // reported as foreign.
+    const isOwnAgent = isSameIdentity(u, agent);
     if (isOwnAgent) continue;
     const key = u.agentName ? `${u.userId}:${u.agentName}` : (u.userId || 'unknown');
     if (!editors.has(key)) {
