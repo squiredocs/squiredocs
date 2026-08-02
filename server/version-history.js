@@ -7,7 +7,7 @@ const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml } = require('./yjs-utils');
 const editRecords = require('./undo/edit-records');
-const { applyLiveUpdate } = require('./live-apply');
+const { applyLiveUpdate, publishIfUnhandled } = require('./live-apply');
 
 /**
  * Thrown when a requested version cannot be resolved: an unknown/foreign named
@@ -667,7 +667,19 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
   // Reconstruct document at the specified clock. Read WITH the gap indicator so
   // a stored-artifact caller (restore) can refuse a torn read (023 FR-009/D-2);
   // a plain Y.Doc from a mock/serving path unwraps to gapped=false.
-  const atClockRead = await persistence.getYDocAtClock(docGuid, clockEnd, { withGap: true });
+  //
+  // Feature 041 (FR-012): the STORED-ARTIFACT caller also demands tail
+  // completeness. Interior-gap detection alone let a read that stopped short of
+  // `clockEnd` look complete, so restore could build its artifact from an
+  // earlier state while labelling it with the requested version — a hole in the
+  // fail-closed guarantee. Passing `expectedTailClock` is safe against the
+  // CD-5/G5 sentinel hazard precisely here: `clockEnd` was validated against the
+  // document's real min/max above, so it is always a committed clock, never a
+  // "whole log" sentinel. Serving-only callers (preview, compare) never opt in.
+  const atClockRead = await persistence.getYDocAtClock(docGuid, clockEnd, {
+    withGap: true,
+    ...(withGap ? { expectedTailClock: clockEnd } : {}),
+  });
   const ydoc = atClockRead instanceof Y.Doc ? atClockRead : atClockRead.ydoc;
   const contentGapped = atClockRead instanceof Y.Doc ? false : !!atClockRead.gapped;
   const content = Y.encodeStateAsUpdate(ydoc);
@@ -706,6 +718,29 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
  * behind both restore surfaces (REST route and MCP tool), feature 023 US5.
  * Creates the restore as a single new update, records an undo-invertible edit
  * record for it, and broadcasts it live on every instance (no silent skip).
+ *
+ * ── WHERE THE STORED DELTA COMES FROM (feature 041, FR-011) ──────────────────
+ * When the document is loaded in memory on THIS instance, the restore runs as a
+ * transaction ON that live document and the stored row is that transaction's own
+ * bytes. Previously the delta was computed from a separate Postgres read, so any
+ * edit landing between that read and the store interleaved invisibly: the row
+ * labelled "restore to version X" encoded a different transition than the one
+ * users saw applied. Nothing was lost (Yjs merges), but the record lied. The
+ * transaction closes that window because the stored bytes ARE the applied bytes.
+ *
+ * When the document is NOT loaded here, the durable-log path is used unchanged.
+ *
+ * ── DOCUMENTED RESIDUALS ─────────────────────────────────────────────────────
+ * 1. CROSS-POD (RBD-041-2): a document loaded only on ANOTHER instance takes the
+ *    not-loaded path, so restore is not serialized against writes happening
+ *    there. Full cross-pod serialization needs a distributed doc-level lock and
+ *    is deliberately out of scope.
+ * 2. ORDERING: the live path is broadcast-then-store — the transaction fans out
+ *    to connected clients and Redis synchronously, and the durable write follows.
+ *    That is the same publish-before-commit shape EVERY normal edit already has
+ *    (feature 038 FR-018, accepted posture; report B1 stays closed). It is not a
+ *    new window, and reordering it belongs to that decision, not this one.
+ *
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
  * @param {string} versionId - Version ID to restore
@@ -748,15 +783,6 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   const currentFragment = currentYdoc.getXmlFragment('default');
   console.log(`[Restore] Current document has ${currentFragment.length} elements`);
 
-  // Create a new temporary document to build the restore operation
-  const tempDoc = new Y.Doc();
-
-  // Apply the current state to the temp document
-  Y.applyUpdate(tempDoc, Y.encodeStateAsUpdate(currentYdoc));
-
-  // Get the state vector before we make changes
-  const stateVectorBeforeRestore = Y.encodeStateVector(tempDoc);
-
   // Create target document from version to get the content we want
   const targetYdoc = new Y.Doc();
   Y.applyUpdate(targetYdoc, new Uint8Array(content));
@@ -790,16 +816,19 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     return null;
   };
 
-  // Replace the content in temp document with target content
-  tempDoc.transact(() => {
-    const tempFragment = tempDoc.getXmlFragment('default');
+  /** The restore transition itself: drop the fragment's contents and re-insert a
+   *  clone of the target version's. This is the shipped, designed restore
+   *  semantic (design/collaboration-core.md, "Restore is non-destructive") and is
+   *  unchanged here — feature 041 only moved WHERE it runs. */
+  const applyRestoreTo = (doc) => {
+    const fragment = doc.getXmlFragment('default');
     const targetFragment = targetYdoc.getXmlFragment('default');
 
     console.log(`[Restore] Target has ${targetFragment.length} elements`);
 
     // Delete all current content
-    while (tempFragment.length > 0) {
-      tempFragment.delete(0, tempFragment.length);
+    while (fragment.length > 0) {
+      fragment.delete(0, fragment.length);
     }
 
     // Clone and insert target content
@@ -814,15 +843,74 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     console.log(`[Restore] Cloned ${clonedElements.length} elements`);
 
     if (clonedElements.length > 0) {
-      tempFragment.insert(0, clonedElements);
+      fragment.insert(0, clonedElements);
     }
 
-    console.log(`[Restore] After restore, temp doc has ${tempFragment.length} elements`);
-  });
+    console.log(`[Restore] After restore, doc has ${fragment.length} elements`);
+  };
 
-  // Get only the diff created by the restore transaction
-  const restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
-  console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
+  // Is the document live on THIS instance? Asked through the non-creating peek
+  // (FR-013) — the old creating lookup made this always "yes" and leaked a doc
+  // per restore of an unopened document.
+  let liveDoc = null;
+  try {
+    liveDoc = getSharedDoc ? getSharedDoc(docGuid) : null;
+  } catch (peekErr) {
+    console.error(`[Restore] live-doc lookup failed for ${docGuid} (falling back to the durable path):`, peekErr.message);
+    liveDoc = null;
+  }
+
+  let restoreUpdate;
+  let liveCapture = null; // { update, hadRedisHandler } on the live path
+
+  if (liveDoc) {
+    // ── LIVE PATH (FR-011) ───────────────────────────────────────────────────
+    // Run the restore ON the live document inside one transaction and store the
+    // bytes that transaction produced. Nothing can interleave: Yjs fires the
+    // update event synchronously at transaction end, and the capture is scoped
+    // to ORIGIN_RESTORE so a foreign update is ignored without being consumed.
+    let captured = null;
+    let hadRedisHandler = false;
+    const captureHandler = (update, origin) => {
+      if (origin !== ORIGIN_RESTORE) return; // not ours — never capture it
+      captured = update;
+      // Sampled at EMIT time: the Redis handler is a peer 'update' listener, so
+      // "was it attached when the event fired" is exactly "did it publish".
+      hadRedisHandler = !!liveDoc._redisUpdateHandler;
+    };
+
+    const stateVectorBeforeRestore = Y.encodeStateVector(liveDoc);
+    liveDoc.on('update', captureHandler);
+    try {
+      // ORIGIN_RESTORE is a sentinel: the bindState persistence listener skips
+      // it, so this transaction does NOT produce a second row (storeUpdate
+      // below is the only write). It is deliberately NOT on the Redis publish
+      // skip-list, so an attached handler fans it out cross-instance.
+      liveDoc.transact(() => applyRestoreTo(liveDoc), ORIGIN_RESTORE);
+    } finally {
+      liveDoc.off('update', captureHandler);
+    }
+
+    // A no-change restore fires no update event; the state-vector delta is then
+    // the (empty) transition, keeping the stored row and `newClock` semantics
+    // identical to the durable path.
+    restoreUpdate = captured || Y.encodeStateAsUpdate(liveDoc, stateVectorBeforeRestore);
+    liveCapture = { update: captured, hadRedisHandler };
+    console.log(`[Restore] Live-doc restore update size: ${restoreUpdate.length} bytes`);
+  } else {
+    // ── DURABLE-LOG PATH (unchanged) ─────────────────────────────────────────
+    // The document is not loaded here, so there is no live state to transact
+    // against: build the delta against the persisted current state exactly as
+    // before, and fan out through applyLiveUpdate below.
+    const tempDoc = new Y.Doc();
+    Y.applyUpdate(tempDoc, Y.encodeStateAsUpdate(currentYdoc));
+    const stateVectorBeforeRestore = Y.encodeStateVector(tempDoc);
+
+    tempDoc.transact(() => applyRestoreTo(tempDoc));
+
+    restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
+    console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
+  }
 
   // Store as a single new update (the restore operation). Classified meaningful
   // by construction (feature 023 US4) — a restore always changes visible content.
@@ -867,11 +955,20 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     }
   }
 
-  // Broadcast the restore live on every instance without a silent skip
-  // (feature 023 FR-023, D-5). ORIGIN_RESTORE makes the bindState persistence
-  // listener skip re-storing (storeUpdate allocates a fresh clock per call and
-  // never dedupes by content, so a parseable origin here would double-persist).
-  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
+  if (liveCapture) {
+    // LIVE PATH: the transaction already applied to the live doc and already
+    // broadcast to its WebSocket clients (and, when a Redis handler was
+    // attached, cross-instance). Re-applying via applyLiveUpdate would apply an
+    // update the doc already has. Publish only if nothing else did.
+    publishIfUnhandled({ redisPubSub }, docGuid, liveCapture.update, liveCapture.hadRedisHandler, 'Restore');
+  } else {
+    // NOT-LOADED PATH: broadcast the restore live on every instance without a
+    // silent skip (feature 023 FR-023, D-5). ORIGIN_RESTORE makes the bindState
+    // persistence listener skip re-storing (storeUpdate allocates a fresh clock
+    // per call and never dedupes by content, so a parseable origin here would
+    // double-persist).
+    applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
+  }
 
   return {
     success: true,

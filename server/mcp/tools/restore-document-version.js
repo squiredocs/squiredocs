@@ -91,7 +91,9 @@ async function handler(args, agentToken) {
     versionId,
     userId,
     {
-      getSharedDoc: documentService.getSharedDoc,
+      // FR-013: the non-creating peek — restore asks whether the doc is live
+      // here, and asking must not make it so (nothing would ever evict it).
+      getSharedDoc: documentService.peekSharedDoc,
       redisPubSub,
       agentName: agentToken.agentName,
     }

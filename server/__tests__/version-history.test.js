@@ -2325,5 +2325,165 @@ describe('version-history module', () => {
         await cleanupDoc(docB);
       }
     });
+
+    // ── Feature 041 US4 ─────────────────────────────────────────────────────
+
+    test('041 FR-012: a SHORT-TAIL target read makes restore refuse — nothing stored', async () => {
+      const docGuid = require('crypto').randomUUID();
+      const prevRetries = process.env.COLLAB_READ_GAP_RETRIES;
+      const prevDelays = process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS;
+      process.env.COLLAB_READ_GAP_RETRIES = '1';
+      process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '10,10';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await seedDoc(docGuid); // clocks 0,1
+
+        // The version's own row exists at clock 1... but the read that rebuilds
+        // it is made to stop SHORT of it. Before FR-012, `gapped` only meant
+        // "interior gap", so this looked complete and restore would happily
+        // build its stored artifact from the clock-0 state while labelling it
+        // version 1.
+        const realGetYDocAtClock = persistence.getYDocAtClock.bind(persistence);
+        const spy = jest.spyOn(persistence, 'getYDocAtClock').mockImplementation(
+          async (guid, clock, opts = {}) => {
+            if (guid === docGuid && opts.expectedTailClock !== undefined) {
+              // Same call, but the tail row is not visible yet.
+              return realGetYDocAtClock(guid, clock - 1, opts);
+            }
+            return realGetYDocAtClock(guid, clock, opts);
+          }
+        );
+
+        try {
+          await expect(
+            restoreVersion(persistence, docGuid, '1', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null })
+          ).rejects.toBeInstanceOf(DocumentSyncingError);
+        } finally {
+          spy.mockRestore();
+        }
+
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        expect(rows.rows.map(r => Number(r.clock))).toEqual([0, 1]); // no restore row
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0);
+      } finally {
+        warnSpy.mockRestore();
+        if (prevRetries === undefined) delete process.env.COLLAB_READ_GAP_RETRIES; else process.env.COLLAB_READ_GAP_RETRIES = prevRetries;
+        if (prevDelays === undefined) delete process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS; else process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = prevDelays;
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('041 FR-012: serving-only reads are unaffected (no expectedTailClock opt-in)', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const spy = jest.spyOn(persistence, 'getYDocAtClock');
+      try {
+        // getVersionContent without withGap is the preview/compare path.
+        await getVersionContent(persistence, docGuid, '0');
+        expect(spy).toHaveBeenCalled();
+        for (const call of spy.mock.calls) {
+          expect(call[2]?.expectedTailClock).toBeUndefined();
+        }
+      } finally {
+        spy.mockRestore();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('041 FR-011: the stored restore row is the transition applied to the LIVE doc, even under a concurrent edit', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        // The live doc on this instance, plus an edit that landed AFTER the
+        // durable state restore reads from. Before FR-011 the stored row was a
+        // delta against that stale read, so it encoded a different transition
+        // than the one users actually saw applied.
+        const liveDoc = await persistence.getYDoc(docGuid);
+        liveDoc.transact(() => {
+          liveDoc.getXmlFragment('default').insert(2, [para('Gamma')]);
+        });
+
+        const pubSub = { isEnabled: () => true, publishUpdate: jest.fn() };
+        const before = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+
+        const res = await restoreVersion(persistence, docGuid, '0', userId, {
+          getSharedDoc: (g) => (g === docGuid ? liveDoc : null),
+          redisPubSub: pubSub,
+          agentName: null,
+        });
+
+        // Exactly one new row (the sentinel origin keeps the persistence
+        // listener from writing a second), and one fan-out.
+        const after = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(after.rows[0].n).toBe(before.rows[0].n + 1);
+        expect(pubSub.publishUpdate).toHaveBeenCalledTimes(1);
+
+        // The live doc shows the restored content...
+        const liveXml = liveDoc.getXmlFragment('default').toString();
+        expect(liveXml).toContain('Alpha');
+        expect(liveXml).not.toContain('Beta');
+        expect(liveXml).not.toContain('Gamma');
+
+        // ...and applying ONLY the stored row on top of the pre-restore live
+        // state reproduces exactly that. The row IS the applied transition.
+        const stored = await pool.query('SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock = $2', [docGuid, res.newClock]);
+        const replay = new Y.Doc();
+        Y.applyUpdate(replay, Y.encodeStateAsUpdate(liveDoc));
+        Y.applyUpdate(replay, new Uint8Array(stored.rows[0].update_data));
+        expect(replay.getXmlFragment('default').toString()).toBe(liveXml);
+        replay.destroy();
+        liveDoc.destroy();
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    // SC-009a: a restore/undo/redo of a document nobody has open must not leave
+    // an in-memory document behind. The old creating lookup allocated one per
+    // operation and nothing ever evicted it (eviction only happens when the last
+    // WebSocket connection closes — and these docs never had one).
+    test('041 FR-013: restore/undo/redo of an unloaded document leave the docs registry untouched', async () => {
+      const documentService = require('../document-service');
+      const docGuid = require('crypto').randomUUID();
+      const docs = new Map();
+      // Wire the service the way server boot does, with a creating getYDoc that
+      // would populate the registry if anything asked for it.
+      documentService.init((docName) => {
+        let d = docs.get(docName);
+        if (!d) { d = new Y.Doc(); docs.set(docName, d); }
+        return d;
+      }, (name) => (name.startsWith('s/') ? name.slice(2) : name), docs);
+
+      await seedDoc(docGuid);
+      try {
+        expect(documentService.peekSharedDoc(docGuid)).toBeNull();
+        expect(docs.size).toBe(0);
+
+        await restoreVersion(persistence, docGuid, '0', userId, {
+          getSharedDoc: documentService.peekSharedDoc,
+          redisPubSub: null,
+          agentName: AGENT,
+        });
+        expect(docs.size).toBe(0);
+
+        const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT });
+        expect(undo.undone).toBe(true);
+        expect(docs.size).toBe(0);
+
+        const redo = await undoService.performRedo({ docGuid, userId, agentName: AGENT });
+        expect(redo.redone).toBe(true);
+        expect(docs.size).toBe(0);
+
+        // The creating primitive still creates — this is a probe change, not a
+        // change to the write path's contract.
+        documentService.getSharedDoc(docGuid);
+        expect(docs.size).toBe(1);
+      } finally {
+        docs.clear();
+        documentService.init(null, null, null);
+        await cleanupDoc(docGuid);
+      }
+    });
   });
 });

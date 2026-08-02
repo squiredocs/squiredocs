@@ -1546,8 +1546,12 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
     // update log under the requesting user and is NOT entered into any
     // identity's undo queue. Reverting it is done by restoring again. See the
     // rationale in versionHistory.restoreVersion.
+    // FR-013: the PEEK, never the creating lookup. Restore only needs to know
+    // whether the doc is already live here; asking with `getSharedDoc` created
+    // (and permanently leaked) an in-memory doc for every restore of a document
+    // nobody had open.
     const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, {
-      getSharedDoc: documentService.getSharedDoc,
+      getSharedDoc: documentService.peekSharedDoc,
       redisPubSub,
       agentName: null,
     });
@@ -1932,8 +1936,10 @@ const server = app.listen(PORT, async () => {
   // Log WebSocket simulator status
   wsSimulator.logStatus();
 
-  // Initialize document service with y-websocket functions
-  documentService.init(getYDoc, extractDocGuid);
+  // Initialize document service with y-websocket functions. `docs` (the
+  // registry) is passed alongside the creating `getYDoc` so `peekSharedDoc` can
+  // answer "is this loaded?" without creating anything (feature 041, FR-013).
+  documentService.init(getYDoc, extractDocGuid, docs);
 
   // Initialize Redis pub/sub for cross-instance synchronization
   // Await to ensure Redis is ready before accepting WebSocket connections
@@ -2350,5 +2356,8 @@ process.on('SIGINT', () => runShutdown('SIGINT'));
 // Export for internal use (MCP tools, tests)
 module.exports = {
   getYDoc,
+  // Feature 041 (FR-010/FR-013): y-websocket's doc registry — the honest
+  // primitive behind bind eviction and the non-creating is-loaded peek.
+  docs,
   extractDocGuid,
 };

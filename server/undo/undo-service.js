@@ -51,9 +51,15 @@ function init(persistence) {
 function resolveDeps(deps = {}) {
   const persistence = deps.persistence || defaultPersistence;
   if (!persistence) throw new Error('undo-service not initialized');
+  // Feature 041 (FR-013): undo/redo only ever ASK whether the doc is live here
+  // (to merge into it and to fan out). The creating `getSharedDoc` made that
+  // question self-fulfilling — every undo of a document nobody had open
+  // allocated an in-memory doc plus a spurious full load that nothing would ever
+  // evict. `peekSharedDoc` never creates, so the not-loaded branches in
+  // applyLiveUpdate are genuinely reachable and nothing leaks.
   const getSharedDoc = deps.getSharedDoc || ((docGuid) => {
     try {
-      return documentService.getSharedDoc(docGuid);
+      return documentService.peekSharedDoc(docGuid);
     } catch {
       return null; // document service not initialized (tests) — no live doc
     }
