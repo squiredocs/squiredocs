@@ -164,8 +164,26 @@
   color: var(--text-secondary);
 }
 
+/* LIVE as of feature 041 (FR-005): the panel renders this when the history
+   timeline fails to load. Previously orphaned CSS — do not delete it as part of
+   a dead-style sweep. */
 .version-history-error {
   color: var(--danger);
+}
+
+.version-history-retry-btn {
+  margin-top: 12px;
+  padding: 6px 16px;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.version-history-retry-btn:hover {
+  background: var(--surface-hover);
 }
 
 .version-history-empty-hint {

@@ -107,6 +107,77 @@ describe('useVersionHistory', () => {
     });
   });
 
+  // Feature 041 US2 (FR-005/FR-006): the two failure channels are independent,
+  // and the timeline load is retryable.
+  describe('041: error vs diffError independence and retry', () => {
+    it('a timeline failure sets error only, and leaves diffError alone', async () => {
+      mockApi.get.mockRejectedValue({ response: { data: { error: 'history boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+
+      await waitFor(() => expect(result.current.error).toBe('history boom'));
+      expect(result.current.diffError).toBeNull();
+      expect(result.current.versions).toEqual([]);
+    });
+
+    it('a preview failure does not blank the already-loaded timeline', async () => {
+      const versions = [{ id: 'v1', timestamp: new Date().toISOString(), clockStart: 1, clockEnd: 5, authors: [] }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => {
+        await result.current.selectVersion(versions[0]);
+      });
+
+      expect(result.current.diffError).toBe('diff boom');
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toHaveLength(1);
+    });
+
+    it('selecting a new version clears a previous preview failure', async () => {
+      const good = { document: 'ok', meta: { currentClock: 20 } };
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } })
+        .mockResolvedValueOnce({ data: good });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v1', clockStart: 5, clockEnd: 10 });
+      });
+      expect(result.current.diffError).toBe('diff boom');
+
+      await act(async () => {
+        await result.current.selectVersion({ id: 'v2', clockStart: 15, clockEnd: 20 });
+      });
+      expect(result.current.diffError).toBeNull();
+      expect(result.current.diffData).toEqual(good);
+    });
+
+    it('fetchHistory is a working retry: it clears the error and repopulates the list', async () => {
+      const versions = [{ id: 'v1', timestamp: new Date().toISOString(), authors: [] }];
+      mockApi.get
+        .mockRejectedValueOnce({ response: { data: { error: 'history boom' } } })
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 3 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.error).toBe('history boom'));
+
+      await act(async () => {
+        await result.current.fetchHistory();
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toEqual(versions);
+    });
+  });
+
   describe('selectVersion', () => {
     it('selects a version and loads its diff data', async () => {
       const mockDiffData = {
@@ -164,7 +235,7 @@ describe('useVersionHistory', () => {
       expect(result.current.diffData).toEqual(diffB);
     });
 
-    it('sets error and clears diffData on a diff fetch failure (F4)', async () => {
+    it('sets diffError and clears diffData on a diff fetch failure (F4; 041 FR-006)', async () => {
       const goodDiff = { document: 'ok', meta: { currentClock: 10 } };
       mockApi.get
         .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // initial history
@@ -183,9 +254,11 @@ describe('useVersionHistory', () => {
         await result.current.selectVersion({ id: 'v2', clockStart: 15, clockEnd: 20 });
       });
 
-      // No stale preview retained; error surfaced.
+      // No stale preview retained; the failure lands on the PREVIEW channel.
       expect(result.current.diffData).toBeNull();
-      expect(result.current.error).toBe('diff boom');
+      expect(result.current.diffError).toBe('diff boom');
+      // ...and never blanks the timeline (041 FR-005/FR-006 are independent).
+      expect(result.current.error).toBeNull();
     });
 
     it('clears content when selecting null', async () => {

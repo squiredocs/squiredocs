@@ -40,7 +40,11 @@ telemetry.start();
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');
-const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
+// `docs` is y-websocket's own doc registry (docName -> Y.Doc). Feature 041 uses
+// it for two honest primitives: evicting a doc whose bind failed (FR-010) and
+// asking "is this document loaded?" WITHOUT creating it (FR-013 —
+// `getYDoc` is `setIfUndefined`, so the lookup IS the creation).
+const { setupWSConnection, setPersistence, getYDoc, docs } = require('y-websocket/bin/utils');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
@@ -97,6 +101,9 @@ const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
+// Feature 041 (FR-010): a document-load failure refuses the bind instead of
+// serving an empty doc over an outage.
+const { refuseBind } = require('./bind-failure');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
 const users = require('./auth/users');
@@ -285,6 +292,13 @@ setPersistence({
     // y-websocket does NOT await bindState, so client updates can arrive
     // while we're still loading from DB. We must capture ALL updates.
     ydoc.on('update', (update, origin) => {
+      // Feature 041 (FR-010): the load for this doc failed and the bind was
+      // refused — its connections are closed and it is evicted from the
+      // registry, so nothing should arrive here. If anything still does, it is
+      // NOT persisted: this doc's state is unknown, and writing into it would
+      // produce exactly the phantom history the refusal exists to prevent.
+      if (ydoc._bindFailed) return;
+
       // Feature 023 US4 (T023, U1): refresh the meaningful-classification
       // baseline on EVERY update, BEFORE the sentinel early-return. The listener
       // fires after the update applies, so extractXml(ydoc) is the post-update
@@ -467,10 +481,15 @@ setPersistence({
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {
-      // If document doesn't exist in persistence, that's okay - start with empty doc
-      // Update listener is already set up above
-      console.log(`[bindState] NEW DOC for ${docGuid} in ${Date.now() - startTime}ms`);
-      logPerf('BIND_STATE_NEW_DOC', { docGuid, totalDuration: Date.now() - startTime });
+      // Feature 041 (FR-010, RBD-041-1). This catch used to log `NEW DOC` and
+      // bind the empty doc — but a genuinely new document does NOT come through
+      // here: `getYDoc` returns an empty doc for zero rows without throwing.
+      // Reaching this point means the load actually FAILED, and binding an empty
+      // doc over that serves a blank document for one that has content (and
+      // invites a client with local state to re-supply the whole thing as its
+      // own new edits). Refuse instead; clients retry. See server/bind-failure.js.
+      refuseBind({ docName, docGuid, ydoc, error, docs, notify: notifyException });
+      logPerf('BIND_STATE_REFUSED', { docGuid, totalDuration: Date.now() - startTime });
     }
   },
   // writeState intentionally omitted - we persist on every update via the listener above,

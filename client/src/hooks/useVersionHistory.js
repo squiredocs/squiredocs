@@ -48,7 +48,17 @@ export function useVersionHistory(docGuid) {
   const [versions, setVersions] = useState([]);
   const [totalEdits, setTotalEdits] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  // Two independent failure channels (feature 041, FR-005/FR-006, research R3):
+  //  - `error`      the timeline load and the CRUD actions (name/rename/delete/
+  //                 restore). Rendered by the panel with a retry affordance.
+  //  - `diffError`  the selected version's preview/diff load. Rendered by the
+  //                 preview pane.
+  // They are separate because a failed diff must not blank the timeline (and
+  // vice versa) and because they have different retry affordances. Before this
+  // split both funnelled into one `error` that nothing rendered at all, so a
+  // 500 from /history showed the user "No version history yet".
   const [error, setError] = useState(null);
+  const [diffError, setDiffError] = useState(null);
 
   // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
   const [selection, setSelection] = useState(null);
@@ -172,12 +182,13 @@ export function useVersionHistory(docGuid) {
       setVersionContent(null);
       setPreviousVersionContent(null);
       setDiffData(null);
+      setDiffError(null);
       return;
     }
 
     const seq = ++diffRequestSeqRef.current;
     setIsLoadingContent(true);
-    setError(null);
+    setDiffError(null);
     try {
       // Load diff data - server returns pre-computed document and changes
       const previousClock = version.clockStart > 0 ? version.clockStart - 1 : -1;
@@ -190,9 +201,11 @@ export function useVersionHistory(docGuid) {
     } catch (err) {
       if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error loading version diff:', err);
-      // Clear the preview rather than showing a wrong (previous) diff.
+      // Clear the preview rather than showing a wrong (previous) diff, and
+      // record the failure so the preview pane renders an error instead of the
+      // "Select a version to preview" placeholder (FR-006).
       setDiffData(null);
-      setError(err.response?.data?.error || 'Failed to load version content');
+      setDiffError(err.response?.data?.error || 'Failed to load version content');
     } finally {
       if (seq === diffRequestSeqRef.current) setIsLoadingContent(false);
     }
@@ -280,7 +293,7 @@ export function useVersionHistory(docGuid) {
 
     const seq = ++diffRequestSeqRef.current;
     setIsLoadingContent(true);
-    setError(null);
+    setDiffError(null);
     try {
       // Use previousClock from server (provides correct sequential baseline)
       // Falls back to clockStart - 1 for backwards compatibility
@@ -297,7 +310,7 @@ export function useVersionHistory(docGuid) {
       if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error loading update diff:', err);
       setDiffData(null);
-      setError(err.response?.data?.error || 'Failed to load version content');
+      setDiffError(err.response?.data?.error || 'Failed to load version content');
     } finally {
       if (seq === diffRequestSeqRef.current) setIsLoadingContent(false);
     }
@@ -390,6 +403,7 @@ export function useVersionHistory(docGuid) {
     setVersionContent(null);
     setPreviousVersionContent(null);
     setDiffData(null);
+    setDiffError(null);
   }, []);
 
   /**
@@ -414,6 +428,7 @@ export function useVersionHistory(docGuid) {
     totalEdits,
     isLoading,
     error,
+    diffError,
     selection, // Unified selection: version or single clock update (with isClock: true)
     versionContent,
     previousVersionContent, // Legacy - no longer used
