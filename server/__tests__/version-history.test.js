@@ -2509,5 +2509,67 @@ describe('version-history module', () => {
         await cleanupDoc(docGuid);
       }
     });
+
+    // The live path applies the restore to the shared document BEFORE it stores
+    // anything, so a terminal store failure leaves a document that visibly moved
+    // and a log that says it never did. That divergence is not something restore
+    // can paper over — what it must not do is hide it. The rejection reaches the
+    // caller (route → 500 + page, MCP → surfaced error), so the user is told the
+    // restore failed instead of being shown a success over an unrecorded change.
+    test('T024: a terminal storeUpdate rejection on the live path surfaces to the caller and records nothing', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+
+      const liveDoc = await persistence.getYDoc(docGuid);
+      // y-websocket broadcasts to its clients from a peer 'update' listener, so
+      // "did this listener fire" is exactly "did the connected editors see it".
+      const broadcastOrigins = [];
+      const broadcastListener = (update, origin) => broadcastOrigins.push(origin);
+      liveDoc.on('update', broadcastListener);
+
+      const storeSpy = jest.spyOn(persistence, 'storeUpdate')
+        .mockRejectedValue(new Error('storage unavailable'));
+
+      try {
+        await expect(
+          restoreVersion(persistence, docGuid, '0', userId, {
+            getSharedDoc: (g) => (g === docGuid ? liveDoc : null),
+            redisPubSub: null,
+            agentName: AGENT,
+          })
+        ).rejects.toThrow('storage unavailable');
+
+        // The restore DID apply, and DID reach the live doc's clients.
+        expect(broadcastOrigins).toHaveLength(1);
+        const liveXml = liveDoc.getXmlFragment('default').toString();
+        expect(liveXml).toContain('Alpha');
+        expect(liveXml).not.toContain('Beta');
+
+        // Nothing durable was written: no restore row...
+        const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);
+        expect(rows.rows.map(r => Number(r.clock))).toEqual([0, 1]);
+        // ...and no agent_edits record for the agent restore whose store failed,
+        // so undo never offers to invert an edit that was never logged.
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0);
+      } finally {
+        storeSpy.mockRestore();
+        liveDoc.off('update', broadcastListener);
+        liveDoc.destroy();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    // PIN: index.js boots a live server on require, so the REST half of that
+    // posture — the caller is TOLD, loudly — is pinned by source inspection.
+    test('T024: the restore route maps a terminal restore failure to 500 and a page', () => {
+      const source = require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'index.js'),
+        'utf8'
+      );
+      expect(source).toMatch(
+        /console\.error\('Error restoring version:', error\);[\s\S]{0,800}?notifyException\(error, \{ req, source: 'api' \}\);\s*res\.status\(500\)\.json\(\{ error: 'Failed to restore version' \}\);/
+      );
+    });
   });
 });
