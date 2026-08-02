@@ -4,6 +4,7 @@ import UserProfileBadge from '../components/UserProfileBadge';
 import Avatar from '../components/Avatar';
 import Logo from '../components/Logo';
 import ViewToggleButton from '../components/ViewToggleButton';
+import { formatAdminDateTime } from '../utils/datetime';
 import './AdminPage.css';
 
 // User-list sort orders. Sorting is client-side: the list endpoint returns
@@ -182,15 +183,6 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
   };
 
   const formatCents = (cents) => `$${(cents / 100).toFixed(2)}`;
-
-  // "When did it last do anything?" is a question about a moment, not a day —
-  // the credential and activity timestamps carry the time of day too.
-  const formatDateTime = (dateString) => {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-    });
-  };
 
   const formatScopes = (scopes) => (scopes && scopes.length ? scopes.join(', ') : '—');
 
@@ -907,7 +899,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                             </td>
                                             <td>{formatScopes(d.scopes)}</td>
                                             <td>{formatDate(d.createdAt)}</td>
-                                            <td>{formatDateTime(d.lastUsedAt)}</td>
+                                            <td>{formatAdminDateTime(d.lastUsedAt)}</td>
                                             <td>
                                               <span className={`admin-status-badge ${stateBadgeClass(d.state)}`}>
                                                 {d.state}
@@ -939,7 +931,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                             <td>{t.tokenPrefix}</td>
                                             <td>{formatScopes(t.scopes)}</td>
                                             <td>{formatDate(t.createdAt)}</td>
-                                            <td>{formatDateTime(t.lastUsedAt)}</td>
+                                            <td>{formatAdminDateTime(t.lastUsedAt)}</td>
                                             <td>{t.expiresAt ? formatDate(t.expiresAt) : '—'}</td>
                                             <td>{t.mintedBy === 'agent' ? 'By an agent' : 'Interactively'}</td>
                                             <td>
@@ -1005,7 +997,7 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                     <dt>Recorded actions</dt>
                                     <dd>{adoption.activity.count}</dd>
                                     <dt>Most recent</dt>
-                                    <dd>{formatDateTime(adoption.activity.lastActivityAt)}</dd>
+                                    <dd>{formatAdminDateTime(adoption.activity.lastActivityAt)}</dd>
                                   </dl>
                                   <div className="admin-detail-note">
                                     API-token and REST traffic are not logged — see each token’s Last used.

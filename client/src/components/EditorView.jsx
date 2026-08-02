@@ -8,6 +8,7 @@ import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import VersionConfirmDialog from './VersionConfirmDialog';
+import { useRestoreFlow } from '../hooks/useRestoreFlow';
 import VersionPreview from './VersionPreview';
 import { useYjs } from '../hooks/useYjs';
 import { useVersionHistory } from '../hooks/useVersionHistory';
@@ -82,7 +83,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [showDiffHighlights, setShowDiffHighlights] = useState(true);
   // Header "Restore this version" confirmation dialog (024/US2). null = closed;
   // { busy, error } while open, operating on the current `selection`.
-  const [restoreDialog, setRestoreDialog] = useState(null);
   const menuRef = useRef(null);
   const isMobile = useMobile();
 
@@ -159,7 +159,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     versions,
     hierarchicalVersions,
     selection, // Unified: version or clock update (with isClock: true)
-    diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff
+    diffData, // { document, currentDocument, meta } — see useVersionHistory
     totalEdits,
     isLoading: versionHistoryLoading,
     // Feature 041 (FR-005/FR-006): the hook has always recorded these failures;
@@ -180,6 +180,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     loadUpdatesForVersion,
     selectUpdate,
   } = useVersionHistory(showVersionHistory ? docGuid : null);
+
+  // The header's "Restore this version" runs the SAME flow as the list's row
+  // menu (042, FR-013). It passes the LIVE `selection` at open time, so 041's
+  // reconciliation has already retargeted it to the current version id.
+  const restoreFlow = useRestoreFlow(restoreVersion, {
+    // In-app navigation to the live doc — never a full page reload (024/FR-012).
+    onSuccess: () => onNavigateToDoc?.(docGuid),
+  });
 
   // Auto-select current version when opening version history
   useEffect(() => {
@@ -210,23 +218,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       onNavigateToDoc(docGuid);
     } else {
       window.history.back();
-    }
-  };
-
-  const handleConfirmHeaderRestore = async () => {
-    if (!selection) return;
-    setRestoreDialog({ busy: true, error: null });
-    try {
-      const success = await restoreVersion(selection.id);
-      if (success) {
-        setRestoreDialog(null);
-        // In-app navigation to the live doc — never a full page reload (024/FR-012).
-        onNavigateToDoc?.(docGuid);
-      } else {
-        setRestoreDialog({ busy: false, error: 'Failed to restore this version.' });
-      }
-    } catch (err) {
-      setRestoreDialog({ busy: false, error: err?.message || 'Failed to restore this version.' });
     }
   };
 
@@ -391,7 +382,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
               {selection && !selection.isCurrent && userRole !== 'viewer' && (
                 <button
                   className="restore-version-btn"
-                  onClick={() => setRestoreDialog({ busy: false, error: null })}
+                  onClick={() => restoreFlow.open(selection)}
                 >
                   Restore this version
                 </button>
@@ -442,14 +433,14 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         </div>
 
         <VersionConfirmDialog
-          isOpen={!!restoreDialog}
+          isOpen={restoreFlow.isOpen}
           title="Restore this version?"
           message="A new version will be created with the restored content."
           confirmLabel="Restore"
-          onConfirm={handleConfirmHeaderRestore}
-          onCancel={() => setRestoreDialog(null)}
-          busy={!!restoreDialog?.busy}
-          error={restoreDialog?.error || null}
+          onConfirm={restoreFlow.confirm}
+          onCancel={restoreFlow.cancel}
+          busy={restoreFlow.busy}
+          error={restoreFlow.error}
         />
       </>
     );

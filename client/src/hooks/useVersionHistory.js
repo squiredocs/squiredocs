@@ -82,7 +82,12 @@ export function useVersionHistory(docGuid) {
 
   // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
   const [selection, setSelection] = useState(null);
-  const [diffData, setDiffData] = useState(null); // { fullDoc, currentSnapshot, previousSnapshot }
+  // The server-computed diff payload:
+  //   { document, currentDocument, meta: { previousClock, currentClock,
+  //     textIdentical, formattingOnly, diffFailed } }
+  // `document` carries diffInsert/diffDelete marks baked in; `currentDocument`
+  // is the unmarked version the preview swaps to when highlights are off.
+  const [diffData, setDiffData] = useState(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // Hierarchical drill-down state

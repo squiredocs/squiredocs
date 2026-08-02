@@ -108,69 +108,104 @@ function loadLog(persistence, docGuid) {
 }
 
 /**
- * Undo the acting identity's most recent still-undoable edit.
+ * Honest-empty result: the request succeeded, and the honest answer is that
+ * nothing moved. `success` is true in every one of these cases — an empty
+ * result is not a failure (RBD-5) — and `clock` is a LIVE read of the current
+ * max, not a cached value, so an agent's observed-clock tracking stays coherent
+ * even on the paths that changed nothing.
  *
- * @param {{docGuid: string, userId: string, agentName: string}} target
- * @param {{persistence?: object, getSharedDoc?: function}} [deps] - test
- *   injection points (a second "instance" is just other deps over the same DB)
- * @returns {Promise<{success: boolean, undone: boolean, message: string, clock: number}>}
+ * The message is an argument rather than something derived from `mode`: the
+ * nine call sites say nine different true things, and generating the string
+ * would make the result less honest, not more uniform.
  */
-async function performUndo({ docGuid, userId, agentName }, deps = {}) {
+async function emptyResult(persistence, docGuid, mode, message) {
+  return {
+    success: true,
+    [mode === 'redo' ? 'redone' : 'undone']: false,
+    message,
+    clock: await currentMaxClock(persistence, docGuid),
+  };
+}
+
+/**
+ * The shared undo/redo core. Undo and redo run the same five-step algorithm
+ * (resolve target -> load log -> compute inverse -> claim+store in ONE
+ * transaction -> apply live); they differ only in how the target is resolved
+ * and in what they say about it.
+ *
+ * The asymmetries below are real and deliberate — they are why this takes a
+ * `mode` rather than being a symmetric function:
+ *  - undo probes for a pending recording (the RBD-8 window, where the newest
+ *    edit's rows are in the log but its record is not) and falls back to
+ *    legacy derivation for a pre-016 edit; redo has neither path, because a
+ *    redo target only exists if a 016-recorded undo created it.
+ *  - undo's claim mode can become 'legacy-undo', which the claim treats
+ *    differently: no row id, an inserted legacy record, and no target-range
+ *    CAS — there is no prior row whose range could have been rewritten.
+ *  - the success payloads differ in kind, not only in wording: undo reports
+ *    `undoneRecordRange`, redo `redoneRecordRange`.
+ *
+ * @param {'undo'|'redo'} mode
+ */
+async function performInverse(mode, { docGuid, userId, agentName }, deps = {}) {
+  const isUndo = mode === 'undo';
   const { persistence, getSharedDoc, redisPubSub } = resolveDeps(deps);
   const identity = { docGuid, userId, agentName };
+  const empty = (message) => emptyResult(persistence, docGuid, mode, message);
 
-  const row = await editRecords.nextUndoTarget(persistence, identity);
-  let mode = 'undo';
+  // -- 1. Resolve the target range -----------------------------------------
+  let claimMode = mode;
   let legacyEdit = null;
   let range = null;
+  let row;
 
-  if (row) {
-    // Review M2: during the editRangePending window (RBD-8) the newest edit's
-    // rows are in the log but its record is not — honoring nextUndoTarget
-    // here would silently undo the WRONG (older) edit. Refuse honestly until
-    // the recording lands or ages past the background wait bound.
-    const pendingRecording = await editRecords.hasPendingRecording(
-      persistence, identity, EDIT_RANGE_BACKGROUND_WAIT_MS
-    );
-    if (pendingRecording) {
-      return {
-        success: true,
-        undone: false,
-        message: 'Nothing undone: your latest edit is still being recorded — retry shortly.',
-        clock: await currentMaxClock(persistence, docGuid),
+  if (isUndo) {
+    row = await editRecords.nextUndoTarget(persistence, identity);
+    if (row) {
+      // Review M2: during the editRangePending window (RBD-8) the newest edit's
+      // rows are in the log but its record is not — honoring nextUndoTarget
+      // here would silently undo the WRONG (older) edit. Refuse honestly until
+      // the recording lands or ages past the background wait bound.
+      const pendingRecording = await editRecords.hasPendingRecording(
+        persistence, identity, EDIT_RANGE_BACKGROUND_WAIT_MS
+      );
+      if (pendingRecording) {
+        return empty('Nothing undone: your latest edit is still being recorded — retry shortly.');
+      }
+      // undoTargetClocks (review M1): the exact clock set to invert; null on
+      // legacy/pre-migration rows falls back to the spanning range.
+      range = {
+        clockStart: row.undoTargetStart,
+        clockEnd: row.undoTargetEnd,
+        clocks: row.undoTargetClocks,
       };
-    }
-    // undoTargetClocks (review M1): the exact clock set to invert; null on
-    // legacy/pre-migration rows falls back to the spanning range.
-    range = {
-      clockStart: row.undoTargetStart,
-      clockEnd: row.undoTargetEnd,
-      clocks: row.undoTargetClocks,
-    };
-  } else {
-    // Legacy fallback (FR-021, research R7): ONLY when the identity has no
-    // 016 records at all for this doc — a pre-016 edit identifiable from the
-    // log's attribution. An unrecorded in-flight 016 edit stays the honest
-    // empty (RBD-7(b)): the derivation's freshness guard refuses just-landed
-    // runs, and any existing record suppresses the fallback entirely.
-    const hasAnyRecord = await editRecords.latestEdit(persistence, identity);
-    if (!hasAnyRecord) {
-      const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 100);
-      const derived = deriveLegacyRange(recent, { userId, agentName });
-      if (derived) {
-        mode = 'legacy-undo';
-        legacyEdit = { docGuid, userId, agentName, clockStart: derived.clockStart, clockEnd: derived.clockEnd };
-        range = derived;
+    } else {
+      // Legacy fallback (FR-021, research R7): ONLY when the identity has no
+      // 016 records at all for this doc — a pre-016 edit identifiable from the
+      // log's attribution. An unrecorded in-flight 016 edit stays the honest
+      // empty (RBD-7(b)): the derivation's freshness guard refuses just-landed
+      // runs, and any existing record suppresses the fallback entirely.
+      const hasAnyRecord = await editRecords.latestEdit(persistence, identity);
+      if (!hasAnyRecord) {
+        const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 100);
+        const derived = deriveLegacyRange(recent, { userId, agentName });
+        if (derived) {
+          claimMode = 'legacy-undo';
+          legacyEdit = { docGuid, userId, agentName, clockStart: derived.clockStart, clockEnd: derived.clockEnd };
+          range = derived;
+        }
+      }
+      if (!range) {
+        return empty('Nothing to undo: no recorded edit by you in this document.');
       }
     }
-    if (!range) {
-      return {
-        success: true,
-        undone: false,
-        message: 'Nothing to undo: no recorded edit by you in this document.',
-        clock: await currentMaxClock(persistence, docGuid),
-      };
+  } else {
+    row = await editRecords.nextRedoTarget(persistence, identity);
+    if (!row || row.redoTargetStart == null || row.redoTargetEnd == null) {
+      // No undone record (or a pre-016 undo with no recorded inverse — RBD-2).
+      return empty('Nothing to redo: no undone edit with a recorded inverse in this document.');
     }
+    range = { clockStart: row.redoTargetStart, clockEnd: row.redoTargetEnd };
   }
 
   // The ORIGINAL edit's clock range for the record about to be claimed — what a
@@ -180,41 +215,39 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     ? { clockStart: row.editClockStart, clockEnd: row.editClockEnd }
     : { clockStart: legacyEdit.clockStart, clockEnd: legacyEdit.clockEnd };
 
+  // -- 2. Load the log ------------------------------------------------------
   const { updates: rows, gapped } = await loadLog(persistence, docGuid);
   if (gapped) {
     // Torn read after the retry budget (023 FR-009/D-2): abort BEFORE any claim
     // — never transition an agent_edits row or store an inverse from a gapped log.
-    console.warn(`[undo-service] aborting undo for ${docGuid}: update log still gapped after retry budget`);
-    return {
-      success: true,
-      undone: false,
-      message: 'Nothing undone: the document is still syncing — retry in a moment.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
+    console.warn(`[undo-service] aborting ${mode} for ${docGuid}: update log still gapped after retry budget`);
+    return empty(isUndo
+      ? 'Nothing undone: the document is still syncing — retry in a moment.'
+      : 'Nothing redone: the document is still syncing — retry in a moment.');
   }
   const liveDoc = (() => {
     try { return getSharedDoc(docGuid); } catch { return null; }
   })();
 
+  // -- 3. Compute the inverse -----------------------------------------------
   const inverse = computeInverse(rows, range, { userId, agentName }, liveDoc);
   if (!inverse) {
     // Fully superseded: nothing appended, nothing transitioned (FR-011).
-    return {
-      success: true,
-      undone: false,
-      message: 'Nothing left to undo: later edits already superseded everything this edit changed.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
+    return empty(isUndo
+      ? 'Nothing left to undo: later edits already superseded everything this edit changed.'
+      : 'Nothing left to redo: later edits already superseded everything the undo reverted.');
   }
 
+  // -- 4. Claim + store the inverse in ONE transaction ----------------------
   const { claimed, clock } = await editRecords.finalizeClaim(persistence, {
-    mode,
+    mode: claimMode,
     rowId: row ? row.id : undefined,
     // M3: the claim CAS re-checks the exact range this inverse was computed
-    // from — if a concurrent chain step rewrote it, this claim must lose.
-    targetRange: mode === 'undo'
-      ? { clockStart: range.clockStart, clockEnd: range.clockEnd }
-      : undefined,
+    // from — if a concurrent chain step rewrote it, this claim must lose. A
+    // legacy-undo passes none: there is no prior row to compare against.
+    targetRange: claimMode === 'legacy-undo'
+      ? undefined
+      : { clockStart: range.clockStart, clockEnd: range.clockEnd },
     legacyEdit,
     docGuid,
     userId,
@@ -222,106 +255,49 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     inverseUpdate: inverse.inverseUpdate,
   });
   if (!claimed) {
-    return {
-      success: true,
-      undone: false,
-      message: 'This edit was already undone by a concurrent request.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
+    return empty(isUndo
+      ? 'This edit was already undone by a concurrent request.'
+      : 'This edit was already redone by a concurrent request.');
   }
 
+  // -- 5. Apply to the live doc, only after commit --------------------------
   const diff = computeRevertDiff(inverse, docGuid);
   applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, inverse.inverseUpdate, ORIGIN_INVERSE_APPLY, 'undo-service');
   return {
     success: true,
-    undone: true,
-    message: 'Edit undone. Later edits by you and other collaborators were preserved.',
+    [isUndo ? 'undone' : 'redone']: true,
+    message: isUndo
+      ? 'Edit undone. Later edits by you and other collaborators were preserved.'
+      : 'Edit reapplied.',
     clock,
     // Feature 041 (FR-015), ADDITIVE: the ORIGINAL clock range of the record
-    // that was actually undone. The chat route compares this against the range
-    // stored on the card it was asked to stamp, so "Reverted" can only ever
-    // land on the card whose edit was the one reverted. Present on success only.
-    undoneRecordRange: recordRange,
+    // that was acted on. The chat route compares this against the range stored
+    // on the card it was asked to stamp, so "Reverted" can only ever land on
+    // the card whose edit was reverted — and a redo un-stamps exactly the card
+    // its undo stamped. Present on success only.
+    [isUndo ? 'undoneRecordRange' : 'redoneRecordRange']: recordRange,
     ...(diff ? { diff } : {}),
   };
+}
+
+/**
+ * Undo the acting identity's most recent still-undoable edit.
+ *
+ * @param {{docGuid: string, userId: string, agentName: string}} target
+ * @param {{persistence?: object, getSharedDoc?: function}} [deps] - test
+ *   injection points (a second "instance" is just other deps over the same DB)
+ * @returns {Promise<{success: boolean, undone: boolean, message: string, clock: number}>}
+ */
+function performUndo(target, deps = {}) {
+  return performInverse('undo', target, deps);
 }
 
 /**
  * Redo the acting identity's most-recently-undone edit: the identical
  * algorithm over the last inverse's recorded clock range (research R4).
  */
-async function performRedo({ docGuid, userId, agentName }, deps = {}) {
-  const { persistence, getSharedDoc, redisPubSub } = resolveDeps(deps);
-  const identity = { docGuid, userId, agentName };
-
-  const row = await editRecords.nextRedoTarget(persistence, identity);
-  if (!row || row.redoTargetStart == null || row.redoTargetEnd == null) {
-    // No undone record (or a pre-016 undo with no recorded inverse — RBD-2).
-    return {
-      success: true,
-      redone: false,
-      message: 'Nothing to redo: no undone edit with a recorded inverse in this document.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
-  }
-
-  const range = { clockStart: row.redoTargetStart, clockEnd: row.redoTargetEnd };
-  const { updates: rows, gapped } = await loadLog(persistence, docGuid);
-  if (gapped) {
-    // Torn read after the retry budget (023 FR-009/D-2): abort before any claim.
-    console.warn(`[undo-service] aborting redo for ${docGuid}: update log still gapped after retry budget`);
-    return {
-      success: true,
-      redone: false,
-      message: 'Nothing redone: the document is still syncing — retry in a moment.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
-  }
-  const liveDoc = (() => {
-    try { return getSharedDoc(docGuid); } catch { return null; }
-  })();
-
-  const inverse = computeInverse(rows, range, { userId, agentName }, liveDoc);
-  if (!inverse) {
-    return {
-      success: true,
-      redone: false,
-      message: 'Nothing left to redo: later edits already superseded everything the undo reverted.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
-  }
-
-  const { claimed, clock } = await editRecords.finalizeClaim(persistence, {
-    mode: 'redo',
-    rowId: row.id,
-    targetRange: range, // M3: CAS on the exact redo range the inverse used
-    docGuid,
-    userId,
-    agentName,
-    inverseUpdate: inverse.inverseUpdate,
-  });
-  if (!claimed) {
-    return {
-      success: true,
-      redone: false,
-      message: 'This edit was already redone by a concurrent request.',
-      clock: await currentMaxClock(persistence, docGuid),
-    };
-  }
-
-  const diff = computeRevertDiff(inverse, docGuid);
-  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, inverse.inverseUpdate, ORIGIN_INVERSE_APPLY, 'undo-service');
-  return {
-    success: true,
-    redone: true,
-    message: 'Edit reapplied.',
-    clock,
-    // Feature 041 (FR-015), ADDITIVE: the ORIGINAL edit's range (the same
-    // `edit_clock_*` bounds undo reports), because that is what the chat card
-    // stores — the redo un-stamps exactly the card the undo stamped.
-    redoneRecordRange: { clockStart: row.editClockStart, clockEnd: row.editClockEnd },
-    ...(diff ? { diff } : {}),
-  };
+function performRedo(target, deps = {}) {
+  return performInverse('redo', target, deps);
 }
 
 /**

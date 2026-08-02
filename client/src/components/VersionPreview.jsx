@@ -8,7 +8,14 @@ import './VersionPreview.css';
  * Read-only preview of a historical version with inline diff visualization.
  *
  * The server returns a ProseMirror document with diffInsert/diffDelete marks
- * baked into the content. Diff visibility is toggled purely via CSS.
+ * baked into the content, plus an unmarked `currentDocument`.
+ *
+ * Toggling highlights SWAPS WHICH DOCUMENT IS RENDERED — it is not a CSS-only
+ * switch (the header claimed that until 042, FR-016). `content` is in the
+ * useEditor dependency array, so each toggle tears the TipTap editor down and
+ * rebuilds it. One consequence is pinned in VersionPreview.characterization.test.jsx:
+ * when the server sent no `currentDocument`, "highlights off" falls back to the
+ * diff-annotated document, which still renders with diff styling.
  */
 function VersionPreview({
   diffData,

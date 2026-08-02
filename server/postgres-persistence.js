@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const Y = require('yjs');
+const { retryWithBackoff } = require('./retry');
 
 /**
  * Fixed int4 namespace for the per-document clock-acquisition advisory lock
@@ -16,6 +17,42 @@ const CLOCK_LOCK_NAMESPACE = 0x02300023;
  * PostgreSQL persistence adapter for Yjs
  * Implements the same interface as LeveldbPersistence
  */
+/**
+ * ── Environment knobs, in one place (feature 042, FR-015) ────────────────────
+ *
+ * They are split into two readers because they are read at DIFFERENT TIMES, and
+ * that timing is behavior, not an accident:
+ *
+ *  - the POOL knobs are read once, when the pool is constructed. Changing them
+ *    later cannot affect a pool that already exists.
+ *  - the GAP-RETRY knobs are read on EVERY fetch, and validate their input. A
+ *    deployment can retune read patience without a restart, and that is the
+ *    point — so these must not be hoisted to module load.
+ *
+ * Co-locating the parsing without collapsing the timing is the whole exercise.
+ */
+
+/** Pool knobs — read ONCE at construction. No validation, matching prior behavior. */
+function readPoolEnv() {
+  return {
+    max: Number(process.env.DB_POOL_MAX ?? 20),
+    acquireTimeoutMs: Number(process.env.DB_POOL_ACQUIRE_TIMEOUT_MS ?? 5000),
+    statementTimeoutMs: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30000),
+  };
+}
+
+/** Gap-retry knobs — read on EVERY call, fully validated, with defaults 2 and [100, 300]. */
+function readGapRetryEnv() {
+  const maxRetriesRaw = parseInt(process.env.COLLAB_READ_GAP_RETRIES, 10);
+  return {
+    maxRetries: Number.isFinite(maxRetriesRaw) && maxRetriesRaw >= 0 ? maxRetriesRaw : 2,
+    delays: (process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS || '100,300')
+      .split(',')
+      .map((v) => parseInt(v.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 0),
+  };
+}
+
 class PostgresPersistence {
   /**
    * @param {string|object} connectionStringOrConfig - PostgreSQL connection string or config object
@@ -40,13 +77,14 @@ class PostgresPersistence {
     // legitimate >30s backfill over a large log would abort mid-statement and
     // fail the migrate Job on a fresh restore. Such call sites pass
     // `{ statementTimeout: false }` to opt out; runtime keeps full protection.
+    const pool = readPoolEnv();
     const poolConfig = {
       ...baseConfig,
-      max: Number(process.env.DB_POOL_MAX ?? 20),
-      connectionTimeoutMillis: Number(process.env.DB_POOL_ACQUIRE_TIMEOUT_MS ?? 5000),
+      max: pool.max,
+      connectionTimeoutMillis: pool.acquireTimeoutMs,
     };
     if (opts.statementTimeout !== false) {
-      poolConfig.statement_timeout = Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30000);
+      poolConfig.statement_timeout = pool.statementTimeoutMs;
     }
     this.pool = new Pool(poolConfig);
 
@@ -209,26 +247,23 @@ class PostgresPersistence {
    * @private
    */
   async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync = null) {
-    const MAX_ATTEMPTS = 3;
-    const baseDelay = 100;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // The backoff itself is the shared helper (042, FR-015) — same 3 attempts,
+    // same jittered exponential delay bindState used before 023.
+    return retryWithBackoff(async () => {
       // F2: acquire a FRESH client per attempt. A connection that dies mid-INSERT
       // (DB failover/restart, network blip) leaves its pool client permanently
       // unqueryable ("Client has encountered a connection error and is not
       // queryable") — reusing it would make attempts 2-3 fail instantly, defeating
       // the exact backoff meant to ride out a transient DB outage. A new client
-      // per attempt restores pre-023 retry semantics. Released on every path.
+      // per attempt restores pre-023 retry semantics. Released on every path,
+      // which is why the acquire/release lives INSIDE the retried function.
       const client = await this.pool.connect();
       try {
         return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync, true);
-      } catch (err) {
-        if (attempt === MAX_ATTEMPTS) throw err;
-        const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
-        await new Promise((resolve) => setTimeout(resolve, delay));
       } finally {
         client.release();
       }
-    }
+    });
   }
 
   /**
@@ -388,12 +423,8 @@ class PostgresPersistence {
    * @private
    */
   async _fetchRowsWithGapRetry(client, sql, params, label, { descending = false, expectedTailClock } = {}) {
-    const maxRetriesRaw = parseInt(process.env.COLLAB_READ_GAP_RETRIES, 10);
-    const maxRetries = Number.isFinite(maxRetriesRaw) && maxRetriesRaw >= 0 ? maxRetriesRaw : 2;
-    const delays = (process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS || '100,300')
-      .split(',')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n) && n >= 0);
+    // Read PER CALL, deliberately — see readGapRetryEnv.
+    const { maxRetries, delays } = readGapRetryEnv();
 
     // Only meaningful when the caller opted in. `undefined`/`null` ⇒ the tail is
     // never judged, which is what keeps every existing call site byte-identical
@@ -745,11 +776,46 @@ class PostgresPersistence {
    * @param {boolean} [opts.withGap=false] - when true, return
    *   `{ updates, gapped }` so an artifact-producing caller (undo loadLog) can
    *   refuse to freeze a torn read (D-2). Default keeps the array shape.
+   * @param {boolean} [opts.includeData=true] - when false, the `update_data`
+   *   blob column is left out of the projection and rows carry no `updateData`.
+   *   Feature 042 (FR-015): the metadata-only callers (the version-history
+   *   drill-down and the single-row lookup in `getContentAtClock`) were pulling
+   *   every update's payload over the wire and discarding it a line later.
+   *   Defaults to TRUE so every un-migrated call site is unchanged.
    * @returns {Promise<Array|{updates: Array, gapped: boolean}>}
    */
-  async getUpdatesInRange(docGuid, clockStart, clockEnd, { withGap = false } = {}) {
-    const { updates, gapped } = await this._queryUpdatesWithUsers(docGuid, { clockStart, clockEnd, includeData: true });
+  async getUpdatesInRange(docGuid, clockStart, clockEnd, { withGap = false, includeData = true } = {}) {
+    const { updates, gapped } = await this._queryUpdatesWithUsers(docGuid, { clockStart, clockEnd, includeData });
     return withGap ? { updates, gapped } : updates;
+  }
+
+  /**
+   * The document's clock range, without materializing its update log.
+   *
+   * Feature 042 (FR-009): both version-history range checks used to load the
+   * entire user-joined log purely to take a min and a max of the clock column.
+   * On a long-lived document that is an O(rows) read (with the JOIN, and with
+   * the gap-retry budget) to answer a question Postgres answers from the index.
+   *
+   * `MIN`/`MAX` over an empty set is SQL `NULL` in a SINGLE row, not zero rows,
+   * so emptiness is tested on the VALUE. Callers must fire their "no version
+   * history" branch on a null before formatting any range — the numbers here
+   * interpolate verbatim into user-visible error strings.
+   *
+   * @param {string} docGuid - Document GUID
+   * @returns {Promise<{minClock: number|null, maxClock: number|null}>}
+   */
+  async getClockRange(docGuid) {
+    await this._init();
+    const result = await this.pool.query(
+      'SELECT MIN(clock)::int AS min_clock, MAX(clock)::int AS max_clock FROM yjs_updates WHERE doc_guid = $1',
+      [docGuid]
+    );
+    const row = result.rows[0] || {};
+    return {
+      minClock: row.min_clock ?? null,
+      maxClock: row.max_clock ?? null,
+    };
   }
 
   /**
