@@ -444,3 +444,47 @@ nicety** — it stops the user from being offered a button that would do somethi
 it says, which is still worth having. But FR-018 no longer depends on it, so D15's mandatory
 fail-open (which would otherwise be a hole) is now unambiguously the right call: the client may
 fail open freely, because the server refuses to mislabel regardless.
+
+---
+
+## D18 — FR-010 was NOT already delivered by 039; Phase 7 is a real code change (**RATIFIED-BY-DEFAULT — Sam pre-authorized, 2026-08-01**)
+
+**Question**: T029/T030 and research R3/D9 assert that FR-010 (the stable neutral history badge
+colour) already shipped in feature 039 as its FR-018, making Phase 7 verification-only with zero
+diff. Implementation found that premise is **false**. What should ship?
+
+**What was actually found** (all verifiable by inspection at the stated paths):
+
+1. `client/src/components/HierarchicalVersionList.jsx:3` **did** import
+   `generateColorFromId` from `../utils/colorUtils` — the task text asserts it "does not import
+   `colorUtils`".
+2. Line 56 rendered `backgroundColor: author.color || generateColorFromId(author.id)` — not the
+   `author.color || '#888888'` the task text quotes.
+3. `generateColorFromId` **is** the date-salted presence function: it builds its hash key as
+   `id + new Date().toISOString().slice(0, 10)`, so a colourless author's history badge changed
+   colour **every day** — exactly the defect FR-010 describes.
+4. The test T030 says to run — "renders the stable neutral #888888 for a colourless author, on
+   any date" at `HierarchicalVersionList.test.jsx:487` — **did not exist**. The file was 465
+   lines long.
+5. Feature 039's `spec.md:198` does state this requirement as its FR-018, so the requirement was
+   *written* there. It was never *implemented*.
+
+Note the near-miss that probably caused the stale reading: `generateColorFromId` returns
+`'#888888'` when `!id`, so an author with `id: null` (the new "Unknown author") did already get
+the neutral. The bug only bit authors that **have** an id but no colour — which is why a casual
+check of the unknown-author case would have looked correct.
+
+**Decision (best default)**: implement it. The one-line fallback change plus removing the now-
+unused `colorUtils` import, and the missing test written for real (asserting the same colour on
+two different mocked dates). `colorUtils.js` itself is **untouched** — FR-010's second half
+requires the presence/cursor daily rotation to survive, and it does.
+
+**Rationale**: FR-010 is an accepted requirement of this feature with a success criterion
+(SC-005's "the entry's colour is identical across days"). Shipping 040 with it unmet because a
+task comment said someone else had done it would leave a requirement silently unsatisfied in two
+consecutive features. The change is one line of behaviour in a display path, fully covered by a
+new test, and touches no undo/attribution logic. Removing the import is what makes the fix
+structural rather than a value someone re-derives later.
+
+**For the merge queue**: 039's FR-018 can be considered discharged by 040. If 039 has an open
+verification item for it, close it against this commit.
