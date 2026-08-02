@@ -253,7 +253,7 @@ Each increment leaves both suites green and the product observably unchanged.
 
 ## Implementation outcome (2026-08-02)
 
-**55 of 60 tasks completed in-pipeline, 3 dropped with rationale, 2 partial/owed as manual verification.**
+**54 of 60 tasks completed in-pipeline, 4 dropped with rationale, 2 owed as manual verification.**
 
 - **T025-T027 DROPPED — DEC-13.** FR-014 (US4, the diff cache-version automation) is
   unimplementable under FR-001: `CACHE_VERSION` and the literal cache key are pinned in
