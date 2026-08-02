@@ -146,6 +146,17 @@
   box-shadow: 0 0 0 1px var(--presence-ring);
 }
 
+/* Feature 045 (FR-004): the "Synced content" contributor is not a person, so its
+   badge is an OUTLINE rather than a filled identity dot. The component leaves the
+   inline identity colour OFF this entry, so no !important is needed; the border
+   colour is a theme token, which is what makes it legible in light and dark. */
+.hierarchy-author-dot-synced {
+  background-color: transparent;
+  border: 1.5px dashed var(--text-tertiary);
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
 .hierarchy-author-name {
   font-size: var(--text-sm);
   color: var(--text-secondary);

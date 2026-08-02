@@ -41,6 +41,14 @@ function ChevronIcon({ expanded }) {
 }
 
 /**
+ * What the "Synced content" contributor means, for the hover title (feature 045,
+ * FR-004). The server sets `isSynced` on that entry; the client only styles it,
+ * and never derives authorship of its own.
+ */
+const SYNCED_CONTRIBUTION_TITLE =
+  "This content arrived through a collaborator's reconnect. Its original author could not be determined.";
+
+/**
  * Author list component - shared between versions and updates
  */
 function AuthorList({ authors, maxDisplay = null }) {
@@ -52,16 +60,27 @@ function AuthorList({ authors, maxDisplay = null }) {
   return (
     <div className="hierarchy-version-authors">
       {displayAuthors.map((author, i) => (
-        <div key={`${author.id}-${i}`} className="hierarchy-author" title={author.name}>
+        <div
+          key={`${author.id}-${i}`}
+          className="hierarchy-author"
+          // Feature 045 (FR-004): the synced contribution is not a person, so it
+          // says what it is on hover. The flag is a server-set field — never a
+          // match on the display name.
+          title={author.isSynced ? SYNCED_CONTRIBUTION_TITLE : author.name}
+        >
           <span
-            className="hierarchy-author-dot"
+            className={author.isSynced ? 'hierarchy-author-dot hierarchy-author-dot-synced' : 'hierarchy-author-dot'}
             // Feature 039 FR-018: a colorless author gets the stable neutral,
             // matching the server's own no-identity fallback in
             // server/version-history.js. generateColorFromId salts its hue with
             // the current DATE — deliberate for live presence (collaborators get
             // a fresh palette each day), but wrong for history, where the same
             // archived version would change color overnight.
-            style={{ backgroundColor: author.color || '#888888' }}
+            //
+            // The synced contribution takes NO identity fill: it is an outlined
+            // badge (feature 045), and leaving the inline colour off is what lets
+            // the stylesheet own that entry's appearance.
+            style={author.isSynced ? undefined : { backgroundColor: author.color || '#888888' }}
           />
           <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
         </div>
