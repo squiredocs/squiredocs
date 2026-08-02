@@ -246,8 +246,23 @@ committed and then removed, with an ignore entry added. Not part of the feature.
 
 ### T039 / T040 — suites
 
-Recorded in the final implementation report. Baseline before any change was **server 230 suites /
-3971 passed**, **client 65 suites / 805 passed**, both fully green with no pre-existing failures.
+Two runs are recorded: the pre-rebase run (against the stale base) and the authoritative
+post-rebase run (against current `main` — this is the one that matters).
+
+| | Baseline (before any change) | Pre-rebase | **Post-rebase (authoritative)** |
+|---|---|---|---|
+| Backend (`npm run test:server`) | 230 suites / 3971 passed | 232 / 4013 | **see final report** |
+| Client (`npm run test:client`) | 65 suites / 805 passed | 66 / 817 | **66 suites / 818 passed** |
+| `npm run build` | — | green | **green** |
+
+The baseline was fully green — **no pre-existing failures**, so nothing here is masking one. The
+two new backend suites are `restore-undo-roundtrip.test.js` and `identity-predicate.test.js`; the
+new client suite is `UndoEditButton.test.jsx`. The post-rebase client count is one higher than
+pre-rebase because 039's own FR-018 test came in with the rebase while 040's duplicate of it was
+dropped, and 040's three FR-009 cases remain.
+
+All backend runs used `DATABASE_URL=…/collab_test_db_040` — this agent's own database — via
+`npm run test:server` (never a bare `npx jest`, which hangs on the live Redis client).
 
 ---
 
@@ -305,3 +320,6 @@ Neither can be executed here; both are `promotion-notes.md` OWED-2 items.
 3. Nothing owed for 039's FR-018 — it was already delivered; see §4.
 4. Leave `promotion-notes.md` OWED-1 (document-level undo affordance) open — still not built,
    deliberately.
+5. **The branch is already rebased onto `main` (`f43a19b1`) and re-verified there** — see §4.
+   It should apply cleanly. Note that `README.md:467`'s current text on `main` still contains the
+   "spec 040" forward reference §1 removes.
