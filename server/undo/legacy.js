@@ -43,6 +43,8 @@
  *    than any threshold) by the time this code runs.
  */
 const { EDIT_RANGE_BACKGROUND_WAIT_MS } = require('../mcp/yjs/edit-range');
+// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
+const { isSameIdentity } = require('../agent-identity');
 
 /** Segmentation gap: an order of magnitude above intra-call row spacing. */
 const LEGACY_GAP_MS = 10_000;
@@ -56,9 +58,12 @@ const LEGACY_FRESHNESS_MS = EDIT_RANGE_BACKGROUND_WAIT_MS;
 function isIdentityRow(row, identity) {
   // A sync-sourced row is not the identity's authored work even when it carries
   // their attribution (feature 038 D2) — see the channel guard in the header.
+  // This channel guard stays ABOVE the identity comparison and is deliberately
+  // untouched by 040: it must keep winning over an identity match.
   if (row.viaSync === true) return false;
-  return row.userId === identity.userId
-    && (row.agentName ?? null) === (identity.agentName ?? null);
+  // Feature 040 (FR-015): the one shared identity predicate. Behavior-
+  // preserving here — this site already normalized with `?? null`.
+  return isSameIdentity(row, identity);
 }
 
 function rowTime(row) {
@@ -150,4 +155,11 @@ function deriveLegacyRange(rows, identity, opts = {}) {
   return { clockStart: run[0].clock, clockEnd: run[run.length - 1].clock };
 }
 
-module.exports = { deriveLegacyRange, LEGACY_GAP_MS, LEGACY_FRESHNESS_MS };
+module.exports = {
+  deriveLegacyRange, LEGACY_GAP_MS, LEGACY_FRESHNESS_MS,
+  // Exposed for the FR-015/SC-009 test, which must prove that THIS surface
+  // and the other two undo surfaces agree on the null-vs-undefined agent-name
+  // case — including that 038's viaSync channel guard still wins over an
+  // identity match.
+  _isIdentityRow: isIdentityRow,
+};

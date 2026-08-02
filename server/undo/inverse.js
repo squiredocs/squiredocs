@@ -33,6 +33,8 @@
  */
 const Y = require('yjs');
 const { toMarkdown } = require('../mcp/yjs/serialization');
+// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
+const { isSameIdentity } = require('../agent-identity');
 
 /** Origin under which the target edit's rows are replayed (tracked). */
 const EDIT_ORIGIN = 'undo-target-edit';
@@ -76,8 +78,9 @@ function computeInverse(rows, range, identity, liveDoc = null) {
   try {
     const fragment = scratch.get('default', Y.XmlFragment);
 
-    const isIdentityRow = (r) =>
-      r.userId === identity.userId && (r.agentName ?? null) === (identity.agentName ?? null);
+    // Feature 040 (FR-015): the one shared identity predicate. Behavior-
+    // preserving here — this site already normalized with `?? null`.
+    const isIdentityRow = (r) => isSameIdentity(r, identity);
 
     let trackedAny = false;
     for (const row of rows) {

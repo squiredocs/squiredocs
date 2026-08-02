@@ -5,6 +5,7 @@ const {
   generateColorFromId,
   createAuthor,
   groupUpdatesIntoVersions,
+  UNKNOWN_AUTHOR,
   mergeNamedVersions,
   formatTimestamp,
   restoreVersion,
@@ -21,6 +22,9 @@ const Y = require('yjs');
 const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
 const editRecords = require('../undo/edit-records');
 const undoService = require('../undo/undo-service');
+// Feature 040: the one authoritative chat-assistant identity — the identity a
+// human web-UI restore is now recorded under (FR-001).
+const { CHAT_AGENT_NAME } = require('../agent-identity');
 
 describe('version-history module', () => {
   describe('generateColorFromId', () => {
@@ -45,6 +49,87 @@ describe('version-history module', () => {
     test('returns HSL color format', () => {
       const color = generateColorFromId('test-user');
       expect(color).toMatch(/^hsl\(\d+, 70%, 45%\)$/);
+    });
+  });
+
+  // T026 (feature 040, FR-008, SC-005): a version whose rows exist must never
+  // render an empty contributor list. Unattributed rows are real history —
+  // usually edits by a since-deleted account, kept because
+  // yjs_updates.user_id is ON DELETE SET NULL.
+  describe('040 T026: unattributed rows render one "Unknown author" contributor (FR-008)', () => {
+    const at = (ms) => new Date(new Date('2024-01-01T10:00:00Z').getTime() + ms).toISOString();
+
+    test('(a) a version built ENTIRELY from unattributed rows shows exactly one Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: null },
+        { clock: 2, createdAt: at(1000), userId: null },
+      ]);
+      expect(versions).toHaveLength(1);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0]).toEqual(UNKNOWN_AUTHOR);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
+      expect(versions[0].authors[0].id).toBeNull();
+      expect(versions[0].authors[0].color).toBe('#888888');
+    });
+
+    test('(b) a MIXED version shows the real authors PLUS exactly one Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: 'user-1', userName: 'Alice' },
+        { clock: 2, createdAt: at(1000), userId: null },
+        { clock: 3, createdAt: at(2000), userId: 'user-2', userName: 'Bob' },
+      ]);
+      expect(versions).toHaveLength(1);
+      const names = versions[0].authors.map((a) => a.name).sort();
+      expect(names).toEqual(['Alice', 'Bob', 'Unknown author']);
+      expect(versions[0].authors.filter((a) => a.id === null)).toHaveLength(1);
+    });
+
+    test('(c) MANY unattributed rows still collapse to exactly one entry', () => {
+      const updates = Array.from({ length: 25 }, (_, i) => ({
+        clock: i + 1, createdAt: at(i * 100), userId: null,
+      }));
+      const versions = groupUpdatesIntoVersions(updates);
+      const unknowns = versions.flatMap((v) => v.authors).filter((a) => a.id === null);
+      expect(unknowns).toHaveLength(1);
+    });
+
+    test('(e) a fully attributed version shows NO phantom Unknown author', () => {
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: 'user-1', userName: 'Alice' },
+        { clock: 2, createdAt: at(1000), userId: 'user-1', userName: 'Alice' },
+      ]);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors.every((a) => a.id !== null)).toBe(true);
+    });
+
+    test('(d) the sub-version DRILL-DOWN gets the same treatment — via the same grouping function, not a duplicate', async () => {
+      const mockPersistence = {
+        getUpdatesInRange: async () => ([
+          { clock: 1, createdAt: at(0), userId: null, userName: null, agentName: null },
+          { clock: 2, createdAt: at(500), userId: null, userName: null, agentName: null },
+          { clock: 3, createdAt: at(1000), userId: 'user-1', userName: 'Alice', agentName: null },
+        ]),
+      };
+      const result = await getUpdatesForVersion(mockPersistence, 'doc-1', 1, 3);
+      const authors = result.subversions.flatMap((sv) => sv.authors);
+      const unknowns = authors.filter((a) => a.id === null);
+      expect(unknowns.length).toBeGreaterThan(0);
+      expect(unknowns[0].name).toBe('Unknown author');
+      expect(unknowns[0].color).toBe('#888888');
+      // Still collapsed to one per sub-version.
+      result.subversions.forEach((sv) => {
+        expect(sv.authors.filter((a) => a.id === null).length).toBeLessThanOrEqual(1);
+      });
+    });
+
+    test('an agent edit whose user was deleted is still attributed as unknown, not skipped', () => {
+      // agentName present but userId gone — createAuthor returns null here,
+      // so before 040 the row vanished from the contributor list entirely.
+      const versions = groupUpdatesIntoVersions([
+        { clock: 1, createdAt: at(0), userId: null, agentName: 'Some Agent' },
+      ]);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
     });
   });
 
@@ -128,7 +213,11 @@ describe('version-history module', () => {
       expect(versions[0].authors).toHaveLength(2); // Only 2 unique authors
     });
 
-    test('handles updates without user info', () => {
+    // ⚠️ INVERTED BY FEATURE 040 (FR-008). This case previously asserted
+    // `authors` was EMPTY for a row with no user info. That empty list is the
+    // defect: a version that demonstrably exists rendered as though nobody
+    // had edited it. It now shows one synthetic "Unknown author" contributor.
+    test('handles updates without user info — one Unknown author, not an empty list (040 FR-008 inverted this)', () => {
       const updates = [
         { clock: 1, createdAt: '2024-01-01T10:00:00Z' }, // No user info
       ];
@@ -136,7 +225,9 @@ describe('version-history module', () => {
       const versions = groupUpdatesIntoVersions(updates);
 
       expect(versions).toHaveLength(1);
-      expect(versions[0].authors).toHaveLength(0);
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0].name).toBe('Unknown author');
+      expect(versions[0].authors[0].id).toBeNull();
     });
   });
 
@@ -1668,7 +1759,16 @@ describe('version-history module', () => {
   // DB-backed (real persistence + agent_edits + undo), serial only.
   describe('023 restore integration (US5)', () => {
     let pool, persistence, userId;
-    const AGENT = 'Squire Docs Assistant';
+    // An MCP agent token's identity — deliberately DISTINCT from
+    // CHAT_AGENT_NAME (feature 040). This constant used to be the literal
+    // 'Squire Docs Assistant', which was harmless while human restores
+    // recorded under the '' sentinel: "the agent" and "the chat assistant"
+    // could not collide. Now that a web-UI restore records under the
+    // chat-assistant identity (FR-001), a same-string AGENT would make every
+    // cross-identity scoping assertion below VACUOUS — T032/040 would be
+    // asserting that an identity cannot undo its own restore. Keeping these
+    // two identities genuinely different is what gives those tests teeth.
+    const AGENT = 'Test MCP Agent';
     const para = (text) => {
       const p = new Y.XmlElement('paragraph');
       const t = new Y.XmlText();
@@ -1709,20 +1809,37 @@ describe('version-history module', () => {
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
     };
 
-    test('T031: human restore records exactly one update row and one agent_edits row (identity = "")', async () => {
+    // ⚠️ INVERTED BY FEATURE 040 (FR-001/FR-003, ratified tradeoff — see T012).
+    // Provenance kept: this was 023's "T031: human restore records exactly one
+    // update row and one agent_edits row (identity = '')", and its assertion
+    // `agent_name === ''` was the CORRECT expression of 023's design.
+    //
+    // 040 deliberately inverts it. The `''` sentinel is exactly why a web-UI
+    // restore was unreachable: `agent_edits` recorded `''` while `yjs_updates`
+    // recorded the acting identity, so the two stores disagreed and no undo
+    // surface could ever find the record. A human UI restore now records under
+    // the CHAT-ASSISTANT identity in BOTH stores, which is what makes it
+    // undoable. Reviewers: this is the ratified, user-visible attribution
+    // change, not a regression.
+    test('T031/040: human restore records one update row and one agent_edits row, BOTH under the chat-assistant identity (040 inverted 023\'s "" sentinel)', async () => {
       const docGuid = require('crypto').randomUUID();
       await seedDoc(docGuid);
       try {
-        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME });
         expect(res.success).toBe(true);
         expect(res.newClock).toBe(2); // exactly one new row (single-persist, FR-024)
 
         const updates = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
         expect(updates.rows[0].n).toBe(3); // clocks 0,1 + the single restore row
 
+        // FR-001: the update-log row carries the identity too — the whole
+        // point is that the two stores AGREE.
+        const logRow = await pool.query('SELECT agent_name FROM yjs_updates WHERE doc_guid = $1 AND clock = 2', [docGuid]);
+        expect(logRow.rows[0].agent_name).toBe(CHAT_AGENT_NAME);
+
         const edits = await pool.query('SELECT * FROM agent_edits WHERE doc_guid = $1', [docGuid]);
         expect(edits.rows).toHaveLength(1);
-        expect(edits.rows[0].agent_name).toBe(''); // human => '' sentinel (D-4)
+        expect(edits.rows[0].agent_name).toBe(CHAT_AGENT_NAME); // was '' before 040
         expect(edits.rows[0].edit_clock_start).toBe(2);
         expect(edits.rows[0].edit_clock_end).toBe(2);
         expect(edits.rows[0].undo_target_clocks).toEqual([2]);
@@ -1734,6 +1851,63 @@ describe('version-history module', () => {
         expect(xml).not.toContain('Beta');
         replayed.destroy();
       } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    // T011 (FR-003, SC-004): the intentional, user-visible attribution change.
+    test('040 T011: version history attributes a web-UI restore to "Squire Docs Assistant (<user>)" and flags it as an agent edit (RATIFIED tradeoff, not a bug)', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      try {
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME });
+
+        const timeline = await getVersionTimeline(persistence, docGuid);
+        const authors = timeline.versions.flatMap((v) => v.authors || []);
+        const agentAuthor = authors.find((a) => a.isAgent);
+
+        expect(agentAuthor).toBeDefined();
+        expect(agentAuthor.isAgent).toBe(true);
+        // F8: createAuthor composes "<agent> (<user name>)" when the row
+        // resolves a user name, and falls back to the BARE agent name when it
+        // does not. Both are correct; the composed form is the headline.
+        expect(
+          agentAuthor.name === `${CHAT_AGENT_NAME} (Test User)`
+          || agentAuthor.name === CHAT_AGENT_NAME
+        ).toBe(true);
+        // The user id is still the acting human's — the assistant identity is
+        // "acting for" them, it does not replace them.
+        expect(agentAuthor.id).toBe(userId);
+      } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    // T021 (FR-006/D6 parity): the guard's own path. A null identity is
+    // rejected LOUDLY and BY NAME, but the restore still succeeds.
+    test('040 T021: a restore with a null agentName still succeeds, while the recording rejection is logged with the explicit message', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const res = await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        expect(res.success).toBe(true); // D6: enclosing operation is unharmed
+
+        // The update row was stored ...
+        const updates = await pool.query('SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+        expect(updates.rows[0].n).toBe(3);
+        // ... but nothing was recorded, and no '' row was written.
+        const edits = await pool.query('SELECT count(*)::int AS n FROM agent_edits WHERE doc_guid = $1', [docGuid]);
+        expect(edits.rows[0].n).toBe(0);
+
+        const logged = errSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+        expect(logged).toContain('no agent identity');
+        expect(logged).toContain(docGuid);
+        expect(logged).toContain(userId);
+        // Never a raw Postgres constraint string (SC-006).
+        expect(logged).not.toContain('violates not-null constraint');
+      } finally {
+        errSpy.mockRestore();
         await cleanupDoc(docGuid);
       }
     });
@@ -1838,14 +2012,17 @@ describe('version-history module', () => {
       }
     });
 
-    test('T032: a human ("") restore is recorded but NOT targeted by an agent undo (D-4 scoping)', async () => {
+    // 040: identity scoping is unchanged (016 FR-024) — only the human
+    // restore's identity changed, from the unreachable '' to the reachable
+    // chat-assistant identity. An AGENT undo still must not target it.
+    test('T032/040: a web-UI restore is recorded under the chat-assistant identity but NOT targeted by an agent undo (D-4 scoping)', async () => {
       const docGuid = require('crypto').randomUUID();
       await seedDoc(docGuid);
       try {
-        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
-        // The human restore IS recorded under '' ...
+        await restoreVersion(persistence, docGuid, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME });
+        // The web-UI restore IS recorded, now under a reachable identity ...
         const edits = await pool.query("SELECT agent_name FROM agent_edits WHERE doc_guid = $1", [docGuid]);
-        expect(edits.rows.map((r) => r.agent_name)).toEqual(['']);
+        expect(edits.rows.map((r) => r.agent_name)).toEqual([CHAT_AGENT_NAME]);
         // ... but an AGENT-identity undo does not target it (016 identity scoping).
         const undo = await undoService.performUndo({ docGuid, userId, agentName: AGENT }, { getSharedDoc: () => null });
         expect(undo.undone).toBe(false);
@@ -1908,16 +2085,17 @@ describe('version-history module', () => {
       await seedDoc(docA);
       await seedDoc(docB);
       try {
-        // REST-equivalent (agentName null) and MCP-equivalent (agentName AGENT)
-        // through the SAME core produce structurally identical rows/records.
-        const rest = await restoreVersion(persistence, docA, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: null });
+        // REST-equivalent (the chat-assistant identity, 040 FR-001) and
+        // MCP-equivalent (the acting agent) through the SAME core produce
+        // structurally identical rows/records.
+        const rest = await restoreVersion(persistence, docA, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: CHAT_AGENT_NAME });
         const mcp = await restoreVersion(persistence, docB, '0', userId, { getSharedDoc: () => null, redisPubSub: null, agentName: AGENT });
         expect(Object.keys(rest).sort()).toEqual(Object.keys(mcp).sort());
         expect(rest.newClock).toBe(mcp.newClock);
 
         const eA = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docA]);
         const eB = await pool.query('SELECT agent_name, undo_target_clocks FROM agent_edits WHERE doc_guid = $1', [docB]);
-        expect(eA.rows[0].agent_name).toBe('');       // only the identity differs
+        expect(eA.rows[0].agent_name).toBe(CHAT_AGENT_NAME); // only the identity differs
         expect(eB.rows[0].agent_name).toBe(AGENT);
         expect(eA.rows[0].undo_target_clocks).toEqual(eB.rows[0].undo_target_clocks);
 

@@ -21,6 +21,8 @@
  * each other's [min,max] span, and undo must invert only this call's rows.
  */
 const Y = require('yjs');
+// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
+const { isSameIdentity } = require('../../agent-identity');
 
 /**
  * Start capturing update payloads emitted by a doc.
@@ -181,9 +183,39 @@ async function awaitDurableRange(persistence, docGuid, identity, baselineClock, 
       console.warn(`[edit-range] durability poll failed for ${docGuid}:`, e.message);
     }
 
-    const identityRows = rows.filter(
-      (r) => r.userId === identity.userId && r.agentName === identity.agentName
-    );
+    // Feature 040 (FR-015): the ONE identity predicate. This site is a
+    // BEHAVIOR CHANGE (bug fix), not just a refactor — the raw `===` it
+    // replaces wrongly rejected a match when one side's agent name was `null`
+    // (as it arrives from the DB) and the other's was `undefined` (as it
+    // arrives from an in-process identity object that omitted the field).
+    // `inverse.js` and `legacy.js` already normalized with `?? null`, so this
+    // filter was the one undo surface that disagreed with the other two.
+    //
+    // ---------------------------------------------------------------------
+    // ACCEPTED LIMITATION — undo identity is (userId, agent DISPLAY NAME)
+    // (feature 040, FR-011, finding F7)
+    // ---------------------------------------------------------------------
+    //
+    // Two `sk_sqd_` tokens belonging to the SAME user that share a display
+    // name are indistinguishable here, so undo target selection cannot tell
+    // one session apart from the other.
+    //
+    // Why that is accepted:
+    //  - `userId` scopes the comparison, so a CROSS-USER collision is
+    //    impossible — you can never undo someone else's edit.
+    //  - Each record carries the exact covering clock set, so every inversion
+    //    stays surgical regardless of which record is selected.
+    //  - The residual risk is therefore only LIFO selection SURPRISE among one
+    //    person's own same-named sessions: they might undo their other
+    //    session's edit first. No data is lost or corrupted either way.
+    //
+    // Why a token-id disambiguator is not warranted: it would mean a
+    // two-table migration plus threading the token id through every origin
+    // that writes an update — a large, risky change for a narrow surprise.
+    //
+    // This comment is DOCUMENTATION ONLY. The null-normalization on the line
+    // below is the separate FR-015 fix.
+    const identityRows = rows.filter((r) => isSameIdentity(r, identity));
 
     if (identityRows.length > 0) {
       // Per-row coverage: which stored rows carry (part of) the captured edit?

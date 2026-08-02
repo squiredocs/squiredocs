@@ -390,3 +390,95 @@ panel (that is `promotion-notes.md` OWED-1), and any change to what the undo/red
 select — target selection stays identity-LIFO, and FR-017 governs only what a client *offers*.
 The original D7's sound half stands: version-history attribution (FR-003) is what tells the user
 a restore happened, and this feature adds no copy to say it twice.
+
+---
+
+## D17 — The server enforces FR-018 itself; the client guard is not the only thing standing between the user and the lie (**decided by the orchestrator, 2026-08-02 — an explicit call after N1 was reported, NOT ratified-by-default**)
+
+**Status**: DECIDED BY THE ORCHESTRATOR. The analyze stage surfaced N1 and deliberately did not
+decide it; the orchestrator adopted it before implementation began. Recorded here as an explicit
+decision rather than a default because it adds a requirement (FR-019) that the gate did not carry.
+
+**Why it came up (N1)**: FR-018 says no surface may label an edit "Reverted" unless that edit is
+what was inverted. But the guard D13 planned is **client-side only**, and it is fed by
+`UndoEditButton`'s **30-second poll** (`AiChatMessages.jsx:628`). Nothing tells the chat component
+that a restore just happened in the version-history panel — the two surfaces do not communicate.
+So for up to 30 seconds after a restore the modify card still shows its Undo button with stale
+`canUndo`/`nextUndo` data; clicking it inverts the **restore** while stamping "Reverted" on the
+**modify** — precisely the lie FR-018 exists to prevent, merely time-boxed. Sam chose option (c)
+in D13 specifically so that **no user-visible lie ships**; a 30-second window in which the lie is
+fully reachable does not satisfy that. N3 is the same hole reached deliberately (a click on a
+status fetched before the restore), and N2's residual window is a second route into it (a
+`modify` whose durability wait timed out has no `editRange`, so the client guard fails open by
+design and does not even attempt to check).
+
+**Decision**: add **FR-019** — the server enforces it. In `makeUndoRedoHandler`
+(`server/index.js`), stamp the chat part's `reverted` flag **only** when the supplied
+`toolCallId` names the record that was actually inverted.
+
+**Why this is cheap and correct**: no new plumbing is required, only a comparison. The handler
+**already** loads the chat to set the flag (`setChatPartReverted`); `performUndo`/`performRedo`
+already resolve the acted-on record internally; and the part **already** carries
+`editRange.clockStart`, which is by construction the same number as that record's
+`agent_edits.edit_clock_start` (`modify.js:574` writes one from the other). The only additions
+are: the undo service reporting which record it acted on, and one equality check before the write.
+
+**What it explicitly does NOT change**: the endpoint contract. `/undo` still inverts the
+identity's next target by identity-LIFO, exactly as FR-002 and D16 require. On a mismatch the
+undo **still happens** — only the mislabel is withheld. The guard changes what is *recorded about*
+the action, never the action.
+
+**Fail direction, stated deliberately** (this is the part a reviewer should check):
+
+- **Fail closed** when the part has no `editRange.clockStart` (the `editRangePending` case, N2):
+  the acted record is known, but the part is unidentifiable, so any stamp would be a guess. Not
+  stamping costs a missing "Reverted" marker on an already-rare card; stamping risks the lie.
+- **Fail open** when no record backs the action at all — the legacy-derivation undo path. This
+  is safe *by construction*, not by optimism: that path runs **only** when the identity has no
+  `agent_edits` rows whatsoever in the document (`undo-service.js` checks `latestEdit` first), so
+  there is no competing record — and in particular no restore — that the flag could be
+  misattributed away from. Refusing here would regress a working pre-016 path for no honesty gain.
+
+**Consequence for D13/D15**: FR-017's client guard is demoted from *sole enforcement* to a **UX
+nicety** — it stops the user from being offered a button that would do something other than what
+it says, which is still worth having. But FR-018 no longer depends on it, so D15's mandatory
+fail-open (which would otherwise be a hole) is now unambiguously the right call: the client may
+fail open freely, because the server refuses to mislabel regardless.
+
+---
+
+## D18 — RETRACTED: FR-010 *was* already delivered by 039; the apparent gap was a stale worktree base
+
+**Status**: **RETRACTED by its own author before handoff.** Recorded rather than deleted, because
+the retraction is the useful artifact — it documents a trap the next agent can fall into.
+
+**What was claimed**: implementation initially reported that T029/T030's premise was false — that
+`HierarchicalVersionList.jsx` still imported `colorUtils`, still used the date-salted
+`generateColorFromId`, and that the test T030 cites at `:487` did not exist (the file was 465
+lines). All of that was **accurately observed**. A fix was written and committed.
+
+**Why it was wrong**: those observations were true of the **worktree's base commit**, not of
+`main`. This worktree was branched from `6107b41e`, which predates `61a387af`
+("039: cache-write integrity, two-surface parity, model-context hygiene"). Feature 039 **did**
+ship its FR-018 in that commit — and shipped it in exactly the shape 040 wanted:
+
+- `client/src/components/HierarchicalVersionList.jsx` on `main`: the `colorUtils` import is gone
+  and the fallback reads `author.color || '#888888'`, with a comment explaining the
+  presence-vs-history distinction.
+- `client/src/components/__tests__/HierarchicalVersionList.test.jsx` on `main`: the test
+  *"renders the stable neutral #888888 for a colorless author, on any date"* exists at **line 487
+  exactly**, in a `describe` block titled "author badge fallback color (039 FR-018)".
+
+The task text's citations were precise and correct. The stale base made them look stale.
+
+**Resolution**: the branch was **rebased onto current `main`** and the redundant 040 change was
+dropped in favour of 039's (they were substantively identical; 039's is better commented). The
+FR-009 unknown-author tests 040 genuinely adds were kept, and they now assert `#888888` against
+the fallback 039 shipped. Phase 7 is therefore **verification-only after all**, exactly as
+written — FR-010 is satisfied on `main`, and 040 adds no colour behaviour.
+
+**The transferable lesson (worth a line in the pipeline docs)**: a pipeline worktree can be
+branched from a commit older than the `main` the task text was written against. Before concluding
+that a cited line number, test name, or prior feature's delivery is *stale*, check it against
+`main` — `git show main:<path>` — not only against the worktree. "The citation is wrong" and
+"my base is old" look identical from inside the worktree, and the second is far more likely.

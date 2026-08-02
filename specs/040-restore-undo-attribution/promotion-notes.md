@@ -40,6 +40,18 @@ restores a version and regrets it still has no button.
    offering when it is not the next target. That keeps a lie off the screen; it does not add the
    missing affordance.
 
+> **Amended 2026-08-02 (FR-019, D17).** Point 3 above is no longer accurate as written, and the
+> change matters for whoever builds OWED-1. `toolCallId` is **no longer used only to stamp the
+> flag**: the endpoint now compares the supplied part against the record it actually inverted
+> (`actedEditClockStart`) and writes the `reverted` flag **only** on a match. Target selection is
+> still identity-LIFO and still ignores `toolCallId` — the endpoint contract is unchanged — but
+> the mislabel is now impossible server-side rather than merely un-offered client-side.
+>
+> **Consequence for OWED-1**: a future document-level undo control does **not** have to re-derive
+> this safety. It may call `/undo` without a `toolCallId` at all (nothing to label), and if it
+> does pass one, the server will refuse to mislabel a mismatched part. The affordance is still
+> entirely unbuilt; it is just no longer responsible for the honesty guarantee.
+
 ### What building OWED-1 needs
 
 - **A document-level undo control**, most naturally in the version-history panel (next to the

@@ -80,6 +80,34 @@ function getAuthorKey(userId, agentName) {
 }
 
 /**
+ * The synthetic contributor shown for update rows that carry no user
+ * attribution (feature 040, FR-008, D4).
+ *
+ * Such rows are real history — most often edits by a user who has since
+ * deleted their account, since `yjs_updates.user_id` is `ON DELETE SET NULL`
+ * precisely so a document's history survives its contributors (see the
+ * FK-policy note in server/undo/edit-records.js). Before this feature those
+ * rows were simply skipped, so a version built entirely from them rendered an
+ * EMPTY contributor list — which reads as "nobody edited this", a silent lie
+ * about a version that demonstrably exists.
+ *
+ * `color` is the stable neutral, matching the client's no-id fallback, so the
+ * entry looks identical on any day (FR-010).
+ */
+const UNKNOWN_AUTHOR = Object.freeze({
+  id: null,
+  name: 'Unknown author',
+  email: null,
+  picture: null,
+  color: '#888888',
+  isAgent: false,
+});
+
+/** Fixed map key for UNKNOWN_AUTHOR, so repeated unattributed rows COLLAPSE
+ * into exactly one entry per version instead of one entry per row. */
+const UNKNOWN_AUTHOR_KEY = 'unknown';
+
+/**
  * Create an author object from update data or named version data
  * Shared helper to ensure consistent author representation
  * Accepts multiple input formats:
@@ -204,6 +232,18 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 
     if (update.userId && !currentVersion.authors.has(authorKey)) {
       currentVersion.authors.set(authorKey, createAuthor(update));
+    } else if (!update.userId && !currentVersion.authors.has(UNKNOWN_AUTHOR_KEY)) {
+      // Feature 040 (FR-008): a row with no user attribution still gets a
+      // contributor entry, so a version whose rows all lost their user (a
+      // deleted account — `yjs_updates.user_id` is ON DELETE SET NULL) shows
+      // "Unknown author" instead of an empty list. The FIXED key collapses
+      // any number of unattributed rows into exactly one entry, and lets it
+      // coexist with the version's real authors.
+      //
+      // NOTE: `getUpdatesForVersion` (the sub-version drill-down) calls THIS
+      // SAME function, so this one change satisfies FR-008's "both paths"
+      // requirement. Do not duplicate it there.
+      currentVersion.authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
     }
 
     // Collect on-behalf-of provenance from sync-push updates in this version.
@@ -533,7 +573,13 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
  * @param {object} [deps]
  * @param {Function|null} [deps.getSharedDoc] - docGuid -> Y.Doc|null (in-memory doc)
  * @param {object|null} [deps.redisPubSub] - cross-instance fan-out when not loaded
- * @param {string|null} [deps.agentName] - acting agent name; null for a human UI restore
+ * @param {string|null} [deps.agentName] - The acting identity this restore is
+ *   recorded under, in BOTH the update log and the edit record (feature 040
+ *   FR-001). An MCP restore passes the agent token's own name; the web-UI
+ *   restore route passes the chat-assistant identity acting for the
+ *   requesting user. `null` is not a supported value for a real caller — it
+ *   is left as the default so it reaches `recordEdit`'s FR-006 guard and
+ *   fails loudly by name rather than being coerced to an unreachable `''` row.
  * @returns {Promise<Object>} Result with new version info
  */
 async function restoreVersion(persistence, docGuid, versionId, userId, {
@@ -647,15 +693,30 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   // Record the restore as an edit record so log-derived undo can invert it
-  // (feature 023 FR-020, D-4). A human UI restore records under the '' agent
-  // sentinel (agent_edits.agent_name is NOT NULL); an agent restore records under
-  // the acting agent's name. Non-fatal (modify parity): a recording failure logs
-  // and the restore still succeeds — undo simply finds nothing to invert.
+  // (feature 023 FR-020, D-4).
+  //
+  // Feature 040 (FR-001): the SAME `agentName` now feeds BOTH stores — the
+  // `storeUpdate` above and this `recordEdit`. The old `agentName ?? ''`
+  // fallback here is gone: it meant a human UI restore wrote the acting
+  // identity into `yjs_updates` but the `''` sentinel into `agent_edits`, so
+  // the two stores disagreed and no undo surface could ever find the record.
+  // Callers supply a real identity (the REST route passes the chat-assistant
+  // identity, the MCP tool passes the acting agent's name).
+  //
+  // The `agentName = null` default parameter is KEPT ON PURPOSE (research
+  // R2): a null must now reach `recordEdit`'s FR-006 precondition and be
+  // rejected loudly by name. That rejection is the tripwire that catches a
+  // future caller which forgets to supply an identity — silently coercing it
+  // to `''` here is exactly the bug this feature removes.
+  //
+  // Non-fatal (modify parity, D6): a recording failure logs and the restore
+  // still succeeds — undo simply finds nothing to invert. The user's content
+  // change is never lost to a bookkeeping failure.
   try {
     await editRecords.recordEdit(persistence, {
       docGuid,
       userId,
-      agentName: agentName ?? '',
+      agentName,
       clockStart: newClock,
       clockEnd: newClock,
       clocks: [newClock],
@@ -791,13 +852,19 @@ async function getContentAtClock(persistence, docGuid, clock) {
     clock,
     timestamp: update?.createdAt || null,
     formattedTimestamp: update ? formatTimestamp(update.createdAt) : null,
-    author: update ? createAuthor(update) : null,
+    // Feature 040 (FR-008): a row that genuinely EXISTS but yields no author
+    // (its user was deleted) resolves to the synthetic unknown contributor
+    // rather than a bare null. `null` here is reserved for "there is no row
+    // at this clock at all", which is a different statement.
+    author: update ? (createAuthor(update) || UNKNOWN_AUTHOR) : null,
   };
 }
 
 module.exports = {
   generateColorFromId,
   createAuthor,
+  // Feature 040 (FR-008): the synthetic contributor for unattributed rows.
+  UNKNOWN_AUTHOR,
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,

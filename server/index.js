@@ -65,6 +65,10 @@ const documentImages = require('./document-images');
 const s3Images = require('./s3-images');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
+// Feature 040 (FR-005): the one authoritative chat-assistant identity. The
+// restore route records under it and the /undo-status route queries it, so
+// they cannot drift apart. Zero-require leaf — safe to import anywhere.
+const { CHAT_AGENT_NAME } = require('./agent-identity');
 const mcp = require('./mcp');
 const toolRegistry = require('./mcp/tools');
 const agentPresence = require('./mcp/agent-presence');
@@ -74,6 +78,8 @@ const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
 const undoService = require('./undo/undo-service');
+// Feature 040 (FR-019): the honesty rule for the chat "Reverted" marker.
+const { applyRevertedFlag } = require('./undo/reverted-flag');
 const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
@@ -1516,13 +1522,27 @@ app.post('/api/docs/:docId/restore', requireAuth, rateLimit.perUser('versionHist
       return res.status(403).json({ error: 'You do not have permission to restore this document' });
     }
 
-    // Restore via the shared core (feature 023 US5): a human UI restore records
-    // under the '' agent sentinel and broadcasts on every instance via the shared
-    // live-apply path (loaded-doc apply or Redis fan-out — never a silent skip).
+    // Restore via the shared core (feature 023 US5): broadcasts on every
+    // instance via the shared live-apply path (loaded-doc apply or Redis
+    // fan-out — never a silent skip).
+    //
+    // Feature 040 (FR-001): the restore is recorded under the CHAT-ASSISTANT
+    // IDENTITY acting for the requesting user — not the old `''` agent
+    // sentinel, and not a null. That is what makes a web-UI restore undoable:
+    // `/undo-status` and `/undo` query `agent_edits` for exactly this
+    // (userId, CHAT_AGENT_NAME) pair (see the /undo-status route below), so
+    // recording under anything else produced a row nothing could ever find.
+    // Both routes resolve the same constant from `server/agent-identity.js`,
+    // so the recording identity and the query identity cannot drift apart.
+    //
+    // Accepted, ratified tradeoff (FR-003): version history now attributes
+    // the restore to "Squire Docs Assistant (<user name>)" rather than the
+    // bare human. That is deliberate, not a bug — it is the price of the two
+    // stores agreeing and the restore being invertible.
     const result = await versionHistory.restoreVersion(persistenceProvider, docId, versionId, userId, {
       getSharedDoc: documentService.getSharedDoc,
       redisPubSub,
-      agentName: null,
+      agentName: CHAT_AGENT_NAME,
     });
     res.json(result);
   } catch (error) {
@@ -1571,10 +1591,34 @@ function makeUndoRedoHandler(toolName, label) {
       // Persist the reverted state on the chat message so the "Reverted" marker
       // survives reloads. Best-effort: never fail the undo/redo if this doesn't
       // stick. undo -> reverted, redo -> not reverted.
+      //
+      // Feature 040 (FR-019, D17): the flag is written ONLY when the supplied
+      // toolCallId names the record that was actually inverted. This is the
+      // BY-CONSTRUCTION half of FR-018 ("no surface may label an edit
+      // 'Reverted' unless that edit is what was inverted"); the client-side
+      // offer guard in AiChatMessages.jsx is the UX half, not the enforcement.
+      //
+      // Why the server has to do this at all: `/undo` selects the identity's
+      // most-recent record (LIFO) and has always used toolCallId ONLY to
+      // stamp the flag — the two were never checked against each other. Once
+      // a web-UI restore enters that queue (FR-001), pressing "Undo edit" on
+      // an assistant modify card inverts the RESTORE while stamping
+      // "Reverted" on the MODIFY. The client guard cannot close this alone:
+      // it is fed by a 30s poll and nothing tells the chat component that a
+      // restore happened in the version-history panel, so the lie stays
+      // reachable for up to 30 seconds (and indefinitely for an older client
+      // that never sends the new fields).
+      //
+      // The undo/redo ITSELF is unchanged in every case — the endpoint
+      // contract still inverts the identity's true next target. Only the
+      // label is withheld.
       const succeeded = toolName === 'undo' ? result.undone : result.redone;
       if (succeeded && req.body?.chatId && req.body?.toolCallId) {
         try {
-          await setChatPartReverted(req.body.chatId, userId, req.body.toolCallId, toolName === 'undo');
+          await setChatPartReverted(
+            req.body.chatId, userId, req.body.toolCallId, toolName === 'undo',
+            result.actedEditClockStart,
+          );
         } catch (e) {
           console.warn(`[${label}] could not persist reverted flag:`, e.message);
         }
@@ -1591,19 +1635,18 @@ function makeUndoRedoHandler(toolName, label) {
 
 // Set/clear the `reverted` flag on a tool part (by toolCallId) within a stored
 // chat, so the chat UI can show the edit as reverted after a reload.
-async function setChatPartReverted(chatId, userId, toolCallId, reverted) {
-  const messages = await chatStore.loadChat(chatId, userId);
-  if (!messages || !messages.length) return;
-  let changed = false;
-  for (const m of messages) {
-    for (const p of (m.parts || [])) {
-      if (p.toolCallId === toolCallId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
-        if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
-        else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
-      }
-    }
-  }
-  if (changed) await chatStore.saveChat(chatId, userId, messages);
+//
+// Feature 040 (FR-019, D17): the rule that keeps this marker HONEST lives in
+// server/undo/reverted-flag.js — the flag is written only when the named part
+// is the record the endpoint actually inverted. It is a separate module purely
+// so it is testable (SC-013 must prove the mislabel is impossible even with
+// the client guard bypassed, and this file cannot be required from a test
+// without starting the HTTP server). See that module for the deliberate
+// fail-closed / fail-open asymmetry.
+async function setChatPartReverted(chatId, userId, toolCallId, reverted, actedEditClockStart) {
+  await applyRevertedFlag(chatStore, {
+    chatId, userId, toolCallId, reverted, actedEditClockStart,
+  });
 }
 
 app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo'));
