@@ -405,6 +405,20 @@ setPersistence({
       // failure-mode change on the hottest path in the product. That is
       // deliberately DEFERRED, not overlooked (feature 038 R10). This comment is
       // the record; nothing here changes behavior.
+      //
+      // Feature 045 split the consequence from the cause. The DISPLAY-side lie
+      // is closed: when a lost edit comes back through another client's
+      // reconnect, no author surface credits the relayer any more — the true
+      // author is recovered from the update's own embedded client identities, or
+      // the content is labelled an honest "Synced content" contribution. The
+      // DURABILITY residual stands, and is now a ratifiable decision rather than
+      // an unexamined gap: see RBD-045-5 in
+      // specs/045-resupply-attribution/clarifications-needed.md for its scope
+      // (SIGKILL-class death), the SIGTERM-drain deploy coverage, the frequency
+      // estimate, and the named revisit path (durable-before-broadcast). A
+      // residual occurrence is therefore a bounded durability incident, not a
+      // permanent attribution lie. 045 changed NOTHING here (FR-014): the
+      // ordering, retry policy and drain behavior below are byte-identical.
       const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful, viaSync });
       pendingWrites.add(writePromise);
       writePromise.finally(() => pendingWrites.delete(writePromise));
@@ -519,8 +533,10 @@ aiUsage.init(persistenceProvider.getPool());
 
 // Feature 021 US2: guardrail reads recent agent-attributed rows through the
 // shared pool (detection-only; wired fire-and-forget in the bindState
-// persistence listener above).
-collabGuardrail.init(persistenceProvider.getPool());
+// persistence listener above). Feature 045 also hands it the persistence
+// provider, which is the reader interface the resupply resolver uses to tell
+// whether a fresh sync-relayed row carries agent content.
+collabGuardrail.init(persistenceProvider.getPool(), persistenceProvider);
 
 // Initialize chat module with the persistence provider (BYOK lookups + the
 // document update log used for concurrent-edit awareness)

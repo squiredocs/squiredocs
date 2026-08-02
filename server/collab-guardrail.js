@@ -31,11 +31,16 @@
  */
 const Y = require('yjs');
 const { notifyException } = require('./exception-notifier');
+const { resolveForRows } = require('./resupply-resolution');
 
 const DEFAULT_FRESHNESS_SECONDS = 10;
 const DEFAULT_SUPPRESSION_MS = 5 * 60 * 1000;
 
+/** Agent name shown for a candidate whose origin could not be resolved. */
+const UNRESOLVED_SYNC_AGENT_NAME = 'unknown (sync-relayed)';
+
 let pool = null;
+let persistenceProvider = null;
 
 /** @type {Map<string, { lastAlertAt: number, suppressedCount: number }>} */
 const suppression = new Map();
@@ -50,9 +55,16 @@ function suppressionMs() {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_SUPPRESSION_MS;
 }
 
-/** Store the shared pool (server/index.js init). */
-function init(dbPool) {
+/**
+ * Store the shared pool, and (feature 045) the persistence provider the
+ * resupply resolver reads through. The guardrail keeps using the raw pool for
+ * its own fresh-row query; the provider is only the resolver's reader
+ * interface. Without a provider the guardrail still works and simply treats
+ * every sync-relayed candidate as unresolved — conservative, never blind.
+ */
+function init(dbPool, persistence = null) {
   pool = dbPool;
+  persistenceProvider = persistence;
 }
 
 /**
@@ -86,22 +98,72 @@ async function evaluateUpdate({ docGuid, update, userId, agentName, viaSync = nu
 
     // 3. Fresh agent-attributed rows for this doc (PK (doc_guid, clock) bounds
     //    the scan; the recency predicate keeps the row count tiny).
+    //
+    //    Feature 045 (FR-011): the predicate also admits fresh SYNC-RELAYED
+    //    rows. Agent content that reached the log through a human's reconnect
+    //    carries no agent_name, so the old predicate went blind on exactly the
+    //    content most likely to be confusing — it flickered through a loss
+    //    window. The set only ever WIDENS; every row the old query returned is
+    //    still returned and still handled by the untouched path below.
     const { rows } = await pool.query(
-      `SELECT clock, agent_name, user_id, created_at, update_data
+      `SELECT clock, agent_name, user_id, via_sync, created_at, update_data
        FROM yjs_updates
        WHERE doc_guid = $1
-         AND agent_name IS NOT NULL
+         AND (agent_name IS NOT NULL OR via_sync IS TRUE)
          AND created_at > now() - ($2 * interval '1 second')
        ORDER BY clock`,
       [docGuid, freshnessSeconds()]
     );
     if (rows.length === 0) return null;
 
+    // 3b. Classify the widened rows. Direct agent rows are candidates exactly as
+    //     before. A sync-relayed row is a candidate when its resolved origin is
+    //     an agent, or when it cannot be resolved at all (RBD-045-4: for an
+    //     alert-only net, a false alarm beats a blind spot). A sync-relayed row
+    //     whose origins ALL resolve to humans is human content and is NOT a
+    //     candidate — that is not the signature this guardrail watches for.
+    //
+    //     Resolution comes from the shared resolver, so the guardrail and the
+    //     timeline can never disagree about who wrote a relayed row. It runs
+    //     only after the cheap-first guards above have already passed, and only
+    //     when the window actually contains such a row.
+    const syncRows = rows.filter((r) => !r.agent_name && r.via_sync === true);
+    const syncCandidateClocks = new Set();
+    const resolvedAgentNames = new Map();
+    if (syncRows.length > 0) {
+      const ctx = persistenceProvider
+        ? await resolveForRows(
+          persistenceProvider,
+          docGuid,
+          syncRows.map((r) => ({ clock: Number(r.clock), viaSync: true }))
+        )
+        : { outcomes: new Map() };
+      for (const row of syncRows) {
+        const outcome = ctx.outcomes.get(Number(row.clock));
+        // A missing outcome means resolution degraded (no provider, or a
+        // swallowed failure) — treated as unresolved, i.e. still a candidate,
+        // so degradation never re-opens the blind spot.
+        if (!outcome || outcome.unresolved) {
+          syncCandidateClocks.add(Number(row.clock));
+          continue;
+        }
+        const agentOrigins = outcome.origins.filter((o) => o.agentName);
+        if (agentOrigins.length > 0) {
+          syncCandidateClocks.add(Number(row.clock));
+          resolvedAgentNames.set(Number(row.clock), agentOrigins.map((o) => o.agentName).join(', '));
+        }
+      }
+    }
+    const candidateRows = rows.filter(
+      (r) => r.agent_name != null || syncCandidateClocks.has(Number(r.clock))
+    );
+    if (candidateRows.length === 0) return null;
+
     // 4. Intersect each agent row's inserted item-ID ranges with the human
     //    update's delete set — Yjs ITEM-ID space, not DB clocks.
     const matchedRows = [];
     const overlappedItemRanges = [];
-    for (const row of rows) {
+    for (const row of candidateRows) {
       let structs;
       try {
         structs = Y.decodeUpdate(new Uint8Array(row.update_data)).structs;
@@ -130,8 +192,25 @@ async function evaluateUpdate({ docGuid, update, userId, agentName, viaSync = nu
     }
     if (matchedRows.length === 0) return null;
 
-    const agentNames = [...new Set(matchedRows.map((r) => r.agent_name))];
-    const agentUserId = matchedRows.map((r) => r.user_id).find((u) => u != null) ?? null;
+    // Feature 045: a matched sync candidate has no agent_name of its own, so it
+    // contributes its RESOLVED agent name, or the honest placeholder when the
+    // origin could not be determined — the alert page never shows a blank agent
+    // field. Direct rows contribute exactly what they always did.
+    const syncSourcedMatches = matchedRows.filter((r) => !r.agent_name && r.via_sync === true);
+    const agentNames = [...new Set(matchedRows.map(
+      (r) => r.agent_name
+        ?? resolvedAgentNames.get(Number(r.clock))
+        ?? UNRESOLVED_SYNC_AGENT_NAME
+    ))];
+    // `agentUserId` keeps its exact meaning: the agent's user. A sync candidate's
+    // user_id is the RELAYER's, so it is reported separately rather than
+    // silently presented as the agent's user (FR-012 — existing alert payloads
+    // stay byte-identical; the relayer field is additive).
+    const agentUserId = matchedRows
+      .filter((r) => r.agent_name != null)
+      .map((r) => r.user_id)
+      .find((u) => u != null) ?? null;
+    const relayedByUserId = syncSourcedMatches.map((r) => r.user_id).find((u) => u != null) ?? null;
     const clocks = matchedRows.map((r) => Number(r.clock));
     const agentClockRange = [Math.min(...clocks), Math.max(...clocks)];
 
@@ -170,6 +249,11 @@ async function evaluateUpdate({ docGuid, update, userId, agentName, viaSync = nu
         // Annotation only (038 D3) — present only when the trigger was
         // sync-sourced, so existing pages are byte-identical.
         ...(viaSync ? { syncSourced: true } : {}),
+        // Feature 045 — a MATCHED row was sync-relayed rather than directly
+        // agent-attributed (distinct from the trigger-level annotation above).
+        // Both fields are omitted entirely on the direct path.
+        ...(syncSourcedMatches.length > 0 ? { syncSourcedCandidates: true } : {}),
+        ...(relayedByUserId ? { relayedByUserId } : {}),
       },
     });
     return { matched: true, alerted: true };

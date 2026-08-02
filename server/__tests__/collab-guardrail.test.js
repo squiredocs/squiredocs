@@ -24,6 +24,7 @@ const { createPool, createPersistence, createTestUser } = require('./helpers/db'
 
 let HUMAN_ID;
 let AGENT_USER_ID;
+let RELAYER_ID;
 const AGENT_NAME = 'squire-assistant';
 
 describe('021 collab guardrail', () => {
@@ -71,18 +72,22 @@ describe('021 collab guardrail', () => {
   beforeAll(async () => {
     pool = createPool();
     persistence = createPersistence();
-    guardrail.init(pool);
+    // Feature 045: the provider is the resupply resolver's reader interface —
+    // how the guardrail tells whether a sync-relayed row carries agent content.
+    guardrail.init(pool, persistence);
     HUMAN_ID = await createTestUser(pool, 'guardrail-human-021@example.com');
     AGENT_USER_ID = await createTestUser(pool, 'guardrail-agent-021@example.com');
+    RELAYER_ID = await createTestUser(pool, 'guardrail-relayer-045@example.com');
   });
 
   afterAll(async () => {
     for (const guid of docGuids) {
       await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [guid]);
     }
-    await pool.query('DELETE FROM users WHERE email IN ($1, $2)', [
+    await pool.query('DELETE FROM users WHERE email IN ($1, $2, $3)', [
       'guardrail-human-021@example.com',
       'guardrail-agent-021@example.com',
+      'guardrail-relayer-045@example.com',
     ]);
     await pool.end();
     await persistence.close?.();
@@ -414,6 +419,197 @@ describe('021 collab guardrail', () => {
         userId: HUMAN_ID,
         agentName: null,
         viaSync: true,
+      });
+
+      expect(result).toBeNull();
+      expect(notifyException).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Feature 045 US4 (FR-011/FR-012): the guardrail stops going blind when agent
+   * content reaches the log through a HUMAN's reconnect. Such a row carries no
+   * agent_name at all, so the old candidate query could not see it — exactly the
+   * content most likely to be confusing, since it flickered through a loss
+   * window. The candidate set only widens; the posture is unchanged.
+   */
+  describe('(f) resupplied agent content is visible to the guardrail (feature 045)', () => {
+    const resolution = require('../resupply-resolution');
+
+    /**
+     * Stage two paragraphs from ONE client identity: the first is stored as a
+     * DIRECT row (the evidence that binds the identity), the second as a
+     * sync-relayed row stamped to a relaying user with no agent name. Only the
+     * second is deleted, so the direct row can never be the matching candidate —
+     * whatever fires, fires because of the widening.
+     */
+    async function stageRelayedContent(docGuid, { evidenceUserId, evidenceAgentName, clientID }) {
+      const doc = new Y.Doc();
+      doc.clientID = clientID;
+      const frag = doc.getXmlFragment('default');
+
+      const push = (text) => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        el.insert(0, [t]);
+        frag.push([el]);
+      };
+
+      if (evidenceUserId) {
+        const sv = Y.encodeStateVector(doc);
+        doc.transact(() => push('evidence paragraph'));
+        await persistence.storeUpdate(
+          docGuid, Y.encodeStateAsUpdate(doc, sv), evidenceUserId, evidenceAgentName ?? null
+        );
+      }
+
+      const svRelayed = Y.encodeStateVector(doc);
+      doc.transact(() => push('content that came back through a reconnect'));
+      await persistence.storeUpdate(
+        docGuid, Y.encodeStateAsUpdate(doc, svRelayed), RELAYER_ID, null, null, null, { viaSync: true }
+      );
+
+      const svDelete = Y.encodeStateVector(doc);
+      doc.transact(() => frag.delete(frag.length - 1, 1));
+      return { humanDeleteUpdate: Y.encodeStateAsUpdate(doc, svDelete) };
+    }
+
+    beforeEach(() => {
+      resolution._resetForTest();
+      guardrail.init(pool, persistence);
+    });
+
+    test('a human deleting RESOLVED-agent resupplied content pages, annotated as sync-sourced (FR-011)', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await stageRelayedContent(docGuid, {
+        evidenceUserId: AGENT_USER_ID, evidenceAgentName: AGENT_NAME, clientID: 6100001,
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toEqual({ matched: true, alerted: true });
+      const [, ctx] = notifyException.mock.calls[0];
+      expect(ctx.extra.syncSourcedCandidates).toBe(true);
+      // The resolved agent name, not a blank field — and the relayer is reported
+      // as the relayer, never as the agent's user.
+      expect(ctx.extra.agentName).toBe(AGENT_NAME);
+      expect(ctx.extra.relayedByUserId).toBe(RELAYER_ID);
+      expect(ctx.extra.agentUserId).toBeNull();
+      // The DB clock range still points at the matched row, so 016 can invert it.
+      expect(ctx.extra.agentClockRange).toEqual([1, 1]);
+    });
+
+    test('an UNRESOLVED fresh resupplied row is covered conservatively (RBD-045-4)', async () => {
+      const docGuid = newDocGuid();
+      // No evidence row at all: the origin identity is unknown to this document.
+      const { humanDeleteUpdate } = await stageRelayedContent(docGuid, {
+        evidenceUserId: null, clientID: 6100002,
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toEqual({ matched: true, alerted: true });
+      const [, ctx] = notifyException.mock.calls[0];
+      expect(ctx.extra.syncSourcedCandidates).toBe(true);
+      expect(ctx.extra.agentName).toBe('unknown (sync-relayed)');
+      expect(ctx.extra.relayedByUserId).toBe(RELAYER_ID);
+    });
+
+    test('a resupplied row whose origins ALL resolve to humans does NOT page (F3)', async () => {
+      const docGuid = newDocGuid();
+      // Evidence binds the identity to a human acting as themselves, so the
+      // relayed content is human content — not this guardrail's signature.
+      // Widening must not turn it into a page.
+      const { humanDeleteUpdate } = await stageRelayedContent(docGuid, {
+        evidenceUserId: AGENT_USER_ID, evidenceAgentName: null, clientID: 6100003,
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toBeNull();
+      expect(notifyException).not.toHaveBeenCalled();
+    });
+
+    test('a resolution failure still yields the conservative alert (degradation never re-blinds)', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await stageRelayedContent(docGuid, {
+        evidenceUserId: AGENT_USER_ID, evidenceAgentName: null, clientID: 6100004,
+      });
+
+      // A provider whose reads fail: the row cannot be classified, so it stays a
+      // candidate — the opposite of the pre-045 blind spot.
+      guardrail.init(pool, {
+        getUpdatePayloads: async () => { throw new Error('reader down'); },
+        getDirectAttributedRows: async () => { throw new Error('reader down'); },
+        getUserDisplayFields: async () => new Map(),
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toEqual({ matched: true, alerted: true });
+      const [, ctx] = notifyException.mock.calls[0];
+      expect(ctx.extra.syncSourcedCandidates).toBe(true);
+    });
+
+    test('with no provider wired at all, sync candidates are still covered', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await stageRelayedContent(docGuid, {
+        evidenceUserId: AGENT_USER_ID, evidenceAgentName: null, clientID: 6100005,
+      });
+
+      guardrail.init(pool);
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toEqual({ matched: true, alerted: true });
+    });
+
+    test('the DIRECT agent_name path is byte-identical — no new fields, nothing blocked (FR-012)', async () => {
+      const docGuid = newDocGuid();
+      const { humanDeleteUpdate } = await buildSignature(docGuid);
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: humanDeleteUpdate, userId: HUMAN_ID, agentName: null,
+      });
+
+      expect(result).toEqual({ matched: true, alerted: true });
+      const [, ctx] = notifyException.mock.calls[0];
+      expect(ctx.extra.agentName).toBe(AGENT_NAME);
+      expect(ctx.extra.agentUserId).toBe(AGENT_USER_ID);
+      expect(ctx.extra).not.toHaveProperty('syncSourcedCandidates');
+      expect(ctx.extra).not.toHaveProperty('relayedByUserId');
+    });
+
+    test('a fresh resupplied row nobody deleted stays silent (the widening adds no noise on its own)', async () => {
+      const docGuid = newDocGuid();
+      await stageRelayedContent(docGuid, {
+        evidenceUserId: AGENT_USER_ID, evidenceAgentName: AGENT_NAME, clientID: 6100006,
+      });
+
+      const doc = new Y.Doc();
+      const frag = doc.getXmlFragment('default');
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'an ordinary human insert');
+        el.insert(0, [t]);
+        frag.push([el]);
+      });
+
+      const result = await guardrail.evaluateUpdate({
+        docGuid, update: Y.encodeStateAsUpdate(doc, sv), userId: HUMAN_ID, agentName: null,
       });
 
       expect(result).toBeNull();
