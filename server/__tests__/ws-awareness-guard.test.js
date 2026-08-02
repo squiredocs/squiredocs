@@ -387,6 +387,76 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
   });
 });
 
+describe('ws-awareness-guard: evaluateAwarenessFrame — same-user tie-break (rule 3)', () => {
+  test('a second connection of the SAME user may assert an id the first still holds', () => {
+    // The reconnect race: the client is back before the server reaped its old
+    // socket. A strict foreign-id rule would flicker the user's own presence.
+    const first = makeConn('u-alice');
+    const reconnect = makeConn('u-alice');
+    const conns = makeConns([[first, [42]], [reconnect, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: reconnect, clientIds: [42] }))
+      .toEqual({ allowed: true, foreignIds: [] });
+  });
+
+  test('a DIFFERENT user under identical conditions is foreign — same-user, not same-id', () => {
+    const first = makeConn('u-alice');
+    const other = makeConn('u-bob');
+    const conns = makeConns([[first, [42]], [other, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: other, clientIds: [42] }))
+      .toEqual({ allowed: false, foreignIds: [42] });
+  });
+
+  test.each([
+    ['the OWNER principal is null', null, 'u-alice'],
+    ['the ASSERTING principal is null', 'u-alice', null],
+    ['BOTH principals are null', null, null],
+  ])('%s ⇒ foreign (null never matches, on either side)', (_label, ownerId, asserterId) => {
+    // If `undefined === undefined` counted as a match, the tie-break would
+    // become a universal bypass for any connection missing the field. Fail
+    // closed is the only correct default here (research R6).
+    const owner = makeConn(ownerId);
+    const asserter = makeConn(asserterId);
+    const conns = makeConns([[owner, [42]], [asserter, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }).allowed).toBe(false);
+  });
+
+  test('a connection with no userId FIELD at all is not "the same user" as another such', () => {
+    const owner = {};
+    const asserter = {};
+    const conns = makeConns([[owner, [42]], [asserter, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }).allowed).toBe(false);
+  });
+
+  test('EVERY holder must match: one same-user holder and one foreign holder ⇒ foreign', () => {
+    const mine = makeConn('u-alice');
+    const theirs = makeConn('u-bob');
+    const asserter = makeConn('u-alice');
+    const conns = makeConns([[mine, [42]], [theirs, [42]], [asserter, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }))
+      .toEqual({ allowed: false, foreignIds: [42] });
+  });
+
+  test('the default principalOf is used when none is injected', () => {
+    const owner = { userId: 'u-alice' };
+    const asserter = { userId: 'u-alice' };
+    const conns = makeConns([[owner, [42]], [asserter, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }).allowed).toBe(true);
+  });
+
+  test('an injected principalOf overrides the default — the naming stays index.js\'s', () => {
+    const owner = { principal: 'p-1' };
+    const asserter = { principal: 'p-1' };
+    const stranger = { principal: 'p-2' };
+    const conns = makeConns([[owner, [42]], [asserter, []], [stranger, []]]);
+    const principalOf = (c) => (c && c.principal != null ? c.principal : null);
+
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42], principalOf }).allowed).toBe(true);
+    expect(evaluateAwarenessFrame({ conns, conn: stranger, clientIds: [42], principalOf }).allowed).toBe(false);
+    // ...and without it, `userId` is absent on both, so nothing matches.
+    expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }).allowed).toBe(false);
+  });
+});
+
 describe('ws-awareness-guard: defaultPrincipalOf', () => {
   test('reads conn.userId, and yields null when there is nothing to read', () => {
     expect(defaultPrincipalOf({ userId: 'u-1' })).toBe('u-1');

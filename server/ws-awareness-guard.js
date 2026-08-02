@@ -179,7 +179,7 @@ const defaultPrincipalOf = (conn) => (conn && conn.userId != null ? conn.userId 
  *   2. the id is held by NO other connection                      → allow
  *      (first-writer-wins: this is how a first announcement claims an id)
  *   3. every connection holding it has the SAME, non-null principal → allow
- *      (self reconnect / multi-tab — added in T017)
+ *      (self reconnect / multi-tab)
  *   4. otherwise                                                  → foreign
  *
  * ONE foreign id drops the WHOLE frame (Q2, FR-004): no partial apply, no
@@ -219,7 +219,23 @@ function evaluateAwarenessFrame({ conns, conn, clientIds, principalOf = defaultP
     }
     if (holders.length === 0) continue;                               // rule 2
 
-    // ── rule 3 (same-user tie-break) lands here in T017 ──────────────────────
+    // Rule 3 — the same-user tie-break (Q3). A spoof is BY DEFINITION a
+    // different principal claiming your identity: a connection sharing the
+    // authenticated user of the current holder is that person reconnecting or
+    // another of their own tabs, and they can already control their own
+    // presence. This is what removes the reconnect-race false positive (a
+    // client back before the server reaped its old socket) without weakening
+    // the cross-user protection SC-001 actually measures.
+    //
+    // A null principal NEVER matches, on EITHER side. Letting
+    // `undefined === undefined` count as "the same user" would turn the
+    // tie-break into a universal bypass for every connection missing the field
+    // — fail-closed is the only correct default (research R6). EVERY holder
+    // must match, so one foreign holder still makes the id foreign.
+    const principal = principalOf(conn);
+    if (principal != null && holders.every((holder) => principalOf(holder) === principal)) {
+      continue;
+    }
 
     if (!alreadyRecorded.has(clientId)) {                             // rule 4
       alreadyRecorded.add(clientId);

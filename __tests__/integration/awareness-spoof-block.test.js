@@ -384,4 +384,199 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
       }
     });
   });
+
+  // ══ US2 — legitimate presence keeps working ═══════════════════════════════
+  //
+  // A guard that broke reconnect, agent presence, import presence or
+  // multi-instance display would be worse than the cosmetic gap it closes.
+  // Every case below is enumerated from the code (FR-006 a–e), and the whole
+  // block asserts ZERO WS_AWARENESS_BLOCKED events — that is the assertion
+  // that operationalises SC-002.
+
+  describe('US2: honest traffic is untouched', () => {
+    test('(a) a client announces and then updates its OWN clientID', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 3001;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const carol = await connect(docGuid, 'user-carol');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+        const mark = carol.received.length;
+
+        // A cursor move: same id, higher clock.
+        alice.ws.send(awarenessFrame([[Ca, 2, userState('Alice moved')]]));
+        await waitFor(
+          () => stateOf(docGuid, Ca) && stateOf(docGuid, Ca).user.name === 'Alice moved',
+          { label: 'the cursor update' }
+        );
+
+        // ...and it fans out to the observer.
+        await waitFor(() => carol.idsSeenSince(mark).includes(Ca), { label: 'fan-out of the update' });
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        alice.ws.close(); carol.ws.close();
+      }
+    });
+
+    test('(b) a client removes its OWN presence with a null-state frame', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 3002;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const carol = await connect(docGuid, 'user-carol');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+        const mark = carol.received.length;
+
+        // setLocalState(null) — an agent session silenced on claim loss, or an
+        // app-close removal of the client's own id.
+        alice.ws.send(awarenessFrame([[Ca, 9, null]]));
+        await waitFor(() => !serverAwareness(docGuid).getStates().has(Ca), { label: 'the removal' });
+        await waitFor(() => carol.idsSeenSince(mark).includes(Ca), { label: 'fan-out of the removal' });
+
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        alice.ws.close(); carol.ws.close();
+      }
+    });
+
+    test('(c) a reconnect asserts its stable id while the prior socket is still registered', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 3003;
+
+      const first = await connect(docGuid, 'user-alice');
+      await announce(first.ws, docGuid, Ca, 'Alice');
+
+      // The reconnect race: back before the server reaped the old socket. The
+      // old connection is NOT closed here, deliberately — it still holds Ca.
+      const reconnected = await connect(docGuid, 'user-alice');
+
+      try {
+        reconnected.ws.send(awarenessFrame([[Ca, 5, userState('Alice reconnected')]]));
+        await waitFor(
+          () => stateOf(docGuid, Ca) && stateOf(docGuid, Ca).user.name === 'Alice reconnected',
+          { label: 'the reconnect re-announcement' }
+        );
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        first.ws.close(); reconnected.ws.close();
+      }
+    });
+
+    test('(c′) a DIFFERENT user under identical conditions is dropped — same-user, not same-id', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 3004;
+
+      const alice = await connect(docGuid, 'user-alice');
+      await announce(alice.ws, docGuid, Ca, 'Alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        // Byte-for-byte the frame test (c) sent, from a different principal.
+        bob.ws.send(awarenessFrame([[Ca, 5, userState('Alice reconnected')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0].foreignIds).toEqual([Ca]);
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('(d) an agent-principal session announces its own fresh clientID', async () => {
+      const docGuid = crypto.randomUUID();
+      const Cagent = 3005;
+
+      // Agent presence (015) and import presence (037) connect as ordinary
+      // WebSocket clients with their own Y.Doc clientID and their own agent
+      // JWT, so they announce ids they own. No special case in the guard.
+      const agent = await connect(docGuid, 'user-agent', { agentName: 'Squire-Docs-Assistant' });
+
+      try {
+        await announce(agent.ws, docGuid, Cagent, 'Squire Docs Assistant (Sam)');
+        expect(stateOf(docGuid, Cagent)).toEqual(userState('Squire Docs Assistant (Sam)'));
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        agent.ws.close();
+      }
+    });
+
+    test('an unclaimed id is a first-writer-wins claim, from any connection', async () => {
+      const docGuid = crypto.randomUUID();
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        await announce(alice.ws, docGuid, 3006, 'Alice');
+        // Bob claims an id nobody owns — this is how every client's first
+        // announcement works, so blocking it would mean nobody ever appears.
+        await announce(bob.ws, docGuid, 3007, 'Bob');
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('zero-entry and undecodable awareness frames pass through untouched', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 3008;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+
+        bob.ws.send(awarenessFrame([]));                       // asserts nothing
+        bob.ws.send(frameFromUpdate(Uint8Array.from([2])));    // dies before entry 1
+        bob.ws.send(Buffer.from([MESSAGE_AWARENESS, 0xff]));   // garbage envelope
+        bob.ws.send(Buffer.from([MESSAGE_SYNC, SYNC_STEP1, 0]));// not awareness at all
+        await tick(150);
+
+        // Nothing asserted ⇒ nothing to spoof ⇒ the applier's own handling
+        // stands, exactly as it does today.
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+        expect(blocks()).toHaveLength(0);
+        expect(bob.ws.readyState).toBe(WebSocket.OPEN);
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('(e) FR-008: the Redis relay applies an unowned id — it never traverses the gate', async () => {
+      const docGuid = crypto.randomUUID();
+      const Cremote = 3009;
+
+      const carol = await connect(docGuid, 'user-carol');
+
+      try {
+        const mark = carol.received.length;
+
+        // The cross-instance path, called exactly as server/index.js calls it:
+        // straight into applyAwarenessUpdate with the Redis origin and no
+        // connection at all. Cremote is owned by no local connection, so a
+        // guard that gated this path would evict every remote participant.
+        //
+        // This test exists to PIN the exemption against a future refactor that
+        // routes relay traffic through a connection — at which point it fails
+        // and this contract has to be re-decided rather than silently lost.
+        awarenessProtocol.applyAwarenessUpdate(
+          serverAwareness(docGuid),
+          awarenessUpdate([[Cremote, 1, userState('Remote Instance User')]]),
+          ORIGIN_REDIS
+        );
+
+        expect(stateOf(docGuid, Cremote)).toEqual(userState('Remote Instance User'));
+        await waitFor(() => carol.idsSeenSince(mark).includes(Cremote), { label: 'relay fan-out' });
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        carol.ws.close();
+      }
+    });
+  });
 });
