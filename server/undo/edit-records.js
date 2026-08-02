@@ -22,8 +22,15 @@
  * `agent_edits.agent_name` is `NOT NULL`, and there is exactly ONE class of
  * permitted value: a **real, non-empty agent display name**. In practice that
  * is either an MCP token's own agent name, or the shared chat-assistant
- * identity (`CHAT_AGENT_NAME` from `server/agent-identity.js`), which is what
- * a human web-UI restore now records under.
+ * identity (`CHAT_AGENT_NAME` from `server/agent-identity.js`) used by the
+ * in-app assistant's own edits.
+ *
+ * A human web-UI restore records NOTHING here. It briefly did, under the
+ * assistant identity, so that the undo endpoint could invert it — that was
+ * cut (2026-08-02) because it put restores into the assistant's undo queue,
+ * which is what forced a whole apparatus to keep the "Reverted" label honest.
+ * A web-UI restore is attributed to the human in `yjs_updates` and is simply
+ * not an undo target; you revert one by restoring again.
  *
  * The empty string `''` is **RETIRED**. It was previously written as a "human,
  * no agent" sentinel by the restore path, which is precisely why those rows

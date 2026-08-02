@@ -1997,6 +1997,19 @@ server.on('upgrade', async (request, socket, head) => {
   request.user = user;
   request.userRole = viewPermission.role;
   request.docId = docId;
+  // Token scope is the SECOND authorization axis, and it binds here exactly as
+  // it does on REST (server/auth/middleware.js `checkScopes`). Scoped principals
+  // — sk_sqd_ API tokens and agent JWTs — carry a `scopes` array; browser
+  // session JWTs carry none and are unrestricted, which is why the absence of
+  // the array means "allowed" rather than "denied".
+  //
+  // Without this, a token minted with the DEFAULT scope set (`documents:read`,
+  // see server/mcp/tools/create-access-token.js) could open this socket and
+  // write: the connection gate below derived edit capability from the document
+  // ROLE alone, so a read-only token belonging to an editor wrote freely. REST
+  // refused the same principal on the same document. Attribution stayed correct
+  // — it was an authorization hole, not a misattribution one.
+  request.tokenMayWrite = !Array.isArray(user.scopes) || user.scopes.includes('documents:write');
 
   wss.handleUpgrade(request, socket, head, (ws) => {
     // Apply connection simulation if enabled
@@ -2024,7 +2037,11 @@ wss.on('connection', (ws, req) => {
   const userRole = req.userRole;
   const userId = req.user?.userId;
   const docId = req.docId;
-  let currentCanEdit = documents.ROLES[userRole] >= documents.ROLES['editor'];
+  // BOTH axes. The role can change under us (re-checked every 60s below); the
+  // token's scopes are fixed for the life of the connection, so a scope-denied
+  // principal can never become writable without reconnecting.
+  const tokenMayWrite = req.tokenMayWrite !== false;
+  let currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
 
   // Sanitize URL to remove token from logs
   const sanitizedUrl = req.url?.split('?')[0] || req.url;
@@ -2098,7 +2115,8 @@ wss.on('connection', (ws, req) => {
         ws.close(4403, 'Access revoked');
         return;
       }
-      currentCanEdit = documents.ROLES[currentRole] >= documents.ROLES['editor'];
+      // Re-checking the role must never widen what the token allows.
+      currentCanEdit = tokenMayWrite && documents.ROLES[currentRole] >= documents.ROLES['editor'];
     } catch (err) {
       console.error(`[WS:${connId}] Role re-check failed:`, err.message);
       currentCanEdit = false; // Fail closed — block edits until next successful recheck

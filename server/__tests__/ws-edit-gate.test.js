@@ -485,3 +485,54 @@ describe('ws-edit-gate: server/index.js has no mirrored classification (C1)', ()
     expect(indexSrc.match(/installGate\s*\(/g)).toHaveLength(1);
   });
 });
+
+describe('websocket authorization: token scope is the second axis', () => {
+  // A read-only API token could write over the collab socket: the connection
+  // gate derived edit capability from the document ROLE alone, while REST
+  // enforced role AND scope. The default scope set from create_access_token is
+  // ['documents:read'], so the *default* token could write. Attribution stayed
+  // correct — this was authorization, not misattribution.
+  //
+  // These pin the predicate shape used by server/index.js. The source assertions
+  // below are what actually catch a regression, since the wiring lives in the
+  // upgrade handler and cannot be required without booting the server.
+  const mayWrite = (user) => !Array.isArray(user.scopes) || user.scopes.includes('documents:write');
+
+  test.each([
+    ['browser session JWT (no scopes array)', {}, true],
+    ['API token, read+write', { scopes: ['documents:read', 'documents:write'] }, true],
+    ['API token, write only', { scopes: ['documents:write'] }, true],
+    ['API token, DEFAULT read-only', { scopes: ['documents:read'] }, false],
+    ['API token, empty scope array', { scopes: [] }, false],
+  ])('%s -> may write: %s', (_label, user, expected) => {
+    expect(mayWrite(user)).toBe(expected);
+  });
+
+  test('absence of a scopes array means unrestricted, not denied', () => {
+    // Browser sessions carry no scopes. Reading absence as "deny" would lock
+    // every human out of editing — the inverse failure, and a worse one.
+    expect(mayWrite({ userId: 'u1' })).toBe(true);
+    expect(mayWrite({ userId: 'u1', scopes: undefined })).toBe(true);
+    expect(mayWrite({ userId: 'u1', scopes: null })).toBe(true);
+  });
+
+  test('server/index.js binds scope at upgrade and ANDs it into the edit gate', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+
+    // Bound once, at the upgrade, from the authenticated principal.
+    expect(src).toMatch(/request\.tokenMayWrite\s*=\s*!Array\.isArray\(user\.scopes\)\s*\|\|\s*user\.scopes\.includes\('documents:write'\)/);
+
+    // Folded into the initial gate AND the 60s re-check. The re-check is the
+    // one that matters: recomputing from the role alone would silently restore
+    // write capability to a read-only token one minute after connecting.
+    const gateLines = src.split('\n').filter((l) => l.includes('currentCanEdit ='));
+    expect(gateLines.length).toBeGreaterThanOrEqual(2);
+    for (const line of gateLines) {
+      if (line.includes('ROLES')) {
+        expect(line).toMatch(/tokenMayWrite\s*&&/);
+      }
+    }
+  });
+});
