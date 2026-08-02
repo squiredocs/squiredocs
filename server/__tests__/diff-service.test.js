@@ -892,7 +892,7 @@ describe('DiffService', () => {
       mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
       const wordDiff = require('../../shared/diff/word-diff');
       const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
-        if (report) { report.reason = 'size'; report.sizeCapped = true; }
+        // Size cap: deterministic, so it reports nothing.
         return null;
       });
 
@@ -908,7 +908,7 @@ describe('DiffService', () => {
       mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
       const wordDiff = require('../../shared/diff/word-diff');
       const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
-        if (report) { report.reason = 'timeout'; report.timedOut = true; }
+        if (report) report.timedOut = true;
         return null;
       });
 
@@ -926,9 +926,9 @@ describe('DiffService', () => {
 
     // U1 — the correctness fix this feature exists for. The report sink is
     // SHARED across every replace region in one comparison, so a last-write-wins
-    // `reason` field would let a later size-capped region erase an earlier
-    // timeout and cache a comparison FR-005(c) forbids caching.
-    test('U1: a later SIZE region cannot erase an earlier TIMEOUT (sticky flags)', async () => {
+    // field would let a later region erase an earlier timeout and cache a
+    // comparison FR-005(c) forbids caching. The flag accumulates instead.
+    test('U1: a later clean/size region cannot erase an earlier TIMEOUT (sticky flag)', async () => {
       const { setex } = withRedis();
       // TWO replace regions in one comparison, separated by an unchanged block:
       // the first times out, the second is merely size-capped.
@@ -939,31 +939,25 @@ describe('DiffService', () => {
       let call = 0;
       const spy = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
         call += 1;
-        if (report) {
-          if (call === 1) { report.reason = 'timeout'; report.timedOut = true; }
-          else { report.reason = 'size'; report.sizeCapped = true; }
-        }
+        // First region times out; later regions are merely size-capped and
+        // report nothing — the accumulated timeout must survive them.
+        if (report && call === 1) report.timedOut = true;
         return null;
       });
 
-      const report = { timedOut: false, sizeCapped: false };
+      const report = { timedOut: false };
       diffService.computeMarkdownDiff(prev, curr, report);
       expect(call).toBeGreaterThan(1);          // more than one region ran
-      expect(report.reason).toBe('size');       // last write wins on `reason`...
-      expect(report.timedOut).toBe(true);       // ...but the accumulator remembers,
-      expect(report.sizeCapped).toBe(true);     // and both kinds are recorded.
+      expect(report.timedOut).toBe(true);       // the accumulator remembers region 1
 
       // End-to-end: because the timeout survived, the comparison is NOT cached.
-      // Reading `reason` here instead of the accumulator would have cached it —
-      // the exact bug this feature exists to fix.
+      // A last-write-wins field would have been overwritten by the later region
+      // and cached it — the exact bug this feature exists to fix.
       call = 0;
       mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: replaceRegionRows(), gapped: false });
       spy.mockImplementation((b, a, rep) => {
         call += 1;
-        if (rep) {
-          if (call === 1) { rep.reason = 'timeout'; rep.timedOut = true; }
-          else { rep.reason = 'size'; rep.sizeCapped = true; }
-        }
+        if (rep && call === 1) rep.timedOut = true;
         return null;
       });
       const result = await diffService.computeDiff('test-doc', 0, 1);
@@ -1049,7 +1043,7 @@ describe('DiffService', () => {
       // (c) timeout degradation
       r = withRedis();
       const seg = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
-        if (report) { report.reason = 'timeout'; report.timedOut = true; }
+        if (report) report.timedOut = true;
         return null;
       });
       await diffService.computeDiff('d', 0, 1);
@@ -1060,7 +1054,7 @@ describe('DiffService', () => {
       // fourth combination, proving the gate is not just "any degradation".
       r = withRedis();
       const sizeOnly = jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
-        if (report) { report.reason = 'size'; report.sizeCapped = true; }
+        // Size cap: deterministic, so it reports nothing.
         return null;
       });
       await diffService.computeDiff('d', 0, 1);

@@ -79,19 +79,18 @@ const { computeLineWordSegments, DIFF_TIMEOUT_MS } = wordDiffModule;
 
 describe('039 — degradation report (computeWordSegments)', () => {
   // WD-1
-  test('WD-1: an oversized side stamps reason "size" and still returns null', () => {
+  test('WD-1: an oversized side degrades WITHOUT reporting — size is cacheable', () => {
     const big = 'word '.repeat(MAX_SIDE_CHARS / 5 + 1);
     const report = {};
     expect(computeWordSegments(big, 'small', report)).toBeNull();
-    expect(report.reason).toBe('size');
-    // Accumulating flag set; the timeout accumulator explicitly is NOT, because
-    // only a timeout suppresses the cache write (CW-2).
-    expect(report.sizeCapped).toBe(true);
+    // The size cap is a pure function of the inputs, so the line-level result is
+    // the correct reproducible answer for this pair and IS safe to cache. Only a
+    // timeout is reported, because only a timeout changes a decision (CW-2).
     expect(report.timedOut).toBeUndefined();
   });
 
   // WD-2
-  test('WD-2: a jsdiff timeout stamps reason "timeout" and still returns null', () => {
+  test('WD-2: a jsdiff timeout sets timedOut and still returns null', () => {
     // jsdiff returns undefined when its time budget is exceeded. Forcing that
     // deterministically means intercepting the dependency rather than hoping a
     // real input takes >250ms on this machine.
@@ -100,9 +99,7 @@ describe('039 — degradation report (computeWordSegments)', () => {
       const isolated = require('../word-diff');
       const report = {};
       expect(isolated.computeWordSegments('a b c', 'a x c', report)).toBeNull();
-      expect(report.reason).toBe('timeout');
       expect(report.timedOut).toBe(true);
-      expect(report.sizeCapped).toBeUndefined();
       jest.dontMock('diff');
     });
   });
@@ -229,12 +226,14 @@ describe('039 — computeLineWordSegments (per-region, per-row)', () => {
     expect(computeLineWordSegments([huge, 'small row'], ['other', 'small ROW'])).toBeNull();
   });
 
-  test('the degradation report is threaded through the wrapper', () => {
+  test('the wrapper takes no degradation sink — its only caller is uncached', () => {
+    // computeLineWordSegments serves the chat surface, whose results are never
+    // cached, so a degradation signal has no consumer. It degrades the same way
+    // (null -> row tint), it just does not report. Add a sink back only if a
+    // cached caller appears.
     const huge = 'alpha beta '.repeat(MAX_SIDE_CHARS / 10);
-    const report = {};
-    expect(computeLineWordSegments([huge], ['small'], report)).toBeNull();
-    expect(report.reason).toBe('size');
-    expect(report.sizeCapped).toBe(true);
+    expect(computeLineWordSegments([huge], ['small'])).toBeNull();
+    expect(computeLineWordSegments.length).toBe(2);
   });
 
   test('the wrapper delegates to computeWordSegments exactly ONCE per region', () => {

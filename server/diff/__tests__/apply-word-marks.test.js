@@ -36,16 +36,15 @@ function runsWithMark(blocks, markType) {
 describe('applyWordMarks — degradation report threading (039 US3)', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  test('propagates a size-cap degradation into the caller report', () => {
+  test('a size-cap degradation leaves the report untouched', () => {
     // A genuinely oversized side: no mocking, the real guardrail trips.
     const huge = 'alpha beta '.repeat(wordDiff.MAX_SIDE_CHARS / 10);
     const report = {};
     const blocks = applyWordMarks(huge, 'small replacement text', report);
 
-    expect(report.reason).toBe('size');
-    expect(report.sizeCapped).toBe(true);
-    // A size cap is deterministic — it must NOT set the timeout accumulator,
-    // because only `timeout` suppresses the cache write (FR-005c, CW-2).
+    // A size cap is deterministic, so the degraded render is the correct
+    // reproducible answer for this pair and stays cacheable. Only a timeout is
+    // reported, because only a timeout suppresses the cache write (FR-005c, CW-2).
     expect(report.timedOut).toBeUndefined();
     // Degradation is silent line-level marks, never a throw.
     expect(runsWithMark(blocks, 'diffDeleteWord')).toEqual([]);
@@ -54,17 +53,13 @@ describe('applyWordMarks — degradation report threading (039 US3)', () => {
 
   test('propagates a timeout degradation into the caller report', () => {
     jest.spyOn(wordDiff, 'computeWordSegments').mockImplementation((b, a, report) => {
-      if (report) {
-        report.reason = 'timeout';
-        report.timedOut = true;
-      }
+      if (report) report.timedOut = true;
       return null;
     });
 
     const report = {};
     const blocks = applyWordMarks('the quick fox', 'the slow fox', report);
 
-    expect(report.reason).toBe('timeout');
     expect(report.timedOut).toBe(true);
     expect(runsWithMark(blocks, 'diffDeleteWord')).toEqual([]);
   });

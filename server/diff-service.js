@@ -105,13 +105,11 @@ class DiffService {
     // module-level state would leak one request's degradation into another's
     // cacheability decision under concurrency.
     //
-    // The flags are ACCUMULATING and never overwritten. `computeMarkdownDiff`
-    // calls `applyWordMarks` once per replace region against this one shared
-    // sink, so a last-write-wins `reason` field would let a later `'size'`
-    // region erase an earlier `'timeout'` — and cache a comparison that FR-005(c)
-    // forbids caching. `reason` is still stamped (it is the per-call contract
-    // with computeWordSegments) but it is deliberately NOT what we read here.
-    const report = { timedOut: false, sizeCapped: false };
+    // ACCUMULATING and never reset. `computeMarkdownDiff` calls `applyWordMarks`
+    // once per replace region against this one shared sink, so a last-write-wins
+    // field would let a later clean region erase an earlier timeout — and cache
+    // a comparison FR-005(c) forbids caching.
+    const report = { timedOut: false };
 
     // Build diff document using markdown-based approach
     let document;
@@ -258,11 +256,10 @@ class DiffService {
    *
    * @param {Y.Doc} prevDoc - Previous Y.Doc
    * @param {Y.Doc} currDoc - Current Y.Doc
-   * @param {{timedOut: boolean, sizeCapped: boolean, reason?: string}} [report] -
-   *   optional per-request degradation sink (039 FR-006), threaded into each
-   *   replace region's word segmentation. Accumulating: `timedOut`/`sizeCapped`
-   *   are only ever set to true, never reset, so one region's degradation cannot
-   *   be erased by a later region's. Omit it and behavior is unchanged.
+   * @param {{timedOut: boolean}} [report] - optional per-request degradation
+   *   sink (039 FR-006), threaded into each replace region's word segmentation.
+   *   Accumulating: only ever set to true, never reset, so one region's timeout
+   *   cannot be erased by a later region. Omit it and behavior is unchanged.
    *
    *   NOTE: this parameter REPLACED a declared-but-never-read `textIdentical`
    *   boolean (039 FR-017). The function derives that answer itself from

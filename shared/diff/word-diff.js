@@ -72,25 +72,23 @@ function coalesce(segments) {
  *     render would make an accident of scheduling permanent for a full hour.
  * The diff service caches the former and refuses the latter.
  *
+ * Only `timeout` is reported, because only `timeout` changes a decision: the
+ * size cap is deterministic, so a size-degraded result is cacheable and nothing
+ * needs to know it happened.
+ *
  * @param {string} before
  * @param {string} after
- * @param {{timedOut?: boolean, sizeCapped?: boolean, reason?: string}} [report] -
- *   optional out-of-band degradation sink. On degradation this stamps
- *   `report.reason` ('size' | 'timeout') AND sets the corresponding ACCUMULATING
- *   flag (`sizeCapped` / `timedOut`). Callers that segment several regions
- *   against ONE shared report must read the accumulating flags, never `reason`:
- *   `reason` describes only the most recent call, so a later `size` region would
- *   otherwise erase an earlier `timeout` and wrongly permit a cache write.
- *   Passing no `report` reproduces pre-039 behavior exactly (WS-3).
+ * @param {{timedOut?: boolean}} [report] - optional out-of-band degradation
+ *   sink. A timeout sets `report.timedOut = true`. The flag ACCUMULATES and is
+ *   never reset, so a caller segmenting several regions against ONE shared
+ *   report still sees an earlier timeout after a later clean or size-capped
+ *   region. Passing no `report` reproduces pre-039 behavior exactly (WS-3).
  * @returns {{ before: Array<{text: string, changed: boolean}>,
  *             after:  Array<{text: string, changed: boolean}> } | null}
  */
 function markDegraded(report, reason) {
   if (!report || typeof report !== 'object') return;
-  report.reason = reason;
-  // Accumulating and never reset — see the caller note above.
   if (reason === 'timeout') report.timedOut = true;
-  else if (reason === 'size') report.sizeCapped = true;
 }
 
 function computeWordSegments(before, after, report) {
@@ -172,14 +170,17 @@ function splitStreamByRow(segments, rowCount) {
   return rows.length === rowCount ? rows : null;
 }
 
-function computeLineWordSegments(beforeLines, afterLines, report) {
+// No `report` sink: the only caller is the chat surface, which is never cached,
+// so nothing downstream can act on a degradation signal. Add one back if a
+// cached caller ever appears — do not carry it speculatively.
+function computeLineWordSegments(beforeLines, afterLines) {
   const before = beforeLines.join('\n');
   const after = afterLines.join('\n');
   // Called through the module export rather than the local binding so tests can
   // observe/inject it with jest.spyOn — the same reason server/diff/apply-word-marks.js
   // and server/mcp/diff-postprocess.js use namespace imports. It is what lets the
   // parity suite prove both surfaces segment at one call per region.
-  const segs = module.exports.computeWordSegments(before, after, report);
+  const segs = module.exports.computeWordSegments(before, after);
   if (!segs) return null;
 
   const beforeRows = splitStreamByRow(segs.before, beforeLines.length);

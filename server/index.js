@@ -1672,7 +1672,7 @@ app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
     res.json(await undoService.getUndoStatus({
       docGuid: docId,
       userId: req.user.userId,
-      agentName: chat.CHAT_AGENT_NAME,
+      agentName: CHAT_AGENT_NAME,
     }));
   } catch (error) {
     console.error('Error checking undo status:', error);

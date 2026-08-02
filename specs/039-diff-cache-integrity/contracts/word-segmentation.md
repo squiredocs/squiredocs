@@ -15,7 +15,7 @@ Segment = { text: string, changed: boolean }
 values (`MAX_SIDE_CHARS = 20000`, `DIFF_TIMEOUT_MS = 250`).
 
 **New**: an optional third argument `report`. When degradation occurs, the function sets
-`report.reason = 'size'` (either side exceeded `MAX_SIDE_CHARS`) or `report.reason = 'timeout'`
+`report.timedOut = true` on a jsdiff timeout. A size cap (either side exceeded `MAX_SIDE_CHARS`) reports NOTHING
 (jsdiff returned `undefined` for the time budget) before returning `null`.
 
 ### Guarantees
@@ -133,8 +133,8 @@ differ.
 
 | ID | Assertion |
 |---|---|
-| WD-1 | `computeWordSegments` with an oversized side stamps `report.reason === 'size'` and returns `null`. |
-| WD-2 | A forced jsdiff timeout stamps `report.reason === 'timeout'` and returns `null`. |
+| WD-1 | `computeWordSegments` with an oversized side returns `null` and leaves `report.timedOut` unset (size is deterministic, so the degraded result stays cacheable). |
+| WD-2 | A forced jsdiff timeout sets `report.timedOut === true` and returns `null`. |
 | WD-3 | No `report` argument ⇒ identical behavior to today (existing suite passes unmodified). |
 | WD-4 | `DIFF_TIMEOUT_MS === 250` and `MAX_SIDE_CHARS === 20000` (pinned constants). |
 | LS-T1 | Row counts preserved for both sides, incl. unequal row counts and empty rows. |
@@ -147,3 +147,20 @@ differ.
 | VH-T1 | A block with no direct text child (empty paragraph / list wrapper) is handled identically by `plainTextOf` and `stampSide`. |
 | CS-T1 | `inlineSegments` keys remain stringified output-row indices; existing client rendering test still passes. |
 | CS-T2 | 028 hard-break regression suite passes unmodified. |
+
+## Amendment (simplification review, 2026-08-02)
+
+The degradation sink originally carried three fields: a per-call `reason`
+(`'size' | 'timeout'`) plus accumulating `sizeCapped` / `timedOut` flags. A
+post-merge simplification review found that **only `timedOut` had a production
+reader** — `reason` and `sizeCapped` were written on every degradation and read
+by nothing but their own tests, and `computeLineWordSegments` accepted a `report`
+argument its only caller never passed.
+
+That was a remnant of the design before the sticky-flag correction, which the
+spec then codified. The sink is now a single accumulating `{ timedOut }`.
+
+The distinction the three fields expressed is still real and still enforced — a
+size cap is deterministic and stays cacheable, a timeout is load-dependent and
+suppresses the cache write. It just does not need to be *reported* to be true:
+the cache gate only ever asked one question, so the sink only answers one.
