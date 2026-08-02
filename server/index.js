@@ -1618,10 +1618,13 @@ function makeUndoRedoHandler(toolName, label) {
       // on the card the request names: a newer edit from another chat, or a
       // direct API call carrying an arbitrary toolCallId, would stamp
       // "Reverted" onto a card whose edit was never touched — a user-facing
-      // attribution lie. So the stamp only lands when the card's own recorded
-      // edit range matches the range of the record that was actually undone.
-      // A card with NO stored range (pre-016, or still editRangePending) is a
-      // MISMATCH by rule: absence of evidence is not a pass.
+      // attribution lie. So the stamp only lands when the card was recorded
+      // against THIS document (`:docId`) and its own recorded edit range
+      // matches the range of the record that was actually undone. Clocks are
+      // per-document, so the document check is what makes the range check mean
+      // anything (review M2). A card with NO stored document or NO stored range
+      // (pre-016, or still editRangePending) is a MISMATCH by rule: absence of
+      // evidence is not a pass.
       //
       // The undo/redo itself is never affected, and the HTTP response is
       // identical whether the stamp applied or was skipped. Nothing cut by
@@ -1633,7 +1636,7 @@ function makeUndoRedoHandler(toolName, label) {
           const recordRange = toolName === 'undo' ? result.undoneRecordRange : result.redoneRecordRange;
           await setChatPartReverted(
             req.body.chatId, userId, req.body.toolCallId, toolName === 'undo',
-            { expectedRange: recordRange, label }
+            { expectedRange: recordRange, docGuid: docId, label }
           );
         } catch (e) {
           console.warn(`[${label}] could not persist reverted flag:`, e.message);
