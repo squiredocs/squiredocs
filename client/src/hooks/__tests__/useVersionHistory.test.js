@@ -37,7 +37,6 @@ describe('useVersionHistory', () => {
       expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBeNull();
       expect(result.current.selection).toBeNull();
-      expect(result.current.versionContent).toBeNull();
     });
 
     it('does not fetch when docGuid is null', () => {
@@ -275,7 +274,6 @@ describe('useVersionHistory', () => {
       });
 
       expect(result.current.selection).toBeNull();
-      expect(result.current.versionContent).toBeNull();
     });
   });
 
@@ -320,39 +318,6 @@ describe('useVersionHistory', () => {
 
       expect(success).toBe(false);
       expect(result.current.error).toBe('Restore failed');
-    });
-  });
-
-  describe('clearSelection', () => {
-    it('clears selected version and content', async () => {
-      const mockContent = {
-        content: [1, 2, 3],
-        version: { id: 'v1', name: 'Test Version' },
-      };
-      mockApi.get
-        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } })
-        .mockResolvedValueOnce({ data: mockContent });
-
-      const { result } = renderHook(() => useVersionHistory('doc-123'));
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
-
-      // First set a selection by selecting a version
-      await act(async () => {
-        await result.current.selectVersion({ id: 'v1' });
-      });
-
-      expect(result.current.selection).toEqual({ id: 'v1' });
-
-      // Clear it
-      act(() => {
-        result.current.clearSelection();
-      });
-
-      expect(result.current.selection).toBeNull();
-      expect(result.current.versionContent).toBeNull();
     });
   });
 
@@ -773,22 +738,6 @@ describe('useVersionHistory', () => {
       expect(result.current.versionUpdates['auto-1']).toEqual(updates);
     });
 
-    it('a clock-content failure never touches the timeline error either', async () => {
-      const versions = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
-      mockApi.get
-        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
-        .mockRejectedValueOnce({ response: { data: { error: 'clock boom' } } });
-
-      const { result } = renderHook(() => useVersionHistory('doc-123'));
-      await waitFor(() => expect(result.current.versions).toHaveLength(1));
-
-      let content;
-      await act(async () => { content = await result.current.loadContentAtClock(3); });
-
-      expect(content).toBeNull();
-      expect(result.current.error).toBeNull();
-      expect(result.current.versions).toEqual(versions);
-    });
   });
 
   describe('041 FR-007: selection reconciliation after every refresh', () => {

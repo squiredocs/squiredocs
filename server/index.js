@@ -56,6 +56,7 @@ const rateLimit = require('./rate-limit');
 const { createShutdown } = require('./shutdown');
 const { createReadyHandler } = require('./ready');
 const { createPendingWrites } = require('./pending-writes');
+const { retryWithBackoff } = require('./retry');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
@@ -383,23 +384,6 @@ setPersistence({
 
       const persistStart = Date.now();
 
-      // Helper for retry logic on transient failures (still wraps the title sync
-      // below; the storeUpdate transient retry now lives INSIDE the per-doc queue
-      // slot — feature 023 R1 — so a retrying persist keeps its queue position
-      // rather than re-entering behind later-produced updates and inverting clocks).
-      const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 100) => {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            return await fn();
-          } catch (err) {
-            if (attempt === maxRetries) throw err;
-            // Exponential backoff with jitter
-            const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
-            await new Promise((resolve) => setTimeout(resolve, delay));
-          }
-        }
-      };
-
       // Persist to PostgreSQL (source of truth). storeUpdate is called directly:
       // it enqueues the write on the per-doc FIFO queue and runs the transient
       // retry inside that slot (feature 023). The returned promise settles only
@@ -445,8 +429,9 @@ setPersistence({
           const meta = ydoc.getMap('meta');
           const title = meta.get('title') || null;
 
-          // Update documents table with current title (denormalized for performance)
-          // Use retry for transient failures
+          // Update documents table with current title (denormalized for performance).
+          // Retry transient failures through the shared helper (042, FR-015) —
+          // this used to be a closure re-allocated on every Yjs update.
           await retryWithBackoff(() => persistenceProvider.updateDocumentTitle(docGuid, title)).catch((err) => {
             // Log but don't fail if title update fails after retries
             console.warn(`Failed to sync title for ${docGuid} after retries:`, err.message);
@@ -2216,33 +2201,7 @@ wss.on('connection', (ws, req) => {
           // Handle document updates from other server instances
           onUpdate: (buffer) => {
             try {
-              const updateData = new Uint8Array(buffer);
-              const xmlFragment = doc.get('default', Y.XmlFragment);
-              const blockCountBefore = xmlFragment.toArray().length;
-
-              // ROOT CAUSE INVESTIGATION: Why isn't Yjs deduplicating this update?
-              // Log state vector and diff info to understand what's happening
-              const localStateVector = Y.encodeStateVector(doc);
-              const missingUpdate = Y.diffUpdate(updateData, localStateVector);
-
-              console.log(`[RedisPubSub:ROOT_CAUSE] docId=${docId}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   blockCountBefore=${blockCountBefore}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   incomingUpdateSize=${buffer.length}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   localStateVectorSize=${localStateVector.length}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   missingUpdateSize=${missingUpdate.length}`);
-
-              // Decode the state vector to see client IDs
-              const decodedSV = Y.decodeStateVector(localStateVector);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   localClients=${JSON.stringify(Object.fromEntries(decodedSV))}`);
-
-              Y.applyUpdate(doc, updateData, ORIGIN_REDIS);
-
-              const blockCountAfter = xmlFragment.toArray().length;
-              console.log(`[RedisPubSub:ROOT_CAUSE]   blockCountAfter=${blockCountAfter}`);
-
-              if (blockCountAfter !== blockCountBefore) {
-                console.log(`[RedisPubSub:ROOT_CAUSE]   *** DUPLICATE CREATED: ${blockCountBefore} -> ${blockCountAfter} ***`);
-              }
+              Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
             } catch (err) {
               console.error(`[RedisPubSub] Error applying doc update for ${docId}:`, err.message);
             }

@@ -5,7 +5,7 @@
 
 const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
-const { extractXml } = require('./yjs-utils');
+const { extractXml, replaceFragmentContents } = require('./yjs-utils');
 const editRecords = require('./undo/edit-records');
 const { applyLiveUpdate, publishIfUnhandled } = require('./live-apply');
 
@@ -240,6 +240,57 @@ function isMeaningful(update) {
  * @param {number|null} clockEnd - Inclusive upper bound (null ⇒ unbounded)
  * @returns {{authors: Array, onBehalfOf: Array, onBehalfOfMore: number, timestamp: string|null}}
  */
+/**
+ * The (min, max) clock pair for a document, preferring the index-only query.
+ *
+ * Feature 042 (FR-009): the two range checks below used to materialize the
+ * whole user-joined update log purely to take a min and a max. `getClockRange`
+ * answers that from the index instead. A persistence without the method (the
+ * hand-rolled mocks in the suites, and any older provider) still works: the
+ * fallback derives the range from a log read exactly as before, so the checks
+ * are capability-driven, never version-driven.
+ *
+ * @returns {Promise<{minClock: number|null, maxClock: number|null}>} nulls when
+ *   the document has no updates at all.
+ */
+async function readClockRange(persistence, docGuid) {
+  if (typeof persistence.getClockRange === 'function') {
+    return persistence.getClockRange(docGuid);
+  }
+  return clockRangeOf(await persistence.getUpdatesWithUsers(docGuid));
+}
+
+/** The (min, max) clock pair of an ALREADY materialized log. */
+function clockRangeOf(updates) {
+  if (!updates || updates.length === 0) return { minClock: null, maxClock: null };
+  const clocks = updates.map(u => u.clock);
+  return { minClock: Math.min(...clocks), maxClock: Math.max(...clocks) };
+}
+
+/**
+ * The ONE range check both content readers share (FR-009).
+ *
+ * `getYDocAtClock` is a `clock <= N` read, so an out-of-range clock silently
+ * returns current content (clock > max) or an empty doc (clock < min) labelled
+ * as the requested clock. Both callers must reject rather than serve that.
+ *
+ * The two callers' error TYPES and STRINGS genuinely differ (see
+ * contracts/behavior-preservation.md C2 — `getVersionContent` throws a bare
+ * Error for an empty log and prefixes its out-of-range message with the version
+ * id; `getContentAtClock` throws VersionNotFoundError and does not), so the
+ * errors are supplied by the caller. Only the DECISION is shared — including
+ * that the empty-log branch wins over any range formatting.
+ *
+ * @param {number} clock - the clock being validated
+ * @param {{minClock: number|null, maxClock: number|null}} range
+ * @param {{onEmpty: function(): Error, onOutOfRange: function(number, number): Error}} errors
+ */
+function assertClockInRange(clock, range, { onEmpty, onOutOfRange }) {
+  const { minClock, maxClock } = range;
+  if (minClock == null || maxClock == null) throw onEmpty();
+  if (clock < minClock || clock > maxClock) throw onOutOfRange(minClock, maxClock);
+}
+
 function computeRangeMeta(updates, clockStart, clockEnd) {
   const lo = (clockStart === null || clockStart === undefined) ? -Infinity : clockStart;
   const hi = (clockEnd === null || clockEnd === undefined) ? Infinity : clockEnd;
@@ -655,22 +706,25 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
     }
   }
 
-  // Validate that the requested clock exists
-  // Get all updates to check clock range
-  const updates = await persistence.getUpdatesWithUsers(docGuid);
+  // Validate that the requested clock exists.
+  //
+  // Feature 042 (FR-009): a NAMED version already resolved its metadata from
+  // `getVersionById` above, so the log read here was purely a min/max check and
+  // is replaced by the index-only range query. A CLOCK-NUMBER version id still
+  // reads the log, because the grouping below genuinely needs those rows — only
+  // the redundant scan is eliminated, not the data the path uses.
+  const errors = {
+    onEmpty: () => new Error('Document has no version history'),
+    onOutOfRange: (min, max) =>
+      new VersionNotFoundError(`Version not found: ${versionId} (clock ${clockEnd} out of range ${min}-${max})`),
+  };
 
-  if (updates.length === 0) {
-    throw new Error('Document has no version history');
-  }
-
-  // Find min and max clocks
-  const clocks = updates.map(u => u.clock);
-  const minClock = Math.min(...clocks);
-  const maxClock = Math.max(...clocks);
-
-  // Check if requested clock is out of range
-  if (clockEnd < minClock || clockEnd > maxClock) {
-    throw new VersionNotFoundError(`Version not found: ${versionId} (clock ${clockEnd} out of range ${minClock}-${maxClock})`);
+  let updates = null;
+  if (versionMeta) {
+    assertClockInRange(clockEnd, await readClockRange(persistence, docGuid), errors);
+  } else {
+    updates = await persistence.getUpdatesWithUsers(docGuid);
+    assertClockInRange(clockEnd, clockRangeOf(updates), errors);
   }
 
   // Reconstruct document at the specified clock. Read WITH the gap indicator so
@@ -768,11 +822,8 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   redisPubSub = null,
   agentName = null,
 } = {}) {
-  console.log(`[Restore] Starting restore of ${docGuid} to version ${versionId}`);
-
   // Get the target version content, WITH the gap indicator (023 FR-009/D-2).
   const { content, gapped: targetGapped } = await getVersionContent(persistence, docGuid, versionId, { withGap: true });
-  console.log(`[Restore] Target version content size: ${content.length} bytes`);
 
   // Get current document state, WITH the gap indicator (a plain Y.Doc from a
   // mock/serving path unwraps to gapped=false).
@@ -789,73 +840,18 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     throw new DocumentSyncingError('Restore aborted: the document is still syncing — retry in a moment.');
   }
 
-  const currentFragment = currentYdoc.getXmlFragment('default');
-  console.log(`[Restore] Current document has ${currentFragment.length} elements`);
-
   // Create target document from version to get the content we want
   const targetYdoc = new Y.Doc();
   Y.applyUpdate(targetYdoc, new Uint8Array(content));
 
-  // Helper function to recursively clone Yjs XML content
-  const cloneXmlElement = (sourceElement) => {
-    if (sourceElement instanceof Y.XmlText) {
-      const clone = new Y.XmlText();
-      // Use applyDelta to properly preserve marks (bold, italic, links, etc.)
-      // This handles mark boundaries correctly, unlike manual insert() calls
-      // which can cause marks to "bleed" into adjacent text
-      clone.applyDelta(sourceElement.toDelta());
-      return clone;
-    } else if (sourceElement instanceof Y.XmlElement) {
-      const clone = new Y.XmlElement(sourceElement.nodeName);
-      // Clone attributes
-      const attrs = sourceElement.getAttributes();
-      for (const [key, value] of Object.entries(attrs)) {
-        clone.setAttribute(key, value);
-      }
-      // Clone children
-      const children = [];
-      for (let i = 0; i < sourceElement.length; i++) {
-        children.push(cloneXmlElement(sourceElement.get(i)));
-      }
-      if (children.length > 0) {
-        clone.insert(0, children);
-      }
-      return clone;
-    }
-    return null;
-  };
-
   /** The restore transition itself: drop the fragment's contents and re-insert a
    *  clone of the target version's. This is the shipped, designed restore
    *  semantic (design/collaboration-core.md, "Restore is non-destructive") and is
-   *  unchanged here — feature 041 only moved WHERE it runs. */
+   *  unchanged here — feature 041 only moved WHERE it runs, and feature 042
+   *  (FR-010) only moved the generic Yjs surgery into `yjs-utils`, verbatim and
+   *  with its Principle IV tension recorded there (DEC-9). */
   const applyRestoreTo = (doc) => {
-    const fragment = doc.getXmlFragment('default');
-    const targetFragment = targetYdoc.getXmlFragment('default');
-
-    console.log(`[Restore] Target has ${targetFragment.length} elements`);
-
-    // Delete all current content
-    while (fragment.length > 0) {
-      fragment.delete(0, fragment.length);
-    }
-
-    // Clone and insert target content
-    const clonedElements = [];
-    for (let i = 0; i < targetFragment.length; i++) {
-      const cloned = cloneXmlElement(targetFragment.get(i));
-      if (cloned) {
-        clonedElements.push(cloned);
-      }
-    }
-
-    console.log(`[Restore] Cloned ${clonedElements.length} elements`);
-
-    if (clonedElements.length > 0) {
-      fragment.insert(0, clonedElements);
-    }
-
-    console.log(`[Restore] After restore, doc has ${fragment.length} elements`);
+    replaceFragmentContents(doc.getXmlFragment('default'), targetYdoc.getXmlFragment('default'));
   };
 
   // Is the document live on THIS instance? Asked through the non-creating peek
@@ -905,7 +901,6 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     // identical to the durable path.
     restoreUpdate = captured || Y.encodeStateAsUpdate(liveDoc, stateVectorBeforeRestore);
     liveCapture = { update: captured, hadRedisHandler };
-    console.log(`[Restore] Live-doc restore update size: ${restoreUpdate.length} bytes`);
   } else {
     // ── DURABLE-LOG PATH (unchanged) ─────────────────────────────────────────
     // The document is not loaded here, so there is no live state to transact
@@ -918,13 +913,11 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     tempDoc.transact(() => applyRestoreTo(tempDoc));
 
     restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
-    console.log(`[Restore] Restore update size: ${restoreUpdate.length} bytes`);
   }
 
   // Store as a single new update (the restore operation). Classified meaningful
   // by construction (feature 023 US4) — a restore always changes visible content.
   const newClock = await persistence.storeUpdate(docGuid, restoreUpdate, userId, agentName, null, null, { meaningful: true });
-  console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   // Record the restore as an edit record so log-derived undo can invert it
   // (feature 023 FR-020, D-4) — but ONLY for an agent restore.
@@ -999,7 +992,10 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
  */
 async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, limit = 10) {
   const startTime = Date.now();
-  const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
+  // Metadata only: everything below reads clocks, timestamps and attribution —
+  // never the update payload — so feature 042 (FR-015) stopped transferring the
+  // blobs this call used to fetch and immediately map away.
+  const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd, { includeData: false });
   const fetchTime = Date.now() - startTime;
 
   // Feature 041 (FR-004): apply the TIMELINE's meaningful rule before grouping.
@@ -1087,22 +1083,21 @@ async function getContentAtClock(persistence, docGuid, clock) {
   // clock <= N read, so an out-of-range clock silently returns current content
   // (clock > max) or an empty doc (clock < min) mislabeled as that clock. Reject
   // so the route can 404 instead of serving a mislabeled snapshot.
-  const allUpdates = await persistence.getUpdatesWithUsers(docGuid);
-  if (allUpdates.length === 0) {
-    throw new VersionNotFoundError('Document has no version history');
-  }
-  const clocks = allUpdates.map(u => u.clock);
-  const minClock = Math.min(...clocks);
-  const maxClock = Math.max(...clocks);
-  if (clock < minClock || clock > maxClock) {
-    throw new VersionNotFoundError(`Version not found: clock ${clock} out of range ${minClock}-${maxClock}`);
-  }
+  //
+  // Feature 042 (FR-009): nothing else here consumed the log, so this read is
+  // now the index-only range query.
+  assertClockInRange(clock, await readClockRange(persistence, docGuid), {
+    onEmpty: () => new VersionNotFoundError('Document has no version history'),
+    onOutOfRange: (min, max) =>
+      new VersionNotFoundError(`Version not found: clock ${clock} out of range ${min}-${max}`),
+  });
 
   const ydoc = await persistence.getYDocAtClock(docGuid, clock);
   const content = Y.encodeStateAsUpdate(ydoc);
 
   // Get metadata for this clock
-  const updates = await persistence.getUpdatesInRange(docGuid, clock, clock);
+  // Metadata only (042, FR-015): just createdAt and the author come from this row.
+  const updates = await persistence.getUpdatesInRange(docGuid, clock, clock, { includeData: false });
   const update = updates[0];
 
   return {

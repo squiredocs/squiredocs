@@ -1,8 +1,9 @@
 /**
  * Shared Yjs document utilities.
  *
- * Extracts text/XML from Y.Doc XmlFragments. Used by both
- * diff-service.js and version-history.js.
+ * Extracts text/XML from Y.Doc XmlFragments, and performs the generic XML-node
+ * surgery (deep clone, fragment replacement) that copying content between
+ * documents needs. Used by diff-service.js and version-history.js.
  */
 const Y = require('yjs');
 
@@ -76,4 +77,87 @@ function extractText(doc) {
   return lines.join('\n').trim();
 }
 
-module.exports = { extractXml, extractText };
+/**
+ * Deep-clone a Yjs XML node into a NEW, unattached node of the same shape.
+ *
+ * Yjs types cannot be re-parented: inserting a node that already lives in a
+ * document moves nothing and throws. Copying content between documents (the
+ * restore path) therefore has to rebuild it node by node.
+ *
+ * `Y.XmlText` is cloned through `applyDelta(source.toDelta())` rather than
+ * `insert()` calls, because the delta carries mark boundaries exactly. Building
+ * the text with successive inserts lets marks BLEED into adjacent runs — bold
+ * that swallows the next word — which is precisely the kind of silent
+ * corruption a restore must not introduce.
+ *
+ * Extracted unchanged from `restoreVersion` in feature 042 (FR-010); it is
+ * generic Yjs surgery with no persistence awareness, so it belongs here.
+ *
+ * @param {*} sourceElement - a Y.XmlText or Y.XmlElement (anything else is not
+ *   clonable content)
+ * @returns {Y.XmlText|Y.XmlElement|null} a new detached node, or null for a node
+ *   type this cannot represent (the caller skips those)
+ */
+function cloneXmlNode(sourceElement) {
+  if (sourceElement instanceof Y.XmlText) {
+    const clone = new Y.XmlText();
+    clone.applyDelta(sourceElement.toDelta());
+    return clone;
+  }
+  if (sourceElement instanceof Y.XmlElement) {
+    const clone = new Y.XmlElement(sourceElement.nodeName);
+    const attrs = sourceElement.getAttributes();
+    for (const [key, value] of Object.entries(attrs)) {
+      clone.setAttribute(key, value);
+    }
+    const children = [];
+    for (let i = 0; i < sourceElement.length; i++) {
+      children.push(cloneXmlNode(sourceElement.get(i)));
+    }
+    if (children.length > 0) {
+      clone.insert(0, children);
+    }
+    return clone;
+  }
+  return null;
+}
+
+/**
+ * Replace a fragment's entire contents with a clone of another fragment's.
+ *
+ * ⚠️ SHAPE NOTE (feature 042, DEC-9). This is a delete-all-then-reinsert, which
+ * is in tension with Constitution Principle IV (never delete-and-recreate live
+ * document content) and with the y-tiptap viewer-deletion bug class. It is
+ * moved here VERBATIM from `restoreVersion`, where it has shipped since feature
+ * 023, because 042's contract is zero behavior change — adding a guard here
+ * would be a behavior change, and that guard deserves its own feature with its
+ * own tests. Relocating this code does not mean it has been reviewed and
+ * blessed; the tension is recorded, not resolved.
+ *
+ * Callers should run this inside a `doc.transact()` so the whole replacement
+ * lands as ONE update rather than a delete storm followed by an insert storm.
+ *
+ * @param {Y.XmlFragment} targetFragment - the fragment to overwrite, in place
+ * @param {Y.XmlFragment} sourceFragment - the fragment whose contents to copy
+ * @returns {number} how many nodes were cloned in (unclonable nodes are skipped)
+ */
+function replaceFragmentContents(targetFragment, sourceFragment) {
+  while (targetFragment.length > 0) {
+    targetFragment.delete(0, targetFragment.length);
+  }
+
+  const clonedElements = [];
+  for (let i = 0; i < sourceFragment.length; i++) {
+    const cloned = cloneXmlNode(sourceFragment.get(i));
+    if (cloned) {
+      clonedElements.push(cloned);
+    }
+  }
+
+  if (clonedElements.length > 0) {
+    targetFragment.insert(0, clonedElements);
+  }
+  return clonedElements.length;
+}
+
+module.exports = { extractXml, extractText, cloneXmlNode, replaceFragmentContents };

@@ -5,7 +5,8 @@
  * value passed to ydoc.transact() and Y.applyUpdate().
  *
  * Origin formats in the wild:
- *  - Sentinel strings: 'db-load', 'redis'
+ *  - Sentinel strings: 'db-load', 'redis', 'inverse-apply', 'restore', and the
+ *    'sync-push' family (see `isSentinelOrigin` for the authoritative set)
  *  - Bare userId string (legacy MCP path)
  *  - { userId, agentName } object (document-service / version-history)
  *  - WebSocket object with .userId / .agentName properties
@@ -113,6 +114,32 @@ function createOrigin(userId, agentName = null) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Is this origin one of the five server-side sentinels?
+ *
+ * A sentinel means "this transaction is the server replaying or relaying
+ * something that is ALREADY accounted for" — a bindState load, a Redis fan-out,
+ * a sync push, an undo/redo application, or a restore. The persistence listener
+ * skips them, because storing one would duplicate a row that already exists.
+ *
+ * ⚠️ This is the AUTHORITATIVE set, and it is deliberately NOT the set used by
+ * the publish and awareness skip-lists in `server/index.js`. Those two skip
+ * strictly smaller subsets on purpose — a sync-push, an inverse apply and a
+ * restore must still be PUBLISHED cross-instance even though they must not be
+ * re-stored — so they are narrower by design, not by drift, and must stay that
+ * way (042, contract C9). Do not "unify" them with this predicate.
+ *
+ * @param {*} origin - Transaction origin (string | object | ws | null)
+ * @returns {boolean}
+ */
+function isSentinelOrigin(origin) {
+  return origin === ORIGIN_DB_LOAD
+    || origin === ORIGIN_REDIS
+    || isSyncPushOrigin(origin)
+    || origin === ORIGIN_INVERSE_APPLY
+    || origin === ORIGIN_RESTORE;
+}
+
+/**
  * Parse any origin value into { userId, agentName }.
  * Returns null for sentinel origins (db-load, redis, sync-push, inverse-apply,
  * restore) that the persistence listener should skip entirely.
@@ -147,13 +174,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function parseOrigin(origin) {
   // Sentinels first, unchanged — these are server-side paths that already
   // stored (or loaded) their row.
-  if (
-    origin === ORIGIN_DB_LOAD
-    || origin === ORIGIN_REDIS
-    || isSyncPushOrigin(origin)
-    || origin === ORIGIN_INVERSE_APPLY
-    || origin === ORIGIN_RESTORE
-  ) {
+  if (isSentinelOrigin(origin)) {
     return null;
   }
 
@@ -208,6 +229,7 @@ function parseOrigin(origin) {
 
 module.exports = {
   ORIGIN_DB_LOAD,
+  isSentinelOrigin,
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
   createSyncPushOrigin,

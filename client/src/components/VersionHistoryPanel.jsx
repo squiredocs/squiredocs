@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import HierarchicalVersionList from './HierarchicalVersionList';
+import VersionEmptyState from './VersionEmptyState';
+import { VersionHistoryProvider } from '../contexts/VersionHistoryContext';
 import './VersionHistoryPanel.css';
 
 function VersionHistoryPanel({
@@ -22,7 +24,8 @@ function VersionHistoryPanel({
   onDeleteVersion,
   onRestoreVersion,
   userRole,
-  // Hierarchical drill-down props
+  // Drill-down data. The panel reads none of the props from here down — they go
+  // straight into VersionHistoryContext for the list (042, FR-012).
   onSelectUpdate,
   onLoadUpdates,
   versionUpdates = {},
@@ -34,10 +37,37 @@ function VersionHistoryPanel({
   // Diff highlighting toggle
   showDiffHighlights = true,
   onToggleDiffHighlights,
-  // Post-restore in-app navigation (024/US4) — threaded down to the list.
+  // Post-restore in-app navigation (024/US4) — used by the list's row menu.
   onNavigateToDoc,
 }) {
   const [filter, setFilter] = useState('all');
+
+  // Everything below is data the panel neither reads nor transforms — it only
+  // ever handed it to the list. Memoized on its members so an unrelated panel
+  // re-render (the filter, the highlight toggle) does not push a new context
+  // object and re-render the whole list with it.
+  const listValues = useMemo(() => ({
+    selection,
+    onSelectVersion,
+    onSelectUpdate,
+    onLoadUpdates,
+    versionUpdates,
+    versionUpdatesMeta,
+    loadingVersionUpdates,
+    versionUpdatesError,
+    onCreateNamedVersion,
+    onRenameVersion,
+    onDeleteVersion,
+    onRestoreVersion,
+    userRole,
+    docGuid,
+    onNavigateToDoc,
+  }), [
+    selection, onSelectVersion, onSelectUpdate, onLoadUpdates, versionUpdates,
+    versionUpdatesMeta, loadingVersionUpdates, versionUpdatesError,
+    onCreateNamedVersion, onRenameVersion, onDeleteVersion, onRestoreVersion,
+    userRole, docGuid, onNavigateToDoc,
+  ]);
 
   if (!isOpen) return null;
 
@@ -110,35 +140,23 @@ function VersionHistoryPanel({
       {/* The empty state describes a SUCCESSFUL response with zero versions —
           never a failed load (FR-005). */}
       {!isLoading && !error && hierarchicalVersions.length === 0 && (
-        <div className="version-history-empty">
-          <p>{filter === 'named' ? 'No named versions yet.' : 'No version history yet.'}</p>
-          <p className="version-history-empty-hint">
-            {filter === 'named' ? 'Name a version using the menu on any version.' : 'Edit the document to start tracking versions.'}
-          </p>
-        </div>
+        <VersionEmptyState
+          filter={filter}
+          className="version-history-empty"
+          hintClassName="version-history-empty-hint"
+        />
       )}
 
       {hierarchicalVersions.length > 0 && (
-        <HierarchicalVersionList
-          hierarchicalVersions={hierarchicalVersions}
-          selection={selection}
-          onSelectVersion={onSelectVersion}
-          onSelectUpdate={onSelectUpdate}
-          onLoadUpdates={onLoadUpdates}
-          versionUpdates={versionUpdates}
-          versionUpdatesMeta={versionUpdatesMeta}
-          loadingVersionUpdates={loadingVersionUpdates}
-          versionUpdatesError={versionUpdatesError}
-          onCreateNamedVersion={onCreateNamedVersion}
-          onRenameVersion={onRenameVersion}
-          onDeleteVersion={onDeleteVersion}
-          onRestoreVersion={onRestoreVersion}
-          userRole={userRole}
-          isLoading={isLoading}
-          filter={filter}
-          docGuid={docGuid}
-          onNavigateToDoc={onNavigateToDoc}
-        />
+        <VersionHistoryProvider value={listValues}>
+          {/* Only the panel's own chrome is passed as props now; everything the
+              panel merely forwarded travels in context (042, FR-012). */}
+          <HierarchicalVersionList
+            hierarchicalVersions={hierarchicalVersions}
+            isLoading={isLoading}
+            filter={filter}
+          />
+        </VersionHistoryProvider>
       )}
 
       {totalEdits > 0 && (

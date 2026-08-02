@@ -82,9 +82,12 @@ export function useVersionHistory(docGuid) {
 
   // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
   const [selection, setSelection] = useState(null);
-  const [versionContent, setVersionContent] = useState(null);
-  const [previousVersionContent, setPreviousVersionContent] = useState(null);
-  const [diffData, setDiffData] = useState(null); // { fullDoc, currentSnapshot, previousSnapshot }
+  // The server-computed diff payload:
+  //   { document, currentDocument, meta: { previousClock, currentClock,
+  //     textIdentical, formattingOnly, diffFailed } }
+  // `document` carries diffInsert/diffDelete marks baked in; `currentDocument`
+  // is the unmarked version the preview swaps to when highlights are off.
+  const [diffData, setDiffData] = useState(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // Hierarchical drill-down state
@@ -176,51 +179,6 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api]);
 
   /**
-   * Load content for a specific version
-   */
-  const loadVersionContent = useCallback(async (versionId) => {
-    if (!docGuid || !versionId) return null;
-
-    setIsLoadingContent(true);
-    setError(null);
-
-    try {
-      const response = await api.get(`/api/docs/${docGuid}/versions/${versionId}`);
-      const content = {
-        content: new Uint8Array(response.data.content),
-        version: response.data.version,
-      };
-      setVersionContent(content);
-      return content;
-    } catch (err) {
-      console.error('Error loading version content:', err);
-      setError(err.response?.data?.error || 'Failed to load version content');
-      return null;
-    } finally {
-      setIsLoadingContent(false);
-    }
-  }, [docGuid, api]);
-
-  /**
-   * Load content at a specific clock value (for diff comparison)
-   * This is a lightweight version that doesn't set the main versionContent state
-   */
-  const loadPreviousContentAtClock = useCallback(async (clock) => {
-    if (!docGuid || clock < 0) return null;
-
-    try {
-      const response = await api.get(`/api/docs/${docGuid}/history/clock/${clock}`);
-      return {
-        content: new Uint8Array(response.data.content),
-        clock: response.data.clock,
-      };
-    } catch (err) {
-      console.error('Error loading previous content at clock:', err);
-      return null;
-    }
-  }, [docGuid, api]);
-
-  /**
    * Load diff data for version comparison.
    * Server computes the diff and returns:
    * - document: ProseMirror JSON of the document at currentClock
@@ -247,8 +205,6 @@ export function useVersionHistory(docGuid) {
   const selectVersion = useCallback(async (version) => {
     setSelection(version);
     if (!version) {
-      setVersionContent(null);
-      setPreviousVersionContent(null);
       setDiffData(null);
       setDiffError(null);
       return;
@@ -263,9 +219,6 @@ export function useVersionHistory(docGuid) {
       const diffResult = await loadDiffData(version.clockEnd, previousClock);
       if (seq !== diffRequestSeqRef.current) return; // superseded by a newer selection
       setDiffData(diffResult);
-      // Legacy compatibility - no longer needed but kept for any remaining consumers
-      setVersionContent(null);
-      setPreviousVersionContent(null);
     } catch (err) {
       if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error loading version diff:', err);
@@ -324,37 +277,6 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api]);
 
   /**
-   * Load content at a specific clock value
-   */
-  const loadContentAtClock = useCallback(async (clock) => {
-    if (!docGuid) return null;
-
-    setIsLoadingContent(true);
-
-    try {
-      const response = await api.get(`/api/docs/${docGuid}/history/clock/${clock}`);
-      const content = {
-        content: new Uint8Array(response.data.content),
-        clock: response.data.clock,
-        timestamp: response.data.timestamp,
-        formattedTimestamp: response.data.formattedTimestamp,
-        author: response.data.author,
-      };
-      setVersionContent(content);
-      return content;
-    } catch (err) {
-      // Also off the panel-level channel (review L1): a single-clock content
-      // load failing says nothing about the timeline, and blanking the timeline
-      // behind "Couldn't load version history." would be a lie about it. The
-      // null return is the caller's signal.
-      console.error('Error loading content at clock:', err);
-      return null;
-    } finally {
-      setIsLoadingContent(false);
-    }
-  }, [docGuid, api]);
-
-  /**
    * Select a sub-version (grouped updates) and load its content
    * Sub-versions have clockStart, clockEnd, previousClock, timestamp, and authors
    * The server provides previousClock to ensure consistent sequential diffing
@@ -383,9 +305,6 @@ export function useVersionHistory(docGuid) {
       const diffResult = await loadDiffData(subVersion.clockEnd, previousClock);
       if (seq !== diffRequestSeqRef.current) return; // superseded by a newer selection
       setDiffData(diffResult);
-      // Legacy compatibility - no longer needed
-      setVersionContent(null);
-      setPreviousVersionContent(null);
     } catch (err) {
       if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error loading update diff:', err);
@@ -476,17 +395,6 @@ export function useVersionHistory(docGuid) {
   }, [docGuid, api, fetchHistory]);
 
   /**
-   * Clear selection and content
-   */
-  const clearSelection = useCallback(() => {
-    setSelection(null);
-    setVersionContent(null);
-    setPreviousVersionContent(null);
-    setDiffData(null);
-    setDiffError(null);
-  }, []);
-
-  /**
    * Refresh history data
    */
   const refresh = useCallback(() => {
@@ -518,8 +426,6 @@ export function useVersionHistory(docGuid) {
 
     if (!freshVersions || freshVersions.length === 0) {
       setSelection(null);
-      setVersionContent(null);
-      setPreviousVersionContent(null);
       setDiffData(null);
       setDiffError(null);
       return;
@@ -597,8 +503,6 @@ export function useVersionHistory(docGuid) {
     error,
     diffError,
     selection, // Unified selection: version or single clock update (with isClock: true)
-    versionContent,
-    previousVersionContent, // Legacy - no longer used
     diffData, // { document, changes, meta } from server-side diff computation
     isLoadingContent,
 
@@ -611,17 +515,14 @@ export function useVersionHistory(docGuid) {
     // Actions
     fetchHistory,
     selectVersion,
-    loadVersionContent,
     restoreVersion,
     createNamedVersion,
     renameVersion,
     deleteNamedVersion,
-    clearSelection,
     refresh,
 
     // Hierarchical drill-down actions
     loadUpdatesForVersion,
-    loadContentAtClock,
     selectUpdate,
   };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
-import { yUndoPluginKey } from '@tiptap/y-tiptap';
+import { useYUndoState } from '../hooks/useYUndoState';
 import './MobileActionBar.css';
 
 /**
@@ -9,13 +9,15 @@ import './MobileActionBar.css';
  * - Format tools scrollable on the right
  */
 export default function MobileActionBar({ editor }) {
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+  // Undo/redo availability lives in its own hook (042, FR-015) — it reads the
+  // y-tiptap UndoManager, which has nothing to do with the list-context state
+  // the effect below tracks.
+  const { canUndo, canRedo } = useYUndoState(editor);
   const [canIndent, setCanIndent] = useState(false);
   const [canOutdent, setCanOutdent] = useState(false);
   const [inListContext, setInListContext] = useState(false);
 
-  // Update button states when editor selection changes
+  // Update list-context button states when the editor selection changes
   useEffect(() => {
     if (!editor) return;
 
@@ -32,17 +34,6 @@ export default function MobileActionBar({ editor }) {
         setCanIndent(false);
         setCanOutdent(false);
         setInListContext(false);
-      }
-
-      // Check undo/redo availability from yUndoPlugin
-      try {
-        const undoPluginState = yUndoPluginKey.getState(editor.state);
-        if (undoPluginState?.undoManager) {
-          setCanUndo(undoPluginState.undoManager.undoStack.length > 0);
-          setCanRedo(undoPluginState.undoManager.redoStack.length > 0);
-        }
-      } catch {
-        // Plugin may not be ready yet
       }
     };
 

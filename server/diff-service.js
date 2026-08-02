@@ -51,7 +51,13 @@ class DiffService {
    * @param {string} docGuid - Document GUID
    * @param {number} previousClock - Clock of previous state (-1 for empty)
    * @param {number} currentClock - Clock of current state
-   * @returns {Promise<{document: object, changes: Array, meta: object}>}
+   * @returns {Promise<{document: object, currentDocument: object, meta: object}>}
+   *   `document` is the diff-annotated ProseMirror doc (or the plain current doc
+   *   when the diff failed); `currentDocument` is the plain current doc, which
+   *   the preview swaps in when highlights are off; `meta` carries
+   *   `{ previousClock, currentClock, textIdentical, formattingOnly, diffFailed }`.
+   *   There is no `changes` array — decorations were replaced by baked-in
+   *   diffInsert/diffDelete marks; the JSDoc had not caught up (042, FR-016).
    */
   async computeDiff(docGuid, previousClock, currentClock) {
     // Check cache first
@@ -115,7 +121,7 @@ class DiffService {
     let document;
     let diffFailed = false;
     try {
-      document = this.computeMarkdownDiff(prevDoc, currDoc, report);
+      document = this.computeMarkdownDiff(prevDoc, currDoc, report, currPmDoc);
     } catch (err) {
       console.error('[DiffService] Markdown diff failed, using plain document:', err.message);
       document = currentDocument;
@@ -266,16 +272,25 @@ class DiffService {
    *   `prevMd === currMd` below; the old argument was dead.
    * @returns {object} ProseMirror document JSON with diffInsert/diffDelete marks
    */
-  computeMarkdownDiff(prevDoc, currDoc, report) {
+  // `currPmDoc` is DEFAULTED on purpose: `Function.length` counts only required
+  // parameters, so this keeps `computeMarkdownDiff.length === 3` — which the 039
+  // FR-017 pin asserts, and which stays true in the plain sense that the
+  // function still requires three arguments. That pin exists to stop a
+  // declared-but-never-read parameter coming back; this one is read.
+  computeMarkdownDiff(prevDoc, currDoc, report, currPmDoc = undefined) {
     const prevFragment = prevDoc.get('default', Y.XmlFragment);
     const currFragment = currDoc.get('default', Y.XmlFragment);
 
     const prevMd = toMarkdown(prevFragment);
     const currMd = toMarkdown(currFragment);
 
-    // If markdown is identical, return current doc without marks
+    // If markdown is identical, return current doc without marks. `computeDiff`
+    // has already converted `currDoc` for its `currentDocument`, so feature 042
+    // (FR-015) passes that conversion in rather than redoing an O(doc) Yjs ->
+    // ProseMirror walk. `undefined` means "no caller-supplied conversion" (a
+    // direct call in a test), which converts here exactly as before.
     if (prevMd === currMd) {
-      const pmDoc = this.yDocToProseMirror(currDoc);
+      const pmDoc = currPmDoc !== undefined ? currPmDoc : this.yDocToProseMirror(currDoc);
       return pmDoc ? pmDoc.toJSON() : { type: 'doc', content: [{ type: 'paragraph' }] };
     }
 

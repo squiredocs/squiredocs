@@ -250,3 +250,239 @@ diagnostic lines that no FR scopes; analyze flagged that removing them needed a 
 exempts removed diagnostics/logging from the zero-behavior-change bar, and these are the
 same class of leftover investigation logging as the ROOT CAUSE block FR-003 removes.
 Error-path logging (console.error / notifier pages) stays untouched.
+
+---
+
+## DEC-12 — FR-017 rebase re-verification against post-041 `main` (544573c0)
+
+**Added at implement time (2026-08-02).** Every claim in `research.md` R1-R17 was
+re-greped against post-041 `main` before anything was touched. Outcomes:
+
+**Claims that HELD unchanged** (proceed as written):
+
+- **R1 / FR-002** — `server/redis-persistence.js` (142 lines) and its test (328 lines);
+  the test is still the module's only `require` site. **DEC-7 gate: CLEARED** — `design/`
+  no longer references `redis-persistence` anywhere, and `design/collaboration-core.md:23`
+  now reads "the once-planned 24-hour Redis doc cache was never wired into any load path
+  (dormant module removed, feature 042, amended 2026-08-02)". T011 proceeds.
+- **R2 / FR-003** — the ROOT CAUSE block is intact (now `server/index.js:2214-2246`),
+  8 `[RedisPubSub:ROOT_CAUSE]` lines, sibling `onAwareness` handler at `:2202`.
+- **R5 / FR-006** — no external importer for `claimUndo`, `claimRedo`,
+  `insertLegacyUndone`, `EDIT_ORIGIN`, `HISTORY_ORIGIN`, `LEGACY_GAP_MS`. The
+  `baselineClock` branch survives at `legacy.js:97/108/118-119`, still with no production
+  caller. `LEGACY_FRESHNESS_MS` and `_isIdentityRow` still have live test importers.
+- **R6 / FR-007** — `getDiff` still has zero callers (`postgres-persistence.js:497`), and
+  the doc comment naming it is at `:449`.
+- **R4 / FR-005** — every `version-*` flat-list class family still matches **zero** JSX.
+  (The only near-hits, `version-authors` and `version-menu`, are the `hierarchy-`-prefixed
+  classes.) In `HierarchicalVersionList.css`, `.hierarchy-version-date`,
+  `.hierarchy-version-edits`, `.hierarchy-combined*` and `.hierarchy-breadcrumb*` remain
+  unreferenced.
+
+**Claims that CHANGED** (tasks adapted or dropped):
+
+- **DEC-5 / T046 — DROPPED.** 041 **did** introduce the shared helper:
+  `isMeaningful(update)` at `server/version-history.js:204`, exported at `:1128`, already
+  used at all five predicate sites (`:248`, `:558`, `:701`, `:1009`). FR-015's
+  meaningfulness clause is therefore satisfied by 041 and is dropped from 042 per DEC-5.
+- **FR-004's `refresh` alias — DROPPED from the deletion set.** Pre-041 its only consumer
+  was one test (`useVersionHistory.test.js:481`). 041 made it the live test API for its own
+  behaviour: it is now called at `:567`, `:591`, `:691`, `:716`, `:744`, `:762`, inside
+  describes whose subject is 041's cache-invalidation and selection-reconciliation work,
+  **not** `refresh` itself. Deleting it would force edits to tests outside the permitted
+  list — which FR-001 forbids — so `refresh` stays. The rest of FR-004 is unaffected.
+- **FR-005 CSS line anchors moved.** 041 grew the loading/error/empty group and added the
+  live `.version-history-retry-btn`; `VersionHistoryPanel.css` is now 532 lines. Dead
+  ranges re-derived by content, not by number. `.version-history-error` (`:170`) and
+  `.version-history-retry-btn` (`:174-188`) are both **live** and kept.
+- **FR-010's extraction target was rewritten by 041.** `restoreVersion` no longer builds a
+  replace-delta inline: 041 introduced `applyRestoreTo(doc)` (`:832-859`), a fragment
+  replacement run either on the live doc inside a transaction or on a temp doc. The
+  extraction therefore takes `cloneXmlElement` (`:800-826`) **and** the delete-all+reinsert
+  body of `applyRestoreTo`, leaving 041's live/durable path selection in place. Behaviour
+  unchanged per DEC-9.
+- **FR-015's `includeData` second call site moved.** `getUpdatesForVersion` is now at
+  `:1000` (041 added the meaningful filter and the row-count fix) and `getContentAtClock`'s
+  single-row re-fetch at `:1105`. Both still discard `updateData`; both still opt out.
+- **DEC-11 count confirmed at nine.** `[Restore]` `console.log` lines are at `:771`,
+  `:775`, `:793`, `:836`, `:852`, `:858`, `:908`, `:921`, `:927`. The `console.warn` at
+  `:788` and the two `console.error` at `:868`/`:963` are error-path logging and stay.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-13 — FR-014 (US4) is unimplementable under FR-001 — ESCALATED, NOT RATIFIED, DESCOPED
+
+**Added at implement time (2026-08-02).**
+
+**Question**: DEC-8 established that FR-014's source fingerprint could be folded into the
+exported `CACHE_VERSION` so that `server/__tests__/diff-service.test.js:712`'s cache-key
+assertion passes unmodified. Implementation found that assertion is **not the only pin**.
+
+**What the survey missed.** `CACHE_VERSION` and the literal cache key are pinned in
+**five** places across two pre-existing test files, three of which no composite value can
+satisfy:
+
+| Site | Assertion | Survives a composite? |
+|---|---|---|
+| `diff-service.test.js:712` | `` `diff${CACHE_VERSION}:test-doc:-1:0` `` | yes (interpolated) |
+| `diff-service.test.js:794` | `` `diff${CACHE_VERSION}:${docGuid}:${prev}:${curr}` `` | yes (interpolated) |
+| `diff-service.test.js:795` (CW-T6) | `key.startsWith('diffv10:')` | only if the separator is `:` |
+| `diff-service.test.js:993` (CW-T6) | `expect(CACHE_VERSION).toBe('v10')` | **no** |
+| `diff-service.test.js:997` (CW-T6) | `get` called with the literal `'diffv10:doc-ns:1:2'` | **no** |
+| `markdown-strict-characterization.test.js:78` | `expect(CACHE_VERSION).toBe('v10')` | **no** |
+
+Feature 039 deliberately froze both the constant and the exact key string. FR-014 requires
+that exact string to change whenever pipeline source changes (SC-006). The two requirements
+are in direct contradiction: **any** implementation of FR-014 forces edits to at least three
+assertions in two test files whose subject is live code, not deleted code — which FR-001
+and SC-001 forbid, and which fall outside tasks.md's exhaustive permitted-edit list.
+
+Alternatives considered and rejected:
+
+- **Fingerprint inside the cached payload** instead of the key (validate on read, treat a
+  mismatch as a miss). Leaves `CACHE_VERSION` at `'v10'` and every pin intact, but the
+  pre-existing cache-hit tests seed payloads with no fingerprint field, so the guard would
+  have to treat "absent" as "accept" — which serves exactly the stale-shaped entries FR-014
+  exists to prevent, for the duration of a TTL after every rollout. Achieving the
+  requirement's letter while defeating its purpose is worse than not doing it.
+- **`CACHE_VERSION = 'v10:fp<hash>'`** (separator `:` instead of `.`). Satisfies the two
+  interpolated pins and CW-T6's `startsWith`, but still fails the two hard equalities.
+
+**Decision**: **FR-014 / US4 (T025-T027) is DESCOPED from this feature** and reverted.
+The zero-behavior-change bar (FR-001) is this feature's hard constraint and outranks a P3
+requirement; implementing FR-014 would have been the one change in 042 that alters an
+observable value, and it would have done so by rewriting pins another feature set
+deliberately. `server/diff-service.js` is unchanged from post-041 `main`.
+
+**Consequence**: SC-006 is unmet. SC-002 is unaffected (US4 only added lines). The manual
+cache-bump hazard the deep dive identified (three bumps in three weeks) **remains open**.
+
+**What enacting it would take** (an orchestrator/Sam decision, not a default this agent can
+take): ratify that the diff cache namespace may change — accepting the one-time
+invalidation, which is already an explicit spec Assumption — and authorise updating the
+three 039-era assertions (`diff-service.test.js:993`, `:997`,
+`markdown-strict-characterization.test.js:78`) to assert the *human* half of the composite
+rather than the whole constant. That is a small, well-understood change; it is simply not
+one FR-001 permits this feature to make on its own authority.
+
+**Status**: ⚠️ **OPEN — FR-014 descoped, SC-006 unmet.**
+
+---
+
+## DEC-14 — reconciling with 041's post-merge review fixes
+
+**Added at implement time (2026-08-02),** after `main` advanced past the branch point
+(544573c0) with five 041 review-fix commits (4221846d, e7dcccb4, 0bf6238c, 4254d56d,
+f53284a9). All five were merged into this branch and their behavior preserved; three
+touched code 042 was refactoring and needed a call.
+
+**1. `versionUpdatesError` + the inline drill-down retry (4254d56d) — moved into the
+context, unchanged.** The fix added a per-row failure map and a retry affordance,
+threaded panel → list as another forwarded prop. Since FR-012 was removing exactly that
+forwarding, the new prop joined `VersionHistoryContext` instead of the drill. The list
+consumes it identically, `HierarchicalVersionList.test.jsx` still mounts with plain props
+(props win over context), and the fix's own tests pass unmodified.
+
+**2. The source-regex pins (bindstate-failure.test.js, undo-stamp.test.js) — untouched.**
+Both read `server/index.js` and assert regexes against it. 042's index.js edits are the
+Redis `onUpdate` handler, the removed retry closure and one added `require`; none of them
+is in a pinned region, so both suites pass with no pattern adjustment.
+
+**3. `loadContentAtClock` — DELETED, taking its new test with it.** f53284a9's review-L1
+fix removed the `setError` calls from `loadContentAtClock` (a single-clock content failure
+must not blank the timeline) and added
+`'a clock-content failure never touches the timeline error either'` to cover it. FR-004
+deletes that function. Re-verified against merged `main`: it still has **zero** consumers
+anywhere in `client/src` — nothing outside the hook has ever called it.
+
+**Decision**: delete it, per FR-004, and delete the test whose sole subject it is (a
+permitted edit under FR-001's Edge Cases and tasks.md's Notes). The property the fix
+established is preserved *a fortiori* — a function that does not exist cannot write to the
+timeline error channel — and the sibling half of the same fix, the `loadUpdatesForVersion`
+error handling, is live code and is untouched.
+
+**Flagged for the merge queue**: this is the one place where 042 removes a test a reviewer
+wrote the same day. If the intent was to keep `loadContentAtClock` as a supported hook API
+rather than as dead code, reverting this single deletion is a two-line change and costs
+~25 lines against SC-002, which has margin.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-15 — SC-002 (≥600 net lines removed) is NOT met: +87 — ESCALATED
+
+**Added at implement time (2026-08-02).**
+
+Measured on contract C11's basis (`git diff --shortstat` merge-base → HEAD, all tracked
+files **including tests**, excluding `specs/**`):
+
+```
+36 files changed, 1666 insertions(+), 1579 deletions(-)   →  net +87
+```
+
+**Why.** Two costs the plan under-counted, neither of them padding:
+
+1. **~599 lines of NEW tests that this feature's own plan mandated.** T034 is required by
+   FR-010 (the extracted Yjs surgery had zero direct coverage); T037/T038 are required by
+   tasks.md because research R17 found `VersionHistoryPanel` and `VersionPreview` had no
+   dedicated tests at all, making US3 "the weakest test net in the feature". C11 counts
+   those additions against the deletion target, so the plan simultaneously required the
+   tests and set a target that assumed they would not exist. Excluding just those three
+   new files: **net −512**.
+2. **The refactors are net-positive in lines.** Collapsing `performUndo`/`performRedo`,
+   introducing the context, the restore flow and the shared helpers replaces terse
+   duplication with fewer mechanisms carrying more explanation — this codebase's house
+   style is that every non-obvious decision states its reason. Production code alone
+   (excluding every test file) is **net −56**: 1062 in, 1118 out.
+
+**Also**: DEC-13 descoped FR-014, but US4 only ADDED lines, so it is not a factor.
+
+**Assessment**: the honest reading is that SC-002 measured the wrong thing. Roughly 900
+lines of genuinely dead code are gone (470 module + test, ~292 CSS, the legacy hook path,
+the diagnostics, the dead exports and branch) — the outcome SC-002 was proxying for — and
+the deficit is new coverage plus comments on the code that remains. Padding the number by
+skipping T034/T037/T038 would have made SC-002 pass and the feature worse.
+
+**Recommendation for the merge queue**: accept the deletion inventory as the outcome and
+renegotiate SC-002's basis to exclude *newly added* test files (deleted test files still
+counting), which is what contract C11 was reaching for when it wrote "they are code the
+repo no longer carries". Not a change this agent can make unilaterally.
+
+**Status**: ⚠️ **OPEN — SC-002 unmet as written (+87 vs a ≥600 reduction target).**
+
+---
+
+## DEC-16 — T050 keeps `computeMarkdownDiff`'s required arity at three
+
+**Added at implement time (2026-08-02).**
+
+FR-015's "skip the redundant document re-conversion in the diff identical-markdown
+branch" needs `computeDiff`'s already-converted current document to reach
+`computeMarkdownDiff`, which meant a fourth parameter. That tripped a pin from feature
+039:
+
+```js
+// diff-service.test.js:1268 — 'FR-017: computeMarkdownDiff no longer declares a textIdentical parameter'
+expect(src).not.toContain('textIdentical');
+expect(diffService.computeMarkdownDiff.length).toBe(3);
+```
+
+**Decision**: declare the new parameter with a default (`currPmDoc = undefined`).
+`Function.length` counts only parameters before the first defaulted one, so it stays 3 —
+and stays *true*: the function still requires three arguments, and the fourth is genuinely
+optional (a direct call with three converts in place, exactly as before). The pin's own
+stated purpose — stopping a declared-but-never-read parameter from coming back — is
+untouched, because this parameter is read.
+
+Alternatives rejected: threading the conversion through the per-request `report` sink
+(that object is the degradation channel and was deliberately trimmed to one field);
+an instance field on `DiffService` (module/instance state across concurrent `computeDiff`
+calls is the exact hazard the report sink's own comment warns about).
+
+Recorded rather than left silent, because "four parameters but `.length` is 3" reads like
+gaming a test unless the reason is written down.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**

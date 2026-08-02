@@ -9,14 +9,15 @@
  * The characterization-frozen strict parser (CN-2 / FR-008) is NOT modified —
  * we post-process its ProseMirror JSON output:
  *   1. Parse both sides UNMARKED (strict).
- *   2. Concatenate each side's text-node text, inline-content blocks joined by
- *      '\n', to get the plain text the parser emitted.
+ *   2. Walk each side ONCE, emitting the plain text the parser produced
+ *      (inline-content blocks joined by '\n') together with the start offset
+ *      of every text node in it.
  *   3. computeWordSegments on the two plain texts (the SAME shared helper the
  *      chat surface uses — SC-003).
- *   4. Walk each side's text nodes tracking a char offset, split them at
- *      segment boundaries, stamp strong marks on changed ranges and subtle
- *      marks elsewhere, preserving each node's existing formatting marks.
- *      The inter-block '\n' belongs to no text node and is skipped by the walk.
+ *   4. Re-walk each side in the same order, splitting its text nodes at the
+ *      segment boundaries using the offsets from step 2, stamping strong marks
+ *      on changed ranges and subtle marks elsewhere, preserving each node's
+ *      existing formatting marks. The inter-block '\n' belongs to no text node.
  *
  * Fail-open (RBD-3 / FR-012): any error degrades the WHOLE region to today's
  * line-level marking. It never throws out of computeMarkdownDiff and never
@@ -46,21 +47,54 @@ function isTextBlock(node) {
 }
 
 /**
- * Concatenate a doc's plain text exactly as the offset walk will consume it:
- * text nodes in document order, inline-content blocks joined by '\n'.
+ * ONE walk of a parsed doc, producing both products the refinement needs:
+ * the plain text the segmenter compares, and the start offset of every text
+ * node in that text.
+ *
+ * Feature 042 (FR-011) merged this out of two hand-synchronized traversals —
+ * a `plainTextOf` that built the string and a `stampSide` that re-derived the
+ * same offsets while rewriting nodes. They had to walk in *identical* order
+ * with *identical* arithmetic or every mark landed on the wrong characters,
+ * and nothing but the pin tests enforced that. Now the offsets are computed
+ * once and consumed in the same traversal order, so the two products are
+ * index-consistent by construction.
+ *
+ * Traversal rule (unchanged): text nodes in document order, inline-content
+ * blocks joined by '\n'. Inline non-text nodes (hardBreak) contribute no text
+ * and no offset — which is why a hard break fuses the words either side of it
+ * into one diff token (a preserved quirk, see the module header).
+ *
+ * @param {object} doc - strict-parsed ProseMirror JSON
+ * @returns {{text: string, offsets: number[]}} `offsets[i]` is the start of the
+ *   i-th text node, in the order a matching walk will encounter them
  */
-function plainTextOf(doc) {
-  const blocks = [];
-  const collect = (node) => {
+function walkTextNodes(doc) {
+  const parts = [];
+  const offsets = [];
+  let cursor = 0;
+  let blockIndex = 0;
+
+  const visit = (node) => {
     if (!node || !Array.isArray(node.content)) return;
     if (isTextBlock(node)) {
-      blocks.push(node.content.filter((c) => c.type === 'text').map((c) => c.text).join(''));
+      if (blockIndex > 0) {
+        parts.push('\n'); // the inter-block separator, owned by no text node
+        cursor += 1;
+      }
+      blockIndex += 1;
+      for (const child of node.content) {
+        if (child.type !== 'text') continue;
+        offsets.push(cursor);
+        parts.push(child.text);
+        cursor += child.text.length;
+      }
     } else {
-      for (const child of node.content) collect(child);
+      for (const child of node.content) visit(child);
     }
   };
-  collect(doc);
-  return blocks.join('\n');
+
+  visit(doc);
+  return { text: parts.join(''), offsets };
 }
 
 /** Convert coalesced segments into contiguous [start, end, changed) ranges. */
@@ -103,25 +137,30 @@ function splitTextNode(node, nodeStart, boundaries, side) {
 }
 
 /**
- * Stamp one side's parsed doc, returning its refined top-level blocks. Walks in
- * the identical order used by plainTextOf so char offsets align by construction.
+ * Stamp one side's parsed doc, returning its refined top-level blocks.
+ *
+ * Consumes the offsets `walkTextNodes` already computed, in the same traversal
+ * order, rather than re-deriving them. That is the whole point of the FR-011
+ * merge: there is now exactly one place that decides where a text node starts,
+ * so the marks cannot drift away from the text the segmenter measured.
+ *
+ * @param {object} doc - the parsed doc that produced `walk`
+ * @param {{offsets: number[]}} walk - this side's `walkTextNodes` result
  */
-function stampSide(doc, segments, side) {
+function stampSide(doc, walk, segments, side) {
   const boundaries = segmentsToBoundaries(segments);
-  let offset = 0;
-  let blockIndex = 0;
+  const { offsets } = walk;
+  let nodeIndex = 0;
 
   const transform = (node) => {
     if (!Array.isArray(node.content)) return node;
 
     if (isTextBlock(node)) {
-      if (blockIndex > 0) offset += 1; // the inter-block '\n'
-      blockIndex += 1;
       const newContent = [];
       for (const child of node.content) {
         if (child.type === 'text') {
-          newContent.push(...splitTextNode(child, offset, boundaries, side));
-          offset += child.text.length;
+          newContent.push(...splitTextNode(child, offsets[nodeIndex], boundaries, side));
+          nodeIndex += 1;
         } else {
           newContent.push(child); // inline non-text (e.g. hardBreak): no offset
         }
@@ -158,18 +197,18 @@ function applyWordMarks(removedMd, addedMd, report) {
     const removedDoc = markdownToPm(removedMd, null, STRICT);
     const addedDoc = markdownToPm(addedMd, null, STRICT);
 
-    const plainRemoved = plainTextOf(removedDoc);
-    const plainAdded = plainTextOf(addedDoc);
+    const removedWalk = walkTextNodes(removedDoc);
+    const addedWalk = walkTextNodes(addedDoc);
 
-    const segs = wordDiff.computeWordSegments(plainRemoved, plainAdded, report);
+    const segs = wordDiff.computeWordSegments(removedWalk.text, addedWalk.text, report);
     if (!segs) {
       // Oversized or slow region (size cap / diff timeout): expected
       // degradation, not an error — line-level marks, no log.
       return lineLevelFallback(removedMd, addedMd);
     }
 
-    const removedBlocks = stampSide(removedDoc, segs.before, 'delete');
-    const addedBlocks = stampSide(addedDoc, segs.after, 'insert');
+    const removedBlocks = stampSide(removedDoc, removedWalk, segs.before, 'delete');
+    const addedBlocks = stampSide(addedDoc, addedWalk, segs.after, 'insert');
     return [...removedBlocks, ...addedBlocks];
   } catch (err) {
     // Fail-open: degrade the region to today's line-level marks (RBD-3/FR-012).

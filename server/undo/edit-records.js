@@ -364,8 +364,7 @@ module.exports = {
   nextUndoTarget,
   nextRedoTarget,
   hasPendingRecording,
-  claimUndo,
-  claimRedo,
-  insertLegacyUndone,
+  // claimUndo / claimRedo / insertLegacyUndone are module-internal: they are the
+  // steps `finalizeClaim` runs inside its transaction and have no external caller.
   finalizeClaim,
 };

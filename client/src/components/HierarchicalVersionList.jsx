@@ -2,22 +2,25 @@ import React, { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import VersionNameDialog from './VersionNameDialog';
 import VersionConfirmDialog from './VersionConfirmDialog';
+import VersionEmptyState from './VersionEmptyState';
+import { useVersionHistoryValues } from '../contexts/VersionHistoryContext';
+import { useRestoreFlow } from '../hooks/useRestoreFlow';
+import { formatVersionRowTimestamp } from '../utils/datetime';
 import './HierarchicalVersionList.css';
 
 /**
- * Format date and time for version/update display
- * @param {string|Date} timestamp - ISO timestamp string or Date
- * @returns {string} Formatted date/time (e.g., "Jan 5, 4:30 PM")
+ * The clock coordinates a row covers, as shown in its subtitle.
+ *
+ * The separator is a U+2013 EN DASH, not a hyphen — it reads as a range rather
+ * than a compound. Two sites used to spell this out identically (feature 042,
+ * FR-015).
+ *
+ * @param {number} start - first clock in the range
+ * @param {number} end - last clock in the range
+ * @returns {string} e.g. "Clock 7" or "Clocks 7–12"
  */
-function formatDateTime(timestamp) {
-  const date = new Date(timestamp);
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+function clockRangeLabel(start, end) {
+  return start === end ? `Clock ${start}` : `Clocks ${start}\u2013${end}`;
 }
 
 /**
@@ -121,7 +124,7 @@ function ItemContent({ name, timestamp, subtitle, badge, authors, maxAuthors, on
   return (
     <>
       {name && <div className="hierarchy-version-name">{name}</div>}
-      <div className="hierarchy-version-time">{formatDateTime(timestamp)}</div>
+      <div className="hierarchy-version-time">{formatVersionRowTimestamp(timestamp)}</div>
       {subtitle && <div className="hierarchy-item-subtitle">{subtitle}</div>}
       {badge && <div className="hierarchy-version-badge">{badge}</div>}
       <AuthorList authors={authors} maxDisplay={maxAuthors} />
@@ -242,7 +245,6 @@ function ItemMenu({ item, menuOpen, menuRef, dropdownRef, onMenuOpen, onNameVers
  * Convert a sub-version to a unified item format
  */
 function subVersionToItem(subVersion) {
-  const isSingleUpdate = subVersion.clockStart === subVersion.clockEnd;
   return {
     id: subVersion.id,
     clockStart: subVersion.clockStart,
@@ -251,9 +253,7 @@ function subVersionToItem(subVersion) {
     authors: subVersion.authors || [],
     isSubVersion: true,
     isCurrent: false,
-    subtitle: isSingleUpdate
-      ? `Clock ${subVersion.clockStart}`
-      : `Clocks ${subVersion.clockStart}–${subVersion.clockEnd}`,
+    subtitle: clockRangeLabel(subVersion.clockStart, subVersion.clockEnd),
     updateCount: subVersion.updateCount,
   };
 }
@@ -336,28 +336,42 @@ function HistoryItem({
  * Displays version history in a hierarchical drill-down format:
  * Month (January 2025) > Version (Jan 5, 4:30 PM) > Updates (clock ticks)
  */
-function HierarchicalVersionList({
-  hierarchicalVersions = [],
-  selection, // Unified: version or clock update (with isClock: true)
-  onSelectVersion,
-  onSelectUpdate,
-  onLoadUpdates,
-  versionUpdates = {},
-  versionUpdatesMeta = {},
-  loadingVersionUpdates = {},
-  // Per-row drill-down failures (review L1): { versionId: message }. Rendered
-  // inline on the row that failed — never on the panel's own error channel.
-  versionUpdatesError = {},
-  onCreateNamedVersion,
-  onRenameVersion,
-  onDeleteVersion,
-  onRestoreVersion,
-  userRole,
-  isLoading,
-  filter = 'all', // 'all' or 'named'
-  docGuid,
-  onNavigateToDoc, // post-restore in-app navigation (024/US4); always wired by App
-}) {
+function HierarchicalVersionList(props) {
+  const {
+    hierarchicalVersions = [],
+    isLoading,
+    filter = 'all', // 'all' or 'named'
+  } = props;
+
+  // The rest comes from VersionHistoryContext when a provider is present, and
+  // from props otherwise — props always win (042, FR-012, DEC-3). The panel
+  // provides them; tests mount this component directly with props.
+  const {
+    selection, // Unified: version or clock update (with isClock: true)
+    onSelectVersion,
+    onSelectUpdate,
+    onLoadUpdates,
+    versionUpdates,
+    versionUpdatesMeta,
+    loadingVersionUpdates,
+    // Per-row drill-down failures (041 review L1): { versionId: message }.
+    // Rendered inline on the row that failed — never on the panel's own error
+    // channel.
+    versionUpdatesError,
+    onCreateNamedVersion,
+    onRenameVersion,
+    onDeleteVersion,
+    onRestoreVersion,
+    userRole,
+    docGuid,
+    onNavigateToDoc, // post-restore in-app navigation (024/US4); always wired by App
+  } = useVersionHistoryValues(props, {
+    versionUpdates: {},
+    versionUpdatesMeta: {},
+    loadingVersionUpdates: {},
+    versionUpdatesError: {},
+  });
+
   // Filter versions based on filter prop
   const filteredVersions = filter === 'named'
     ? hierarchicalVersions.map(month => ({
@@ -481,7 +495,8 @@ function HierarchicalVersionList({
   // In-app dialog state replacing the native prompt/confirm calls (024/US2).
   // `item` is captured at open time so a mid-flight history refresh can't make the
   // action target a stale row (Edge Case: "Dialog open during data refresh").
-  // Shape: { kind: 'name'|'rename'|'restore'|'removeName', item, busy, error } | null.
+  // Shape: { kind: 'name'|'rename'|'removeName', item, busy, error } | null.
+  // Restore is NOT here: it moved to the shared useRestoreFlow (042, FR-013).
   const [dialog, setDialog] = useState(null);
 
   const openNameDialog = (item) => {
@@ -489,9 +504,22 @@ function HierarchicalVersionList({
     setDialog({ kind: item.isNamed ? 'rename' : 'name', item, busy: false, error: null });
   };
 
+  // Restore runs through the shared flow (042, FR-013), so this entry point and
+  // the version-history header behave identically. `item` is captured HERE, at
+  // open time, and handed to the flow — a background refresh must never be able
+  // to retarget a confirm that is already on screen.
+  const restoreFlow = useRestoreFlow(onRestoreVersion, {
+    onSuccess: () => {
+      // In-app navigation to the live doc — never a full page reload (024/FR-012).
+      if (onNavigateToDoc && docGuid) {
+        onNavigateToDoc(docGuid);
+      }
+    },
+  });
+
   const openRestoreDialog = (item) => {
     setMenuOpen(null);
-    setDialog({ kind: 'restore', item, busy: false, error: null });
+    restoreFlow.open(item);
   };
 
   const openRemoveNameDialog = (item) => {
@@ -547,38 +575,23 @@ function HierarchicalVersionList({
     closeDialog();
   };
 
-  const handleConfirmRestore = async () => {
-    const item = dialog?.item;
-    if (!item) return;
-    const success = await runDialogAction(
-      () => onRestoreVersion(item.id),
-      'Failed to restore this version.'
-    );
-    if (success === undefined) return; // threw — error already surfaced, stay open
-    if (success) {
-      closeDialog();
-      // In-app navigation to the live doc — never a full page reload (024/FR-012).
-      if (onNavigateToDoc && docGuid) {
-        onNavigateToDoc(docGuid);
-      }
-    } else {
-      // Server rejected the restore — keep the dialog open with an error.
-      setDialog(prev => (prev ? { ...prev, busy: false, error: 'Failed to restore this version.' } : prev));
-    }
-  };
-
+  // REACHABLE, despite appearances (042, FR-017 re-verification): the panel
+  // mounts this list whenever any version exists, and still forwards
+  // `isLoading`, so a FOREGROUND refetch (rename / delete / restore) does swap
+  // the rows for this placeholder. Pinned in
+  // VersionHistoryPanel.characterization.test.jsx; 042 preserves it rather than
+  // deleting it as the pre-041 research assumed.
   if (isLoading) {
     return <div className="hierarchy-loading">Loading versions...</div>;
   }
 
   if (!filteredVersions || filteredVersions.length === 0) {
     return (
-      <div className="hierarchy-empty-state">
-        <p>{filter === 'named' ? 'No named versions yet.' : 'No version history yet.'}</p>
-        <p className="hierarchy-empty-hint">
-          {filter === 'named' ? 'Name a version using the menu on any version.' : 'Edit the document to start tracking versions.'}
-        </p>
-      </div>
+      <VersionEmptyState
+        filter={filter}
+        className="hierarchy-empty-state"
+        hintClassName="hierarchy-empty-hint"
+      />
     );
   }
 
@@ -608,9 +621,7 @@ function HierarchicalVersionList({
                 // Add clock range subtitle to versions
                 const versionWithSubtitle = {
                   ...version,
-                  subtitle: version.clockStart === version.clockEnd
-                    ? `Clock ${version.clockStart}`
-                    : `Clocks ${version.clockStart}–${version.clockEnd}`,
+                  subtitle: clockRangeLabel(version.clockStart, version.clockEnd),
                 };
 
                 return (
@@ -710,14 +721,14 @@ function HierarchicalVersionList({
     />
 
     <VersionConfirmDialog
-      isOpen={dialog?.kind === 'restore'}
+      isOpen={restoreFlow.isOpen}
       title="Restore this version?"
       message="A new version will be created with the restored content."
       confirmLabel="Restore"
-      onConfirm={handleConfirmRestore}
-      onCancel={closeDialog}
-      busy={!!dialog?.busy}
-      error={dialog?.error || null}
+      onConfirm={restoreFlow.confirm}
+      onCancel={restoreFlow.cancel}
+      busy={restoreFlow.busy}
+      error={restoreFlow.error}
     />
 
     <VersionConfirmDialog

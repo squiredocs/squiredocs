@@ -6,8 +6,10 @@
  * helper so the two surfaces can never disagree about which words changed
  * (FR-001 / SC-003).
  *
- * CommonJS to match the rest of shared/ (e.g. shared/markdown/*), so the server
- * can `require` it and the client bundler can consume it unchanged.
+ * CommonJS to match the rest of shared/ (e.g. shared/markdown/*). Both consumers
+ * are SERVER-side: the header used to claim the client bundler consumes this too,
+ * but nothing under client/ imports it — the client receives diff marks already
+ * baked into the ProseMirror document (042, FR-016).
  */
 
 const { diffWordsWithSpace } = require('diff');
